@@ -56,6 +56,7 @@ visa-rs = { version = "0.6.2", optional = true }
 rand = "0.8.5"
 opener = "0.7.0"
 biquad = "0.4.1"
+humantime-serde = "1.1.1"
 
 [features]
 default = ["storage_csv", "instrument_serial"]

@@ -30,6 +30,7 @@ impl DataProcessor for MovingAverage {
 
             processed_data.push(DataPoint {
                 value: avg,
+                metadata: dp.metadata.clone(),
                 ..dp.clone()
             });
         }

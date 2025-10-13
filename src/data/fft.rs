@@ -26,6 +26,7 @@ use std::sync::Arc;
 /// use rust_daq::core::{DataPoint, DataProcessor};
 /// use rust_daq::data::fft::FFTProcessor;
 /// use chrono::{Utc, TimeZone};
+/// use std::collections::HashMap;
 ///
 /// // This is a conceptual example. In a real application, you would get DataPoints from an instrument.
 /// fn conceptual_example() {

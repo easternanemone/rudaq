@@ -4,3 +4,4 @@ pub mod iir_filter;
 pub mod processor;
 pub mod registry;
 pub mod storage;
+pub mod trigger;
