@@ -1,12 +1,17 @@
 //! The eframe/egui implementation for the GUI.
-use crate::app::{DaqApp, DaqAppInner};
-use crate::core::DataPoint;
+use crate::{
+    app::{DaqApp, DaqAppInner},
+    core::DataPoint,
+    log_capture::LogBuffer,
+};
 use eframe::egui;
 use egui_dock::{DockArea, DockState, Style, TabViewer};
 use egui_plot::{Line, Plot, PlotPoints};
-use log::error;
+use log::{error, LevelFilter};
 use std::collections::VecDeque;
 use tokio::sync::broadcast;
+
+mod log_panel;
 
 const PLOT_DATA_CAPACITY: usize = 1000;
 
@@ -31,22 +36,30 @@ impl PlotTab {
 pub struct Gui {
     app: DaqApp,
     data_receiver: broadcast::Receiver<DataPoint>,
-    dock_state: DockState<PlotTab>,
-    selected_channel: String,
+    log_buffer: LogBuffer,
+    plot_data: VecDeque<[f64; 2]>,
+    last_timestamp: f64,
+    // Log panel state
+    log_filter_text: String,
+    log_level_filter: LevelFilter,
+    scroll_to_bottom: bool,
 }
 
 impl Gui {
     /// Creates a new GUI.
     pub fn new(_cc: &eframe::CreationContext<'_>, app: DaqApp) -> Self {
-        let data_receiver = app.with_inner(|inner| inner.data_sender.subscribe());
-        let dock_state = DockState::new(vec![PlotTab::new("sine_wave".to_string())]);
-        let selected_channel = "sine_wave".to_string();
-
+        let (data_receiver, log_buffer) = app.with_inner(|inner| {
+            (inner.data_sender.subscribe(), inner.log_buffer.clone())
+        });
         Self {
             app,
             data_receiver,
-            dock_state,
-            selected_channel,
+            log_buffer,
+            plot_data: VecDeque::with_capacity(PLOT_DATA_CAPACITY),
+            last_timestamp: 0.0,
+            log_filter_text: String::new(),
+            log_level_filter: LevelFilter::Info,
+            scroll_to_bottom: true,
         }
     }
 
@@ -73,6 +86,13 @@ impl Gui {
 impl eframe::App for Gui {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.update_data();
+
+        egui::TopBottomPanel::bottom("bottom_panel")
+            .resizable(true)
+            .min_height(150.0)
+            .show(ctx, |ui| {
+                log_panel::render(ui, self);
+            });
 
         self.app.with_inner(|inner| {
             let available_channels: Vec<String> = inner.get_available_channels();

@@ -1,18 +1,39 @@
 //! Application entry point.
 use anyhow::Result;
 use eframe::NativeOptions;
-use log::info;
+use log::{info, LevelFilter};
 use rust_daq::{
     app::DaqApp,
     config::Settings,
     gui::Gui,
     instrument::{mock::MockInstrument, scpi::ScpiInstrument, InstrumentRegistry},
+    log_capture::{LogBuffer, LogCollector},
 };
 use std::sync::Arc;
 
 fn main() -> Result<()> {
-    // Initialize logging
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // --- Custom Log Initialization ---
+    // Create a shared buffer for log messages
+    let log_buffer = LogBuffer::new();
+
+    // Create a logger that collects messages for the GUI
+    let gui_logger = LogCollector::new(log_buffer.clone());
+
+    // Get the desired log level from the environment or default to "info"
+    let log_level_filter =
+        std::env::var("RUST_LOG").map_or(LevelFilter::Info, |s| s.parse().unwrap_or(LevelFilter::Info));
+
+    // Create a logger that prints to the console
+    let console_logger = env_logger::Builder::new()
+        .filter_level(log_level_filter)
+        .build();
+
+    // Combine the loggers. All log messages will be sent to both the
+    // console and our GUI log collector.
+    log::set_max_level(log_level_filter);
+    multi_log::MultiLogger::init(vec![Box::new(console_logger), Box::new(gui_logger)], log_level_filter.to_level().unwrap_or(log::Level::Info))
+        .map_err(|e| anyhow::anyhow!("Failed to initialize logger: {}", e))?;
+    // --- End of Log Initialization ---
 
     // Load configuration
     let settings = Arc::new(Settings::new()?);
@@ -38,7 +59,7 @@ fn main() -> Result<()> {
     let instrument_registry = Arc::new(instrument_registry);
 
     // Create the core application state
-    let app = DaqApp::new(settings.clone(), instrument_registry)?;
+    let app = DaqApp::new(settings.clone(), instrument_registry, log_buffer)?;
     let app_clone = app.clone();
 
     // Set up and run the GUI

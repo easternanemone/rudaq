@@ -10,3 +10,4 @@ pub mod data;
 pub mod error;
 pub mod gui;
 pub mod instrument;
+pub mod log_capture;

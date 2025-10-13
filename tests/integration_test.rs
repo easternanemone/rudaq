@@ -2,6 +2,7 @@ use rust_daq::{
     app::DaqApp,
     config::Settings,
     instrument::{mock::MockInstrument, InstrumentRegistry},
+    log_capture::LogBuffer,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,8 +15,9 @@ fn test_mock_instrument_spawns_and_produces_data() {
     let mut instrument_registry = InstrumentRegistry::new();
     instrument_registry.register("mock", || Box::new(MockInstrument::new()));
     let instrument_registry = Arc::new(instrument_registry);
+    let log_buffer = LogBuffer::new();
 
-    let app = DaqApp::new(settings.clone(), instrument_registry).unwrap();
+    let app = DaqApp::new(settings.clone(), instrument_registry, log_buffer).unwrap();
     let runtime = app.get_runtime();
 
     runtime.block_on(async {

@@ -4,6 +4,7 @@ use crate::{
     core::{DataPoint, InstrumentHandle},
     error::DaqError,
     instrument::InstrumentRegistry,
+    log_capture::LogBuffer,
 };
 use anyhow::Result;
 use log::{error, info};
@@ -23,6 +24,7 @@ pub struct DaqAppInner {
     pub instrument_registry: Arc<InstrumentRegistry>,
     pub instruments: HashMap<String, InstrumentHandle>,
     pub data_sender: broadcast::Sender<DataPoint>,
+    pub log_buffer: LogBuffer,
     runtime: Arc<Runtime>,
     shutdown_flag: bool,
 }
@@ -32,6 +34,7 @@ impl DaqApp {
     pub fn new(
         settings: Arc<Settings>,
         instrument_registry: Arc<InstrumentRegistry>,
+        log_buffer: LogBuffer,
     ) -> Result<Self> {
         let runtime = Arc::new(Runtime::new().map_err(DaqError::Tokio)?);
         let (data_sender, _) = broadcast::channel(1024);
@@ -41,6 +44,7 @@ impl DaqApp {
             instrument_registry,
             instruments: HashMap::new(),
             data_sender,
+            log_buffer,
             runtime,
             shutdown_flag: false,
         };
