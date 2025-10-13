@@ -122,6 +122,7 @@ mod tests {
                 channel: "test".to_string(),
                 value: i as f64,
                 unit: "V".to_string(),
+                metadata: None,
             })
             .collect()
     }

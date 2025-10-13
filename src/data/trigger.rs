@@ -140,7 +140,7 @@ impl DataProcessor for Trigger {
                         output.extend(self.buffer.iter().cloned());
                         self.buffer.clear();
                         let mut trigger_dp = dp.clone();
-                        trigger_dp.metadata.insert("trigger".to_string(), "true".to_string());
+                        trigger_dp.metadata = Some(serde_json::json!({"trigger": true}));
                         output.push(trigger_dp);
 
                         if self.post_trigger_samples == 0 {
@@ -191,7 +191,7 @@ mod tests {
             timestamp: Utc::now() + Duration::milliseconds(timestamp_offset_ms),
             channel: "test".to_string(),
             unit: "V".to_string(),
-            metadata: HashMap::new(),
+            metadata: None,
         }
     }
 
@@ -219,7 +219,8 @@ mod tests {
         assert_eq!(all_output[0].value, 2.0);
         assert_eq!(all_output[1].value, 4.0);
         assert_eq!(all_output[2].value, 6.0);
-        assert!(all_output[2].metadata.contains_key("trigger"));
+        assert!(all_output[2].metadata.is_some());
+        assert_eq!(all_output[2].metadata.as_ref().unwrap().get("trigger"), Some(&serde_json::json!(true)));
         assert_eq!(all_output[3].value, 7.0);
         assert_eq!(all_output[4].value, 8.0);
         assert_eq!(all_output[5].value, 9.0);

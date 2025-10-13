@@ -154,6 +154,7 @@ impl Instrument for VisaInstrument {
                                 channel: channel.clone(),
                                 value,
                                 unit: "V".to_string(), // a default unit
+                                metadata: None,
                             };
                             if sender.send(dp).is_err() {
                                 warn!("No active receivers for VISA instrument data.");
