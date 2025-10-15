@@ -12,3 +12,37 @@ Cargo.lock
 
 # Egui persistence
 /storage/
+
+# Local development and documentation files
+.beads/
+*.db
+*_SUMMARY.md
+*_SESSIONS.md
+*_TASKS.md
+*_GUIDE.md
+*_ANALYSIS.md
+*_IMPLEMENTATION.md
+*_PLAN.md
+*_STATUS.md
+*_ISSUE.md
+*_REPORT.md
+*_COMPLETE.md
+START_HERE.md
+SYSTEM_SUMMARY.txt
+
+# Example configuration files (keep tracked examples)
+example_*.toml
+example_*.yaml
+!example_esp300.toml
+!example_newport_1830c.toml
+!example_elliptec_scan.yaml
+
+# Plugin development
+/plugins/
+/rust_daq/
+
+# Scripts directory
+/scripts/
+
+# Local docs (keep main docs/)
+/docs/
