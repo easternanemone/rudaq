@@ -123,6 +123,244 @@ For contributor workflow details (worktrees, beads tracker, Jules isolation), se
 
 **Design Philosophy**: Maintain Rust performance for real-time operations while providing Python accessibility for experiment design and analysis. See [FINAL_CONSENSUS_REPORT.md](FINAL_CONSENSUS_REPORT.md) for detailed strategy and performance boundaries.
 
+## Examples
+
+### Basic Usage
+
+This example demonstrates how to instantiate the `DaqApp`, acquire data from a mock instrument, and print it to the console.
+
+```rust
+use rust_daq::app::DaqApp;
+use rust_daq::config::Settings;
+use rust_daq::instrument::{InstrumentRegistry, mock::MockInstrument};
+use rust_daq::data::registry::ProcessorRegistry;
+use rust_daq::log_capture::LogBuffer;
+use std::sync::Arc;
+use tokio::time::{sleep, Duration};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    // 1. Create a default configuration
+    let settings = Arc::new(Settings::new(None)?);
+
+    // 2. Create instrument and processor registries
+    let mut instrument_registry = InstrumentRegistry::new();
+    instrument_registry.register("mock", |_id| Box::new(MockInstrument::new()));
+    let instrument_registry = Arc::new(instrument_registry);
+    let processor_registry = Arc::new(ProcessorRegistry::new());
+
+    // 3. Set up a logger (optional)
+    let log_buffer = LogBuffer::new();
+
+    // 4. Create the main application
+    let app = DaqApp::new(settings, instrument_registry, processor_registry, log_buffer)?;
+
+    // 5. Spawn a mock instrument
+    app.with_inner(|inner| {
+        inner.spawn_instrument("mock").unwrap();
+    });
+
+    // 6. Subscribe to the data stream
+    let mut data_rx = app.with_inner(|inner| inner.data_sender.subscribe());
+
+    // 7. Receive and print a few data points
+    for _ in 0..5 {
+        if let Ok(data_point) = data_rx.recv().await {
+            println!("Received data: {:?}", data_point);
+        }
+    }
+
+    // 8. Shut down the application
+    app.shutdown();
+
+    Ok(())
+}
+```
+
+### Instrument Setup
+
+This example shows how to create an `InstrumentRegistry`, register a mock instrument, and configure it with specific parameters.
+
+```rust
+use rust_daq::app::DaqApp;
+use rust_daq::config::{self, Settings};
+use rust_daq::instrument::{InstrumentRegistry, mock::MockInstrument};
+use rust_daq::data::registry::ProcessorRegistry;
+use rust_daq::log_capture::LogBuffer;
+use std::sync::Arc;
+use std::collections::HashMap;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    // 1. Define custom settings for the instrument
+    let mut settings = Settings::new(None)?;
+    let mut instrument_config = toml::map::Map::new();
+    instrument_config.insert("type".to_string(), toml::Value::String("mock".to_string()));
+    instrument_config.insert("name".to_string(), toml::Value::String("My Mock Instrument".to_string()));
+    let mut params = toml::map::Map::new();
+    params.insert("channel_count".to_string(), toml::Value::Integer(4));
+    params.insert("sample_rate_hz".to_string(), toml::Value::Float(1000.0));
+    instrument_config.insert("params".to_string(), toml::Value::Table(params));
+    settings.instruments.insert(
+        "my_mock".to_string(),
+        toml::Value::Table(instrument_config),
+    );
+    let settings = Arc::new(settings);
+
+    // 2. Create and configure the instrument registry
+    let mut instrument_registry = InstrumentRegistry::new();
+    instrument_registry.register("mock", |_id| Box::new(MockInstrument::new()));
+    let instrument_registry = Arc::new(instrument_registry);
+    let processor_registry = Arc::new(ProcessorRegistry::new());
+    let log_buffer = LogBuffer::new();
+
+    // 3. Create the app and start data acquisition
+    let app = DaqApp::new(settings, instrument_registry, processor_registry, log_buffer)?;
+    app.with_inner(|inner| {
+        inner.spawn_instrument("my_mock").unwrap();
+    });
+
+    let mut data_rx = app.with_inner(|inner| inner.data_sender.subscribe());
+
+    for _ in 0..10 {
+        if let Ok(data_point) = data_rx.recv().await {
+            println!("Received data from {}: {}", data_point.channel, data_point.value);
+        }
+    }
+
+    app.shutdown();
+    Ok(())
+}
+```
+
+### Data Processing
+
+This example demonstrates how to add a simple data processor to the pipeline. In this case, we'll add an FFT processor to transform time-domain data into frequency-domain data.
+
+```rust
+use rust_daq::app::DaqApp;
+use rust_daq::config::Settings;
+use rust_daq::core::DataProcessor;
+use rust_daq::data::fft::{FFTConfig, FFTProcessor};
+use rust_daq::data::registry::ProcessorRegistry;
+use rust_daq::instrument::{mock::MockInstrument, InstrumentRegistry};
+use rust_daq::log_capture::LogBuffer;
+use std::sync::Arc;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let settings = Arc::new(Settings::new(None)?);
+
+    let mut instrument_registry = InstrumentRegistry::new();
+    instrument_registry.register("mock", |_id| Box::new(MockInstrument::new()));
+    let instrument_registry = Arc::new(instrument_registry);
+
+    let processor_registry = Arc::new(ProcessorRegistry::new());
+    let log_buffer = LogBuffer::new();
+
+    let app = DaqApp::new(settings, instrument_registry, processor_registry, log_buffer)?;
+
+    app.with_inner(|inner| {
+        inner.spawn_instrument("mock").unwrap();
+    });
+
+    let mut data_rx = app.with_inner(|inner| inner.data_sender.subscribe());
+
+    // Create an FFT processor
+    let config = FFTConfig {
+        window_size: 1024,
+        overlap: 512,
+        sampling_rate: 1024.0,
+    };
+    let mut fft_processor = FFTProcessor::new(config);
+
+    // Collect data and process it
+    let mut collected_data = Vec::new();
+    for _ in 0..1024 {
+        if let Ok(data_point) = data_rx.recv().await {
+            collected_data.push(data_point);
+        }
+    }
+
+    let spectrum = fft_processor.process(&collected_data);
+    println!("FFT processed {} frequency bins", spectrum.len());
+
+    app.shutdown();
+    Ok(())
+}
+```
+
+### Launching the GUI
+
+This example shows how to launch the full GUI application.
+
+```rust
+use anyhow::Result;
+use eframe::NativeOptions;
+use log::{info, LevelFilter};
+use rust_daq::{
+    app::DaqApp,
+    config::Settings,
+    data::registry::ProcessorRegistry,
+    gui::Gui,
+    instrument::{mock::MockInstrument, InstrumentRegistry},
+    log_capture::{LogBuffer, LogCollector},
+};
+use std::sync::Arc;
+
+fn main() -> Result<()> {
+    // Initialize logging
+    let log_buffer = LogBuffer::new();
+    let gui_logger = LogCollector::new(log_buffer.clone());
+    let log_level_filter = LevelFilter::Info;
+    let console_logger = env_logger::Builder::new()
+        .filter_level(log_level_filter)
+        .build();
+    log::set_max_level(log_level_filter);
+    multi_log::MultiLogger::init(
+        vec![Box::new(console_logger), Box::new(gui_logger)],
+        log::Level::Info,
+    )
+    .map_err(|e| anyhow::anyhow!("Failed to initialize logger: {}", e))?;
+
+    // Load configuration and create registries
+    let settings = Arc::new(Settings::new(None)?);
+    info!("Configuration loaded successfully.");
+
+    let mut instrument_registry = InstrumentRegistry::new();
+    instrument_registry.register("mock", |_id| Box::new(MockInstrument::new()));
+    let instrument_registry = Arc::new(instrument_registry);
+
+    let processor_registry = Arc::new(ProcessorRegistry::new());
+
+    // Create the core application
+    let app = DaqApp::new(
+        settings.clone(),
+        instrument_registry,
+        processor_registry,
+        log_buffer,
+    )?;
+    let app_clone = app.clone();
+
+    // Launch the GUI
+    let options = NativeOptions::default();
+    info!("Starting GUI...");
+
+    eframe::run_native(
+        "Rust DAQ",
+        options,
+        Box::new(move |cc| Box::new(Gui::new(cc, app_clone))),
+    )
+    .map_err(|e| anyhow::anyhow!("Eframe run error: {}", e))?;
+
+    // Clean shutdown
+    info!("GUI closed. Shutting down.");
+    app.shutdown();
+
+    Ok(())
+}
+```
+
 ## How to Add a New Instrument
 
 1.  Create a new file in `src/instrument/`, e.g., `my_instrument.rs`.
