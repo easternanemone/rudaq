@@ -4,7 +4,7 @@ use crate::metadata::Metadata;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 
 /// A single data point captured from an instrument.
@@ -19,9 +19,21 @@ pub struct DataPoint {
     pub metadata: Option<serde_json::Value>,
 }
 
+/// Command that can be sent to an instrument.
+#[derive(Clone, Debug)]
+pub enum InstrumentCommand {
+    /// Set a parameter (key, value)
+    SetParameter(String, String),
+    /// Query a parameter (key) - response will be sent via data stream
+    QueryParameter(String),
+    /// Execute a command with optional arguments
+    Execute(String, Vec<String>),
+}
+
 /// A handle to a running instrument task.
 pub struct InstrumentHandle {
     pub task: JoinHandle<anyhow::Result<()>>,
+    pub command_tx: mpsc::Sender<InstrumentCommand>,
 }
 
 /// Trait for any scientific instrument.
@@ -41,6 +53,11 @@ pub trait Instrument: Send + Sync {
 
     /// Returns a stream of `DataPoint`s from the instrument.
     async fn data_stream(&mut self) -> anyhow::Result<broadcast::Receiver<DataPoint>>;
+
+    /// Handles a command sent to the instrument. Default implementation does nothing.
+    async fn handle_command(&mut self, _command: InstrumentCommand) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 /// Trait for a data processor.

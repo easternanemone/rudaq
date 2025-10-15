@@ -7,6 +7,20 @@ pub mod scpi;
 #[cfg(feature = "instrument_visa")]
 pub mod visa;
 
+#[cfg(feature = "instrument_serial")]
+pub mod newport_1830c;
+
+#[cfg(feature = "instrument_serial")]
+pub mod maitai;
+
+#[cfg(feature = "instrument_serial")]
+pub mod elliptec;
+
+#[cfg(feature = "instrument_serial")]
+pub mod esp300;
+
+pub mod pvcam;
+
 type InstrumentFactory = Box<dyn Fn(&str) -> Box<dyn Instrument> + Send + Sync>;
 
 /// A registry for available instrument types.

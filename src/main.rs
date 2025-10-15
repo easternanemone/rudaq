@@ -53,13 +53,23 @@ fn main() -> Result<()> {
     #[cfg(feature = "instrument_visa")]
     {
         use rust_daq::instrument::visa::VisaInstrument;
-        // The unwrap here is not ideal, but the factory function doesn't
-        // support returning a Result. If creating a VISA instrument fails,
-        // the application will panic, which is acceptable for now.
         instrument_registry.register("visa_instrument", |id| {
             Box::new(VisaInstrument::new(id).unwrap())
         });
     }
+
+    #[cfg(feature = "instrument_serial")]
+    {
+        use rust_daq::instrument::{newport_1830c::Newport1830C, maitai::MaiTai, elliptec::Elliptec, esp300::ESP300};
+        instrument_registry.register("newport_1830c", |id| Box::new(Newport1830C::new(id)));
+        instrument_registry.register("maitai", |id| Box::new(MaiTai::new(id)));
+        instrument_registry.register("elliptec", |id| Box::new(Elliptec::new(id)));
+        instrument_registry.register("esp300", |id| Box::new(ESP300::new(id)));
+    }
+
+    // Register PVCAM camera (no feature gate for now)
+    use rust_daq::instrument::pvcam::PVCAMCamera;
+    instrument_registry.register("pvcam", |id| Box::new(PVCAMCamera::new(id)));
 
     let instrument_registry = Arc::new(instrument_registry);
 
@@ -86,7 +96,7 @@ fn main() -> Result<()> {
             // The `eframe` crate provides the `egui` context `cc`
             // which we can use to style the GUI.
             // Here we are just passing it to our `Gui` struct.
-            Box::new(Gui::new(cc, app_clone))
+            Ok(Box::new(Gui::new(cc, app_clone)))
         }),
     )
     .map_err(|e| anyhow::anyhow!("Eframe run error: {}", e))?;

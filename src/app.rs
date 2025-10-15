@@ -161,6 +161,9 @@ impl DaqAppInner {
         let settings = self.settings.clone();
         let id_clone = id.to_string();
 
+        // Create command channel
+        let (command_tx, mut command_rx) = tokio::sync::mpsc::channel(32);
+
         let task: JoinHandle<Result<()>> = self.runtime.spawn(async move {
             instrument
                 .connect(&settings)
@@ -194,6 +197,11 @@ impl DaqAppInner {
                             }
                         }
                     }
+                    Some(command) = command_rx.recv() => {
+                        if let Err(e) = instrument.handle_command(command).await {
+                            error!("Failed to handle command for '{}': {}", id_clone, e);
+                        }
+                    }
                     _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
                         log::trace!("Instrument stream for {} is idle.", id_clone);
                     }
@@ -202,7 +210,7 @@ impl DaqAppInner {
             Ok(())
         });
 
-        let handle = InstrumentHandle { task };
+        let handle = InstrumentHandle { task, command_tx };
         self.instruments.insert(id.to_string(), handle);
         Ok(())
     }
@@ -213,6 +221,17 @@ impl DaqAppInner {
             handle.task.abort();
             info!("Instrument '{}' stopped.", id);
         }
+    }
+
+    /// Sends a command to a running instrument.
+    pub fn send_instrument_command(&self, id: &str, command: crate::core::InstrumentCommand) -> Result<()> {
+        let handle = self.instruments.get(id)
+            .ok_or_else(|| anyhow!("Instrument '{}' is not running", id))?;
+
+        handle.command_tx.try_send(command)
+            .map_err(|e| anyhow!("Failed to send command to instrument '{}': {}", id, e))?;
+
+        Ok(())
     }
 
     /// Returns a list of available channel names.

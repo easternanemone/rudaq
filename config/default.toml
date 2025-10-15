@@ -34,6 +34,47 @@ resource_string = "TCPIP0::192.168.1.101::INSTR"
 polling_rate_hz = 10.0
 queries = { "voltage" = ":MEAS:VPP? CHAN1", "frequency" = ":MEAS:FREQ? CHAN1" }
 
+[instruments.maitai]
+type = "maitai"
+name = "MaiTai Ti:Sapphire Laser"
+port = "/dev/ttyUSB0"
+baud_rate = 9600
+wavelength = 800.0  # nm
+polling_rate_hz = 1.0
+
+[instruments.newport_1830c]
+type = "newport_1830c"
+name = "Newport 1830-C Power Meter"
+port = "/dev/ttyUSB1"
+baud_rate = 9600
+wavelength = 1550.0  # nm
+range = 0  # 0=autorange, 1-7=fixed ranges
+units = 0  # 0=Watts, 1=dBm, 2=dB, 3=REL
+polling_rate_hz = 2.0
+
+[instruments.elliptec]
+type = "elliptec"
+name = "Elliptec ELL14 Rotation Mounts"
+port = "/dev/ttyUSB2"
+baud_rate = 9600
+device_addresses = [0, 1]  # Multiple devices on RS-485 bus
+polling_rate_hz = 2.0
+
+[instruments.esp300]
+type = "esp300"
+name = "Newport ESP300 Motion Controller"
+port = "/dev/ttyUSB3"
+baud_rate = 19200
+num_axes = 3
+polling_rate_hz = 5.0
+
+[instruments.pvcam]
+type = "pvcam"
+name = "Photometrics PrimeBSI Camera"
+camera_name = "PMPrimeBSI"
+exposure_ms = 100.0
+frame_rate_hz = 10.0
+
 # Configuration for data processing pipelines
 # Each key under [processors] corresponds to an instrument ID.
 # The value is an array of processor configurations to be applied in order.

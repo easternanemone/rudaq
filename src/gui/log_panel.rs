@@ -69,7 +69,7 @@ pub fn render(ui: &mut Ui, gui: &mut Gui) {
 
 /// A combo box for selecting the log level filter.
 fn level_filter_combo_box(ui: &mut Ui, level_filter: &mut LevelFilter) {
-    egui::ComboBox::from_id_source("log_level_filter")
+    egui::ComboBox::from_id_salt("log_level_filter")
         .selected_text(format!("{:?}", level_filter))
         .show_ui(ui, |ui| {
             ui.selectable_value(level_filter, LevelFilter::Off, "Off");
