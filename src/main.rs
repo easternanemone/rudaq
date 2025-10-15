@@ -1,4 +1,31 @@
-//! Application entry point.
+//! Application entry point for the native GUI.
+//!
+//! This file is the executable entry point for the `rust_daq` application. Its primary
+//! responsibilities are:
+//!
+//! 1.  **Initialization**: It sets up the application's core components, including:
+//!     -   **Logging**: Configures a multi-backend logger (`multi_log`) that directs log
+//!         messages to both the standard console (via `env_logger`) and a custom in-memory
+//!         buffer for display in the GUI (`log_capture::LogCollector`). This provides
+//!         both persistent and interactive logging.
+//!     -   **Configuration**: Loads the `settings.toml` file into the `Settings` struct.
+//!     -   **Instrument Registry**: Creates an `InstrumentRegistry` and registers all the
+//!         available instrument drivers. This acts as a simple "plugin" system where
+//!         instrument types are mapped to their constructor functions. Feature flags
+//!         are used to conditionally compile and register drivers that have specific
+//!         dependencies.
+//!     -   **Processor Registry**: Creates a `ProcessorRegistry` for data processing modules.
+//!     -   **Core Application (`DaqApp`)**: Instantiates the central `DaqApp` which manages
+//!         the application's state and logic.
+//!
+//! 2.  **GUI Launch**: It configures and runs the native GUI using the `eframe` crate.
+//!     It passes the `DaqApp` instance to the `gui::Gui` struct, which then takes control
+//!     of the main event loop.
+//!
+//! 3.  **Shutdown**: After the `eframe` event loop exits (i.e., the user closes the window),
+//!     it calls the `app.shutdown()` method to ensure a graceful termination of all
+//!     background tasks, such as instrument communication threads.
+
 use anyhow::Result;
 use eframe::NativeOptions;
 use log::{info, LevelFilter};

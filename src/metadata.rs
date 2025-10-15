@@ -1,4 +1,38 @@
 //! Experimental metadata structures and handling.
+//!
+//! This module defines the `Metadata` struct, which is designed to capture a comprehensive
+//! set of information about a data acquisition session. Storing rich metadata alongside
+//! the primary data is crucial for reproducibility, analysis, and long-term understanding
+//! of the experimental context.
+//!
+//! ## `Metadata` Struct
+//!
+//! The `Metadata` struct includes the following fields:
+//!
+//! - **`experiment_name`**: A descriptive name for the experiment.
+//! - **`description`**: A more detailed, free-text description of the experiment's purpose.
+//! - **`instrument_config`**: A map capturing the configuration of the instruments used,
+//!   allowing for a snapshot of the hardware setup.
+//! - **`parameters`**: A flexible map for user-defined key-value parameters that are relevant
+//!   to the experiment (e.g., sample ID, specific experimental conditions). It uses
+//!   `serde_json::Value` to allow for varied data types.
+//! - **`annotations`**: A field for notes or observations made during the experiment.
+//! - **`environment`**: A map to store environmental data like temperature or humidity.
+//! - **`software_version`**: Automatically captures the version of the DAQ software that
+//!   was used, which is critical for ensuring that data can be re-analyzed correctly in the future.
+//!
+//! ## `MetadataBuilder`
+//!
+//! A `MetadataBuilder` is provided to facilitate the ergonomic construction of a `Metadata`
+//! object using the builder pattern. This allows for a clean and readable way to assemble
+//! the metadata step-by-step.
+//!
+//! ## Usage
+//!
+//! The `Metadata` object is intended to be created and populated at the beginning of a
+//! data acquisition "session" (see the `session` module). It is then saved alongside the
+//! acquired data, typically as a separate file (e.g., `metadata.json`) or embedded within
+//! a self-describing file format like HDF5.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

@@ -1,4 +1,29 @@
 //! The storage manager panel for the GUI.
+//!
+//! This module provides a `StorageManager` struct and its implementation, which creates
+//! a UI panel for managing data files saved by the application. This panel can be
+//! displayed as a side panel in the main GUI.
+//!
+//! ## Features
+//!
+//! - **File Listing:** Displays a list of files from the configured storage directory.
+//!   The list includes file name, size, and last modified timestamp.
+//! - **Search/Filter:** A search box allows users to filter the list of files by name.
+//! - **File Actions:**
+//!   - **Open:** Opens the selected file using the system's default application (`opener` crate).
+//!   - **Delete:** Deletes the selected file with a confirmation dialog.
+//! - **File Preview:** When a file is selected, a preview panel shows its contents or metadata.
+//!   - Supports CSV, HDF5, and Arrow file formats (HDF5 and Arrow previews are
+//!     conditional on feature flags).
+//!   - For CSV, it displays the first few rows in a table.
+//!   - For HDF5, it lists the datasets in the root group.
+//!   - For Arrow, it displays the file's schema.
+//! - **Storage Statistics:** Shows basic statistics like the total number of files and
+//!   their combined size.
+//! - **Refresh:** A manual refresh button to reload the file list from the disk.
+//!
+//! The `StorageManager` is integrated into the main `Gui` and is rendered when toggled
+//! by the user.
 
 use crate::app::DaqApp;
 #[cfg(feature = "storage_arrow")]

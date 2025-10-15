@@ -1,13 +1,36 @@
+//! Provides a set of validation functions used throughout the application,
+//! particularly for checking the configuration settings loaded from files.
+//!
+//! This module centralizes common validation logic, making it reusable and
+//! ensuring that checks are consistent. These functions are designed to be simple
+//! predicates that return a `Result<(), &'static str>`, making them easy to
+//! integrate with the `anyhow` error handling in the `config` module.
+//!
+//! ## Validators
+//!
+//! The module includes functions to validate:
+//!
+//! - **`is_valid_port`**: Checks if a `u16` is a valid, non-zero network port.
+//! - **`is_valid_ip`**: Checks if a string can be parsed as a valid IP address (both IPv4 and IPv6).
+//! - **`is_valid_path`**: Performs basic checks on a file path string, ensuring it's not empty
+//!   and doesn't contain null bytes.
+//! - **`is_in_range`**: A generic function to check if a value falls within a given `RangeInclusive`.
+//!   This is useful for settings like sample rates or other numerical parameters.
+//! - **`is_not_empty`**: A simple check to ensure that a string setting is not empty.
+//!
+//! These functions are called from the `Settings::validate` method to ensure that the
+//! application doesn't start with a configuration that could lead to runtime errors.
+
 use std::net::IpAddr;
 use std::ops::RangeInclusive;
 
-/// Validates if a given u16 value is a valid port number.
+/// Validates if a given `u16` value is a valid port number.
 /// By type, the port is already within the 0-65535 range.
 /// This function checks that the port is not 0, which is reserved.
 ///
 /// # Arguments
 ///
-/// * `port` - The u16 value to validate.
+/// * `port` - The `u16` value to validate.
 ///
 /// # Returns
 ///

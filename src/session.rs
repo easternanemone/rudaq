@@ -1,4 +1,32 @@
 //! Session management for the DAQ application.
+//!
+//! This module provides functionality for saving and loading the application's state.
+//! A "session" captures the key aspects of the current setup, allowing a user to
+//! restore it later. This is useful for quickly returning to a specific configuration
+//! of instruments and settings.
+//!
+//! ## Session State
+//!
+//! The `Session` struct encapsulates the state that is saved, which includes:
+//!
+//! - **`active_instruments`**: A set of IDs for the instruments that are currently running.
+//! - **`storage_settings`**: The current configuration for data storage, such as the
+//!   default path and file format.
+//! - **`gui_state`**: Information about the state of the GUI, such as the data currently
+//!   displayed in plots. This allows the visual state to be restored as well.
+//!
+//! ## Functionality
+//!
+//! - **`save_session`**: Serializes a `Session` object into a JSON file at a specified path.
+//! - **`load_session`**: Deserializes a `Session` object from a JSON file.
+//! - **`Session::from_app`**: A constructor that creates a `Session` object from the current
+//!   state of the `DaqApp`.
+//! - **`Session::apply_to_app`**: A method that applies a loaded session's state back to the
+//!   `DaqApp`, which involves stopping any currently running instruments, starting the ones
+//!   defined in the session, and updating the relevant settings.
+//!
+//! This feature allows for greater experiment consistency and convenience, as complex
+//! setups do not need to be manually reconfigured each time the application is started.
 
 use crate::config::StorageSettings;
 use anyhow::Result;

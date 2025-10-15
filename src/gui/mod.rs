@@ -1,4 +1,45 @@
 //! The eframe/egui implementation for the GUI.
+//!
+//! This module defines the main graphical user interface for the DAQ application,
+//! built using the `eframe` and `egui` libraries. It provides a flexible, dockable
+//! interface for visualizing data, controlling instruments, and managing data storage.
+//!
+//! ## Architecture
+//!
+//! The GUI is structured around a main `Gui` struct which implements the `eframe::App` trait.
+//! The core components of the GUI are:
+//!
+//! - **Docking System (`egui_dock`):** The central area of the application is a `DockArea`
+//!   that allows users to arrange various tabs in a flexible layout. Tabs can be plots,
+
+//!   instrument control panels, or other views. The state of the dock is managed by `DockState<DockTab>`.
+//!
+//! - **Panels:**
+//!   - `TopBottomPanel` (Top): Contains global controls like adding new plot tabs and a menu for
+//!     opening instrument-specific control panels.
+//!   - `TopBottomPanel` (Bottom): Displays a resizable log panel for viewing application logs.
+//!   - `SidePanel` (Left): Shows a list of all configured instruments, their status (running/stopped),
+//!     and provides controls to start or stop them. Instruments can be dragged from this panel
+//!     to the central dock area to open their control tabs.
+//!   - `SidePanel` (Right): A toggleable panel for managing data storage sessions, implemented in the
+//!     `storage_manager` module.
+//!
+//! - **Data Flow:**
+//!   - The `Gui` struct receives live `DataPoint`s from the core application logic via a `tokio::sync::broadcast`
+//!     channel.
+//!   - The `update_data` method processes these points and updates the corresponding plot tabs.
+//!   - Instrument control panels interact with the `DaqApp` core to send commands to hardware.
+//!
+//! - **State Management:**
+//!   - The main `Gui` struct holds the application state, including the `DaqApp` handle, the `DockState`,
+//!     and state for various UI components like combo boxes and filters.
+//!
+//! ## Modules
+//!
+//! - `instrument_controls`: Defines the UI panels for controlling specific instruments (e.g., lasers, cameras).
+//! - `log_panel`: Implements the UI for the filterable log view at the bottom of the screen.
+//! - `storage_manager`: Provides the UI for creating, managing, and saving data acquisition sessions.
+
 pub mod storage_manager;
 pub mod instrument_controls;
 

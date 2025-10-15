@@ -1,4 +1,40 @@
-//! Configuration management.
+//! Configuration management for the DAQ application.
+//!
+//! This module defines the data structures for the application's configuration,
+//! which is loaded from TOML files. It uses the `config` crate to handle file
+//! loading and deserialization and `serde` for the data structures.
+//!
+//! ## Schema
+//!
+//! The configuration is structured as follows:
+//!
+//! - **`log_level`**: A string representing the logging verbosity (e.g., "info", "debug").
+//! - **`storage`**: A table containing storage settings.
+//!   - `default_path`: The directory where data files are saved.
+//!   - `default_format`: The default file format for saving data (e.g., "csv", "hdf5").
+//! - **`instruments`**: A map where each key is a unique instrument ID and the value is a
+//!   TOML table defining the instrument's properties. The `type` field within this table
+//!   is mandatory and determines which instrument driver is used. Other fields are
+//!   specific to the instrument type.
+//! - **`processors`**: An optional map where each key corresponds to a data channel. The value
+//!   is a list of processor configurations to be applied to the data from that channel.
+//!   Each processor has a `type` and its own specific configuration.
+//!
+//! ## Validation
+//!
+//! The `Settings::new` function loads and deserializes the configuration. After loading,
+//! it calls the `validate` method, which performs a series of checks on the configuration
+//! values to ensure they are valid. This includes:
+//!
+//! - Checking that required fields are not empty.
+//! - Validating log levels against a predefined list.
+//! - Ensuring file paths are valid.
+//! - Validating network parameters like IP addresses and port numbers.
+//! - Checking that numerical values (like sample rates) are within reasonable ranges.
+//!
+//! Validation logic is implemented in the `validation` module. If validation fails,
+//! the application will not start, preventing runtime errors due to misconfiguration.
+
 use crate::validation::{is_in_range, is_not_empty, is_valid_ip, is_valid_path, is_valid_port};
 use anyhow::{Context, Result};
 use config::Config;

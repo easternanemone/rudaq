@@ -1,4 +1,20 @@
 //! Renders the log panel in the GUI.
+//!
+//! This module contains the `render` function which is responsible for drawing the
+//! log panel at the bottom of the main application window. The panel provides
+//! features for viewing, filtering, and managing log messages captured from the
+//! `log` crate.
+//!
+//! ## Features
+//!
+//! - **Log Display:** Shows a time-stamped, color-coded, and scrollable list of log entries.
+//! - **Level Filtering:** A dropdown allows the user to filter logs by their severity
+//!   (e.g., Error, Warn, Info).
+//! - **Text Filtering:** A text input field allows filtering logs by their message content or target.
+//! - **Auto-Scrolling:** A toggle to automatically scroll to the latest log message.
+//! - **Clear Button:** A button to clear all captured log messages.
+//! - **Efficient Rendering:** Uses `ScrollArea::show_rows` to only render the visible portion
+//!   of the log list, ensuring good performance even with a large number of log entries.
 
 use crate::gui::Gui;
 use eframe::egui::{self, Color32, ScrollArea, Ui};

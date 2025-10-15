@@ -1,7 +1,26 @@
-//! Interactive instrument control panels
+//! Interactive instrument control panels.
 //!
-//! This module provides interactive GUI controls for each instrument type
-//! that can be docked in the main window.
+//! This module provides interactive GUI panels for controlling various hardware instruments.
+//! Each panel is a separate struct that manages its own state and provides a `ui` method
+//! to render the controls using `egui`. These panels are designed to be instantiated and
+//! displayed within tabs in the main `egui_dock` area.
+//!
+//! ## Design
+//!
+//! - **Stateful Panels:** Each control panel (e.g., `MaiTaiControlPanel`, `PVCAMControlPanel`)
+//!   is a struct that holds the UI state (like target values, toggles) and relevant data
+//!   received from the instrument.
+//! - **`DaqApp` Handle:** Each `ui` method takes a reference to `DaqApp`, which acts as a
+//!   bridge to the application's core logic. This allows the UI to send commands to the
+//!   instruments.
+//! - **Command-Based Interaction:** User interactions (e.g., clicking a button, changing a slider)
+//!   are translated into `InstrumentCommand` enums. These commands are sent to the corresponding
+//!   instrument task via a channel managed by the `DaqApp`.
+//! - **Error Handling:** Errors that occur when sending commands are logged to the central
+//!   log panel using the `log::error!` macro.
+//! - **Immediate Feedback (UI State):** To provide a responsive user experience, the local UI state
+//!   (e.g., a display of the current position) is often updated immediately, assuming the command
+//!   will be successful. The actual instrument state is updated asynchronously.
 
 use crate::{app::DaqApp, core::InstrumentCommand};
 use egui::{Ui, Color32, Slider};
