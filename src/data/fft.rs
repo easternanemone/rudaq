@@ -158,8 +158,7 @@ impl DataProcessor for FFTProcessor {
                 });
             }
 
-            for i in 1..num_bins {
-                let complex_val = &complex_buffer[i];
+            for (i, complex_val) in complex_buffer.iter().enumerate().take(num_bins).skip(1) {
                 let magnitude = (complex_val.norm() * 2.0) / self.window_size as f64;
                 let magnitude_db = if magnitude > 1e-6 {
                     20.0 * magnitude.log10()

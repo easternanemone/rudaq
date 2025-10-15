@@ -14,6 +14,12 @@ pub struct InstrumentRegistry {
     factories: HashMap<String, InstrumentFactory>,
 }
 
+impl Default for InstrumentRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InstrumentRegistry {
     pub fn new() -> Self {
         Self {

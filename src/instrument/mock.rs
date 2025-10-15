@@ -14,6 +14,12 @@ pub struct MockInstrument {
     sender: Option<broadcast::Sender<DataPoint>>,
 }
 
+impl Default for MockInstrument {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockInstrument {
     pub fn new() -> Self {
         Self { sender: None }

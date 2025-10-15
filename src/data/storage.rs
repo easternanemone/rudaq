@@ -19,6 +19,13 @@ pub struct CsvWriter {
 }
 
 #[cfg(feature = "storage_csv")]
+impl Default for CsvWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "storage_csv")]
 impl CsvWriter {
     pub fn new() -> Self {
         Self {
@@ -78,7 +85,7 @@ impl StorageWriter for CsvWriter {
 
             let mut writer = csv::Writer::from_writer(file);
             writer
-                .write_record(&["timestamp", "channel", "value", "unit", "metadata"])
+                .write_record(["timestamp", "channel", "value", "unit", "metadata"])
                 .map_err(|e| DaqError::Storage(e.to_string()))?;
 
             self.writer = Some(writer);
@@ -135,6 +142,13 @@ impl StorageWriter for CsvWriter {
 pub struct Hdf5Writer;
 
 #[cfg(not(feature = "storage_hdf5"))]
+impl Default for Hdf5Writer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(not(feature = "storage_hdf5"))]
 impl Hdf5Writer {
     pub fn new() -> Self {
         Self
@@ -159,6 +173,13 @@ impl StorageWriter for Hdf5Writer {
 
 #[cfg(not(feature = "storage_arrow"))]
 pub struct ArrowWriter;
+
+#[cfg(not(feature = "storage_arrow"))]
+impl Default for ArrowWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[cfg(not(feature = "storage_arrow"))]
 impl ArrowWriter {

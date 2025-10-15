@@ -34,6 +34,12 @@ impl LogEntry {
 #[derive(Clone)]
 pub struct LogBuffer(Arc<Mutex<VecDeque<LogEntry>>>);
 
+impl Default for LogBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LogBuffer {
     pub fn new() -> Self {
         Self(Arc::new(Mutex::new(VecDeque::with_capacity(

@@ -10,6 +10,12 @@ pub struct ProcessorRegistry {
     factories: HashMap<String, ProcessorFactory>,
 }
 
+impl Default for ProcessorRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProcessorRegistry {
     pub fn new() -> Self {
         let mut factories: HashMap<String, ProcessorFactory> = HashMap::new();

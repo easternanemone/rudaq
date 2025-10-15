@@ -63,7 +63,7 @@ impl DaqApp {
             shutdown_flag: false,
         };
 
-        for (id, _instrument_config) in &settings.instruments {
+        for id in settings.instruments.keys() {
             if let Err(e) = inner.spawn_instrument(id) {
                 error!("Failed to spawn instrument '{}': {}", id, e);
             }
@@ -80,7 +80,7 @@ impl DaqApp {
         F: FnOnce(&mut DaqAppInner) -> R,
     {
         let mut inner = self.inner.lock().unwrap();
-        f(&mut *inner)
+        f(&mut inner)
     }
 
     /// Returns a clone of the application's Tokio runtime handle.

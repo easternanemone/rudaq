@@ -30,6 +30,12 @@ pub struct StorageManager {
     selected_file: Option<FileInfo>,
 }
 
+impl Default for StorageManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StorageManager {
     pub fn new() -> Self {
         Self {
@@ -156,7 +162,7 @@ impl StorageManager {
                 for file in &files {
                     body.row(30.0, |mut row| {
                         row.col(|ui| {
-                            if ui.selectable_label(self.selected_file.as_ref().map_or(false, |f| f.path == file.path), &file.name).clicked() {
+                            if ui.selectable_label(self.selected_file.as_ref().is_some_and(|f| f.path == file.path), &file.name).clicked() {
                                 self.selected_file = Some(file.clone());
                             }
                         });

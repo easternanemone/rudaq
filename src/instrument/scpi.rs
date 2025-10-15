@@ -11,6 +11,12 @@ use tokio::sync::broadcast;
 
 pub struct ScpiInstrument;
 
+impl Default for ScpiInstrument {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ScpiInstrument {
     pub fn new() -> Self {
         Self
