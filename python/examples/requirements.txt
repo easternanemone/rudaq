@@ -1,0 +1,35 @@
+# Python dependencies for rust_daq examples
+#
+# Install with: pip install -r requirements.txt
+
+# Core scientific stack
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Plotting
+matplotlib>=3.7.0
+
+# Optional: Enhanced plotting
+plotly>=5.14.0
+
+# Optional: Jupyter notebooks
+jupyter>=1.0.0
+ipykernel>=6.23.0
+ipywidgets>=8.0.0
+
+# Optional: Excel export support
+openpyxl>=3.1.0
+
+# Optional: Parquet file support
+pyarrow>=12.0.0
+
+# Optional: Statistical analysis
+scipy>=1.10.0
+
+# Optional: VISA instrument control (for real hardware)
+pyvisa>=1.13.0
+pyvisa-py>=0.7.0
+
+# Testing utilities (for running example validation tests)
+pytest>=7.3.0
+pytest-asyncio>=0.21.0

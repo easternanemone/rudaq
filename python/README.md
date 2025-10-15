@@ -52,6 +52,16 @@ These instructions guide you through setting up a local development environment 
 
 The package `rust_daq` is now installed and ready to use in your active virtual environment.
 
+## API Overview
+
+The initial Python surface area focuses on the most commonly scripted components from the Rust core:
+
+- `rust_daq.DataPoint` — Rich measurement container with timestamp, channel, engineering unit, and optional JSON metadata. Useful for assembling synthetic traces or inspecting acquisition output.
+- `rust_daq.MaiTai` — Mock MaiTai laser driver shell exposing wavelength control. Real hardware integrations can extend this class via the guidance in `docs/developer_guide.md`.
+- `rust_daq.Newport1830C` — Mock Newport 1830C power meter with a simple `read_power()` entry point that returns a floating-point watt measurement.
+
+Refer to `docs/api_guide.md` for full signatures, type hints, and advanced usage patterns, and `docs/developer_guide.md` for extending the bindings with additional instruments.
+
 ## Usage Example
 
 Once installed, you can import and use the exposed Rust objects just like any other Python package.
@@ -89,6 +99,11 @@ if __name__ == "__main__":
     main()
 
 ```
+
+## Documentation
+
+- [API Guide](docs/api_guide.md) — Detailed class reference with runnable examples.
+- [Developer Guide](docs/developer_guide.md) — Instructions for adding new bindings, testing, and debugging the PyO3 layer.
 
 ## Building a Wheel
 
