@@ -40,10 +40,10 @@ fn test_mock_instrument_spawns_and_produces_data() {
         assert!(recv_result.is_ok(), "Did not receive data point in time");
         let data_point = recv_result.unwrap().unwrap();
         assert!(
-            data_point.channel == "sine_wave"
-                || data_point.channel == "cosine_wave"
-                || data_point.channel == "sine_wave_filtered"
-                || data_point.channel == "cosine_wave_filtered",
+            matches!(
+                data_point.channel.as_str(),
+                "sine_wave" | "cosine_wave" | "sine_wave_filtered" | "cosine_wave_filtered"
+            ) || data_point.channel.ends_with("_fft"),
             "Unexpected channel name"
         );
     });

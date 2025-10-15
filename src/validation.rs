@@ -32,7 +32,9 @@ pub fn is_valid_port(port: u16) -> Result<(), &'static str> {
 /// * `Ok(())` if the IP address is valid.
 /// * `Err(&'static str)` if the IP address is invalid.
 pub fn is_valid_ip(ip: &str) -> Result<(), &'static str> {
-    ip.parse::<IpAddr>().map(|_| ()).map_err(|_| "Invalid IP address")
+    ip.parse::<IpAddr>()
+        .map(|_| ())
+        .map_err(|_| "Invalid IP address")
 }
 
 /// Validates if a given string is a valid file path.

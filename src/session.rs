@@ -1,12 +1,12 @@
 //! Session management for the DAQ application.
 
 use crate::config::StorageSettings;
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::fs;
 use std::path::Path;
-use anyhow::Result;
+use std::sync::Arc;
 
 use crate::app::DaqApp;
 

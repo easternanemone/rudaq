@@ -77,9 +77,12 @@ impl VisaInstrument {
             .ok_or_else(|| anyhow!("Not connected to instrument '{}'", self.id))?;
         let mut reader = BufReader::new(session.as_ref());
         let mut buf = String::new();
-        reader
-            .read_line(&mut buf)
-            .with_context(|| format!("Failed to read query response from instrument '{}'", self.id))?;
+        reader.read_line(&mut buf).with_context(|| {
+            format!(
+                "Failed to read query response from instrument '{}'",
+                self.id
+            )
+        })?;
         Ok(buf)
     }
 
@@ -133,7 +136,11 @@ impl Instrument for VisaInstrument {
 
         let res = self
             .rm
-            .open(&resource_string.try_into()?, AccessMode::NO_LOCK, TIMEOUT_IMMEDIATE)
+            .open(
+                &resource_string.try_into()?,
+                AccessMode::NO_LOCK,
+                TIMEOUT_IMMEDIATE,
+            )
             .with_context(|| format!("Failed to open VISA session for '{}'", self.id))?;
 
         self.session = Some(Arc::new(res));
@@ -147,13 +154,18 @@ impl Instrument for VisaInstrument {
 
         let queries = instrument_config
             .get("queries")
-            .and_then(|v| v.clone().try_into::<std::collections::HashMap<String, String>>().ok())
+            .and_then(|v| {
+                v.clone()
+                    .try_into::<std::collections::HashMap<String, String>>()
+                    .ok()
+            })
             .ok_or_else(|| anyhow!("'queries' not found in config for '{}'", self.id))?;
 
         let instrument = self.clone();
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs_f64(1.0 / polling_rate_hz));
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_secs_f64(1.0 / polling_rate_hz));
             loop {
                 interval.tick().await;
                 for (channel, query_str) in &queries {

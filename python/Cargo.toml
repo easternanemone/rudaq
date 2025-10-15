@@ -15,11 +15,8 @@ crate-type = ["cdylib"]
 # The core rust-daq library from the parent directory.
 rust_daq = { path = ".." }
 
-# PyO3 for Rust-Python interoperability.
-pyo3 = { version = "0.21.2", features = ["extension-module", "serde"] }
-
-# Type conversions between chrono and Python's datetime.
-pyo3-chrono = { version = "0.21.2", features = ["chrono-0_4"] }
+# PyO3 for Rust-Python interoperability with built-in chrono support.
+pyo3 = { version = "0.21.2", features = ["extension-module", "serde", "chrono"] }
 
 # Required for DataPoint struct.
 chrono = { version = "0.4.38", features = ["serde"] }

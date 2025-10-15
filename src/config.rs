@@ -44,15 +44,19 @@ impl Settings {
 
 impl Settings {
     fn validate(&self) -> Result<()> {
-        is_not_empty(&self.log_level).context("log_level cannot be empty")?;
+        is_not_empty(&self.log_level)
+            .map_err(anyhow::Error::msg)
+            .context("log_level cannot be empty")?;
         let valid_log_levels = ["error", "warn", "info", "debug", "trace"];
         if !valid_log_levels.contains(&self.log_level.to_lowercase().as_str()) {
             anyhow::bail!("Invalid log level: {}", self.log_level);
         }
 
         is_valid_path(&self.storage.default_path)
+            .map_err(anyhow::Error::msg)
             .context("Invalid storage default_path")?;
         is_not_empty(&self.storage.default_format)
+            .map_err(anyhow::Error::msg)
             .context("storage default_format cannot be empty")?;
 
         for (name, instrument) in &self.instruments {
@@ -69,28 +73,35 @@ impl Settings {
                 if parts.len() >= 2 {
                     let ip_address = parts[1];
                     is_valid_ip(ip_address)
-                        .with_context(|| format!("Invalid IP address for {}: {}", name, ip_address))?;
+                        .map_err(anyhow::Error::msg)
+                        .with_context(|| {
+                            format!("Invalid IP address for {}: {}", name, ip_address)
+                        })?;
                 }
             }
         }
 
         if let Some(sample_rate) = instrument.get("sample_rate_hz").and_then(|v| v.as_float()) {
             is_in_range(sample_rate, 0.1..=1_000_000.0)
+                .map_err(anyhow::Error::msg)
                 .with_context(|| format!("Invalid sample_rate_hz for {}", name))?;
         }
 
         if let Some(num_samples) = instrument.get("num_samples").and_then(|v| v.as_integer()) {
             is_in_range(num_samples, 1..=1_000_000)
+                .map_err(anyhow::Error::msg)
                 .with_context(|| format!("Invalid num_samples for {}", name))?;
         }
 
         if let Some(address) = instrument.get("address").and_then(|v| v.as_str()) {
             is_valid_ip(address)
+                .map_err(anyhow::Error::msg)
                 .with_context(|| format!("Invalid IP address for {}", name))?;
         }
 
         if let Some(port) = instrument.get("port").and_then(|v| v.as_integer()) {
             is_valid_port(port as u16)
+                .map_err(anyhow::Error::msg)
                 .with_context(|| format!("Invalid port for {}", name))?;
         }
 

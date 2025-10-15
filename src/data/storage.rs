@@ -65,7 +65,10 @@ impl StorageWriter for CsvWriter {
                     .with_context(|| format!("Failed to create storage directory at {:?}", path))?;
             }
             self.path = path.join(file_name);
-            log::info!("CSV Writer will be initialized at '{}'.", self.path.display());
+            log::info!(
+                "CSV Writer will be initialized at '{}'.",
+                self.path.display()
+            );
             Ok(())
         }
     }

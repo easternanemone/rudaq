@@ -98,9 +98,17 @@ impl Trigger {
                     dp.value < threshold
                 }
             }
-            TriggerMode::Window { low_threshold, high_threshold, inside } => {
+            TriggerMode::Window {
+                low_threshold,
+                high_threshold,
+                inside,
+            } => {
                 let is_inside = dp.value >= low_threshold && dp.value <= high_threshold;
-                if inside { is_inside } else { !is_inside }
+                if inside {
+                    is_inside
+                } else {
+                    !is_inside
+                }
             }
         }
     }
@@ -113,7 +121,11 @@ impl Trigger {
         if self.stats.count == 1 {
             self.first_trigger_time = Some(timestamp);
         } else if let Some(first_time) = self.first_trigger_time {
-            let elapsed = timestamp.signed_duration_since(first_time).to_std().unwrap().as_secs_f64();
+            let elapsed = timestamp
+                .signed_duration_since(first_time)
+                .to_std()
+                .unwrap()
+                .as_secs_f64();
             if elapsed > 0.0 {
                 self.stats.rate = self.stats.count as f64 / elapsed;
             }
@@ -134,66 +146,67 @@ impl DataProcessor for Trigger {
                         self.holdoff_until = None;
                     }
                 } else {
-                    // This case handles holdoff with zero duration
                     self.state = TriggerState::Armed;
                 }
             }
 
-            // Now, process based on the (potentially updated) state
-            if self.state == TriggerState::Armed {
-                if self.check_trigger_condition(dp) {
-                    self.state = TriggerState::Triggered;
-                    self.update_stats(dp.timestamp);
+            // Now process based on the (potentially updated) state
+            match self.state {
+                TriggerState::Armed => {
+                    if self.check_trigger_condition(dp) {
+                        self.state = TriggerState::Triggered;
+                        self.update_stats(dp.timestamp);
 
-                    if !self.holdoff.is_zero() {
-                        self.holdoff_until = Some(dp.timestamp + self.holdoff);
-                    }
+                        if !self.holdoff.is_zero() {
+                            self.holdoff_until = Some(dp.timestamp + self.holdoff);
+                        }
 
-                    output.extend(self.buffer.iter().cloned());
-                    self.buffer.clear();
-                    let mut trigger_dp = dp.clone();
-                    let mut meta = trigger_dp
-                        .metadata
-                        .take()
-                        .unwrap_or_default()
-                        .as_object()
-                        .cloned()
-                        .unwrap_or_default();
-                    meta.insert("trigger".to_string(), serde_json::Value::Bool(true));
-                    trigger_dp.metadata = Some(serde_json::Value::Object(meta));
-                    output.push(trigger_dp);
+                        output.extend(self.buffer.iter().cloned());
+                        self.buffer.clear();
 
-                    // If we need post-trigger samples, we remain in Triggered state.
-                    // Otherwise, go directly to Holdoff.
-                    if self.post_trigger_samples == 0 {
-                        self.state = TriggerState::Holdoff;
-                    }
-                } else {
-                    // Not triggered, so just buffer the sample if needed
-                    if self.pre_trigger_samples > 0 {
+                        let mut trigger_dp = dp.clone();
+                        let mut meta = trigger_dp
+                            .metadata
+                            .take()
+                            .unwrap_or_default()
+                            .as_object()
+                            .cloned()
+                            .unwrap_or_default();
+                        meta.insert("trigger".to_string(), serde_json::Value::Bool(true));
+                        trigger_dp.metadata = Some(serde_json::Value::Object(meta));
+                        output.push(trigger_dp);
+
+                        if self.post_trigger_samples == 0 {
+                            self.state = TriggerState::Holdoff;
+                        }
+                    } else if self.pre_trigger_samples > 0 {
                         self.buffer.push_back(dp.clone());
                         if self.buffer.len() > self.pre_trigger_samples {
                             self.buffer.pop_front();
                         }
                     }
                 }
-            } else if self.state == TriggerState::Triggered {
-                // We are collecting post-trigger samples
-                self.samples_after_trigger += 1;
-                output.push(dp.clone());
-                if self.samples_after_trigger >= self.post_trigger_samples {
-                    self.state = TriggerState::Holdoff;
-                    self.samples_after_trigger = 0;
+                TriggerState::Triggered => {
+                    self.samples_after_trigger += 1;
+                    output.push(dp.clone());
+                    if self.samples_after_trigger >= self.post_trigger_samples {
+                        self.state = TriggerState::Holdoff;
+                        self.samples_after_trigger = 0;
+                    }
+                }
+                TriggerState::Holdoff => {
+                    // Do nothing - we already handled holdoff expiry above
                 }
             }
-            // For Holdoff state, we do nothing with the data point itself.
 
-            // IMPORTANT: Update last_value at the end of every iteration
+            // Update last_value for every data point to support edge triggering
             self.last_value = dp.value;
         }
+
         output
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,14 +389,14 @@ mod tests {
         assert_eq!(output[0].value, 6.0);
         assert_eq!(
             output[0].timestamp.timestamp_millis(),
-            create_datapoint(0.0, 0).timestamp.timestamp_millis()
+            data[1].timestamp.timestamp_millis()
         );
         assert_is_trigger(&output[0]);
 
         assert_eq!(output[1].value, 6.0);
         assert_eq!(
             output[1].timestamp.timestamp_millis(),
-            create_datapoint(0.0, 60).timestamp.timestamp_millis()
+            data[5].timestamp.timestamp_millis()
         );
         assert_is_trigger(&output[1]);
     }

@@ -58,7 +58,9 @@ impl MetadataBuilder {
     }
 
     pub fn instrument_config(mut self, key: &str, value: &str) -> Self {
-        self.inner.instrument_config.insert(key.to_string(), value.to_string());
+        self.inner
+            .instrument_config
+            .insert(key.to_string(), value.to_string());
         self
     }
 

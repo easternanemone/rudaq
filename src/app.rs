@@ -142,8 +142,7 @@ impl DaqAppInner {
 
         // Create processor chain for this instrument
         let mut processors: Vec<Box<dyn DataProcessor>> = Vec::new();
-        if let Some(processor_configs) = self.settings.processors.as_ref().and_then(|p| p.get(id))
-        {
+        if let Some(processor_configs) = self.settings.processors.as_ref().and_then(|p| p.get(id)) {
             for config in processor_configs {
                 let processor = self
                     .processor_registry

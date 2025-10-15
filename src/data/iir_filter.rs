@@ -65,30 +65,18 @@ impl IirFilter {
         let q = config.q.unwrap_or(Q_BUTTERWORTH_F64);
 
         let result = match config.filter_type {
-            FilterType::Lowpass => Coefficients::<f64>::from_params(
-                biquad::Type::LowPass,
-                fs,
-                f0,
-                q,
-            ),
-            FilterType::Highpass => Coefficients::<f64>::from_params(
-                biquad::Type::HighPass,
-                fs,
-                f0,
-                q,
-            ),
-            FilterType::Bandpass => Coefficients::<f64>::from_params(
-                biquad::Type::BandPass,
-                fs,
-                f0,
-                q,
-            ),
-            FilterType::Bandstop => Coefficients::<f64>::from_params(
-                biquad::Type::Notch,
-                fs,
-                f0,
-                q,
-            ),
+            FilterType::Lowpass => {
+                Coefficients::<f64>::from_params(biquad::Type::LowPass, fs, f0, q)
+            }
+            FilterType::Highpass => {
+                Coefficients::<f64>::from_params(biquad::Type::HighPass, fs, f0, q)
+            }
+            FilterType::Bandpass => {
+                Coefficients::<f64>::from_params(biquad::Type::BandPass, fs, f0, q)
+            }
+            FilterType::Bandstop => {
+                Coefficients::<f64>::from_params(biquad::Type::Notch, fs, f0, q)
+            }
         };
         result.map_err(|_| "Failed to create IIR filter coefficients")
     }

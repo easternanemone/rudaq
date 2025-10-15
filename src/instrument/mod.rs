@@ -3,9 +3,9 @@ use crate::core::Instrument;
 use std::collections::HashMap;
 
 pub mod mock;
+pub mod scpi;
 #[cfg(feature = "instrument_visa")]
 pub mod visa;
-pub mod scpi;
 
 type InstrumentFactory = Box<dyn Fn(&str) -> Box<dyn Instrument> + Send + Sync>;
 
@@ -32,12 +32,15 @@ impl InstrumentRegistry {
     where
         F: Fn(&str) -> Box<dyn Instrument> + Send + Sync + 'static,
     {
-        self.factories.insert(instrument_type.to_string(), Box::new(factory));
+        self.factories
+            .insert(instrument_type.to_string(), Box::new(factory));
     }
 
     /// Creates an instance of an instrument by its ID.
     pub fn create(&self, instrument_type: &str, id: &str) -> Option<Box<dyn Instrument>> {
-        self.factories.get(instrument_type).map(|factory| factory(id))
+        self.factories
+            .get(instrument_type)
+            .map(|factory| factory(id))
     }
 
     /// Lists the IDs of all registered instruments.

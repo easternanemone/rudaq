@@ -1,18 +1,22 @@
+use chrono::{TimeZone, Utc};
 use rust_daq::{
     app::DaqApp,
     config::Settings,
     core::{DataPoint, DataProcessor},
-    data::{fft::FFTProcessor, registry::ProcessorRegistry},
+    data::{
+        fft::{FFTConfig, FFTProcessor},
+        registry::ProcessorRegistry,
+    },
     instrument::{mock::MockInstrument, InstrumentRegistry},
     log_capture::LogBuffer,
 };
-use chrono::{TimeZone, Utc};
+use serial_test::serial;
 use std::sync::Arc;
 
 #[test]
+#[serial]
 fn test_fft_processor_in_pipeline() {
     // --- Setup ---
-    let _ = env_logger::builder().is_test(true).try_init();
     let settings = Arc::new(Settings::new(None).unwrap());
     let mut instrument_registry = InstrumentRegistry::new();
     instrument_registry.register("mock", |_id| Box::new(MockInstrument::new()));
@@ -33,16 +37,14 @@ fn test_fft_processor_in_pipeline() {
         let mut data_rx = app.with_inner(|inner| inner.data_sender.subscribe());
 
         // Create a new pipeline with the FFTProcessor
-        let sampling_rate = settings
-            .instruments
-            .get("mock")
-            .unwrap()
-            .get("sample_rate_hz")
-            .unwrap()
-            .as_float()
-            .unwrap();
+        let sampling_rate = 1024.0;
         let window_size = 1024;
-        let mut fft_processor = FFTProcessor::new(window_size, window_size / 2, sampling_rate);
+        let config = FFTConfig {
+            window_size,
+            overlap: window_size / 2,
+            sampling_rate,
+        };
+        let mut fft_processor = FFTProcessor::new(config);
 
         // Collect some data points
         let mut collected_data = Vec::new();
@@ -59,14 +61,23 @@ fn test_fft_processor_in_pipeline() {
             "FFT processor did not produce any output."
         );
     });
+
+    // Teardown
+    app.shutdown();
 }
 
 #[test]
+#[serial]
 fn test_fft_processor_sine_wave() {
     let sample_rate = 1024.0;
     let window_size = 1024;
     let frequency = 50.0;
-    let mut fft_processor = FFTProcessor::new(window_size, window_size / 2, sample_rate);
+    let config = FFTConfig {
+        window_size,
+        overlap: window_size / 2,
+        sampling_rate: sample_rate,
+    };
+    let mut fft_processor = FFTProcessor::new(config);
 
     // Generate a sine wave
     let mut sine_wave = Vec::new();
@@ -82,7 +93,7 @@ fn test_fft_processor_sine_wave() {
         });
     }
 
-    let spectrum = fft_processor.process(&sine_wave);
+    let spectrum = fft_processor.process_fft(&sine_wave);
     assert!(
         !spectrum.is_empty(),
         "FFT processor did not produce any output."
@@ -90,12 +101,8 @@ fn test_fft_processor_sine_wave() {
 
     let peak_freq = spectrum
         .iter()
-        .max_by(|a, b| a.value.partial_cmp(&b.value).unwrap())
-        .map(|dp| {
-            let secs = dp.timestamp.timestamp();
-            let nsecs = dp.timestamp.timestamp_subsec_nanos();
-            secs as f64 + (nsecs as f64 / 1_000_000_000.0)
-        })
+        .max_by(|a, b| a.magnitude.partial_cmp(&b.magnitude).unwrap())
+        .map(|bin| bin.frequency)
         .unwrap();
 
     let freq_resolution = sample_rate / window_size as f64;

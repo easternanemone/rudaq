@@ -1,10 +1,11 @@
 use crate::core::DataProcessor;
-use crate::data::fft::FFTProcessor;
+use crate::data::fft::{FFTConfig, FFTProcessor};
 use crate::data::iir_filter::{IirFilter, IirFilterConfig};
 use std::collections::HashMap;
 use toml::Value;
 
-type ProcessorFactory = Box<dyn Fn(&Value) -> Result<Box<dyn DataProcessor>, anyhow::Error> + Send + Sync>;
+type ProcessorFactory =
+    Box<dyn Fn(&Value) -> Result<Box<dyn DataProcessor>, anyhow::Error> + Send + Sync>;
 
 pub struct ProcessorRegistry {
     factories: HashMap<String, ProcessorFactory>,
@@ -34,10 +35,8 @@ impl ProcessorRegistry {
         factories.insert(
             "fft".to_string(),
             Box::new(|config| {
-                let window_size = config.get("window_size").and_then(Value::as_integer).unwrap_or(1024) as usize;
-                let overlap = config.get("overlap").and_then(Value::as_integer).unwrap_or(512) as usize;
-                let sampling_rate = config.get("sampling_rate").and_then(Value::as_float).unwrap_or(1024.0);
-                let processor = FFTProcessor::new(window_size, overlap, sampling_rate);
+                let fft_config: FFTConfig = config.clone().try_into()?;
+                let processor = FFTProcessor::new(fft_config);
                 Ok(Box::new(processor))
             }),
         );
@@ -45,7 +44,11 @@ impl ProcessorRegistry {
         Self { factories }
     }
 
-    pub fn create(&self, id: &str, config: &Value) -> Result<Box<dyn DataProcessor>, anyhow::Error> {
+    pub fn create(
+        &self,
+        id: &str,
+        config: &Value,
+    ) -> Result<Box<dyn DataProcessor>, anyhow::Error> {
         self.factories
             .get(id)
             .ok_or_else(|| anyhow::anyhow!("Processor '{}' not found", id))

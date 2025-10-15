@@ -34,7 +34,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 config = { version = "0.14.0", features = ["toml"] }
 toml = "0.8.12"
-rfd = "0.14.1"
 
 # Error Handling
 anyhow = "1.0.82"
@@ -64,6 +63,7 @@ humantime-serde = "1.1.1"
 
 [dev-dependencies]
 tempfile = "3.10.1"
+serial_test = "3.1.1"
 
 [features]
 default = ["storage_csv", "instrument_serial"]

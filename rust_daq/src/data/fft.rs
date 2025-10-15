@@ -25,14 +25,19 @@ use std::sync::Arc;
 ///
 /// ```
 /// use rust_daq::core::{DataPoint, DataProcessor};
-/// use rust_daq::data::fft::FFTProcessor;
+/// use rust_daq::data::fft::{FFTConfig, FFTProcessor};
 /// use chrono::{Utc, TimeZone};
 /// use std::collections::HashMap;
 ///
 /// // This is a conceptual example. In a real application, you would get DataPoints from an instrument.
 /// fn conceptual_example() {
 ///     let sample_rate = 1024.0;
-///     let mut fft_processor = FFTProcessor::new(1024, 512, sample_rate);
+///     let config = FFTConfig {
+///         window_size: 1024,
+///         overlap: 512,
+///         sampling_rate: sample_rate,
+///     };
+///     let mut fft_processor = FFTProcessor::new(config);
 ///
 ///     // Generate a sine wave for testing
 ///     let frequency = 50.0;

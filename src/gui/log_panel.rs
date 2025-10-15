@@ -41,7 +41,8 @@ pub fn render(ui: &mut Ui, gui: &mut Gui) {
     let filtered_logs: Vec<_> = logs
         .iter()
         .filter(|entry| {
-            let level_match = entry.level <= gui.log_level_filter.to_level().unwrap_or(log::Level::Trace);
+            let level_match =
+                entry.level <= gui.log_level_filter.to_level().unwrap_or(log::Level::Trace);
             let text_match = gui.log_filter_text.is_empty()
                 || entry.message.contains(&gui.log_filter_text)
                 || entry.target.contains(&gui.log_filter_text);

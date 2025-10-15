@@ -21,8 +21,9 @@ fn main() -> Result<()> {
     let gui_logger = LogCollector::new(log_buffer.clone());
 
     // Get the desired log level from the environment or default to "info"
-    let log_level_filter =
-        std::env::var("RUST_LOG").map_or(LevelFilter::Info, |s| s.parse().unwrap_or(LevelFilter::Info));
+    let log_level_filter = std::env::var("RUST_LOG").map_or(LevelFilter::Info, |s| {
+        s.parse().unwrap_or(LevelFilter::Info)
+    });
 
     // Create a logger that prints to the console
     let console_logger = env_logger::Builder::new()
@@ -32,8 +33,11 @@ fn main() -> Result<()> {
     // Combine the loggers. All log messages will be sent to both the
     // console and our GUI log collector.
     log::set_max_level(log_level_filter);
-    multi_log::MultiLogger::init(vec![Box::new(console_logger), Box::new(gui_logger)], log_level_filter.to_level().unwrap_or(log::Level::Info))
-        .map_err(|e| anyhow::anyhow!("Failed to initialize logger: {}", e))?;
+    multi_log::MultiLogger::init(
+        vec![Box::new(console_logger), Box::new(gui_logger)],
+        log_level_filter.to_level().unwrap_or(log::Level::Info),
+    )
+    .map_err(|e| anyhow::anyhow!("Failed to initialize logger: {}", e))?;
     // --- End of Log Initialization ---
 
     // Load configuration
@@ -63,7 +67,12 @@ fn main() -> Result<()> {
     let processor_registry = Arc::new(ProcessorRegistry::new());
 
     // Create the core application state
-    let app = DaqApp::new(settings.clone(), instrument_registry, processor_registry, log_buffer)?;
+    let app = DaqApp::new(
+        settings.clone(),
+        instrument_registry,
+        processor_registry,
+        log_buffer,
+    )?;
     let app_clone = app.clone();
 
     // Set up and run the GUI

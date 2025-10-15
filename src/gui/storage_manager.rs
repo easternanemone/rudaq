@@ -1,17 +1,17 @@
 //! The storage manager panel for the GUI.
 
 use crate::app::DaqApp;
-use eframe::egui;
-use egui_extras::{Column, TableBuilder};
-use log::{error, warn};
-use std::fs;
-use std::path::PathBuf;
-use opener;
-use csv;
-#[cfg(feature = "storage_hdf5")]
-use hdf5;
 #[cfg(feature = "storage_arrow")]
 use arrow2::io::ipc::read;
+use csv;
+use eframe::egui;
+use egui_extras::{Column, TableBuilder};
+#[cfg(feature = "storage_hdf5")]
+use hdf5;
+use log::{error, warn};
+use opener;
+use std::fs;
+use std::path::PathBuf;
 
 #[derive(Clone)]
 struct FileInfo {
@@ -112,7 +112,8 @@ impl StorageManager {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui, app: &DaqApp) {
-        let storage_path = PathBuf::from(&app.with_inner(|inner| inner.settings.storage.default_path.clone()));
+        let storage_path =
+            PathBuf::from(&app.with_inner(|inner| inner.settings.storage.default_path.clone()));
         if self.storage_path != storage_path {
             self.storage_path = storage_path;
             self.refresh_files();
@@ -158,11 +159,24 @@ impl StorageManager {
                 });
             })
             .body(|mut body| {
-                let files: Vec<_> = self.files.iter().filter(|f| f.name.contains(&self.search_query)).cloned().collect();
+                let files: Vec<_> = self
+                    .files
+                    .iter()
+                    .filter(|f| f.name.contains(&self.search_query))
+                    .cloned()
+                    .collect();
                 for file in &files {
                     body.row(30.0, |mut row| {
                         row.col(|ui| {
-                            if ui.selectable_label(self.selected_file.as_ref().is_some_and(|f| f.path == file.path), &file.name).clicked() {
+                            if ui
+                                .selectable_label(
+                                    self.selected_file
+                                        .as_ref()
+                                        .is_some_and(|f| f.path == file.path),
+                                    &file.name,
+                                )
+                                .clicked()
+                            {
                                 self.selected_file = Some(file.clone());
                             }
                         });
@@ -177,7 +191,11 @@ impl StorageManager {
                             ui.horizontal(|ui| {
                                 if ui.button("Open").clicked() {
                                     if let Err(e) = opener::open(&file.path) {
-                                        error!("Failed to open file '{}': {}", file.path.display(), e);
+                                        error!(
+                                            "Failed to open file '{}': {}",
+                                            file.path.display(),
+                                            e
+                                        );
                                     }
                                 }
                                 if ui.button("Delete").clicked() {
@@ -196,14 +214,21 @@ impl StorageManager {
                 .resizable(false)
                 .open(&mut open)
                 .show(ui.ctx(), |ui| {
-                    ui.label(format!("Are you sure you want to delete '{}'?", file_to_delete.name));
+                    ui.label(format!(
+                        "Are you sure you want to delete '{}'?",
+                        file_to_delete.name
+                    ));
                     ui.horizontal(|ui| {
                         if ui.button("Cancel").clicked() {
                             self.file_to_delete = None;
                         }
                         if ui.button("Delete").clicked() {
                             if let Err(e) = fs::remove_file(&file_to_delete.path) {
-                                error!("Failed to delete file '{}': {}", file_to_delete.path.display(), e);
+                                error!(
+                                    "Failed to delete file '{}': {}",
+                                    file_to_delete.path.display(),
+                                    e
+                                );
                             } else {
                                 self.needs_refresh = true;
                             }
@@ -252,9 +277,14 @@ impl StorageManager {
         match hdf5::File::open(&file.path) {
             Ok(f) => {
                 ui.label("HDF5 File Structure:");
-                f.group("/").unwrap().member_names().unwrap().iter().for_each(|name| {
-                    ui.label(format!("- {}", name));
-                });
+                f.group("/")
+                    .unwrap()
+                    .member_names()
+                    .unwrap()
+                    .iter()
+                    .for_each(|name| {
+                        ui.label(format!("- {}", name));
+                    });
             }
             Err(e) => {
                 error!("Failed to read HDF5 file '{}': {}", file.path.display(), e);
@@ -281,7 +311,11 @@ impl StorageManager {
                 }
             }
             Err(e) => {
-                error!("Failed to read Arrow metadata from '{}': {}", file.path.display(), e);
+                error!(
+                    "Failed to read Arrow metadata from '{}': {}",
+                    file.path.display(),
+                    e
+                );
                 ui.label("Error reading Arrow file metadata.");
             }
         }
@@ -300,7 +334,11 @@ impl StorageManager {
         let headers = match reader.headers() {
             Ok(headers) => headers.clone(),
             Err(e) => {
-                error!("Failed to read CSV headers for '{}': {}", file.path.display(), e);
+                error!(
+                    "Failed to read CSV headers for '{}': {}",
+                    file.path.display(),
+                    e
+                );
                 ui.label("Error reading CSV headers.");
                 return;
             }

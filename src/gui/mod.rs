@@ -1,6 +1,7 @@
 //! The eframe/egui implementation for the GUI.
 pub mod storage_manager;
 
+use self::storage_manager::StorageManager;
 use crate::{
     app::{DaqApp, DaqAppInner},
     core::DataPoint,
@@ -12,7 +13,6 @@ use egui_plot::{Line, Plot, PlotPoints};
 use log::{error, LevelFilter};
 use std::collections::VecDeque;
 use tokio::sync::broadcast;
-use self::storage_manager::StorageManager;
 
 mod log_panel;
 
@@ -53,9 +53,8 @@ pub struct Gui {
 impl Gui {
     /// Creates a new GUI.
     pub fn new(_cc: &eframe::CreationContext<'_>, app: DaqApp) -> Self {
-        let (data_receiver, log_buffer) = app.with_inner(|inner| {
-            (inner.data_sender.subscribe(), inner.log_buffer.clone())
-        });
+        let (data_receiver, log_buffer) =
+            app.with_inner(|inner| (inner.data_sender.subscribe(), inner.log_buffer.clone()));
 
         let mut dock_state = DockState::new(vec![PlotTab::new("sine_wave".to_string())]);
         dock_state.push_to_focused_leaf(PlotTab::new("cosine_wave".to_string()));
@@ -115,16 +114,28 @@ impl eframe::App for Gui {
                         .selected_text(self.selected_channel.clone())
                         .show_ui(ui, |ui| {
                             for channel in &inner.get_available_channels() {
-                                ui.selectable_value(&mut self.selected_channel, channel.clone(), channel.clone());
+                                ui.selectable_value(
+                                    &mut self.selected_channel,
+                                    channel.clone(),
+                                    channel.clone(),
+                                );
                             }
                         });
 
                     if ui.button("Add Plot").clicked() {
-                        self.dock_state.push_to_focused_leaf(PlotTab::new(self.selected_channel.clone()));
+                        self.dock_state
+                            .push_to_focused_leaf(PlotTab::new(self.selected_channel.clone()));
                     }
 
                     ui.separator();
-                    if ui.button(if self.show_storage { "Hide Storage" } else { "Show Storage" }).clicked() {
+                    if ui
+                        .button(if self.show_storage {
+                            "Hide Storage"
+                        } else {
+                            "Show Storage"
+                        })
+                        .clicked()
+                    {
                         self.show_storage = !self.show_storage;
                     }
                 });
@@ -147,9 +158,7 @@ impl eframe::App for Gui {
                 });
 
             let available_channels = inner.get_available_channels();
-            let mut tab_viewer = PlotTabViewer {
-                available_channels,
-            };
+            let mut tab_viewer = PlotTabViewer { available_channels };
 
             egui::CentralPanel::default().show(ctx, |ui| {
                 DockArea::new(&mut self.dock_state)
