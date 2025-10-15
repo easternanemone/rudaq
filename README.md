@@ -22,6 +22,22 @@ The application consists of several key components:
 - **GUI**: The `egui`-based interface runs on the main thread and communicates with the async backend via channels.
 - **Plugins**: A static plugin system allows for compile-time registration of new components.
 
+### Performance Architecture
+
+**Rust Core** (current):
+- Real-time data acquisition and processing (10-100x faster than Python)
+- Thread-safe concurrent operations with zero-cost abstractions
+- Memory-efficient ring buffers for continuous streaming
+- Async I/O for non-blocking hardware communication
+
+**Python Integration** (planned):
+- High-level experiment scripting and orchestration
+- Jupyter notebook support for rapid prototyping
+- NumPy/Pandas integration for analysis workflows
+- PyO3 bindings expose Rust performance to Python users
+
+This hybrid architecture follows the proven pattern of NumPy, TensorFlow, and PyTorch: high-performance compiled core with accessible scripting layer.
+
 ## Getting Started
 
 ### Prerequisites
@@ -79,6 +95,32 @@ Application settings can be configured in `config/default.toml`. This includes l
     └── integration.rs  # Integration tests
 ```
 
+## Roadmap
+
+### Current Phase: Rust Core Implementation
+- ✅ Async runtime with Tokio
+- ✅ Real-time data processors (FFT, IIR, Trigger)
+- ✅ Multiple storage backends (CSV, HDF5, Arrow)
+- ✅ Instrument drivers (ESP300, MaiTai, Newport 1830C, SCPI, VISA)
+- ✅ Real-time GUI with egui
+- 🔄 Comprehensive test coverage (in progress)
+- 🔄 Documentation improvements (in progress)
+
+### Next Phase: Python Integration (Q2 2025)
+- 🔮 PyO3 bindings for core functionality
+- 🔮 Python package (`pip install rust-daq`)
+- 🔮 Jupyter kernel integration
+- 🔮 High-level experiment scripting API
+- 🔮 NumPy/Pandas data interoperability
+
+### Future: Ecosystem Development
+- 🔮 Plugin marketplace for community instruments
+- 🔮 Visual experiment builder
+- 🔮 Distributed multi-computer experiments
+- 🔮 Cloud experiment orchestration
+
+**Design Philosophy**: Maintain Rust performance for real-time operations while providing Python accessibility for experiment design and analysis. See [FINAL_CONSENSUS_REPORT.md](FINAL_CONSENSUS_REPORT.md) for detailed strategy.
+
 ## How to Add a New Instrument
 
 1.  Create a new file in `src/instrument/`, e.g., `my_instrument.rs`.
@@ -86,9 +128,22 @@ Application settings can be configured in `config/default.toml`. This includes l
 3.  In `main.rs`, register your new instrument in the `instrument_registry`.
 4.  Add any necessary configuration for your instrument to `config/default.toml` and `src/config.rs`.
 
+## Comparison to PyMoDAQ, Qudi, ScopeFoundry
+
+rust-daq provides similar modular experiment control capabilities with key advantages:
+
+**Performance**: 10-100x faster data processing and acquisition (Rust vs Python)
+**Reliability**: Thread-safe, memory-safe concurrent operations
+**Flexibility**: Both low-level Rust and high-level Python APIs (planned)
+**Real-time**: Predictable latency without garbage collection pauses
+
+See [FRAMEWORK_COMPARISON_ANALYSIS.md](FRAMEWORK_COMPARISON_ANALYSIS.md) for detailed comparison.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a pull request or open an issue.
+
+See [AGENTS.md](AGENTS.md) for repository guidelines and development workflow.
 
 ## License
 

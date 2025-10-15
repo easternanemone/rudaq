@@ -164,6 +164,40 @@ plt.plot(wavelengths, powers)
 plt.show()
 ```
 
+### Performance Architecture Boundaries
+
+**CRITICAL: Understanding What Runs Where**
+
+This hybrid model maintains the "super fast, memory and thread-safe" core mission while adding Python accessibility. Here's the clear division:
+
+**✅ Rust Performance Path (Real-Time, Critical)**:
+- Hardware I/O operations (instrument communication via serial/VISA)
+- Data acquisition loops (high-frequency sampling, microsecond timing)
+- Signal processing (FFT, IIR filtering, trigger detection)
+- Ring buffer management (lock-free concurrent access)
+- HDF5 file writing (streaming data to disk)
+- **Why Rust**: 10-100x faster than Python, zero-cost abstractions, no GIL, no garbage collection pauses
+
+**✅ Python Scripting Path (High-Level, Non-Critical)**:
+- Experiment configuration and orchestration
+- Control flow logic (wavelength scans, parameter sweeps)
+- Data analysis and visualization (NumPy, Matplotlib, Pandas)
+- Jupyter notebook prototyping
+- User interface scripting
+- **Why Python**: Familiar to scientists, rapid iteration, rich ecosystem
+
+**Example: Wavelength Scan Performance**
+```
+Rust Core:          Python Script:
+├─ Serial I/O       ├─ for wavelength in range:
+├─ Power reading    ├─   laser.set_wavelength(wl)  ← Calls Rust
+├─ Data buffering   ├─   power = meter.read()      ← Calls Rust
+├─ HDF5 streaming   ├─   data.append(power)
+└─ [~1ms/sample]    └─ plt.plot(data)              ← Python analysis
+```
+
+**Result**: Real-time operations stay in Rust (fast), experiment logic in Python (accessible). Best of both worlds.
+
 ---
 
 ## Proven Precedents

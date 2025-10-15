@@ -2,6 +2,14 @@
 
 This document explains how to integrate bd (beads) issue tracking with Jules AI coding sessions for optimal workflow.
 
+## ⚠️ Important: Jules Working Directory vs Main Project
+
+**Jules Working Directory**: Jules AI agents work in a separate `rust_daq/` directory structure that is NOT the main project layout. This is Jules-specific workspace isolation.
+
+**Main Project Structure**: Production code lives in `src/` at repository root (flat single-crate structure). See [AGENTS.md](AGENTS.md) for current project structure.
+
+**Path References in This Document**: Examples below use Jules-specific `rust_daq/src/` paths. When working directly in the main repository, use `src/` paths instead.
+
 ## Why Integrate bd and Jules?
 
 - **bd**: Tracks work queue, priorities, and dependencies
@@ -88,13 +96,14 @@ Title: [P0] [daq-7] Implement HDF5 data persistence in experiment.rs
 Prompt:
 **bd Issue**: daq-7 (P0 - Critical)
 **Path**: /Users/briansquires/code/rust-daq
-**Workspace Structure**: rust_daq/src/experiment.rs (NOT src/experiment.rs)
+**Jules Working Directory**: rust_daq/src/experiment.rs (Jules-specific path)
+**Main Project Path**: src/experiment.rs (actual repository structure)
 
 ## Problem Description
-6 TODO comments in rust_daq/src/experiment.rs lines 687-795. HDF5 file initialization, data writing, and finalization are stubbed out. Experiments claim to save data but don't. Wire up existing Hdf5ExperimentWriter and implement actual I/O operations.
+6 TODO comments in src/experiment.rs lines 687-795. HDF5 file initialization, data writing, and finalization are stubbed out. Experiments claim to save data but don't. Wire up existing Hdf5ExperimentWriter and implement actual I/O operations.
 
 ## Current State
-The Elliptec scan experiment in rust_daq/src/experiment.rs has:
+The Elliptec scan experiment in src/experiment.rs has:
 - Line 687: "TODO: Initialize HDF5 writer"
 - Line 769: "TODO: Save image and metadata to HDF5"
 - Line 774: Debug logging for HDF5 saves
@@ -107,7 +116,7 @@ The Hdf5ExperimentWriter struct exists but is never used.
 2. At line 769: Implement actual data writing (save images and metadata)
 3. Add proper error handling for HDF5 operations using DaqError
 4. At line 793: Properly finalize and close the HDF5 file
-5. Wire up the existing storage infrastructure in rust_daq/src/data/storage.rs
+5. Wire up the existing storage infrastructure in src/data/storage.rs
 
 ## Success Criteria
 - All 6 TODO comments removed
@@ -116,10 +125,11 @@ The Hdf5ExperimentWriter struct exists but is never used.
 - Tests can verify data was written correctly
 - cargo test passes with storage_hdf5 feature enabled
 
-## Important Notes
-- This is a WORKSPACE project: use rust_daq/ prefix for all paths
+## Important Notes for Jules Sessions
+- Jules works in isolated rust_daq/ directory (NOT main project structure)
+- Main project uses flat structure: code in src/ at repository root
 - HDF5 feature flag: storage_hdf5
-- Related files: rust_daq/src/data/storage.rs, rust_daq/src/experiment.rs
+- Related files: src/data/storage.rs, src/experiment.rs (main project paths)
 ```
 
 ### 5. Track Jules Session in bd
