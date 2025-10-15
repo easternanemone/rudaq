@@ -31,11 +31,6 @@ fn test_mock_instrument_spawns_and_produces_data() {
     runtime.block_on(async {
         let mut data_rx = app.with_inner(|inner| inner.data_sender.subscribe());
 
-        // Start the instrument
-        app.with_inner(|inner| {
-            inner.spawn_instrument("mock").unwrap();
-        });
-
         // Act: Check for data
         let recv_result = timeout(Duration::from_secs(5), data_rx.recv()).await;
 

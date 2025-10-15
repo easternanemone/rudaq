@@ -8,8 +8,6 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
-use std::collections::HashMap;
-
 /// A single data point captured from an instrument.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DataPoint {

@@ -78,6 +78,7 @@ fn test_fft_processor_sine_wave() {
             channel: "test".to_string(),
             value,
             unit: "V".to_string(),
+            metadata: None,
         });
     }
 
