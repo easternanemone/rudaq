@@ -1,7 +1,8 @@
-//! Core library for the Rust DAQ application.
+//! Core library for the rust_daq application.
 //!
-//! This crate contains the main application logic, including the core traits,
-//! GUI implementation, instrument handling, and data processing pipelines.
+//! This library contains the core traits, data structures, and instrument
+//! implementations for the DAQ system. It is used by both the main GUI
+//! application and the Python bindings.
 
 pub mod app;
 pub mod config;

@@ -186,6 +186,8 @@ This hybrid model maintains the "super fast, memory and thread-safe" core missio
 - User interface scripting
 - **Why Python**: Familiar to scientists, rapid iteration, rich ecosystem
 
+See [README.md – Performance Architecture](README.md#performance-architecture) for the public-facing summary of this hybrid design.
+
 **Example: Wavelength Scan Performance**
 ```
 Rust Core:          Python Script:

@@ -6,7 +6,7 @@ This document explains how to integrate bd (beads) issue tracking with Jules AI 
 
 **Jules Working Directory**: Jules AI agents work in a separate `rust_daq/` directory structure that is NOT the main project layout. This is Jules-specific workspace isolation.
 
-**Main Project Structure**: Production code lives in `src/` at repository root (flat single-crate structure). See [AGENTS.md](AGENTS.md) for current project structure.
+**Main Project Structure**: Production code lives in `src/` at repository root (flat single-crate structure). See [AGENTS.md](AGENTS.md) for current project structure and [README.md](README.md#directory-structure) for the detailed tree.
 
 **Path References in This Document**: Examples below use Jules-specific `rust_daq/src/` paths. When working directly in the main repository, use `src/` paths instead.
 

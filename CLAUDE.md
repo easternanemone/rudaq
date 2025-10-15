@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This repository contains documentation and architectural guidance for building a scientific data acquisition (DAQ) application in Rust. It is designed as a high-performance, modular alternative to Python-based solutions like PyMoDAQ, ScopeFoundry, or Qudi.
 
-**Current State**: This is a documentation repository. No actual Rust source code exists yet - only architectural specifications and implementation guides.
+**Current State**: The repository now contains live Rust source under `src/` and `rust_daq/`. Architectural docs remain authoritative, but agents must treat the workspace as production code—changes compile under `cargo check`.
 
 ## Core Architecture Principles
 
@@ -67,6 +67,11 @@ cargo audit
 # Generate documentation
 cargo doc --open
 ```
+
+### Multi-Agent Coordination
+- Obtain a unique `git worktree` before editing. The main checkout may be in use by automation; overlapping directories risk undoing another agent’s work.
+- When using `bd`, set `BEADS_DB=.beads/daq.db` to reuse the project-local tracker. The sandbox blocks writing to `$HOME/.beads`.
+- Finish sessions with `cargo check` and `git status -sb`; confirm recent error UX improvements in `src/error.rs` and configuration messaging in `src/app.rs` still stand.
 
 ### Cross-Platform Builds
 ```bash

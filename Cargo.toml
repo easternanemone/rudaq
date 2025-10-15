@@ -5,6 +5,10 @@ edition = "2021"
 authors = ["Your Name <you@example.com>"]
 description = "A modular scientific data acquisition (DAQ) application in Rust."
 
+[lib]
+name = "rust_daq"
+path = "src/lib.rs"
+
 [dependencies]
 # Async Runtime
 tokio = { version = "1", features = ["full"] }

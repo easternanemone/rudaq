@@ -1,0 +1,26 @@
+[package]
+name = "rust-daq-py"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <you@example.com>"]
+description = "Python bindings for rust-daq."
+
+[lib]
+# The name of the native extension module.
+# It's prefixed with an underscore to indicate it's an internal implementation detail.
+name = "_rust_daq"
+crate-type = ["cdylib"]
+
+[dependencies]
+# The core rust-daq library from the parent directory.
+rust_daq = { path = ".." }
+
+# PyO3 for Rust-Python interoperability.
+pyo3 = { version = "0.21.2", features = ["extension-module", "serde"] }
+
+# Type conversions between chrono and Python's datetime.
+pyo3-chrono = { version = "0.21.2", features = ["chrono-0_4"] }
+
+# Required for DataPoint struct.
+chrono = { version = "0.4.38", features = ["serde"] }
+serde_json = "1.0"

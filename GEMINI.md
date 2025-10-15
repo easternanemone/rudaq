@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This project contains the documentation for a scientific data acquisition (DAQ) application built with Rust. The application is designed to be a high-performance, modular, and reliable alternative to Python-based solutions like PyMoDAQ, ScopeFoundry, or Qudi.
+This project contains both documentation and the live Rust implementation for a scientific data acquisition (DAQ) application. Treat `src/` and `rust_daq/` as active crates that must compile under `cargo check`.
 
 The core architectural principles are:
 *   **Modular Plugin System:** Instruments, GUIs, and data processors are designed as separate, dynamically loadable modules using a trait-based interface.
@@ -54,8 +54,12 @@ cargo test --test integration
 *   **Code Formatting:** Use `cargo fmt` to format the code.
 *   **Linting:** Use `cargo clippy` to check for common issues.
 *   **Dependency Auditing:** Use `cargo audit` to check for security vulnerabilities in dependencies.
-*   **Error Handling:** The project uses the `thiserror` crate for custom error types.
+*   **Error Handling:** The project uses the `thiserror` crate for custom error types; user-facing messages live in `src/error.rs` and `src/app.rs`.
 *   **Testing:** The project follows a comprehensive testing strategy, including unit tests with mock instruments, integration tests for data flow, and performance tests.
+*   **Multi-Agent Coordination:**
+    - Request a dedicated `git worktree` before modifying files so parallel agents do not collide.
+    - Prefix beads commands with `BEADS_DB=.beads/daq.db` to reuse the repo-local tracker (creating `$HOME/.beads` is blocked).
+    - End runs with `cargo check` + `git status -sb` to confirm a clean tree.
 
 ## Directory Overview
 

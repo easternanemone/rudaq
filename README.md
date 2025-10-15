@@ -95,6 +95,8 @@ Application settings can be configured in `config/default.toml`. This includes l
     └── integration.rs  # Integration tests
 ```
 
+For contributor workflow details (worktrees, beads tracker, Jules isolation), see [AGENTS.md](AGENTS.md) and [BD_JULES_INTEGRATION.md](BD_JULES_INTEGRATION.md).
+
 ## Roadmap
 
 ### Current Phase: Rust Core Implementation
@@ -119,7 +121,7 @@ Application settings can be configured in `config/default.toml`. This includes l
 - 🔮 Distributed multi-computer experiments
 - 🔮 Cloud experiment orchestration
 
-**Design Philosophy**: Maintain Rust performance for real-time operations while providing Python accessibility for experiment design and analysis. See [FINAL_CONSENSUS_REPORT.md](FINAL_CONSENSUS_REPORT.md) for detailed strategy.
+**Design Philosophy**: Maintain Rust performance for real-time operations while providing Python accessibility for experiment design and analysis. See [FINAL_CONSENSUS_REPORT.md](FINAL_CONSENSUS_REPORT.md) for detailed strategy and performance boundaries.
 
 ## How to Add a New Instrument
 

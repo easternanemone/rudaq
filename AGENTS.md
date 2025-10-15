@@ -23,7 +23,7 @@ rust-daq/
 **Future Architecture** (planned with Python integration):
 - Workspace structure with separate `rust_daq/` GUI crate
 - Plugin system in `plugins/` directory for modular instrument drivers
-- PyO3 bindings in `python/` for high-level scripting
+- PyO3 bindings in `python/` for high-level scripting (see [README.md – Performance Architecture](README.md#performance-architecture) and [FINAL_CONSENSUS_REPORT.md](FINAL_CONSENSUS_REPORT.md))
 
 ## Build, Test, and Development Commands
 - `cargo check` — Fast compile-time validation before opening a PR
