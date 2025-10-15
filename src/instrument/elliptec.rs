@@ -51,7 +51,8 @@ impl Elliptec {
 
     #[cfg(feature = "instrument_serial")]
     fn send_command(&self, address: u8, command: &str) -> Result<String> {
-        use std::io::{Read, Write};
+        use super::serial_helper;
+        use std::time::Duration;
 
         let port = self.port.as_ref()
             .ok_or_else(|| anyhow!("Not connected to Elliptec '{}'", self.id))?;
@@ -60,26 +61,15 @@ impl Elliptec {
 
         // Elliptec protocol: address + command
         let cmd = format!("{}{}", address, command);
-        port.write_all(cmd.as_bytes())
-            .with_context(|| format!("Failed to send command to Elliptec '{}'", self.id))?;
 
-        // Read response
-        let mut buffer = [0u8; 256];
-        let mut response = String::new();
-        let start = std::time::Instant::now();
-
-        while start.elapsed() < std::time::Duration::from_millis(500) {
-            if let Ok(n) = port.read(&mut buffer) {
-                response.push_str(&String::from_utf8_lossy(&buffer[..n]));
-                // Elliptec responses are terminated with \r or when complete
-                if response.len() >= 3 {  // Minimum response length
-                    break;
-                }
-            }
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
-
-        Ok(response.trim().to_string())
+        serial_helper::send_command(
+            &mut port,
+            &self.id,
+            &cmd,
+            "",
+            Duration::from_millis(500),
+            '\r',
+        )
     }
 
     #[cfg(feature = "instrument_serial")]

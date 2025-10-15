@@ -8,6 +8,9 @@ pub mod scpi;
 pub mod visa;
 
 #[cfg(feature = "instrument_serial")]
+pub mod serial_helper;
+
+#[cfg(feature = "instrument_serial")]
 pub mod newport_1830c;
 
 #[cfg(feature = "instrument_serial")]

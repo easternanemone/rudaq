@@ -49,34 +49,22 @@ impl MaiTai {
 
     #[cfg(feature = "instrument_serial")]
     fn send_command(&self, command: &str) -> Result<String> {
-        use std::io::{Read, Write};
+        use super::serial_helper;
+        use std::time::Duration;
 
         let port = self.port.as_ref()
             .ok_or_else(|| anyhow!("Not connected to MaiTai '{}'", self.id))?;
 
         let mut port = port.blocking_lock();
 
-        // Send command (MaiTai uses CR as terminator)
-        let cmd = format!("{}\r", command);
-        port.write_all(cmd.as_bytes())
-            .with_context(|| format!("Failed to send command to MaiTai '{}'", self.id))?;
-
-        // Read response
-        let mut buffer = [0u8; 256];
-        let mut response = String::new();
-        let start = std::time::Instant::now();
-
-        while start.elapsed() < std::time::Duration::from_secs(2) {
-            if let Ok(n) = port.read(&mut buffer) {
-                response.push_str(&String::from_utf8_lossy(&buffer[..n]));
-                if response.contains('\r') {
-                    break;
-                }
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-
-        Ok(response.trim().to_string())
+        serial_helper::send_command(
+            &mut port,
+            &self.id,
+            command,
+            "\r",
+            Duration::from_secs(2),
+            '\r',
+        )
     }
 
     #[cfg(feature = "instrument_serial")]
