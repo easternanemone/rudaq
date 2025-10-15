@@ -11,7 +11,7 @@
 //!
 //! - **Docking System (`egui_dock`):** The central area of the application is a `DockArea`
 //!   that allows users to arrange various tabs in a flexible layout. Tabs can be plots,
-
+//!
 //!   instrument control panels, or other views. The state of the dock is managed by `DockState<DockTab>`.
 //!
 //! - **Panels:**
@@ -27,7 +27,8 @@
 //! - **Data Flow:**
 //!   - The `Gui` struct receives live `DataPoint`s from the core application logic via a `tokio::sync::broadcast`
 //!     channel.
-//!   - The `update_data` method processes these points and updates the corresponding plot tabs.
+//!   - The `update_data` method processes these points and updates the corresponding plot tabs. This is optimized
+//!     by batching data points by channel before iterating through tabs.
 //!   - Instrument control panels interact with the `DaqApp` core to send commands to hardware.
 //!
 //! - **State Management:**
@@ -54,7 +55,7 @@ use eframe::egui;
 use egui_dock::{DockArea, DockState, Style, TabViewer};
 use egui_plot::{Line, Plot, PlotPoints};
 use log::{error, LevelFilter};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use tokio::sync::broadcast;
 
 mod log_panel;
@@ -130,21 +131,39 @@ impl Gui {
         }
     }
 
-    /// Fetches new data points from the broadcast channel.
+    /// Fetches new data points and dispatches them to the correct plot tabs.
+    /// Optimized by batching data points by channel before iterating through tabs.
     fn update_data(&mut self) {
+        // 1. Collect and group all available data points by channel.
+        let mut new_data_by_channel: HashMap<String, Vec<DataPoint>> = HashMap::new();
         while let Ok(data_point) = self.data_receiver.try_recv() {
-            for (_location, tab) in self.dock_state.iter_all_tabs_mut() {
-                if let DockTab::Plot(plot_tab) = tab {
-                    if plot_tab.channel == data_point.channel {
+            new_data_by_channel
+                .entry(data_point.channel.clone())
+                .or_default()
+                .push(data_point);
+        }
+
+        if new_data_by_channel.is_empty() {
+            return;
+        }
+
+        // 2. Iterate through tabs once and dispatch batches of data.
+        for (_tab_index, tab) in self.dock_state.iter_all_tabs_mut() {
+            if let DockTab::Plot(plot_tab) = tab {
+                if let Some(data_points) = new_data_by_channel.get(&plot_tab.channel) {
+                    for data_point in data_points {
                         if plot_tab.plot_data.len() >= PLOT_DATA_CAPACITY {
                             plot_tab.plot_data.pop_front();
                         }
-                        let timestamp = data_point.timestamp.timestamp_micros() as f64 / 1_000_000.0;
+                        let timestamp =
+                            data_point.timestamp.timestamp_micros() as f64 / 1_000_000.0;
                         if plot_tab.last_timestamp == 0.0 {
                             plot_tab.last_timestamp = timestamp;
                         }
-                        plot_tab.plot_data
-                            .push_back([timestamp - plot_tab.last_timestamp, data_point.value]);
+                        plot_tab.plot_data.push_back([
+                            timestamp - plot_tab.last_timestamp,
+                            data_point.value,
+                        ]);
                     }
                 }
             }
