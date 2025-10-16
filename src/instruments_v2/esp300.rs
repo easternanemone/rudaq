@@ -43,7 +43,7 @@ use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
 use daq_core::{
-    arc_measurement, DataPoint, HardwareAdapter, Instrument, InstrumentCommand, InstrumentState,
+    arc_measurement, DataPoint, DaqError, HardwareAdapter, Instrument, InstrumentCommand, InstrumentState,
     Measurement, MeasurementReceiver, MeasurementSender, MotionController,
 };
 use log::{info, warn};
@@ -333,7 +333,7 @@ impl Instrument for ESP300V2 {
     }
 
     fn state(&self) -> InstrumentState {
-        self.state
+        self.state.clone()
     }
 
 

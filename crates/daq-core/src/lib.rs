@@ -568,7 +568,7 @@ mod tests {
     impl Instrument for MockInstrument {
         fn id(&self) -> &str { "mock" }
         fn instrument_type(&self) -> &str { "mock" }
-        fn state(&self) -> InstrumentState { self.state }
+        fn state(&self) -> InstrumentState { self.state.clone() }
         async fn initialize(&mut self) -> Result<()> { Ok(()) }
         async fn shutdown(&mut self) -> Result<()> { Ok(()) }
         fn measurement_stream(&self) -> MeasurementReceiver {
