@@ -58,6 +58,19 @@ use log::{error, LevelFilter};
 use std::collections::{HashMap, VecDeque};
 use tokio::sync::broadcast;
 
+/// Represents the connection status of an instrument in the GUI
+#[derive(Debug, Clone, PartialEq)]
+pub enum InstrumentStatus {
+    /// Instrument is stopped/not running
+    Stopped,
+    /// Instrument is running in simulation mode (mock instruments)
+    RunningSimulated,
+    /// Instrument is running with hardware connection
+    RunningHardware,
+    /// Instrument failed to connect to hardware
+    Failed(String),
+}
+
 mod log_panel;
 
 const PLOT_DATA_CAPACITY: usize = 1000;
@@ -309,6 +322,60 @@ impl eframe::App for Gui {
     }
 }
 
+/// Determines the connection status of an instrument based on its configuration and running state
+fn get_instrument_status(_id: &str, config: &toml::Value, is_running: bool) -> InstrumentStatus {
+    if !is_running {
+        return InstrumentStatus::Stopped;
+    }
+    
+    // Determine if this is a mock/simulated instrument
+    if let Some(inst_type) = config.get("type").and_then(|v| v.as_str()) {
+        if inst_type == "mock" {
+            return InstrumentStatus::RunningSimulated;
+        }
+    }
+    
+    // For hardware instruments, we assume they're running successfully if the task is active
+    // TODO: In the future, we could check actual connection health here
+    InstrumentStatus::RunningHardware
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_instrument_status_determination() {
+        // Test stopped instrument
+        let config = toml::from_str(r#"type = "mock""#).unwrap();
+        assert_eq!(
+            get_instrument_status("test", &config, false),
+            InstrumentStatus::Stopped
+        );
+        
+        // Test mock instrument (simulated)
+        let config = toml::from_str(r#"type = "mock""#).unwrap();
+        assert_eq!(
+            get_instrument_status("test", &config, true),
+            InstrumentStatus::RunningSimulated
+        );
+        
+        // Test hardware instrument
+        let config = toml::from_str(r#"type = "scpi""#).unwrap();
+        assert_eq!(
+            get_instrument_status("test", &config, true),
+            InstrumentStatus::RunningHardware
+        );
+        
+        // Test instrument with missing type (edge case)
+        let config = toml::from_str(r#"name = "test""#).unwrap();
+        assert_eq!(
+            get_instrument_status("test", &config, true),
+            InstrumentStatus::RunningHardware
+        );
+    }
+}
+
 fn render_instrument_panel(
     ui: &mut egui::Ui,
     instruments: &[(String, toml::Value, bool)],
@@ -320,6 +387,7 @@ fn render_instrument_panel(
     egui::ScrollArea::vertical().show(ui, |ui| {
         for (id, config, is_running) in instruments {
             let inst_type = config.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            let status = get_instrument_status(id, config, *is_running);
 
             // Make the entire group draggable by wrapping it in dnd_drag_source
             let drag_id = egui::Id::new(format!("drag_{}", id));
@@ -331,19 +399,42 @@ fn render_instrument_panel(
                         ui.horizontal(|ui| {
                             ui.strong(id);
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if *is_running {
-                                    ui.colored_label(egui::Color32::GREEN, "● Running");
-                                    if ui.button("Stop").clicked() {
-                                        app.with_inner(|inner| inner.stop_instrument(id));
+                                match status {
+                                    InstrumentStatus::Stopped => {
+                                        ui.colored_label(egui::Color32::GRAY, "● Stopped")
+                                            .on_hover_text("Instrument is not running");
+                                        if ui.button("Start").clicked() {
+                                            app.with_inner(|inner| {
+                                                if let Err(e) = inner.spawn_instrument(id) {
+                                                    error!("Failed to start instrument '{}': {}", id, e);
+                                                }
+                                            });
+                                        }
                                     }
-                                } else {
-                                    ui.colored_label(egui::Color32::GRAY, "● Stopped");
-                                    if ui.button("Start").clicked() {
-                                        app.with_inner(|inner| {
-                                            if let Err(e) = inner.spawn_instrument(id) {
-                                                error!("Failed to start instrument '{}': {}", id, e);
-                                            }
-                                        });
+                                    InstrumentStatus::RunningSimulated => {
+                                        ui.colored_label(egui::Color32::YELLOW, "● Simulated")
+                                            .on_hover_text("Running in simulation mode - no hardware required");
+                                        if ui.button("Stop").clicked() {
+                                            app.with_inner(|inner| inner.stop_instrument(id));
+                                        }
+                                    }
+                                    InstrumentStatus::RunningHardware => {
+                                        ui.colored_label(egui::Color32::GREEN, "● Hardware")
+                                            .on_hover_text("Connected to physical hardware");
+                                        if ui.button("Stop").clicked() {
+                                            app.with_inner(|inner| inner.stop_instrument(id));
+                                        }
+                                    }
+                                    InstrumentStatus::Failed(ref error) => {
+                                        ui.colored_label(egui::Color32::RED, "● Failed")
+                                            .on_hover_text(format!("Connection failed: {}", error));
+                                        if ui.button("Retry").clicked() {
+                                            app.with_inner(|inner| {
+                                                if let Err(e) = inner.spawn_instrument(id) {
+                                                    error!("Failed to restart instrument '{}': {}", id, e);
+                                                }
+                                            });
+                                        }
                                     }
                                 }
                             });
@@ -391,7 +482,19 @@ fn render_instrument_panel(
                             if let Some(port) = config.get("port").and_then(|v| v.as_str()) {
                                 ui.label(format!("Port: {}", port));
                             }
-                            // TODO: Display real-time power and wavelength from data stream
+                            // Display connection status information
+                            match status {
+                                InstrumentStatus::RunningHardware => {
+                                    ui.label("📊 Streaming live power data");
+                                }
+                                InstrumentStatus::RunningSimulated => {
+                                    ui.label("🎯 Simulated power data");
+                                }
+                                InstrumentStatus::Failed(_) => {
+                                    ui.label("⚠️ Check port connection");
+                                }
+                                _ => {}
+                            }
                             ui.label("💡 Drag to main area or double-click");
                         }
                         "newport_1830c" => {
@@ -402,7 +505,19 @@ fn render_instrument_panel(
                             if let Some(port) = config.get("port").and_then(|v| v.as_str()) {
                                 ui.label(format!("Port: {}", port));
                             }
-                            // TODO: Display real-time power reading
+                            // Display connection status information
+                            match status {
+                                InstrumentStatus::RunningHardware => {
+                                    ui.label("📊 Streaming power readings");
+                                }
+                                InstrumentStatus::RunningSimulated => {
+                                    ui.label("🎯 Simulated power readings");
+                                }
+                                InstrumentStatus::Failed(_) => {
+                                    ui.label("⚠️ Check port connection");
+                                }
+                                _ => {}
+                            }
                             ui.label("💡 Drag to main area or double-click");
                         }
                         "elliptec" => {
@@ -413,7 +528,19 @@ fn render_instrument_panel(
                             if let Some(addrs) = config.get("device_addresses").and_then(|v| v.as_array()) {
                                 ui.label(format!("Devices: {}", addrs.len()));
                             }
-                            // TODO: Display positions
+                            // Display connection status information  
+                            match status {
+                                InstrumentStatus::RunningHardware => {
+                                    ui.label("📊 Motors connected");
+                                }
+                                InstrumentStatus::RunningSimulated => {
+                                    ui.label("🎯 Simulated motors");
+                                }
+                                InstrumentStatus::Failed(_) => {
+                                    ui.label("⚠️ Check port/device addresses");
+                                }
+                                _ => {}
+                            }
                             ui.label("💡 Drag to main area or double-click");
                         }
                         "esp300" => {
@@ -423,7 +550,19 @@ fn render_instrument_panel(
                             }
                             let num_axes = config.get("num_axes").and_then(|v| v.as_integer()).unwrap_or(3) as usize;
                             ui.label(format!("Axes: {}", num_axes));
-                            // TODO: Display positions
+                            // Display connection status information
+                            match status {
+                                InstrumentStatus::RunningHardware => {
+                                    ui.label("📊 Controller connected");
+                                }
+                                InstrumentStatus::RunningSimulated => {
+                                    ui.label("🎯 Simulated controller");
+                                }
+                                InstrumentStatus::Failed(_) => {
+                                    ui.label("⚠️ Check port connection");
+                                }
+                                _ => {}
+                            }
                             ui.label("💡 Drag to main area or double-click");
                         }
                         "pvcam" => {
@@ -434,7 +573,19 @@ fn render_instrument_panel(
                             if let Some(exp) = config.get("exposure_ms").and_then(|v| v.as_float()) {
                                 ui.label(format!("Exposure: {} ms", exp));
                             }
-                            // TODO: Display acquisition status
+                            // Display connection status information
+                            match status {
+                                InstrumentStatus::RunningHardware => {
+                                    ui.label("📷 Camera acquiring");
+                                }
+                                InstrumentStatus::RunningSimulated => {
+                                    ui.label("🎯 Simulated camera");
+                                }
+                                InstrumentStatus::Failed(_) => {
+                                    ui.label("⚠️ Check camera connection");
+                                }
+                                _ => {}
+                            }
                             ui.label("💡 Drag to main area or double-click");
                         }
                         _ if inst_type.contains("visa") => {

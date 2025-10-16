@@ -3,7 +3,7 @@ use crate::{
     config::Settings,
     core::{DataPoint, Instrument},
 };
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use log::info;
 use std::sync::Arc;
@@ -37,12 +37,24 @@ impl Instrument for MockInstrument {
         let (sender, _) = broadcast::channel(1024);
         self.sender = Some(sender.clone());
 
-        let settings = settings.clone();
+        let config = settings
+            .instruments
+            .get("mock")
+            .context("Missing 'mock' instrument configuration")?
+            .clone();
+        let sample_rate = config
+            .get("sample_rate_hz")
+            .context("Missing 'sample_rate_hz' in mock instrument config")?
+            .as_float()
+            .context("'sample_rate_hz' must be a float")?;
+        let num_samples = config
+            .get("num_samples")
+            .context("Missing 'num_samples' in mock instrument config")?
+            .as_integer()
+            .context("'num_samples' must be an integer")? as usize;
+
         // Spawn a task to generate data
         tokio::spawn(async move {
-            let config = settings.instruments.get("mock").unwrap().clone();
-            let sample_rate = config.get("sample_rate_hz").unwrap().as_float().unwrap();
-            let num_samples = config.get("num_samples").unwrap().as_integer().unwrap() as usize;
             let mut interval = interval(Duration::from_secs_f64(1.0 / sample_rate));
             let mut phase: f64 = 0.0;
 
