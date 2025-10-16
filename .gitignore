@@ -13,6 +13,9 @@ Cargo.lock
 # Egui persistence
 /storage/
 
+# Data output files
+/data_output/
+
 # Local development and documentation files
 .beads/
 *.db
