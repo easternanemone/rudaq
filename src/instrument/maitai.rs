@@ -69,7 +69,7 @@ impl MaiTai {
     async fn query_value(&self, command: &str) -> Result<f64> {
         let response = self.send_command_async(command).await?;
         // Remove command echo if present
-        let value_str = response.split(':').last().unwrap_or(&response);
+        let value_str = response.split(':').next_back().unwrap_or(&response);
         value_str.trim().parse::<f64>()
             .with_context(|| format!("Failed to parse response '{}' as float", response))
     }

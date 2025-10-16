@@ -71,7 +71,7 @@
 //! use std::sync::Arc;
 //!
 //! # fn example() -> anyhow::Result<()> {
-//! let settings = Arc::new(Settings::load("config/default.toml")?);
+//! let settings = Arc::new(Settings::new(Some("config/default.toml"))?);
 //! let instrument_registry = Arc::new(InstrumentRegistry::new());
 //! let processor_registry = Arc::new(ProcessorRegistry::new());
 //! let log_buffer = LogBuffer::new();
@@ -92,7 +92,7 @@
 use crate::{
     config::Settings,
     core::{DataPoint, DataProcessor, InstrumentHandle},
-    data::registry::ProcessorRegistry,
+    data::{registry::ProcessorRegistry, storage_factory::StorageWriterRegistry},
     instrument::InstrumentRegistry,
     log_capture::LogBuffer,
     metadata::Metadata,
@@ -194,6 +194,8 @@ pub struct DaqAppInner {
     pub instrument_registry: Arc<InstrumentRegistry>,
     /// Data processor factory (shared across processor creations)
     pub processor_registry: Arc<ProcessorRegistry>,
+    /// Storage writer factory (determines available formats)
+    pub storage_registry: Arc<StorageWriterRegistry>,
     /// Running instrument tasks with command channels
     pub instruments: HashMap<String, InstrumentHandle>,
     /// Central data distribution channel (multi-consumer broadcast)
@@ -257,7 +259,7 @@ impl DaqApp {
     /// use std::sync::Arc;
     ///
     /// # fn example() -> anyhow::Result<()> {
-    /// let settings = Arc::new(Settings::load("config/default.toml")?);
+    /// let settings = Arc::new(Settings::new(Some("config/default.toml"))?);
     ///
     /// let mut instrument_registry = InstrumentRegistry::new();
     /// // Register instrument types...
@@ -286,10 +288,13 @@ impl DaqApp {
         let (data_sender, data_receiver_keeper) = broadcast::channel(1024);
         let storage_format = settings.storage.default_format.clone();
 
+        let storage_registry = Arc::new(StorageWriterRegistry::new());
+
         let mut inner = DaqAppInner {
             settings: settings.clone(),
             instrument_registry,
             processor_registry,
+            storage_registry,
             instruments: HashMap::new(),
             data_sender,
             log_buffer,
@@ -348,7 +353,7 @@ impl DaqApp {
     ///
     /// // Mutable access
     /// app.with_inner(|inner| {
-    ///     inner.metadata.experimenter = "Alice".to_string();
+    ///     inner.metadata.experiment_name = "Alice's Experiment".to_string();
     /// });
     /// # }
     /// ```
@@ -1022,19 +1027,10 @@ impl DaqAppInner {
         let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
         self.writer_shutdown_tx = Some(shutdown_tx);
 
+        let storage_registry = self.storage_registry.clone();
+
         let task = self.runtime.spawn(async move {
-            let mut writer: Box<dyn crate::core::StorageWriter> =
-                match storage_format_for_task.as_str() {
-                    "csv" => Box::new(crate::data::storage::CsvWriter::new()),
-                    "hdf5" => Box::new(crate::data::storage::Hdf5Writer::new()),
-                    "arrow" => Box::new(crate::data::storage::ArrowWriter::new()),
-                    _ => {
-                        return Err(anyhow!(
-                            "Unsupported storage format: {}",
-                            storage_format_for_task
-                        ))
-                    }
-                };
+            let mut writer = storage_registry.create(&storage_format_for_task)?;
 
             writer.init(&settings).await?;
             writer.set_metadata(&metadata).await?;
@@ -1122,7 +1118,7 @@ impl DaqAppInner {
         let runtime = self.runtime.clone();
         
         // Spawn shutdown task to avoid blocking
-        let _ = runtime.spawn(async move {
+        let shutdown_task = runtime.spawn(async move {
             let shutdown_timeout = std::time::Duration::from_secs(5);
             
             if let Some(tx) = shutdown_tx {
@@ -1152,7 +1148,10 @@ impl DaqAppInner {
                 task.abort();
             }
         });
-        
+
+        // Explicitly drop the shutdown task handle
+        drop(shutdown_task);
+
         info!("Stopped recording.");
     }
 }

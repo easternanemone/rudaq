@@ -4,38 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This repository contains documentation and architectural guidance for building a scientific data acquisition (DAQ) application in Rust. It is designed as a high-performance, modular alternative to Python-based solutions like PyMoDAQ, ScopeFoundry, or Qudi.
-
-**Current State**: The repository now contains live Rust source under `src/` and `rust_daq/`. Architectural docs remain authoritative, but agents must treat the workspace as production code—changes compile under `cargo check`.
-
-## Core Architecture Principles
-
-1. **Modular Plugin System**: Instruments, GUIs, and data processors are designed as separate, dynamically loadable modules using trait-based interfaces
-2. **Async-First Design**: Built on Tokio runtime with channel-based communication for non-blocking operations
-3. **Type Safety**: Leverages Rust's type system and Result-based error handling for reliability
-
-## Technology Stack
-
-- **Runtime**: Tokio (async)
-- **GUI Framework**: egui/eframe
-- **Data Handling**: ndarray, polars, serde, HDF5, Apache Arrow
-- **Instrument Control**: SCPI protocol, serialport
-- **Configuration**: config crate with TOML files
-- **Logging**: tracing/tracing-subscriber
-- **Error Handling**: thiserror, anyhow
+High-performance scientific data acquisition (DAQ) system in Rust, designed as a modular alternative to Python frameworks like PyMoDAQ. Built on async-first architecture with Tokio runtime, egui GUI, and trait-based plugin system for instruments and processors.
 
 ## Common Commands
 
-### Development Workflow
+### Development
 ```bash
-# Run in development with hot-reload
+# Build and run with hot-reload
 cargo watch -x run
 
-# Run in release mode
+# Run with release optimization
 cargo run --release
 
-# Run with specific features
-cargo run --features hdf5-support
+# Run with all features enabled (HDF5, Arrow, VISA)
+cargo run --features full
 ```
 
 ### Testing
@@ -43,14 +25,14 @@ cargo run --features hdf5-support
 # Run all tests
 cargo test
 
-# Run with output visible
-cargo test -- --nocapture
+# Run specific test with output
+cargo test test_name -- --nocapture
 
-# Run specific test
-cargo test test_instrument_initialization
+# Run tests for specific module
+cargo test instrument::
 
-# Run integration tests
-cargo test --test integration
+# Run integration tests only
+cargo test --test integration_test
 ```
 
 ### Code Quality
@@ -58,133 +40,153 @@ cargo test --test integration
 # Format code
 cargo fmt
 
-# Lint and check for issues
+# Check for issues (stricter than build)
 cargo clippy
 
-# Security audit
-cargo audit
-
-# Generate documentation
-cargo doc --open
+# Build without running
+cargo check
 ```
 
-### Multi-Agent Coordination
-- Obtain a unique `git worktree` before editing. The main checkout may be in use by automation; overlapping directories risk undoing another agent’s work.
-- When using `bd`, set `BEADS_DB=.beads/daq.db` to reuse the project-local tracker. The sandbox blocks writing to `$HOME/.beads`.
-- Finish sessions with `cargo check` and `git status -sb`; confirm recent error UX improvements in `src/error.rs` and configuration messaging in `src/app.rs` still stand.
+## Architecture Overview
 
-### Cross-Platform Builds
-```bash
-# Add targets
-rustup target add x86_64-pc-windows-gnu
-rustup target add aarch64-apple-darwin
+### Core Traits System (src/core.rs)
 
-# Build for specific target
-cargo build --release --target x86_64-pc-windows-gnu
-```
+The system is built around three primary traits that define plugin interfaces:
 
-## Key Design Patterns
+- **`Instrument`**: Async trait for hardware communication. All instruments implement `connect()`, `disconnect()`, `data_stream()`, and `handle_command()`. Each instrument runs in its own Tokio task with broadcast channels for data distribution.
 
-### Instrument Trait Pattern
-All instruments implement the async `Instrument` trait with methods:
-- `initialize()` - Setup with configuration
-- `start_acquisition()` / `stop_acquisition()` - Control data collection
-- `read_data()` - Retrieve measurements
-- `send_command()` - Execute instrument commands
-- `shutdown()` - Clean disconnect
+- **`DataProcessor`**: Stateful, synchronous trait for real-time signal processing. Processors operate on batches of `DataPoint` slices and return transformed data. Can be chained into pipelines.
 
-### Message-Based Communication
-System components communicate via typed messages through channels:
+- **`StorageWriter`**: Async trait for data persistence. Supports CSV, HDF5, and Arrow formats via feature flags. Implements batched writes with graceful shutdown.
+
+### Application State (src/app.rs)
+
+`DaqApp` is the central orchestrator wrapping `DaqAppInner` in `Arc<Mutex<>>`:
+
+- **Threading Model**: Main thread runs egui GUI, Tokio runtime owns all async tasks
+- **Data Flow**: Instrument tasks → broadcast channel (capacity: 1024) → GUI + Storage + Processors
+- **Lifecycle**: `new()` spawns all configured instruments → Running → `shutdown()` with 5s timeout per instrument
+
+Key implementation detail: `_data_receiver_keeper` holds broadcast channel open until GUI subscribes, preventing data loss during startup.
+
+### Instrument Registry Pattern (src/instrument/mod.rs)
+
+Factory-based registration system:
 ```rust
-enum SystemMessage {
-    InstrumentData { source: String, data: Vec<u8>, timestamp: Instant },
-    ConfigUpdate { target: String, config: Value },
-    Command { target: String, command: String, params: Vec<String> },
-    Error { source: String, error: String },
-}
+instrument_registry.register("mock", |id| Box::new(MockInstrument::new()));
 ```
 
-### Real-Time Buffering
-Ring buffers (ringbuf crate) with overflow handling for continuous data streams. Lock-free implementations where possible for minimal latency.
+Instruments configured in TOML are spawned automatically in `DaqApp::new()`. Each gets:
+- Dedicated Tokio task with `tokio::select!` event loop
+- Command channel (mpsc, capacity 32) for parameter updates
+- Broadcast sender (shared) for data streaming
 
-### Error Handling
-Custom error types using thiserror for domain-specific errors:
-- `InstrumentError` - Connection, timeout, invalid response
-- `DataProcessingError` - Buffer overflow, invalid data
-- `ConfigError` - Missing/invalid configuration
+### Data Processing Pipeline
 
-## Project Structure (When Implemented)
-
+When processors are configured for an instrument in TOML:
+```toml
+[[processors.instrument_id]]
+type = "iir_filter"
+[processors.instrument_id.config]
+cutoff_hz = 10.0
 ```
-src/
-├── main.rs                  # Entry point, GUI launch
-├── lib.rs                   # Public API exports
-├── core/
-│   ├── instrument.rs        # Instrument trait definitions
-│   ├── data_processor.rs    # Data processing pipeline
-│   └── plugin_manager.rs    # Dynamic plugin loading
-├── gui/
-│   ├── main_window.rs       # Primary GUI window
-│   └── components/          # Reusable UI components
-├── instruments/
-│   ├── mock.rs              # Mock instrument for testing
-│   └── scpi/                # SCPI protocol support
-├── data/
-│   ├── buffer.rs            # Real-time ring buffers
-│   └── storage.rs           # HDF5/CSV persistence
-└── utils/
-    ├── config.rs            # Configuration loading
-    └── logging.rs           # Tracing setup
-```
+
+Data flows: Instrument → Processor Chain → Broadcast. Processors are created via `ProcessorRegistry` during instrument spawn (src/app.rs:704-718).
+
+### Measurement Enum Architecture
+
+The `Measurement` enum (src/core.rs:229-276) supports multiple data types:
+- `Scalar(DataPoint)` - Traditional scalar measurements
+- `Spectrum(SpectrumData)` - FFT/frequency analysis output
+- `Image(ImageData)` - 2D camera/sensor data
+
+Migration from scalar-only `DataPoint` to strongly-typed `Measurement` variants is in progress. See docs/adr/001-measurement-enum-architecture.md for design rationale.
+
+## Key Files and Responsibilities
+
+- **src/core.rs**: Trait definitions, `DataPoint`/`Measurement` types, `InstrumentCommand` enum
+- **src/app.rs**: `DaqApp`/`DaqAppInner`, instrument lifecycle, storage control
+- **src/error.rs**: `DaqError` enum with `thiserror` variants
+- **src/config.rs**: TOML configuration loading and validation
+- **src/instrument/**: Concrete instrument implementations (mock, ESP300, Newport 1830C, MaiTai, SCPI, VISA)
+- **src/data/**: Storage writers, processors (FFT, IIR, trigger), processor registry
+- **src/gui/**: egui implementation with docking layout
 
 ## Configuration System
 
-Hierarchical configuration with precedence:
-1. `config/default.toml` - Base configuration
-2. `config/local.toml` - Local overrides (gitignored)
-3. Environment variables with `RUSTDAQ_` prefix
+Hierarchical TOML configuration (config/default.toml):
 
-Key config sections:
-- `[application]` - Name, version, log level
-- `[instruments.*]` - Per-instrument settings with plugin name, connection params
-- `[data_acquisition]` - Buffer sizes, sample rates, auto-save
-- `[gui]` - Theme, update rate, plot buffer size
+```toml
+[application]
+name = "Rust DAQ"
 
-## Performance Considerations
+[[instruments.my_instrument]]
+type = "mock"  # Must match registry key
+[instruments.my_instrument.params]
+channel_count = 4
 
-1. **Zero-Copy**: Use `Arc<[T]>` for shared data, memory-mapped files for large datasets
-2. **Lock-Free**: Prefer lock-free data structures (DashMap, ring buffers) for hot paths
-3. **SIMD**: Use explicit SIMD for bulk data processing when needed
-4. **Async Batching**: Batch small operations to reduce context switching overhead
-5. **Backpressure**: Implement channel-based backpressure to prevent memory exhaustion
+[[processors.my_instrument]]
+type = "iir_filter"
+[processors.my_instrument.config]
+cutoff_hz = 10.0
 
-## Testing Strategy
+[storage]
+default_format = "csv"  # or "hdf5", "arrow"
+default_path = "./data"
+```
 
-- **Unit Tests**: Mock instruments with tokio-test for async testing
-- **Integration Tests**: Full data pipeline with mock instruments
-- **Performance Tests**: Benchmarks with criterion for critical paths
-- **Property Tests**: Use proptest for data processing correctness
+Processors are optional per-instrument. Missing processor config means raw data flows directly to broadcast channel.
 
-## Documentation Files
+## Feature Flags
 
-- `rust-daq-getting-started.md` - Setup, dependencies, initial implementation
-- `rust-daq-app-architecture.md` - System design, core traits, plugin system
-- `rust-daq-instrument-guide.md` - SCPI, serial, USB/Ethernet instrument control
-- `rust-daq-data-guide.md` - Buffering, persistence, storage backends
-- `rust-daq-gui-guide.md` - egui implementation, real-time plotting
-- `rust-daq-deployment.md` - Release builds, packaging, cross-platform
-- `rust-daq-performance-test.md` - Optimization, profiling, benchmarking
-- `GEMINI.md` - High-level project overview
+```toml
+default = ["storage_csv", "instrument_serial"]
+full = ["storage_csv", "storage_hdf5", "storage_arrow", "instrument_serial", "instrument_visa"]
+```
 
-## Implementation Notes
+Use `cargo build --features full` to enable all backends. HDF5 requires system library (macOS: `brew install hdf5`).
 
-When implementing features from this documentation:
+## Error Handling Patterns
 
-1. Start with core traits (Instrument, DataProcessor) before concrete implementations
-2. Build mock instruments first for testing infrastructure
-3. Implement basic GUI with instrument controls before advanced features
-4. Add real hardware support incrementally after mock testing works
-5. Use feature flags for optional dependencies (HDF5, Arrow) to keep builds lean
-6. Profile early and often - real-time performance is critical
-7. Document all public APIs with doc comments including examples
-8. Thread safety is essential - all instrument operations must be Send + Sync
+1. **Instrument failures are isolated**: One instrument crash doesn't terminate the app
+2. **Graceful shutdown with timeout**: 5-second timeout per instrument before force abort
+3. **Storage errors abort recording**: But don't stop data acquisition
+4. **Command send failures**: Indicate terminated instrument task (logged, task aborted)
+
+## Async Patterns
+
+Instruments use `tokio::select!` for concurrent operations:
+```rust
+loop {
+    tokio::select! {
+        data = stream.recv() => { /* process and broadcast */ }
+        cmd = command_rx.recv() => { if Shutdown => break; }
+        _ = sleep(1s) => { /* idle timeout */ }
+    }
+}
+disconnect() // Called after loop breaks for cleanup
+```
+
+Shutdown command breaks the loop, then `disconnect()` is called outside for guaranteed cleanup (bd-20).
+
+## Testing Infrastructure
+
+- **Unit tests**: In-module `#[cfg(test)]` blocks
+- **Integration tests**: tests/*.rs (integration_test, storage_shutdown_test, measurement_enum_test)
+- **Mock instruments**: src/instrument/mock.rs for testing without hardware
+- **Test helpers**: Use `tempfile` crate for temporary storage, `serial_test` for shared resource tests
+
+## Multi-Agent Coordination
+
+This workspace supports concurrent agent work:
+- Obtain unique `git worktree` before editing to avoid overlapping changes
+- Set `BEADS_DB=.beads/daq.db` to use project-local issue tracker
+- Finish with `cargo check && git status -sb` to verify state
+- See AGENTS.md and BD_JULES_INTEGRATION.md for detailed workflow
+
+## Recent Architectural Changes
+
+- **bd-25 (Error Handling)**: Enhanced `DaqError` with context-rich variants, improved storage writer error propagation
+- **bd-22 (GUI Batching)**: Optimized data dispatch to prevent GUI lag
+- **bd-20/21 (Graceful Shutdown)**: Added `InstrumentCommand::Shutdown`, async serial I/O, 5s timeout with fallback abort
+- **Measurement Enum**: Introduced `Measurement` enum to replace JSON metadata workarounds for non-scalar data

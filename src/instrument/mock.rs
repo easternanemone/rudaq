@@ -2,6 +2,7 @@
 use crate::{
     config::Settings,
     core::{DataPoint, Instrument},
+    instrument::config::MockInstrumentConfig,
 };
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
@@ -37,21 +38,15 @@ impl Instrument for MockInstrument {
         let (sender, _) = broadcast::channel(1024);
         self.sender = Some(sender.clone());
 
-        let config = settings
+        // Parse and validate configuration using type-safe config object
+        let config_value = settings
             .instruments
             .get("mock")
-            .context("Missing 'mock' instrument configuration")?
-            .clone();
-        let sample_rate = config
-            .get("sample_rate_hz")
-            .context("Missing 'sample_rate_hz' in mock instrument config")?
-            .as_float()
-            .context("'sample_rate_hz' must be a float")?;
-        let num_samples = config
-            .get("num_samples")
-            .context("Missing 'num_samples' in mock instrument config")?
-            .as_integer()
-            .context("'num_samples' must be an integer")? as usize;
+            .context("Missing 'mock' instrument configuration")?;
+        let config = MockInstrumentConfig::from_toml_validated(config_value)?;
+
+        let sample_rate = config.sample_rate_hz;
+        let num_samples = config.num_samples;
 
         // Spawn a task to generate data
         tokio::spawn(async move {

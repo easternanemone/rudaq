@@ -2,6 +2,7 @@
 use crate::core::Instrument;
 use std::collections::HashMap;
 
+pub mod config;
 pub mod mock;
 pub mod scpi;
 #[cfg(feature = "instrument_visa")]

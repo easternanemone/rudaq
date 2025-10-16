@@ -1,4 +1,4 @@
-//! Example data storage writers.
+//! Data storage writers with clean feature flag handling.
 use crate::{
     config::Settings,
     core::{DataPoint, StorageWriter},
@@ -7,56 +7,44 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use std::fs::File;
-use std::io::Write;
-use std::path::PathBuf;
 use std::sync::Arc;
 
-/// A writer for CSV files.
-#[cfg(feature = "storage_csv")]
-pub struct CsvWriter {
-    path: PathBuf,
-    writer: Option<csv::Writer<File>>,
-}
+// ============================================================================
+// CSV Writer
+// ============================================================================
 
 #[cfg(feature = "storage_csv")]
-impl Default for CsvWriter {
-    fn default() -> Self {
-        Self::new()
+mod csv_enabled {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::PathBuf;
+
+    pub struct CsvWriter {
+        path: PathBuf,
+        writer: Option<csv::Writer<File>>,
     }
-}
 
-#[cfg(feature = "storage_csv")]
-impl CsvWriter {
-    pub fn new() -> Self {
-        Self {
-            path: PathBuf::new(),
-            writer: None,
+    impl Default for CsvWriter {
+        fn default() -> Self {
+            Self::new()
         }
     }
-}
 
-#[cfg(not(feature = "storage_csv"))]
-pub struct CsvWriter;
-
-#[cfg(not(feature = "storage_csv"))]
-impl CsvWriter {
-    pub fn new() -> Self {
-        Self
+    impl CsvWriter {
+        pub fn new() -> Self {
+            Self {
+                path: PathBuf::new(),
+                writer: None,
+            }
+        }
     }
-}
 
-#[async_trait]
-impl StorageWriter for CsvWriter {
-    async fn init(&mut self, settings: &Arc<Settings>) -> Result<()> {
-        #[cfg(not(feature = "storage_csv"))]
-        return Err(DaqError::FeatureNotEnabled("storage_csv".to_string()).into());
-
-        #[cfg(feature = "storage_csv")]
-        {
+    #[async_trait]
+    impl StorageWriter for CsvWriter {
+        async fn init(&mut self, settings: &Arc<Settings>) -> Result<()> {
             let file_name = format!(
-                "{}_{}.csv",
-                "session",
+                "session_{}.csv",
                 chrono::Utc::now().format("%Y%m%d_%H%M%S")
             );
             let path = PathBuf::from(&settings.storage.default_path);
@@ -65,17 +53,11 @@ impl StorageWriter for CsvWriter {
                     .with_context(|| format!("Failed to create storage directory at {:?}", path))?;
             }
             self.path = path.join(file_name);
-            log::info!(
-                "CSV Writer will be initialized at '{}'.",
-                self.path.display()
-            );
+            log::info!("CSV Writer initialized at '{}'.", self.path.display());
             Ok(())
         }
-    }
 
-    async fn set_metadata(&mut self, metadata: &Metadata) -> Result<()> {
-        #[cfg(feature = "storage_csv")]
-        {
+        async fn set_metadata(&mut self, metadata: &Metadata) -> Result<()> {
             let mut file = File::create(&self.path)
                 .with_context(|| format!("Failed to create CSV file at {:?}", self.path))?;
 
@@ -97,13 +79,8 @@ impl StorageWriter for CsvWriter {
             self.writer = Some(writer);
             Ok(())
         }
-        #[cfg(not(feature = "storage_csv"))]
-        Ok(())
-    }
 
-    async fn write(&mut self, data: &[DataPoint]) -> Result<()> {
-        #[cfg(feature = "storage_csv")]
-        {
+        async fn write(&mut self, data: &[DataPoint]) -> Result<()> {
             if let Some(writer) = self.writer.as_mut() {
                 for dp in data {
                     let metadata_str = dp
@@ -123,25 +100,65 @@ impl StorageWriter for CsvWriter {
             }
             Ok(())
         }
-        #[cfg(not(feature = "storage_csv"))]
-        Ok(())
-    }
 
-    async fn shutdown(&mut self) -> Result<()> {
-        #[cfg(feature = "storage_csv")]
-        {
+        async fn shutdown(&mut self) -> Result<()> {
             if let Some(mut writer) = self.writer.take() {
                 writer.flush().context("Failed to flush CSV writer")?;
             }
             log::info!("CSV Writer shut down.");
             Ok(())
         }
-        #[cfg(not(feature = "storage_csv"))]
-        Ok(())
     }
 }
 
-// Skeletons for other writers
+#[cfg(not(feature = "storage_csv"))]
+mod csv_disabled {
+    use super::*;
+
+    pub struct CsvWriter;
+
+    impl CsvWriter {
+        pub fn new() -> Self {
+            Self
+        }
+    }
+
+    impl Default for CsvWriter {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    #[async_trait]
+    impl StorageWriter for CsvWriter {
+        async fn init(&mut self, _settings: &Arc<Settings>) -> Result<()> {
+            Err(DaqError::FeatureNotEnabled("storage_csv".to_string()).into())
+        }
+
+        async fn set_metadata(&mut self, _metadata: &Metadata) -> Result<()> {
+            Err(DaqError::FeatureNotEnabled("storage_csv".to_string()).into())
+        }
+
+        async fn write(&mut self, _data: &[DataPoint]) -> Result<()> {
+            Err(DaqError::FeatureNotEnabled("storage_csv".to_string()).into())
+        }
+
+        async fn shutdown(&mut self) -> Result<()> {
+            Err(DaqError::FeatureNotEnabled("storage_csv".to_string()).into())
+        }
+    }
+}
+
+#[cfg(feature = "storage_csv")]
+pub use csv_enabled::CsvWriter;
+
+#[cfg(not(feature = "storage_csv"))]
+pub use csv_disabled::CsvWriter;
+
+// ============================================================================
+// HDF5 Writer
+// ============================================================================
+
 #[cfg(not(feature = "storage_hdf5"))]
 pub struct Hdf5Writer;
 
@@ -159,21 +176,29 @@ impl Hdf5Writer {
     }
 }
 
+#[cfg(not(feature = "storage_hdf5"))]
 #[async_trait]
 impl StorageWriter for Hdf5Writer {
     async fn init(&mut self, _settings: &Arc<Settings>) -> Result<()> {
         Err(DaqError::FeatureNotEnabled("storage_hdf5".to_string()).into())
     }
+
     async fn set_metadata(&mut self, _metadata: &Metadata) -> Result<()> {
         Err(DaqError::FeatureNotEnabled("storage_hdf5".to_string()).into())
     }
+
     async fn write(&mut self, _data: &[DataPoint]) -> Result<()> {
         Err(DaqError::FeatureNotEnabled("storage_hdf5".to_string()).into())
     }
+
     async fn shutdown(&mut self) -> Result<()> {
         Err(DaqError::FeatureNotEnabled("storage_hdf5".to_string()).into())
     }
 }
+
+// ============================================================================
+// Arrow Writer
+// ============================================================================
 
 #[cfg(not(feature = "storage_arrow"))]
 pub struct ArrowWriter;
@@ -192,17 +217,21 @@ impl ArrowWriter {
     }
 }
 
+#[cfg(not(feature = "storage_arrow"))]
 #[async_trait]
 impl StorageWriter for ArrowWriter {
     async fn init(&mut self, _settings: &Arc<Settings>) -> Result<()> {
         Err(DaqError::FeatureNotEnabled("storage_arrow".to_string()).into())
     }
+
     async fn set_metadata(&mut self, _metadata: &Metadata) -> Result<()> {
         Err(DaqError::FeatureNotEnabled("storage_arrow".to_string()).into())
     }
+
     async fn write(&mut self, _data: &[DataPoint]) -> Result<()> {
         Err(DaqError::FeatureNotEnabled("storage_arrow".to_string()).into())
     }
+
     async fn shutdown(&mut self) -> Result<()> {
         Err(DaqError::FeatureNotEnabled("storage_arrow".to_string()).into())
     }
