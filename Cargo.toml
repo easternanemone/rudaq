@@ -1,3 +1,9 @@
+[workspace]
+members = [
+    "crates/daq-core",
+]
+
+# Keep the main crate at root for compatibility
 [package]
 name = "rust_daq"
 version = "0.1.0"
@@ -5,11 +11,17 @@ edition = "2021"
 authors = ["Your Name <you@example.com>"]
 description = "A modular scientific data acquisition (DAQ) application in Rust."
 
+[workspace.package]
+edition = "2021"
+
 [lib]
 name = "rust_daq"
 path = "src/lib.rs"
 
 [dependencies]
+# New: daq-core crate with trait definitions
+daq-core = { path = "crates/daq-core" }
+
 # Async Runtime
 tokio = { version = "1", features = ["full"] }
 
@@ -64,6 +76,7 @@ humantime-serde = "1.1.1"
 [dev-dependencies]
 tempfile = "3.10.1"
 serial_test = "3.1.1"
+tokio-test = "0.4"
 
 [features]
 default = ["storage_csv", "instrument_serial"]

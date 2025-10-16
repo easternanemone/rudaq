@@ -41,3 +41,7 @@ pub mod log_capture;
 pub mod metadata;
 pub mod session;
 pub mod validation;
+
+// New v2 architecture modules (Phase 1)
+pub mod adapters;
+pub mod instruments_v2;
