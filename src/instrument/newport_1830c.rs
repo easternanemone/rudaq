@@ -76,13 +76,14 @@ impl Instrument for Newport1830C {
     }
 
     #[cfg(feature = "instrument_serial")]
-    async fn connect(&mut self, settings: &Arc<Settings>) -> Result<()> {
-        info!("Connecting to Newport 1830-C: {}", self.id);
+    async fn connect(&mut self, id: &str, settings: &Arc<Settings>) -> Result<()> {
+        info!("Connecting to Newport 1830-C: {}", id);
+        self.id = id.to_string();
 
         let instrument_config = settings
             .instruments
-            .get(&self.id)
-            .ok_or_else(|| anyhow!("Configuration for '{}' not found", self.id))?;
+            .get(id)
+            .ok_or_else(|| anyhow!("Configuration for '{}' not found", id))?;
 
         let port_name = instrument_config
             .get("port")
@@ -152,7 +153,8 @@ impl Instrument for Newport1830C {
                         if let Ok(value) = response.parse::<f64>() {
                             let dp = DataPoint {
                                 timestamp: chrono::Utc::now(),
-                                channel: format!("{}_power", instrument.id),
+                                instrument_id: instrument.id.clone(),
+                                channel: "power".to_string(),
                                 value,
                                 unit: "W".to_string(),
                                 metadata: None,
@@ -176,7 +178,8 @@ impl Instrument for Newport1830C {
     }
 
     #[cfg(not(feature = "instrument_serial"))]
-    async fn connect(&mut self, _settings: &Arc<Settings>) -> Result<()> {
+    async fn connect(&mut self, id: &str, _settings: &Arc<Settings>) -> Result<()> {
+        self.id = id.to_string();
         Err(anyhow!("Serial support not enabled. Rebuild with --features instrument_serial"))
     }
 

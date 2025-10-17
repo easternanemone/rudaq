@@ -105,13 +105,14 @@ impl Instrument for ESP300 {
     }
 
     #[cfg(feature = "instrument_serial")]
-    async fn connect(&mut self, settings: &Arc<Settings>) -> Result<()> {
-        info!("Connecting to ESP300 motion controller: {}", self.id);
+    async fn connect(&mut self, id: &str, settings: &Arc<Settings>) -> Result<()> {
+        info!("Connecting to ESP300 motion controller: {}", id);
+        self.id = id.to_string();
 
         let instrument_config = settings
             .instruments
-            .get(&self.id)
-            .ok_or_else(|| anyhow!("Configuration for '{}' not found", self.id))?;
+            .get(id)
+            .ok_or_else(|| anyhow!("Configuration for '{}' not found", id))?;
 
         let port_name = instrument_config
             .get("port")
@@ -192,7 +193,8 @@ impl Instrument for ESP300 {
                     if let Ok(position) = instrument.get_position(axis).await {
                         let dp = DataPoint {
                             timestamp,
-                            channel: format!("{}_axis{}_position", instrument.id, axis),
+                            instrument_id: instrument.id.clone(),
+                            channel: format!("axis{}_position", axis),
                             value: position,
                             unit: "units".to_string(),
                             metadata: Some(serde_json::json!({"axis": axis})),
@@ -207,7 +209,8 @@ impl Instrument for ESP300 {
                     if let Ok(velocity) = instrument.get_velocity(axis).await {
                         let dp = DataPoint {
                             timestamp,
-                            channel: format!("{}_axis{}_velocity", instrument.id, axis),
+                            instrument_id: instrument.id.clone(),
+                            channel: format!("axis{}_velocity", axis),
                             value: velocity,
                             unit: "units/s".to_string(),
                             metadata: Some(serde_json::json!({"axis": axis})),
@@ -223,7 +226,8 @@ impl Instrument for ESP300 {
     }
 
     #[cfg(not(feature = "instrument_serial"))]
-    async fn connect(&mut self, _settings: &Arc<Settings>) -> Result<()> {
+    async fn connect(&mut self, id: &str, _settings: &Arc<Settings>) -> Result<()> {
+        self.id = id.to_string();
         Err(anyhow!("Serial support not enabled. Rebuild with --features instrument_serial"))
     }
 

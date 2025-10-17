@@ -85,11 +85,10 @@ impl IirFilter {
 impl DataProcessor for IirFilter {
     fn process(&mut self, data: &[DataPoint]) -> Vec<DataPoint> {
         data.iter()
-            .map(|dp| {
-                let mut new_dp = dp.clone();
-                new_dp.value = self.filter.run(dp.value);
-                new_dp.channel = format!("{}_filtered", dp.channel);
-                new_dp
+            .map(|dp| DataPoint {
+                value: self.filter.run(dp.value),
+                channel: format!("{}_filtered", dp.channel),
+                ..dp.clone()
             })
             .collect()
     }
@@ -105,6 +104,7 @@ mod tests {
         (0..len)
             .map(|i| DataPoint {
                 timestamp: Utc::now(),
+                instrument_id: "test_instrument".to_string(),
                 channel: "test".to_string(),
                 value: i as f64,
                 unit: "V".to_string(),

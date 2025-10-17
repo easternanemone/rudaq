@@ -16,10 +16,9 @@
 //! - **Efficient Rendering:** Uses `ScrollArea::show_rows` to only render the visible portion
 //!   of the log list, ensuring good performance even with a large number of log entries.
 
-use crate::{gui::Gui, log_capture::LogEntry};
+use crate::gui::Gui;
 use eframe::egui::{self, Color32, ScrollArea, Ui};
 use log::LevelFilter;
-use std::collections::HashMap;
 
 /// Renders the log panel.
 pub fn render(ui: &mut Ui, gui: &mut Gui) {
@@ -35,16 +34,13 @@ pub fn render(ui: &mut Ui, gui: &mut Gui) {
         ui.label("Filter Text:");
         let _ = ui.text_edit_singleline(&mut gui.log_filter_text);
 
-        // --- Spacer and other controls ---
+        // --- Spacer and Clear Button ---
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button("Clear").clicked() {
                 gui.log_buffer.clear();
             }
             // --- Scroll to Bottom Toggle ---
             ui.toggle_value(&mut gui.scroll_to_bottom, "Scroll to Bottom");
-
-            // --- Consolidate Logs Toggle ---
-            ui.toggle_value(&mut gui.consolidate_logs, "Consolidate");
         });
     });
 
@@ -68,68 +64,22 @@ pub fn render(ui: &mut Ui, gui: &mut Gui) {
                 || entry.target.contains(&gui.log_filter_text);
             level_match && text_match
         })
-        .cloned()
         .collect();
 
-    if gui.consolidate_logs {
-        let consolidated_logs = consolidate_logs(&filtered_logs);
-        let num_rows = consolidated_logs.len();
+    let num_rows = filtered_logs.len();
 
-        scroll_area.show_rows(ui, row_height, num_rows, |ui, row_range| {
-            for i in row_range {
-                if let Some((entry, count)) = consolidated_logs.get(i) {
-                    render_log_entry(ui, entry, Some(*count));
-                }
+    scroll_area.show_rows(ui, row_height, num_rows, |ui, row_range| {
+        for i in row_range {
+            if let Some(entry) = filtered_logs.get(i) {
+                ui.horizontal(|ui| {
+                    let level_text = format!("[{:<5}]", entry.level);
+                    ui.colored_label(entry.color(), level_text);
+                    ui.label(entry.timestamp.format("%H:%M:%S%.3f").to_string());
+                    ui.colored_label(Color32::from_gray(150), &entry.target);
+                    ui.label(&entry.message);
+                });
             }
-        });
-    } else {
-        let num_rows = filtered_logs.len();
-        scroll_area.show_rows(ui, row_height, num_rows, |ui, row_range| {
-            for i in row_range {
-                if let Some(entry) = filtered_logs.get(i) {
-                    render_log_entry(ui, entry, None);
-                }
-            }
-        });
-    }
-}
-
-/// Consolidates log entries by message, counting occurrences.
-fn consolidate_logs(logs: &[LogEntry]) -> Vec<(LogEntry, usize)> {
-    let mut consolidated: HashMap<String, (LogEntry, usize)> = HashMap::new();
-
-    for entry in logs.iter() {
-        consolidated
-            .entry(entry.message.clone())
-            .and_modify(|(e, count)| {
-                // Update to the latest timestamp
-                if entry.timestamp > e.timestamp {
-                    *e = entry.clone();
-                }
-                *count += 1;
-            })
-            .or_insert((entry.clone(), 1));
-    }
-
-    let mut result: Vec<_> = consolidated.values().cloned().collect();
-    // Sort by the timestamp of the last occurrence, newest first.
-    result.sort_by(|a, b| b.0.timestamp.cmp(&a.0.timestamp));
-    result
-}
-
-/// Renders a single log entry row.
-fn render_log_entry(ui: &mut Ui, entry: &LogEntry, count: Option<usize>) {
-    ui.horizontal(|ui| {
-        let level_text = format!("[{:<5}]", entry.level);
-        ui.colored_label(entry.color(), level_text);
-        ui.label(entry.timestamp.format("%H:%M:%S%.3f").to_string());
-        ui.colored_label(Color32::from_gray(150), &entry.target);
-
-        if let Some(count) = count {
-            ui.label(format!("({})", count));
         }
-
-        ui.label(&entry.message);
     });
 }
 

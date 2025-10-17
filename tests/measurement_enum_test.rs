@@ -28,6 +28,7 @@ fn test_old_vs_new_fft_approach() {
         
         let dp = DataPoint {
             timestamp: Utc.timestamp_nanos((t * 1_000_000_000.0) as i64),
+            instrument_id: "test_instrument".to_string(),
             channel: "signal".to_string(),
             value,
             unit: "V".to_string(),
@@ -105,6 +106,7 @@ fn test_measurement_enum_common_operations() {
     // Test scalar measurement
     let scalar = Measurement::Scalar(DataPoint {
         timestamp,
+        instrument_id: "test_instrument".to_string(),
         channel: "temperature".to_string(),
         value: 23.5,
         unit: "°C".to_string(),

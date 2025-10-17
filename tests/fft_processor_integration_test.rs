@@ -86,6 +86,7 @@ fn test_fft_processor_sine_wave() {
         let value = (2.0 * std::f64::consts::PI * frequency * t).sin();
         sine_wave.push(DataPoint {
             timestamp: Utc.timestamp_nanos((t * 1_000_000_000.0) as i64),
+            instrument_id: "test_instrument".to_string(),
             channel: "test".to_string(),
             value,
             unit: "V".to_string(),

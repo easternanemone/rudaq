@@ -217,6 +217,7 @@ mod tests {
         DataPoint {
             value,
             timestamp: Utc::now() + Duration::milliseconds(timestamp_offset_ms),
+            instrument_id: "test_instrument".to_string(),
             channel: "test".to_string(),
             unit: "V".to_string(),
             metadata: None,

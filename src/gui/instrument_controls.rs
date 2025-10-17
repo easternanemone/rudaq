@@ -26,14 +26,13 @@ use crate::{app::DaqApp, core::InstrumentCommand};
 use egui::{Ui, Color32, Slider};
 use log::error;
 
+use std::collections::HashMap;
+use crate::core::DataPoint;
+
 /// MaiTai laser control panel
 pub struct MaiTaiControlPanel {
     pub instrument_id: String,
     pub target_wavelength: f64,
-    pub shutter_open: bool,
-    pub laser_on: bool,
-    pub current_wavelength: f64,
-    pub current_power: f64,
 }
 
 impl MaiTaiControlPanel {
@@ -41,14 +40,10 @@ impl MaiTaiControlPanel {
         Self {
             instrument_id,
             target_wavelength: 800.0,
-            shutter_open: false,
-            laser_on: false,
-            current_wavelength: 800.0,
-            current_power: 0.0,
         }
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, app: &DaqApp) {
+    pub fn ui(&mut self, ui: &mut Ui, app: &DaqApp, data_cache: &HashMap<String, DataPoint>) {
         ui.heading("MaiTai Laser Control");
         ui.separator();
 
@@ -65,18 +60,27 @@ impl MaiTaiControlPanel {
                 );
                 if let Err(e) = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd)) {
                     error!("Failed to set wavelength: {}", e);
-                } else {
-                    self.current_wavelength = self.target_wavelength;
                 }
             }
         });
 
         ui.add_space(10.0);
 
+        // Get current state from cache
+        let current_wavelength = data_cache.get(&format!("{}:wavelength", self.instrument_id))
+            .map_or(0.0, |dp| dp.value);
+        let current_power = data_cache.get(&format!("{}:power", self.instrument_id))
+            .map_or(0.0, |dp| dp.value);
+        let shutter_open = data_cache.get(&format!("{}:shutter", self.instrument_id))
+            .map_or(false, |dp| dp.value > 0.0);
+        let laser_on = data_cache.get(&format!("{}:laser", self.instrument_id))
+            .map_or(false, |dp| dp.value > 0.0);
+
+
         // Current wavelength display
         ui.horizontal(|ui| {
             ui.label("Actual Wavelength:");
-            ui.colored_label(Color32::GREEN, format!("{:.1} nm", self.current_wavelength));
+            ui.colored_label(Color32::GREEN, format!("{:.1} nm", current_wavelength));
         });
 
         ui.add_space(10.0);
@@ -84,7 +88,7 @@ impl MaiTaiControlPanel {
         // Power display
         ui.horizontal(|ui| {
             ui.label("Output Power:");
-            ui.colored_label(Color32::YELLOW, format!("{:.2} W", self.current_power));
+            ui.colored_label(Color32::YELLOW, format!("{:.2} W", current_power));
         });
 
         ui.add_space(10.0);
@@ -97,7 +101,7 @@ impl MaiTaiControlPanel {
                 .show_value(false));
 
             // Show current wavelength marker
-            ui.label(format!("▼ {:.0} nm", self.current_wavelength));
+            ui.label(format!("▼ {:.0} nm", current_wavelength));
         });
 
         ui.add_space(15.0);
@@ -105,36 +109,32 @@ impl MaiTaiControlPanel {
         // Control buttons
         ui.horizontal(|ui| {
             // Shutter button
-            let shutter_text = if self.shutter_open { "Close Shutter" } else { "Open Shutter" };
-            let shutter_color = if self.shutter_open { Color32::GREEN } else { Color32::GRAY };
+            let shutter_text = if shutter_open { "Close Shutter" } else { "Open Shutter" };
+            let shutter_color = if shutter_open { Color32::GREEN } else { Color32::GRAY };
             if ui.button(egui::RichText::new(shutter_text).color(shutter_color)).clicked() {
-                let new_state = !self.shutter_open;
+                let new_state = !shutter_open;
                 let cmd = InstrumentCommand::SetParameter(
                     "shutter".to_string(),
                     if new_state { "open" } else { "close" }.to_string()
                 );
                 if let Err(e) = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd)) {
                     error!("Failed to toggle shutter: {}", e);
-                } else {
-                    self.shutter_open = new_state;
                 }
             }
 
             ui.add_space(10.0);
 
             // Laser ON/OFF button
-            let laser_text = if self.laser_on { "Laser ON" } else { "Laser OFF" };
-            let laser_color = if self.laser_on { Color32::RED } else { Color32::DARK_GRAY };
+            let laser_text = if laser_on { "Laser ON" } else { "Laser OFF" };
+            let laser_color = if laser_on { Color32::RED } else { Color32::DARK_GRAY };
             if ui.button(egui::RichText::new(laser_text).color(laser_color).size(16.0)).clicked() {
-                let new_state = !self.laser_on;
+                let new_state = !laser_on;
                 let cmd = InstrumentCommand::SetParameter(
                     "laser".to_string(),
                     if new_state { "on" } else { "off" }.to_string()
                 );
                 if let Err(e) = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd)) {
                     error!("Failed to toggle laser: {}", e);
-                } else {
-                    self.laser_on = new_state;
                 }
             }
         });
@@ -143,12 +143,12 @@ impl MaiTaiControlPanel {
 
         // System status
         ui.separator();
-        let status_text = if self.laser_on {
+        let status_text = if laser_on {
             "System Status: ACTIVE"
         } else {
             "System Status: Ready to turn on"
         };
-        let status_color = if self.laser_on { Color32::RED } else { Color32::LIGHT_GREEN };
+        let status_color = if laser_on { Color32::RED } else { Color32::LIGHT_GREEN };
         ui.colored_label(status_color, status_text);
     }
 }
@@ -159,7 +159,6 @@ pub struct Newport1830CControlPanel {
     pub wavelength: f64,
     pub range: i32,
     pub units: i32,
-    pub current_power: f64,
 }
 
 impl Newport1830CControlPanel {
@@ -169,11 +168,10 @@ impl Newport1830CControlPanel {
             wavelength: 1550.0,
             range: 0, // autorange
             units: 0, // Watts
-            current_power: 0.0,
         }
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, app: &DaqApp) {
+    pub fn ui(&mut self, ui: &mut Ui, app: &DaqApp, data_cache: &HashMap<String, DataPoint>) {
         ui.heading("Newport 1830-C Power Meter");
         ui.separator();
 
@@ -237,11 +235,15 @@ impl Newport1830CControlPanel {
 
         ui.add_space(15.0);
 
+        // Get current state from cache
+        let current_power = data_cache.get(&format!("{}:power", self.instrument_id))
+            .map_or(0.0, |dp| dp.value);
+
         // Power reading display
         ui.group(|ui| {
             ui.vertical_centered(|ui| {
                 ui.label("Current Reading");
-                ui.heading(egui::RichText::new(format!("{:.3e}", self.current_power))
+                ui.heading(egui::RichText::new(format!("{:.3e}", current_power))
                     .color(Color32::LIGHT_GREEN)
                     .size(24.0));
                 ui.label(match self.units {
@@ -270,7 +272,6 @@ impl Newport1830CControlPanel {
 pub struct ElliptecControlPanel {
     pub instrument_id: String,
     pub device_addresses: Vec<u8>,
-    pub positions: Vec<f64>,
     pub target_positions: Vec<f64>,
 }
 
@@ -280,12 +281,11 @@ impl ElliptecControlPanel {
         Self {
             instrument_id,
             device_addresses,
-            positions: vec![0.0; num_devices],
             target_positions: vec![0.0; num_devices],
         }
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, app: &DaqApp) {
+    pub fn ui(&mut self, ui: &mut Ui, app: &DaqApp, data_cache: &HashMap<String, DataPoint>) {
         ui.heading("Elliptec Rotation Mounts");
         ui.separator();
 
@@ -293,9 +293,12 @@ impl ElliptecControlPanel {
             ui.group(|ui| {
                 ui.label(format!("Device {} (Address {})", idx, addr));
 
+                let position = data_cache.get(&format!("{}:device{}_position", self.instrument_id, addr))
+                    .map_or(0.0, |dp| dp.value);
+
                 ui.horizontal(|ui| {
                     ui.label("Position:");
-                    ui.colored_label(Color32::GREEN, format!("{:.2}°", self.positions[idx]));
+                    ui.colored_label(Color32::GREEN, format!("{:.2}°", position));
                 });
 
                 ui.horizontal(|ui| {
@@ -312,8 +315,6 @@ impl ElliptecControlPanel {
                         );
                         if let Err(e) = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd)) {
                             error!("Failed to move Elliptec device {}: {}", addr, e);
-                        } else {
-                            self.positions[idx] = self.target_positions[idx];
                         }
                     }
                 });
@@ -325,16 +326,40 @@ impl ElliptecControlPanel {
                 // Preset buttons
                 ui.horizontal(|ui| {
                     if ui.button("0°").clicked() {
-                        self.target_positions[idx] = 0.0;
+                        let cmd = InstrumentCommand::SetParameter(
+                            format!("{}:position", addr),
+                            "0".to_string()
+                        );
+                        if let Err(e) = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd)) {
+                            error!("Failed to move Elliptec device {}: {}", addr, e);
+                        }
                     }
                     if ui.button("45°").clicked() {
-                        self.target_positions[idx] = 45.0;
+                        let cmd = InstrumentCommand::SetParameter(
+                            format!("{}:position", addr),
+                            "45".to_string()
+                        );
+                        if let Err(e) = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd)) {
+                            error!("Failed to move Elliptec device {}: {}", addr, e);
+                        }
                     }
                     if ui.button("90°").clicked() {
-                        self.target_positions[idx] = 90.0;
+                        let cmd = InstrumentCommand::SetParameter(
+                            format!("{}:position", addr),
+                            "90".to_string()
+                        );
+                        if let Err(e) = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd)) {
+                            error!("Failed to move Elliptec device {}: {}", addr, e);
+                        }
                     }
                     if ui.button("180°").clicked() {
-                        self.target_positions[idx] = 180.0;
+                        let cmd = InstrumentCommand::SetParameter(
+                            format!("{}:position", addr),
+                            "180".to_string()
+                        );
+                        if let Err(e) = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd)) {
+                            error!("Failed to move Elliptec device {}: {}", addr, e);
+                        }
                     }
                 });
             });
@@ -347,13 +372,6 @@ impl ElliptecControlPanel {
             let cmd = InstrumentCommand::Execute("home".to_string(), vec![]);
             if let Err(e) = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd)) {
                 error!("Failed to home Elliptec devices: {}", e);
-            } else {
-                for pos in &mut self.positions {
-                    *pos = 0.0;
-                }
-                for target in &mut self.target_positions {
-                    *target = 0.0;
-                }
             }
         }
     }
@@ -363,7 +381,6 @@ impl ElliptecControlPanel {
 pub struct ESP300ControlPanel {
     pub instrument_id: String,
     pub num_axes: usize,
-    pub positions: Vec<f64>,
     pub target_positions: Vec<f64>,
     pub velocities: Vec<f64>,
 }
@@ -373,13 +390,12 @@ impl ESP300ControlPanel {
         Self {
             instrument_id,
             num_axes,
-            positions: vec![0.0; num_axes],
             target_positions: vec![0.0; num_axes],
             velocities: vec![5.0; num_axes],
         }
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, app: &DaqApp) {
+    pub fn ui(&mut self, ui: &mut Ui, app: &DaqApp, data_cache: &HashMap<String, DataPoint>) {
         ui.heading("ESP300 Motion Controller");
         ui.separator();
 
@@ -387,9 +403,12 @@ impl ESP300ControlPanel {
             ui.group(|ui| {
                 ui.label(format!("Axis {} Control", axis + 1));
 
+                let position = data_cache.get(&format!("{}:axis{}_position", self.instrument_id, axis + 1))
+                    .map_or(0.0, |dp| dp.value);
+
                 ui.horizontal(|ui| {
                     ui.label("Position:");
-                    ui.colored_label(Color32::GREEN, format!("{:.3} mm", self.positions[axis]));
+                    ui.colored_label(Color32::GREEN, format!("{:.3} mm", position));
                 });
 
                 ui.horizontal(|ui| {
@@ -405,8 +424,6 @@ impl ESP300ControlPanel {
                         );
                         if let Err(e) = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd)) {
                             error!("Failed to move ESP300 axis {}: {}", axis + 1, e);
-                        } else {
-                            self.positions[axis] = self.target_positions[axis];
                         }
                     }
                 });
@@ -427,7 +444,6 @@ impl ESP300ControlPanel {
                             vec![(axis + 1).to_string(), "-10".to_string()]
                         );
                         let _ = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd));
-                        self.target_positions[axis] -= 10.0;
                     }
                     if ui.button("◀ -1").clicked() {
                         let cmd = InstrumentCommand::Execute(
@@ -435,7 +451,6 @@ impl ESP300ControlPanel {
                             vec![(axis + 1).to_string(), "-1".to_string()]
                         );
                         let _ = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd));
-                        self.target_positions[axis] -= 1.0;
                     }
                     if ui.button("◀ -0.1").clicked() {
                         let cmd = InstrumentCommand::Execute(
@@ -443,7 +458,6 @@ impl ESP300ControlPanel {
                             vec![(axis + 1).to_string(), "-0.1".to_string()]
                         );
                         let _ = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd));
-                        self.target_positions[axis] -= 0.1;
                     }
                     if ui.button("+0.1 ▶").clicked() {
                         let cmd = InstrumentCommand::Execute(
@@ -451,7 +465,6 @@ impl ESP300ControlPanel {
                             vec![(axis + 1).to_string(), "0.1".to_string()]
                         );
                         let _ = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd));
-                        self.target_positions[axis] += 0.1;
                     }
                     if ui.button("+1 ▶").clicked() {
                         let cmd = InstrumentCommand::Execute(
@@ -459,7 +472,6 @@ impl ESP300ControlPanel {
                             vec![(axis + 1).to_string(), "1".to_string()]
                         );
                         let _ = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd));
-                        self.target_positions[axis] += 1.0;
                     }
                     if ui.button("+10 ▶▶").clicked() {
                         let cmd = InstrumentCommand::Execute(
@@ -467,7 +479,6 @@ impl ESP300ControlPanel {
                             vec![(axis + 1).to_string(), "10".to_string()]
                         );
                         let _ = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd));
-                        self.target_positions[axis] += 10.0;
                     }
                 });
 
@@ -488,10 +499,6 @@ impl ESP300ControlPanel {
             let cmd = InstrumentCommand::Execute("home".to_string(), vec![]);
             if let Err(e) = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd)) {
                 error!("Failed to home ESP300 axes: {}", e);
-            } else {
-                for pos in &mut self.positions {
-                    *pos = 0.0;
-                }
             }
         }
     }
@@ -503,7 +510,6 @@ pub struct PVCAMControlPanel {
     pub exposure_ms: f64,
     pub gain: i32,
     pub binning: (i32, i32),
-    pub acquiring: bool,
 }
 
 impl PVCAMControlPanel {
@@ -513,11 +519,10 @@ impl PVCAMControlPanel {
             exposure_ms: 100.0,
             gain: 1,
             binning: (1, 1),
-            acquiring: false,
         }
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, app: &DaqApp) {
+    pub fn ui(&mut self, ui: &mut Ui, app: &DaqApp, data_cache: &HashMap<String, DataPoint>) {
         ui.heading("PVCAM Camera Control");
         ui.separator();
 
@@ -550,13 +555,17 @@ impl PVCAMControlPanel {
 
         ui.add_space(15.0);
 
+        // Get current state from cache
+        let acquiring = data_cache.get(&format!("{}:acquiring", self.instrument_id))
+            .map_or(false, |dp| dp.value > 0.0);
+
         // Acquisition controls
         ui.horizontal(|ui| {
-            let button_text = if self.acquiring { "Stop Acquisition" } else { "Start Acquisition" };
-            let button_color = if self.acquiring { Color32::RED } else { Color32::GREEN };
+            let button_text = if acquiring { "Stop Acquisition" } else { "Start Acquisition" };
+            let button_color = if acquiring { Color32::RED } else { Color32::GREEN };
 
             if ui.button(egui::RichText::new(button_text).color(button_color)).clicked() {
-                let new_state = !self.acquiring;
+                let new_state = !acquiring;
                 let cmd = if new_state {
                     InstrumentCommand::Execute("start_acquisition".to_string(), vec![])
                 } else {
@@ -564,8 +573,6 @@ impl PVCAMControlPanel {
                 };
                 if let Err(e) = app.with_inner(|inner| inner.send_instrument_command(&self.instrument_id, cmd)) {
                     error!("Failed to toggle PVCAM acquisition: {}", e);
-                } else {
-                    self.acquiring = new_state;
                 }
             }
 
@@ -580,8 +587,8 @@ impl PVCAMControlPanel {
         ui.add_space(10.0);
 
         // Status
-        let status_text = if self.acquiring { "ACQUIRING" } else { "IDLE" };
-        let status_color = if self.acquiring { Color32::GREEN } else { Color32::GRAY };
+        let status_text = if acquiring { "ACQUIRING" } else { "IDLE" };
+        let status_color = if acquiring { Color32::GREEN } else { Color32::GRAY };
         ui.colored_label(status_color, status_text);
     }
 }

@@ -87,13 +87,14 @@ impl Instrument for PVCAMCamera {
         self.id.clone()
     }
 
-    async fn connect(&mut self, settings: &Arc<Settings>) -> Result<()> {
-        info!("Connecting to PVCAM camera: {}", self.id);
+    async fn connect(&mut self, id: &str, settings: &Arc<Settings>) -> Result<()> {
+        info!("Connecting to PVCAM camera: {}", id);
+        self.id = id.to_string();
 
         let instrument_config = settings
             .instruments
-            .get(&self.id)
-            .ok_or_else(|| anyhow!("Configuration for '{}' not found", self.id))?;
+            .get(id)
+            .ok_or_else(|| anyhow!("Configuration for '{}' not found", id))?;
 
         self.camera_name = instrument_config
             .get("camera_name")
@@ -152,7 +153,8 @@ impl Instrument for PVCAMCamera {
                 // Send frame statistics as data points
                 let dp_mean = DataPoint {
                     timestamp,
-                    channel: format!("{}_mean_intensity", instrument.id),
+                    instrument_id: instrument.id.clone(),
+                    channel: "mean_intensity".to_string(),
                     value: mean,
                     unit: "counts".to_string(),
                     metadata: Some(serde_json::json!({"frame": frame_count})),
@@ -160,7 +162,8 @@ impl Instrument for PVCAMCamera {
 
                 let dp_min = DataPoint {
                     timestamp,
-                    channel: format!("{}_min_intensity", instrument.id),
+                    instrument_id: instrument.id.clone(),
+                    channel: "min_intensity".to_string(),
                     value: min,
                     unit: "counts".to_string(),
                     metadata: Some(serde_json::json!({"frame": frame_count})),
@@ -168,7 +171,8 @@ impl Instrument for PVCAMCamera {
 
                 let dp_max = DataPoint {
                     timestamp,
-                    channel: format!("{}_max_intensity", instrument.id),
+                    instrument_id: instrument.id.clone(),
+                    channel: "max_intensity".to_string(),
                     value: max,
                     unit: "counts".to_string(),
                     metadata: Some(serde_json::json!({"frame": frame_count})),

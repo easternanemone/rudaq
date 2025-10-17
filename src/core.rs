@@ -125,7 +125,9 @@ use tokio::task::JoinHandle;
 pub struct DataPoint {
     /// UTC timestamp with nanosecond precision
     pub timestamp: chrono::DateTime<chrono::Utc>,
-    /// Channel identifier (format: `{instrument_id}_{parameter}`)
+    /// Instrument identifier (e.g., "maitai", "esp300")
+    pub instrument_id: String,
+    /// Channel identifier (format: `{parameter}` e.g., "power", "wavelength")
     pub channel: String,
     /// Measured value (all measurements normalized to f64)
     pub value: f64,
@@ -469,8 +471,9 @@ pub trait Instrument: Send + Sync {
     ///
     /// # Arguments
     ///
+    /// * `id` - Unique identifier for this instrument instance (used in data_point.instrument_id)
     /// * `settings` - Application settings containing instrument configuration.
-    ///   Access instrument-specific config via `settings.instruments.get(self.name())`
+    ///   Access instrument-specific config via `settings.instruments.get(id)`
     ///
     /// # Errors
     ///
@@ -478,32 +481,7 @@ pub trait Instrument: Send + Sync {
     /// - Configuration is missing or invalid
     /// - Hardware connection fails (device not found, permission denied)
     /// - Device initialization fails (invalid response, timeout)
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # use rust_daq::core::Instrument;
-    /// # use rust_daq::config::Settings;
-    /// # use std::sync::Arc;
-    /// # use async_trait::async_trait;
-    /// # struct MyInstrument;
-    /// # #[async_trait]
-    /// # impl Instrument for MyInstrument {
-    /// # fn name(&self) -> String { "my_instrument".to_string() }
-    /// async fn connect(&mut self, settings: &Arc<Settings>) -> anyhow::Result<()> {
-    ///     let config = settings.instruments.get(&self.name())
-    ///         .ok_or_else(|| anyhow::anyhow!("Configuration not found"))?;
-    ///
-    ///     // Open connection, initialize device, spawn data task...
-    ///     Ok(())
-    /// }
-    /// # async fn disconnect(&mut self) -> anyhow::Result<()> { Ok(()) }
-    /// # async fn data_stream(&mut self) -> anyhow::Result<tokio::sync::broadcast::Receiver<rust_daq::core::DataPoint>> {
-    /// #     Err(anyhow::anyhow!("not implemented"))
-    /// # }
-    /// # }
-    /// ```
-    async fn connect(&mut self, settings: &Arc<Settings>) -> anyhow::Result<()>;
+    async fn connect(&mut self, id: &str, settings: &Arc<Settings>) -> anyhow::Result<()>;
 
     /// Disconnects from the instrument and releases resources.
     ///

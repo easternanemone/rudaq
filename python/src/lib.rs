@@ -70,6 +70,8 @@ pub struct PyDataPoint {
     #[pyo3(get, set)]
     pub timestamp: DateTime<Utc>,
     #[pyo3(get, set)]
+    pub instrument_id: String,
+    #[pyo3(get, set)]
     pub channel: String,
     #[pyo3(get, set)]
     pub value: f64,
@@ -83,13 +85,14 @@ pub struct PyDataPoint {
 #[pymethods]
 impl PyDataPoint {
     #[new]
-    #[pyo3(signature = (timestamp, channel, value, unit, metadata=None))]
+    #[pyo3(signature = (timestamp, instrument_id, channel, value, unit, metadata=None))]
     /// Creates a new `DataPoint` instance that mirrors the tuple returned by
     /// `rust_daq` Python APIs.
     ///
     /// # Arguments
     /// * `timestamp` - A timezone-aware UTC `datetime` from Python (converted to
     ///   [`chrono::DateTime<Utc>`]).
+    /// * `instrument_id` - The ID of the instrument that generated the data.
     /// * `channel` - Name of the originating channel.
     /// * `value` - The measured value.
     /// * `unit` - Engineering unit string, e.g. `"W"`.
@@ -104,6 +107,7 @@ impl PyDataPoint {
     ///
     /// let dp = PyDataPoint::new(
     ///     Utc::now(),
+    ///     "maitai_laser".into(),
     ///     "power".into(),
     ///     1.23,
     ///     "W".into(),
@@ -113,6 +117,7 @@ impl PyDataPoint {
     /// ```
     fn new(
         timestamp: DateTime<Utc>,
+        instrument_id: String,
         channel: String,
         value: f64,
         unit: String,
@@ -120,6 +125,7 @@ impl PyDataPoint {
     ) -> Self {
         Self {
             timestamp,
+            instrument_id,
             channel,
             value,
             unit,
@@ -130,8 +136,9 @@ impl PyDataPoint {
     /// Returns a concise string representation used by Python's `repr()`.
     fn __repr__(&self) -> String {
         format!(
-            "DataPoint(timestamp={}, channel='{}', value={}, unit='{}')",
+            "DataPoint(timestamp={}, instrument_id='{}', channel='{}', value={}, unit='{}')",
             self.timestamp.to_rfc3339(),
+            self.instrument_id,
             self.channel,
             self.value,
             self.unit
@@ -145,6 +152,7 @@ impl From<RustDataPoint> for PyDataPoint {
     fn from(dp: RustDataPoint) -> Self {
         Self {
             timestamp: dp.timestamp,
+            instrument_id: dp.instrument_id,
             channel: dp.channel,
             value: dp.value,
             unit: dp.unit,
@@ -288,6 +296,7 @@ mod tests {
     fn rust_datapoint_with_metadata() -> RustDataPoint {
         RustDataPoint {
             timestamp: Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap(),
+            instrument_id: "test_instrument".to_string(),
             channel: "detector:signal".to_string(),
             value: 2.5,
             unit: "V".to_string(),
@@ -304,6 +313,7 @@ mod tests {
         let py_dp = PyDataPoint::from(rust_dp.clone());
 
         assert_eq!(py_dp.timestamp, rust_dp.timestamp);
+        assert_eq!(py_dp.instrument_id, rust_dp.instrument_id);
         assert_eq!(py_dp.channel, rust_dp.channel);
         assert_eq!(py_dp.value, rust_dp.value);
         assert_eq!(py_dp.unit, rust_dp.unit);
@@ -350,6 +360,7 @@ mod tests {
             let invalid_metadata = py.eval_bound("object()", None, None).unwrap();
             let result = dp_type.call1((
                 timestamp,
+                "test_instrument".to_string(),
                 "detector:signal".to_string(),
                 1.0_f64,
                 "V".to_string(),

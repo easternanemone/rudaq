@@ -58,19 +58,6 @@ use log::{error, LevelFilter};
 use std::collections::{HashMap, VecDeque};
 use tokio::sync::broadcast;
 
-/// Represents the connection status of an instrument in the GUI
-#[derive(Debug, Clone, PartialEq)]
-pub enum InstrumentStatus {
-    /// Instrument is stopped/not running
-    Stopped,
-    /// Instrument is running in simulation mode (mock instruments)
-    RunningSimulated,
-    /// Instrument is running with hardware connection
-    RunningHardware,
-    /// Instrument failed to connect to hardware
-    Failed(String),
-}
-
 mod log_panel;
 
 const PLOT_DATA_CAPACITY: usize = 1000;
@@ -115,7 +102,11 @@ pub struct Gui {
     log_filter_text: String,
     log_level_filter: LevelFilter,
     scroll_to_bottom: bool,
-    consolidate_logs: bool,
+    /// Centralized cache of latest instrument state from data stream
+    /// Key: "instrument_id:channel" (e.g., "maitai:power", "esp300:axis1_position")
+    /// Value: latest DataPoint for that channel
+    /// This provides single source of truth for instrument state in GUI
+    data_cache: HashMap<String, DataPoint>,
 }
 
 impl Gui {
@@ -140,31 +131,22 @@ impl Gui {
             log_filter_text: String::new(),
             log_level_filter: LevelFilter::Info,
             scroll_to_bottom: true,
-            consolidate_logs: false,
+            data_cache: HashMap::new(),
         }
     }
 
-    /// Fetches new data points and dispatches them to the correct plot tabs.
-    /// Optimized by batching data points by channel before iterating through tabs.
+    /// Fetches new data points from the broadcast channel and updates the data cache.
+    /// Updates both plot tabs and the centralized data cache for instrument control panels.
     fn update_data(&mut self) {
-        // 1. Collect and group all available data points by channel.
-        let mut new_data_by_channel: HashMap<String, Vec<DataPoint>> = HashMap::new();
         while let Ok(data_point) = self.data_receiver.try_recv() {
-            new_data_by_channel
-                .entry(data_point.channel.clone())
-                .or_default()
-                .push(data_point);
-        }
+            // Update the central data cache with instrument_id:channel key
+            let cache_key = format!("{}:{}", data_point.instrument_id, data_point.channel);
+            self.data_cache.insert(cache_key, data_point.clone());
 
-        if new_data_by_channel.is_empty() {
-            return;
-        }
-
-        // 2. Iterate through tabs once and dispatch batches of data.
-        for (_tab_index, tab) in self.dock_state.iter_all_tabs_mut() {
-            if let DockTab::Plot(plot_tab) = tab {
-                if let Some(data_points) = new_data_by_channel.get(&plot_tab.channel) {
-                    for data_point in data_points {
+            // Update any relevant plot tabs
+            for (_location, tab) in self.dock_state.iter_all_tabs_mut() {
+                if let DockTab::Plot(plot_tab) = tab {
+                    if plot_tab.channel == data_point.channel {
                         if plot_tab.plot_data.len() >= PLOT_DATA_CAPACITY {
                             plot_tab.plot_data.pop_front();
                         }
@@ -291,12 +273,13 @@ impl eframe::App for Gui {
             .resizable(true)
             .min_width(200.0)
             .show(ctx, |ui| {
-                render_instrument_panel(ui, &instruments, &self.app, &mut self.dock_state);
+                render_instrument_panel(ui, &instruments, &self.app, &mut self.dock_state, &self.data_cache);
             });
 
         let mut tab_viewer = DockTabViewer {
             available_channels,
             app: &self.app,
+            data_cache: &self.data_cache,
         };
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -322,57 +305,20 @@ impl eframe::App for Gui {
     }
 }
 
-/// Determines the connection status of an instrument based on its configuration and running state
-fn get_instrument_status(_id: &str, config: &toml::Value, is_running: bool) -> InstrumentStatus {
-    if !is_running {
-        return InstrumentStatus::Stopped;
-    }
-    
-    // Determine if this is a mock/simulated instrument
-    if let Some(inst_type) = config.get("type").and_then(|v| v.as_str()) {
-        if inst_type == "mock" {
-            return InstrumentStatus::RunningSimulated;
-        }
-    }
-    
-    // For hardware instruments, we assume they're running successfully if the task is active
-    // TODO: In the future, we could check actual connection health here
-    InstrumentStatus::RunningHardware
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_instrument_status_determination() {
-        // Test stopped instrument
-        let config = toml::from_str(r#"type = "mock""#).unwrap();
-        assert_eq!(
-            get_instrument_status("test", &config, false),
-            InstrumentStatus::Stopped
-        );
-        
-        // Test mock instrument (simulated)
-        let config = toml::from_str(r#"type = "mock""#).unwrap();
-        assert_eq!(
-            get_instrument_status("test", &config, true),
-            InstrumentStatus::RunningSimulated
-        );
-        
-        // Test hardware instrument
-        let config = toml::from_str(r#"type = "scpi""#).unwrap();
-        assert_eq!(
-            get_instrument_status("test", &config, true),
-            InstrumentStatus::RunningHardware
-        );
-        
-        // Test instrument with missing type (edge case)
-        let config = toml::from_str(r#"name = "test""#).unwrap();
-        assert_eq!(
-            get_instrument_status("test", &config, true),
-            InstrumentStatus::RunningHardware
-        );
+/// Helper function to display a cached value in the UI
+fn display_cached_value(
+    ui: &mut egui::Ui,
+    data_cache: &HashMap<String, DataPoint>,
+    channel: &str,
+    label: &str,
+) {
+    if let Some(data_point) = data_cache.get(channel) {
+        ui.label(format!(
+            "{}: {:.3} {}",
+            label, data_point.value, data_point.unit
+        ));
+    } else {
+        ui.label(format!("{}: No data", label));
     }
 }
 
@@ -381,13 +327,13 @@ fn render_instrument_panel(
     instruments: &[(String, toml::Value, bool)],
     app: &DaqApp,
     dock_state: &mut DockState<DockTab>,
+    data_cache: &HashMap<String, DataPoint>,
 ) {
     ui.heading("Instruments");
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         for (id, config, is_running) in instruments {
             let inst_type = config.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            let status = get_instrument_status(id, config, *is_running);
 
             // Make the entire group draggable by wrapping it in dnd_drag_source
             let drag_id = egui::Id::new(format!("drag_{}", id));
@@ -399,42 +345,19 @@ fn render_instrument_panel(
                         ui.horizontal(|ui| {
                             ui.strong(id);
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                match status {
-                                    InstrumentStatus::Stopped => {
-                                        ui.colored_label(egui::Color32::GRAY, "● Stopped")
-                                            .on_hover_text("Instrument is not running");
-                                        if ui.button("Start").clicked() {
-                                            app.with_inner(|inner| {
-                                                if let Err(e) = inner.spawn_instrument(id) {
-                                                    error!("Failed to start instrument '{}': {}", id, e);
-                                                }
-                                            });
-                                        }
+                                if *is_running {
+                                    ui.colored_label(egui::Color32::GREEN, "● Running");
+                                    if ui.button("Stop").clicked() {
+                                        app.with_inner(|inner| inner.stop_instrument(id));
                                     }
-                                    InstrumentStatus::RunningSimulated => {
-                                        ui.colored_label(egui::Color32::YELLOW, "● Simulated")
-                                            .on_hover_text("Running in simulation mode - no hardware required");
-                                        if ui.button("Stop").clicked() {
-                                            app.with_inner(|inner| inner.stop_instrument(id));
-                                        }
-                                    }
-                                    InstrumentStatus::RunningHardware => {
-                                        ui.colored_label(egui::Color32::GREEN, "● Hardware")
-                                            .on_hover_text("Connected to physical hardware");
-                                        if ui.button("Stop").clicked() {
-                                            app.with_inner(|inner| inner.stop_instrument(id));
-                                        }
-                                    }
-                                    InstrumentStatus::Failed(ref error) => {
-                                        ui.colored_label(egui::Color32::RED, "● Failed")
-                                            .on_hover_text(format!("Connection failed: {}", error));
-                                        if ui.button("Retry").clicked() {
-                                            app.with_inner(|inner| {
-                                                if let Err(e) = inner.spawn_instrument(id) {
-                                                    error!("Failed to restart instrument '{}': {}", id, e);
-                                                }
-                                            });
-                                        }
+                                } else {
+                                    ui.colored_label(egui::Color32::GRAY, "● Stopped");
+                                    if ui.button("Start").clicked() {
+                                        app.with_inner(|inner| {
+                                            if let Err(e) = inner.spawn_instrument(id) {
+                                                error!("Failed to start instrument '{}': {}", id, e);
+                                            }
+                                        });
                                     }
                                 }
                             });
@@ -482,19 +405,26 @@ fn render_instrument_panel(
                             if let Some(port) = config.get("port").and_then(|v| v.as_str()) {
                                 ui.label(format!("Port: {}", port));
                             }
-                            // Display connection status information
-                            match status {
-                                InstrumentStatus::RunningHardware => {
-                                    ui.label("📊 Streaming live power data");
-                                }
-                                InstrumentStatus::RunningSimulated => {
-                                    ui.label("🎯 Simulated power data");
-                                }
-                                InstrumentStatus::Failed(_) => {
-                                    ui.label("⚠️ Check port connection");
-                                }
-                                _ => {}
-                            }
+
+                            // Display real-time power and wavelength from data stream
+                            display_cached_value(
+                                ui,
+                                data_cache,
+                                &format!("{}:power", id),
+                                "Power",
+                            );
+                            display_cached_value(
+                                ui,
+                                data_cache,
+                                &format!("{}:wavelength", id),
+                                "Wavelength",
+                            );
+                            display_cached_value(
+                                ui,
+                                data_cache,
+                                &format!("{}:shutter", id),
+                                "Shutter",
+                            );
                             ui.label("💡 Drag to main area or double-click");
                         }
                         "newport_1830c" => {
@@ -505,19 +435,13 @@ fn render_instrument_panel(
                             if let Some(port) = config.get("port").and_then(|v| v.as_str()) {
                                 ui.label(format!("Port: {}", port));
                             }
-                            // Display connection status information
-                            match status {
-                                InstrumentStatus::RunningHardware => {
-                                    ui.label("📊 Streaming power readings");
-                                }
-                                InstrumentStatus::RunningSimulated => {
-                                    ui.label("🎯 Simulated power readings");
-                                }
-                                InstrumentStatus::Failed(_) => {
-                                    ui.label("⚠️ Check port connection");
-                                }
-                                _ => {}
-                            }
+                            // Display real-time power reading
+                            display_cached_value(
+                                ui,
+                                data_cache,
+                                &format!("{}:power", id),
+                                "Power",
+                            );
                             ui.label("💡 Drag to main area or double-click");
                         }
                         "elliptec" => {
@@ -527,19 +451,14 @@ fn render_instrument_panel(
                             }
                             if let Some(addrs) = config.get("device_addresses").and_then(|v| v.as_array()) {
                                 ui.label(format!("Devices: {}", addrs.len()));
-                            }
-                            // Display connection status information  
-                            match status {
-                                InstrumentStatus::RunningHardware => {
-                                    ui.label("📊 Motors connected");
+                                for addr in addrs.iter().filter_map(|a| a.as_integer()) {
+                                    display_cached_value(
+                                        ui,
+                                        data_cache,
+                                        &format!("{}:device{}_position", id, addr),
+                                        &format!("Device {}", addr),
+                                    );
                                 }
-                                InstrumentStatus::RunningSimulated => {
-                                    ui.label("🎯 Simulated motors");
-                                }
-                                InstrumentStatus::Failed(_) => {
-                                    ui.label("⚠️ Check port/device addresses");
-                                }
-                                _ => {}
                             }
                             ui.label("💡 Drag to main area or double-click");
                         }
@@ -550,18 +469,19 @@ fn render_instrument_panel(
                             }
                             let num_axes = config.get("num_axes").and_then(|v| v.as_integer()).unwrap_or(3) as usize;
                             ui.label(format!("Axes: {}", num_axes));
-                            // Display connection status information
-                            match status {
-                                InstrumentStatus::RunningHardware => {
-                                    ui.label("📊 Controller connected");
-                                }
-                                InstrumentStatus::RunningSimulated => {
-                                    ui.label("🎯 Simulated controller");
-                                }
-                                InstrumentStatus::Failed(_) => {
-                                    ui.label("⚠️ Check port connection");
-                                }
-                                _ => {}
+                            for axis in 1..=num_axes as u8 {
+                                display_cached_value(
+                                    ui,
+                                    data_cache,
+                                    &format!("{}:axis{}_position", id, axis),
+                                    &format!("Axis {} Pos", axis),
+                                );
+                                display_cached_value(
+                                    ui,
+                                    data_cache,
+                                    &format!("{}:axis{}_velocity", id, axis),
+                                    &format!("Axis {} Vel", axis),
+                                );
                             }
                             ui.label("💡 Drag to main area or double-click");
                         }
@@ -573,19 +493,25 @@ fn render_instrument_panel(
                             if let Some(exp) = config.get("exposure_ms").and_then(|v| v.as_float()) {
                                 ui.label(format!("Exposure: {} ms", exp));
                             }
-                            // Display connection status information
-                            match status {
-                                InstrumentStatus::RunningHardware => {
-                                    ui.label("📷 Camera acquiring");
-                                }
-                                InstrumentStatus::RunningSimulated => {
-                                    ui.label("🎯 Simulated camera");
-                                }
-                                InstrumentStatus::Failed(_) => {
-                                    ui.label("⚠️ Check camera connection");
-                                }
-                                _ => {}
-                            }
+                            // Display acquisition status
+                            display_cached_value(
+                                ui,
+                                data_cache,
+                                &format!("{}:mean_intensity", id),
+                                "Mean",
+                            );
+                            display_cached_value(
+                                ui,
+                                data_cache,
+                                &format!("{}:min_intensity", id),
+                                "Min",
+                            );
+                            display_cached_value(
+                                ui,
+                                data_cache,
+                                &format!("{}:max_intensity", id),
+                                "Max",
+                            );
                             ui.label("💡 Drag to main area or double-click");
                         }
                         _ if inst_type.contains("visa") => {
@@ -663,6 +589,7 @@ fn open_instrument_controls(
 struct DockTabViewer<'a> {
     available_channels: Vec<String>,
     app: &'a DaqApp,
+    data_cache: &'a HashMap<String, DataPoint>,
 }
 
 impl<'a> TabViewer for DockTabViewer<'a> {
@@ -693,19 +620,19 @@ impl<'a> TabViewer for DockTabViewer<'a> {
                 live_plot(ui, &plot_tab.plot_data, &plot_tab.channel);
             }
             DockTab::MaiTaiControl(panel) => {
-                panel.ui(ui, self.app);
+                panel.ui(ui, self.app, self.data_cache);
             }
             DockTab::Newport1830CControl(panel) => {
-                panel.ui(ui, self.app);
+                panel.ui(ui, self.app, self.data_cache);
             }
             DockTab::ElliptecControl(panel) => {
-                panel.ui(ui, self.app);
+                panel.ui(ui, self.app, self.data_cache);
             }
             DockTab::ESP300Control(panel) => {
-                panel.ui(ui, self.app);
+                panel.ui(ui, self.app, self.data_cache);
             }
             DockTab::PVCAMControl(panel) => {
-                panel.ui(ui, self.app);
+                panel.ui(ui, self.app, self.data_cache);
             }
         }
     }

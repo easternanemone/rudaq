@@ -2,9 +2,8 @@
 use crate::{
     config::Settings,
     core::{DataPoint, Instrument},
-    instrument::config::MockInstrumentConfig,
 };
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use log::info;
 use std::sync::Arc;
@@ -12,6 +11,7 @@ use tokio::sync::broadcast;
 use tokio::time::{interval, Duration};
 
 pub struct MockInstrument {
+    id: String,
     sender: Option<broadcast::Sender<DataPoint>>,
 }
 
@@ -23,7 +23,10 @@ impl Default for MockInstrument {
 
 impl MockInstrument {
     pub fn new() -> Self {
-        Self { sender: None }
+        Self {
+            id: String::new(),
+            sender: None,
+        }
     }
 }
 
@@ -33,23 +36,19 @@ impl Instrument for MockInstrument {
         "Mock Instrument".to_string()
     }
 
-    async fn connect(&mut self, settings: &Arc<Settings>) -> Result<()> {
-        info!("Connecting to Mock Instrument...");
+    async fn connect(&mut self, id: &str, settings: &Arc<Settings>) -> Result<()> {
+        info!("Connecting to Mock Instrument '{}'...", id);
+        self.id = id.to_string();
         let (sender, _) = broadcast::channel(1024);
         self.sender = Some(sender.clone());
 
-        // Parse and validate configuration using type-safe config object
-        let config_value = settings
-            .instruments
-            .get("mock")
-            .context("Missing 'mock' instrument configuration")?;
-        let config = MockInstrumentConfig::from_toml_validated(config_value)?;
-
-        let sample_rate = config.sample_rate_hz;
-        let num_samples = config.num_samples;
-
+        let settings = settings.clone();
+        let instrument_id = self.id.clone();
         // Spawn a task to generate data
         tokio::spawn(async move {
+            let config = settings.instruments.get(&instrument_id).unwrap().clone();
+            let sample_rate = config.get("sample_rate_hz").unwrap().as_float().unwrap();
+            let num_samples = config.get("num_samples").unwrap().as_integer().unwrap() as usize;
             let mut interval = interval(Duration::from_secs_f64(1.0 / sample_rate));
             let mut phase: f64 = 0.0;
 
@@ -63,6 +62,7 @@ impl Instrument for MockInstrument {
 
                 let sine_dp = DataPoint {
                     timestamp: now,
+                    instrument_id: instrument_id.clone(),
                     channel: "sine_wave".to_string(),
                     value: phase.sin() + noise,
                     unit: "V".to_string(),
@@ -70,6 +70,7 @@ impl Instrument for MockInstrument {
                 };
                 let cosine_dp = DataPoint {
                     timestamp: now,
+                    instrument_id: instrument_id.clone(),
                     channel: "cosine_wave".to_string(),
                     value: phase.cos() + noise * 0.8,
                     unit: "V".to_string(),

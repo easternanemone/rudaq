@@ -31,87 +31,26 @@ use async_trait::async_trait;
 use log::{info, warn};
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use visa_rs::{prelude::*, session::Session};
+use visa_rs::prelude::*;
+use visa_rs::prelude::*;
+use std::ffi::CString;
 
 /// An `Instrument` implementation for VISA devices.
 #[derive(Clone)]
 pub struct VisaInstrument {
     id: String,
-    session: Option<Arc<Session>>,
     sender: Option<broadcast::Sender<DataPoint>>,
-    // Add a default resource manager to handle the VISA session
-    rm: Arc<DefaultRM>,
 }
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Read, Write};
 
 impl VisaInstrument {
     /// Creates a new `VisaInstrument` with the given resource name.
     pub fn new(id: &str) -> Result<Self> {
-        let rm = DefaultRM::new().context("Failed to create VISA a new resource manager")?;
         Ok(Self {
             id: id.to_string(),
-            session: None,
             sender: None,
-            rm: Arc::new(rm),
         })
-    }
-
-    /// Writes a SCPI command to the instrument.
-    pub fn write(&self, command: &str) -> Result<()> {
-        self.session
-            .as_ref()
-            .ok_or_else(|| anyhow!("Not connected to instrument '{}'", self.id))?
-            .write_all(command.as_bytes())
-            .with_context(|| format!("Failed to write command to instrument '{}'", self.id))?;
-        Ok(())
-    }
-
-    /// Writes a SCPI query to the instrument and returns the response.
-    pub fn query(&self, command: &str) -> Result<String> {
-        self.write(command)
-            .with_context(|| format!("Failed to write query to instrument '{}'", self.id))?;
-        let session = self
-            .session
-            .as_ref()
-            .ok_or_else(|| anyhow!("Not connected to instrument '{}'", self.id))?;
-        let mut reader = BufReader::new(session.as_ref());
-        let mut buf = String::new();
-        reader.read_line(&mut buf).with_context(|| {
-            format!(
-                "Failed to read query response from instrument '{}'",
-                self.id
-            )
-        })?;
-        Ok(buf)
-    }
-
-    /// Reads a fixed number of bytes from the instrument.
-    pub fn read_binary(&self, length: usize) -> Result<Vec<u8>> {
-        let session = self
-            .session
-            .as_ref()
-            .ok_or_else(|| anyhow!("Not connected to instrument '{}'", self.id))?;
-        let mut reader = BufReader::new(session.as_ref());
-        let mut buf = vec![0; length];
-        reader
-            .read_exact(&mut buf)
-            .with_context(|| format!("Failed to read binary data from instrument '{}'", self.id))?;
-        Ok(buf)
-    }
-
-    /// Reads from the instrument until the buffer is empty.
-    pub fn read_until_end(&self) -> Result<Vec<u8>> {
-        let session = self
-            .session
-            .as_ref()
-            .ok_or_else(|| anyhow!("Not connected to instrument '{}'", self.id))?;
-        let mut reader = BufReader::new(session.as_ref());
-        let mut buf = Vec::new();
-        reader
-            .read_to_end(&mut buf)
-            .with_context(|| format!("Failed to read data from instrument '{}'", self.id))?;
-        Ok(buf)
     }
 }
 
@@ -121,29 +60,26 @@ impl Instrument for VisaInstrument {
         self.id.clone()
     }
 
-    async fn connect(&mut self, settings: &Arc<Settings>) -> Result<()> {
-        info!("Connecting to VISA instrument: {}", self.id);
+    async fn connect(&mut self, id: &str, settings: &Arc<Settings>) -> Result<()> {
+        info!("Connecting to VISA instrument: {}", id);
+        self.id = id.to_string();
 
         let instrument_config = settings
             .instruments
-            .get(&self.id)
-            .ok_or_else(|| anyhow!("Configuration for '{}' not found", self.id))?;
+            .get(id)
+            .ok_or_else(|| anyhow!("Configuration for '{}' not found", id))?;
 
         let resource_string = instrument_config
             .get("resource_string")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("'resource_string' not found in config for '{}'", self.id))?;
 
-        let res = self
-            .rm
-            .open(
-                &resource_string.try_into()?,
-                AccessMode::NO_LOCK,
-                TIMEOUT_IMMEDIATE,
-            )
-            .with_context(|| format!("Failed to open VISA session for '{}'", self.id))?;
+        let rm = DefaultRM::new()?;
+        let c_string = CString::new(resource_string).context("Failed to create CString")?;
+        let visa_string = visa_rs::VisaString::from(c_string);
+        let mut session = rm.open(&visa_string, AccessMode::NO_LOCK, TIMEOUT_IMMEDIATE)?;
+        let _instrument = VisaInstrument::new(&self.id)?;
 
-        self.session = Some(Arc::new(res));
         let (sender, _) = broadcast::channel(1024);
         self.sender = Some(sender.clone());
 
@@ -161,19 +97,22 @@ impl Instrument for VisaInstrument {
             })
             .ok_or_else(|| anyhow!("'queries' not found in config for '{}'", self.id))?;
 
-        let instrument = self.clone();
-
+        let id_clone = id.to_string();
         tokio::spawn(async move {
             let mut interval =
                 tokio::time::interval(std::time::Duration::from_secs_f64(1.0 / polling_rate_hz));
             loop {
                 interval.tick().await;
                 for (channel, query_str) in &queries {
-                    match instrument.query(query_str) {
-                        Ok(response) => {
+                    let mut buf = [0u8; 1024];
+                    let result = session.write_all(query_str.as_bytes()).and_then(|()| session.read(&mut buf));
+                    match result {
+                        Ok(bytes_read) => {
+                            let response = String::from_utf8_lossy(&buf[..bytes_read]);
                             let value = response.trim().parse::<f64>().unwrap_or(0.0);
                             let dp = DataPoint {
                                 timestamp: chrono::Utc::now(),
+                                instrument_id: id_clone.clone(),
                                 channel: channel.clone(),
                                 value,
                                 unit: "V".to_string(), // a default unit
@@ -197,9 +136,6 @@ impl Instrument for VisaInstrument {
 
     async fn disconnect(&mut self) -> Result<()> {
         info!("Disconnecting from VISA instrument.");
-        if let Some(session) = self.session.take() {
-            drop(session);
-        }
         self.sender = None;
         Ok(())
     }

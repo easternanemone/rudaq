@@ -57,6 +57,7 @@ pub struct FFTConfig {
 ///         let value = (2.0 * std::f64::consts::PI * frequency * t).sin();
 ///         sine_wave.push(DataPoint {
 ///             timestamp: Utc.timestamp_nanos((t * 1_000_000_000.0) as i64),
+///             instrument_id: "test_instrument".to_string(),
 ///             channel: "test".to_string(),
 ///             value,
 ///             unit: "V".to_string(),
@@ -78,6 +79,7 @@ pub struct FFTProcessor {
     fft_planner: Arc<dyn Fft<f64>>,
     hann_window: Vec<f64>,
     channel: String,
+    instrument_id: String,
 }
 
 impl FFTProcessor {
@@ -117,6 +119,7 @@ impl FFTProcessor {
             fft_planner: fft,
             hann_window,
             channel: String::from("unknown"),
+            instrument_id: String::from("unknown"),
         }
     }
 
@@ -126,9 +129,10 @@ impl FFTProcessor {
             return vec![];
         }
 
-        // Update channel from the first data point
+        // Update channel and instrument_id from the first data point
         if self.channel == "unknown" {
             self.channel = data[0].channel.clone();
+            self.instrument_id = data[0].instrument_id.clone();
         }
 
         self.buffer.extend(data.iter().map(|dp| dp.value));
@@ -209,6 +213,7 @@ impl DataProcessor for FFTProcessor {
 
                 DataPoint {
                     timestamp,
+                    instrument_id: self.instrument_id.clone(),
                     channel: format!("{}_fft", self.channel),
                     value: bin.magnitude,
                     unit: "dB".to_string(),
@@ -291,6 +296,7 @@ mod tests {
             let value = (2.0 * std::f64::consts::PI * 1.0 * t).sin(); // 1 Hz sine wave
             measurements.push(Measurement::Scalar(DataPoint {
                 timestamp: Utc.timestamp_nanos((t * 1_000_000_000.0) as i64),
+                instrument_id: "test_instrument".to_string(),
                 channel: "test_signal".to_string(),
                 value,
                 unit: "V".to_string(),
@@ -343,6 +349,7 @@ mod tests {
             }),
             Measurement::Scalar(DataPoint {
                 timestamp: Utc::now(),
+                instrument_id: "test_instrument".to_string(),
                 channel: "scalar_data".to_string(),
                 value: 1.0,
                 unit: "V".to_string(),

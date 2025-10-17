@@ -29,8 +29,8 @@ impl Instrument for ScpiInstrument {
         "SCPI Instrument".to_string()
     }
 
-    async fn connect(&mut self, _settings: &Arc<Settings>) -> Result<()> {
-        info!("Connecting to SCPI Instrument...");
+    async fn connect(&mut self, id: &str, _settings: &Arc<Settings>) -> Result<()> {
+        info!("Connecting to SCPI Instrument {}...", id);
         // TODO: Implement connection logic (e.g., open serial port)
         // let config = settings.instruments.get("scpi_keithley").unwrap();
         // let port = config.get("port").unwrap().as_str().unwrap();
@@ -51,6 +51,7 @@ impl Instrument for ScpiInstrument {
         let (sender, receiver) = broadcast::channel(1);
         let _ = sender.send(DataPoint {
             timestamp: chrono::Utc::now(),
+            instrument_id: "scpi_placeholder".to_string(),
             channel: "scpi_placeholder".to_string(),
             value: 0.0,
             unit: "N/A".to_string(),

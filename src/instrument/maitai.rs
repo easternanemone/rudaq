@@ -82,13 +82,14 @@ impl Instrument for MaiTai {
     }
 
     #[cfg(feature = "instrument_serial")]
-    async fn connect(&mut self, settings: &Arc<Settings>) -> Result<()> {
-        info!("Connecting to MaiTai laser: {}", self.id);
+    async fn connect(&mut self, id: &str, settings: &Arc<Settings>) -> Result<()> {
+        info!("Connecting to MaiTai laser: {}", id);
+        self.id = id.to_string();
 
         let instrument_config = settings
             .instruments
-            .get(&self.id)
-            .ok_or_else(|| anyhow!("Configuration for '{}' not found", self.id))?;
+            .get(id)
+            .ok_or_else(|| anyhow!("Configuration for '{}' not found", id))?;
 
         let port_name = instrument_config
             .get("port")
@@ -143,7 +144,8 @@ impl Instrument for MaiTai {
                 if let Ok(wavelength) = instrument.query_value("WAVELENGTH?").await {
                     let dp = DataPoint {
                         timestamp,
-                        channel: format!("{}_wavelength", instrument.id),
+                        instrument_id: instrument.id.clone(),
+                        channel: "wavelength".to_string(),
                         value: wavelength,
                         unit: "nm".to_string(),
                         metadata: None,
@@ -158,7 +160,8 @@ impl Instrument for MaiTai {
                 if let Ok(power) = instrument.query_value("POWER?").await {
                     let dp = DataPoint {
                         timestamp,
-                        channel: format!("{}_power", instrument.id),
+                        instrument_id: instrument.id.clone(),
+                        channel: "power".to_string(),
                         value: power,
                         unit: "W".to_string(),
                         metadata: None,
@@ -170,7 +173,8 @@ impl Instrument for MaiTai {
                 if let Ok(shutter) = instrument.query_value("SHUTTER?").await {
                     let dp = DataPoint {
                         timestamp,
-                        channel: format!("{}_shutter", instrument.id),
+                        instrument_id: instrument.id.clone(),
+                        channel: "shutter".to_string(),
                         value: shutter,
                         unit: "state".to_string(),
                         metadata: None,
@@ -185,7 +189,8 @@ impl Instrument for MaiTai {
     }
 
     #[cfg(not(feature = "instrument_serial"))]
-    async fn connect(&mut self, _settings: &Arc<Settings>) -> Result<()> {
+    async fn connect(&mut self, id: &str, _settings: &Arc<Settings>) -> Result<()> {
+        self.id = id.to_string();
         Err(anyhow!("Serial support not enabled. Rebuild with --features instrument_serial"))
     }
 

@@ -16,6 +16,9 @@ Cargo.lock
 # Data output files
 /data_output/
 
+# Temporary files
+/tmp/
+
 # Local development and documentation files
 .beads/
 *.db
