@@ -1,9 +1,35 @@
-//! Core trait definitions for rust-daq instrument abstraction
+//! `daq-core`
 //!
-//! This crate provides the fundamental building blocks for the three-tier architecture:
-//! - HardwareAdapter: Low-level I/O abstraction
-//! - Instrument: Logical device abstraction with state management
-//! - Meta-Instrument traits: Standardized interfaces (Camera, PowerMeter, etc.)
+//! Core trait definitions and types for rust-daq instrument abstraction.
+//!
+//! This crate provides the fundamental building blocks for the data acquisition (DAQ)
+//! system. It defines common traits for instruments, data handling, error types,
+//! and other shared components used across the various DAQ services and drivers.
+//!
+//! ## Three-Tier Architecture
+//!
+//! - **HardwareAdapter**: Low-level I/O abstraction (serial, VISA, USB, network)
+//! - **Instrument**: Logical device abstraction with state management and lifecycle
+//! - **Meta-Instrument traits**: Standardized interfaces (Camera, PowerMeter, MotionController, etc.)
+//!
+//! ## Key Types
+//!
+//! - [`Measurement`]: Enum supporting scalar, spectrum, and image data
+//! - [`InstrumentState`]: Explicit state machine for instrument lifecycle
+//! - [`DaqError`]: Self-contained error type with recovery information
+//! - [`InstrumentCommand`]: Command enum for instrument control
+//!
+//! ## Example
+//!
+//! ```rust,no_run
+//! use daq_core::{Instrument, InstrumentState};
+//! # use daq_core::Result;
+//! # async fn example() -> Result<()> {
+//! // Instruments follow a standard lifecycle:
+//! // Disconnected -> Connecting -> Ready -> Acquiring -> ShuttingDown
+//! # Ok(())
+//! # }
+//! ```
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};

@@ -5,9 +5,9 @@
 
 use async_trait::async_trait;
 use daq_core::{
-    Camera, DataPoint, HardwareAdapter, ImageData, Instrument, InstrumentCommand,
-    InstrumentState, Measurement, MeasurementReceiver, MeasurementSender, PowerMeter, PowerRange,
-    ROI, Result, arc_measurement, measurement_channel,
+    arc_measurement, measurement_channel, Camera, DataPoint, DaqError, HardwareAdapter, ImageData,
+    Instrument, InstrumentCommand, InstrumentState, Measurement, MeasurementReceiver,
+    MeasurementSender, PowerMeter, PowerRange, ROI, Result,
 };
 use chrono::Utc;
 use tokio::task::JoinHandle;
@@ -108,7 +108,7 @@ impl Instrument for MockInstrumentV2 {
     }
 
     fn state(&self) -> InstrumentState {
-        self.state
+        self.state.clone()
     }
 
 
