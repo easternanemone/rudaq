@@ -29,7 +29,7 @@ use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use log::{info, warn};
 use std::sync::Arc;
-use tokio::sync::broadcast;
+
 
 
 /// Newport ESP300 instrument implementation
@@ -38,7 +38,7 @@ pub struct ESP300 {
     id: String,
     #[cfg(feature = "instrument_serial")]
     adapter: Option<SerialAdapter>,
-    sender: Option<broadcast::Sender<DataPoint>>,
+    // Removed sender field - using InstrumentMeasurement with DataDistributor
     num_axes: u8,
     measurement: Option<InstrumentMeasurement>,
 }
@@ -50,7 +50,7 @@ impl ESP300 {
             id: id.to_string(),
             #[cfg(feature = "instrument_serial")]
             adapter: None,
-            sender: None,
+            // No sender field
             num_axes: 3, // ESP300 has 3 axes
             measurement: None,
         }
@@ -178,11 +178,10 @@ impl Instrument for ESP300 {
             }
         }
 
-        // Create broadcast channel with configured capacity
+        // Create measurement distributor with configured capacity
         let capacity = settings.application.broadcast_channel_capacity;
-        let (sender, _) = broadcast::channel(capacity);
-        self.sender = Some(sender.clone());
-        self.measurement = Some(InstrumentMeasurement::new(sender.clone(), self.id.clone()));
+        let measurement = InstrumentMeasurement::new(capacity, self.id.clone());
+        self.measurement = Some(measurement.clone());
 
         // Spawn polling task
         let instrument = self.clone();
@@ -213,7 +212,7 @@ impl Instrument for ESP300 {
                             unit: "units".to_string(),
                             metadata: Some(serde_json::json!({"axis": axis})),
                         };
-                        if sender.send(dp).is_err() {
+                        if measurement.broadcast(dp).await.is_err() {
                             warn!("No active receivers for ESP300 data");
                             return;
                         }
@@ -229,7 +228,7 @@ impl Instrument for ESP300 {
                             unit: "units/s".to_string(),
                             metadata: Some(serde_json::json!({"axis": axis})),
                         };
-                        let _ = sender.send(dp);
+                        let _ = measurement.broadcast(dp).await;
                     }
                 }
             }
@@ -251,7 +250,6 @@ impl Instrument for ESP300 {
         {
             self.adapter = None;
         }
-        self.sender = None;
         self.measurement = None;
         Ok(())
     }

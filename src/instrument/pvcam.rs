@@ -26,13 +26,13 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use log::{info, warn};
 use std::sync::Arc;
-use tokio::sync::broadcast;
+
 
 /// PVCAM camera instrument implementation
 #[derive(Clone)]
 pub struct PVCAMCamera {
     id: String,
-    sender: Option<broadcast::Sender<DataPoint>>,
+    // Removed sender field - using InstrumentMeasurement with DataDistributor
     camera_name: String,
     exposure_ms: f64,
     measurement: Option<InstrumentMeasurement>,
@@ -43,7 +43,7 @@ impl PVCAMCamera {
     pub fn new(id: &str) -> Self {
         Self {
             id: id.to_string(),
-            sender: None,
+            // No sender field
             camera_name: "PrimeBSI".to_string(),
             exposure_ms: 100.0,
             measurement: None,
@@ -123,9 +123,9 @@ impl Instrument for PVCAMCamera {
 
         // Create broadcast channel with configured capacity
         let capacity = settings.application.broadcast_channel_capacity;
-        let (sender, _) = broadcast::channel(capacity);
-        self.sender = Some(sender.clone());
-        self.measurement = Some(InstrumentMeasurement::new(sender.clone(), self.id.clone()));
+        let measurement = InstrumentMeasurement::new(capacity, self.id.clone());
+        // No sender field
+        self.measurement = Some(measurement.clone());
 
         // Spawn acquisition task
         let instrument = self.clone();
@@ -185,9 +185,9 @@ impl Instrument for PVCAMCamera {
                     metadata: Some(serde_json::json!({"frame": frame_count})),
                 };
 
-                if sender.send(dp_mean).is_err()
-                    || sender.send(dp_min).is_err()
-                    || sender.send(dp_max).is_err() {
+                if measurement.broadcast(dp_mean).await.is_err()
+                    || measurement.broadcast(dp_min).await.is_err()
+                    || measurement.broadcast(dp_max).await.is_err() {
                     warn!("No active receivers for PVCAM camera data");
                     break;
                 }
@@ -205,7 +205,6 @@ impl Instrument for PVCAMCamera {
         // pl_cam_close()
         // pl_pvcam_uninit()
 
-        self.sender = None;
         self.measurement = None;
         Ok(())
     }

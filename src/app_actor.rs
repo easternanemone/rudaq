@@ -10,8 +10,8 @@ use crate::{
     data::registry::ProcessorRegistry,
     instrument::InstrumentRegistry,
     log_capture::LogBuffer,
-    measurement::Measure,
-    messages::DaqCommand,
+    measurement::{DataDistributor, Measure},
+    messages::{DaqCommand, SpawnError},
     metadata::Metadata,
     session::{self, Session},
 };
@@ -23,7 +23,7 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::{
     runtime::Runtime,
-    sync::{broadcast, mpsc},
+    sync::{mpsc, Mutex},
     task::JoinHandle,
 };
 
@@ -37,7 +37,7 @@ where
     instrument_registry: Arc<InstrumentRegistry<M>>,
     processor_registry: Arc<ProcessorRegistry>,
     instruments: HashMap<String, InstrumentHandle>,
-    data_sender: broadcast::Sender<Arc<Measurement>>,
+    data_distributor: Arc<Mutex<DataDistributor<Arc<Measurement>>>>,
     log_buffer: LogBuffer,
     metadata: Metadata,
     writer_task: Option<JoinHandle<Result<()>>>,
@@ -45,7 +45,6 @@ where
     storage_format: String,
     runtime: Arc<Runtime>,
     shutdown_flag: bool,
-    _data_receiver_keeper: broadcast::Receiver<Arc<Measurement>>,
 }
 
 impl<M> DaqManagerActor<M>
@@ -61,8 +60,9 @@ where
         log_buffer: LogBuffer,
         runtime: Arc<Runtime>,
     ) -> Result<Self> {
-        let (data_sender, data_receiver_keeper) =
-            broadcast::channel(settings.application.broadcast_channel_capacity);
+        let data_distributor = Arc::new(Mutex::new(DataDistributor::new(
+            settings.application.broadcast_channel_capacity
+        )));
         let storage_format = settings.storage.default_format.clone();
 
         Ok(Self {
@@ -70,7 +70,7 @@ where
             instrument_registry,
             processor_registry,
             instruments: HashMap::new(),
-            data_sender,
+            data_distributor,
             log_buffer,
             metadata: Metadata::default(),
             writer_task: None,
@@ -78,7 +78,6 @@ where
             storage_format,
             runtime,
             shutdown_flag: false,
-            _data_receiver_keeper: data_receiver_keeper,
         })
     }
 
@@ -151,7 +150,10 @@ where
                 }
 
                 DaqCommand::SubscribeToData { response } => {
-                    let receiver = self.data_sender.subscribe();
+                    let receiver = {
+                        let mut dist = self.data_distributor.lock().await;
+                        dist.subscribe()
+                    };
                     let _ = response.send(receiver);
                 }
 
@@ -168,25 +170,40 @@ where
     }
 
     /// Spawns an instrument to run on the Tokio runtime
-    fn spawn_instrument(&mut self, id: &str) -> Result<()> {
+    fn spawn_instrument(&mut self, id: &str) -> Result<(), SpawnError> {
         if self.instruments.contains_key(id) {
-            return Err(anyhow!("Instrument '{}' is already running.", id));
+            return Err(SpawnError::AlreadyRunning(format!(
+                "Instrument '{}' is already running",
+                id
+            )));
         }
 
         let instrument_config = self
             .settings
             .instruments
             .get(id)
-            .ok_or_else(|| anyhow!("Instrument config for '{}' not found.", id))?;
+            .ok_or_else(|| {
+                SpawnError::InvalidConfig(format!("Instrument config for '{}' not found", id))
+            })?;
         let instrument_type = instrument_config
             .get("type")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Instrument type for '{}' not found in config.", id))?;
+            .ok_or_else(|| {
+                SpawnError::InvalidConfig(format!(
+                    "Instrument type for '{}' not found in config",
+                    id
+                ))
+            })?;
 
         let mut instrument = self
             .instrument_registry
             .create(instrument_type, id)
-            .ok_or_else(|| anyhow!("Instrument type '{}' not found.", instrument_type))?;
+            .ok_or_else(|| {
+                SpawnError::InvalidConfig(format!(
+                    "Instrument type '{}' not registered in registry",
+                    instrument_type
+                ))
+            })?;
 
         // Create processor chain for this instrument
         let mut processors: Vec<Box<dyn MeasurementProcessor>> = Vec::new();
@@ -195,17 +212,17 @@ where
                 let processor = self
                     .processor_registry
                     .create(&config.r#type, &config.config)
-                    .with_context(|| {
-                        format!(
-                            "Failed to create processor '{}' for instrument '{}'",
-                            config.r#type, id
-                        )
+                    .map_err(|e| {
+                        SpawnError::InvalidConfig(format!(
+                            "Failed to create processor '{}' for instrument '{}': {}",
+                            config.r#type, id, e
+                        ))
                     })?;
                 processors.push(processor);
             }
         }
 
-        let data_sender = self.data_sender.clone();
+        let data_distributor = self.data_distributor.clone();
         let settings = self.settings.clone();
         let id_clone = id.to_string();
 
@@ -213,12 +230,22 @@ where
         let (command_tx, mut command_rx) =
             tokio::sync::mpsc::channel(settings.application.command_channel_capacity);
 
-        let task: JoinHandle<Result<()>> = self.runtime.spawn(async move {
+        // Try to connect synchronously in this function to catch connection errors
+        // Use block_on to run the async connect operation
+        self.runtime.block_on(async {
             instrument
                 .connect(&id_clone, &settings)
                 .await
-                .with_context(|| format!("Failed to connect to instrument '{}'", id_clone))?;
-            info!("Instrument '{}' connected.", id_clone);
+                .map_err(|e| {
+                    SpawnError::ConnectionFailed(format!(
+                        "Failed to connect to instrument '{}': {}",
+                        id_clone, e
+                    ))
+                })
+        })?;
+        info!("Instrument '{}' connected.", id_clone);
+
+        let task: JoinHandle<Result<()>> = self.runtime.spawn(async move {
 
             let mut stream = instrument
                 .measure()
@@ -227,9 +254,9 @@ where
                 .context("Failed to get data stream")?;
             loop {
                 tokio::select! {
-                    data_point_result = stream.recv() => {
-                        match data_point_result {
-                            Ok(dp) => {
+                    data_point_option = stream.recv() => {
+                        match data_point_option {
+                            Some(dp) => {
                                 // Convert M::Data to daq_core::DataPoint using Into trait
                                 let daq_dp: daq_core::DataPoint = dp.into();
                                 let mut measurements = vec![Arc::new(Measurement::Scalar(daq_dp))];
@@ -241,13 +268,14 @@ where
 
                                 // Broadcast processed measurements
                                 for measurement in measurements {
-                                    if let Err(e) = data_sender.send(measurement) {
+                                    let mut dist = data_distributor.lock().await;
+                                    if let Err(e) = dist.broadcast(measurement).await {
                                         error!("Failed to broadcast measurement: {}", e);
                                     }
                                 }
                             }
-                            Err(e) => {
-                                error!("Stream receive error: {}", e);
+                            None => {
+                                error!("Stream closed");
                                 break;
                             }
                         }
@@ -370,7 +398,10 @@ where
 
         let settings = self.settings.clone();
         let metadata = self.metadata.clone();
-        let mut rx = self.data_sender.subscribe();
+        let mut rx = {
+            let mut dist = self.data_distributor.blocking_lock();
+            dist.subscribe()
+        };
         let storage_format_for_task = self.storage_format.clone();
 
         // Create shutdown channel
@@ -399,15 +430,12 @@ where
                 tokio::select! {
                     data_point = rx.recv() => {
                         match data_point {
-                            Ok(dp) => {
+                            Some(dp) => {
                                 if let Err(e) = writer.write(&[dp]).await {
                                     error!("Failed to write data point: {}", e);
                                 }
                             }
-                            Err(broadcast::error::RecvError::Lagged(n)) => {
-                                log::warn!("Data writer lagged by {} messages.", n);
-                            }
-                            Err(broadcast::error::RecvError::Closed) => {
+                            None => {
                                 info!("Data channel closed, stopping storage writer");
                                 break;
                             }
@@ -499,6 +527,7 @@ where
         for id in &session.active_instruments {
             if let Err(e) = self.spawn_instrument(id) {
                 error!("Failed to start instrument from session '{}': {}", id, e);
+                // Continue loading other instruments even if one fails
             }
         }
 

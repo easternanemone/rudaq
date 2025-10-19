@@ -1,23 +1,33 @@
 //! Shared measurement type for all V1 instruments
 
 use crate::core::DataPoint;
-use crate::measurement::Measure;
+use crate::measurement::{DataDistributor, Measure};
 use anyhow::Result;
 use async_trait::async_trait;
-use tokio::sync::broadcast;
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex};
 
 /// A measurement type that all V1 instruments can use
-/// This provides a unified Measure implementation backed by a broadcast channel
+/// This provides a unified Measure implementation backed by a DataDistributor
 #[derive(Clone)]
 pub struct InstrumentMeasurement {
-    sender: broadcast::Sender<DataPoint>,
+    distributor: Arc<Mutex<DataDistributor<DataPoint>>>,
     id: String,
 }
 
 impl InstrumentMeasurement {
     /// Creates a new InstrumentMeasurement
-    pub fn new(sender: broadcast::Sender<DataPoint>, id: String) -> Self {
-        Self { sender, id }
+    pub fn new(capacity: usize, id: String) -> Self {
+        Self {
+            distributor: Arc::new(Mutex::new(DataDistributor::new(capacity))),
+            id,
+        }
+    }
+
+    /// Broadcast a data point to all subscribers
+    pub async fn broadcast(&self, data: DataPoint) -> Result<()> {
+        let mut dist = self.distributor.lock().await;
+        dist.broadcast(data).await
     }
 }
 
@@ -27,7 +37,7 @@ impl Measure for InstrumentMeasurement {
 
     async fn measure(&mut self) -> Result<DataPoint> {
         // This method is not typically used for streaming instruments
-        // The data flows through the broadcast channel instead
+        // The data flows through the DataDistributor instead
         let dp = DataPoint {
             timestamp: chrono::Utc::now(),
             instrument_id: self.id.clone(),
@@ -39,7 +49,8 @@ impl Measure for InstrumentMeasurement {
         Ok(dp)
     }
 
-    async fn data_stream(&self) -> Result<broadcast::Receiver<DataPoint>> {
-        Ok(self.sender.subscribe())
+    async fn data_stream(&self) -> Result<mpsc::Receiver<DataPoint>> {
+        let mut dist = self.distributor.lock().await;
+        Ok(dist.subscribe())
     }
 }

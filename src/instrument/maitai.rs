@@ -25,7 +25,7 @@ use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use log::{info, warn};
 use std::sync::Arc;
-use tokio::sync::broadcast;
+
 
 
 /// MaiTai laser instrument implementation
@@ -34,7 +34,7 @@ pub struct MaiTai {
     id: String,
     #[cfg(feature = "instrument_serial")]
     adapter: Option<SerialAdapter>,
-    sender: Option<broadcast::Sender<DataPoint>>,
+    // Removed sender field - using InstrumentMeasurement with DataDistributor
     measurement: Option<InstrumentMeasurement>,
 }
 
@@ -45,7 +45,7 @@ impl MaiTai {
             id: id.to_string(),
             #[cfg(feature = "instrument_serial")]
             adapter: None,
-            sender: None,
+            // No sender field
             measurement: None,
         }
     }
@@ -136,9 +136,9 @@ impl Instrument for MaiTai {
 
         // Create broadcast channel with configured capacity
         let capacity = settings.application.broadcast_channel_capacity;
-        let (sender, _) = broadcast::channel(capacity);
-        self.sender = Some(sender.clone());
-        self.measurement = Some(InstrumentMeasurement::new(sender.clone(), self.id.clone()));
+        let measurement = InstrumentMeasurement::new(capacity, self.id.clone());
+        // No sender field
+        self.measurement = Some(measurement.clone());
 
         // Spawn polling task
         let instrument = self.clone();
@@ -166,7 +166,7 @@ impl Instrument for MaiTai {
                         unit: "nm".to_string(),
                         metadata: None,
                     };
-                    if sender.send(dp).is_err() {
+                    if measurement.broadcast(dp).await.is_err() {
                         warn!("No active receivers for MaiTai data");
                         break;
                     }
@@ -182,7 +182,7 @@ impl Instrument for MaiTai {
                         unit: "W".to_string(),
                         metadata: None,
                     };
-                    let _ = sender.send(dp);
+                    let _ = measurement.broadcast(dp).await;
                 }
 
                 // Query shutter state
@@ -195,7 +195,7 @@ impl Instrument for MaiTai {
                         unit: "state".to_string(),
                         metadata: None,
                     };
-                    let _ = sender.send(dp);
+                    let _ = measurement.broadcast(dp).await;
                 }
             }
         });
@@ -218,7 +218,6 @@ impl Instrument for MaiTai {
         {
             self.adapter = None;
         }
-        self.sender = None;
         self.measurement = None;
         Ok(())
     }

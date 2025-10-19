@@ -4,15 +4,14 @@ use crate::{
     core::{DataPoint, Instrument},
     measurement::InstrumentMeasurement,
 };
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use log::info;
 use std::sync::Arc;
-use tokio::sync::broadcast;
+
 
 pub struct ScpiInstrument {
     id: String,
-    sender: Option<broadcast::Sender<DataPoint>>,
     measurement: Option<InstrumentMeasurement>,
 }
 
@@ -26,26 +25,8 @@ impl ScpiInstrument {
     pub fn new() -> Self {
         Self {
             id: String::new(),
-            sender: None,
             measurement: None,
         }
-    }
-
-    pub async fn data_stream(&mut self) -> Result<broadcast::Receiver<DataPoint>> {
-        let sender = self
-            .sender
-            .as_ref()
-            .ok_or_else(|| anyhow!("SCPI instrument not connected"))?;
-        let receiver = sender.subscribe();
-        let _ = sender.send(DataPoint {
-            timestamp: chrono::Utc::now(),
-            instrument_id: self.id.clone(),
-            channel: "scpi_placeholder".to_string(),
-            value: 0.0,
-            unit: "N/A".to_string(),
-            metadata: None,
-        });
-        Ok(receiver)
     }
 }
 
@@ -67,15 +48,13 @@ impl Instrument for ScpiInstrument {
         info!("SCPI connection is a placeholder.");
         self.id = id.to_string();
         let capacity = settings.application.broadcast_channel_capacity;
-        let (sender, _) = broadcast::channel(capacity);
-        self.measurement = Some(InstrumentMeasurement::new(sender.clone(), self.id.clone()));
-        self.sender = Some(sender);
+        let measurement = InstrumentMeasurement::new(capacity, self.id.clone());
+        self.measurement = Some(measurement);
         Ok(())
     }
 
     async fn disconnect(&mut self) -> Result<()> {
         info!("Disconnecting from SCPI Instrument.");
-        self.sender = None;
         self.measurement = None;
         Ok(())
     }

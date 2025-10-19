@@ -58,7 +58,7 @@ use egui_plot::{Line, Plot, PlotPoints};
 use log::{error, LevelFilter};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use tokio::sync::broadcast;
+use tokio::sync::mpsc;
 
 mod log_panel;
 
@@ -140,7 +140,7 @@ where
     M::Data: Into<daq_core::DataPoint>,
 {
     app: DaqApp<M>,
-    data_receiver: broadcast::Receiver<Arc<Measurement>>,
+    data_receiver: mpsc::Receiver<Arc<Measurement>>,
     log_buffer: LogBuffer,
     dock_state: DockState<DockTab>,
     selected_channel: String,
@@ -266,15 +266,11 @@ where
                 }
             }
                 }
-                Err(tokio::sync::broadcast::error::TryRecvError::Lagged(n)) => {
-                    log::warn!("GUI receiver lagged by {} messages - increasing broadcast_channel_capacity may help", n);
-                    // Continue processing to catch up
-                }
-                Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
                     // No more data available, exit loop
                     break;
                 }
-                Err(tokio::sync::broadcast::error::TryRecvError::Closed) => {
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
                     // Channel closed, exit loop
                     break;
                 }

@@ -12,7 +12,18 @@ use anyhow::Result;
 use daq_core::Measurement;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{mpsc, oneshot};
+
+/// Errors that can occur during instrument spawning
+#[derive(Debug, thiserror::Error)]
+pub enum SpawnError {
+    #[error("Configuration invalid: {0}")]
+    InvalidConfig(String),
+    #[error("Failed to connect: {0}")]
+    ConnectionFailed(String),
+    #[error("Instrument already running: {0}")]
+    AlreadyRunning(String),
+}
 
 /// Commands that can be sent to the DaqManagerActor
 #[derive(Debug)]
@@ -20,7 +31,7 @@ pub enum DaqCommand {
     /// Spawn a new instrument
     SpawnInstrument {
         id: String,
-        response: oneshot::Sender<Result<()>>,
+        response: oneshot::Sender<Result<(), SpawnError>>,
     },
 
     /// Stop a running instrument
@@ -82,7 +93,7 @@ pub enum DaqCommand {
 
     /// Subscribe to data broadcast channel
     SubscribeToData {
-        response: oneshot::Sender<broadcast::Receiver<Arc<Measurement>>>,
+        response: oneshot::Sender<mpsc::Receiver<Arc<Measurement>>>,
     },
 
     /// Shutdown the DAQ system
@@ -93,7 +104,7 @@ pub enum DaqCommand {
 
 impl DaqCommand {
     /// Helper to create a SpawnInstrument command
-    pub fn spawn_instrument(id: String) -> (Self, oneshot::Receiver<Result<()>>) {
+    pub fn spawn_instrument(id: String) -> (Self, oneshot::Receiver<Result<(), SpawnError>>) {
         let (tx, rx) = oneshot::channel();
         (Self::SpawnInstrument { id, response: tx }, rx)
     }
@@ -176,7 +187,7 @@ impl DaqCommand {
     }
 
     /// Helper to create a SubscribeToData command
-    pub fn subscribe_to_data() -> (Self, oneshot::Receiver<broadcast::Receiver<Arc<Measurement>>>) {
+    pub fn subscribe_to_data() -> (Self, oneshot::Receiver<mpsc::Receiver<Arc<Measurement>>>) {
         let (tx, rx) = oneshot::channel();
         (Self::SubscribeToData { response: tx }, rx)
     }

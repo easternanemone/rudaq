@@ -8,7 +8,6 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use log::info;
 use std::sync::Arc;
-use tokio::sync::broadcast;
 use tokio::time::{interval, Duration};
 
 pub struct MockInstrument {
@@ -43,11 +42,12 @@ impl Instrument for MockInstrument {
         info!("Connecting to Mock Instrument '{}'...", id);
         self.id = id.to_string();
         let capacity = settings.application.broadcast_channel_capacity;
-        let (sender, _) = broadcast::channel(capacity);
-        self.measurement = Some(InstrumentMeasurement::new(sender.clone(), self.id.clone()));
+        let measurement = InstrumentMeasurement::new(capacity, self.id.clone());
+        self.measurement = Some(measurement.clone());
 
         let settings = settings.clone();
         let instrument_id = self.id.clone();
+
         // Spawn a task to generate data
         tokio::spawn(async move {
             let config = settings.instruments.get(&instrument_id).unwrap().clone();
@@ -81,9 +81,11 @@ impl Instrument for MockInstrument {
                     metadata: None,
                 };
 
-                // Ignore errors if no receivers are active
-                if sender.send(sine_dp).is_err() || sender.send(cosine_dp).is_err() {
-                    // Stop if the receiver has been dropped
+                // Broadcast using the new pattern
+                if measurement.broadcast(sine_dp).await.is_err() {
+                    break;
+                }
+                if measurement.broadcast(cosine_dp).await.is_err() {
                     break;
                 }
             }

@@ -28,7 +28,7 @@ use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use log::{info, warn};
 use std::sync::Arc;
-use tokio::sync::broadcast;
+
 
 
 /// Newport 1830-C instrument implementation
@@ -37,7 +37,7 @@ pub struct Newport1830C {
     id: String,
     #[cfg(feature = "instrument_serial")]
     adapter: Option<SerialAdapter>,
-    sender: Option<broadcast::Sender<DataPoint>>,
+    // Removed sender field - using InstrumentMeasurement with DataDistributor
     measurement: Option<InstrumentMeasurement>,
 }
 
@@ -48,7 +48,7 @@ impl Newport1830C {
             id: id.to_string(),
             #[cfg(feature = "instrument_serial")]
             adapter: None,
-            sender: None,
+            // No sender field
             measurement: None,
         }
     }
@@ -150,9 +150,9 @@ impl Instrument for Newport1830C {
 
         // Create broadcast channel with configured capacity
         let capacity = settings.application.broadcast_channel_capacity;
-        let (sender, _) = broadcast::channel(capacity);
-        self.sender = Some(sender.clone());
-        self.measurement = Some(InstrumentMeasurement::new(sender.clone(), self.id.clone()));
+        let measurement = InstrumentMeasurement::new(capacity, self.id.clone());
+        // No sender field
+        self.measurement = Some(measurement.clone());
 
         // Spawn polling task
         let instrument = self.clone();
@@ -181,7 +181,7 @@ impl Instrument for Newport1830C {
                                 metadata: None,
                             };
 
-                            if sender.send(dp).is_err() {
+                            if measurement.broadcast(dp).await.is_err() {
                                 warn!("No active receivers for Newport 1830-C data");
                                 break;
                             }
@@ -212,7 +212,6 @@ impl Instrument for Newport1830C {
         {
             self.adapter = None;
         }
-        self.sender = None;
         self.measurement = None;
         Ok(())
     }

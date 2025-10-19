@@ -25,7 +25,6 @@ use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use log::{info, warn};
 use std::sync::Arc;
-use tokio::sync::broadcast;
 
 
 /// Elliptec ELL14 instrument implementation
@@ -34,7 +33,6 @@ pub struct Elliptec {
     id: String,
     #[cfg(feature = "instrument_serial")]
     adapter: Option<SerialAdapter>,
-    sender: Option<broadcast::Sender<DataPoint>>,
     device_addresses: Vec<u8>,
     measurement: Option<InstrumentMeasurement>,
 }
@@ -46,7 +44,6 @@ impl Elliptec {
             id: id.to_string(),
             #[cfg(feature = "instrument_serial")]
             adapter: None,
-            sender: None,
             device_addresses: vec![0], // Default to address 0
             measurement: None,
         }
@@ -166,11 +163,10 @@ impl Instrument for Elliptec {
             info!("Elliptec device {} info: {}", addr, response);
         }
 
-        // Create broadcast channel with configured capacity
+        // Create measurement distributor with configured capacity
         let capacity = settings.application.broadcast_channel_capacity;
-        let (sender, _) = broadcast::channel(capacity);
-        self.sender = Some(sender.clone());
-        self.measurement = Some(InstrumentMeasurement::new(sender.clone(), self.id.clone()));
+        let measurement = InstrumentMeasurement::new(capacity, self.id.clone());
+        self.measurement = Some(measurement.clone());
 
         // Spawn polling task
         let instrument = self.clone();
@@ -201,7 +197,7 @@ impl Instrument for Elliptec {
                                 metadata: Some(serde_json::json!({"device_address": addr})),
                             };
 
-                            if sender.send(dp).is_err() {
+                            if measurement.broadcast(dp).await.is_err() {
                                 warn!("No active receivers for Elliptec data");
                                 return;
                             }
@@ -235,7 +231,6 @@ impl Instrument for Elliptec {
         {
             self.adapter = None;
         }
-        self.sender = None;
         self.measurement = None;
         Ok(())
     }

@@ -190,6 +190,7 @@ where
             .map_err(|_| anyhow::anyhow!("Failed to send spawn command"))?;
         rx.blocking_recv()
             .map_err(|_| anyhow::anyhow!("Failed to receive spawn response"))?
+            .map_err(|e| anyhow::anyhow!("{}", e))
     }
 
     /// Stops an instrument
@@ -270,12 +271,12 @@ pub struct DaqDataSender {
 }
 
 impl DaqDataSender {
-    pub fn subscribe(&self) -> broadcast::Receiver<Arc<Measurement>> {
+    pub fn subscribe(&self) -> mpsc::Receiver<Arc<Measurement>> {
         let (cmd, rx) = DaqCommand::subscribe_to_data();
         self.command_tx.blocking_send(cmd).ok();
         rx.blocking_recv().unwrap_or_else(|_| {
             // Fallback: create a dummy receiver
-            let (tx, rx) = broadcast::channel(1);
+            let (tx, rx) = mpsc::channel(1);
             drop(tx);
             rx
         })
