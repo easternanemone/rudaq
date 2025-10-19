@@ -22,12 +22,11 @@
 //!   (e.g., a display of the current position) is often updated immediately, assuming the command
 //!   will be successful. The actual instrument state is updated asynchronously.
 
-use crate::{app::DaqApp, core::InstrumentCommand};
+use crate::{app::DaqApp, core::{DataPoint, InstrumentCommand}, measurement::Measure};
+use daq_core::Measurement;
 use egui::{Ui, Color32, Slider};
 use log::error;
-
-use std::collections::HashMap;
-use crate::core::DataPoint;
+use std::{collections::HashMap, sync::Arc};
 
 /// MaiTai laser control panel
 pub struct MaiTaiControlPanel {
@@ -43,7 +42,11 @@ impl MaiTaiControlPanel {
         }
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, app: &DaqApp, data_cache: &HashMap<String, DataPoint>) {
+    pub fn ui<M>(&mut self, ui: &mut Ui, app: &DaqApp<M>, data_cache: &HashMap<String, Arc<Measurement>>)
+    where
+        M: Measure + 'static,
+        M::Data: Into<daq_core::DataPoint>,
+    {
         ui.heading("MaiTai Laser Control");
         ui.separator();
 
@@ -66,15 +69,19 @@ impl MaiTaiControlPanel {
 
         ui.add_space(10.0);
 
-        // Get current state from cache
+        // Get current state from cache (extract scalar values from Measurement::Scalar)
         let current_wavelength = data_cache.get(&format!("{}:wavelength", self.instrument_id))
-            .map_or(0.0, |dp| dp.value);
+            .and_then(|m| if let Measurement::Scalar(dp) = m.as_ref() { Some(dp.value) } else { None })
+            .unwrap_or(0.0);
         let current_power = data_cache.get(&format!("{}:power", self.instrument_id))
-            .map_or(0.0, |dp| dp.value);
+            .and_then(|m| if let Measurement::Scalar(dp) = m.as_ref() { Some(dp.value) } else { None })
+            .unwrap_or(0.0);
         let shutter_open = data_cache.get(&format!("{}:shutter", self.instrument_id))
-            .map_or(false, |dp| dp.value > 0.0);
+            .and_then(|m| if let Measurement::Scalar(dp) = m.as_ref() { Some(dp.value > 0.0) } else { None })
+            .unwrap_or(false);
         let laser_on = data_cache.get(&format!("{}:laser", self.instrument_id))
-            .map_or(false, |dp| dp.value > 0.0);
+            .and_then(|m| if let Measurement::Scalar(dp) = m.as_ref() { Some(dp.value > 0.0) } else { None })
+            .unwrap_or(false);
 
 
         // Current wavelength display
@@ -171,7 +178,11 @@ impl Newport1830CControlPanel {
         }
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, app: &DaqApp, data_cache: &HashMap<String, DataPoint>) {
+    pub fn ui<M>(&mut self, ui: &mut Ui, app: &DaqApp<M>, data_cache: &HashMap<String, Arc<Measurement>>)
+    where
+        M: Measure + 'static,
+        M::Data: Into<daq_core::DataPoint>,
+    {
         ui.heading("Newport 1830-C Power Meter");
         ui.separator();
 
@@ -235,9 +246,10 @@ impl Newport1830CControlPanel {
 
         ui.add_space(15.0);
 
-        // Get current state from cache
+        // Get current state from cache (extract scalar value from Measurement::Scalar)
         let current_power = data_cache.get(&format!("{}:power", self.instrument_id))
-            .map_or(0.0, |dp| dp.value);
+            .and_then(|m| if let Measurement::Scalar(dp) = m.as_ref() { Some(dp.value) } else { None })
+            .unwrap_or(0.0);
 
         // Power reading display
         ui.group(|ui| {
@@ -285,7 +297,11 @@ impl ElliptecControlPanel {
         }
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, app: &DaqApp, data_cache: &HashMap<String, DataPoint>) {
+    pub fn ui<M>(&mut self, ui: &mut Ui, app: &DaqApp<M>, data_cache: &HashMap<String, Arc<Measurement>>)
+    where
+        M: Measure + 'static,
+        M::Data: Into<daq_core::DataPoint>,
+    {
         ui.heading("Elliptec Rotation Mounts");
         ui.separator();
 
@@ -294,7 +310,8 @@ impl ElliptecControlPanel {
                 ui.label(format!("Device {} (Address {})", idx, addr));
 
                 let position = data_cache.get(&format!("{}:device{}_position", self.instrument_id, addr))
-                    .map_or(0.0, |dp| dp.value);
+                    .and_then(|m| if let Measurement::Scalar(dp) = m.as_ref() { Some(dp.value) } else { None })
+                    .unwrap_or(0.0);
 
                 ui.horizontal(|ui| {
                     ui.label("Position:");
@@ -395,7 +412,11 @@ impl ESP300ControlPanel {
         }
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, app: &DaqApp, data_cache: &HashMap<String, DataPoint>) {
+    pub fn ui<M>(&mut self, ui: &mut Ui, app: &DaqApp<M>, data_cache: &HashMap<String, Arc<Measurement>>)
+    where
+        M: Measure + 'static,
+        M::Data: Into<daq_core::DataPoint>,
+    {
         ui.heading("ESP300 Motion Controller");
         ui.separator();
 
@@ -404,7 +425,8 @@ impl ESP300ControlPanel {
                 ui.label(format!("Axis {} Control", axis + 1));
 
                 let position = data_cache.get(&format!("{}:axis{}_position", self.instrument_id, axis + 1))
-                    .map_or(0.0, |dp| dp.value);
+                    .and_then(|m| if let Measurement::Scalar(dp) = m.as_ref() { Some(dp.value) } else { None })
+                    .unwrap_or(0.0);
 
                 ui.horizontal(|ui| {
                     ui.label("Position:");
@@ -522,7 +544,11 @@ impl PVCAMControlPanel {
         }
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, app: &DaqApp, data_cache: &HashMap<String, DataPoint>) {
+    pub fn ui<M>(&mut self, ui: &mut Ui, app: &DaqApp<M>, data_cache: &HashMap<String, Arc<Measurement>>)
+    where
+        M: Measure + 'static,
+        M::Data: Into<daq_core::DataPoint>,
+    {
         ui.heading("PVCAM Camera Control");
         ui.separator();
 
@@ -555,9 +581,10 @@ impl PVCAMControlPanel {
 
         ui.add_space(15.0);
 
-        // Get current state from cache
+        // Get current state from cache (extract scalar value from Measurement::Scalar)
         let acquiring = data_cache.get(&format!("{}:acquiring", self.instrument_id))
-            .map_or(false, |dp| dp.value > 0.0);
+            .and_then(|m| if let Measurement::Scalar(dp) = m.as_ref() { Some(dp.value > 0.0) } else { None })
+            .unwrap_or(false);
 
         // Acquisition controls
         ui.horizontal(|ui| {

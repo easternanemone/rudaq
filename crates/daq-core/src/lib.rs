@@ -59,10 +59,10 @@ pub struct DataPoint {
 pub struct SpectrumData {
     pub timestamp: DateTime<Utc>,
     pub channel: String,
-    pub wavelengths: Vec<f64>,  // or frequencies
+    pub wavelengths: Vec<f64>, // or frequencies
     pub intensities: Vec<f64>,
-    pub unit_x: String,         // e.g., "nm" or "Hz"
-    pub unit_y: String,         // e.g., "counts" or "dBm"
+    pub unit_x: String, // e.g., "nm" or "Hz"
+    pub unit_y: String, // e.g., "counts" or "dBm"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
 }
@@ -74,8 +74,8 @@ pub struct ImageData {
     pub channel: String,
     pub width: u32,
     pub height: u32,
-    pub pixels: Vec<f64>,       // Row-major order
-    pub unit: String,           // e.g., "counts", "photons"
+    pub pixels: Vec<f64>, // Row-major order
+    pub unit: String,     // e.g., "counts", "photons"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
 }
@@ -248,9 +248,7 @@ pub enum InstrumentCommand {
     },
 
     /// Get a parameter (instrument-specific)
-    GetParameter {
-        name: String,
-    },
+    GetParameter { name: String },
 
     /// Attempt recovery from error state
     Recover,
@@ -275,7 +273,6 @@ pub trait Instrument: Send + Sync {
 
     /// Get current instrument state
     fn state(&self) -> InstrumentState;
-
 
     /// Initialize instrument (connect and configure)
     async fn initialize(&mut self) -> Result<()>;
@@ -580,9 +577,16 @@ mod tests {
         let m2 = m1.clone();
 
         // Both Arcs should point to the exact same memory location.
-        assert!(Arc::ptr_eq(&m1, &m2), "Cloned Arc does not point to the same memory");
+        assert!(
+            Arc::ptr_eq(&m1, &m2),
+            "Cloned Arc does not point to the same memory"
+        );
         // The strong count reflects the number of references.
-        assert_eq!(Arc::strong_count(&m1), 2, "Strong count should be 2 after clone");
+        assert_eq!(
+            Arc::strong_count(&m1),
+            2,
+            "Strong count should be 2 after clone"
+        );
     }
 
     // A mock instrument implementation is needed to test the default `can_execute` logic.
@@ -592,11 +596,21 @@ mod tests {
 
     #[async_trait]
     impl Instrument for MockInstrument {
-        fn id(&self) -> &str { "mock" }
-        fn instrument_type(&self) -> &str { "mock" }
-        fn state(&self) -> InstrumentState { self.state.clone() }
-        async fn initialize(&mut self) -> Result<()> { Ok(()) }
-        async fn shutdown(&mut self) -> Result<()> { Ok(()) }
+        fn id(&self) -> &str {
+            "mock"
+        }
+        fn instrument_type(&self) -> &str {
+            "mock"
+        }
+        fn state(&self) -> InstrumentState {
+            self.state.clone()
+        }
+        async fn initialize(&mut self) -> Result<()> {
+            Ok(())
+        }
+        async fn shutdown(&mut self) -> Result<()> {
+            Ok(())
+        }
         fn measurement_stream(&self) -> MeasurementReceiver {
             let (tx, rx) = measurement_channel(1);
             // The sender is dropped, so the channel is immediately closed.
@@ -604,8 +618,12 @@ mod tests {
             drop(tx);
             rx
         }
-        async fn handle_command(&mut self, _cmd: InstrumentCommand) -> Result<()> { Ok(()) }
-        async fn recover(&mut self) -> Result<()> { Ok(()) }
+        async fn handle_command(&mut self, _cmd: InstrumentCommand) -> Result<()> {
+            Ok(())
+        }
+        async fn recover(&mut self) -> Result<()> {
+            Ok(())
+        }
     }
 
     #[test]
@@ -616,32 +634,133 @@ mod tests {
             name: "exposure".to_string(),
             value: serde_json::json!(100),
         };
-        let get_param_cmd = InstrumentCommand::GetParameter { name: "exposure".to_string() };
+        let get_param_cmd = InstrumentCommand::GetParameter {
+            name: "exposure".to_string(),
+        };
 
         let test_cases = vec![
             // (State, Command, Expected Result, Description)
-            (InstrumentState::Disconnected, InstrumentCommand::StartAcquisition, false, "Cannot start acquisition when disconnected"),
-            (InstrumentState::Connecting, InstrumentCommand::StartAcquisition, false, "Cannot start acquisition while connecting"),
-            (InstrumentState::Ready, InstrumentCommand::StartAcquisition, true, "Can start acquisition from Ready state"),
-            (InstrumentState::Ready, InstrumentCommand::StopAcquisition, false, "Cannot stop acquisition when not acquiring"),
-            (InstrumentState::Ready, set_param_cmd.clone(), true, "Can set parameter in Ready state"),
-            (InstrumentState::Ready, get_param_cmd.clone(), true, "Can get parameter in Ready state"),
-            (InstrumentState::Acquiring, InstrumentCommand::StartAcquisition, false, "Cannot start acquisition when already acquiring"),
-            (InstrumentState::Acquiring, InstrumentCommand::StopAcquisition, true, "Can stop acquisition from Acquiring state"),
-            (InstrumentState::Acquiring, set_param_cmd.clone(), false, "Cannot set parameter while acquiring"),
-            (InstrumentState::Error(DaqError { message: "".into(), can_recover: true }), InstrumentCommand::Recover, true, "Can recover from a recoverable error"),
-            (InstrumentState::Error(DaqError { message: "".into(), can_recover: false }), InstrumentCommand::Recover, false, "Cannot recover from a non-recoverable error"),
-            (InstrumentState::Error(DaqError { message: "".into(), can_recover: true }), InstrumentCommand::StartAcquisition, false, "Cannot start acquisition from an error state"),
-            (InstrumentState::ShuttingDown, InstrumentCommand::StartAcquisition, false, "Cannot start acquisition while shutting down"),
+            (
+                InstrumentState::Disconnected,
+                InstrumentCommand::StartAcquisition,
+                false,
+                "Cannot start acquisition when disconnected",
+            ),
+            (
+                InstrumentState::Connecting,
+                InstrumentCommand::StartAcquisition,
+                false,
+                "Cannot start acquisition while connecting",
+            ),
+            (
+                InstrumentState::Ready,
+                InstrumentCommand::StartAcquisition,
+                true,
+                "Can start acquisition from Ready state",
+            ),
+            (
+                InstrumentState::Ready,
+                InstrumentCommand::StopAcquisition,
+                false,
+                "Cannot stop acquisition when not acquiring",
+            ),
+            (
+                InstrumentState::Ready,
+                set_param_cmd.clone(),
+                true,
+                "Can set parameter in Ready state",
+            ),
+            (
+                InstrumentState::Ready,
+                get_param_cmd.clone(),
+                true,
+                "Can get parameter in Ready state",
+            ),
+            (
+                InstrumentState::Acquiring,
+                InstrumentCommand::StartAcquisition,
+                false,
+                "Cannot start acquisition when already acquiring",
+            ),
+            (
+                InstrumentState::Acquiring,
+                InstrumentCommand::StopAcquisition,
+                true,
+                "Can stop acquisition from Acquiring state",
+            ),
+            (
+                InstrumentState::Acquiring,
+                set_param_cmd.clone(),
+                false,
+                "Cannot set parameter while acquiring",
+            ),
+            (
+                InstrumentState::Error(DaqError {
+                    message: "".into(),
+                    can_recover: true,
+                }),
+                InstrumentCommand::Recover,
+                true,
+                "Can recover from a recoverable error",
+            ),
+            (
+                InstrumentState::Error(DaqError {
+                    message: "".into(),
+                    can_recover: false,
+                }),
+                InstrumentCommand::Recover,
+                false,
+                "Cannot recover from a non-recoverable error",
+            ),
+            (
+                InstrumentState::Error(DaqError {
+                    message: "".into(),
+                    can_recover: true,
+                }),
+                InstrumentCommand::StartAcquisition,
+                false,
+                "Cannot start acquisition from an error state",
+            ),
+            (
+                InstrumentState::ShuttingDown,
+                InstrumentCommand::StartAcquisition,
+                false,
+                "Cannot start acquisition while shutting down",
+            ),
             // Shutdown should always be allowed from any state.
-            (InstrumentState::Disconnected, InstrumentCommand::Shutdown, true, "Can shut down from Disconnected"),
-            (InstrumentState::Ready, InstrumentCommand::Shutdown, true, "Can shut down from Ready"),
-            (InstrumentState::Acquiring, InstrumentCommand::Shutdown, true, "Can shut down from Acquiring"),
-            (InstrumentState::Error(DaqError { message: "".into(), can_recover: false }), InstrumentCommand::Shutdown, true, "Can shut down from Error"),
+            (
+                InstrumentState::Disconnected,
+                InstrumentCommand::Shutdown,
+                true,
+                "Can shut down from Disconnected",
+            ),
+            (
+                InstrumentState::Ready,
+                InstrumentCommand::Shutdown,
+                true,
+                "Can shut down from Ready",
+            ),
+            (
+                InstrumentState::Acquiring,
+                InstrumentCommand::Shutdown,
+                true,
+                "Can shut down from Acquiring",
+            ),
+            (
+                InstrumentState::Error(DaqError {
+                    message: "".into(),
+                    can_recover: false,
+                }),
+                InstrumentCommand::Shutdown,
+                true,
+                "Can shut down from Error",
+            ),
         ];
 
         for (state, cmd, expected, description) in test_cases {
-            let instrument = MockInstrument { state: state.clone() };
+            let instrument = MockInstrument {
+                state: state.clone(),
+            };
             assert_eq!(
                 instrument.can_execute(&cmd),
                 expected,
@@ -659,8 +778,18 @@ mod tests {
         let (tx, mut rx1) = measurement_channel(2);
         let mut rx2 = tx.subscribe();
 
-        let m1 = arc_measurement(Measurement::Scalar(DataPoint { timestamp: Utc::now(), channel: "c1".into(), value: 1.0, unit: "V".into() }));
-        let m2 = arc_measurement(Measurement::Scalar(DataPoint { timestamp: Utc::now(), channel: "c1".into(), value: 2.0, unit: "V".into() }));
+        let m1 = arc_measurement(Measurement::Scalar(DataPoint {
+            timestamp: Utc::now(),
+            channel: "c1".into(),
+            value: 1.0,
+            unit: "V".into(),
+        }));
+        let m2 = arc_measurement(Measurement::Scalar(DataPoint {
+            timestamp: Utc::now(),
+            channel: "c1".into(),
+            value: 2.0,
+            unit: "V".into(),
+        }));
 
         tx.send(m1.clone()).unwrap();
         tx.send(m2.clone()).unwrap();
@@ -681,8 +810,18 @@ mod tests {
         // Verifies that a slow subscriber will miss messages rather than blocking the sender.
         let (tx, mut rx) = measurement_channel(1); // Small capacity to easily trigger lagging
 
-        let m1 = arc_measurement(Measurement::Scalar(DataPoint { timestamp: Utc::now(), channel: "c1".into(), value: 1.0, unit: "V".into() }));
-        let m2 = arc_measurement(Measurement::Scalar(DataPoint { timestamp: Utc::now(), channel: "c1".into(), value: 2.0, unit: "V".into() }));
+        let m1 = arc_measurement(Measurement::Scalar(DataPoint {
+            timestamp: Utc::now(),
+            channel: "c1".into(),
+            value: 1.0,
+            unit: "V".into(),
+        }));
+        let m2 = arc_measurement(Measurement::Scalar(DataPoint {
+            timestamp: Utc::now(),
+            channel: "c1".into(),
+            value: 2.0,
+            unit: "V".into(),
+        }));
 
         // Fill the channel capacity.
         tx.send(m1).unwrap();
@@ -706,17 +845,30 @@ mod tests {
         // Verifies that a new subscriber does not receive messages sent before it subscribed.
         let (tx, mut _initial_rx) = measurement_channel(10);
 
-        let m1 = arc_measurement(Measurement::Scalar(DataPoint { timestamp: Utc::now(), channel: "c1".into(), value: 1.0, unit: "V".into() }));
+        let m1 = arc_measurement(Measurement::Scalar(DataPoint {
+            timestamp: Utc::now(),
+            channel: "c1".into(),
+            value: 1.0,
+            unit: "V".into(),
+        }));
         tx.send(m1).unwrap();
 
         // This subscriber joins *after* m1 was sent.
         let mut rx = tx.subscribe();
 
         // It should not see the old message. `try_recv` is non-blocking.
-        assert!(matches!(rx.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
+        assert!(matches!(
+            rx.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        ));
 
         // It will, however, see new messages sent after it subscribed.
-        let m2 = arc_measurement(Measurement::Scalar(DataPoint { timestamp: Utc::now(), channel: "c1".into(), value: 2.0, unit: "V".into() }));
+        let m2 = arc_measurement(Measurement::Scalar(DataPoint {
+            timestamp: Utc::now(),
+            channel: "c1".into(),
+            value: 2.0,
+            unit: "V".into(),
+        }));
         tx.send(m2.clone()).unwrap();
         let received = rx.recv().await.unwrap();
         assert!(Arc::ptr_eq(&m2, &received));

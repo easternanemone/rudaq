@@ -47,7 +47,8 @@ fn test_data_flow_from_10_instruments() {
         // Spawn instruments
         for i in 0..INSTRUMENT_COUNT {
             let instrument_id = format!("mock_{}", i);
-            app.with_inner(|inner| inner.spawn_instrument(&instrument_id)).unwrap();
+            app.with_inner(|inner| inner.spawn_instrument(&instrument_id))
+                .unwrap();
         }
 
         // Subscribe to data
@@ -61,7 +62,9 @@ fn test_data_flow_from_10_instruments() {
         while start.elapsed() < Duration::from_secs(2) {
             match tokio::time::timeout(Duration::from_millis(100), data_rx.recv()).await {
                 Ok(Ok(data_point)) => {
-                    *channel_counts.entry(data_point.channel.clone()).or_insert(0) += 1;
+                    *channel_counts
+                        .entry(data_point.channel.clone())
+                        .or_insert(0) += 1;
                     total_data_points += 1;
                 }
                 Ok(Err(broadcast::error::RecvError::Lagged(n))) => {
@@ -109,7 +112,8 @@ fn test_detect_broadcast_lag() {
         // Spawn multiple instruments to generate high data rate
         for i in 0..20 {
             let instrument_id = format!("mock_{}", i);
-            app.with_inner(|inner| inner.spawn_instrument(&instrument_id)).unwrap();
+            app.with_inner(|inner| inner.spawn_instrument(&instrument_id))
+                .unwrap();
         }
 
         // Subscribe but don't consume data (creates lag)
@@ -164,7 +168,8 @@ fn test_multiple_subscribers_receive_same_data() {
         // Spawn instruments
         for i in 0..5 {
             let instrument_id = format!("mock_{}", i);
-            app.with_inner(|inner| inner.spawn_instrument(&instrument_id)).unwrap();
+            app.with_inner(|inner| inner.spawn_instrument(&instrument_id))
+                .unwrap();
         }
 
         // Create multiple subscribers
@@ -245,7 +250,8 @@ fn test_data_continues_during_instrument_lifecycle() {
         // Start with 5 instruments
         for i in 0..5 {
             let instrument_id = format!("mock_{}", i);
-            app.with_inner(|inner| inner.spawn_instrument(&instrument_id)).unwrap();
+            app.with_inner(|inner| inner.spawn_instrument(&instrument_id))
+                .unwrap();
         }
 
         let mut data_rx = app.with_inner(|inner| inner.data_sender.subscribe());
@@ -260,7 +266,9 @@ fn test_data_continues_during_instrument_lifecycle() {
                 let mut count = 0;
 
                 while second_start.elapsed() < Duration::from_secs(1) {
-                    if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(10), data_rx.recv()).await {
+                    if let Ok(Ok(_)) =
+                        tokio::time::timeout(Duration::from_millis(10), data_rx.recv()).await
+                    {
                         count += 1;
                     }
                 }
@@ -283,7 +291,8 @@ fn test_data_continues_during_instrument_lifecycle() {
         // Add 3 new instruments
         for i in 5..8 {
             let instrument_id = format!("mock_{}", i);
-            app.with_inner(|inner| inner.spawn_instrument(&instrument_id)).unwrap();
+            app.with_inner(|inner| inner.spawn_instrument(&instrument_id))
+                .unwrap();
         }
 
         // Wait for collector to finish
@@ -299,7 +308,8 @@ fn test_data_continues_during_instrument_lifecycle() {
             assert!(
                 *count > 0,
                 "Should receive data in second {}, got {}",
-                second, count
+                second,
+                count
             );
         }
     });
@@ -317,7 +327,8 @@ fn test_no_data_loss_under_normal_load() {
         // Spawn 10 instruments
         for i in 0..10 {
             let instrument_id = format!("mock_{}", i);
-            app.with_inner(|inner| inner.spawn_instrument(&instrument_id)).unwrap();
+            app.with_inner(|inner| inner.spawn_instrument(&instrument_id))
+                .unwrap();
         }
 
         let mut data_rx = app.with_inner(|inner| inner.data_sender.subscribe());
@@ -346,10 +357,7 @@ fn test_no_data_loss_under_normal_load() {
         println!("  Lag events: {}", lag_events);
         println!("  Rate: {:.0} data points/sec", total_received as f64 / 3.0);
 
-        assert!(
-            total_received > 0,
-            "Should receive data points"
-        );
+        assert!(total_received > 0, "Should receive data points");
 
         // Under normal load with 10 instruments, there should be no lag
         assert_eq!(

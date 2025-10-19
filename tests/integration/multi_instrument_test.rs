@@ -49,9 +49,7 @@ fn test_spawn_10_instruments_concurrently() {
             let instrument_id = format!("mock_{}", i);
             let spawn_start = Instant::now();
 
-            let result = app.with_inner(|inner| {
-                inner.spawn_instrument(&instrument_id)
-            });
+            let result = app.with_inner(|inner| inner.spawn_instrument(&instrument_id));
 
             let spawn_duration = spawn_start.elapsed();
             spawn_times.push(spawn_duration);
@@ -100,7 +98,8 @@ fn test_spawn_10_instruments_concurrently() {
                     }
                 }
             }
-        }).await;
+        })
+        .await;
 
         assert!(
             timeout_result.is_ok(),
@@ -124,9 +123,7 @@ fn test_spawn_20_instruments_concurrently() {
         for i in 0..20 {
             let instrument_id = format!("mock_{}", i);
 
-            let result = app.with_inner(|inner| {
-                inner.spawn_instrument(&instrument_id)
-            });
+            let result = app.with_inner(|inner| inner.spawn_instrument(&instrument_id));
 
             assert!(
                 result.is_ok(),
@@ -151,7 +148,10 @@ fn test_spawn_20_instruments_concurrently() {
         // Verify system is responsive
         let mut data_rx = app.with_inner(|inner| inner.data_sender.subscribe());
         let recv_result = timeout(Duration::from_secs(5), data_rx.recv()).await;
-        assert!(recv_result.is_ok(), "System not producing data with 20 instruments");
+        assert!(
+            recv_result.is_ok(),
+            "System not producing data with 20 instruments"
+        );
     });
 
     app.shutdown();
@@ -169,7 +169,8 @@ fn test_spawn_stop_spawn_cycle() {
         // Spawn 5
         for i in 0..5 {
             let instrument_id = format!("mock_{}", i);
-            app.with_inner(|inner| inner.spawn_instrument(&instrument_id)).unwrap();
+            app.with_inner(|inner| inner.spawn_instrument(&instrument_id))
+                .unwrap();
         }
 
         let count = app.with_inner(|inner| inner.instruments.len());
@@ -189,7 +190,8 @@ fn test_spawn_stop_spawn_cycle() {
         // Spawn 3 more
         for i in 5..8 {
             let instrument_id = format!("mock_{}", i);
-            app.with_inner(|inner| inner.spawn_instrument(&instrument_id)).unwrap();
+            app.with_inner(|inner| inner.spawn_instrument(&instrument_id))
+                .unwrap();
         }
 
         let count = app.with_inner(|inner| inner.instruments.len());
@@ -209,7 +211,8 @@ fn test_no_deadlock_on_concurrent_operations() {
         // Spawn initial instruments
         for i in 0..5 {
             let instrument_id = format!("mock_{}", i);
-            app.with_inner(|inner| inner.spawn_instrument(&instrument_id)).unwrap();
+            app.with_inner(|inner| inner.spawn_instrument(&instrument_id))
+                .unwrap();
         }
 
         // Concurrent operations with timeout to detect deadlocks
@@ -230,7 +233,8 @@ fn test_no_deadlock_on_concurrent_operations() {
                 async move {
                     app.with_inner(|inner| inner.stop_instrument("mock_0"));
                     tokio::time::sleep(Duration::from_millis(50)).await;
-                    app.with_inner(|inner| inner.spawn_instrument("mock_0")).unwrap();
+                    app.with_inner(|inner| inner.spawn_instrument("mock_0"))
+                        .unwrap();
                 }
             }),
             // Get instrument count multiple times
@@ -251,9 +255,13 @@ fn test_no_deadlock_on_concurrent_operations() {
             for handle in operations {
                 handle.await.unwrap();
             }
-        }).await;
+        })
+        .await;
 
-        assert!(result.is_ok(), "Deadlock detected: operations did not complete within timeout");
+        assert!(
+            result.is_ok(),
+            "Deadlock detected: operations did not complete within timeout"
+        );
     });
 
     app.shutdown();

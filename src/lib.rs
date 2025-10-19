@@ -31,6 +31,7 @@
 //! - **`validation`**: A collection of utility functions for validating configuration parameters.
 
 pub mod app;
+pub mod app_actor;
 pub mod config;
 pub mod core;
 pub mod data;
@@ -38,6 +39,8 @@ pub mod error;
 pub mod gui;
 pub mod instrument;
 pub mod log_capture;
+pub mod measurement;
+pub mod messages;
 pub mod metadata;
 pub mod session;
 pub mod validation;

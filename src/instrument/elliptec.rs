@@ -19,21 +19,21 @@ use crate::{
     core::{DataPoint, Instrument, InstrumentCommand},
     measurement::InstrumentMeasurement,
 };
+#[cfg(feature = "instrument_serial")]
+use crate::adapters::serial::SerialAdapter;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use log::{info, warn};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-#[cfg(feature = "instrument_serial")]
-use serialport::SerialPort;
 
 /// Elliptec ELL14 instrument implementation
 #[derive(Clone)]
 pub struct Elliptec {
     id: String,
     #[cfg(feature = "instrument_serial")]
-    port: Option<Arc<tokio::sync::Mutex<Box<dyn SerialPort>>>>,
+    adapter: Option<SerialAdapter>,
     sender: Option<broadcast::Sender<DataPoint>>,
     device_addresses: Vec<u8>,
     measurement: Option<InstrumentMeasurement>,
@@ -45,7 +45,7 @@ impl Elliptec {
         Self {
             id: id.to_string(),
             #[cfg(feature = "instrument_serial")]
-            port: None,
+            adapter: None,
             sender: None,
             device_addresses: vec![0], // Default to address 0
             measurement: None,
@@ -57,21 +57,22 @@ impl Elliptec {
         use super::serial_helper;
         use std::time::Duration;
 
-        let port = self
-            .port
+        let adapter = self
+            .adapter
             .as_ref()
-            .ok_or_else(|| anyhow!("Not connected to Elliptec '{}'", self.id))?;
+            .ok_or_else(|| anyhow!("Not connected to Elliptec '{}'", self.id))?
+            .clone();
 
         // Elliptec protocol: address + command
         let cmd = format!("{}{}", address, command);
 
         serial_helper::send_command_async(
-            port.clone(),
-            self.id.clone(),
-            cmd,
-            "".to_string(),
+            adapter,
+            &self.id,
+            &cmd,
+            "",
             Duration::from_millis(500),
-            '\r',
+            b'\r',
         )
         .await
     }
@@ -157,7 +158,7 @@ impl Instrument for Elliptec {
             .open()
             .with_context(|| format!("Failed to open serial port '{}' for Elliptec", port_name))?;
 
-        self.port = Some(Arc::new(tokio::sync::Mutex::new(port)));
+        self.adapter = Some(SerialAdapter::new(port));
 
         // Query device info for each address
         for &addr in &self.device_addresses {
@@ -232,7 +233,7 @@ impl Instrument for Elliptec {
         info!("Disconnecting from Elliptec rotators: {}", self.id);
         #[cfg(feature = "instrument_serial")]
         {
-            self.port = None;
+            self.adapter = None;
         }
         self.sender = None;
         self.measurement = None;

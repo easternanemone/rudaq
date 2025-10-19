@@ -1,5 +1,6 @@
 //! Instrument trait, registry, and implementations.
 use crate::core::Instrument;
+use crate::measurement::{Measure, InstrumentMeasurement};
 use std::collections::HashMap;
 
 pub mod config;
@@ -8,6 +9,7 @@ pub mod scpi;
 #[cfg(feature = "instrument_visa")]
 pub mod visa;
 
+// Temporary serial helper for V1 instruments during migration
 #[cfg(feature = "instrument_serial")]
 pub mod serial_helper;
 
@@ -25,20 +27,20 @@ pub mod esp300;
 
 pub mod pvcam;
 
-type InstrumentFactory = Box<dyn Fn(&str) -> Box<dyn Instrument> + Send + Sync>;
+type InstrumentFactory<M> = Box<dyn Fn(&str) -> Box<dyn Instrument<Measure = M>> + Send + Sync>;
 
 /// A registry for available instrument types.
-pub struct InstrumentRegistry {
-    factories: HashMap<String, InstrumentFactory>,
+pub struct InstrumentRegistry<M: Measure> {
+    factories: HashMap<String, InstrumentFactory<M>>,
 }
 
-impl Default for InstrumentRegistry {
+impl<M: Measure> Default for InstrumentRegistry<M> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl InstrumentRegistry {
+impl<M: Measure> InstrumentRegistry<M> {
     pub fn new() -> Self {
         Self {
             factories: HashMap::new(),
@@ -48,14 +50,14 @@ impl InstrumentRegistry {
     /// Registers a new instrument type.
     pub fn register<F>(&mut self, instrument_type: &str, factory: F)
     where
-        F: Fn(&str) -> Box<dyn Instrument> + Send + Sync + 'static,
+        F: Fn(&str) -> Box<dyn Instrument<Measure = M>> + Send + Sync + 'static,
     {
         self.factories
             .insert(instrument_type.to_string(), Box::new(factory));
     }
 
     /// Creates an instance of an instrument by its ID.
-    pub fn create(&self, instrument_type: &str, id: &str) -> Option<Box<dyn Instrument>> {
+    pub fn create(&self, instrument_type: &str, id: &str) -> Option<Box<dyn Instrument<Measure = M>>> {
         self.factories
             .get(instrument_type)
             .map(|factory| factory(id))

@@ -74,6 +74,7 @@ use crate::config::Settings;
 use crate::measurement::Measure;
 use crate::metadata::Metadata;
 use async_trait::async_trait;
+use daq_core::Measurement;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
@@ -137,6 +138,20 @@ pub struct DataPoint {
     /// Optional instrument-specific metadata (JSON)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
+}
+
+// Conversion from V1 core::DataPoint to V2 daq_core::DataPoint
+// This allows V1 instruments to integrate with V2 architecture
+impl From<DataPoint> for daq_core::DataPoint {
+    fn from(dp: DataPoint) -> Self {
+        Self {
+            timestamp: dp.timestamp,
+            channel: dp.channel,
+            value: dp.value,
+            unit: dp.unit,
+            // Note: instrument_id and metadata are dropped in conversion to V2
+        }
+    }
 }
 
 /// Represents a frequency bin in a spectrum measurement.
@@ -634,11 +649,11 @@ pub trait MeasurementProcessor: Send + Sync {
     ///
     /// # Arguments
     ///
-    /// * `data` - Input slice of measurements to process. May contain mixed types.
+    /// * `data` - Input slice of Arc-wrapped measurements to process. May contain mixed types.
     ///
     /// # Returns
     ///
-    /// Vector of processed measurements. The processor may:
+    /// Vector of processed Arc-wrapped measurements. The processor may:
     /// - Filter input measurements (e.g., only process Scalar measurements)
     /// - Transform measurement types (e.g., Scalar → Spectrum via FFT)
     /// - Combine multiple measurements into one (e.g., stereo → mono)
@@ -651,7 +666,94 @@ pub trait MeasurementProcessor: Send + Sync {
     /// - `Scalar → Spectrum`: FFT, spectral analysis
     /// - `Image → Scalar`: Statistics (mean, max, etc.)
     /// - `Spectrum → Scalar`: Peak detection, power calculation
-    fn process_measurements(&mut self, data: &[Data]) -> Vec<Data>;
+    ///
+    /// # Performance
+    ///
+    /// Arc-wrapping enables zero-copy sharing of measurements between processors,
+    /// storage, and GUI without cloning large data arrays.
+    fn process_measurements(&mut self, data: &[Arc<Measurement>]) -> Vec<Arc<Measurement>>;
+}
+
+/// Adapter that wraps a legacy `DataProcessor` to work with `MeasurementProcessor`.
+///
+/// This adapter enables backward compatibility by:
+/// 1. Extracting Scalar measurements from Arc<Measurement> inputs
+/// 2. Calling the legacy DataProcessor::process() on DataPoints
+/// 3. Wrapping results back into Arc<Measurement::Scalar>
+///
+/// Non-scalar measurements (Spectrum, Image) are passed through unchanged.
+///
+/// # Example
+///
+/// ```rust
+/// # use rust_daq::core::{DataProcessor, MeasurementProcessor, DataProcessorAdapter, DataPoint};
+/// # struct MyFilter;
+/// # impl DataProcessor for MyFilter {
+/// #     fn process(&mut self, data: &[DataPoint]) -> Vec<DataPoint> { data.to_vec() }
+/// # }
+/// let legacy_filter = MyFilter;
+/// let adapted: Box<dyn MeasurementProcessor> = Box::new(DataProcessorAdapter::new(Box::new(legacy_filter)));
+/// ```
+pub struct DataProcessorAdapter {
+    inner: Box<dyn DataProcessor>,
+}
+
+impl DataProcessorAdapter {
+    /// Creates a new adapter wrapping a DataProcessor
+    pub fn new(processor: Box<dyn DataProcessor>) -> Self {
+        Self { inner: processor }
+    }
+}
+
+impl MeasurementProcessor for DataProcessorAdapter {
+    fn process_measurements(&mut self, data: &[Arc<Measurement>]) -> Vec<Arc<Measurement>> {
+        // Extract scalar measurements and convert from daq_core::DataPoint to core::DataPoint
+        let scalars: Vec<DataPoint> = data
+            .iter()
+            .filter_map(|m| {
+                if let Measurement::Scalar(dp) = m.as_ref() {
+                    // Convert daq_core::DataPoint to core::DataPoint
+                    Some(DataPoint {
+                        timestamp: dp.timestamp,
+                        instrument_id: String::new(), // daq_core doesn't have instrument_id
+                        channel: dp.channel.clone(),
+                        value: dp.value,
+                        unit: dp.unit.clone(),
+                        metadata: None, // daq_core DataPoint doesn't have metadata in this context
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Process with legacy processor
+        let processed = self.inner.process(&scalars);
+
+        // Wrap results back into Arc<Measurement>
+        // Convert from core::DataPoint to daq_core::DataPoint
+        let mut results: Vec<Arc<Measurement>> = processed
+            .into_iter()
+            .map(|dp| {
+                let daq_dp = daq_core::DataPoint {
+                    timestamp: dp.timestamp,
+                    channel: dp.channel,
+                    value: dp.value,
+                    unit: dp.unit,
+                };
+                Arc::new(Measurement::Scalar(daq_dp))
+            })
+            .collect();
+
+        // Pass through non-scalar measurements unchanged
+        for measurement in data {
+            if !matches!(measurement.as_ref(), Measurement::Scalar(_)) {
+                results.push(measurement.clone());
+            }
+        }
+
+        results
+    }
 }
 
 /// Trait for a data storage writer.
@@ -820,7 +922,7 @@ pub trait StorageWriter: Send + Sync {
     /// O(1) for simple attribute writes, O(n) for large custom metadata
     async fn set_metadata(&mut self, metadata: &Metadata) -> anyhow::Result<()>;
 
-    /// Writes a batch of data points to the storage.
+    /// Writes a batch of measurements to the storage.
     ///
     /// This is the hot path - called frequently with batches of data. Implementations
     /// should:
@@ -828,15 +930,16 @@ pub trait StorageWriter: Send + Sync {
     /// - Use batch insert APIs for databases
     /// - Compress data if applicable (gzip, lz4)
     /// - Flush periodically to prevent data loss on crash
+    /// - Handle all Measurement variants (Scalar, Spectrum, Image)
     ///
     /// # Arguments
     ///
-    /// * `data` - Slice of data points to write. May be empty (no-op).
+    /// * `data` - Slice of measurements to write (Arc-wrapped for zero-copy). May be empty (no-op).
     ///
     /// # Batching Strategy
     ///
-    /// - Typical batch size: 100-1000 points
-    /// - Storage task accumulates points and calls write() periodically
+    /// - Typical batch size: 100-1000 measurements
+    /// - Storage task accumulates measurements and calls write() periodically
     /// - Flush interval: 1 second or when batch size reached
     ///
     /// # Errors
@@ -859,7 +962,7 @@ pub trait StorageWriter: Send + Sync {
     /// - Memory-mapped files for zero-copy writes
     /// - Separate write thread/task to avoid blocking
     /// - Asynchronous I/O with io_uring (Linux)
-    async fn write(&mut self, data: &[DataPoint]) -> anyhow::Result<()>;
+    async fn write(&mut self, data: &[Arc<Measurement>]) -> anyhow::Result<()>;
 
     /// Finalizes the storage and releases resources.
     ///
@@ -891,184 +994,18 @@ pub trait StorageWriter: Send + Sync {
 }
 
 //==============================================================================
-// V2 Instrument Adapter (Incremental Migration Support)
+// Phase 2 Complete: V2 Infrastructure Ready (bd-62)
 //==============================================================================
-
-/// Adapter to use V2 instruments (daq_core::Instrument) in the V1 architecture.
-///
-/// This adapter wraps a V2 instrument and implements the V1 Instrument trait,
-/// enabling incremental migration from V1 to V2 without breaking existing code.
-///
-/// # Migration Strategy
-///
-/// 1. V2 instruments are implemented with superior state management and data types
-/// 2. This adapter wraps them to work with V1-based app.rs
-/// 3. Migrate instruments one-by-one from V1 to V2
-/// 4. Eventually update app.rs to native V2, remove adapter
-///
-/// # Data Conversion
-///
-/// - V2 uses `Arc<Measurement>` enum (Scalar/Spectrum/Image)
-/// - V1 uses `DataPoint` struct (scalar only)
-/// - Adapter extracts Scalar variants, logs/drops Image/Spectrum
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use rust_daq::instruments_v2::MockInstrumentV2;
-/// use rust_daq::core::V2InstrumentAdapter;
-///
-/// // Create V2 instrument
-/// let v2_instrument = MockInstrumentV2::new("mock_1".to_string(), 100.0);
-///
-/// // Wrap in adapter for V1 compatibility
-/// let adapter = V2InstrumentAdapter::new(Box::new(v2_instrument));
-///
-/// // Use with V1 InstrumentRegistry
-/// registry.register("mock_v2", |id| Box::new(adapter));
-/// ```
-pub struct V2InstrumentAdapter {
-    /// Wrapped V2 instrument
-    inner: Box<dyn daq_core::Instrument>,
-
-    /// V1-compatible broadcast channel for DataPoint streaming
-    data_tx: broadcast::Sender<DataPoint>,
-
-    /// Keep receiver alive to maintain channel
-    #[allow(dead_code)]
-    data_rx: broadcast::Receiver<DataPoint>,
-
-    /// Instrument ID
-    id: String,
-
-    /// Converter task handle (spawned during connect)
-    converter_task: Option<tokio::task::JoinHandle<()>>,
-}
-
-impl V2InstrumentAdapter {
-    /// Create a new adapter wrapping a V2 instrument
-    pub fn new(inner: Box<dyn daq_core::Instrument>) -> Self {
-        let id = inner.id().to_string();
-        let (data_tx, data_rx) = broadcast::channel(1024);
-
-        Self {
-            inner,
-            data_tx,
-            data_rx,
-            id,
-            converter_task: None,
-        }
-    }
-}
-
-#[async_trait]
-impl Instrument for V2InstrumentAdapter {
-    fn name(&self) -> String {
-        self.id.clone()
-    }
-
-    async fn connect(&mut self, _id: &str, _settings: &Arc<Settings>) -> anyhow::Result<()> {
-        // Initialize V2 instrument
-        self.inner.initialize().await?;
-
-        // Spawn converter task: Arc<Measurement> -> DataPoint
-        let mut v2_rx = self.inner.measurement_stream();
-        let v1_tx = self.data_tx.clone();
-        let instrument_id = self.id.clone();
-
-        let converter = tokio::spawn(async move {
-            while let Ok(arc_measurement) = v2_rx.recv().await {
-                match arc_measurement.as_ref() {
-                    daq_core::Measurement::Scalar(dp) => {
-                        // Convert V2 DataPoint to V1 DataPoint
-                        let v1_dp = DataPoint {
-                            timestamp: dp.timestamp,
-                            instrument_id: instrument_id.clone(),
-                            channel: dp.channel.clone(),
-                            value: dp.value,
-                            unit: dp.unit.clone(),
-                            metadata: None,
-                        };
-
-                        if v1_tx.send(v1_dp).is_err() {
-                            // No receivers, exit
-                            break;
-                        }
-                    }
-                    daq_core::Measurement::Spectrum(_) => {
-                        log::error!(
-                            "CRITICAL: V2InstrumentAdapter dropping Spectrum data from '{}' - upgrade to V2 native!",
-                            instrument_id
-                        );
-                    }
-                    daq_core::Measurement::Image(_) => {
-                        log::error!(
-                            "CRITICAL: V2InstrumentAdapter dropping Image data from '{}' - upgrade to V2 native!",
-                            instrument_id
-                        );
-                    }
-                }
-            }
-        });
-
-        self.converter_task = Some(converter);
-        Ok(())
-    }
-
-    async fn disconnect(&mut self) -> anyhow::Result<()> {
-        // Shutdown V2 instrument
-        self.inner.shutdown().await?;
-
-        // Stop converter task
-        if let Some(task) = self.converter_task.take() {
-            task.abort();
-        }
-
-        Ok(())
-    }
-
-
-
-    async fn handle_command(&mut self, cmd: InstrumentCommand) -> anyhow::Result<()> {
-        // Convert V1 commands to V2 commands
-        match cmd {
-            InstrumentCommand::SetParameter(name, value) => {
-                // Parse V1 string value into appropriate JSON type
-                let json_value = if let Ok(f) = value.parse::<f64>() {
-                    // Handle NaN/Infinity gracefully instead of panicking
-                    serde_json::Number::from_f64(f)
-                        .map(serde_json::Value::Number)
-                        .unwrap_or_else(|| serde_json::Value::String(value.clone()))
-                } else if let Ok(i) = value.parse::<i64>() {
-                    serde_json::Value::Number(i.into())
-                } else if let Ok(b) = value.parse::<bool>() {
-                    serde_json::Value::Bool(b)
-                } else {
-                    serde_json::Value::String(value)
-                };
-
-                let v2_cmd = daq_core::InstrumentCommand::SetParameter {
-                    name,
-                    value: json_value,
-                };
-                self.inner.handle_command(v2_cmd).await
-            }
-            InstrumentCommand::QueryParameter(name) => {
-                let v2_cmd = daq_core::InstrumentCommand::GetParameter { name };
-                self.inner.handle_command(v2_cmd).await
-            }
-            InstrumentCommand::Execute(command, _args) => {
-                // V2 doesn't have Execute command, log warning
-                log::warn!(
-                    "V2InstrumentAdapter: Execute command '{}' not supported in V2 architecture",
-                    command
-                );
-                Ok(())
-            }
-            InstrumentCommand::Shutdown => {
-                // Handled by disconnect()
-                self.disconnect().await
-            }
-        }
-    }
-}
+//
+// V2InstrumentAdapter removed in Phase 2 (bd-62). The app infrastructure now
+// uses Arc<Measurement> natively, supporting Scalar, Spectrum, and Image data.
+//
+// V2 instruments (MockInstrumentV2, etc.) will be integrated in Phase 3 (bd-51)
+// via a native V2 InstrumentRegistry that works directly with daq_core::Instrument.
+//
+// Migration path:
+// - Phase 1 (bd-49): Created V2InstrumentAdapter as temporary bridge
+// - Phase 2 (bd-62): Updated infrastructure for Arc<Measurement>, removed adapter
+// - Phase 3 (bd-51): Implement native V2 instrument support
+//
+//==============================================================================

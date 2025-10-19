@@ -45,7 +45,8 @@ fn test_single_session_roundtrip() {
         // Spawn 10 instruments
         for i in 0..10 {
             let instrument_id = format!("mock_{}", i);
-            app.with_inner(|inner| inner.spawn_instrument(&instrument_id)).unwrap();
+            app.with_inner(|inner| inner.spawn_instrument(&instrument_id))
+                .unwrap();
         }
 
         // Verify initial state
@@ -61,9 +62,8 @@ fn test_single_session_roundtrip() {
         app.save_session(session_path, gui_state.clone()).unwrap();
 
         // Stop all instruments
-        let instrument_ids: Vec<String> = app.with_inner(|inner| {
-            inner.instruments.keys().cloned().collect()
-        });
+        let instrument_ids: Vec<String> =
+            app.with_inner(|inner| inner.instruments.keys().cloned().collect());
         for id in &instrument_ids {
             app.with_inner(|inner| inner.stop_instrument(id));
         }
@@ -87,8 +87,7 @@ fn test_single_session_roundtrip() {
 
         // Verify GUI state
         assert_eq!(
-            loaded_gui_state.log_panel_visible,
-            gui_state.log_panel_visible,
+            loaded_gui_state.log_panel_visible, gui_state.log_panel_visible,
             "GUI state should be preserved"
         );
     });
@@ -117,7 +116,9 @@ fn test_100_iteration_session_roundtrip() {
                 if result.is_err() {
                     failures.push(format!(
                         "Iteration {}: Failed to spawn instrument {}: {:?}",
-                        iteration, i, result.err()
+                        iteration,
+                        i,
+                        result.err()
                     ));
                     continue;
                 }
@@ -145,14 +146,16 @@ fn test_100_iteration_session_roundtrip() {
             };
 
             if let Err(e) = app.save_session(session_path, gui_state.clone()) {
-                failures.push(format!("Iteration {}: Failed to save session: {:?}", iteration, e));
+                failures.push(format!(
+                    "Iteration {}: Failed to save session: {:?}",
+                    iteration, e
+                ));
                 continue;
             }
 
             // Stop all
-            let instrument_ids: Vec<String> = app.with_inner(|inner| {
-                inner.instruments.keys().cloned().collect()
-            });
+            let instrument_ids: Vec<String> =
+                app.with_inner(|inner| inner.instruments.keys().cloned().collect());
             for id in &instrument_ids {
                 app.with_inner(|inner| inner.stop_instrument(id));
             }
@@ -176,25 +179,24 @@ fn test_100_iteration_session_roundtrip() {
 
                     // Verify GUI state
                     if loaded_gui_state.log_panel_visible != gui_state.log_panel_visible {
-                        failures.push(format!(
-                            "Iteration {}: GUI state mismatch",
-                            iteration
-                        ));
+                        failures.push(format!("Iteration {}: GUI state mismatch", iteration));
                         continue;
                     }
 
                     success_count += 1;
                 }
                 Err(e) => {
-                    failures.push(format!("Iteration {}: Failed to load session: {:?}", iteration, e));
+                    failures.push(format!(
+                        "Iteration {}: Failed to load session: {:?}",
+                        iteration, e
+                    ));
                     continue;
                 }
             }
 
             // Clean up for next iteration
-            let instrument_ids: Vec<String> = app.with_inner(|inner| {
-                inner.instruments.keys().cloned().collect()
-            });
+            let instrument_ids: Vec<String> =
+                app.with_inner(|inner| inner.instruments.keys().cloned().collect());
             for id in &instrument_ids {
                 app.with_inner(|inner| inner.stop_instrument(id));
             }
@@ -202,7 +204,11 @@ fn test_100_iteration_session_roundtrip() {
             tokio::time::sleep(Duration::from_millis(50)).await;
 
             if (iteration + 1) % 10 == 0 {
-                println!("Completed {} iterations, {} successes", iteration + 1, success_count);
+                println!(
+                    "Completed {} iterations, {} successes",
+                    iteration + 1,
+                    success_count
+                );
             }
         }
 
@@ -242,7 +248,8 @@ fn test_session_preserves_storage_format() {
         // Spawn instruments
         for i in 0..5 {
             let instrument_id = format!("mock_{}", i);
-            app.with_inner(|inner| inner.spawn_instrument(&instrument_id)).unwrap();
+            app.with_inner(|inner| inner.spawn_instrument(&instrument_id))
+                .unwrap();
         }
 
         // Set storage format

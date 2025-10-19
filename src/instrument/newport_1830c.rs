@@ -22,21 +22,21 @@ use crate::{
     core::{DataPoint, Instrument, InstrumentCommand},
     measurement::InstrumentMeasurement,
 };
+#[cfg(feature = "instrument_serial")]
+use crate::adapters::serial::SerialAdapter;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use log::{info, warn};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-#[cfg(feature = "instrument_serial")]
-use serialport::SerialPort;
 
 /// Newport 1830-C instrument implementation
 #[derive(Clone)]
 pub struct Newport1830C {
     id: String,
     #[cfg(feature = "instrument_serial")]
-    port: Option<Arc<tokio::sync::Mutex<Box<dyn SerialPort>>>>,
+    adapter: Option<SerialAdapter>,
     sender: Option<broadcast::Sender<DataPoint>>,
     measurement: Option<InstrumentMeasurement>,
 }
@@ -47,7 +47,7 @@ impl Newport1830C {
         Self {
             id: id.to_string(),
             #[cfg(feature = "instrument_serial")]
-            port: None,
+            adapter: None,
             sender: None,
             measurement: None,
         }
@@ -58,18 +58,19 @@ impl Newport1830C {
         use super::serial_helper;
         use std::time::Duration;
 
-        let port = self
-            .port
+        let adapter = self
+            .adapter
             .as_ref()
-            .ok_or_else(|| anyhow!("Not connected to Newport 1830-C '{}'", self.id))?;
+            .ok_or_else(|| anyhow!("Not connected to Newport 1830-C '{}'", self.id))?
+            .clone();
 
         serial_helper::send_command_async(
-            port.clone(),
-            self.id.clone(),
-            command.to_string(),
-            "\r\n".to_string(),
+            adapter,
+            &self.id,
+            command,
+            "\r\n",
             Duration::from_secs(1),
-            '\n',
+            b'\n',
         )
         .await
     }
@@ -114,7 +115,7 @@ impl Instrument for Newport1830C {
                 )
             })?;
 
-        self.port = Some(Arc::new(tokio::sync::Mutex::new(port)));
+        self.adapter = Some(SerialAdapter::new(port));
 
         // Configure wavelength if specified
         if let Some(wavelength) = instrument_config
@@ -209,7 +210,7 @@ impl Instrument for Newport1830C {
         info!("Disconnecting from Newport 1830-C: {}", self.id);
         #[cfg(feature = "instrument_serial")]
         {
-            self.port = None;
+            self.adapter = None;
         }
         self.sender = None;
         self.measurement = None;

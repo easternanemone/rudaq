@@ -1,47 +1,52 @@
-//! The core application state and logic.
+//! The core application state and logic (Actor-based implementation)
+//!
+//! This module uses the actor pattern to eliminate Arc<Mutex<>> lock contention.
+//! All state is owned by DaqManagerActor, and GUI/session code communicates via
+//! message-passing through mpsc channels.
+
 use crate::{
+    app_actor::DaqManagerActor,
     config::Settings,
-    core::{DataPoint, DataProcessor, InstrumentHandle},
+    core::DataPoint,
     data::registry::ProcessorRegistry,
     instrument::InstrumentRegistry,
     log_capture::LogBuffer,
-    metadata::Metadata,
-    session::{self, Session},
+    measurement::Measure,
+    messages::DaqCommand,
+    session,
 };
-use anyhow::{anyhow, Context, Result};
-use log::{error, info};
-use std::collections::HashMap;
+use anyhow::{Context, Result};
+use daq_core::Measurement;
+use log::info;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
-use tokio::{runtime::Runtime, sync::broadcast, task::JoinHandle};
+use std::sync::Arc;
+use tokio::{
+    runtime::Runtime,
+    sync::{broadcast, mpsc},
+};
 
-use crate::measurement::Measure;
-
-/// The main application struct that holds all state.
+/// The main application struct (actor-based implementation)
 #[derive(Clone)]
-pub struct DaqApp<M: Measure> {
-    inner: Arc<Mutex<DaqAppInner<M>>>,
-}
-
-/// Inner state of the DAQ application, protected by a Mutex.
-pub struct DaqAppInner<M: Measure> {
-    pub settings: Arc<Settings>,
-    pub instrument_registry: Arc<InstrumentRegistry<M>>,
-    pub processor_registry: Arc<ProcessorRegistry>,
-    pub instruments: HashMap<String, InstrumentHandle>,
-    pub data_sender: broadcast::Sender<DataPoint>,
-    pub log_buffer: LogBuffer,
-    pub metadata: Metadata,
-    pub writer_task: Option<JoinHandle<Result<()>>>,
-    pub storage_format: String,
+pub struct DaqApp<M>
+where
+    M: Measure + 'static,
+    M::Data: Into<daq_core::DataPoint>,
+{
+    command_tx: mpsc::Sender<DaqCommand>,
     runtime: Arc<Runtime>,
-    shutdown_flag: bool,
-    // Keep the initial receiver alive to buffer data until GUI subscribes
-    _data_receiver_keeper: broadcast::Receiver<DataPoint>,
+    // Immutable shared state for GUI access
+    settings: Arc<Settings>,
+    log_buffer: LogBuffer,
+    instrument_registry: Arc<InstrumentRegistry<M>>,
+    _phantom: std::marker::PhantomData<M>,
 }
 
-impl<M: Measure + 'static> DaqApp<M> {
-    /// Creates a new `DaqApp`.
+impl<M> DaqApp<M>
+where
+    M: Measure + 'static,
+    M::Data: Into<daq_core::DataPoint>,
+{
+    /// Creates a new `DaqApp` with actor-based state management
     pub fn new(
         settings: Arc<Settings>,
         instrument_registry: Arc<InstrumentRegistry<M>>,
@@ -49,287 +54,274 @@ impl<M: Measure + 'static> DaqApp<M> {
         log_buffer: LogBuffer,
     ) -> Result<Self> {
         let runtime = Arc::new(Runtime::new().context("Failed to create Tokio runtime")?);
-        let (data_sender, data_receiver_keeper) =
-            broadcast::channel(settings.application.broadcast_channel_capacity);
-        let storage_format = settings.storage.default_format.clone();
 
-        let mut inner = DaqAppInner {
-            settings: settings.clone(),
-            instrument_registry,
+        // Create the actor
+        let actor = DaqManagerActor::new(
+            settings.clone(),
+            instrument_registry.clone(),
             processor_registry,
-            instruments: HashMap::new(),
-            data_sender,
-            log_buffer,
-            metadata: Metadata::default(),
-            writer_task: None,
-            storage_format,
-            runtime,
-            shutdown_flag: false,
-            _data_receiver_keeper: data_receiver_keeper,
-        };
+            log_buffer.clone(),
+            runtime.clone(),
+        )?;
 
-        for id in settings.instruments.keys() {
-            if let Err(e) = inner.spawn_instrument(id) {
-                error!("Failed to spawn instrument '{}': {}", id, e);
+        // Create command channel
+        let (command_tx, command_rx) = mpsc::channel(256);
+
+        // Spawn instruments from config before starting actor
+        let instrument_ids: Vec<String> = settings.instruments.keys().cloned().collect();
+
+        // Spawn the actor task
+        let runtime_clone = runtime.clone();
+        runtime_clone.spawn(async move {
+            actor.run(command_rx).await;
+        });
+
+        // Spawn configured instruments
+        for id in instrument_ids {
+            let (cmd, rx) = DaqCommand::spawn_instrument(id.clone());
+            if command_tx.blocking_send(cmd).is_ok() {
+                if let Ok(result) = rx.blocking_recv() {
+                    if let Err(e) = result {
+                        log::error!("Failed to spawn instrument '{}': {}", id, e);
+                    }
+                }
             }
         }
 
         Ok(Self {
-            inner: Arc::new(Mutex::new(inner)),
+            command_tx,
+            runtime,
+            settings,
+            log_buffer,
+            instrument_registry,
+            _phantom: std::marker::PhantomData,
         })
     }
 
-    /// Provides safe access to the inner application state.
+    /// Returns a clone of the application's Tokio runtime handle
+    pub fn get_runtime(&self) -> Arc<Runtime> {
+        self.runtime.clone()
+    }
+
+    /// Shuts down the application
+    pub fn shutdown(&self) {
+        let (cmd, rx) = DaqCommand::shutdown();
+        let _ = self.command_tx.blocking_send(cmd);
+        let _ = rx.blocking_recv();
+        info!("Application shutdown complete");
+    }
+
+    /// Saves the current application state to a session file
+    pub fn save_session(&self, path: &Path, gui_state: session::GuiState) -> Result<()> {
+        let (cmd, rx) = DaqCommand::save_session(path.to_path_buf(), gui_state);
+        self.command_tx
+            .blocking_send(cmd)
+            .map_err(|_| anyhow::anyhow!("Failed to send save session command"))?;
+        rx.blocking_recv()
+            .map_err(|_| anyhow::anyhow!("Failed to receive save session response"))?
+    }
+
+    /// Loads application state from a session file
+    pub fn load_session(&self, path: &Path) -> Result<session::GuiState> {
+        let (cmd, rx) = DaqCommand::load_session(path.to_path_buf());
+        self.command_tx
+            .blocking_send(cmd)
+            .map_err(|_| anyhow::anyhow!("Failed to send load session command"))?;
+        rx.blocking_recv()
+            .map_err(|_| anyhow::anyhow!("Failed to receive load session response"))?
+    }
+
+    /// Helper method to access actor state (for backwards compatibility with tests)
+    ///
+    /// This provides a similar interface to the old with_inner() pattern but uses
+    /// message-passing under the hood. Note that this is less efficient than direct
+    /// async methods and should only be used for compatibility during migration.
     pub fn with_inner<F, R>(&self, f: F) -> R
     where
-        F: FnOnce(&mut DaqAppInner) -> R,
+        M: 'static,
+        F: FnOnce(&mut DaqAppCompat<M>) -> R,
     {
-        let mut inner = self.inner.lock().unwrap();
-        f(&mut inner)
-    }
-
-    /// Returns a clone of the application's Tokio runtime handle.
-    pub fn get_runtime(&self) -> Arc<Runtime> {
-        self.with_inner(|inner| inner.runtime.clone())
-    }
-
-    /// Shuts down the application, stopping all instruments and the Tokio runtime.
-    pub fn shutdown(&self) {
-        self.with_inner(|inner| {
-            if inner.shutdown_flag {
-                return;
-            }
-            info!("Shutting down application runtime...");
-            inner.shutdown_flag = true;
-            // Stop all instruments
-            for (id, handle) in inner.instruments.drain() {
-                info!("Stopping instrument: {}", id);
-                handle.task.abort();
-            }
-        });
-    }
-
-    /// Saves the current application state to a session file.
-    pub fn save_session(&self, path: &Path, gui_state: session::GuiState) -> Result<()> {
-        let session = Session::from_app(self, gui_state);
-        session::save_session(&session, path)
-    }
-
-    /// Loads application state from a session file.
-    pub fn load_session(&self, path: &Path) -> Result<session::GuiState> {
-        let session = session::load_session(path)?;
-        let gui_state = session.gui_state.clone();
-        session.apply_to_app(self);
-        Ok(gui_state)
+        let mut compat = DaqAppCompat {
+            command_tx: self.command_tx.clone(),
+            settings: self.settings.clone(),
+            log_buffer: self.log_buffer.clone(),
+            instrument_registry: self.instrument_registry.clone(),
+            data_sender: DaqDataSender {
+                command_tx: self.command_tx.clone(),
+            },
+            instruments: DaqInstruments {
+                command_tx: self.command_tx.clone(),
+            },
+            _phantom: std::marker::PhantomData,
+        };
+        f(&mut compat)
     }
 }
 
-impl<M: Measure + 'static> DaqAppInner<M> {
-    /// Spawns an instrument to run on the Tokio runtime.
+/// Compatibility shim for code that uses with_inner()
+///
+/// This struct provides the same methods as DaqAppInner but routes them through
+/// the actor via message-passing. This allows existing test code to work while
+/// we migrate to async methods.
+pub struct DaqAppCompat<M>
+where
+    M: Measure + 'static,
+    M::Data: Into<daq_core::DataPoint>,
+{
+    command_tx: mpsc::Sender<DaqCommand>,
+    pub settings: Arc<Settings>,
+    pub log_buffer: LogBuffer,
+    pub instrument_registry: Arc<InstrumentRegistry<M>>,
+    pub data_sender: DaqDataSender,
+    pub instruments: DaqInstruments,
+    _phantom: std::marker::PhantomData<M>,
+}
+
+impl<M> DaqAppCompat<M>
+where
+    M: Measure + 'static,
+    M::Data: Into<daq_core::DataPoint>,
+{
+    /// Spawns an instrument
     pub fn spawn_instrument(&mut self, id: &str) -> Result<()> {
-        if self.instruments.contains_key(id) {
-            return Err(anyhow!("Instrument '{}' is already running.", id));
-        }
-
-        let instrument_config = self
-            .settings
-            .instruments
-            .get(id)
-            .ok_or_else(|| anyhow!("Instrument config for '{}' not found.", id))?;
-        let instrument_type = instrument_config
-            .get("type")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Instrument type for '{}' not found in config.", id))?;
-
-        let mut instrument = self
-            .instrument_registry
-            .create(instrument_type, id)
-            .ok_or_else(|| anyhow!("Instrument type '{}' not found.", instrument_type))?;
-
-        // Create processor chain for this instrument
-        let mut processors: Vec<Box<dyn DataProcessor>> = Vec::new();
-        if let Some(processor_configs) = self.settings.processors.as_ref().and_then(|p| p.get(id)) {
-            for config in processor_configs {
-                let processor = self
-                    .processor_registry
-                    .create(&config.r#type, &config.config)
-                    .with_context(|| {
-                        format!(
-                            "Failed to create processor '{}' for instrument '{}'",
-                            config.r#type, id
-                        )
-                    })?;
-                processors.push(processor);
-            }
-        }
-
-        let data_sender = self.data_sender.clone();
-        let settings = self.settings.clone();
-        let id_clone = id.to_string();
-
-        // Create command channel
-        let (command_tx, mut command_rx) =
-            tokio::sync::mpsc::channel(settings.application.command_channel_capacity);
-
-        let task: JoinHandle<Result<()>> = self.runtime.spawn(async move {
-            instrument
-                .connect(&id_clone, &settings)
-                .await
-                .with_context(|| format!("Failed to connect to instrument '{}'", id_clone))?;
-            info!("Instrument '{}' connected.", id_clone);
-
-            let mut stream = instrument
-                .data_stream()
-                .await
-                .context("Failed to get data stream")?;
-            loop {
-                tokio::select! {
-                    data_point_result = stream.recv() => {
-                        match data_point_result {
-                            Ok(dp) => {
-                                let mut data_points = vec![dp];
-                                for processor in &mut processors {
-                                    data_points = processor.process(&data_points);
-                                }
-
-                                for processed_dp in data_points {
-                                    if let Err(e) = data_sender.send(processed_dp) {
-                                        error!("Failed to broadcast data point: {}", e);
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                error!("Stream receive error: {}", e);
-                                break;
-                            }
-                        }
-                    }
-                    Some(command) = command_rx.recv() => {
-                        if let Err(e) = instrument.handle_command(command).await {
-                            error!("Failed to handle command for '{}': {}", id_clone, e);
-                        }
-                    }
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
-                        log::trace!("Instrument stream for {} is idle.", id_clone);
-                    }
-                }
-            }
-            Ok(())
-        });
-
-        let handle = InstrumentHandle { task, command_tx };
-        self.instruments.insert(id.to_string(), handle);
-        Ok(())
+        let (cmd, rx) = DaqCommand::spawn_instrument(id.to_string());
+        self.command_tx
+            .blocking_send(cmd)
+            .map_err(|_| anyhow::anyhow!("Failed to send spawn command"))?;
+        rx.blocking_recv()
+            .map_err(|_| anyhow::anyhow!("Failed to receive spawn response"))?
     }
 
-    /// Stops a running instrument.
+    /// Stops an instrument
     pub fn stop_instrument(&mut self, id: &str) {
-        if let Some(handle) = self.instruments.remove(id) {
-            handle.task.abort();
-            info!("Instrument '{}' stopped.", id);
+        let (cmd, rx) = DaqCommand::stop_instrument(id.to_string());
+        let _ = self.command_tx.blocking_send(cmd);
+        let _ = rx.blocking_recv();
+    }
+
+    /// Sends a command to an instrument
+    pub fn send_instrument_command(
+        &self,
+        id: &str,
+        command: crate::core::InstrumentCommand,
+    ) -> Result<()> {
+        let (cmd, rx) = DaqCommand::send_instrument_command(id.to_string(), command);
+        self.command_tx
+            .blocking_send(cmd)
+            .map_err(|_| anyhow::anyhow!("Failed to send instrument command"))?;
+        rx.blocking_recv()
+            .map_err(|_| anyhow::anyhow!("Failed to receive instrument command response"))?
+    }
+
+    /// Gets the data broadcast sender for subscribing
+    pub fn data_sender(&self) -> DaqDataSender {
+        DaqDataSender {
+            command_tx: self.command_tx.clone(),
         }
     }
 
-    /// Sends a command to a running instrument.
-    pub fn send_instrument_command(&self, id: &str, command: crate::core::InstrumentCommand) -> Result<()> {
-        let handle = self.instruments.get(id)
-            .ok_or_else(|| anyhow!("Instrument '{}' is not running", id))?;
-
-        // Retry with brief delays instead of failing immediately
-        const MAX_RETRIES: u32 = 10;
-        const RETRY_DELAY_MS: u64 = 100;
-
-        for attempt in 0..MAX_RETRIES {
-            match handle.command_tx.try_send(command.clone()) {
-                Ok(()) => return Ok(()),
-                Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                    if attempt < MAX_RETRIES - 1 {
-                        std::thread::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS));
-                        continue;
-                    }
-                    return Err(anyhow!(
-                        "Command channel full for instrument '{}' after {} retries ({}ms total)",
-                        id, MAX_RETRIES, MAX_RETRIES as u64 * RETRY_DELAY_MS
-                    ));
-                }
-                Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                    return Err(anyhow!("Instrument '{}' is no longer running (channel closed)", id));
-                }
-            }
+    /// Gets the list of running instruments
+    pub fn instruments(&self) -> DaqInstruments {
+        DaqInstruments {
+            command_tx: self.command_tx.clone(),
         }
-
-        unreachable!("Retry loop should return in all cases")
     }
 
-    /// Returns a list of available channel names.
+    /// Gets the storage format
+    pub fn storage_format(&self) -> DaqStorageFormat {
+        DaqStorageFormat {
+            command_tx: self.command_tx.clone(),
+        }
+    }
+
+    /// Sets the storage format
+    pub fn set_storage_format(&mut self, format: String) {
+        let (cmd, rx) = DaqCommand::set_storage_format(format);
+        let _ = self.command_tx.blocking_send(cmd);
+        let _ = rx.blocking_recv();
+    }
+
+    /// Starts recording
+    pub fn start_recording(&mut self) -> Result<()> {
+        let (cmd, rx) = DaqCommand::start_recording();
+        self.command_tx
+            .blocking_send(cmd)
+            .map_err(|_| anyhow::anyhow!("Failed to send start recording command"))?;
+        rx.blocking_recv()
+            .map_err(|_| anyhow::anyhow!("Failed to receive start recording response"))?
+    }
+
+    /// Stops recording
+    pub fn stop_recording(&mut self) {
+        let (cmd, rx) = DaqCommand::stop_recording();
+        let _ = self.command_tx.blocking_send(cmd);
+        let _ = rx.blocking_recv();
+    }
+
+    /// Gets the list of available channels from the instrument registry
     pub fn get_available_channels(&self) -> Vec<String> {
         self.instrument_registry.list().collect()
     }
+}
 
-    /// Starts the data recording process.
-    pub fn start_recording(&mut self) -> Result<()> {
-        if self.writer_task.is_some() {
-            return Err(anyhow!("Recording is already in progress."));
-        }
+/// Helper struct for data_sender compatibility
+pub struct DaqDataSender {
+    command_tx: mpsc::Sender<DaqCommand>,
+}
 
-        let settings = self.settings.clone();
-        let metadata = self.metadata.clone();
-        let mut rx = self.data_sender.subscribe();
-        let storage_format_for_task = self.storage_format.clone();
+impl DaqDataSender {
+    pub fn subscribe(&self) -> broadcast::Receiver<Arc<Measurement>> {
+        let (cmd, rx) = DaqCommand::subscribe_to_data();
+        self.command_tx.blocking_send(cmd).ok();
+        rx.blocking_recv().unwrap_or_else(|_| {
+            // Fallback: create a dummy receiver
+            let (tx, rx) = broadcast::channel(1);
+            drop(tx);
+            rx
+        })
+    }
+}
 
-        let task = self.runtime.spawn(async move {
-            let mut writer: Box<dyn crate::core::StorageWriter> =
-                match storage_format_for_task.as_str() {
-                    "csv" => Box::new(crate::data::storage::CsvWriter::new()),
-                    #[cfg(feature = "storage_hdf5")]
-                    "hdf5" => Box::new(crate::data::storage::Hdf5Writer::new()),
-                    #[cfg(feature = "storage_arrow")]
-                    "arrow" => Box::new(crate::data::storage::ArrowWriter::new()),
-                    _ => {
-                        return Err(anyhow!(
-                            "Unsupported storage format: {}",
-                            storage_format_for_task
-                        ))
-                    }
-                };
+/// Helper struct for instruments compatibility
+pub struct DaqInstruments {
+    command_tx: mpsc::Sender<DaqCommand>,
+}
 
-            writer.init(&settings).await?;
-            writer.set_metadata(&metadata).await?;
-
-            loop {
-                tokio::select! {
-                    data_point = rx.recv() => {
-                        match data_point {
-                            Ok(dp) => {
-                                if let Err(e) = writer.write(&[dp]).await {
-                                    error!("Failed to write data point: {}", e);
-                                }
-                            }
-                            Err(broadcast::error::RecvError::Lagged(n)) => {
-                                log::warn!("Data writer lagged by {} messages.", n);
-                            }
-                            Err(broadcast::error::RecvError::Closed) => {
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            writer.shutdown().await?;
-            Ok(())
-        });
-
-        self.writer_task = Some(task);
-        info!("Started recording with format: {}", self.storage_format);
-        Ok(())
+impl DaqInstruments {
+    pub fn len(&self) -> usize {
+        let (cmd, rx) = DaqCommand::get_instrument_list();
+        self.command_tx.blocking_send(cmd).ok();
+        rx.blocking_recv().map(|list| list.len()).unwrap_or(0)
     }
 
-    /// Stops the data recording process.
-    pub fn stop_recording(&mut self) {
-        if let Some(task) = self.writer_task.take() {
-            task.abort();
-            info!("Stopped recording.");
-        }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = String> {
+        let (cmd, rx) = DaqCommand::get_instrument_list();
+        self.command_tx.blocking_send(cmd).ok();
+        rx.blocking_recv().unwrap_or_default().into_iter()
+    }
+
+    pub fn contains_key(&self, key: &str) -> bool {
+        let (cmd, rx) = DaqCommand::get_instrument_list();
+        self.command_tx.blocking_send(cmd).ok();
+        rx.blocking_recv()
+            .map(|list| list.contains(&key.to_string()))
+            .unwrap_or(false)
+    }
+}
+
+/// Helper struct for storage_format compatibility
+pub struct DaqStorageFormat {
+    command_tx: mpsc::Sender<DaqCommand>,
+}
+
+impl DaqStorageFormat {
+    pub fn clone(&self) -> String {
+        let (cmd, rx) = DaqCommand::get_storage_format();
+        self.command_tx.blocking_send(cmd).ok();
+        rx.blocking_recv().unwrap_or_else(|_| "csv".to_string())
     }
 }

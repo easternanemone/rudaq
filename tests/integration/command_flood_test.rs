@@ -42,7 +42,8 @@ fn test_command_flood_single_instrument() {
 
     runtime.block_on(async {
         // Spawn single instrument
-        app.with_inner(|inner| inner.spawn_instrument("mock_0")).unwrap();
+        app.with_inner(|inner| inner.spawn_instrument("mock_0"))
+            .unwrap();
 
         const COMMANDS_PER_SECOND: usize = 1000;
         const DURATION_SECONDS: u64 = 1;
@@ -91,7 +92,10 @@ fn test_command_flood_single_instrument() {
         println!("  Total commands sent: {}", sent_count);
         println!("  Failed commands: {}", failed_count);
         println!("  Duration: {:?}", elapsed);
-        println!("  Actual rate: {:.0} cmd/sec", sent_count as f64 / elapsed.as_secs_f64());
+        println!(
+            "  Actual rate: {:.0} cmd/sec",
+            sent_count as f64 / elapsed.as_secs_f64()
+        );
         println!("\nLatency Statistics:");
         println!("  Average: {:?}", avg_latency);
         println!("  P95: {:?}", p95_latency);
@@ -125,7 +129,8 @@ fn test_command_flood_multiple_instruments() {
         // Spawn instruments
         for i in 0..INSTRUMENT_COUNT {
             let instrument_id = format!("mock_{}", i);
-            app.with_inner(|inner| inner.spawn_instrument(&instrument_id)).unwrap();
+            app.with_inner(|inner| inner.spawn_instrument(&instrument_id))
+                .unwrap();
         }
 
         const COMMANDS_PER_INSTRUMENT: usize = 200;
@@ -204,7 +209,8 @@ fn test_command_bursts_dont_block_data_flow() {
 
     runtime.block_on(async {
         // Spawn instrument
-        app.with_inner(|inner| inner.spawn_instrument("mock_0")).unwrap();
+        app.with_inner(|inner| inner.spawn_instrument("mock_0"))
+            .unwrap();
 
         // Subscribe to data
         let mut data_rx = app.with_inner(|inner| inner.data_sender.subscribe());
@@ -254,7 +260,8 @@ fn test_command_queue_recovery() {
 
     runtime.block_on(async {
         // Spawn instrument
-        app.with_inner(|inner| inner.spawn_instrument("mock_0")).unwrap();
+        app.with_inner(|inner| inner.spawn_instrument("mock_0"))
+            .unwrap();
 
         // Flood with commands to fill the queue
         const FLOOD_SIZE: usize = 1000;

@@ -7,6 +7,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use daq_core::Measurement;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -91,7 +92,7 @@ impl StorageWriter for CsvWriter {
 
             let mut writer = csv::Writer::from_writer(file);
             writer
-                .write_record(["timestamp", "channel", "value", "unit", "metadata"])
+                .write_record(["timestamp", "channel", "value", "unit"])
                 .context("Failed to write CSV header")?;
 
             self.writer = Some(writer);
@@ -101,24 +102,26 @@ impl StorageWriter for CsvWriter {
         Ok(())
     }
 
-    async fn write(&mut self, data: &[DataPoint]) -> Result<()> {
+    async fn write(&mut self, data: &[Arc<Measurement>]) -> Result<()> {
         #[cfg(feature = "storage_csv")]
         {
             if let Some(writer) = self.writer.as_mut() {
-                for dp in data {
-                    let metadata_str = dp
-                        .metadata
-                        .as_ref()
-                        .map_or(String::new(), |v| v.to_string());
-                    writer
-                        .write_record(&[
-                            dp.timestamp.to_rfc3339(),
-                            dp.channel.clone(),
-                            dp.value.to_string(),
-                            dp.unit.clone(),
-                            metadata_str,
-                        ])
-                        .context("Failed to write data point to CSV file")?;
+                for measurement in data {
+                    // CSV writer only handles Scalar measurements
+                    // Spectrum and Image data require HDF5/Arrow format
+                    if let Measurement::Scalar(dp) = measurement.as_ref() {
+                        writer
+                            .write_record(&[
+                                dp.timestamp.to_rfc3339(),
+                                dp.channel.clone(),
+                                dp.value.to_string(),
+                                dp.unit.clone(),
+                            ])
+                            .context("Failed to write data point to CSV file")?;
+                    } else {
+                        // Log non-scalar measurements being skipped
+                        log::trace!("CSV writer skipping non-scalar measurement (use HDF5/Arrow for Spectrum/Image data)");
+                    }
                 }
             }
             Ok(())
@@ -209,10 +212,12 @@ impl StorageWriter for Hdf5Writer {
         #[cfg(not(feature = "storage_hdf5"))]
         Err(DaqError::FeatureNotEnabled("storage_hdf5".to_string()).into())
     }
-    async fn write(&mut self, _data: &[DataPoint]) -> Result<()> {
+    async fn write(&mut self, _data: &[Arc<Measurement>]) -> Result<()> {
         #[cfg(feature = "storage_hdf5")]
         {
             // TODO: Implement data writing for HDF5
+            // HDF5 can handle Scalar, Spectrum, and Image data natively
+            // Pattern match on Measurement variants and write to appropriate datasets
             Ok(())
         }
         #[cfg(not(feature = "storage_hdf5"))]
@@ -285,10 +290,12 @@ impl StorageWriter for ArrowWriter {
         #[cfg(not(feature = "storage_arrow"))]
         Err(DaqError::FeatureNotEnabled("storage_arrow".to_string()).into())
     }
-    async fn write(&mut self, _data: &[DataPoint]) -> Result<()> {
+    async fn write(&mut self, _data: &[Arc<Measurement>]) -> Result<()> {
         #[cfg(feature = "storage_arrow")]
         {
             // TODO: Implement data writing for Arrow
+            // Arrow can handle Scalar, Spectrum, and Image data with columnar storage
+            // Pattern match on Measurement variants and write to appropriate record batches
             Ok(())
         }
         #[cfg(not(feature = "storage_arrow"))]

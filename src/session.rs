@@ -37,6 +37,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::app::DaqApp;
+use crate::measurement::Measure;
 
 use std::collections::VecDeque;
 
@@ -55,9 +56,13 @@ pub struct GuiState {
 
 impl Session {
     /// Creates a new `Session` from the current application state.
-    pub fn from_app(app: &DaqApp, gui_state: GuiState) -> Self {
+    pub fn from_app<M>(app: &DaqApp<M>, gui_state: GuiState) -> Self
+    where
+        M: Measure + 'static,
+        M::Data: Into<daq_core::DataPoint>,
+    {
         app.with_inner(|inner| {
-            let active_instruments = inner.instruments.keys().cloned().collect();
+            let active_instruments: std::collections::HashSet<String> = inner.instruments.keys().collect();
             let storage_settings = inner.settings.storage.clone();
             Self {
                 active_instruments,
@@ -68,12 +73,16 @@ impl Session {
     }
 
     /// Applies the session state to the application.
-    pub fn apply_to_app(&self, app: &DaqApp) {
+    pub fn apply_to_app<M>(&self, app: &DaqApp<M>)
+    where
+        M: Measure + 'static,
+        M::Data: Into<daq_core::DataPoint>,
+    {
         app.with_inner(|inner| {
             // Stop all current instruments
-            let current_instruments: Vec<String> = inner.instruments.keys().cloned().collect();
-            for id in current_instruments {
-                inner.stop_instrument(&id);
+            let current_instruments: Vec<String> = inner.instruments.keys().collect();
+            for id in &current_instruments {
+                inner.stop_instrument(id);
             }
 
             // Start instruments from the session

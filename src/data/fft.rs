@@ -1,6 +1,7 @@
 //! An FFT (Fast Fourier Transform) data processor for frequency analysis.
 
-use crate::core::{DataPoint, DataProcessor, Measurement, MeasurementProcessor, SpectrumData, FrequencyBin};
+use crate::core::{DataPoint, DataProcessor, MeasurementProcessor, SpectrumData, FrequencyBin};
+use daq_core::Measurement;
 use chrono::Utc;
 use log::debug;
 use num_complex::Complex;
@@ -230,48 +231,70 @@ impl MeasurementProcessor for FFTProcessor {
     /// This implementation filters for `Measurement::Scalar` data points, performs FFT
     /// analysis, and returns `Measurement::Spectrum` containing properly typed frequency
     /// bins instead of JSON metadata workarounds.
-    fn process_measurements(&mut self, data: &[Measurement]) -> Vec<Measurement> {
-        // Extract scalar data points from measurements
+    fn process_measurements(&mut self, data: &[Arc<Measurement>]) -> Vec<Arc<Measurement>> {
+        // Extract scalar data points from Arc<Measurement> and convert to core::DataPoint
         let scalars: Vec<DataPoint> = data
             .iter()
             .filter_map(|m| {
-                if let Measurement::Scalar(dp) = m {
-                    Some(dp.clone())
+                if let Measurement::Scalar(dp) = m.as_ref() {
+                    // Convert daq_core::DataPoint to core::DataPoint
+                    Some(DataPoint {
+                        timestamp: dp.timestamp,
+                        instrument_id: String::new(), // daq_core doesn't have instrument_id
+                        channel: dp.channel.clone(),
+                        value: dp.value,
+                        unit: dp.unit.clone(),
+                        metadata: None,
+                    })
                 } else {
                     None
                 }
             })
             .collect();
-        
+
         if scalars.is_empty() {
             return Vec::new();
         }
-        
+
         // Use the existing FFT processing logic
         let fft_bins = self.process_fft(&scalars);
         if fft_bins.is_empty() {
             return Vec::new();
         }
-        
+
         // Update channel from the first data point
         if self.channel == "unknown" {
             self.channel = scalars[0].channel.clone();
         }
-        
+
         // Create a single spectrum measurement instead of multiple scalar DataPoints
-        let spectrum = SpectrumData {
+        let spectrum_v1 = SpectrumData {
             timestamp: scalars.last().map_or_else(Utc::now, |dp| dp.timestamp),
             channel: format!("{}_fft", self.channel),
             unit: "dB".to_string(),
-            bins: fft_bins,
+            bins: fft_bins.clone(),
             metadata: Some(serde_json::json!({
                 "window_size": self.window_size,
                 "overlap": self.overlap,
                 "sampling_rate": self.sampling_rate,
             })),
         };
-        
-        vec![Measurement::Spectrum(spectrum)]
+
+        // Convert from core::SpectrumData to daq_core::SpectrumData
+        let wavelengths: Vec<f64> = fft_bins.iter().map(|bin| bin.frequency).collect();
+        let intensities: Vec<f64> = fft_bins.iter().map(|bin| bin.magnitude).collect();
+
+        let spectrum_v2 = daq_core::SpectrumData {
+            timestamp: spectrum_v1.timestamp,
+            channel: spectrum_v1.channel,
+            wavelengths,
+            intensities,
+            unit_x: "Hz".to_string(),
+            unit_y: spectrum_v1.unit,
+            metadata: spectrum_v1.metadata,
+        };
+
+        vec![Arc::new(Measurement::Spectrum(spectrum_v2))]
     }
 }
 

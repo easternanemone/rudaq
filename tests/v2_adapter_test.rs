@@ -11,8 +11,8 @@
 //! migrated to native V2 architecture in Phase 3 of bd-49.
 
 use rust_daq::{
-    core::{Instrument, V2InstrumentAdapter},
     config::Settings,
+    core::{Instrument, V2InstrumentAdapter},
     instruments_v2::mock_instrument::MockInstrumentV2,
 };
 use std::sync::Arc;
@@ -29,15 +29,24 @@ async fn test_v2_adapter_basic_lifecycle() {
     // Connect (calls V2 initialize())
     let settings = Arc::new(Settings::new(None).unwrap());
     let connect_result = adapter.connect("test_v2_mock", &settings).await;
-    assert!(connect_result.is_ok(), "Adapter should connect successfully");
+    assert!(
+        connect_result.is_ok(),
+        "Adapter should connect successfully"
+    );
 
     // Verify data stream can be subscribed to
     let data_stream_result = adapter.data_stream().await;
-    assert!(data_stream_result.is_ok(), "Should be able to subscribe to data stream");
+    assert!(
+        data_stream_result.is_ok(),
+        "Should be able to subscribe to data stream"
+    );
 
     // Clean shutdown
     let disconnect_result = adapter.disconnect().await;
-    assert!(disconnect_result.is_ok(), "Adapter should disconnect cleanly");
+    assert!(
+        disconnect_result.is_ok(),
+        "Adapter should disconnect cleanly"
+    );
 }
 
 #[tokio::test]
@@ -60,7 +69,11 @@ async fn test_v2_adapter_command_translation() {
         .await;
 
     // V2 adapter should translate V1 string values to V2 JSON values
-    assert!(result.is_ok(), "SetParameter should translate V1→V2 successfully: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "SetParameter should translate V1→V2 successfully: {:?}",
+        result.err()
+    );
 
     adapter.disconnect().await.unwrap();
 }
@@ -79,15 +92,18 @@ async fn test_v2_adapter_multiple_connections() {
 
     // Second connection (tests state machine recovery)
     let reconnect_result = adapter.connect("test_reconnect", &settings).await;
-    assert!(reconnect_result.is_ok(), "Adapter should support reconnection");
+    assert!(
+        reconnect_result.is_ok(),
+        "Adapter should support reconnection"
+    );
 
     adapter.disconnect().await.unwrap();
 }
 
 #[tokio::test]
 async fn test_v2_adapter_data_flow_end_to_end() {
-    use rust_daq::instruments_v2::mock_instrument::MockInstrumentV2;
     use daq_core::Instrument as V2Instrument;
+    use rust_daq::instruments_v2::mock_instrument::MockInstrumentV2;
     use std::time::Duration;
     use tokio::time::timeout;
 
@@ -102,11 +118,17 @@ async fn test_v2_adapter_data_flow_end_to_end() {
 
     // Start acquisition using V2 interface (V1 doesn't have this command)
     use daq_core::InstrumentCommand;
-    v2_mock.handle_command(InstrumentCommand::StartAcquisition).await.unwrap();
+    v2_mock
+        .handle_command(InstrumentCommand::StartAcquisition)
+        .await
+        .unwrap();
 
     // Verify V2 instrument produces data
     let v2_result = timeout(Duration::from_secs(2), v2_rx.recv()).await;
-    assert!(v2_result.is_ok(), "V2 instrument should produce measurements");
+    assert!(
+        v2_result.is_ok(),
+        "V2 instrument should produce measurements"
+    );
 
     let measurement = v2_result.unwrap().unwrap();
 
@@ -114,7 +136,10 @@ async fn test_v2_adapter_data_flow_end_to_end() {
     match measurement.as_ref() {
         daq_core::Measurement::Image(img) => {
             assert_eq!(img.channel, "test_data_flow_image");
-            assert!(img.width > 0 && img.height > 0, "Image should have dimensions");
+            assert!(
+                img.width > 0 && img.height > 0,
+                "Image should have dimensions"
+            );
             assert_eq!(img.pixels.len(), (img.width * img.height) as usize);
         }
         _ => panic!("Expected Image measurement from MockInstrumentV2::start_live()"),

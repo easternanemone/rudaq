@@ -1,111 +1,82 @@
-//! A helper module for serial port communication.
-use anyhow::{Context, Result};
-use log::trace;
-use serialport::SerialPort;
-use std::io::{Read, Write};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
+//! Temporary serial helper for V1 instruments
+//!
+//! This module provides serial communication helpers for legacy V1 instruments
+//! during the migration to V2 architecture. Will be removed when all instruments
+//! are migrated to use SerialAdapter from `src/adapters/serial_adapter.rs`.
 
-/// Sends a command to a serial port and reads the response.
-///
-/// # Arguments
-///
-/// * `port` - A mutable reference to the serial port.
-/// * `instrument_id` - The ID of the instrument for logging purposes.
-/// * `command` - The command string to send.
-/// * `terminator` - The terminator string to append to the command.
-/// * `timeout` - The maximum time to wait for a response.
-/// * `response_terminator` - The character that indicates the end of a response.
-///
-/// # Returns
-///
-/// A `Result` containing the response string or an error.
-pub fn send_command(
-    port: &mut Box<dyn SerialPort>,
+#[cfg(feature = "instrument_serial")]
+use crate::adapters::{serial::SerialAdapter, Adapter};
+#[cfg(feature = "instrument_serial")]
+use anyhow::{anyhow, Context, Result};
+#[cfg(feature = "instrument_serial")]
+use log::debug;
+#[cfg(feature = "instrument_serial")]
+use std::time::{Duration, Instant};
+
+/// Send a command via the shared [`SerialAdapter`] and wait for a delimited response.
+#[cfg(feature = "instrument_serial")]
+pub async fn send_command_async(
+    mut adapter: SerialAdapter,
     instrument_id: &str,
     command: &str,
     terminator: &str,
     timeout: Duration,
-    response_terminator: char,
+    delimiter: u8,
 ) -> Result<String> {
-    // Append the terminator to the command.
-    let cmd = format!("{}{}", command, terminator);
-    trace!(
-        "Sending command to {}: '{}'",
-        instrument_id,
-        cmd.escape_default()
-    );
+    let command_with_term = format!("{}{}", command, terminator);
 
-    // Write the command to the serial port.
-    port.write_all(cmd.as_bytes())
-        .with_context(|| format!("Failed to send command to '{}'", instrument_id))?;
+    adapter
+        .write(command_with_term.clone().into_bytes())
+        .await
+        .with_context(|| format!("Failed to write command to {} serial port", instrument_id))?;
 
-    // Create a buffer to store the response.
-    let mut buffer = [0u8; 1024];
-    let mut response = String::new();
+    debug!("[{}] Sent command: {}", instrument_id, command.trim());
+
     let start = Instant::now();
+    let mut response: Vec<u8> = Vec::new();
 
-    // Read from the port until the response terminator is found or the timeout is reached.
-    while start.elapsed() < timeout {
-        if let Ok(n) = port.read(&mut buffer) {
-            if n > 0 {
-                response.push_str(&String::from_utf8_lossy(&buffer[..n]));
-                if response.contains(response_terminator) {
-                    break;
-                }
-            }
+    loop {
+        if start.elapsed() > timeout {
+            return Err(anyhow!(
+                "[{}] Serial read timeout after {:?}",
+                instrument_id,
+                timeout
+            ));
         }
-        // Sleep for a short duration to avoid busy-waiting.
-        std::thread::sleep(Duration::from_millis(10));
+
+        let mut buffer = Vec::new();
+        let bytes_read = adapter
+            .read(&mut buffer)
+            .await
+            .with_context(|| format!("Failed to read response from {}", instrument_id))?;
+
+        if bytes_read == 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            continue;
+        }
+
+        response.extend_from_slice(&buffer[..bytes_read]);
+
+        if buffer[..bytes_read].contains(&delimiter) {
+            break;
+        }
     }
 
-    trace!(
-        "Received response from {}: '{}'",
-        instrument_id,
-        response.escape_default()
-    );
-
-    // Return the trimmed response.
-    Ok(response.trim().to_string())
+    let response = String::from_utf8_lossy(&response).trim().to_string();
+    debug!("[{}] Received response: {}", instrument_id, response);
+    Ok(response)
 }
 
-/// Asynchronously sends a command to a serial port and reads the response.
-///
-/// This function wraps the synchronous `send_command` in `tokio::task::spawn_blocking`
-/// to avoid blocking the async runtime.
-///
-/// # Arguments
-///
-/// * `port_mutex` - An `Arc<Mutex<Box<dyn SerialPort>>>` wrapping the serial port.
-/// * `instrument_id` - The ID of the instrument for logging purposes.
-/// * `command` - The command string to send.
-/// * `terminator` - The terminator string to append to the command.
-/// * `timeout` - The maximum time to wait for a response.
-/// * `response_terminator` - The character that indicates the end of a response.
-///
-/// # Returns
-///
-/// A `Result` containing the response string or an error.
-pub async fn send_command_async(
-    port_mutex: Arc<Mutex<Box<dyn SerialPort>>>,
-    instrument_id: String,
-    command: String,
-    terminator: String,
-    timeout: Duration,
-    response_terminator: char,
-) -> Result<String> {
-    tokio::task::spawn_blocking(move || {
-        let mut port = port_mutex.blocking_lock();
-        send_command(
-            &mut port,
-            &instrument_id,
-            &command,
-            &terminator,
-            timeout,
-            response_terminator,
-        )
-    })
-    .await
-    .context("Task panicked")?
+#[cfg(not(feature = "instrument_serial"))]
+pub async fn send_command_async<A>(
+    _adapter: A,
+    _instrument_id: &str,
+    _command: &str,
+    _terminator: &str,
+    _timeout: std::time::Duration,
+    _delimiter: u8,
+) -> anyhow::Result<String> {
+    Err(anyhow::anyhow!(
+        "Serial support not enabled. Rebuild with --features instrument_serial"
+    ))
 }

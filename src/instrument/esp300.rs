@@ -23,21 +23,21 @@ use crate::{
     core::{DataPoint, Instrument, InstrumentCommand},
     measurement::InstrumentMeasurement,
 };
+#[cfg(feature = "instrument_serial")]
+use crate::adapters::serial::SerialAdapter;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use log::{info, warn};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-#[cfg(feature = "instrument_serial")]
-use serialport::SerialPort;
 
 /// Newport ESP300 instrument implementation
 #[derive(Clone)]
 pub struct ESP300 {
     id: String,
     #[cfg(feature = "instrument_serial")]
-    port: Option<Arc<tokio::sync::Mutex<Box<dyn SerialPort>>>>,
+    adapter: Option<SerialAdapter>,
     sender: Option<broadcast::Sender<DataPoint>>,
     num_axes: u8,
     measurement: Option<InstrumentMeasurement>,
@@ -49,7 +49,7 @@ impl ESP300 {
         Self {
             id: id.to_string(),
             #[cfg(feature = "instrument_serial")]
-            port: None,
+            adapter: None,
             sender: None,
             num_axes: 3, // ESP300 has 3 axes
             measurement: None,
@@ -61,16 +61,19 @@ impl ESP300 {
         use super::serial_helper;
         use std::time::Duration;
 
-        let port = self.port.as_ref()
-            .ok_or_else(|| anyhow!("Not connected to ESP300 '{}'", self.id))?;
+        let adapter = self
+            .adapter
+            .as_ref()
+            .ok_or_else(|| anyhow!("Not connected to ESP300 '{}'", self.id))?
+            .clone();
 
         serial_helper::send_command_async(
-            port.clone(),
-            self.id.clone(),
-            command.to_string(),
-            "\r\n".to_string(),
+            adapter,
+            &self.id,
+            command,
+            "\r\n",
             Duration::from_secs(1),
-            '\n',
+            b'\n',
         ).await
     }
 
@@ -145,7 +148,7 @@ impl Instrument for ESP300 {
         port.write_data_terminal_ready(true)
             .context("Failed to enable DTR")?;
 
-        self.port = Some(Arc::new(tokio::sync::Mutex::new(port)));
+        self.adapter = Some(SerialAdapter::new(port));
 
         // Query controller version
         let version = self.send_command_async("VE?").await?;
@@ -246,7 +249,7 @@ impl Instrument for ESP300 {
         info!("Disconnecting from ESP300 motion controller: {}", self.id);
         #[cfg(feature = "instrument_serial")]
         {
-            self.port = None;
+            self.adapter = None;
         }
         self.sender = None;
         self.measurement = None;

@@ -79,6 +79,8 @@ serial_test = "3.1.1"
 tokio-test = "0.4"
 
 [features]
+# NOTE: Phase 1 (bd-61) migrated to actor-based state management
+# For rollback instructions, see ROLLBACK_ACTOR.md
 default = ["storage_csv", "instrument_serial"]
 full = ["storage_csv", "storage_hdf5", "storage_arrow", "instrument_serial", "instrument_visa"]
 storage_csv = ["dep:csv"]

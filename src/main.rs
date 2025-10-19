@@ -32,12 +32,12 @@ use log::{info, LevelFilter};
 use rust_daq::{
     app::DaqApp,
     config::Settings,
-    core::V2InstrumentAdapter,
+    core::DataPoint,
     data::registry::ProcessorRegistry,
     gui::Gui,
     instrument::{mock::MockInstrument, scpi::ScpiInstrument, InstrumentRegistry},
-    instruments_v2::mock_instrument::MockInstrumentV2,
     log_capture::{LogBuffer, LogCollector},
+    measurement::{datapoint::*, InstrumentMeasurement},
 };
 use std::sync::Arc;
 
@@ -75,14 +75,11 @@ fn main() -> Result<()> {
 
     // Create a registry and register available instruments.
     // This is our static "plugin" system.
-    let mut instrument_registry = InstrumentRegistry::new();
+    let mut instrument_registry = InstrumentRegistry::<InstrumentMeasurement>::new();
     instrument_registry.register("mock", |_id| Box::new(MockInstrument::new()));
 
-    // Register V2 mock instrument via adapter (bd-49 Phase 1 validation)
-    instrument_registry.register("mock_v2", |id| {
-        let v2_instrument = Box::new(MockInstrumentV2::new(id.to_string()));
-        Box::new(V2InstrumentAdapter::new(v2_instrument))
-    });
+    // Note: V2 instruments (MockInstrumentV2, etc.) will be integrated in Phase 3 (bd-51)
+    // via native Arc<Measurement> support. V2InstrumentAdapter removed in Phase 2 (bd-62).
 
     instrument_registry.register("scpi_keithley", |_id| Box::new(ScpiInstrument::new()));
 
@@ -96,7 +93,9 @@ fn main() -> Result<()> {
 
     #[cfg(feature = "instrument_serial")]
     {
-        use rust_daq::instrument::{newport_1830c::Newport1830C, maitai::MaiTai, elliptec::Elliptec, esp300::ESP300};
+        use rust_daq::instrument::{
+            elliptec::Elliptec, esp300::ESP300, maitai::MaiTai, newport_1830c::Newport1830C,
+        };
         instrument_registry.register("newport_1830c", |id| Box::new(Newport1830C::new(id)));
         instrument_registry.register("maitai", |id| Box::new(MaiTai::new(id)));
         instrument_registry.register("elliptec", |id| Box::new(Elliptec::new(id)));
@@ -113,7 +112,7 @@ fn main() -> Result<()> {
     let processor_registry = Arc::new(ProcessorRegistry::new());
 
     // Create the core application state
-    let app = DaqApp::new(
+    let app = DaqApp::<InstrumentMeasurement>::new(
         settings.clone(),
         instrument_registry,
         processor_registry,
@@ -132,7 +131,7 @@ fn main() -> Result<()> {
             // The `eframe` crate provides the `egui` context `cc`
             // which we can use to style the GUI.
             // Here we are just passing it to our `Gui` struct.
-            Ok(Box::new(Gui::new(cc, app_clone)))
+            Ok(Box::new(Gui::<InstrumentMeasurement>::new(cc, app_clone)))
         }),
     )
     .map_err(|e| anyhow::anyhow!("Eframe run error: {}", e))?;

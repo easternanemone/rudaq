@@ -6,12 +6,13 @@ use rust_daq::{
     data::registry::ProcessorRegistry,
     instrument::{mock::MockInstrument, InstrumentRegistry},
     log_capture::LogBuffer,
+    measurement::InstrumentMeasurement,
 };
 use std::sync::Arc;
 use std::time::Duration;
 
 /// Helper to create test app with mock instrument.
-fn create_test_app() -> DaqApp {
+fn create_test_app() -> DaqApp<InstrumentMeasurement> {
     let settings = Arc::new(Settings::new(None).expect("Failed to create settings"));
     let mut instrument_registry = InstrumentRegistry::new();
     instrument_registry.register("mock", |_id| Box::new(MockInstrument::new()));
@@ -19,8 +20,13 @@ fn create_test_app() -> DaqApp {
     let processor_registry = Arc::new(ProcessorRegistry::new());
     let log_buffer = LogBuffer::new();
 
-    DaqApp::new(settings, instrument_registry, processor_registry, log_buffer)
-        .expect("Failed to create app")
+    DaqApp::new(
+        settings,
+        instrument_registry,
+        processor_registry,
+        log_buffer,
+    )
+    .expect("Failed to create app")
 }
 
 #[test]
@@ -47,7 +53,7 @@ fn test_storage_writer_graceful_shutdown() {
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         let elapsed = start_time.elapsed();
-        
+
         // Should complete quickly with graceful shutdown (much less than timeout)
         assert!(
             elapsed < Duration::from_secs(1),
