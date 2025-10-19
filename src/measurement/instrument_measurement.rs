@@ -11,7 +11,7 @@ use tokio::sync::{mpsc, Mutex};
 /// This provides a unified Measure implementation backed by a DataDistributor
 #[derive(Clone)]
 pub struct InstrumentMeasurement {
-    distributor: Arc<Mutex<DataDistributor<DataPoint>>>,
+    distributor: Arc<Mutex<DataDistributor<Arc<DataPoint>>>>,
     id: String,
 }
 
@@ -27,7 +27,7 @@ impl InstrumentMeasurement {
     /// Broadcast a data point to all subscribers
     pub async fn broadcast(&self, data: DataPoint) -> Result<()> {
         let mut dist = self.distributor.lock().await;
-        dist.broadcast(data).await
+        dist.broadcast(Arc::new(data)).await
     }
 }
 
@@ -49,7 +49,7 @@ impl Measure for InstrumentMeasurement {
         Ok(dp)
     }
 
-    async fn data_stream(&self) -> Result<mpsc::Receiver<DataPoint>> {
+    async fn data_stream(&self) -> Result<mpsc::Receiver<Arc<DataPoint>>> {
         let mut dist = self.distributor.lock().await;
         Ok(dist.subscribe())
     }

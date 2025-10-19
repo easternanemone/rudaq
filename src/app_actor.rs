@@ -257,8 +257,8 @@ where
                     data_point_option = stream.recv() => {
                         match data_point_option {
                             Some(dp) => {
-                                // Convert M::Data to daq_core::DataPoint using Into trait
-                                let daq_dp: daq_core::DataPoint = dp.into();
+                                // Extract data from Arc and convert M::Data to daq_core::DataPoint using Into trait
+                                let daq_dp: daq_core::DataPoint = (*dp).clone().into();
                                 let mut measurements = vec![Arc::new(Measurement::Scalar(daq_dp))];
 
                                 // Process through measurement processor chain

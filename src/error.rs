@@ -52,4 +52,7 @@ pub enum DaqError {
 
     #[error("Feature '{0}' is not enabled. Please build with --features {0}")]
     FeatureNotEnabled(String),
+
+    #[error("Feature '{0}' is enabled but not yet implemented. {1}")]
+    FeatureIncomplete(String, String),
 }

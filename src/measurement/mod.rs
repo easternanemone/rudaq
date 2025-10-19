@@ -57,10 +57,10 @@ impl<T: Clone> DataDistributor<T> {
 
 #[async_trait]
 pub trait Measure: Send + Sync {
-    type Data: Send + Clone;
+    type Data: Send + Sync + Clone;
 
     async fn measure(&mut self) -> Result<Self::Data>;
-    async fn data_stream(&self) -> Result<tokio::sync::mpsc::Receiver<Self::Data>>;
+    async fn data_stream(&self) -> Result<tokio::sync::mpsc::Receiver<std::sync::Arc<Self::Data>>>;
 }
 
 pub mod power;

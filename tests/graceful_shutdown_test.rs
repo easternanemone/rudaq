@@ -110,3 +110,140 @@ fn test_multiple_instruments_shutdown() {
         elapsed
     );
 }
+
+#[test]
+fn test_concurrent_shutdown_requests_are_idempotent() {
+    // Test that multiple concurrent shutdown requests don't cause panics or hangs
+    let app = create_test_app();
+
+    std::thread::sleep(Duration::from_millis(100));
+
+    // Call shutdown from multiple threads simultaneously
+    let app_clone1 = app.clone();
+    let app_clone2 = app.clone();
+
+    let handle1 = std::thread::spawn(move || {
+        app_clone1.shutdown();
+    });
+
+    let handle2 = std::thread::spawn(move || {
+        app_clone2.shutdown();
+    });
+
+    // Main thread also calls shutdown
+    app.shutdown();
+
+    // All threads should complete without panic
+    handle1.join().expect("Thread 1 should not panic");
+    handle2.join().expect("Thread 2 should not panic");
+}
+
+#[test]
+fn test_shutdown_completes_within_timeout() {
+    // Verify that shutdown doesn't exceed the 5-second timeout per instrument
+    let app = create_test_app();
+
+    std::thread::sleep(Duration::from_millis(100));
+
+    // Measure shutdown time
+    let start = std::time::Instant::now();
+    app.shutdown();
+    let elapsed = start.elapsed();
+
+    // With graceful shutdown, should complete well before 5s timeout
+    // (Mock instrument disconnects quickly)
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "Graceful shutdown should complete quickly, took {:?}",
+        elapsed
+    );
+}
+
+#[test]
+fn test_stop_instrument_completes_within_timeout() {
+    // Test individual instrument stop with timeout enforcement
+    let app = create_test_app();
+
+    std::thread::sleep(Duration::from_millis(100));
+
+    // Stop individual instrument
+    let start = std::time::Instant::now();
+    app.with_inner(|inner| {
+        inner.stop_instrument("mock");
+    });
+    let elapsed = start.elapsed();
+
+    // Should complete within timeout (5s) but much faster for mock
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "Instrument stop should complete within timeout, took {:?}",
+        elapsed
+    );
+
+    app.shutdown();
+}
+
+#[test]
+fn test_data_stream_closes_on_shutdown() {
+    // Test that data streams are properly closed when instrument shuts down
+    let app = create_test_app();
+
+    // Subscribe to data before shutdown
+    let mut rx = app.with_inner(|inner| inner.data_sender.subscribe());
+
+    std::thread::sleep(Duration::from_millis(100));
+
+    // Verify we can receive data before shutdown
+    let runtime = app.get_runtime();
+    let received_before = runtime.block_on(async {
+        tokio::time::timeout(Duration::from_millis(500), rx.recv())
+            .await
+            .is_ok()
+    });
+    assert!(received_before, "Should receive data before shutdown");
+
+    // Shutdown the app
+    app.with_inner(|inner| {
+        inner.stop_instrument("mock");
+    });
+
+    // After shutdown, stream should eventually close (return None)
+    let stream_closed = runtime.block_on(async {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            // Keep reading until we get None (stream closed)
+            while rx.recv().await.is_some() {}
+        })
+        .await
+        .is_ok()
+    });
+
+    assert!(stream_closed, "Data stream should close after shutdown");
+
+    app.shutdown();
+}
+
+#[test]
+fn test_shutdown_after_stop_instrument() {
+    // Test that shutdown still works correctly after manually stopping an instrument
+    let app = create_test_app();
+
+    std::thread::sleep(Duration::from_millis(100));
+
+    // Stop instrument first
+    app.with_inner(|inner| {
+        inner.stop_instrument("mock");
+    });
+
+    std::thread::sleep(Duration::from_millis(50));
+
+    // Then shutdown app - should not hang or panic
+    let start = std::time::Instant::now();
+    app.shutdown();
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "Shutdown after stop_instrument should be fast, took {:?}",
+        elapsed
+    );
+}

@@ -317,22 +317,22 @@ mod tests {
         for i in 0..16 {
             let t = i as f64 / 8.0;
             let value = (2.0 * std::f64::consts::PI * 1.0 * t).sin(); // 1 Hz sine wave
-            measurements.push(Measurement::Scalar(DataPoint {
+            measurements.push(Arc::new(Measurement::Scalar(daq_core::DataPoint {
                 timestamp: Utc.timestamp_nanos((t * 1_000_000_000.0) as i64),
                 instrument_id: "test_instrument".to_string(),
                 channel: "test_signal".to_string(),
                 value,
                 unit: "V".to_string(),
                 metadata: None,
-            }));
+            })));
         }
-        
+
         // Process with new MeasurementProcessor interface
         let result = fft_processor.process_measurements(&measurements);
-        
+
         // Should get spectrum measurements
         assert_eq!(result.len(), 1);
-        match &result[0] {
+        match result[0].as_ref() {
             Measurement::Spectrum(spectrum) => {
                 assert_eq!(spectrum.channel, "test_signal_fft");
                 assert_eq!(spectrum.unit, "dB");
@@ -363,23 +363,23 @@ mod tests {
         
         // Mix of measurement types - only scalars should be processed
         let measurements = vec![
-            Measurement::Spectrum(SpectrumData {
+            Arc::new(Measurement::Spectrum(daq_core::SpectrumData {
                 timestamp: Utc::now(),
                 channel: "existing_spectrum".to_string(),
                 unit: "dB".to_string(),
                 bins: vec![],
                 metadata: None,
-            }),
-            Measurement::Scalar(DataPoint {
+            })),
+            Arc::new(Measurement::Scalar(daq_core::DataPoint {
                 timestamp: Utc::now(),
                 instrument_id: "test_instrument".to_string(),
                 channel: "scalar_data".to_string(),
                 value: 1.0,
                 unit: "V".to_string(),
                 metadata: None,
-            }),
+            })),
         ];
-        
+
         let result = fft_processor.process_measurements(&measurements);
         
         // Should return empty because we don't have enough scalar data for FFT window

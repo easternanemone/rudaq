@@ -65,7 +65,7 @@ where
         )?;
 
         // Create command channel
-        let (command_tx, command_rx) = mpsc::channel(256);
+        let (command_tx, command_rx) = mpsc::channel(settings.application.command_channel_capacity);
 
         // Spawn instruments from config before starting actor
         let instrument_ids: Vec<String> = settings.instruments.keys().cloned().collect();

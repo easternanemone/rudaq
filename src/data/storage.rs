@@ -206,8 +206,13 @@ impl StorageWriter for Hdf5Writer {
     async fn set_metadata(&mut self, _metadata: &Metadata) -> Result<()> {
         #[cfg(feature = "storage_hdf5")]
         {
-            // TODO: Implement metadata writing for HDF5
-            Ok(())
+            // HDF5 metadata writing is not yet implemented
+            // To fully implement: Write metadata as HDF5 attributes on the root group
+            // using self.file.as_ref().unwrap() and file.new_attr::<String>() methods
+            Err(DaqError::FeatureIncomplete(
+                "storage_hdf5".to_string(),
+                "HDF5 metadata writing is not implemented. Use CSV storage for now.".to_string()
+            ).into())
         }
         #[cfg(not(feature = "storage_hdf5"))]
         Err(DaqError::FeatureNotEnabled("storage_hdf5".to_string()).into())
@@ -215,10 +220,16 @@ impl StorageWriter for Hdf5Writer {
     async fn write(&mut self, _data: &[Arc<Measurement>]) -> Result<()> {
         #[cfg(feature = "storage_hdf5")]
         {
-            // TODO: Implement data writing for HDF5
-            // HDF5 can handle Scalar, Spectrum, and Image data natively
-            // Pattern match on Measurement variants and write to appropriate datasets
-            Ok(())
+            // HDF5 data writing is not yet implemented
+            // To fully implement:
+            // 1. Create datasets for each Measurement variant (scalars, spectra, images)
+            // 2. Pattern match on measurement type and write to appropriate dataset
+            // 3. Handle dynamic dataset resizing for streaming data
+            // 4. Use chunked storage for efficient appends
+            Err(DaqError::FeatureIncomplete(
+                "storage_hdf5".to_string(),
+                "HDF5 data writing is not implemented. Use CSV storage for scalar data.".to_string()
+            ).into())
         }
         #[cfg(not(feature = "storage_hdf5"))]
         Err(DaqError::FeatureNotEnabled("storage_hdf5".to_string()).into())
@@ -275,8 +286,15 @@ impl StorageWriter for ArrowWriter {
     async fn init(&mut self, _settings: &Arc<Settings>) -> Result<()> {
         #[cfg(feature = "storage_arrow")]
         {
-            // TODO: Implement Arrow initialization
-            Ok(())
+            // Arrow initialization is not yet implemented
+            // To fully implement:
+            // 1. Create Arrow schema matching Measurement enum variants
+            // 2. Initialize IPC file writer with appropriate path
+            // 3. Set up record batch builders for streaming writes
+            Err(DaqError::FeatureIncomplete(
+                "storage_arrow".to_string(),
+                "Arrow storage is not implemented. Use CSV storage for scalar data.".to_string()
+            ).into())
         }
         #[cfg(not(feature = "storage_arrow"))]
         Err(DaqError::FeatureNotEnabled("storage_arrow".to_string()).into())
@@ -284,8 +302,13 @@ impl StorageWriter for ArrowWriter {
     async fn set_metadata(&mut self, _metadata: &Metadata) -> Result<()> {
         #[cfg(feature = "storage_arrow")]
         {
-            // TODO: Implement metadata writing for Arrow
-            Ok(())
+            // Arrow metadata writing is not yet implemented
+            // To fully implement: Add metadata as Arrow schema custom metadata
+            // using Schema::with_metadata() before creating the IPC writer
+            Err(DaqError::FeatureIncomplete(
+                "storage_arrow".to_string(),
+                "Arrow metadata writing is not implemented. Use CSV storage for now.".to_string()
+            ).into())
         }
         #[cfg(not(feature = "storage_arrow"))]
         Err(DaqError::FeatureNotEnabled("storage_arrow".to_string()).into())
@@ -293,10 +316,16 @@ impl StorageWriter for ArrowWriter {
     async fn write(&mut self, _data: &[Arc<Measurement>]) -> Result<()> {
         #[cfg(feature = "storage_arrow")]
         {
-            // TODO: Implement data writing for Arrow
-            // Arrow can handle Scalar, Spectrum, and Image data with columnar storage
-            // Pattern match on Measurement variants and write to appropriate record batches
-            Ok(())
+            // Arrow data writing is not yet implemented
+            // To fully implement:
+            // 1. Pattern match on Measurement variants (Scalar, Spectrum, Image)
+            // 2. Build appropriate record batches for each type
+            // 3. Write batches to IPC stream/file
+            // 4. Handle efficient columnar storage for high-throughput data
+            Err(DaqError::FeatureIncomplete(
+                "storage_arrow".to_string(),
+                "Arrow data writing is not implemented. Use CSV storage for scalar data.".to_string()
+            ).into())
         }
         #[cfg(not(feature = "storage_arrow"))]
         Err(DaqError::FeatureNotEnabled("storage_arrow".to_string()).into())
@@ -304,10 +333,102 @@ impl StorageWriter for ArrowWriter {
     async fn shutdown(&mut self) -> Result<()> {
         #[cfg(feature = "storage_arrow")]
         {
-            // TODO: Implement Arrow shutdown
-            Ok(())
+            // Arrow shutdown is not yet implemented
+            // To fully implement: Flush and close the IPC writer
+            Err(DaqError::FeatureIncomplete(
+                "storage_arrow".to_string(),
+                "Arrow shutdown is not implemented. Use CSV storage for now.".to_string()
+            ).into())
         }
         #[cfg(not(feature = "storage_arrow"))]
         Err(DaqError::FeatureNotEnabled("storage_arrow".to_string()).into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use daq_core::{Measurement, DataPoint};
+    use chrono::Utc;
+
+    #[tokio::test]
+    async fn test_hdf5_writer_returns_proper_errors() {
+        let mut writer = Hdf5Writer::new();
+        let metadata = Metadata::default();
+
+        // When storage_hdf5 feature is enabled, set_metadata should return FeatureIncomplete error
+        let result = writer.set_metadata(&metadata).await;
+
+        #[cfg(feature = "storage_hdf5")]
+        {
+            assert!(result.is_err());
+            let err_msg = result.unwrap_err().to_string();
+            assert!(err_msg.contains("not yet implemented") || err_msg.contains("not implemented"));
+        }
+
+        #[cfg(not(feature = "storage_hdf5"))]
+        {
+            assert!(result.is_err());
+            let err_msg = result.unwrap_err().to_string();
+            assert!(err_msg.contains("not enabled"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_arrow_writer_returns_proper_errors() {
+        let mut writer = ArrowWriter::new();
+
+        // Create a minimal Settings object for testing
+        use crate::config::{StorageSettings, ApplicationSettings};
+        let settings = Arc::new(crate::config::Settings {
+            log_level: "info".to_string(),
+            application: ApplicationSettings {
+                broadcast_channel_capacity: 1024,
+                command_channel_capacity: 32,
+            },
+            storage: StorageSettings {
+                default_path: "/tmp".to_string(),
+                default_format: "csv".to_string(),
+            },
+            instruments: std::collections::HashMap::new(),
+            processors: None,
+        });
+
+        // When storage_arrow feature is enabled, init should return FeatureIncomplete error
+        let result = writer.init(&settings).await;
+
+        #[cfg(feature = "storage_arrow")]
+        {
+            assert!(result.is_err());
+            let err_msg = result.unwrap_err().to_string();
+            assert!(err_msg.contains("not yet implemented") || err_msg.contains("not implemented"));
+        }
+
+        #[cfg(not(feature = "storage_arrow"))]
+        {
+            assert!(result.is_err());
+            let err_msg = result.unwrap_err().to_string();
+            assert!(err_msg.contains("not enabled"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_no_silent_failures() {
+        // Test that HDF5 write fails with error, not Ok(())
+        let mut hdf5_writer = Hdf5Writer::new();
+        let test_data = vec![Arc::new(Measurement::Scalar(DataPoint {
+            timestamp: Utc::now(),
+            channel: "test".to_string(),
+            value: 1.0,
+            unit: "V".to_string(),
+        }))];
+
+        let result = hdf5_writer.write(&test_data).await;
+        assert!(result.is_err(), "HDF5 write should fail, not return Ok(())");
+
+        // Test that Arrow write fails with error, not Ok(())
+        let mut arrow_writer = ArrowWriter::new();
+        let result = arrow_writer.write(&test_data).await;
+        assert!(result.is_err(), "Arrow write should fail, not return Ok(())");
     }
 }

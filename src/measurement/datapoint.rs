@@ -3,6 +3,7 @@ use crate::core::DataPoint;
 use crate::measurement::Measure;
 use anyhow::Result;
 use async_trait::async_trait;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 #[async_trait]
@@ -13,10 +14,10 @@ impl Measure for DataPoint {
         Ok(self.clone())
     }
 
-    async fn data_stream(&self) -> Result<mpsc::Receiver<DataPoint>> {
+    async fn data_stream(&self) -> Result<mpsc::Receiver<Arc<DataPoint>>> {
         // This is a bit of a hack, but it will work for now.
-        let (sender, mut receiver) = mpsc::channel(1);
-        sender.send(self.clone()).await.ok();
+        let (sender, receiver) = mpsc::channel(1);
+        sender.send(Arc::new(self.clone())).await.ok();
         Ok(receiver)
     }
 }
