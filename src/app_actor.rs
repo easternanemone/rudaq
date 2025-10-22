@@ -249,12 +249,12 @@ where
                     gui_state,
                     response,
                 } => {
-                    let result = self.save_session(&path, gui_state);
+                    let result = self.save_session(&path, gui_state).await;
                     let _ = response.send(result);
                 }
 
                 DaqCommand::LoadSession { path, response } => {
-                    let result = self.load_session(&path);
+                    let result = self.load_session(&path).await;
                     let _ = response.send(result);
                 }
 
@@ -698,7 +698,9 @@ where
     /// - GUI state (window layout, plot configurations)
     ///
     /// Sessions can be loaded later to restore the application state.
-    fn save_session(&self, path: &Path, gui_state: session::GuiState) -> Result<()> {
+    /// The blocking file I/O is wrapped in spawn_blocking to prevent
+    /// blocking the actor task.
+    async fn save_session(&self, path: &Path, gui_state: session::GuiState) -> Result<()> {
         let active_instruments: std::collections::HashSet<String> = self.instruments.keys().cloned().collect();
 
         let session = Session {
@@ -707,7 +709,9 @@ where
             gui_state,
         };
 
-        session::save_session(&session, path)
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || session::save_session(&session, &path))
+            .await?
     }
 
     /// Loads application state from a session file.
@@ -720,8 +724,12 @@ where
     ///
     /// If any instrument fails to start, an error is logged but loading
     /// continues for remaining instruments.
-    fn load_session(&mut self, path: &Path) -> Result<session::GuiState> {
-        let session = session::load_session(path)?;
+    /// The blocking file I/O is wrapped in spawn_blocking to prevent
+    /// blocking the actor task.
+    async fn load_session(&mut self, path: &Path) -> Result<session::GuiState> {
+        let path = path.to_path_buf();
+        let session = tokio::task::spawn_blocking(move || session::load_session(&path))
+            .await??;
         let gui_state = session.gui_state.clone();
 
         // Stop all current instruments
