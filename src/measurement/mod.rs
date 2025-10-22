@@ -3,6 +3,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
+use tokio::sync::Mutex;
 
 use crate::core::DataPoint;
 
@@ -10,8 +11,11 @@ use crate::core::DataPoint;
 ///
 /// Replaces tokio::sync::broadcast to prevent silent data loss from lagging receivers.
 /// Each subscriber gets a dedicated mpsc channel, providing isolation and true backpressure.
+///
+/// Uses interior mutability (Mutex) to avoid requiring Arc<Mutex<DataDistributor>> wrapper,
+/// following actor model principles by minimizing lock scope.
 pub struct DataDistributor<T: Clone> {
-    subscribers: Vec<tokio::sync::mpsc::Sender<T>>,
+    subscribers: Mutex<Vec<tokio::sync::mpsc::Sender<T>>>,
     capacity: usize,
 }
 
@@ -19,23 +23,25 @@ impl<T: Clone> DataDistributor<T> {
     /// Creates a new DataDistributor with specified channel capacity
     pub fn new(capacity: usize) -> Self {
         Self {
-            subscribers: Vec::new(),
+            subscribers: Mutex::new(Vec::new()),
             capacity,
         }
     }
 
     /// Subscribe to the data stream, returns a new mpsc::Receiver
-    pub fn subscribe(&mut self) -> tokio::sync::mpsc::Receiver<T> {
+    pub async fn subscribe(&self) -> tokio::sync::mpsc::Receiver<T> {
         let (tx, rx) = tokio::sync::mpsc::channel(self.capacity);
-        self.subscribers.push(tx);
+        let mut subscribers = self.subscribers.lock().await;
+        subscribers.push(tx);
         rx
     }
 
     /// Broadcast data to all subscribers with automatic dead subscriber cleanup
-    pub async fn broadcast(&mut self, data: T) -> Result<()> {
+    pub async fn broadcast(&self, data: T) -> Result<()> {
+        let mut subscribers = self.subscribers.lock().await;
         let mut dead_indices = Vec::new();
 
-        for (i, sender) in self.subscribers.iter().enumerate() {
+        for (i, sender) in subscribers.iter().enumerate() {
             if sender.send(data.clone()).await.is_err() {
                 dead_indices.push(i);
             }
@@ -43,15 +49,15 @@ impl<T: Clone> DataDistributor<T> {
 
         // Remove dead subscribers in reverse order to maintain indices
         for i in dead_indices.iter().rev() {
-            self.subscribers.swap_remove(*i);
+            subscribers.swap_remove(*i);
         }
 
         Ok(())
     }
 
     /// Returns the number of active subscribers
-    pub fn subscriber_count(&self) -> usize {
-        self.subscribers.len()
+    pub async fn subscriber_count(&self) -> usize {
+        self.subscribers.lock().await.len()
     }
 }
 

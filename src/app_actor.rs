@@ -139,7 +139,7 @@ where
     instrument_registry: Arc<InstrumentRegistry<M>>,
     processor_registry: Arc<ProcessorRegistry>,
     instruments: HashMap<String, InstrumentHandle>,
-    data_distributor: Arc<Mutex<DataDistributor<Arc<Measurement>>>>,
+    data_distributor: Arc<DataDistributor<Arc<Measurement>>>,
     log_buffer: LogBuffer,
     metadata: Metadata,
     writer_task: Option<JoinHandle<Result<()>>>,
@@ -173,9 +173,9 @@ where
         log_buffer: LogBuffer,
         runtime: Arc<Runtime>,
     ) -> Result<Self> {
-        let data_distributor = Arc::new(Mutex::new(DataDistributor::new(
+        let data_distributor = Arc::new(DataDistributor::new(
             settings.application.broadcast_channel_capacity
-        )));
+        ));
         let storage_format = settings.storage.default_format.clone();
 
         Ok(Self {
@@ -235,7 +235,7 @@ where
                 }
 
                 DaqCommand::StartRecording { response } => {
-                    let result = self.start_recording();
+                    let result = self.start_recording().await;
                     let _ = response.send(result);
                 }
 
@@ -278,10 +278,7 @@ where
                 }
 
                 DaqCommand::SubscribeToData { response } => {
-                    let receiver = {
-                        let mut dist = self.data_distributor.lock().await;
-                        dist.subscribe()
-                    };
+                    let receiver = self.data_distributor.subscribe().await;
                     let _ = response.send(receiver);
                 }
 
@@ -419,8 +416,7 @@ where
 
                                 // Broadcast processed measurements
                                 for measurement in measurements {
-                                    let mut dist = data_distributor.lock().await;
-                                    if let Err(e) = dist.broadcast(measurement).await {
+                                    if let Err(e) = data_distributor.broadcast(measurement).await {
                                         error!("Failed to broadcast measurement: {}", e);
                                     }
                                 }
@@ -581,17 +577,14 @@ where
     /// Returns error if:
     /// - Recording is already in progress
     /// - Storage format is unsupported or feature-gated
-    fn start_recording(&mut self) -> Result<()> {
+    async fn start_recording(&mut self) -> Result<()> {
         if self.writer_task.is_some() {
             return Err(anyhow!("Recording is already in progress."));
         }
 
         let settings = self.settings.clone();
         let metadata = self.metadata.clone();
-        let mut rx = {
-            let mut dist = self.data_distributor.blocking_lock();
-            dist.subscribe()
-        };
+        let mut rx = self.data_distributor.subscribe().await;
         let storage_format_for_task = self.storage_format.clone();
 
         // Create shutdown channel

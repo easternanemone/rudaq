@@ -5,13 +5,16 @@ use crate::measurement::{DataDistributor, Measure};
 use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 
-/// A measurement type that all V1 instruments can use
-/// This provides a unified Measure implementation backed by a DataDistributor
+/// A measurement type that all V1 instruments can use.
+///
+/// This provides a unified Measure implementation backed by a DataDistributor.
+/// Uses Arc<DataDistributor> (without outer Mutex) since DataDistributor
+/// implements interior mutability for thread-safe subscriber management.
 #[derive(Clone)]
 pub struct InstrumentMeasurement {
-    distributor: Arc<Mutex<DataDistributor<Arc<DataPoint>>>>,
+    distributor: Arc<DataDistributor<Arc<DataPoint>>>,
     id: String,
 }
 
@@ -19,15 +22,17 @@ impl InstrumentMeasurement {
     /// Creates a new InstrumentMeasurement
     pub fn new(capacity: usize, id: String) -> Self {
         Self {
-            distributor: Arc::new(Mutex::new(DataDistributor::new(capacity))),
+            distributor: Arc::new(DataDistributor::new(capacity)),
             id,
         }
     }
 
-    /// Broadcast a data point to all subscribers
+    /// Broadcast a data point to all subscribers.
+    ///
+    /// No longer requires locking at this level since DataDistributor
+    /// implements interior mutability with minimal lock scope.
     pub async fn broadcast(&self, data: DataPoint) -> Result<()> {
-        let mut dist = self.distributor.lock().await;
-        dist.broadcast(Arc::new(data)).await
+        self.distributor.broadcast(Arc::new(data)).await
     }
 }
 
@@ -50,7 +55,6 @@ impl Measure for InstrumentMeasurement {
     }
 
     async fn data_stream(&self) -> Result<mpsc::Receiver<Arc<DataPoint>>> {
-        let mut dist = self.distributor.lock().await;
-        Ok(dist.subscribe())
+        Ok(self.distributor.subscribe().await)
     }
 }
