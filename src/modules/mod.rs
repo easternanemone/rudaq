@@ -489,6 +489,9 @@ impl<M: Measure + 'static> Default for ModuleRegistry<M> {
     }
 }
 
+// Concrete module implementations
+pub mod power_meter;
+
 #[cfg(test)]
 mod tests {
     use super::*;
