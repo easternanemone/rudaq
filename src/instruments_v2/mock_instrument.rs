@@ -546,7 +546,7 @@ mod tests {
 
         if let InstrumentState::Error(err) = instrument.state() {
             assert!(err.can_recover);
-            assert!(err.message.contains("Adapter forced to fail"));
+            assert!(err.message.contains("Mock connection failure"));
         } else {
             panic!("Expected Error state, got {:?}", instrument.state());
         }

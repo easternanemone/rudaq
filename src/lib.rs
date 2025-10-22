@@ -27,6 +27,8 @@
 //! - **`log_capture`**: Provides a custom `log::Log` implementation to capture log messages for
 //!   display within the GUI.
 //! - **`metadata`**: Defines structures for capturing and storing experimental metadata.
+//! - **`modules`**: Provides the `Module` trait for implementing experiment-specific workflows
+//!   that orchestrate instruments to accomplish scientific tasks.
 //! - **`session`**: Implements session management for saving and loading the application state.
 //! - **`validation`**: A collection of utility functions for validating configuration parameters.
 
@@ -42,6 +44,7 @@ pub mod log_capture;
 pub mod measurement;
 pub mod messages;
 pub mod metadata;
+pub mod modules;
 pub mod session;
 pub mod validation;
 

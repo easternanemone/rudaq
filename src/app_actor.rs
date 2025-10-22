@@ -1,8 +1,82 @@
-//! Actor-based DAQ application state management
+//! Actor-based DAQ application state management.
 //!
-//! This module implements the actor pattern to replace Arc<Mutex<DaqAppInner>>.
-//! All state mutations happen in a single async task that processes commands
-//! via message-passing, eliminating lock contention and improving scalability.
+//! This module implements the actor pattern for centralized state management,
+//! replacing the previous `Arc<Mutex<DaqAppInner>>` approach. The actor model
+//! eliminates lock contention, prevents deadlocks, and provides a clearer
+//! mental model for concurrent state management.
+//!
+//! # Architecture
+//!
+//! The [`DaqManagerActor`] is the single owner of all DAQ state and runs in
+//! a dedicated Tokio task. It processes [`DaqCommand`] messages received via
+//! an mpsc channel and responds using oneshot channels.
+//!
+//! ## Actor Responsibilities
+//!
+//! - **Lifecycle Management**: Spawns, monitors, and shuts down instrument and storage tasks
+//! - **State Ownership**: Sole owner of instruments, metadata, and configuration
+//! - **Command Processing**: Handles all state-mutating operations sequentially
+//! - **Task Supervision**: Manages graceful shutdown with timeouts and fallback abort
+//!
+//! ## Message Flow
+//!
+//! 1. GUI sends `DaqCommand` via mpsc channel (non-blocking)
+//! 2. Actor processes command in its event loop (sequential, no locks)
+//! 3. Actor performs state mutation (e.g., spawn instrument, start recording)
+//! 4. Actor sends response via oneshot channel
+//! 5. GUI receives result asynchronously
+//!
+//! ## Data Flow
+//!
+//! Instrument tasks broadcast data through a shared [`DataDistributor`]:
+//!
+//! ```text
+//! Instrument Task 1 ──┐
+//! Instrument Task 2 ──┼──> DataDistributor ──┬──> GUI (plotting)
+//! Instrument Task N ──┘    (broadcast)       └──> Storage Writer
+//! ```
+//!
+//! ## Graceful Shutdown Protocol
+//!
+//! 1. Actor receives `DaqCommand::Shutdown`
+//! 2. Stops storage writer (5s timeout)
+//! 3. Sends `InstrumentCommand::Shutdown` to each instrument
+//! 4. Waits up to 5s per instrument for graceful disconnect
+//! 5. Aborts any stragglers that exceed timeout
+//! 6. Actor event loop exits
+//!
+//! # Example
+//!
+//! ```no_run
+//! use tokio::sync::mpsc;
+//! use rust_daq::{app_actor::DaqManagerActor, messages::DaqCommand};
+//!
+//! # async fn example() -> anyhow::Result<()> {
+//! // Create command channel
+//! let (cmd_tx, cmd_rx) = mpsc::channel(32);
+//!
+//! // Spawn actor task
+//! # let settings = std::sync::Arc::new(rust_daq::config::Settings::default());
+//! # let instrument_registry = std::sync::Arc::new(rust_daq::instrument::InstrumentRegistry::new());
+//! # let processor_registry = std::sync::Arc::new(rust_daq::data::registry::ProcessorRegistry::new());
+//! # let log_buffer = rust_daq::log_capture::LogBuffer::new();
+//! # let runtime = std::sync::Arc::new(tokio::runtime::Runtime::new()?);
+//! let actor = DaqManagerActor::new(
+//!     settings,
+//!     instrument_registry,
+//!     processor_registry,
+//!     log_buffer,
+//!     runtime,
+//! )?;
+//! tokio::spawn(actor.run(cmd_rx));
+//!
+//! // Send command from GUI
+//! let (cmd, rx) = DaqCommand::spawn_instrument("my_instrument".to_string());
+//! cmd_tx.send(cmd).await?;
+//! let result = rx.await?;
+//! # Ok(())
+//! # }
+//! ```
 
 use crate::{
     config::Settings,
@@ -27,7 +101,35 @@ use tokio::{
     task::JoinHandle,
 };
 
-/// Actor that manages all DAQ state
+/// Central actor that owns and manages all DAQ state.
+///
+/// The `DaqManagerActor` runs in a dedicated Tokio task and processes
+/// [`DaqCommand`] messages sequentially.
+/// This design eliminates the need for `Arc<Mutex<>>` and provides
+/// a clear, deadlock-free concurrency model.
+///
+/// # State Ownership
+///
+/// The actor owns:
+/// - Active instrument tasks (`instruments` HashMap)
+/// - Storage writer task (if recording)
+/// - Application configuration (`settings`)
+/// - Metadata for recordings
+/// - Data distribution hub (`data_distributor`)
+///
+/// # Thread Safety
+///
+/// All state mutations occur sequentially within the actor's event loop,
+/// ensuring sequential consistency without locks. External components
+/// interact only via message-passing.
+///
+/// # Graceful Shutdown
+///
+/// The actor implements a supervised shutdown protocol:
+/// - Stops storage writer with 5s timeout
+/// - Stops each instrument with 5s timeout per instrument
+/// - Aborts any tasks that don't respond in time
+/// - Ensures all resources are properly released
 pub struct DaqManagerActor<M>
 where
     M: Measure + 'static,
@@ -52,7 +154,18 @@ where
     M: Measure + 'static,
     M::Data: Into<daq_core::DataPoint>,
 {
-    /// Creates a new DaqManagerActor
+    /// Creates a new `DaqManagerActor` with the given configuration.
+    ///
+    /// This does not start the actor's event loop. Call [`run`](Self::run)
+    /// and spawn it as a Tokio task.
+    ///
+    /// # Arguments
+    ///
+    /// - `settings`: Application configuration (instruments, storage, etc.)
+    /// - `instrument_registry`: Factory for creating instrument instances
+    /// - `processor_registry`: Factory for creating data processors
+    /// - `log_buffer`: Shared buffer for application logs
+    /// - `runtime`: Tokio runtime handle for spawning instrument tasks
     pub fn new(
         settings: Arc<Settings>,
         instrument_registry: Arc<InstrumentRegistry<M>>,
@@ -81,7 +194,22 @@ where
         })
     }
 
-    /// Runs the actor event loop, processing commands until shutdown
+    /// Runs the actor event loop, processing commands until shutdown.
+    ///
+    /// This method consumes the actor and runs indefinitely until a
+    /// `DaqCommand::Shutdown` is received. It should be spawned as a
+    /// Tokio task:
+    ///
+    /// ```no_run
+    /// # use tokio::sync::mpsc;
+    /// # use rust_daq::app_actor::DaqManagerActor;
+    /// # async fn example(actor: DaqManagerActor<impl rust_daq::measurement::Measure>, cmd_rx: mpsc::Receiver<rust_daq::messages::DaqCommand>) {
+    /// tokio::spawn(actor.run(cmd_rx));
+    /// # }
+    /// ```
+    ///
+    /// Commands are processed sequentially in the order received. Each
+    /// command mutates actor state and sends a response via oneshot channel.
     pub async fn run(mut self, mut command_rx: mpsc::Receiver<DaqCommand>) {
         info!("DaqManagerActor started");
 
@@ -169,7 +297,30 @@ where
         info!("DaqManagerActor shutting down");
     }
 
-    /// Spawns an instrument to run on the Tokio runtime
+    /// Spawns an instrument task on the Tokio runtime.
+    ///
+    /// This method:
+    /// 1. Validates instrument configuration from settings
+    /// 2. Creates instrument instance from registry
+    /// 3. Builds processor chain for this instrument
+    /// 4. Connects to the instrument (synchronously blocks)
+    /// 5. Spawns a Tokio task with `tokio::select!` event loop
+    ///
+    /// The spawned task handles:
+    /// - Receiving data from instrument's async stream
+    /// - Processing data through measurement processor chain
+    /// - Broadcasting processed measurements via `DataDistributor`
+    /// - Receiving commands via mpsc channel
+    /// - Graceful shutdown on `InstrumentCommand::Shutdown`
+    ///
+    /// # Errors
+    ///
+    /// Returns `SpawnError` if:
+    /// - Instrument is already running
+    /// - Configuration is invalid or missing
+    /// - Instrument type not registered
+    /// - Connection to hardware fails
+    /// - Processor creation fails
     fn spawn_instrument(&mut self, id: &str) -> Result<(), SpawnError> {
         if self.instruments.contains_key(id) {
             return Err(SpawnError::AlreadyRunning(format!(
@@ -311,7 +462,20 @@ where
         Ok(())
     }
 
-    /// Stops a running instrument
+    /// Stops a running instrument with graceful shutdown protocol.
+    ///
+    /// Shutdown sequence:
+    /// 1. Send `InstrumentCommand::Shutdown` via command channel
+    /// 2. Wait up to 5 seconds for task to complete
+    /// 3. If timeout, abort task forcefully
+    ///
+    /// The instrument task will:
+    /// - Receive shutdown command in its `tokio::select!` loop
+    /// - Break out of event loop
+    /// - Call `instrument.disconnect()` for cleanup
+    /// - Exit gracefully
+    ///
+    /// If the command channel is closed or full, the task is aborted immediately.
     fn stop_instrument(&mut self, id: &str) {
         if let Some(handle) = self.instruments.remove(id) {
             // Try graceful shutdown first
@@ -348,7 +512,19 @@ where
         }
     }
 
-    /// Sends a command to a running instrument
+    /// Sends a command to a running instrument task.
+    ///
+    /// Commands are sent via the instrument's mpsc channel. This method
+    /// implements retry logic to handle transient channel congestion:
+    /// - Retries up to 10 times with 100ms delays
+    /// - Total retry window: 1 second
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - Instrument is not running
+    /// - Channel is full after all retries (instrument is overloaded)
+    /// - Channel is closed (instrument task terminated unexpectedly)
     fn send_instrument_command(
         &self,
         id: &str,
@@ -390,7 +566,21 @@ where
         unreachable!("Retry loop should return in all cases")
     }
 
-    /// Starts the data recording process
+    /// Starts the data recording process by spawning a storage writer task.
+    ///
+    /// The storage writer:
+    /// - Subscribes to the `DataDistributor` to receive all measurements
+    /// - Creates a storage writer based on current format (CSV, HDF5, Arrow)
+    /// - Writes measurements to disk asynchronously
+    /// - Handles shutdown signal via oneshot channel
+    ///
+    /// Recording can be stopped by calling [`stop_recording`](Self::stop_recording).
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - Recording is already in progress
+    /// - Storage format is unsupported or feature-gated
     fn start_recording(&mut self) -> Result<()> {
         if self.writer_task.is_some() {
             return Err(anyhow!("Recording is already in progress."));
@@ -458,7 +648,15 @@ where
         Ok(())
     }
 
-    /// Stops the data recording process
+    /// Stops the data recording process with graceful shutdown.
+    ///
+    /// Shutdown sequence:
+    /// 1. Send shutdown signal via oneshot channel
+    /// 2. Wait up to 5 seconds for writer to flush buffers
+    /// 3. If timeout, abort task forcefully
+    ///
+    /// The storage writer will call `writer.shutdown()` to ensure
+    /// all buffered data is flushed to disk before terminating.
     fn stop_recording(&mut self) {
         if let Some(task) = self.writer_task.take() {
             // Try graceful shutdown first
@@ -499,7 +697,14 @@ where
         }
     }
 
-    /// Saves the current application state to a session file
+    /// Saves the current application state to a session file.
+    ///
+    /// Session files contain:
+    /// - List of active instrument IDs
+    /// - Storage settings (format, path)
+    /// - GUI state (window layout, plot configurations)
+    ///
+    /// Sessions can be loaded later to restore the application state.
     fn save_session(&self, path: &Path, gui_state: session::GuiState) -> Result<()> {
         let active_instruments: std::collections::HashSet<String> = self.instruments.keys().cloned().collect();
 
@@ -512,7 +717,16 @@ where
         session::save_session(&session, path)
     }
 
-    /// Loads application state from a session file
+    /// Loads application state from a session file.
+    ///
+    /// This method:
+    /// 1. Stops all currently running instruments
+    /// 2. Spawns instruments from the session file
+    /// 3. Applies storage settings from the session
+    /// 4. Returns GUI state for the caller to restore
+    ///
+    /// If any instrument fails to start, an error is logged but loading
+    /// continues for remaining instruments.
     fn load_session(&mut self, path: &Path) -> Result<session::GuiState> {
         let session = session::load_session(path)?;
         let gui_state = session.gui_state.clone();
@@ -537,7 +751,13 @@ where
         Ok(gui_state)
     }
 
-    /// Shuts down the application, stopping all instruments
+    /// Shuts down the application by stopping all tasks gracefully.
+    ///
+    /// Shutdown order:
+    /// 1. Stop recording (if active)
+    /// 2. Stop all instruments (5s timeout each)
+    ///
+    /// This method is idempotent - subsequent calls are no-ops.
     fn shutdown(&mut self) {
         if self.shutdown_flag {
             return;

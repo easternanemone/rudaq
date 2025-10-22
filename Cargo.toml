@@ -82,12 +82,14 @@ tokio-test = "0.4"
 # NOTE: Phase 1 (bd-61) migrated to actor-based state management
 # For rollback instructions, see ROLLBACK_ACTOR.md
 default = ["storage_csv", "instrument_serial"]
-full = ["storage_csv", "storage_hdf5", "storage_arrow", "instrument_serial", "instrument_visa"]
+full = ["storage_csv", "storage_hdf5", "storage_arrow", "instrument_serial", "instrument_visa", "modules"]
 storage_csv = ["dep:csv"]
 storage_hdf5 = ["dep:hdf5"]
 storage_arrow = ["dep:arrow2"]
 instrument_serial = ["dep:serialport"]
 instrument_visa = ["dep:visa-rs"]
+# Phase 3B (bd-64): Module system with runtime instrument assignment
+modules = []
 
 [[bin]]
 name = "rust_daq"
