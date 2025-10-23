@@ -137,7 +137,7 @@ use crate::measurement::Measure;
 pub struct Gui<M>
 where
     M: Measure + 'static,
-    M::Data: Into<daq_core::DataPoint>,
+    M::Data: Into<daq_core::Measurement>,
 {
     app: DaqApp<M>,
     data_receiver: mpsc::Receiver<Arc<Measurement>>,
@@ -170,7 +170,7 @@ where
 impl<M> Gui<M>
 where
     M: Measure + 'static,
-    M::Data: Into<daq_core::DataPoint>,
+    M::Data: Into<daq_core::Measurement>,
 {
     /// Creates a new GUI.
     pub fn new(_cc: &eframe::CreationContext<'_>, app: DaqApp<M>) -> Self {
@@ -349,7 +349,7 @@ where
 impl<M> eframe::App for Gui<M>
 where
     M: Measure + 'static,
-    M::Data: Into<daq_core::DataPoint>,
+    M::Data: Into<daq_core::Measurement>,
 {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Rebuild subscriptions periodically (every 60 frames) or when explicitly marked dirty
@@ -529,7 +529,7 @@ fn render_instrument_panel<M>(
 )
 where
     M: Measure + 'static,
-    M::Data: Into<daq_core::DataPoint>,
+    M::Data: Into<daq_core::Measurement>,
 {
     ui.heading("Instruments");
 
@@ -791,7 +791,7 @@ fn open_instrument_controls(
 struct DockTabViewer<'a, M>
 where
     M: Measure + 'static,
-    M::Data: Into<daq_core::DataPoint>,
+    M::Data: Into<daq_core::Measurement>,
 {
     available_channels: Vec<String>,
     app: &'a DaqApp<M>,
@@ -801,7 +801,7 @@ where
 impl<'a, M> TabViewer for DockTabViewer<'a, M>
 where
     M: Measure + 'static,
-    M::Data: Into<daq_core::DataPoint>,
+    M::Data: Into<daq_core::Measurement>,
 {
     type Tab = DockTab;
 

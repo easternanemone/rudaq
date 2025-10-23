@@ -140,7 +140,7 @@ impl StorageManager {
     pub fn ui<M>(&mut self, ui: &mut egui::Ui, app: &DaqApp<M>)
     where
         M: Measure + 'static,
-        M::Data: Into<daq_core::DataPoint>,
+        M::Data: Into<daq_core::Measurement>,
     {
         let storage_path =
             PathBuf::from(&app.with_inner(|inner| inner.settings.storage.default_path.clone()));

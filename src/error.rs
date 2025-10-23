@@ -56,14 +56,6 @@ pub enum DaqError {
     #[error("Feature '{0}' is enabled but not yet implemented. {1}")]
     FeatureIncomplete(String, String),
 
-    #[error("Shutdown failed: {}", format_shutdown_errors(&self.0))]
+    #[error("Shutdown failed with errors")]
     ShutdownFailed(Vec<DaqError>),
-}
-
-fn format_shutdown_errors(errors: &[DaqError]) -> String {
-    errors
-        .iter()
-        .map(|e| format!("  - {}", e))
-        .collect::<Vec<_>>()
-        .join("\n")
 }

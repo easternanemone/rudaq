@@ -26,7 +26,7 @@ use crate::measurement::Measure;
 pub fn render<M>(ui: &mut Ui, gui: &mut Gui<M>)
 where
     M: Measure + 'static,
-    M::Data: Into<daq_core::DataPoint>,
+    M::Data: Into<daq_core::Measurement>,
 {
     ui.heading("Event Log");
 

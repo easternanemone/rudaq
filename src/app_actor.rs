@@ -134,7 +134,7 @@ use tokio::{
 pub struct DaqManagerActor<M>
 where
     M: Measure + 'static,
-    M::Data: Into<daq_core::DataPoint>,
+    M::Data: Into<daq_core::Measurement>,
 {
     settings: Arc<Settings>,
     instrument_registry: Arc<InstrumentRegistry<M>>,
@@ -154,7 +154,7 @@ where
 impl<M> DaqManagerActor<M>
 where
     M: Measure + 'static,
-    M::Data: Into<daq_core::DataPoint>,
+    M::Data: Into<daq_core::Measurement>,
 {
     /// Creates a new `DaqManagerActor` with the given configuration.
     ///
@@ -437,9 +437,10 @@ where
                     data_point_option = stream.recv() => {
                         match data_point_option {
                             Some(dp) => {
-                                // Extract data from Arc and convert M::Data to daq_core::DataPoint using Into trait
-                                let daq_dp: daq_core::DataPoint = (*dp).clone().into();
-                                let mut measurements = vec![Arc::new(Measurement::Scalar(daq_dp))];
+                                // Extract data from Arc and convert M::Data to daq_core::Measurement using Into trait
+                                // This preserves the actual measurement type (Scalar/Spectrum/Image)
+                                let measurement: daq_core::Measurement = (*dp).clone().into();
+                                let mut measurements = vec![Arc::new(measurement)];
 
                                 // Process through measurement processor chain
                                 for processor in &mut processors {

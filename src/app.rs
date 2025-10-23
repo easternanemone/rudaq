@@ -30,7 +30,7 @@ use tokio::{
 pub struct DaqApp<M>
 where
     M: Measure + 'static,
-    M::Data: Into<daq_core::DataPoint>,
+    M::Data: Into<daq_core::Measurement>,
 {
     command_tx: mpsc::Sender<DaqCommand>,
     runtime: Arc<Runtime>,
@@ -44,7 +44,7 @@ where
 impl<M> DaqApp<M>
 where
     M: Measure + 'static,
-    M::Data: Into<daq_core::DataPoint>,
+    M::Data: Into<daq_core::Measurement>,
 {
     /// Creates a new `DaqApp` with actor-based state management
     pub fn new(
@@ -171,7 +171,7 @@ where
 pub struct DaqAppCompat<M>
 where
     M: Measure + 'static,
-    M::Data: Into<daq_core::DataPoint>,
+    M::Data: Into<daq_core::Measurement>,
 {
     command_tx: mpsc::Sender<DaqCommand>,
     pub settings: Arc<Settings>,
@@ -185,7 +185,7 @@ where
 impl<M> DaqAppCompat<M>
 where
     M: Measure + 'static,
-    M::Data: Into<daq_core::DataPoint>,
+    M::Data: Into<daq_core::Measurement>,
 {
     /// Spawns an instrument
     pub fn spawn_instrument(&mut self, id: &str) -> Result<()> {

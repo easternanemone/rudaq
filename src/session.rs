@@ -59,7 +59,7 @@ impl Session {
     pub fn from_app<M>(app: &DaqApp<M>, gui_state: GuiState) -> Self
     where
         M: Measure + 'static,
-        M::Data: Into<daq_core::DataPoint>,
+        M::Data: Into<daq_core::Measurement>,
     {
         app.with_inner(|inner| {
             let active_instruments: std::collections::HashSet<String> = inner.instruments.keys().collect();
@@ -76,7 +76,7 @@ impl Session {
     pub fn apply_to_app<M>(&self, app: &DaqApp<M>)
     where
         M: Measure + 'static,
-        M::Data: Into<daq_core::DataPoint>,
+        M::Data: Into<daq_core::Measurement>,
     {
         app.with_inner(|inner| {
             // Stop all current instruments

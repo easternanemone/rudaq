@@ -97,6 +97,13 @@ pub type MeasurementSender = broadcast::Sender<ArcMeasurement>;
 /// Channel receiver for Arc-wrapped measurements
 pub type MeasurementReceiver = broadcast::Receiver<ArcMeasurement>;
 
+/// Conversion from DataPoint to Measurement (wraps in Scalar variant)
+impl From<DataPoint> for Measurement {
+    fn from(dp: DataPoint) -> Self {
+        Measurement::Scalar(dp)
+    }
+}
+
 //==============================================================================
 // Instrument State Management
 //==============================================================================

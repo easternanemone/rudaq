@@ -45,7 +45,7 @@ impl MaiTaiControlPanel {
     pub fn ui<M>(&mut self, ui: &mut Ui, app: &DaqApp<M>, data_cache: &HashMap<String, Arc<Measurement>>)
     where
         M: Measure + 'static,
-        M::Data: Into<daq_core::DataPoint>,
+        M::Data: Into<daq_core::Measurement>,
     {
         ui.heading("MaiTai Laser Control");
         ui.separator();
@@ -181,7 +181,7 @@ impl Newport1830CControlPanel {
     pub fn ui<M>(&mut self, ui: &mut Ui, app: &DaqApp<M>, data_cache: &HashMap<String, Arc<Measurement>>)
     where
         M: Measure + 'static,
-        M::Data: Into<daq_core::DataPoint>,
+        M::Data: Into<daq_core::Measurement>,
     {
         ui.heading("Newport 1830-C Power Meter");
         ui.separator();
@@ -300,7 +300,7 @@ impl ElliptecControlPanel {
     pub fn ui<M>(&mut self, ui: &mut Ui, app: &DaqApp<M>, data_cache: &HashMap<String, Arc<Measurement>>)
     where
         M: Measure + 'static,
-        M::Data: Into<daq_core::DataPoint>,
+        M::Data: Into<daq_core::Measurement>,
     {
         ui.heading("Elliptec Rotation Mounts");
         ui.separator();
@@ -415,7 +415,7 @@ impl ESP300ControlPanel {
     pub fn ui<M>(&mut self, ui: &mut Ui, app: &DaqApp<M>, data_cache: &HashMap<String, Arc<Measurement>>)
     where
         M: Measure + 'static,
-        M::Data: Into<daq_core::DataPoint>,
+        M::Data: Into<daq_core::Measurement>,
     {
         ui.heading("ESP300 Motion Controller");
         ui.separator();
@@ -547,7 +547,7 @@ impl PVCAMControlPanel {
     pub fn ui<M>(&mut self, ui: &mut Ui, app: &DaqApp<M>, data_cache: &HashMap<String, Arc<Measurement>>)
     where
         M: Measure + 'static,
-        M::Data: Into<daq_core::DataPoint>,
+        M::Data: Into<daq_core::Measurement>,
     {
         ui.heading("PVCAM Camera Control");
         ui.separator();

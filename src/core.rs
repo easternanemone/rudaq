@@ -154,6 +154,16 @@ impl From<DataPoint> for daq_core::DataPoint {
     }
 }
 
+// Conversion from V1 core::DataPoint to V2 daq_core::Measurement
+// This allows V1 instruments to work with the new Measurement enum architecture
+impl From<DataPoint> for daq_core::Measurement {
+    fn from(dp: DataPoint) -> Self {
+        // Convert V1 DataPoint to V2 DataPoint first, then wrap in Scalar variant
+        let v2_dp: daq_core::DataPoint = dp.into();
+        daq_core::Measurement::Scalar(v2_dp)
+    }
+}
+
 /// Represents a frequency bin in a spectrum measurement.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FrequencyBin {
