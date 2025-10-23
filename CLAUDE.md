@@ -184,6 +184,225 @@ This workspace supports concurrent agent work:
 - Finish with `cargo check && git status -sb` to verify state
 - See AGENTS.md and BD_JULES_INTEGRATION.md for detailed workflow
 
+## Beads Issue Tracker Integration
+
+This project uses **[beads](https://github.com/steveyegge/beads)** as an AI-friendly issue tracker and agentic memory system. Beads provides dependency tracking, ready work detection, and git-based distribution that's purpose-built for AI coding agents.
+
+### Why Beads?
+
+- ✨ **Zero setup** - `bd init` creates project-local database in `.beads/`
+- 🔗 **Dependency tracking** - Four dependency types (blocks, related, parent-child, discovered-from)
+- 📋 **Ready work detection** - `bd ready` finds issues with no open blockers
+- 🤖 **Agent-friendly** - All commands support `--json` for programmatic use
+- 📦 **Git-versioned** - JSONL records in `.beads/issues.jsonl` sync across machines
+- 🌍 **Distributed by design** - Multiple agents share one logical database via git
+- 💾 **Full audit trail** - Every change is logged with actor tracking
+
+### Installation
+
+Beads requires both the `bd` CLI tool and the `beads-mcp` MCP server for Claude Code integration.
+
+**📋 For detailed installation instructions, troubleshooting, and environment-specific guidance, see [BEADS_INSTALLATION.md](BEADS_INSTALLATION.md)**
+
+#### Option 1: Quick Install (Recommended)
+
+```bash
+# Install bd CLI
+curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
+
+# Verify installation
+bd version
+
+# Initialize beads in this project
+cd /path/to/rust-daq
+bd init --prefix daq
+```
+
+#### Option 2: Using Go
+
+```bash
+# Install bd CLI using Go (requires Go 1.24+)
+go install github.com/steveyegge/beads/cmd/bd@latest
+
+# Add to PATH if needed
+export PATH="$PATH:$(go env GOPATH)/bin"
+
+# Initialize in project
+cd /path/to/rust-daq
+bd init --prefix daq
+```
+
+#### Option 3: Homebrew (macOS/Linux)
+
+```bash
+brew tap steveyegge/beads
+brew install bd
+bd init --prefix daq
+```
+
+### MCP Server Installation (For Claude Code)
+
+The MCP server enables Claude Code to use beads directly via MCP tools:
+
+```bash
+# Install beads-mcp using pip
+pip install beads-mcp
+
+# Or using uv (recommended)
+uv tool install beads-mcp
+```
+
+**Note:** The MCP server requires the `bd` CLI to be installed first (see above).
+
+The MCP server will be automatically discovered by Claude Code. No additional configuration is needed.
+
+### Environment Variables
+
+Set these in your shell or Claude Code configuration:
+
+```bash
+# Point to project-local database
+export BEADS_DB=.beads/daq.db
+
+# Set actor name for audit trail (defaults to $USER)
+export BD_ACTOR="claude-agent"
+
+# Enable debug logging (optional)
+export BD_DEBUG=1
+```
+
+### Basic Workflow
+
+```bash
+# Find ready work (no blockers)
+bd ready --json
+
+# Create issues during work
+bd create "Add spectrum visualization module" -t feature -p 1
+
+# Link discovered work back to parent
+bd dep add <new-id> <parent-id> --type discovered-from
+
+# Update status
+bd update <issue-id> --status in_progress
+
+# Complete work
+bd close <issue-id> --reason "Implemented with tests"
+```
+
+### Dependency Types
+
+- **blocks**: Hard blocker (affects ready work calculation)
+- **related**: Soft relationship (context only)
+- **parent-child**: Epic/subtask hierarchy
+- **discovered-from**: Issues discovered while working on another issue
+
+Only `blocks` dependencies affect the ready work queue.
+
+### Git Integration
+
+Beads automatically syncs between SQLite (`.beads/daq.db`) and JSONL (`.beads/issues.jsonl`):
+
+```bash
+# After creating/updating issues
+bd create "Fix instrument timeout" -p 0
+# Changes auto-export to .beads/issues.jsonl after 5 seconds
+
+# Commit and push
+git add .beads/issues.jsonl
+git commit -m "Add timeout fix issue"
+git push
+
+# On another machine after git pull
+git pull
+bd ready  # Automatically imports from JSONL if newer
+```
+
+### Daemon Mode (Optional)
+
+For continuous syncing across multiple terminals/agents:
+
+```bash
+# Start global daemon (serves all beads projects)
+bd daemon --global --auto-commit --auto-push
+
+# Check daemon status
+bd daemon --status
+
+# Stop daemon
+bd daemon --stop
+```
+
+The daemon:
+- Auto-exports changes to JSONL
+- Auto-commits and pushes (with flags)
+- Auto-imports after git pull
+- Serves all beads projects system-wide
+
+### Multi-Repository Setup
+
+When working on multiple rust-daq components or related projects:
+
+```bash
+# Each project gets its own database
+cd ~/rust-daq && bd init --prefix daq
+cd ~/rust-daq-gui && bd init --prefix gui
+cd ~/rust-daq-python && bd init --prefix py
+
+# Use global daemon to serve all projects
+bd daemon --global
+
+# View work across all repos
+bd repos ready --group
+bd repos stats
+```
+
+### Troubleshooting
+
+**`bd: command not found`**
+```bash
+# Check installation
+which bd
+
+# Add Go bin to PATH
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
+
+**`database is locked`**
+```bash
+# Find and kill hanging processes
+ps aux | grep bd
+kill <pid>
+
+# Remove lock files if no bd processes running
+rm .beads/*.db-journal .beads/*.db-wal .beads/*.db-shm
+```
+
+**Git merge conflict in `issues.jsonl`**
+```bash
+# Usually safe to keep both sides
+# Each line is independent unless IDs conflict
+# Resolve manually, then:
+git add .beads/issues.jsonl
+git commit
+bd import -i .beads/issues.jsonl
+```
+
+### Advanced Features
+
+- **Compaction**: `bd compact --all` - AI-powered semantic compression of old closed issues
+- **Labels**: `bd label add <id> performance,backend` - Flexible metadata for filtering
+- **Bulk operations**: `bd delete --from-file deletions.txt --force` - Batch deletions
+- **Cross-references**: Issues automatically link to each other in descriptions/notes
+- **Prefix rename**: `bd rename-prefix kw-` - Change issue prefix for all issues
+
+### Resources
+
+- **Main docs**: https://github.com/steveyegge/beads
+- **Quick start**: `bd quickstart` (interactive guide)
+- **Agent integration**: See beads AGENTS.md for AI workflow patterns
+- **MCP server docs**: https://github.com/steveyegge/beads/tree/main/integrations/beads-mcp
+
 ## Recent Architectural Changes
 
 - **bd-25 (Error Handling)**: Enhanced `DaqError` with context-rich variants, improved storage writer error propagation
