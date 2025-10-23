@@ -19,11 +19,13 @@ use crate::adapters::serial::SerialAdapter;
 use crate::{
     config::Settings,
     core::{DataPoint, Instrument, InstrumentCommand},
+    instrument::capabilities::power_measurement_capability_id,
     measurement::InstrumentMeasurement,
 };
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use log::{info, warn};
+use std::any::TypeId;
 use std::sync::Arc;
 
 /// MaiTai laser instrument implementation
@@ -88,6 +90,10 @@ impl Instrument for MaiTai {
 
     fn name(&self) -> String {
         self.id.clone()
+    }
+
+    fn capabilities(&self) -> Vec<TypeId> {
+        vec![power_measurement_capability_id()]
     }
 
     #[cfg(feature = "instrument_serial")]
@@ -264,6 +270,33 @@ impl Instrument for MaiTai {
                     warn!("Unknown parameter '{}' for MaiTai", key);
                 }
             },
+            InstrumentCommand::Capability {
+                capability,
+                operation,
+                parameters,
+            } => {
+                if capability == power_measurement_capability_id() {
+                    match operation.as_str() {
+                        "start_sampling" => {
+                            info!("MaiTai: start_sampling capability command received");
+                            // Already continuously sampling in polling loop
+                        }
+                        "stop_sampling" => {
+                            info!("MaiTai: stop_sampling capability command received");
+                            // Could set a flag to pause sampling
+                        }
+                        "set_range" => {
+                            info!("MaiTai: set_range not applicable for laser power measurement");
+                            // MaiTai doesn't have configurable ranges
+                        }
+                        _ => {
+                            warn!("Unknown PowerMeasurement operation '{}' for MaiTai", operation);
+                        }
+                    }
+                } else {
+                    warn!("Unsupported capability {:?} for MaiTai", capability);
+                }
+            }
             _ => {
                 warn!("Unsupported command type for MaiTai");
             }

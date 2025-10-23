@@ -22,11 +22,13 @@ use crate::adapters::serial::SerialAdapter;
 use crate::{
     config::Settings,
     core::{DataPoint, Instrument, InstrumentCommand},
+    instrument::capabilities::power_measurement_capability_id,
     measurement::InstrumentMeasurement,
 };
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use log::{info, warn};
+use std::any::TypeId;
 use std::sync::Arc;
 
 /// Newport 1830-C instrument implementation
@@ -80,6 +82,10 @@ impl Instrument for Newport1830C {
 
     fn name(&self) -> String {
         self.id.clone()
+    }
+
+    fn capabilities(&self) -> Vec<TypeId> {
+        vec![power_measurement_capability_id()]
     }
 
     #[cfg(feature = "instrument_serial")]
@@ -258,6 +264,43 @@ impl Instrument for Newport1830C {
                 if cmd == "zero" {
                     self.send_command_async("PM:DS:Clear").await?;
                     info!("Newport 1830-C zeroed");
+                }
+            }
+            InstrumentCommand::Capability {
+                capability,
+                operation,
+                parameters,
+            } => {
+                if capability == power_measurement_capability_id() {
+                    match operation.as_str() {
+                        "start_sampling" => {
+                            info!("Newport 1830-C: start_sampling capability command received");
+                            // Already continuously sampling in polling loop
+                            Ok(())
+                        }
+                        "stop_sampling" => {
+                            info!("Newport 1830-C: stop_sampling capability command received");
+                            // Could set a flag to pause sampling, but for now just acknowledge
+                            Ok(())
+                        }
+                        "set_range" => {
+                            if let Some(range_value) = parameters.first().and_then(|p| p.as_f64()) {
+                                let range_code = range_value as i32;
+                                self.send_command_async(&format!("PM:Range {}", range_code))
+                                    .await?;
+                                info!("Set Newport 1830-C range to {} via capability", range_code);
+                                Ok(())
+                            } else {
+                                Err(anyhow!("set_range requires a numeric range parameter"))
+                            }
+                        }
+                        _ => {
+                            warn!("Unknown PowerMeasurement operation '{}' for Newport 1830-C", operation);
+                            Ok(())
+                        }
+                    }?;
+                } else {
+                    warn!("Unsupported capability {:?} for Newport 1830-C", capability);
                 }
             }
             _ => {
