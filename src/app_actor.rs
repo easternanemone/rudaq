@@ -219,12 +219,12 @@ where
         while let Some(command) = command_rx.recv().await {
             match command {
                 DaqCommand::SpawnInstrument { id, response } => {
-                    let result = self.spawn_instrument(&id);
+                    let result = self.spawn_instrument(&id).await;
                     let _ = response.send(result);
                 }
 
                 DaqCommand::StopInstrument { id, response } => {
-                    self.stop_instrument(&id);
+                    self.stop_instrument(&id).await;
                     let _ = response.send(());
                 }
 
@@ -243,7 +243,7 @@ where
                 }
 
                 DaqCommand::StopRecording { response } => {
-                    self.stop_recording();
+                    self.stop_recording().await;
                     let _ = response.send(());
                 }
 
@@ -305,18 +305,18 @@ where
                 }
 
                 DaqCommand::StartModule { id, response } => {
-                    let result = self.start_module(&id);
+                    let result = self.start_module(&id).await;
                     let _ = response.send(result);
                 }
 
                 DaqCommand::StopModule { id, response } => {
-                    let result = self.stop_module(&id);
+                    let result = self.stop_module(&id).await;
                     let _ = response.send(result);
                 }
 
                 DaqCommand::Shutdown { response } => {
                     info!("Shutdown command received");
-                    let result = self.shutdown();
+                    let result = self.shutdown().await;
                     let _ = response.send(result);
                     break; // Exit event loop
                 }
@@ -350,7 +350,7 @@ where
     /// - Instrument type not registered
     /// - Connection to hardware fails
     /// - Processor creation fails
-    fn spawn_instrument(&mut self, id: &str) -> Result<(), SpawnError> {
+    async fn spawn_instrument(&mut self, id: &str) -> Result<(), SpawnError> {
         if self.instruments.contains_key(id) {
             return Err(SpawnError::AlreadyRunning(format!(
                 "Instrument '{}' is already running",
@@ -410,19 +410,16 @@ where
         let (command_tx, mut command_rx) =
             tokio::sync::mpsc::channel(settings.application.command_channel_capacity);
 
-        // Try to connect synchronously in this function to catch connection errors
-        // Use block_on to run the async connect operation
-        self.runtime.block_on(async {
-            instrument
-                .connect(&id_clone, &settings)
-                .await
-                .map_err(|e| {
-                    SpawnError::ConnectionFailed(format!(
-                        "Failed to connect to instrument '{}': {}",
-                        id_clone, e
-                    ))
-                })
-        })?;
+        // Try to connect asynchronously
+        instrument
+            .connect(&id_clone, &settings)
+            .await
+            .map_err(|e| {
+                SpawnError::ConnectionFailed(format!(
+                    "Failed to connect to instrument '{}': {}",
+                    id_clone, e
+                ))
+            })?;
         info!("Instrument '{}' connected.", id_clone);
 
         let task: JoinHandle<Result<()>> = self.runtime.spawn(async move {
@@ -505,7 +502,7 @@ where
     /// - Exit gracefully
     ///
     /// If the command channel is closed or full, the task is aborted immediately.
-    fn stop_instrument(&mut self, id: &str) -> Result<(), crate::error::DaqError> {
+    async fn stop_instrument(&mut self, id: &str) -> Result<(), crate::error::DaqError> {
         if let Some(handle) = self.instruments.remove(id) {
             // Try graceful shutdown first
             info!("Sending shutdown command to instrument '{}'", id);
@@ -518,32 +515,29 @@ where
 
             // Wait up to 5 seconds for graceful shutdown
             let timeout_duration = std::time::Duration::from_secs(5);
-            let runtime = self.runtime.clone();
             let task_handle = handle.task;
 
-            runtime.block_on(async move {
-                match tokio::time::timeout(timeout_duration, task_handle).await {
-                    Ok(Ok(Ok(()))) => {
-                        info!("Instrument '{}' stopped gracefully", id);
-                        Ok(())
-                    }
-                    Ok(Ok(Err(e))) => {
-                        let error_msg = format!("Instrument '{}' task failed during shutdown: {}", id, e);
-                        log::warn!("{}", error_msg);
-                        Err(crate::error::DaqError::Instrument(error_msg))
-                    }
-                    Ok(Err(e)) => {
-                        let error_msg = format!("Instrument '{}' task panicked during shutdown: {}", id, e);
-                        log::warn!("{}", error_msg);
-                        Err(crate::error::DaqError::Instrument(error_msg))
-                    }
-                    Err(_) => {
-                        let error_msg = format!("Instrument '{}' did not stop within {:?}, aborting", id, timeout_duration);
-                        log::warn!("{}", error_msg);
-                        Err(crate::error::DaqError::Instrument(error_msg))
-                    }
+            match tokio::time::timeout(timeout_duration, task_handle).await {
+                Ok(Ok(Ok(()))) => {
+                    info!("Instrument '{}' stopped gracefully", id);
+                    Ok(())
                 }
-            })
+                Ok(Ok(Err(e))) => {
+                    let error_msg = format!("Instrument '{}' task failed during shutdown: {}", id, e);
+                    log::warn!("{}", error_msg);
+                    Err(crate::error::DaqError::Instrument(error_msg))
+                }
+                Ok(Err(e)) => {
+                    let error_msg = format!("Instrument '{}' task panicked during shutdown: {}", id, e);
+                    log::warn!("{}", error_msg);
+                    Err(crate::error::DaqError::Instrument(error_msg))
+                }
+                Err(_) => {
+                    let error_msg = format!("Instrument '{}' did not stop within {:?}, aborting", id, timeout_duration);
+                    log::warn!("{}", error_msg);
+                    Err(crate::error::DaqError::Instrument(error_msg))
+                }
+            }
         } else {
             Ok(())
         }
@@ -705,16 +699,13 @@ where
     /// - Module is not found
     /// - Module is already running
     /// - Start operation fails (e.g., missing instrument)
-    fn start_module(&mut self, id: &str) -> Result<()> {
+    async fn start_module(&mut self, id: &str) -> Result<()> {
         let module = self.modules.get_mut(id)
             .ok_or_else(|| anyhow!("Module '{}' is not spawned", id))?;
 
-        // We need to use block_on to get mutable access from Arc<Mutex<>>
         let module_clone = module.clone();
-        self.runtime.block_on(async {
-            let mut mod_guard = module_clone.lock().await;
-            mod_guard.start()
-        })?;
+        let mut mod_guard = module_clone.lock().await;
+        mod_guard.start()?;
 
         info!("Module '{}' started", id);
         Ok(())
@@ -728,16 +719,13 @@ where
     /// - Module is not found
     /// - Module is not running
     /// - Stop operation fails
-    fn stop_module(&mut self, id: &str) -> Result<()> {
+    async fn stop_module(&mut self, id: &str) -> Result<()> {
         let module = self.modules.get_mut(id)
             .ok_or_else(|| anyhow!("Module '{}' is not spawned", id))?;
 
-        // We need to use block_on to get mutable access from Arc<Mutex<>>
         let module_clone = module.clone();
-        self.runtime.block_on(async {
-            let mut mod_guard = module_clone.lock().await;
-            mod_guard.stop()
-        })?;
+        let mut mod_guard = module_clone.lock().await;
+        mod_guard.stop()?;
 
         info!("Module '{}' stopped", id);
         Ok(())
@@ -831,7 +819,7 @@ where
     ///
     /// The storage writer will call `writer.shutdown()` to ensure
     /// all buffered data is flushed to disk before terminating.
-    fn stop_recording(&mut self) -> Result<(), crate::error::DaqError> {
+    async fn stop_recording(&mut self) -> Result<(), crate::error::DaqError> {
         if let Some(task) = self.writer_task.take() {
             // Try graceful shutdown first
             info!("Sending shutdown signal to storage writer");
@@ -845,31 +833,28 @@ where
 
                 // Wait up to 5 seconds for graceful shutdown
                 let timeout_duration = std::time::Duration::from_secs(5);
-                let runtime = self.runtime.clone();
 
-                runtime.block_on(async move {
-                    match tokio::time::timeout(timeout_duration, task).await {
-                        Ok(Ok(Ok(()))) => {
-                            info!("Storage writer stopped gracefully");
-                            Ok(())
-                        }
-                        Ok(Ok(Err(e))) => {
-                            let error_msg = format!("Storage writer task failed during shutdown: {}", e);
-                            log::warn!("{}", error_msg);
-                            Err(crate::error::DaqError::Processing(error_msg))
-                        }
-                        Ok(Err(e)) => {
-                            let error_msg = format!("Storage writer task panicked during shutdown: {}", e);
-                            log::warn!("{}", error_msg);
-                            Err(crate::error::DaqError::Processing(error_msg))
-                        }
-                        Err(_) => {
-                            let error_msg = format!("Storage writer did not stop within {:?}, aborting", timeout_duration);
-                            log::warn!("{}", error_msg);
-                            Err(crate::error::DaqError::Processing(error_msg))
-                        }
+                match tokio::time::timeout(timeout_duration, task).await {
+                    Ok(Ok(Ok(()))) => {
+                        info!("Storage writer stopped gracefully");
+                        Ok(())
                     }
-                })
+                    Ok(Ok(Err(e))) => {
+                        let error_msg = format!("Storage writer task failed during shutdown: {}", e);
+                        log::warn!("{}", error_msg);
+                        Err(crate::error::DaqError::Processing(error_msg))
+                    }
+                    Ok(Err(e)) => {
+                        let error_msg = format!("Storage writer task panicked during shutdown: {}", e);
+                        log::warn!("{}", error_msg);
+                        Err(crate::error::DaqError::Processing(error_msg))
+                    }
+                    Err(_) => {
+                        let error_msg = format!("Storage writer did not stop within {:?}, aborting", timeout_duration);
+                        log::warn!("{}", error_msg);
+                        Err(crate::error::DaqError::Processing(error_msg))
+                    }
+                }
             } else {
                 // No shutdown channel, just abort
                 let error_msg = "No shutdown channel for storage writer, aborting task";
@@ -927,12 +912,12 @@ where
         // Stop all current instruments
         let current_instruments: Vec<String> = self.instruments.keys().cloned().collect();
         for id in current_instruments {
-            self.stop_instrument(&id);
+            self.stop_instrument(&id).await;
         }
 
         // Start instruments from the session
         for id in &session.active_instruments {
-            if let Err(e) = self.spawn_instrument(id) {
+            if let Err(e) = self.spawn_instrument(id).await {
                 error!("Failed to start instrument from session '{}': {}", id, e);
                 // Continue loading other instruments even if one fails
             }
@@ -944,14 +929,15 @@ where
         Ok(gui_state)
     }
 
-    /// Shuts down the application by stopping all tasks gracefully.
+    /// Performs graceful shutdown of all DAQ components.
     ///
-    /// Shutdown order:
+    /// Shutdown sequence:
     /// 1. Stop recording (if active)
-    /// 2. Stop all instruments (5s timeout each)
+    /// 2. Stop all running instruments with timeout
+    /// 3. Collect any errors for reporting
     ///
-    /// This method is idempotent - subsequent calls are no-ops.
-    fn shutdown(&mut self) -> Result<(), crate::error::DaqError> {
+    /// Returns `DaqError::ShutdownFailed` if any component failed to stop.
+    async fn shutdown(&mut self) -> Result<(), crate::error::DaqError> {
         if self.shutdown_flag {
             return Ok(());
         }
@@ -961,14 +947,14 @@ where
         let mut errors: Vec<crate::error::DaqError> = Vec::new();
 
         // Stop recording first
-        if let Err(e) = self.stop_recording() {
+        if let Err(e) = self.stop_recording().await {
             errors.push(e);
         }
 
         // Stop all instruments gracefully
         let instrument_ids: Vec<String> = self.instruments.keys().cloned().collect();
         for id in instrument_ids {
-            if let Err(e) = self.stop_instrument(&id) {
+            if let Err(e) = self.stop_instrument(&id).await {
                 errors.push(e);
             }
         }
