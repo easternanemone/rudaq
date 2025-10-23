@@ -47,6 +47,7 @@ pub mod metadata;
 pub mod modules;
 pub mod session;
 pub mod validation;
+pub mod experiment;
 
 // New v2 architecture modules (Phase 1)
 pub mod adapters;
