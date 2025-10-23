@@ -396,6 +396,11 @@ pub enum DaqCommand {
         response: oneshot::Sender<Result<()>>,
     },
 
+    GetInstrumentDependencies {
+        id: String,
+        response: oneshot::Sender<Vec<(String, String)>>,
+    },
+
     /// Initiates graceful shutdown of the entire DAQ system.
     ///
     /// Shutdown sequence:

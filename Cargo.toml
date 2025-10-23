@@ -102,3 +102,7 @@ modules = []
 [[bin]]
 name = "rust_daq"
 path = "src/main.rs"
+
+[[test]]
+name = "dependency_tracking_test"
+path = "tests/dependency_tracking_test.rs"

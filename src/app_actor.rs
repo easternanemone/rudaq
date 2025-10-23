@@ -79,7 +79,7 @@
 //! ```
 
 use crate::{
-    config::Settings,
+    config::{dependencies::DependencyGraph, Settings},
     core::{DataPoint, InstrumentHandle, MeasurementProcessor},
     data::registry::ProcessorRegistry,
     instrument::InstrumentRegistry,
@@ -140,8 +140,9 @@ where
     instrument_registry: Arc<InstrumentRegistry<M>>,
     processor_registry: Arc<ProcessorRegistry>,
     module_registry: Arc<crate::modules::ModuleRegistry<M>>,
-    instruments: HashMap<String, InstrumentHandle>,
+    pub instruments: HashMap<String, InstrumentHandle>,
     modules: HashMap<String, Arc<Mutex<Box<dyn Module>>>>,
+    pub dependency_graph: DependencyGraph,
     data_distributor: Arc<DataDistributor<Arc<Measurement>>>,
     log_buffer: LogBuffer,
     metadata: Metadata,
@@ -189,6 +190,7 @@ where
             module_registry,
             instruments: HashMap::new(),
             modules: HashMap::new(),
+            dependency_graph: DependencyGraph::new(),
             data_distributor,
             log_buffer,
             metadata: Metadata::default(),
@@ -208,7 +210,7 @@ where
     ///
     /// ```no_run
     /// # use tokio::sync::mpsc;
-    /// # use rust_daq::app_actor::DaqManagerActor;
+    /// # use rust_daq::{app_actor::DaqManagerActor, messages::DaqCommand};
     /// # async fn example(actor: DaqManagerActor<impl rust_daq::measurement::Measure>, cmd_rx: mpsc::Receiver<rust_daq::messages::DaqCommand>) {
     /// tokio::spawn(actor.run(cmd_rx));
     /// # }
@@ -343,6 +345,11 @@ where
                 DaqCommand::StopModule { id, response } => {
                     let result = self.stop_module(&id).await;
                     let _ = response.send(result);
+                }
+
+                DaqCommand::GetInstrumentDependencies { id, response } => {
+                    let deps = self.dependency_graph.get_dependents(&id);
+                    let _ = response.send(deps);
                 }
 
                 DaqCommand::Shutdown { response } => {
@@ -656,7 +663,7 @@ where
     /// - Module type is not registered (only built-in types are supported currently)
     /// - Initialization fails
     /// - Module already exists with the same ID
-    fn spawn_module(
+    pub fn spawn_module(
         &mut self,
         id: &str,
         module_type: &str,
@@ -695,7 +702,7 @@ where
     /// - Instrument is not found
     /// - Module does not support instrument assignment (not a ModuleWithInstrument)
     /// - Assignment is rejected (e.g., module is running, incompatible type)
-    async fn assign_instrument_to_module(
+    pub async fn assign_instrument_to_module(
         &mut self,
         module_id: &str,
         role: &str,
@@ -748,6 +755,9 @@ where
             "Assigned instrument '{}' to module '{}' role '{}'",
             instrument_id, module_id, role
         );
+
+        self.dependency_graph
+            .add_assignment(module_id, role, instrument_id);
 
         Ok(())
     }
@@ -1192,7 +1202,7 @@ where
     /// - Instrument is not running
     /// - Instrument is assigned to a module (when force=false)
     /// - Graceful shutdown fails
-    async fn remove_instrument_dynamic(&mut self, id: &str, force: bool) -> Result<()> {
+    pub async fn remove_instrument_dynamic(&mut self, id: &str, force: bool) -> Result<()> {
         // Check if instrument exists
         if !self.instruments.contains_key(id) {
             return Err(anyhow!("Instrument '{}' is not running", id));
@@ -1200,22 +1210,11 @@ where
 
         // Check module dependencies unless force=true
         if !force {
-            // Iterate through all modules to check if any are using this instrument
-            for (module_id, module_arc) in &self.modules {
-                let module = module_arc.lock().await;
-                let requirements = module.required_capabilities();
-                
-                // Check module status and assignments
-                // For MVP, we'll check if any module has this instrument in assignments
-                // A full implementation would query module.get_assigned_instruments()
-                // For now, we log a warning and allow removal
-                if !requirements.is_empty() {
-                    warn!(
-                        "Module '{}' may be using instrument '{}'. Use force=true to bypass check.",
-                        module_id, id
-                    );
-                    // In MVP, we don't have a way to query assignments, so we warn but don't block
-                }
+            if let Err(dependents) = self.dependency_graph.can_remove(id) {
+                return Err(anyhow!(
+                    "Cannot remove instrument '{}': in use by modules {:?}. Use force=true to override.",
+                    id, dependents
+                ));
             }
         }
 
@@ -1228,6 +1227,9 @@ where
         self.stop_instrument(id)
             .await
             .with_context(|| format!("Failed to stop instrument '{}'", id))?;
+
+        // After successful removal:
+        self.dependency_graph.remove_all(id);
 
         info!("Instrument '{}' successfully removed", id);
         Ok(())

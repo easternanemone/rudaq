@@ -40,6 +40,10 @@ fn spectrum_analyzer_type_id() -> TypeId {
     TypeId::of::<dyn SpectrumAnalyzer>()
 }
 
+fn mock_capability_id() -> TypeId {
+    TypeId::of::<u32>()
+}
+
 #[derive(Clone)]
 struct PositionControlProxy {
     instrument_id: String,
@@ -191,6 +195,7 @@ pub enum CapabilityProxyHandle {
     PositionControl(Arc<dyn PositionControl>),
     PowerMeasurement(Arc<dyn PowerMeasurement>),
     SpectrumAnalyzer(Arc<dyn SpectrumAnalyzer>),
+    Mock(Arc<u32>),
 }
 
 impl CapabilityProxyHandle {
@@ -199,6 +204,7 @@ impl CapabilityProxyHandle {
             CapabilityProxyHandle::PositionControl(_) => position_control_type_id(),
             CapabilityProxyHandle::PowerMeasurement(_) => power_measurement_type_id(),
             CapabilityProxyHandle::SpectrumAnalyzer(_) => spectrum_analyzer_type_id(),
+            CapabilityProxyHandle::Mock(_) => mock_capability_id(),
         }
     }
 
@@ -244,6 +250,8 @@ pub fn create_proxy(
         Ok(CapabilityProxyHandle::SpectrumAnalyzer(Arc::new(
             SpectrumAnalyzerProxy::new(instrument_id, command_tx),
         )))
+    } else if capability == mock_capability_id() {
+        Ok(CapabilityProxyHandle::Mock(Arc::new(0)))
     } else {
         Err(anyhow!("Unsupported capability TypeId: {:?}", capability))
     }

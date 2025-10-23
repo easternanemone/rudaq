@@ -36,6 +36,7 @@
 //! the application will not start, preventing runtime errors due to misconfiguration.
 
 use crate::validation::{is_in_range, is_not_empty, is_valid_ip, is_valid_path, is_valid_port};
+pub mod dependencies;
 use anyhow::{Context, Result};
 use config::Config;
 use serde::{Deserialize, Serialize};
