@@ -233,7 +233,7 @@ where
                     command,
                     response,
                 } => {
-                    let result = self.send_instrument_command(&id, command);
+                    let result = self.send_instrument_command(&id, command).await;
                     let _ = response.send(result);
                 }
 
@@ -574,7 +574,7 @@ where
     /// - Instrument is not running
     /// - Channel is full after all retries (instrument is overloaded)
     /// - Channel is closed (instrument task terminated unexpectedly)
-    fn send_instrument_command(
+    async fn send_instrument_command(
         &self,
         id: &str,
         command: crate::core::InstrumentCommand,
@@ -593,7 +593,7 @@ where
                 Ok(()) => return Ok(()),
                 Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                     if attempt < MAX_RETRIES - 1 {
-                        std::thread::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS));
+                        tokio::time::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS)).await;
                         continue;
                     }
                     return Err(anyhow!(
