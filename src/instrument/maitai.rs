@@ -14,19 +14,17 @@
 //! polling_rate_hz = 1.0
 //! ```
 
+#[cfg(feature = "instrument_serial")]
+use crate::adapters::serial::SerialAdapter;
 use crate::{
     config::Settings,
     core::{DataPoint, Instrument, InstrumentCommand},
     measurement::InstrumentMeasurement,
 };
-#[cfg(feature = "instrument_serial")]
-use crate::adapters::serial::SerialAdapter;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use log::{info, warn};
 use std::sync::Arc;
-
-
 
 /// MaiTai laser instrument implementation
 #[derive(Clone)]
@@ -234,14 +232,16 @@ impl Instrument for MaiTai {
             InstrumentCommand::SetParameter(key, value) => match key.as_str() {
                 "wavelength" => {
                     let wavelength: f64 = value
-                        .parse()
+                        .as_f64()
                         .with_context(|| format!("Invalid wavelength value: {}", value))?;
                     self.send_command_async(&format!("WAVELENGTH:{}", wavelength))
                         .await?;
                     info!("Set MaiTai wavelength to {} nm", wavelength);
                 }
                 "shutter" => {
-                    let cmd = match value.as_str() {
+                    let value_str = value.as_string()
+                        .with_context(|| format!("Invalid shutter value: {}", value))?;
+                    let cmd = match value_str.as_str() {
                         "open" => "SHUTTER:1",
                         "close" => "SHUTTER:0",
                         _ => return Err(anyhow!("Invalid shutter value: {}", value)),
@@ -250,7 +250,9 @@ impl Instrument for MaiTai {
                     info!("MaiTai shutter: {}", value);
                 }
                 "laser" => {
-                    let cmd = match value.as_str() {
+                    let value_str = value.as_string()
+                        .with_context(|| format!("Invalid laser value: {}", value))?;
+                    let cmd = match value_str.as_str() {
                         "on" => "ON",
                         "off" => "OFF",
                         _ => return Err(anyhow!("Invalid laser value: {}", value)),

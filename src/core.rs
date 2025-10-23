@@ -76,7 +76,10 @@ use crate::metadata::Metadata;
 use async_trait::async_trait;
 use daq_core::Measurement;
 use serde::{Deserialize, Serialize};
+use std::any::TypeId;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::fmt;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 
@@ -273,7 +276,7 @@ impl Data {
             Data::Image(id) => id.timestamp,
         }
     }
-    
+
     /// Returns the channel identifier of this measurement.
     pub fn channel(&self) -> &str {
         match self {
@@ -282,7 +285,7 @@ impl Data {
             Data::Image(id) => &id.channel,
         }
     }
-    
+
     /// Returns the unit of this measurement.
     pub fn unit(&self) -> &str {
         match self {
@@ -291,7 +294,7 @@ impl Data {
             Data::Image(id) => &id.unit,
         }
     }
-    
+
     /// Returns the metadata of this measurement, if any.
     pub fn metadata(&self) -> Option<&serde_json::Value> {
         match self {
@@ -362,13 +365,160 @@ impl Data {
 #[derive(Clone, Debug)]
 pub enum InstrumentCommand {
     /// Set a parameter (key, value) - no response expected
-    SetParameter(String, String),
+    SetParameter(String, ParameterValue),
     /// Query a parameter (key) - response sent via data stream
     QueryParameter(String),
     /// Execute a command with optional arguments
     Execute(String, Vec<String>),
+    /// Capability-scoped operation with typed parameters
+    Capability {
+        /// Capability identifier (`TypeId` returned by `Instrument::capabilities`)
+        capability: TypeId,
+        /// Operation name exposed by the capability trait
+        operation: String,
+        /// Typed parameter payload for the operation
+        parameters: Vec<ParameterValue>,
+    },
     /// Gracefully shut down the instrument (triggers disconnect, 5s timeout)
     Shutdown,
+}
+
+/// Strongly-typed argument for capability operations.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ParameterValue {
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    String(String),
+    FloatArray(Vec<f64>),
+    IntArray(Vec<i64>),
+    Array(Vec<ParameterValue>),
+    Object(HashMap<String, ParameterValue>),
+    Null,
+}
+
+impl fmt::Display for ParameterValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParameterValue::Bool(b) => write!(f, "{}", b),
+            ParameterValue::Int(i) => write!(f, "{}", i),
+            ParameterValue::Float(fl) => write!(f, "{}", fl),
+            ParameterValue::String(s) => write!(f, "{}", s),
+            ParameterValue::FloatArray(arr) => write!(f, "{:?}", arr),
+            ParameterValue::IntArray(arr) => write!(f, "{:?}", arr),
+            ParameterValue::Array(arr) => write!(f, "{:?}", arr),
+            ParameterValue::Object(obj) => write!(f, "{:?}", obj),
+            ParameterValue::Null => write!(f, "null"),
+        }
+    }
+}
+
+impl ParameterValue {
+    /// Extract value as a string, parsing from various types
+    pub fn as_string(&self) -> Option<String> {
+        match self {
+            ParameterValue::String(s) => Some(s.clone()),
+            ParameterValue::Bool(b) => Some(b.to_string()),
+            ParameterValue::Int(i) => Some(i.to_string()),
+            ParameterValue::Float(f) => Some(f.to_string()),
+            _ => None,
+        }
+    }
+
+    /// Extract value as f64
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            ParameterValue::Float(f) => Some(*f),
+            ParameterValue::Int(i) => Some(*i as f64),
+            ParameterValue::String(s) => s.parse().ok(),
+            _ => None,
+        }
+    }
+
+    /// Extract value as i64
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            ParameterValue::Int(i) => Some(*i),
+            ParameterValue::Float(f) => Some(*f as i64),
+            ParameterValue::String(s) => s.parse().ok(),
+            _ => None,
+        }
+    }
+
+    /// Extract value as bool
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            ParameterValue::Bool(b) => Some(*b),
+            ParameterValue::String(s) => s.parse().ok(),
+            _ => None,
+        }
+    }
+}
+
+impl From<bool> for ParameterValue {
+    fn from(value: bool) -> Self {
+        ParameterValue::Bool(value)
+    }
+}
+
+impl From<i64> for ParameterValue {
+    fn from(value: i64) -> Self {
+        ParameterValue::Int(value)
+    }
+}
+
+impl From<u64> for ParameterValue {
+    fn from(value: u64) -> Self {
+        ParameterValue::Int(value as i64)
+    }
+}
+
+impl From<u32> for ParameterValue {
+    fn from(value: u32) -> Self {
+        ParameterValue::Int(value as i64)
+    }
+}
+
+impl From<u8> for ParameterValue {
+    fn from(value: u8) -> Self {
+        ParameterValue::Int(value as i64)
+    }
+}
+
+impl From<f64> for ParameterValue {
+    fn from(value: f64) -> Self {
+        ParameterValue::Float(value)
+    }
+}
+
+impl From<&str> for ParameterValue {
+    fn from(value: &str) -> Self {
+        ParameterValue::String(value.to_string())
+    }
+}
+
+impl From<String> for ParameterValue {
+    fn from(value: String) -> Self {
+        ParameterValue::String(value)
+    }
+}
+
+impl From<Vec<f64>> for ParameterValue {
+    fn from(value: Vec<f64>) -> Self {
+        ParameterValue::FloatArray(value)
+    }
+}
+
+impl From<Vec<i64>> for ParameterValue {
+    fn from(value: Vec<i64>) -> Self {
+        ParameterValue::IntArray(value)
+    }
+}
+
+impl From<Vec<i32>> for ParameterValue {
+    fn from(value: Vec<i32>) -> Self {
+        ParameterValue::IntArray(value.into_iter().map(|x| x as i64).collect())
+    }
 }
 
 /// A handle to a running instrument task.
@@ -433,6 +583,8 @@ pub struct InstrumentHandle {
     pub task: JoinHandle<anyhow::Result<()>>,
     /// Command channel sender (capacity: 32, bounded for backpressure)
     pub command_tx: mpsc::Sender<InstrumentCommand>,
+    /// Capabilities advertised by the instrument instance
+    pub capabilities: Vec<TypeId>,
 }
 
 /// Trait for any scientific instrument.
@@ -482,6 +634,9 @@ pub trait Instrument: Send + Sync {
     async fn connect(&mut self, id: &str, settings: &Arc<Settings>) -> anyhow::Result<()>;
     async fn disconnect(&mut self) -> anyhow::Result<()>;
     fn measure(&self) -> &Self::Measure;
+    fn capabilities(&self) -> Vec<TypeId> {
+        Vec::new()
+    }
     async fn handle_command(&mut self, _command: InstrumentCommand) -> anyhow::Result<()> {
         Ok(())
     }

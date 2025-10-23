@@ -18,19 +18,17 @@
 //! acceleration = 10.0  # mm/s²
 //! ```
 
+#[cfg(feature = "instrument_serial")]
+use crate::adapters::serial::SerialAdapter;
 use crate::{
     config::Settings,
     core::{DataPoint, Instrument, InstrumentCommand},
     measurement::InstrumentMeasurement,
 };
-#[cfg(feature = "instrument_serial")]
-use crate::adapters::serial::SerialAdapter;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use log::{info, warn};
 use std::sync::Arc;
-
-
 
 /// Newport ESP300 instrument implementation
 #[derive(Clone)]
@@ -74,32 +72,37 @@ impl ESP300 {
             "\r\n",
             Duration::from_secs(1),
             b'\n',
-        ).await
+        )
+        .await
     }
 
     #[cfg(feature = "instrument_serial")]
     async fn get_position(&self, axis: u8) -> Result<f64> {
         let response = self.send_command_async(&format!("{}TP", axis)).await?;
-        response.parse::<f64>()
+        response
+            .parse::<f64>()
             .with_context(|| format!("Failed to parse position response: {}", response))
     }
 
     #[cfg(feature = "instrument_serial")]
     async fn get_velocity(&self, axis: u8) -> Result<f64> {
         let response = self.send_command_async(&format!("{}TV", axis)).await?;
-        response.parse::<f64>()
+        response
+            .parse::<f64>()
             .with_context(|| format!("Failed to parse velocity response: {}", response))
     }
 
     #[cfg(feature = "instrument_serial")]
     async fn move_absolute(&self, axis: u8, position: f64) -> Result<()> {
-        self.send_command_async(&format!("{}PA{}", axis, position)).await?;
+        self.send_command_async(&format!("{}PA{}", axis, position))
+            .await?;
         Ok(())
     }
 
     #[cfg(feature = "instrument_serial")]
     async fn move_relative(&self, axis: u8, distance: f64) -> Result<()> {
-        self.send_command_async(&format!("{}PR{}", axis, distance)).await?;
+        self.send_command_async(&format!("{}PR{}", axis, distance))
+            .await?;
         Ok(())
     }
 }
@@ -160,19 +163,22 @@ impl Instrument for ESP300 {
             if let Some(axis_config) = instrument_config.get(&axis_key) {
                 // Set units
                 if let Some(units) = axis_config.get("units").and_then(|v| v.as_integer()) {
-                    self.send_command_async(&format!("{}SN{}", axis, units)).await?;
+                    self.send_command_async(&format!("{}SN{}", axis, units))
+                        .await?;
                     info!("Set axis {} units to {}", axis, units);
                 }
 
                 // Set velocity
                 if let Some(vel) = axis_config.get("velocity").and_then(|v| v.as_float()) {
-                    self.send_command_async(&format!("{}VA{}", axis, vel)).await?;
+                    self.send_command_async(&format!("{}VA{}", axis, vel))
+                        .await?;
                     info!("Set axis {} velocity to {} units/s", axis, vel);
                 }
 
                 // Set acceleration
                 if let Some(accel) = axis_config.get("acceleration").and_then(|v| v.as_float()) {
-                    self.send_command_async(&format!("{}AC{}", axis, accel)).await?;
+                    self.send_command_async(&format!("{}AC{}", axis, accel))
+                        .await?;
                     info!("Set axis {} acceleration to {} units/s²", axis, accel);
                 }
             }
@@ -191,9 +197,8 @@ impl Instrument for ESP300 {
             .unwrap_or(5.0);
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(
-                std::time::Duration::from_secs_f64(1.0 / polling_rate)
-            );
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_secs_f64(1.0 / polling_rate));
 
             loop {
                 interval.tick().await;
@@ -234,14 +239,19 @@ impl Instrument for ESP300 {
             }
         });
 
-        info!("ESP300 motion controller '{}' connected successfully", self.id);
+        info!(
+            "ESP300 motion controller '{}' connected successfully",
+            self.id
+        );
         Ok(())
     }
 
     #[cfg(not(feature = "instrument_serial"))]
     async fn connect(&mut self, id: &str, _settings: &Arc<Settings>) -> Result<()> {
         self.id = id.to_string();
-        Err(anyhow!("Serial support not enabled. Rebuild with --features instrument_serial"))
+        Err(anyhow!(
+            "Serial support not enabled. Rebuild with --features instrument_serial"
+        ))
     }
 
     async fn disconnect(&mut self) -> Result<()> {
@@ -261,20 +271,24 @@ impl Instrument for ESP300 {
                 // Parse axis:parameter format (e.g., "1:position", "2:velocity")
                 let parts: Vec<&str> = key.split(':').collect();
                 if parts.len() == 2 {
-                    let axis: u8 = parts[0].parse()
+                    let axis: u8 = parts[0]
+                        .parse()
                         .with_context(|| format!("Invalid axis number: {}", parts[0]))?;
 
                     match parts[1] {
                         "position" => {
-                            let position: f64 = value.parse()
+                            let position: f64 = value
+                                .as_f64()
                                 .with_context(|| format!("Invalid position value: {}", value))?;
                             self.move_absolute(axis, position).await?;
                             info!("ESP300 axis {} move to {} mm", axis, position);
                         }
                         "velocity" => {
-                            let velocity: f64 = value.parse()
+                            let velocity: f64 = value
+                                .as_f64()
                                 .with_context(|| format!("Invalid velocity value: {}", value))?;
-                            self.send_command_async(&format!("{}VA{}", axis, velocity)).await?;
+                            self.send_command_async(&format!("{}VA{}", axis, velocity))
+                                .await?;
                             info!("ESP300 axis {} velocity set to {} mm/s", axis, velocity);
                         }
                         _ => {
@@ -289,9 +303,11 @@ impl Instrument for ESP300 {
                 match cmd.as_str() {
                     "move_relative" => {
                         if args.len() >= 2 {
-                            let axis: u8 = args[0].parse()
+                            let axis: u8 = args[0]
+                                .parse()
                                 .with_context(|| format!("Invalid axis: {}", args[0]))?;
-                            let distance: f64 = args[1].parse()
+                            let distance: f64 = args[1]
+                                .parse()
                                 .with_context(|| format!("Invalid distance: {}", args[1]))?;
                             self.move_relative(axis, distance).await?;
                             info!("ESP300 axis {} move relative {} mm", axis, distance);
@@ -299,7 +315,8 @@ impl Instrument for ESP300 {
                     }
                     "stop" => {
                         if !args.is_empty() {
-                            let axis: u8 = args[0].parse()
+                            let axis: u8 = args[0]
+                                .parse()
                                 .with_context(|| format!("Invalid axis: {}", args[0]))?;
                             self.send_command_async(&format!("{}ST", axis)).await?;
                             info!("ESP300 axis {} stopped", axis);
@@ -313,7 +330,8 @@ impl Instrument for ESP300 {
                             }
                             info!("Homed all ESP300 axes");
                         } else {
-                            let axis: u8 = args[0].parse()
+                            let axis: u8 = args[0]
+                                .parse()
                                 .with_context(|| format!("Invalid axis: {}", args[0]))?;
                             self.send_command_async(&format!("{}OR", axis)).await?;
                             info!("ESP300 axis {} homed", axis);

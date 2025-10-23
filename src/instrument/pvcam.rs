@@ -27,7 +27,6 @@ use async_trait::async_trait;
 use log::{info, warn};
 use std::sync::Arc;
 
-
 /// PVCAM camera instrument implementation
 #[derive(Clone)]
 pub struct PVCAMCamera {
@@ -112,7 +111,10 @@ impl Instrument for PVCAMCamera {
             .and_then(|v| v.as_float())
             .unwrap_or(100.0);
 
-        info!("Camera: {}, Exposure: {} ms", self.camera_name, self.exposure_ms);
+        info!(
+            "Camera: {}, Exposure: {} ms",
+            self.camera_name, self.exposure_ms
+        );
 
         // TODO: Initialize PVCAM SDK
         // pl_pvcam_init()
@@ -135,9 +137,8 @@ impl Instrument for PVCAMCamera {
             .unwrap_or(10.0);
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(
-                std::time::Duration::from_secs_f64(1.0 / polling_rate)
-            );
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_secs_f64(1.0 / polling_rate));
 
             let mut frame_count = 0u64;
 
@@ -187,7 +188,8 @@ impl Instrument for PVCAMCamera {
 
                 if measurement.broadcast(dp_mean).await.is_err()
                     || measurement.broadcast(dp_min).await.is_err()
-                    || measurement.broadcast(dp_max).await.is_err() {
+                    || measurement.broadcast(dp_max).await.is_err()
+                {
                     warn!("No active receivers for PVCAM camera data");
                     break;
                 }
@@ -218,8 +220,7 @@ impl Instrument for PVCAMCamera {
             InstrumentCommand::SetParameter(key, value) => {
                 match key.as_str() {
                     "exposure_ms" => {
-                        self.exposure_ms = value.parse()
-                            .unwrap_or(self.exposure_ms);
+                        self.exposure_ms = value.as_f64().unwrap_or(self.exposure_ms);
                         info!("PVCAM exposure set to {} ms", self.exposure_ms);
                         // TODO: Apply to camera hardware
                     }

@@ -17,19 +17,17 @@
 //! units = 0  # 0=Watts, 1=dBm, 2=dB, 3=REL
 //! ```
 
+#[cfg(feature = "instrument_serial")]
+use crate::adapters::serial::SerialAdapter;
 use crate::{
     config::Settings,
     core::{DataPoint, Instrument, InstrumentCommand},
     measurement::InstrumentMeasurement,
 };
-#[cfg(feature = "instrument_serial")]
-use crate::adapters::serial::SerialAdapter;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use log::{info, warn};
 use std::sync::Arc;
-
-
 
 /// Newport 1830-C instrument implementation
 #[derive(Clone)]
@@ -228,7 +226,7 @@ impl Instrument for Newport1830C {
             InstrumentCommand::SetParameter(key, value) => match key.as_str() {
                 "wavelength" => {
                     let wavelength: f64 = value
-                        .parse()
+                        .as_f64()
                         .with_context(|| format!("Invalid wavelength value: {}", value))?;
                     self.send_command_async(&format!("PM:Lambda {}", wavelength))
                         .await?;
@@ -236,7 +234,8 @@ impl Instrument for Newport1830C {
                 }
                 "range" => {
                     let range: i32 = value
-                        .parse()
+                        .as_i64()
+                        .map(|v| v as i32)
                         .with_context(|| format!("Invalid range value: {}", value))?;
                     self.send_command_async(&format!("PM:Range {}", range))
                         .await?;
@@ -244,7 +243,8 @@ impl Instrument for Newport1830C {
                 }
                 "units" => {
                     let units: i32 = value
-                        .parse()
+                        .as_i64()
+                        .map(|v| v as i32)
                         .with_context(|| format!("Invalid units value: {}", value))?;
                     self.send_command_async(&format!("PM:Units {}", units))
                         .await?;

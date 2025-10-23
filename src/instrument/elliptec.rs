@@ -14,18 +14,17 @@
 //! polling_rate_hz = 2.0
 //! ```
 
+#[cfg(feature = "instrument_serial")]
+use crate::adapters::serial::SerialAdapter;
 use crate::{
     config::Settings,
     core::{DataPoint, Instrument, InstrumentCommand},
     measurement::InstrumentMeasurement,
 };
-#[cfg(feature = "instrument_serial")]
-use crate::adapters::serial::SerialAdapter;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use log::{info, warn};
 use std::sync::Arc;
-
 
 /// Elliptec ELL14 instrument implementation
 #[derive(Clone)]
@@ -254,7 +253,7 @@ impl Instrument for Elliptec {
 
                     if parts[1] == "position" {
                         let degrees: f64 = value
-                            .parse()
+                            .as_f64()
                             .with_context(|| format!("Invalid position value: {}", value))?;
                         self.set_position(addr, degrees).await?;
                         info!("Set Elliptec device {} to {} degrees", addr, degrees);
