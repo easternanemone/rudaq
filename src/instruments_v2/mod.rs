@@ -6,6 +6,7 @@
 //! - Instrument trait with state management
 //! - Meta-instrument traits (Camera, PowerMeter, etc.)
 
+pub mod elliptec;
 pub mod esp300;
 pub mod maitai;
 pub mod mock_instrument;
@@ -13,6 +14,7 @@ pub mod newport_1830c;
 pub mod pvcam;
 pub mod scpi;
 
+pub use elliptec::ElliptecV2;
 pub use esp300::ESP300V2;
 pub use maitai::MaiTaiV2;
 pub use mock_instrument::MockInstrumentV2;

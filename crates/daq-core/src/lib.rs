@@ -315,6 +315,12 @@ pub trait HardwareAdapter: Send + Sync {
     fn info(&self) -> String {
         format!("{}Adapter", self.adapter_type())
     }
+
+    /// Downcast to concrete type (for accessing adapter-specific methods)
+    ///
+    /// Required for accessing methods like SerialAdapter::send_command()
+    /// from trait objects.
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 //==============================================================================

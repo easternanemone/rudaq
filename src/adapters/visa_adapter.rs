@@ -290,6 +290,10 @@ impl HardwareAdapter for VisaAdapter {
             self.timeout.as_millis()
         )
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[cfg(test)]

@@ -18,6 +18,7 @@ use serialport::SerialPort;
 ///
 /// This adapter wraps the serialport crate and provides async I/O
 /// using Tokio's blocking task executor for synchronous serial operations.
+#[derive(Clone)]
 pub struct SerialAdapter {
     /// Port name (e.g., "/dev/ttyUSB0", "COM3")
     port_name: String,
@@ -242,6 +243,10 @@ impl HardwareAdapter for SerialAdapter {
             "SerialAdapter({} @ {} baud)",
             self.port_name, self.baud_rate
         )
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

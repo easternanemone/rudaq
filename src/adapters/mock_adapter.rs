@@ -112,6 +112,10 @@ impl HardwareAdapter for MockAdapter {
     fn info(&self) -> String {
         format!("MockAdapter (latency: {}ms)", self.latency_ms)
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[cfg(test)]
