@@ -90,7 +90,11 @@ impl SerialPort for MockSerialPort {
     }
 }
 
-/// Real serial port wrapper
+/// Real serial port implementation using synchronous I/O
+///
+/// Note: Uses std::io blocking I/O wrapped in Mutex rather than tokio_serial.
+/// This is acceptable for Newport 1830C's simple, low-frequency protocol.
+/// Future enhancement: Consider tokio_serial + tokio::sync::Mutex for high-throughput instruments.
 #[cfg(feature = "instrument_serial")]
 struct RealSerialPort {
     port: std::sync::Mutex<Box<dyn serialport::SerialPort>>,
@@ -217,6 +221,9 @@ impl Newport1830CV3 {
             id,
             state: InstrumentState::Uninitialized,
             data_tx,
+            // Parameters HashMap is currently unpopulated in V3 architecture.
+            // Dynamic parameter access via Command::GetParameter is not supported.
+            // Use typed trait methods (set_wavelength, etc.) instead.
             parameters: HashMap::new(),
             serial_port: None,
             port_path: port_path.into(),
