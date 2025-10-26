@@ -1,7 +1,8 @@
 {
   "permissions": {
     "additionalDirectories": [
-      "/Users/briansquires/code/rust-daq-worktrees/"
+      "/Users/briansquires/code/rust-daq-worktrees/",
+      "/Users/briansquires/jules-mcp"
     ]
   }
 }

@@ -44,6 +44,27 @@ use std::collections::HashMap;
 
 pub mod versioning;
 
+/// Configuration for V3 instruments (Phase 3)
+///
+/// Matches the structure used in InstrumentManagerV3 for consistency.
+/// The `type` field in TOML maps to `type_name` in code.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct InstrumentConfigV3 {
+    /// Unique identifier for this instrument instance
+    pub id: String,
+    
+    /// Instrument type name (must match factory registry key)
+    #[serde(rename = "type")]
+    pub type_name: String,
+    
+    /// Type-specific configuration settings
+    ///
+    /// Captures all extra TOML fields for flexible per-instrument config.
+    /// Each instrument factory is responsible for parsing its own settings.
+    #[serde(flatten)]
+    pub settings: serde_json::Value,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Settings {
     pub log_level: String,
@@ -51,6 +72,12 @@ pub struct Settings {
     pub storage: StorageSettings,
     pub instruments: HashMap<String, toml::Value>,
     pub processors: Option<HashMap<String, Vec<ProcessorConfig>>>,
+    
+    /// V3 instruments configuration (Phase 3)
+    ///
+    /// Backward compatible: missing [[instruments_v3]] sections result in empty vec
+    #[serde(default)]
+    pub instruments_v3: Vec<InstrumentConfigV3>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -100,6 +127,24 @@ impl Settings {
 
 impl Settings {
     fn validate(&self) -> Result<()> {
+        // Check for ID collisions between V1 and V3 instruments
+        use std::collections::HashSet;
+        let mut all_ids = HashSet::new();
+        
+        // Check V1 instrument IDs
+        for id in self.instruments.keys() {
+            if !all_ids.insert(id) {
+                anyhow::bail!("Duplicate instrument ID: {}", id);
+            }
+        }
+        
+        // Check V3 instrument IDs
+        for inst_v3 in &self.instruments_v3 {
+            if !all_ids.insert(&inst_v3.id) {
+                anyhow::bail!("Duplicate instrument ID (V3): {}", inst_v3.id);
+            }
+        }
+
         is_not_empty(&self.log_level)
             .map_err(anyhow::Error::msg)
             .context("log_level cannot be empty")?;
@@ -170,5 +215,101 @@ impl Settings {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_instruments_v3() {
+        let toml_content = r#"
+            log_level = "info"
+
+            [application]
+            broadcast_channel_capacity = 1024
+            command_channel_capacity = 32
+
+            [storage]
+            default_path = "./data"
+            default_format = "csv"
+
+            [instruments]
+
+            [[instruments_v3]]
+            id = "test_pm"
+            type = "MockPowerMeterV3"
+            sampling_rate = 10.0
+            wavelength_nm = 532.0
+
+            [[instruments_v3]]
+            id = "test_stage"
+            type = "MockStageV3"
+            axis = "x"
+            range_mm = 100.0
+        "#;
+
+        let settings: Settings = toml::from_str(toml_content).unwrap();
+        assert_eq!(settings.instruments_v3.len(), 2);
+        assert_eq!(settings.instruments_v3[0].id, "test_pm");
+        assert_eq!(settings.instruments_v3[0].type_name, "MockPowerMeterV3");
+        assert_eq!(settings.instruments_v3[1].id, "test_stage");
+        assert_eq!(settings.instruments_v3[1].type_name, "MockStageV3");
+        
+        // Verify settings captured extra fields
+        let pm_settings = &settings.instruments_v3[0].settings;
+        assert!(pm_settings.get("sampling_rate").is_some());
+        assert!(pm_settings.get("wavelength_nm").is_some());
+    }
+
+    #[test]
+    fn test_empty_instruments_v3() {
+        // Test backward compatibility - config without [[instruments_v3]] should work
+        let toml_content = r#"
+            log_level = "info"
+
+            [application]
+            broadcast_channel_capacity = 1024
+            command_channel_capacity = 32
+
+            [storage]
+            default_path = "./data"
+            default_format = "csv"
+
+            [instruments]
+        "#;
+
+        let settings: Settings = toml::from_str(toml_content).unwrap();
+        assert_eq!(settings.instruments_v3.len(), 0);
+    }
+
+    #[test]
+    fn test_duplicate_id_v1_v3_fails() {
+        let toml_content = r#"
+            log_level = "info"
+
+            [application]
+            broadcast_channel_capacity = 1024
+            command_channel_capacity = 32
+
+            [storage]
+            default_path = "./data"
+            default_format = "csv"
+
+            [instruments.duplicate_id]
+            type = "mock"
+
+            [[instruments_v3]]
+            id = "duplicate_id"
+            type = "MockPowerMeterV3"
+            sampling_rate = 10.0
+        "#;
+
+        let settings: Settings = toml::from_str(toml_content).unwrap();
+        let result = settings.validate();
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("Duplicate instrument ID"));
     }
 }

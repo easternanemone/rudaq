@@ -291,7 +291,7 @@ where
                 }
 
                 DaqCommand::SubscribeToData { response } => {
-                    let receiver = self.data_distributor.subscribe().await;
+                    let receiver = self.data_distributor.subscribe("dynamic_subscriber").await;
                     let _ = response.send(receiver);
                 }
 
@@ -442,6 +442,10 @@ where
                     instrument_type
                 ))
             })?;
+
+        // Set V2 data distributor for all instruments
+        // V2InstrumentAdapter will use it; V1 instruments ignore it (no-op)
+        instrument.set_v2_data_distributor(self.data_distributor.clone());
 
         // Create processor chain for this instrument
         let mut processors: Vec<Box<dyn MeasurementProcessor>> = Vec::new();
@@ -852,7 +856,7 @@ where
 
         let settings = Arc::new(self.settings.clone());
         let metadata = self.metadata.clone();
-        let mut rx = self.data_distributor.subscribe().await;
+        let mut rx = self.data_distributor.subscribe("storage_writer").await;
         let storage_format_for_task = self.storage_format.clone();
 
         // Create shutdown channel
@@ -1379,6 +1383,7 @@ mod tests {
             },
             instruments: HashMap::new(),
             processors: None,
+            instruments_v3: Vec::new(),
         };
 
         let mut actor = DaqManagerActor::<InstrumentMeasurement>::new(

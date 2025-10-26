@@ -374,11 +374,13 @@ pub struct InstrumentConfigV3 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core_v3::{InstrumentState, ParameterBase};
     
     // Mock instrument for testing
     struct MockInstrumentV3 {
         id: String,
         tx: broadcast::Sender<Measurement>,
+        params: HashMap<String, Box<dyn ParameterBase>>,
     }
     
     impl MockInstrumentV3 {
@@ -387,6 +389,7 @@ mod tests {
             Ok(Box::new(Self {
                 id: id.to_string(),
                 tx,
+                params: HashMap::new(),
             }))
         }
     }
@@ -413,8 +416,16 @@ mod tests {
             Ok(Response::Ok)
         }
         
-        fn parameters(&self) -> HashMap<String, crate::core_v3::Parameter<crate::core_v3::Value>> {
-            HashMap::new()
+        fn parameters(&self) -> &HashMap<String, Box<dyn ParameterBase>> {
+            &self.params
+        }
+        
+        fn parameters_mut(&mut self) -> &mut HashMap<String, Box<dyn ParameterBase>> {
+            &mut self.params
+        }
+        
+        fn state(&self) -> InstrumentState {
+            InstrumentState::Idle
         }
     }
     

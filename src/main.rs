@@ -107,6 +107,16 @@ fn main() -> Result<()> {
     use rust_daq::instrument::pvcam::PVCAMCamera;
     instrument_registry.register("pvcam", |id| Box::new(PVCAMCamera::new(id)));
 
+    // Register V2 PVCAM camera for image support
+    use rust_daq::instrument::v2_adapter::V2InstrumentAdapter;
+    use rust_daq::instruments_v2::pvcam::PVCAMInstrumentV2;
+
+    instrument_registry.register("pvcam_v2", |id| {
+        Box::new(V2InstrumentAdapter::new(
+            PVCAMInstrumentV2::new(id.to_string())
+        ))
+    });
+
     let instrument_registry = Arc::new(instrument_registry);
 
     // Create the processor registry

@@ -28,6 +28,12 @@ pub mod esp300;
 
 pub mod pvcam;
 
+// V2 instrument adapter for bridging V2 instruments with V1 registry
+pub mod v2_adapter;
+
+// Phase 1: V3 architecture prototype instruments
+pub mod mock_v3;
+
 type InstrumentFactory<M> = Box<dyn Fn(&str) -> Box<dyn Instrument<Measure = M>> + Send + Sync>;
 
 /// A registry for available instrument types.

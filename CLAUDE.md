@@ -45,7 +45,43 @@ cargo clippy
 
 # Build without running
 cargo check
+
+# AI-powered code analysis (recurse.ml)
+~/.rml/rml/rml                    # Analyze all unstaged changes
+~/.rml/rml/rml path/to/file.rs   # Analyze specific file
+~/.rml/rml/rml src/              # Analyze directory
 ```
+
+### Recurse.ml Integration
+
+**recurse.ml (rml)** is an AI-powered code analysis tool that detects issues during development.
+
+**Setup**: rml is installed at `~/.rml/rml/rml`. Add to PATH for convenience:
+```bash
+export PATH="$HOME/.rml/rml:$PATH"
+```
+
+**Usage Workflow**:
+1. **Automatic analysis**: rml analyzes unstaged changes matching `git diff`
+2. **Early detection**: Catches bugs, race conditions, and logic errors before commit
+3. **Custom rules**: Can enforce project-specific conventions and standards
+4. **Diff output**: Provides suggested fixes in patch format
+
+**When to use rml**:
+- Before committing changes (`rml` to check all unstaged files)
+- After implementing complex logic (e.g., async code, state management)
+- When reviewing AI-generated code changes
+- To verify refactoring didn't introduce issues
+
+**Example**:
+```bash
+# After making changes to PVCAM V2 adapter
+git status -s  # See unstaged changes
+~/.rml/rml/rml src/instrument/v2_adapter.rs  # Analyze specific file
+~/.rml/rml/rml  # Or analyze all unstaged changes
+```
+
+**Note**: First run requires GitHub authentication via device code flow.
 
 ## Architecture Overview
 
@@ -101,6 +137,22 @@ The `Measurement` enum (src/core.rs:229-276) supports multiple data types:
 - `Image(ImageData)` - 2D camera/sensor data
 
 Migration from scalar-only `DataPoint` to strongly-typed `Measurement` variants is in progress. See docs/adr/001-measurement-enum-architecture.md for design rationale.
+
+#### V1 vs V2 Instrument Architecture
+
+**V1 Instruments** (Legacy):
+- Broadcast `DataPoint` via `InstrumentMeasurement`
+- App converts DataPoints to `Measurement::Scalar` before GUI broadcast
+- **Cannot broadcast Image or Spectrum data natively**
+- Examples: Most instruments in `src/instrument/` including PVCAM V1
+
+**V2 Instruments** (New):
+- Broadcast `Measurement` enum directly via `measurement_channel()`
+- Full support for Scalar, Spectrum, and Image data types
+- Native `PixelBuffer` support for memory-efficient camera data
+- Examples: `src/instruments_v2/pvcam.rs`
+
+**Important**: Image viewing in the GUI requires V2 instruments. V1 instruments like PVCAM V1 only broadcast frame statistics as scalars. V2 integration is planned for Phase 3 (bd-51).
 
 ## Key Files and Responsibilities
 

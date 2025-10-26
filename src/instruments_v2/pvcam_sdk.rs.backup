@@ -1,0 +1,536 @@
+// PVCAM SDK Trait Abstraction
+// This module provides a safe, testable interface to the PVCAM SDK
+
+use std::{
+    any::{Any, TypeId},
+    collections::HashMap,
+    fmt,
+    sync::{Arc, Mutex},
+};
+
+/// Represents a handle to an opened camera.
+/// This wraps the raw `i16` handle from `pvcam-sys` for type safety.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CameraHandle(pub i16);
+
+/// Represents possible errors that can occur during PVCAM SDK operations.
+#[derive(Debug, thiserror::Error)]
+pub enum PvcamError {
+    #[error("PVCAM SDK operation failed with error code: {0}")]
+    SdkSpecific(i16),
+    #[error("Camera not found: {0}")]
+    CameraNotFound(String),
+    #[error("Camera with handle {0:?} is not open.")]
+    CameraNotOpen(CameraHandle),
+    #[error("Invalid parameter value for {param:?}: {value}")]
+    InvalidParamValue {
+        param: PvcamParam,
+        value: String,
+    },
+    #[error("Parameter {0:?} is not supported or cannot be accessed.")]
+    ParamNotSupported(PvcamParam),
+    #[error("Type mismatch for parameter {param:?}. Expected {expected}, got type ID: {actual_type_id:?}")]
+    TypeMismatch {
+        param: PvcamParam,
+        expected: String,
+        actual_type_id: TypeId,
+    },
+    #[error("Internal mock error: {0}")]
+    MockError(String),
+    #[error("SDK is not initialized.")]
+    NotInitialized,
+    #[error("SDK is already initialized.")]
+    AlreadyInitialized,
+    #[error("Failed to convert C string to Rust string: {0}")]
+    StringConversionError(#[from] std::str::Utf8Error),
+    #[error("Failed to allocate memory: {0}")]
+    AllocationError(String),
+}
+
+/// Enum representing PVCAM parameters.
+/// Each variant corresponds to a specific PVCAM parameter ID and has an expected Rust type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PvcamParam {
+    Exposure,          // Expected type: u16 (milliseconds)
+    Gain,              // Expected type: u16
+    Roi,               // Expected type: PxRegion (struct)
+    SensorTemperature, // Expected type: i16 (degrees Celsius)
+    PixelSize,         // Expected type: u16 (micrometers)
+}
+
+impl PvcamParam {
+    /// Returns the `TypeId` of the expected Rust type for this parameter.
+    fn expected_type_id(&self) -> TypeId {
+        match self {
+            PvcamParam::Exposure => TypeId::of::<u16>(),
+            PvcamParam::Gain => TypeId::of::<u16>(),
+            PvcamParam::Roi => TypeId::of::<PxRegion>(),
+            PvcamParam::SensorTemperature => TypeId::of::<i16>(),
+            PvcamParam::PixelSize => TypeId::of::<u16>(),
+        }
+    }
+
+    /// Returns a string representation of the expected type for this parameter.
+    fn expected_type_name(&self) -> &'static str {
+        match self {
+            PvcamParam::Exposure => "u16",
+            PvcamParam::Gain => "u16",
+            PvcamParam::Roi => "PxRegion",
+            PvcamParam::SensorTemperature => "i16",
+            PvcamParam::PixelSize => "u16",
+        }
+    }
+}
+
+/// Placeholder for PxRegion struct (PVCAM ROI definition).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PxRegion {
+    pub s1: u16,
+    pub s2: u16,
+    pub sbin: u16,
+    pub p1: u16,
+    pub p2: u16,
+    pub pbin: u16,
+}
+
+/// Trait defining the PVCAM SDK abstraction.
+pub trait PvcamSdk: Send + Sync {
+    /// Initializes the PVCAM SDK.
+    fn init(&mut self) -> Result<(), PvcamError>;
+    /// Uninitializes the PVCAM SDK.
+    fn uninit(&mut self) -> Result<(), PvcamError>;
+    /// Enumerates available cameras by name.
+    fn enumerate_cameras(&self) -> Result<Vec<String>, PvcamError>;
+    /// Opens a camera by its name, returning a `CameraHandle`.
+    fn open_camera(&mut self, name: &str) -> Result<CameraHandle, PvcamError>;
+    /// Closes an opened camera using its `CameraHandle`.
+    fn close_camera(&mut self, handle: CameraHandle) -> Result<(), PvcamError>;
+    
+    /// Get u16 parameter (Exposure, Gain, PixelSize)
+    fn get_param_u16(&self, handle: &CameraHandle, param: PvcamParam) -> Result<u16, PvcamError>;
+    /// Set u16 parameter (Exposure, Gain, PixelSize)
+    fn set_param_u16(&mut self, handle: &CameraHandle, param: PvcamParam, value: u16) -> Result<(), PvcamError>;
+    
+    /// Get i16 parameter (SensorTemperature)
+    fn get_param_i16(&self, handle: &CameraHandle, param: PvcamParam) -> Result<i16, PvcamError>;
+    /// Set i16 parameter (SensorTemperature)
+    fn set_param_i16(&mut self, handle: &CameraHandle, param: PvcamParam, value: i16) -> Result<(), PvcamError>;
+    
+    /// Get PxRegion parameter (ROI)
+    fn get_param_region(&self, handle: &CameraHandle, param: PvcamParam) -> Result<PxRegion, PvcamError>;
+    /// Set PxRegion parameter (ROI)
+    fn set_param_region(&mut self, handle: &CameraHandle, param: PvcamParam, value: PxRegion) -> Result<(), PvcamError>;
+    
+    // Acquisition methods added in daq-53
+}
+
+/// Real implementation of `PvcamSdk` using `pvcam-sys` FFI.
+/// NOTE: This implementation is a placeholder until pvcam-sys has SDK feature enabled
+pub struct RealPvcamSdk {
+    is_initialized: bool,
+    open_handles: HashMap<CameraHandle, String>,
+}
+
+impl RealPvcamSdk {
+    /// Create a new RealPvcamSdk instance
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default for RealPvcamSdk {
+    fn default() -> Self {
+        RealPvcamSdk {
+            is_initialized: false,
+            open_handles: HashMap::new(),
+        }
+    }
+}
+
+impl PvcamSdk for RealPvcamSdk {
+    fn init(&mut self) -> Result<(), PvcamError> {
+        if self.is_initialized {
+            return Err(PvcamError::AlreadyInitialized);
+        }
+        // TODO: Call pvcam_sys::pl_pvcam_init() when pvcam-sdk feature is enabled
+        #[cfg(feature = "pvcam-sdk")]
+        {
+            // use pvcam_sys::*;
+            // let status = unsafe { pl_pvcam_init() };
+            // if status != PV_OK { return Err(PvcamError::SdkSpecific(status)); }
+        }
+        self.is_initialized = true;
+        Ok(())
+    }
+
+    fn uninit(&mut self) -> Result<(), PvcamError> {
+        if !self.is_initialized {
+            return Err(PvcamError::NotInitialized);
+        }
+        for handle in self.open_handles.keys().copied().collect::<Vec<_>>() {
+            let _ = self.close_camera(handle); // Best effort
+        }
+        self.open_handles.clear();
+
+        #[cfg(feature = "pvcam-sdk")]
+        {
+            // use pvcam_sys::*;
+            // let status = unsafe { pl_pvcam_uninit() };
+            // if status != PV_OK { return Err(PvcamError::SdkSpecific(status)); }
+        }
+        self.is_initialized = false;
+        Ok(())
+    }
+
+    fn enumerate_cameras(&self) -> Result<Vec<String>, PvcamError> {
+        if !self.is_initialized {
+            return Err(PvcamError::NotInitialized);
+        }
+        // TODO: Implement with pvcam-sys when feature is enabled
+        Ok(vec!["PrimeBSI".to_string()])
+    }
+
+    fn open_camera(&mut self, name: &str) -> Result<CameraHandle, PvcamError> {
+        if !self.is_initialized {
+            return Err(PvcamError::NotInitialized);
+        }
+        // TODO: Implement with pvcam-sys when feature is enabled
+        let handle = CameraHandle(1);
+        self.open_handles.insert(handle, name.to_string());
+        Ok(handle)
+    }
+
+    fn close_camera(&mut self, handle: CameraHandle) -> Result<(), PvcamError> {
+        if !self.is_initialized {
+            return Err(PvcamError::NotInitialized);
+        }
+        if !self.open_handles.contains_key(&handle) {
+            return Err(PvcamError::CameraNotOpen(handle));
+        }
+        // TODO: Implement with pvcam-sys when feature is enabled
+        self.open_handles.remove(&handle);
+        Ok(())
+    }
+
+    fn get_param_u16(&self, handle: &CameraHandle, param: PvcamParam) -> Result<u16, PvcamError> {
+        if !self.is_initialized {
+            return Err(PvcamError::NotInitialized);
+        }
+        if !self.open_handles.contains_key(handle) {
+            return Err(PvcamError::CameraNotOpen(*handle));
+        }
+        // TODO: Implement with pvcam-sys when feature is enabled
+        Err(PvcamError::ParamNotSupported(param))
+    }
+
+    fn set_param_u16(&mut self, handle: &CameraHandle, param: PvcamParam, _value: u16) -> Result<(), PvcamError> {
+        if !self.is_initialized {
+            return Err(PvcamError::NotInitialized);
+        }
+        if !self.open_handles.contains_key(handle) {
+            return Err(PvcamError::CameraNotOpen(*handle));
+        }
+        // TODO: Implement with pvcam-sys when feature is enabled
+        Err(PvcamError::ParamNotSupported(param))
+    }
+
+    fn get_param_i16(&self, handle: &CameraHandle, param: PvcamParam) -> Result<i16, PvcamError> {
+        if !self.is_initialized {
+            return Err(PvcamError::NotInitialized);
+        }
+        if !self.open_handles.contains_key(handle) {
+            return Err(PvcamError::CameraNotOpen(*handle));
+        }
+        // TODO: Implement with pvcam-sys when feature is enabled
+        Err(PvcamError::ParamNotSupported(param))
+    }
+
+    fn set_param_i16(&mut self, handle: &CameraHandle, param: PvcamParam, _value: i16) -> Result<(), PvcamError> {
+        if !self.is_initialized {
+            return Err(PvcamError::NotInitialized);
+        }
+        if !self.open_handles.contains_key(handle) {
+            return Err(PvcamError::CameraNotOpen(*handle));
+        }
+        // TODO: Implement with pvcam-sys when feature is enabled
+        Err(PvcamError::ParamNotSupported(param))
+    }
+
+    fn get_param_region(&self, handle: &CameraHandle, param: PvcamParam) -> Result<PxRegion, PvcamError> {
+        if !self.is_initialized {
+            return Err(PvcamError::NotInitialized);
+        }
+        if !self.open_handles.contains_key(handle) {
+            return Err(PvcamError::CameraNotOpen(*handle));
+        }
+        // TODO: Implement with pvcam-sys when feature is enabled
+        Err(PvcamError::ParamNotSupported(param))
+    }
+
+    fn set_param_region(&mut self, handle: &CameraHandle, param: PvcamParam, _value: PxRegion) -> Result<(), PvcamError> {
+        if !self.is_initialized {
+            return Err(PvcamError::NotInitialized);
+        }
+        if !self.open_handles.contains_key(handle) {
+            return Err(PvcamError::CameraNotOpen(*handle));
+        }
+        // TODO: Implement with pvcam-sys when feature is enabled
+        Err(PvcamError::ParamNotSupported(param))
+    }
+}
+
+/// Mock implementation of `PvcamSdk` for testing and simulation.
+pub struct MockPvcamSdk {
+    is_initialized: Arc<Mutex<bool>>,
+    next_init_fails: Arc<Mutex<bool>>,
+    next_open_fails_with_error: Arc<Mutex<Option<PvcamError>>>,
+    next_handle_id: Arc<Mutex<i16>>,
+    open_cameras: Arc<Mutex<HashMap<CameraHandle, MockCameraState>>>,
+    available_cameras: Vec<String>,
+}
+
+struct MockCameraState {
+    name: String,
+    parameters: HashMap<PvcamParam, Box<dyn Any + Send + Sync>>,
+}
+
+impl MockPvcamSdk {
+    pub fn new() -> Self {
+        MockPvcamSdk {
+            is_initialized: Arc::new(Mutex::new(false)),
+            next_init_fails: Arc::new(Mutex::new(false)),
+            next_open_fails_with_error: Arc::new(Mutex::new(None)),
+            next_handle_id: Arc::new(Mutex::new(1)),
+            open_cameras: Arc::new(Mutex::new(HashMap::new())),
+            available_cameras: vec![
+                "PrimeBSI".to_string(),
+                "MockCamera1".to_string(),
+                "MockCamera2".to_string(),
+            ],
+        }
+    }
+
+    /// Configures the next `init()` call to fail.
+    pub fn set_next_init_fails(&self, fails: bool) {
+        *self.next_init_fails.lock().unwrap() = fails;
+    }
+
+    /// Configures the next `open_camera()` call to fail with a specific error.
+    pub fn set_next_open_fails_with_error(&self, error: Option<PvcamError>) {
+        *self.next_open_fails_with_error.lock().unwrap() = error;
+    }
+
+    /// Sets the list of camera names returned by `enumerate_cameras`.
+    pub fn set_available_cameras(&mut self, names: Vec<String>) {
+        self.available_cameras = names;
+    }
+}
+
+impl Default for MockPvcamSdk {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Clone for MockPvcamSdk {
+    fn clone(&self) -> Self {
+        MockPvcamSdk {
+            is_initialized: Arc::clone(&self.is_initialized),
+            next_init_fails: Arc::clone(&self.next_init_fails),
+            next_open_fails_with_error: Arc::clone(&self.next_open_fails_with_error),
+            next_handle_id: Arc::clone(&self.next_handle_id),
+            open_cameras: Arc::clone(&self.open_cameras),
+            available_cameras: self.available_cameras.clone(),
+        }
+    }
+}
+
+impl PvcamSdk for MockPvcamSdk {
+    fn init(&mut self) -> Result<(), PvcamError> {
+        let mut initialized = self.is_initialized.lock().unwrap();
+        if *initialized {
+            return Err(PvcamError::AlreadyInitialized);
+        }
+        let mut should_fail = self.next_init_fails.lock().unwrap();
+        if *should_fail {
+            *should_fail = false;
+            return Err(PvcamError::MockError("Mock init failed as configured".to_string()));
+        }
+        *initialized = true;
+        Ok(())
+    }
+
+    fn uninit(&mut self) -> Result<(), PvcamError> {
+        let mut initialized = self.is_initialized.lock().unwrap();
+        if !*initialized {
+            return Err(PvcamError::NotInitialized);
+        }
+        self.open_cameras.lock().unwrap().clear();
+        *initialized = false;
+        Ok(())
+    }
+
+    fn enumerate_cameras(&self) -> Result<Vec<String>, PvcamError> {
+        if !*self.is_initialized.lock().unwrap() {
+            return Err(PvcamError::NotInitialized);
+        }
+        Ok(self.available_cameras.clone())
+    }
+
+    fn open_camera(&mut self, name: &str) -> Result<CameraHandle, PvcamError> {
+        if !*self.is_initialized.lock().unwrap() {
+            return Err(PvcamError::NotInitialized);
+        }
+        let mut open_fail_config = self.next_open_fails_with_error.lock().unwrap();
+        if let Some(error) = open_fail_config.take() {
+            return Err(error);
+        }
+
+        if !self.available_cameras.contains(&name.to_string()) {
+            return Err(PvcamError::CameraNotFound(name.to_string()));
+        }
+
+        let mut handle_id = self.next_handle_id.lock().unwrap();
+        let handle = CameraHandle(*handle_id);
+        *handle_id += 1;
+
+        let mut cameras = self.open_cameras.lock().unwrap();
+        if cameras.values().any(|cam| cam.name == name) {
+            return Err(PvcamError::MockError(format!("Camera {} already open", name)));
+        }
+
+        let mut params: HashMap<PvcamParam, Box<dyn Any + Send + Sync>> = HashMap::new();
+        params.insert(PvcamParam::Exposure, Box::new(100u16));
+        params.insert(PvcamParam::Gain, Box::new(1u16));
+        params.insert(PvcamParam::SensorTemperature, Box::new(25i16));
+        params.insert(PvcamParam::PixelSize, Box::new(10u16));
+        params.insert(
+            PvcamParam::Roi,
+            Box::new(PxRegion {
+                s1: 0,
+                s2: 1023,
+                sbin: 1,
+                p1: 0,
+                p2: 1023,
+                pbin: 1,
+            }),
+        );
+
+        cameras.insert(
+            handle,
+            MockCameraState {
+                name: name.to_string(),
+                parameters: params,
+            },
+        );
+        Ok(handle)
+    }
+
+    fn close_camera(&mut self, handle: CameraHandle) -> Result<(), PvcamError> {
+        if !*self.is_initialized.lock().unwrap() {
+            return Err(PvcamError::NotInitialized);
+        }
+        let mut cameras = self.open_cameras.lock().unwrap();
+        if cameras.remove(&handle).is_none() {
+            return Err(PvcamError::CameraNotOpen(handle));
+        }
+        Ok(())
+    }
+
+    fn get_param_u16(&self, handle: &CameraHandle, param: PvcamParam) -> Result<u16, PvcamError> {
+        self.get_param_internal(handle, param)
+    }
+
+    fn set_param_u16(&mut self, handle: &CameraHandle, param: PvcamParam, value: u16) -> Result<(), PvcamError> {
+        self.set_param_internal(handle, param, value)
+    }
+
+    fn get_param_i16(&self, handle: &CameraHandle, param: PvcamParam) -> Result<i16, PvcamError> {
+        self.get_param_internal(handle, param)
+    }
+
+    fn set_param_i16(&mut self, handle: &CameraHandle, param: PvcamParam, value: i16) -> Result<(), PvcamError> {
+        self.set_param_internal(handle, param, value)
+    }
+
+    fn get_param_region(&self, handle: &CameraHandle, param: PvcamParam) -> Result<PxRegion, PvcamError> {
+        self.get_param_internal(handle, param)
+    }
+
+    fn set_param_region(&mut self, handle: &CameraHandle, param: PvcamParam, value: PxRegion) -> Result<(), PvcamError> {
+        self.set_param_internal(handle, param, value)
+    }
+}
+
+impl MockPvcamSdk {
+    /// Internal generic get parameter method (not part of trait)
+    fn get_param_internal<T: 'static + Copy + Send + Sync>(
+        &self,
+        handle: &CameraHandle,
+        param: PvcamParam,
+    ) -> Result<T, PvcamError> {
+        if !*self.is_initialized.lock().unwrap() {
+            return Err(PvcamError::NotInitialized);
+        }
+        let cameras = self.open_cameras.lock().unwrap();
+        let camera_state = cameras
+            .get(handle)
+            .ok_or(PvcamError::CameraNotOpen(*handle))?;
+
+        let expected_type_id = param.expected_type_id();
+        if TypeId::of::<T>() != expected_type_id {
+            return Err(PvcamError::TypeMismatch {
+                param,
+                expected: param.expected_type_name().to_string(),
+                actual_type_id: TypeId::of::<T>(),
+            });
+        }
+
+        let value_any = camera_state
+            .parameters
+            .get(&param)
+            .ok_or(PvcamError::ParamNotSupported(param))?;
+
+        value_any
+            .downcast_ref::<T>()
+            .copied()
+            .ok_or_else(|| PvcamError::TypeMismatch {
+                param,
+                expected: param.expected_type_name().to_string(),
+                actual_type_id: value_any.type_id(),
+            })
+    }
+
+    /// Internal generic set parameter method (not part of trait)
+    fn set_param_internal<T: 'static + Copy + Send + Sync>(
+        &mut self,
+        handle: &CameraHandle,
+        param: PvcamParam,
+        value: T,
+    ) -> Result<(), PvcamError> {
+        if !*self.is_initialized.lock().unwrap() {
+            return Err(PvcamError::NotInitialized);
+        }
+        let mut cameras = self.open_cameras.lock().unwrap();
+        let camera_state = cameras
+            .get_mut(handle)
+            .ok_or(PvcamError::CameraNotOpen(*handle))?;
+
+        let expected_type_id = param.expected_type_id();
+        if TypeId::of::<T>() != expected_type_id {
+            return Err(PvcamError::TypeMismatch {
+                param,
+                expected: param.expected_type_name().to_string(),
+                actual_type_id: TypeId::of::<T>(),
+            });
+        }
+
+        if camera_state.parameters.contains_key(&param) {
+            camera_state.parameters.insert(param, Box::new(value));
+            Ok(())
+        } else {
+            Err(PvcamError::ParamNotSupported(param))
+        }
+    }
+}

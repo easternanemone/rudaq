@@ -1,7 +1,12 @@
-//! Photometrics PVCAM camera driver (PrimeBSI)
+//! Photometrics PVCAM camera driver V1 (PrimeBSI)
 //!
-//! This module provides an `Instrument` implementation for Photometrics cameras
-//! using the PVCAM SDK.
+//! This module provides a V1 `Instrument` implementation for Photometrics cameras
+//! using the PVCAM SDK. This V1 implementation broadcasts frame statistics (mean, min, max)
+//! as scalar DataPoints.
+//!
+//! **Note**: Image viewing is not supported in V1 instruments. For full image data
+//! support, use the V2 PVCAM implementation (`pvcam_v2` type) which natively broadcasts
+//! `Measurement::Image` data. V2 integration is planned for Phase 3 (bd-51).
 //!
 //! ## Configuration
 //!
@@ -19,20 +24,21 @@
 
 use crate::{
     config::Settings,
-    core::{DataPoint, Instrument, InstrumentCommand, ImageData, PixelBuffer},
+    core::{DataPoint, Instrument, InstrumentCommand},
     measurement::InstrumentMeasurement,
 };
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use log::{info, warn};
 use std::sync::Arc;
-use daq_core::Measurement;
 
-/// PVCAM camera instrument implementation
+/// PVCAM camera instrument implementation (V1)
+///
+/// This V1 implementation broadcasts frame statistics only. For image data support,
+/// use the V2 PVCAM implementation.
 #[derive(Clone)]
 pub struct PVCAMCamera {
     id: String,
-    // Removed sender field - using InstrumentMeasurement with DataDistributor
     camera_name: String,
     exposure_ms: f64,
     measurement: Option<InstrumentMeasurement>,
@@ -43,7 +49,6 @@ impl PVCAMCamera {
     pub fn new(id: &str) -> Self {
         Self {
             id: id.to_string(),
-            // No sender field
             camera_name: "PrimeBSI".to_string(),
             exposure_ms: 100.0,
             measurement: None,
@@ -127,7 +132,6 @@ impl Instrument for PVCAMCamera {
         // Create broadcast channel with configured capacity
         let capacity = settings.application.broadcast_channel_capacity;
         let measurement = InstrumentMeasurement::new(capacity, self.id.clone());
-        // No sender field
         self.measurement = Some(measurement.clone());
 
         // Spawn acquisition task
@@ -159,30 +163,18 @@ impl Instrument for PVCAMCamera {
 
                 frame_count += 1;
 
-                // TODO: Image broadcasting requires V2 Measurement infrastructure
-                // The PixelBuffer::U16 storage is ready but needs DataDistributor<Measurement>
-                // For now, continue with statistics-only broadcasting
-                //
-                // Future implementation:
-                // let image_data = ImageData {
-                //     timestamp,
-                //     channel: format!("{}_image", instrument.id),
-                //     width: 512,
-                //     height: 512,
-                //     pixels: PixelBuffer::U16(frame_data),  // 4× memory savings!
-                //     unit: "counts".to_string(),
-                //     metadata: Some(serde_json::json!({...})),
-                // };
-                // measurement.broadcast_measurement(Arc::new(Measurement::Image(image_data))).await;
-
                 // Send frame statistics as data points
+                // Use instrument ID as channel name for default plot compatibility
                 let dp_mean = DataPoint {
                     timestamp,
                     instrument_id: instrument.id.clone(),
-                    channel: "mean_intensity".to_string(),
+                    channel: instrument.id.clone(), // Use ID as channel for GUI plot
                     value: mean,
                     unit: "counts".to_string(),
-                    metadata: Some(serde_json::json!({"frame": frame_count})),
+                    metadata: Some(serde_json::json!({
+                        "frame": frame_count,
+                        "stat_type": "mean"
+                    })),
                 };
 
                 let dp_min = DataPoint {

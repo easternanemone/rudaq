@@ -759,6 +759,12 @@ pub trait Instrument: Send + Sync {
     async fn handle_command(&mut self, _command: InstrumentCommand) -> anyhow::Result<()> {
         Ok(())
     }
+    
+    /// Set the V2 data distributor for broadcasting original measurements.
+    /// Only V2InstrumentAdapter implements this; default is no-op.
+    fn set_v2_data_distributor(&mut self, _distributor: std::sync::Arc<crate::measurement::DataDistributor<std::sync::Arc<daq_core::Measurement>>>) {
+        // Default: no-op for V1 instruments
+    }
 }
 
 /// Trait for a data processor.

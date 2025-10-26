@@ -76,11 +76,13 @@ num_axes = 3
 polling_rate_hz = 5.0
 
 [instruments.pvcam]
-type = "pvcam"
+type = "pvcam_v2"  # V2 enables image viewing in GUI
 name = "Photometrics PrimeBSI Camera"
 camera_name = "PMPrimeBSI"
 exposure_ms = 100.0
-frame_rate_hz = 10.0
+roi = [0, 0, 2048, 2048]  # [x, y, width, height]
+binning = [1, 1]  # [x_bin, y_bin]
+polling_rate_hz = 10.0  # Renamed from frame_rate_hz for consistency
 
 # Configuration for data processing pipelines
 # Each key under [processors] corresponds to an instrument ID.
@@ -90,3 +92,59 @@ mock = [
   { type = "iir", filter_type = "Lowpass", f0 = 50.0, fs = 1000.0 },
   { type = "fft", window_size = 1024, overlap = 512, sampling_rate = 1000.0 }
 ]
+
+# =============================================================================
+# V3 Instruments (Phase 3) - EXPERIMENTAL
+# =============================================================================
+# V3 instruments use the new architecture with trait specialization and
+# the InstrumentManagerV3 orchestration layer. Uncomment to enable.
+#
+# Note: V3 instruments are loaded separately from V1 instruments and use
+# different trait implementations. IDs must be unique across both V1 and V3.
+
+# [[instruments_v3]]
+# id = "mock_power_meter"
+# type = "MockPowerMeterV3"
+# sampling_rate = 10.0
+# wavelength_nm = 532.0
+
+# [[instruments_v3]]
+# id = "newport_pm_v3"
+# type = "Newport1830CV3"
+# port = "/dev/ttyUSB0"
+# wavelength_nm = 532.0
+# range = "auto"
+# units = "watts"
+
+# [[instruments_v3]]
+# id = "elliptec_v3"
+# type = "ElliptecELL14V3"
+# port = "/dev/ttyUSB1"
+# address = 0
+# home_position_deg = 0.0
+
+# [[instruments_v3]]
+# id = "maitai_v3"
+# type = "MaiTaiV3"
+# port = "/dev/ttyUSB2"
+# baud_rate = 9600
+# wavelength_nm = 800.0
+
+# [[instruments_v3]]
+# id = "esp300_v3"
+# type = "ESP300V3"
+# port = "/dev/ttyUSB3"
+# baud_rate = 19200
+# axis = 1
+
+# [[instruments_v3]]
+# id = "pvcam_v3"
+# type = "PVCAMV3"
+# camera_name = "PMPrimeBSI"
+# exposure_ms = 100.0
+# roi_x = 0
+# roi_y = 0
+# roi_width = 2048
+# roi_height = 2048
+# bin_x = 1
+# bin_y = 1

@@ -55,6 +55,6 @@ impl Measure for InstrumentMeasurement {
     }
 
     async fn data_stream(&self) -> Result<mpsc::Receiver<Arc<DataPoint>>> {
-        Ok(self.distributor.subscribe().await)
+        Ok(self.distributor.subscribe("instrument_measurement").await)
     }
 }

@@ -400,6 +400,7 @@ mod tests {
             },
             instruments: std::collections::HashMap::new(),
             processors: None,
+            instruments_v3: Vec::new(),
         });
 
         // When storage_arrow feature is enabled, init should return FeatureIncomplete error

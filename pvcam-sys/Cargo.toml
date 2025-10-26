@@ -1,0 +1,15 @@
+[package]
+name = "pvcam-sys"
+version = "0.1.0"
+edition = "2021"
+description = "FFI bindings for the PVCAM C SDK"
+license = "MIT OR Apache-2.0"
+
+[build-dependencies]
+bindgen = "0.69"
+
+[features]
+# Enable this feature to build against the PVCAM SDK.
+# Requires the PVCAM_SDK_DIR environment variable to be set,
+# pointing to the root directory of your PVCAM SDK installation.
+pvcam-sdk = []
