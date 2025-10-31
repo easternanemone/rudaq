@@ -30,7 +30,7 @@
 //! - Direct async calls (was: GUI → actor → instrument → actor → GUI)
 //! - Parameter validation at compile time (was: runtime JSON parsing)
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
 use std::collections::HashMap;
@@ -41,7 +41,8 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio::task::JoinHandle;
 
 use super::pvcam_sdk::{
-    AcquisitionGuard, CameraHandle, Frame, MockPvcamSdk, PvcamSdk, RealPvcamSdk, TriggerMode,
+    AcquisitionGuard, CameraHandle, Frame, MockPvcamSdk, PvcamParam, PvcamSdk, PxRegion,
+    RealPvcamSdk, TriggerMode,
 };
 use crate::core_v3::{
     Camera, Command, ImageData, ImageMetadata, Instrument, InstrumentState, Measurement,
@@ -210,6 +211,178 @@ impl PVCAMCameraV3 {
         }
     }
 
+    fn roi_to_region(roi: &Roi, binning: (u32, u32)) -> Result<PxRegion> {
+        if roi.width == 0 || roi.height == 0 {
+            return Err(anyhow!("ROI width and height must be greater than zero"));
+        }
+        if binning.0 == 0 || binning.1 == 0 {
+            return Err(anyhow!("Binning values must be greater than zero"));
+        }
+
+        let s2 = roi
+            .x
+            .checked_add(roi.width.saturating_sub(1))
+            .ok_or_else(|| anyhow!("ROI width causes overflow"))?;
+        let p2 = roi
+            .y
+            .checked_add(roi.height.saturating_sub(1))
+            .ok_or_else(|| anyhow!("ROI height causes overflow"))?;
+
+        Ok(PxRegion {
+            s1: roi.x as u16,
+            s2: s2 as u16,
+            sbin: binning.0 as u16,
+            p1: roi.y as u16,
+            p2: p2 as u16,
+            pbin: binning.1 as u16,
+        })
+    }
+
+    fn region_to_roi(region: PxRegion) -> Result<(Roi, (u32, u32))> {
+        if region.sbin == 0 || region.pbin == 0 {
+            return Err(anyhow!("Hardware reported zero binning which is invalid"));
+        }
+
+        let width = region
+            .s2
+            .checked_sub(region.s1)
+            .ok_or_else(|| anyhow!("Invalid ROI region: s2 < s1"))?
+            .saturating_add(1) as u32;
+        let height = region
+            .p2
+            .checked_sub(region.p1)
+            .ok_or_else(|| anyhow!("Invalid ROI region: p2 < p1"))?
+            .saturating_add(1) as u32;
+
+        let roi = Roi {
+            x: region.s1 as u32,
+            y: region.p1 as u32,
+            width,
+            height,
+        };
+        let binning = (region.sbin as u32, region.pbin as u32);
+        Ok((roi, binning))
+    }
+
+    fn exposure_to_u16(ms: f64) -> Result<u16> {
+        if ms <= 0.0 {
+            return Err(anyhow!("Exposure must be positive"));
+        }
+        let rounded = ms.round();
+        if !(0.0..=u16::MAX as f64).contains(&rounded) {
+            return Err(anyhow!("Exposure {}ms out of hardware range", ms));
+        }
+        Ok(rounded as u16)
+    }
+
+    fn parse_trigger_mode(value: &str) -> Result<TriggerMode> {
+        TriggerMode::from_str(value).ok_or_else(|| {
+            anyhow!(
+                "Unsupported trigger mode '{}'. Expected one of timed, trigger_first, strobed, bulb, software_edge",
+                value
+            )
+        })
+    }
+
+    fn trigger_mode_to_string(mode_value: u16) -> Result<String> {
+        let mode = TriggerMode::from_u16(mode_value)
+            .ok_or_else(|| anyhow!("Unknown trigger mode value {}", mode_value))?;
+        Ok(mode.as_str().to_string())
+    }
+
+    fn apply_roi_to_hardware(
+        &self,
+        handle: &CameraHandle,
+        roi: Roi,
+        binning: (u32, u32),
+    ) -> Result<(Roi, (u32, u32))> {
+        let region = Self::roi_to_region(&roi, binning)?;
+        self.sdk
+            .set_param_region(handle, PvcamParam::Roi, region)
+            .with_context(|| "Failed to apply ROI to PVCAM")?;
+        let confirmed = self
+            .sdk
+            .get_param_region(handle, PvcamParam::Roi)
+            .with_context(|| "Failed to read back ROI from PVCAM")?;
+        Self::region_to_roi(confirmed)
+    }
+
+    async fn refresh_parameters_from_hardware(&mut self, handle: &CameraHandle) -> Result<()> {
+        let exposure_hw =
+            self.sdk
+                .get_param_u16(handle, PvcamParam::Exposure)
+                .with_context(|| "Failed to read exposure from PVCAM")? as f64;
+        self.exposure_ms.write().await.set(exposure_hw).await?;
+
+        let gain_hw = self
+            .sdk
+            .get_param_u16(handle, PvcamParam::Gain)
+            .with_context(|| "Failed to read gain from PVCAM")? as u32;
+        self.gain.write().await.set(gain_hw).await?;
+
+        let region = self
+            .sdk
+            .get_param_region(handle, PvcamParam::Roi)
+            .with_context(|| "Failed to read ROI from PVCAM")?;
+        let (roi_hw, binning_hw) = Self::region_to_roi(region)?;
+        self.roi.write().await.set(roi_hw).await?;
+        self.binning.write().await.set(binning_hw).await?;
+        self.sensor_size = (roi_hw.width, roi_hw.height);
+
+        let trigger_hw = self
+            .sdk
+            .get_param_u16(handle, PvcamParam::ExposureMode)
+            .with_context(|| "Failed to read trigger mode from PVCAM")?;
+        let trigger_str = Self::trigger_mode_to_string(trigger_hw)?;
+        self.trigger_mode.write().await.set(trigger_str).await?;
+
+        Ok(())
+    }
+
+    async fn set_gain(&mut self, gain: u32) -> Result<()> {
+        {
+            let param = self.gain.read().await;
+            param.constraints().validate(&gain)?;
+        }
+
+        if let Some(ref handle) = self.camera_handle {
+            self.sdk
+                .set_param_u16(handle, PvcamParam::Gain, gain as u16)
+                .with_context(|| "Failed to write gain to PVCAM")?;
+            let confirmed =
+                self.sdk
+                    .get_param_u16(handle, PvcamParam::Gain)
+                    .with_context(|| "Failed to verify gain from PVCAM")? as u32;
+            self.gain.write().await.set(confirmed).await?;
+        } else {
+            self.gain.write().await.set(gain).await?;
+        }
+        Ok(())
+    }
+
+    async fn set_trigger_mode_internal(&mut self, mode: &str) -> Result<()> {
+        let trigger_mode = Self::parse_trigger_mode(mode)?;
+
+        if let Some(ref handle) = self.camera_handle {
+            self.sdk
+                .set_param_u16(handle, PvcamParam::ExposureMode, trigger_mode.as_u16())
+                .with_context(|| "Failed to write trigger mode to PVCAM")?;
+            self.trigger_mode
+                .write()
+                .await
+                .set(trigger_mode.as_str().to_string())
+                .await?;
+        } else {
+            self.trigger_mode
+                .write()
+                .await
+                .set(trigger_mode.as_str().to_string())
+                .await?;
+        }
+
+        Ok(())
+    }
+
     /// Get diagnostic frame counters
     pub fn frame_stats(&self) -> (u64, u64, u32) {
         (
@@ -265,7 +438,6 @@ impl PVCAMCameraV3 {
                 }
 
                 // Get current parameters
-                let exposure = exposure_ms.read().await.get();
                 let current_roi = roi.read().await.get();
                 let current_binning = binning.read().await.get();
                 let current_gain = gain.read().await.get();
@@ -309,11 +481,6 @@ impl PVCAMCameraV3 {
             task.abort();
         }
     }
-
-    /// Convert trigger mode string to SDK enum
-    fn parse_trigger_mode(mode: &str) -> TriggerMode {
-        TriggerMode::from_str(mode).unwrap_or(TriggerMode::Timed)
-    }
 }
 
 #[async_trait]
@@ -351,6 +518,9 @@ impl Instrument for PVCAMCameraV3 {
         roi_param.set(default_roi).await?;
         drop(roi_param);
 
+        self.refresh_parameters_from_hardware(&handle)
+            .await
+            .with_context(|| "Failed to synchronize PVCAM parameters during initialization")?;
         self.camera_handle = Some(handle);
         self.state = InstrumentState::Idle;
 
@@ -452,18 +622,18 @@ impl Instrument for PVCAMCameraV3 {
                     }
                     "gain" => {
                         let val: u32 = serde_json::from_value(value)?;
-                        self.gain.write().await.set(val).await?;
+                        self.set_gain(val).await?;
                     }
                     "trigger_mode" => {
                         let val: String = serde_json::from_value(value)?;
-                        self.trigger_mode.write().await.set(val).await?;
+                        self.set_trigger_mode_internal(&val).await?;
                     }
                     _ => return Ok(Response::Error(format!("Unknown parameter: {}", name))),
                 }
                 Ok(Response::Ok)
             }
 
-            Command::Custom(cmd, data) => match cmd.as_str() {
+            Command::Custom(cmd, _data) => match cmd.as_str() {
                 "get_frame_stats" => {
                     let (total, dropped, last) = self.frame_stats();
                     let stats = serde_json::json!({
@@ -491,15 +661,25 @@ impl Instrument for PVCAMCameraV3 {
 #[async_trait]
 impl Camera for PVCAMCameraV3 {
     async fn set_exposure(&mut self, ms: f64) -> Result<()> {
-        self.exposure_ms.write().await.set(ms).await?;
-
-        // Apply to SDK if camera is open (using set_param_u16)
-        if let Some(ref handle) = self.camera_handle {
-            use super::pvcam_sdk::PvcamParam;
-            self.sdk
-                .set_param_u16(handle, PvcamParam::Exposure, ms as u16)?;
+        {
+            let param = self.exposure_ms.read().await;
+            param.constraints().validate(&ms)?;
         }
 
+        if let Some(ref handle) = self.camera_handle {
+            let hardware_value = Self::exposure_to_u16(ms)?;
+            self.sdk
+                .set_param_u16(handle, PvcamParam::Exposure, hardware_value)
+                .with_context(|| "Failed to write exposure to PVCAM")?;
+            let confirmed = self
+                .sdk
+                .get_param_u16(handle, PvcamParam::Exposure)
+                .with_context(|| "Failed to verify exposure from PVCAM")?
+                as f64;
+            self.exposure_ms.write().await.set(confirmed).await?;
+        } else {
+            self.exposure_ms.write().await.set(ms).await?;
+        }
         Ok(())
     }
 
@@ -517,20 +697,13 @@ impl Camera for PVCAMCameraV3 {
             ));
         }
 
-        self.roi.write().await.set(roi).await?;
-
-        // Apply to SDK if camera is open (using set_param_region)
         if let Some(ref handle) = self.camera_handle {
-            use super::pvcam_sdk::{PvcamParam, PxRegion};
-            let region = PxRegion {
-                s1: roi.x as u16,
-                s2: (roi.x + roi.width - 1) as u16,
-                sbin: 1, // Will be set via binning
-                p1: roi.y as u16,
-                p2: (roi.y + roi.height - 1) as u16,
-                pbin: 1, // Will be set via binning
-            };
-            self.sdk.set_param_region(handle, PvcamParam::Roi, region)?;
+            let binning = self.binning.read().await.get();
+            let (roi_actual, binning_actual) = self.apply_roi_to_hardware(handle, roi, binning)?;
+            self.roi.write().await.set(roi_actual).await?;
+            self.binning.write().await.set(binning_actual).await?;
+        } else {
+            self.roi.write().await.set(roi).await?;
         }
 
         Ok(())
@@ -541,10 +714,20 @@ impl Camera for PVCAMCameraV3 {
     }
 
     async fn set_binning(&mut self, h: u32, v: u32) -> Result<()> {
-        self.binning.write().await.set((h, v)).await?;
+        if h == 0 || v == 0 {
+            return Err(anyhow!("Binning values must be greater than zero"));
+        }
 
-        // Note: Binning is part of PxRegion in PVCAM SDK
-        // Would need to re-set the entire ROI to apply binning changes
+        if let Some(ref handle) = self.camera_handle {
+            let roi_current = self.roi.read().await.get();
+            let (roi_actual, binning_actual) =
+                self.apply_roi_to_hardware(handle, roi_current, (h, v))?;
+            self.roi.write().await.set(roi_actual).await?;
+            self.binning.write().await.set(binning_actual).await?;
+        } else {
+            self.binning.write().await.set((h, v)).await?;
+        }
+
         Ok(())
     }
 
@@ -567,23 +750,28 @@ impl Camera for PVCAMCameraV3 {
         let roi = self.roi.read().await.get();
         let binning = self.binning.read().await.get();
 
-        use super::pvcam_sdk::{PvcamParam, PxRegion};
-
         // Set exposure
-        self.sdk
-            .set_param_u16(&handle, PvcamParam::Exposure, exposure as u16)?;
+        self.sdk.set_param_u16(
+            &handle,
+            PvcamParam::Exposure,
+            Self::exposure_to_u16(exposure)?,
+        )?;
 
         // Set ROI with binning
-        let region = PxRegion {
-            s1: roi.x as u16,
-            s2: (roi.x + roi.width - 1) as u16,
-            sbin: binning.0 as u16,
-            p1: roi.y as u16,
-            p2: (roi.y + roi.height - 1) as u16,
-            pbin: binning.1 as u16,
-        };
+        let region = Self::roi_to_region(&roi, binning)?;
         self.sdk
             .set_param_region(&handle, PvcamParam::Roi, region)?;
+
+        // Apply gain
+        let gain_value = self.gain.read().await.get();
+        self.sdk
+            .set_param_u16(&handle, PvcamParam::Gain, gain_value as u16)?;
+
+        // Apply trigger mode
+        let trigger_value = self.trigger_mode.read().await.get();
+        let trigger_mode = Self::parse_trigger_mode(&trigger_value)?;
+        self.sdk
+            .set_param_u16(&handle, PvcamParam::ExposureMode, trigger_mode.as_u16())?;
 
         // Start acquisition (returns receiver and guard)
         let (receiver, guard) = self.sdk.clone().start_acquisition(handle)?;
@@ -779,5 +967,83 @@ mod tests {
 
         // Valid exposure should work
         camera.set_exposure(1000.0).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_pvcam_v3_gain_command_path() {
+        let mut camera = PVCAMCameraV3::new("test_pvcam", "PrimeBSI");
+        camera.initialize().await.unwrap();
+
+        camera
+            .execute(Command::SetParameter(
+                "gain".to_string(),
+                serde_json::json!(3),
+            ))
+            .await
+            .unwrap();
+
+        let response = camera
+            .execute(Command::GetParameter("gain".to_string()))
+            .await
+            .unwrap();
+
+        match response {
+            Response::Parameter(val) => {
+                let gain: u32 = serde_json::from_value(val).unwrap();
+                assert_eq!(gain, 3);
+            }
+            other => panic!("Expected gain parameter response, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_pvcam_v3_trigger_mode_updates() {
+        let mut camera = PVCAMCameraV3::new("test_pvcam", "PrimeBSI");
+        camera.initialize().await.unwrap();
+
+        camera
+            .execute(Command::SetParameter(
+                "trigger_mode".to_string(),
+                serde_json::json!("strobed"),
+            ))
+            .await
+            .unwrap();
+
+        let response = camera
+            .execute(Command::GetParameter("trigger_mode".to_string()))
+            .await
+            .unwrap();
+
+        match response {
+            Response::Parameter(val) => {
+                let mode: String = serde_json::from_value(val).unwrap();
+                assert_eq!(mode, "strobed");
+            }
+            other => panic!("Expected trigger_mode parameter response, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_pvcam_v3_set_binning_updates_parameters() {
+        let mut camera = PVCAMCameraV3::new("test_pvcam", "PrimeBSI");
+        camera.initialize().await.unwrap();
+
+        camera.set_binning(2, 2).await.unwrap();
+
+        let binning = camera.binning.read().await.get();
+        assert_eq!(binning, (2, 2));
+
+        let response = camera
+            .execute(Command::GetParameter("roi".to_string()))
+            .await
+            .unwrap();
+        match response {
+            Response::Parameter(val) => {
+                let roi: Roi = serde_json::from_value(val).unwrap();
+                assert_eq!(roi.x, 0);
+                assert!(roi.width >= 1);
+            }
+            other => panic!("Expected ROI parameter response, got {:?}", other),
+        }
     }
 }

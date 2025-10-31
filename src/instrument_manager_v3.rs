@@ -496,21 +496,32 @@ impl InstrumentManagerV3 {
                 }
 
                 // Await task completion with timeout
-                match tokio::time::timeout(std::time::Duration::from_secs(5), handle.task_handle)
-                    .await
-                {
-                    Ok(Ok(Ok(()))) => {
-                        tracing::info!("Instrument '{}' shutdown successfully", id);
-                    }
-                    Ok(Ok(Err(e))) => {
-                        tracing::error!("Instrument '{}' shutdown error: {}", id, e);
-                    }
-                    Ok(Err(e)) => {
-                        tracing::error!("Instrument '{}' task panicked: {}", id, e);
-                    }
+                let timeout_duration = std::time::Duration::from_secs(5);
+                let mut task_handle = handle.task_handle;
+                tokio::pin!(task_handle);
+
+                match tokio::time::timeout(timeout_duration, &mut task_handle).await {
+                    Ok(join_result) => match join_result {
+                        Ok(Ok(())) => {
+                            tracing::info!("Instrument '{}' shutdown successfully", id);
+                        }
+                        Ok(Err(e)) => {
+                            tracing::error!("Instrument '{}' shutdown error: {}", id, e);
+                        }
+                        Err(e) => {
+                            tracing::error!("Instrument '{}' task panicked: {}", id, e);
+                        }
+                    },
                     Err(_) => {
                         tracing::warn!("Instrument '{}' shutdown timeout (5s), aborting", id);
-                        // Task aborts automatically when JoinHandle drops
+                        task_handle.as_ref().get_ref().abort();
+                        if let Err(e) = task_handle.await {
+                            tracing::debug!(
+                                "Instrument '{}' task aborted with join error: {}",
+                                id,
+                                e
+                            );
+                        }
                     }
                 }
             }
@@ -532,6 +543,8 @@ mod tests {
     use crate::core_v3::{InstrumentState, ParameterBase, PixelBuffer};
     use crate::instruments_v2::MockPowerMeterV3;
     use chrono::Utc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, OnceLock};
     use tokio::time::{timeout, Duration};
 
     // Mock instrument for testing
@@ -756,5 +769,109 @@ mod tests {
         }
 
         forwarder.abort();
+    }
+
+    static BLOCKING_DROP_FLAG: OnceLock<Arc<AtomicBool>> = OnceLock::new();
+
+    struct BlockingShutdownInstrument {
+        id: String,
+        tx: broadcast::Sender<V3Measurement>,
+        params: HashMap<String, Box<dyn ParameterBase>>,
+        state: InstrumentState,
+        drop_flag: Arc<AtomicBool>,
+    }
+
+    impl BlockingShutdownInstrument {
+        fn new(id: &str, drop_flag: Arc<AtomicBool>) -> Self {
+            let (tx, _rx) = broadcast::channel(1);
+            Self {
+                id: id.to_string(),
+                tx,
+                params: HashMap::new(),
+                state: InstrumentState::Idle,
+                drop_flag,
+            }
+        }
+
+        fn factory(id: &str, cfg: &serde_json::Value) -> Result<Box<dyn Instrument>> {
+            let flag = BLOCKING_DROP_FLAG
+                .get()
+                .expect("drop flag not initialized")
+                .clone();
+            let _ = cfg; // unused
+            Ok(Box::new(Self::new(id, flag)))
+        }
+    }
+
+    impl Drop for BlockingShutdownInstrument {
+        fn drop(&mut self) {
+            self.drop_flag.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Instrument for BlockingShutdownInstrument {
+        fn id(&self) -> &str {
+            &self.id
+        }
+
+        fn state(&self) -> InstrumentState {
+            self.state
+        }
+
+        async fn initialize(&mut self) -> Result<()> {
+            self.state = InstrumentState::Idle;
+            Ok(())
+        }
+
+        async fn shutdown(&mut self) -> Result<()> {
+            futures::future::pending::<()>().await;
+            #[allow(unreachable_code)]
+            Ok(())
+        }
+
+        fn data_channel(&self) -> broadcast::Receiver<V3Measurement> {
+            self.tx.subscribe()
+        }
+
+        async fn execute(&mut self, _cmd: Command) -> Result<Response> {
+            Ok(Response::Ok)
+        }
+
+        fn parameters(&self) -> &HashMap<String, Box<dyn ParameterBase>> {
+            &self.params
+        }
+
+        fn parameters_mut(&mut self) -> &mut HashMap<String, Box<dyn ParameterBase>> {
+            &mut self.params
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_shutdown_all_aborts_blocking_instrument() {
+        let drop_flag = BLOCKING_DROP_FLAG.get_or_init(|| Arc::new(AtomicBool::new(false)));
+        drop_flag.store(false, Ordering::SeqCst);
+        let drop_flag = drop_flag.clone();
+
+        let mut manager = InstrumentManagerV3::new();
+        manager.register_factory("BlockingInstrument", BlockingShutdownInstrument::factory);
+
+        let cfg = InstrumentConfigV3 {
+            id: "blocking".to_string(),
+            type_name: "BlockingInstrument".to_string(),
+            settings: serde_json::json!({}),
+        };
+
+        manager.spawn_instrument(&cfg).await.unwrap();
+
+        let mut shutdown_fut = manager.shutdown_all();
+        tokio::pin!(shutdown_fut);
+        tokio::time::advance(Duration::from_secs(6)).await;
+        shutdown_fut.as_mut().await.unwrap();
+
+        assert!(
+            drop_flag.load(Ordering::SeqCst),
+            "Blocking instrument should be aborted and dropped"
+        );
     }
 }
