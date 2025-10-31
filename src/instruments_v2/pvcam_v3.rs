@@ -109,6 +109,13 @@ pub struct PVCAMCameraV3 {
     dropped_frames: Arc<AtomicU64>,
     last_frame_number: Arc<AtomicU32>,
     acquisition_start_time: Arc<tokio::sync::Mutex<Option<Instant>>>,
+
+    // Configuration overrides parsed from TOML (applied during initialize)
+    desired_exposure_ms: Option<f64>,
+    desired_roi: Option<Roi>,
+    desired_binning: Option<(u32, u32)>,
+    desired_gain: Option<u32>,
+    desired_trigger_mode: Option<String>,
 }
 
 impl PVCAMCameraV3 {
@@ -208,7 +215,103 @@ impl PVCAMCameraV3 {
             dropped_frames: Arc::new(AtomicU64::new(0)),
             last_frame_number: Arc::new(AtomicU32::new(0)),
             acquisition_start_time: Arc::new(tokio::sync::Mutex::new(None)),
+            desired_exposure_ms: None,
+            desired_roi: None,
+            desired_binning: None,
+            desired_gain: None,
+            desired_trigger_mode: None,
         }
+    }
+
+    /// Factory helper used by InstrumentManagerV3 to construct camera from JSON config
+    pub fn from_config(id: &str, cfg: &serde_json::Value) -> Result<Box<dyn Instrument>> {
+        let camera_name = cfg
+            .get("camera_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("PrimeBSI");
+
+        let requested_mode = cfg
+            .get("sdk_mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("mock")
+            .to_ascii_lowercase();
+
+        let mut sdk_kind = match requested_mode.as_str() {
+            "real" => PvcamSdkKind::Real,
+            "mock" => PvcamSdkKind::Mock,
+            other => {
+                log::warn!(
+                    "Unknown sdk_mode '{}' for PVCAM '{}', defaulting to mock",
+                    other,
+                    id
+                );
+                PvcamSdkKind::Mock
+            }
+        };
+
+        if matches!(sdk_kind, PvcamSdkKind::Real) && !cfg!(feature = "pvcam_hardware") {
+            log::warn!(
+                "PVCAM '{}' requested sdk_mode=real but pvcam_hardware feature is disabled; falling back to mock SDK",
+                id
+            );
+            sdk_kind = PvcamSdkKind::Mock;
+        }
+
+        let mut camera = PVCAMCameraV3::with_sdk(id.to_string(), camera_name.to_string(), sdk_kind);
+
+        if let Some(exposure) = cfg.get("exposure_ms").and_then(|v| v.as_f64()) {
+            camera.desired_exposure_ms = Some(exposure);
+        }
+
+        if let Some(roi_array) = cfg.get("roi").and_then(|v| v.as_array()) {
+            if roi_array.len() == 4 {
+                let x = roi_array[0].as_u64();
+                let y = roi_array[1].as_u64();
+                let width = roi_array[2].as_u64();
+                let height = roi_array[3].as_u64();
+
+                if let (Some(x), Some(y), Some(width), Some(height)) = (x, y, width, height) {
+                    camera.desired_roi = Some(Roi {
+                        x: x as u32,
+                        y: y as u32,
+                        width: width as u32,
+                        height: height as u32,
+                    });
+                } else {
+                    log::warn!(
+                        "Invalid ROI values for PVCAM '{}'; expected four non-negative integers",
+                        id
+                    );
+                }
+            } else {
+                log::warn!("ROI for PVCAM '{}' must contain exactly four values", id);
+            }
+        }
+
+        if let Some(bin_array) = cfg.get("binning").and_then(|v| v.as_array()) {
+            if bin_array.len() == 2 {
+                if let (Some(h), Some(v)) = (bin_array[0].as_u64(), bin_array[1].as_u64()) {
+                    camera.desired_binning = Some((h as u32, v as u32));
+                } else {
+                    log::warn!(
+                        "Invalid binning values for PVCAM '{}'; expected two non-negative integers",
+                        id
+                    );
+                }
+            } else {
+                log::warn!("Binning for PVCAM '{}' must contain exactly two values", id);
+            }
+        }
+
+        if let Some(gain_value) = cfg.get("gain").and_then(|v| v.as_u64()) {
+            camera.desired_gain = Some(gain_value as u32);
+        }
+
+        if let Some(trigger) = cfg.get("trigger_mode").and_then(|v| v.as_str()) {
+            camera.desired_trigger_mode = Some(trigger.to_string());
+        }
+
+        Ok(Box::new(camera))
     }
 
     fn roi_to_region(roi: &Roi, binning: (u32, u32)) -> Result<PxRegion> {
@@ -522,6 +625,37 @@ impl Instrument for PVCAMCameraV3 {
             .await
             .with_context(|| "Failed to synchronize PVCAM parameters during initialization")?;
         self.camera_handle = Some(handle);
+
+        if let Some((h, v)) = self.desired_binning.take() {
+            self.set_binning(h, v)
+                .await
+                .with_context(|| "Failed to apply configured binning to PVCAM")?;
+        }
+
+        if let Some(roi) = self.desired_roi.take() {
+            self.set_roi(roi)
+                .await
+                .with_context(|| "Failed to apply configured ROI to PVCAM")?;
+        }
+
+        if let Some(gain) = self.desired_gain.take() {
+            self.set_gain(gain)
+                .await
+                .with_context(|| "Failed to apply configured gain to PVCAM")?;
+        }
+
+        if let Some(trigger) = self.desired_trigger_mode.take() {
+            self.set_trigger_mode_internal(&trigger)
+                .await
+                .with_context(|| "Failed to apply configured trigger mode to PVCAM")?;
+        }
+
+        if let Some(exposure) = self.desired_exposure_ms.take() {
+            self.set_exposure(exposure)
+                .await
+                .with_context(|| "Failed to apply configured exposure to PVCAM")?;
+        }
+
         self.state = InstrumentState::Idle;
 
         log::info!(

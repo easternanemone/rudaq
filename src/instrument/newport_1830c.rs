@@ -10,12 +10,19 @@
 //! ```toml
 //! [instruments.power_meter_1]
 //! type = "newport_1830c"
-//! port = "/dev/ttyUSB0"
+//! port = "/dev/ttyS0"  # Native RS-232 port
 //! baud_rate = 9600
-//! wavelength = 1550.0  # nm
-//! range = 0  # 0=autorange
-//! units = 0  # 0=Watts, 1=dBm, 2=dB, 3=REL
+//! attenuator = 0  # 0=off, 1=on
+//! filter = 2      # 1=Slow, 2=Medium, 3=Fast
 //! ```
+//!
+//! ## Important Notes
+//!
+//! - Newport 1830-C uses SIMPLE single-letter commands, NOT SCPI
+//! - Does NOT support wavelength or units configuration via commands
+//! - Does NOT require hardware flow control (unlike ESP300)
+//! - Commands: D? (power), A0/A1 (attenuator), F1/F2/F3 (filter)
+//! - Terminator: LF (\n) only
 
 #[cfg(feature = "instrument_serial")]
 use crate::adapters::serial::SerialAdapter;
@@ -37,14 +44,10 @@ pub struct Newport1830C {
     id: String,
     #[cfg(feature = "instrument_serial")]
     adapter: Option<SerialAdapter>,
-    // Removed sender field - using InstrumentMeasurement with DataDistributor
     measurement: Option<InstrumentMeasurement>,
-    // Track current units for measurement labeling
-    current_units: String,
     // Track current parameter values for validation and state management
-    current_wavelength: Option<f64>,
-    current_range: Option<i32>,
-    current_units_code: Option<i32>,
+    current_attenuator: Option<i32>,
+    current_filter: Option<i32>,
 }
 
 impl Newport1830C {
@@ -54,12 +57,9 @@ impl Newport1830C {
             id: id.to_string(),
             #[cfg(feature = "instrument_serial")]
             adapter: None,
-            // No sender field
             measurement: None,
-            current_units: "W".to_string(),
-            current_wavelength: None,
-            current_range: None,
-            current_units_code: None,
+            current_attenuator: None,
+            current_filter: None,
         }
     }
 
@@ -78,47 +78,61 @@ impl Newport1830C {
             adapter,
             &self.id,
             command,
-            "\r\n",
-            Duration::from_secs(1),
+            "\n", // LF terminator only
+            Duration::from_millis(500),
             b'\n',
         )
         .await
     }
-    
+
+    /// Send a configuration command without waiting for response
+    /// Newport 1830-C doesn't respond to configuration commands like A0, A1, F1, F2, F3
+    #[cfg(feature = "instrument_serial")]
+    async fn send_config_command(&self, command: &str) -> Result<()> {
+        use crate::adapters::Adapter;
+
+        let mut adapter = self
+            .adapter
+            .as_ref()
+            .ok_or_else(|| anyhow!("Not connected to Newport 1830-C '{}'", self.id))?
+            .clone();
+
+        let command_with_term = format!("{}\n", command);
+        adapter
+            .write(command_with_term.into_bytes())
+            .await
+            .with_context(|| format!("Failed to write command '{}' to Newport 1830-C", command))?;
+
+        // Small delay to allow meter to process command
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        
+        Ok(())
+    }
+
     /// Parse power measurement response from meter
-    /// Handles scientific notation, whitespace, and error responses
+    /// Handles scientific notation like "5E-9", "+.75E-9"
     fn parse_power_response(&self, response: &str) -> Result<f64> {
         let trimmed = response.trim();
-        
-        // Check for error responses
+
+        // Check for error responses or empty
+        if trimmed.is_empty() {
+            return Err(anyhow!("Empty power response"));
+        }
         if trimmed.contains("ERR") || trimmed.contains("OVER") || trimmed.contains("UNDER") {
             return Err(anyhow!("Meter error response: {}", trimmed));
         }
-        
-        // Parse the value (handles scientific notation like "1.234E-03")
-        trimmed.parse::<f64>()
+
+        // Parse the value (handles scientific notation)
+        trimmed
+            .parse::<f64>()
             .with_context(|| format!("Failed to parse power response: '{}'", trimmed))
     }
 
-    /// Validate wavelength is within typical Newport 1830-C range
-    /// Range depends on photodetector model (typically 400-1700nm)
-    fn validate_wavelength(nm: f64) -> Result<()> {
-        if nm < 400.0 || nm > 1700.0 {
+    /// Validate attenuator code: 0=off, 1=on
+    fn validate_attenuator(code: i32) -> Result<()> {
+        if code < 0 || code > 1 {
             Err(anyhow!(
-                "Wavelength {} nm out of range (400-1700 nm). Range depends on photodetector model.",
-                nm
-            ))
-        } else {
-            Ok(())
-        }
-    }
-
-    /// Validate range code
-    /// Valid codes: 0 (autorange), 1-8 (manual ranges)
-    fn validate_range(code: i32) -> Result<()> {
-        if code < 0 || code > 8 {
-            Err(anyhow!(
-                "Range code {} invalid. Valid codes: 0 (auto), 1-8 (manual ranges)",
+                "Attenuator code {} invalid. Valid codes: 0 (off), 1 (on)",
                 code
             ))
         } else {
@@ -126,27 +140,15 @@ impl Newport1830C {
         }
     }
 
-    /// Validate units code
-    /// Valid codes: 0=Watts, 1=dBm, 2=dB, 3=REL
-    fn validate_units(code: i32) -> Result<()> {
-        if code < 0 || code > 3 {
+    /// Validate filter code: 1=Slow, 2=Medium, 3=Fast
+    fn validate_filter(code: i32) -> Result<()> {
+        if code < 1 || code > 3 {
             Err(anyhow!(
-                "Units code {} invalid. Valid codes: 0=Watts, 1=dBm, 2=dB, 3=REL",
+                "Filter code {} invalid. Valid codes: 1 (Slow), 2 (Medium), 3 (Fast)",
                 code
             ))
         } else {
             Ok(())
-        }
-    }
-
-    /// Convert units code to string
-    fn units_code_to_string(code: i32) -> &'static str {
-        match code {
-            0 => "W",
-            1 => "dBm",
-            2 => "dB",
-            3 => "REL",
-            _ => "W",
         }
     }
 }
@@ -196,38 +198,27 @@ impl Instrument for Newport1830C {
 
         self.adapter = Some(SerialAdapter::new(port));
 
-        // Configure wavelength if specified
-        if let Some(wavelength) = instrument_config
-            .get("wavelength")
-            .and_then(|v| v.as_float())
+        // Configure attenuator if specified
+        if let Some(attenuator) = instrument_config
+            .get("attenuator")
+            .and_then(|v| v.as_integer())
         {
-            Self::validate_wavelength(wavelength)?;
-            self.send_command_async(&format!("PM:Lambda {}", wavelength))
+            let attenuator_code = attenuator as i32;
+            Self::validate_attenuator(attenuator_code)?;
+            self.send_config_command(&format!("A{}", attenuator_code))
                 .await?;
-            self.current_wavelength = Some(wavelength);
-            info!("Set wavelength to {} nm", wavelength);
+            self.current_attenuator = Some(attenuator_code);
+            info!("Set attenuator to {}", attenuator_code);
         }
 
-        // Configure range if specified
-        if let Some(range) = instrument_config.get("range").and_then(|v| v.as_integer()) {
-            let range_code = range as i32;
-            Self::validate_range(range_code)?;
-            self.send_command_async(&format!("PM:Range {}", range_code))
+        // Configure filter if specified
+        if let Some(filter) = instrument_config.get("filter").and_then(|v| v.as_integer()) {
+            let filter_code = filter as i32;
+            Self::validate_filter(filter_code)?;
+            self.send_config_command(&format!("F{}", filter_code))
                 .await?;
-            self.current_range = Some(range_code);
-            info!("Set range to {}", range_code);
-        }
-
-        // Configure units if specified
-        if let Some(units) = instrument_config.get("units").and_then(|v| v.as_integer()) {
-            let units_code = units as i32;
-            Self::validate_units(units_code)?;
-            self.send_command_async(&format!("PM:Units {}", units_code))
-                .await?;
-            self.current_units_code = Some(units_code);
-            let unit_str = Self::units_code_to_string(units_code);
-            self.current_units = unit_str.to_string();
-            info!("Set units to {}", unit_str);
+            self.current_filter = Some(filter_code);
+            info!("Set filter to {}", filter_code);
         }
 
         // Create broadcast channel with configured capacity
@@ -253,9 +244,9 @@ impl Instrument for Newport1830C {
                 // Query power measurement with retry logic
                 let mut last_error = None;
                 let mut read_success = false;
-                
+
                 for attempt in 0..3 {
-                    match instrument.send_command_async("PM:Power?").await {
+                    match instrument.send_command_async("D?").await {
                         Ok(response) => {
                             match instrument.parse_power_response(&response) {
                                 Ok(value) => {
@@ -264,7 +255,7 @@ impl Instrument for Newport1830C {
                                         instrument_id: instrument.id.clone(),
                                         channel: "power".to_string(),
                                         value,
-                                        unit: instrument.current_units.clone(),
+                                        unit: "W".to_string(),
                                         metadata: None,
                                     };
 
@@ -272,16 +263,17 @@ impl Instrument for Newport1830C {
                                         warn!("No active receivers for Newport 1830-C data");
                                         return; // Exit task if no receivers
                                     }
-                                    
+
                                     read_success = true;
                                     break; // Success, exit retry loop
                                 }
                                 Err(e) => {
                                     last_error = Some(e);
                                     if attempt < 2 {
-                                        tokio::time::sleep(
-                                            tokio::time::Duration::from_millis(100 * (attempt + 1))
-                                        ).await;
+                                        tokio::time::sleep(tokio::time::Duration::from_millis(
+                                            100 * (attempt + 1),
+                                        ))
+                                        .await;
                                     }
                                 }
                             }
@@ -289,14 +281,15 @@ impl Instrument for Newport1830C {
                         Err(e) => {
                             last_error = Some(e);
                             if attempt < 2 {
-                                tokio::time::sleep(
-                                    tokio::time::Duration::from_millis(100 * (attempt + 1))
-                                ).await;
+                                tokio::time::sleep(tokio::time::Duration::from_millis(
+                                    100 * (attempt + 1),
+                                ))
+                                .await;
                             }
                         }
                     }
                 }
-                
+
                 if !read_success {
                     if let Some(e) = last_error {
                         warn!("Failed to read from Newport 1830-C after retries: {}", e);
@@ -337,38 +330,27 @@ impl Instrument for Newport1830C {
     async fn handle_command(&mut self, command: InstrumentCommand) -> Result<()> {
         match command {
             InstrumentCommand::SetParameter(key, value) => match key.as_str() {
-                "wavelength" => {
-                    let wavelength: f64 = value
-                        .as_f64()
-                        .with_context(|| format!("Invalid wavelength value: {}", value))?;
-                    Self::validate_wavelength(wavelength)?;
-                    self.send_command_async(&format!("PM:Lambda {}", wavelength))
-                        .await?;
-                    self.current_wavelength = Some(wavelength);
-                    info!("Set Newport 1830-C wavelength to {} nm", wavelength);
-                }
-                "range" => {
-                    let range: i32 = value
+                "attenuator" => {
+                    let attenuator: i32 = value
                         .as_i64()
                         .map(|v| v as i32)
-                        .with_context(|| format!("Invalid range value: {}", value))?;
-                    Self::validate_range(range)?;
-                    self.send_command_async(&format!("PM:Range {}", range))
+                        .with_context(|| format!("Invalid attenuator value: {}", value))?;
+                    Self::validate_attenuator(attenuator)?;
+                    self.send_config_command(&format!("A{}", attenuator))
                         .await?;
-                    self.current_range = Some(range);
-                    info!("Set Newport 1830-C range to {}", range);
+                    self.current_attenuator = Some(attenuator);
+                    info!("Set Newport 1830-C attenuator to {}", attenuator);
                 }
-                "units" => {
-                    let units: i32 = value
+                "filter" => {
+                    let filter: i32 = value
                         .as_i64()
                         .map(|v| v as i32)
-                        .with_context(|| format!("Invalid units value: {}", value))?;
-                    Self::validate_units(units)?;
-                    self.send_command_async(&format!("PM:Units {}", units))
+                        .with_context(|| format!("Invalid filter value: {}", value))?;
+                    Self::validate_filter(filter)?;
+                    self.send_config_command(&format!("F{}", filter))
                         .await?;
-                    self.current_units_code = Some(units);
-                    self.current_units = Self::units_code_to_string(units).to_string();
-                    info!("Set Newport 1830-C units to {}", Self::units_code_to_string(units));
+                    self.current_filter = Some(filter);
+                    info!("Set Newport 1830-C filter to {}", filter);
                 }
                 _ => {
                     warn!("Unknown parameter '{}' for Newport 1830-C", key);
@@ -376,46 +358,33 @@ impl Instrument for Newport1830C {
             },
             InstrumentCommand::Execute(cmd, _) => {
                 if cmd == "zero" {
-                    self.send_command_async("PM:DS:Clear").await?;
-                    info!("Newport 1830-C zeroed");
+                    // Newport 1830-C has CS (Clear Status) command
+                    self.send_command_async("CS").await?;
+                    info!("Newport 1830-C status cleared");
                 }
             }
             InstrumentCommand::Capability {
                 capability,
                 operation,
-                parameters,
+                parameters: _,
             } => {
                 if capability == power_measurement_capability_id() {
                     match operation.as_str() {
                         "start_sampling" => {
                             info!("Newport 1830-C: start_sampling capability command received");
                             // Already continuously sampling in polling loop
-                            Ok(())
                         }
                         "stop_sampling" => {
                             info!("Newport 1830-C: stop_sampling capability command received");
                             // Could set a flag to pause sampling, but for now just acknowledge
-                            Ok(())
-                        }
-                        "set_range" => {
-                            if let Some(range_value) = parameters.first().and_then(|p| p.as_f64()) {
-                                let range_code = range_value as i32;
-                                self.send_command_async(&format!("PM:Range {}", range_code))
-                                    .await?;
-                                info!("Set Newport 1830-C range to {} via capability", range_code);
-                                Ok(())
-                            } else {
-                                Err(anyhow!("set_range requires a numeric range parameter"))
-                            }
                         }
                         _ => {
                             warn!(
                                 "Unknown PowerMeasurement operation '{}' for Newport 1830-C",
                                 operation
                             );
-                            Ok(())
                         }
-                    }?;
+                    }
                 } else {
                     warn!("Unsupported capability {:?} for Newport 1830-C", capability);
                 }

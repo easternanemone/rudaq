@@ -379,6 +379,18 @@ rust-daq provides similar modular experiment control capabilities with key advan
 
 See [FRAMEWORK_COMPARISON_ANALYSIS.md](FRAMEWORK_COMPARISON_ANALYSIS.md) for detailed comparison.
 
+## Hardware Validation Notes
+
+- Photometrics PVCAM SDK 3.10.0.3 is deployed on `maitai@100.117.5.12`. Validation steps are documented in [docs/PVCAM_HARDWARE_VALIDATION.md](docs/PVCAM_HARDWARE_VALIDATION.md).
+- Always prepare the environment before running PVCAM tooling:
+
+  ```bash
+  source /opt/pvcam/etc/profile.d/pvcam.sh
+  export LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:/opt/pvcam/library/i686:$LD_LIBRARY_PATH
+  ```
+
+- The Rust driver still uses mock paths; real acquisition will work once `RealPvcamSdk` is implemented under the `pvcam_hardware` feature flag.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a pull request or open an issue.

@@ -53,8 +53,10 @@ example_*.yaml
 # Scripts directory
 /scripts/
 
+
 # Local docs (keep main docs/)
 /docs/
+!docs/PVCAM_HARDWARE_VALIDATION.md
 
 # But keep important project documentation
 !AGENTS.md

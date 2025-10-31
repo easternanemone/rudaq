@@ -115,6 +115,12 @@ pub enum PvcamError {
         actual: u32,
         dropped: u32,
     },
+
+    #[error("PVCAM hardware feature not enabled for operation '{operation}'")]
+    FeatureDisabled { operation: &'static str },
+
+    #[error("PVCAM real SDK call for '{operation}' is not yet implemented")]
+    NotImplemented { operation: &'static str },
 }
 
 /// Enum representing PVCAM parameters.
@@ -356,9 +362,22 @@ impl RealPvcamSdk {
     pub fn new() -> Self {
         Self::default()
     }
+
+    #[inline]
+    fn ensure_hardware_enabled(operation: &'static str) -> Result<(), PvcamError> {
+        #[cfg(not(feature = "pvcam_hardware"))]
+        {
+            return Err(PvcamError::FeatureDisabled { operation });
+        }
+
+        #[cfg(feature = "pvcam_hardware")]
+        {
+            Ok(())
+        }
+    }
 }
 
-#[cfg(feature = "pvcam-sdk")]
+#[cfg(feature = "pvcam_hardware")]
 /// C callback function invoked by the PVCAM SDK for each new frame.
 ///
 /// # Safety
@@ -388,7 +407,7 @@ unsafe extern "C" fn pvcam_frame_callback(
         std::slice::from_raw_parts(frame_info.buffer as *const u16, pixel_count).to_vec();
 
     // Extract metadata from FRAME_INFO
-    // TODO: Replace with actual FRAME_INFO field access when pvcam-sdk is available
+    // TODO: Replace with actual FRAME_INFO field access when pvcam_hardware feature is available
     let hardware_timestamp = None; // frame_info.timeStamp as i64 in microseconds
     let software_timestamp = chrono::Utc::now();
     let exposure_time_ms = 0.0; // Extract from frame_info.expTime or camera state
@@ -415,12 +434,14 @@ unsafe extern "C" fn pvcam_frame_callback(
 
 impl PvcamSdk for RealPvcamSdk {
     fn init(&self) -> Result<(), PvcamError> {
+        Self::ensure_hardware_enabled("init")?;
+
         let mut inner = self.inner.lock().unwrap();
         if inner.is_initialized {
             return Err(PvcamError::AlreadyInitialized);
         }
-        // TODO: Call pvcam_sys::pl_pvcam_init() when pvcam-sdk feature is enabled
-        #[cfg(feature = "pvcam-sdk")]
+        // TODO: Call pvcam_sys::pl_pvcam_init() when pvcam_hardware feature is enabled
+        #[cfg(feature = "pvcam_hardware")]
         {
             // use pvcam_sys::*;
             // let status = unsafe { pl_pvcam_init() };
@@ -436,6 +457,8 @@ impl PvcamSdk for RealPvcamSdk {
     }
 
     fn uninit(&self) -> Result<(), PvcamError> {
+        Self::ensure_hardware_enabled("uninit")?;
+
         let mut inner = self.inner.lock().unwrap();
         if !inner.is_initialized {
             return Err(PvcamError::NotInitialized);
@@ -448,7 +471,7 @@ impl PvcamSdk for RealPvcamSdk {
         }
         inner.open_handles.clear();
 
-        #[cfg(feature = "pvcam-sdk")]
+        #[cfg(feature = "pvcam_hardware")]
         {
             // use pvcam_sys::*;
             // let status = unsafe { pl_pvcam_uninit() };
@@ -464,6 +487,8 @@ impl PvcamSdk for RealPvcamSdk {
     }
 
     fn enumerate_cameras(&self) -> Result<Vec<String>, PvcamError> {
+        Self::ensure_hardware_enabled("enumerate_cameras")?;
+
         let inner = self.inner.lock().unwrap();
         if !inner.is_initialized {
             return Err(PvcamError::NotInitialized);
@@ -474,6 +499,8 @@ impl PvcamSdk for RealPvcamSdk {
     }
 
     fn open_camera(&self, name: &str) -> Result<CameraHandle, PvcamError> {
+        Self::ensure_hardware_enabled("open_camera")?;
+
         let mut inner = self.inner.lock().unwrap();
         if !inner.is_initialized {
             return Err(PvcamError::NotInitialized);
@@ -486,6 +513,8 @@ impl PvcamSdk for RealPvcamSdk {
     }
 
     fn close_camera(&self, handle: CameraHandle) -> Result<(), PvcamError> {
+        Self::ensure_hardware_enabled("close_camera")?;
+
         let mut inner = self.inner.lock().unwrap();
         if !inner.is_initialized {
             return Err(PvcamError::NotInitialized);
@@ -500,6 +529,8 @@ impl PvcamSdk for RealPvcamSdk {
     }
 
     fn get_param_u16(&self, handle: &CameraHandle, param: PvcamParam) -> Result<u16, PvcamError> {
+        Self::ensure_hardware_enabled("get_param_u16")?;
+
         let inner = self.inner.lock().unwrap();
         if !inner.is_initialized {
             return Err(PvcamError::NotInitialized);
@@ -518,6 +549,8 @@ impl PvcamSdk for RealPvcamSdk {
         param: PvcamParam,
         _value: u16,
     ) -> Result<(), PvcamError> {
+        Self::ensure_hardware_enabled("set_param_u16")?;
+
         let inner = self.inner.lock().unwrap();
         if !inner.is_initialized {
             return Err(PvcamError::NotInitialized);
@@ -531,6 +564,8 @@ impl PvcamSdk for RealPvcamSdk {
     }
 
     fn get_param_i16(&self, handle: &CameraHandle, param: PvcamParam) -> Result<i16, PvcamError> {
+        Self::ensure_hardware_enabled("get_param_i16")?;
+
         let inner = self.inner.lock().unwrap();
         if !inner.is_initialized {
             return Err(PvcamError::NotInitialized);
@@ -549,6 +584,8 @@ impl PvcamSdk for RealPvcamSdk {
         param: PvcamParam,
         _value: i16,
     ) -> Result<(), PvcamError> {
+        Self::ensure_hardware_enabled("set_param_i16")?;
+
         let inner = self.inner.lock().unwrap();
         if !inner.is_initialized {
             return Err(PvcamError::NotInitialized);
@@ -566,6 +603,8 @@ impl PvcamSdk for RealPvcamSdk {
         handle: &CameraHandle,
         param: PvcamParam,
     ) -> Result<PxRegion, PvcamError> {
+        Self::ensure_hardware_enabled("get_param_region")?;
+
         let inner = self.inner.lock().unwrap();
         if !inner.is_initialized {
             return Err(PvcamError::NotInitialized);
@@ -584,6 +623,8 @@ impl PvcamSdk for RealPvcamSdk {
         param: PvcamParam,
         _value: PxRegion,
     ) -> Result<(), PvcamError> {
+        Self::ensure_hardware_enabled("set_param_region")?;
+
         let inner = self.inner.lock().unwrap();
         if !inner.is_initialized {
             return Err(PvcamError::NotInitialized);
@@ -600,6 +641,8 @@ impl PvcamSdk for RealPvcamSdk {
         self: Arc<Self>,
         handle: CameraHandle,
     ) -> Result<(mpsc::Receiver<Frame>, AcquisitionGuard), PvcamError> {
+        Self::ensure_hardware_enabled("start_acquisition")?;
+
         let mut inner = self.inner.lock().unwrap();
         if !inner.is_initialized {
             return Err(PvcamError::NotInitialized);
@@ -615,7 +658,7 @@ impl PvcamSdk for RealPvcamSdk {
         let tx_box = Box::new(tx);
         let context = Box::into_raw(tx_box) as *mut c_void;
 
-        #[cfg(feature = "pvcam-sdk")]
+        #[cfg(feature = "pvcam_hardware")]
         {
             // TODO: Replace with actual SDK calls
             // unsafe {
@@ -636,6 +679,8 @@ impl PvcamSdk for RealPvcamSdk {
     }
 
     fn stop_acquisition(&self, handle: CameraHandle) -> Result<(), PvcamError> {
+        Self::ensure_hardware_enabled("stop_acquisition")?;
+
         let mut inner = self.inner.lock().unwrap();
         if !inner.is_initialized {
             return Err(PvcamError::NotInitialized);

@@ -84,7 +84,7 @@ use crate::{
     data::registry::ProcessorRegistry,
     instrument::InstrumentRegistry,
     instrument_manager_v3::InstrumentManagerV3,
-    instruments_v2::mock_power_meter_v3::MockPowerMeterV3,
+    instruments_v2::{mock_power_meter_v3::MockPowerMeterV3, pvcam_v3::PVCAMCameraV3},
     log_capture::LogBuffer,
     measurement::{DataDistributor, DataDistributorConfig, Measure, SubscriberMetricsSnapshot},
     messages::{DaqCommand, SpawnError},
@@ -205,6 +205,9 @@ where
             // Register V3 factories
             manager.register_factory("MockPowerMeterV3", |id, settings| {
                 MockPowerMeterV3::from_config(id, settings)
+            });
+            manager.register_factory("PVCAMCameraV3", |id, settings| {
+                PVCAMCameraV3::from_config(id, settings)
             });
 
             // Note: Load from config will happen in the run() method to allow async

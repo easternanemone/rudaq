@@ -151,6 +151,7 @@ impl Instrument for Elliptec {
         // Open serial port
         let port = serialport::new(port_name, baud_rate)
             .timeout(std::time::Duration::from_millis(100))
+            .flow_control(serialport::FlowControl::Hardware) // CRITICAL: Enable RTS/CTS for instrument communication
             .open()
             .with_context(|| format!("Failed to open serial port '{}' for Elliptec", port_name))?;
 

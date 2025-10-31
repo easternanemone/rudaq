@@ -237,23 +237,23 @@ async fn test_integration_with_maitai() {
 fn test_validation_functions() {
     println!("\n=== Parameter Validation Unit Tests ===");
     println!("These tests verify the validation logic without hardware\n");
-    
+
     // These would call the actual validation functions
     // For now, just document what should be tested
-    
+
     println!("Wavelength validation:");
     println!("  ✓ 400.0nm - minimum valid");
     println!("  ✓ 1000.0nm - middle range");
     println!("  ✓ 1700.0nm - maximum valid");
     println!("  ✗ 399.9nm - below minimum");
     println!("  ✗ 1700.1nm - above maximum");
-    
+
     println!("\nRange validation:");
     println!("  ✓ 0 - autorange");
     println!("  ✓ 1-8 - manual ranges");
     println!("  ✗ -1 - invalid");
     println!("  ✗ 9 - invalid");
-    
+
     println!("\nUnits validation:");
     println!("  ✓ 0-3 - all valid");
     println!("  ✗ -1, 4+ - invalid");
