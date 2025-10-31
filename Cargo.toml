@@ -103,6 +103,8 @@ instrument_visa = ["dep:visa-rs"]
 networking = []
 # Phase 3B (bd-64): Module system with runtime instrument assignment
 modules = []
+# Hardware integrations
+pvcam_hardware = ["pvcam-sys/pvcam-sdk"]
 
 [[bin]]
 name = "rust_daq"
