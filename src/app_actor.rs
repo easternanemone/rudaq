@@ -94,7 +94,7 @@ use crate::{
 };
 use anyhow::{anyhow, Context, Result};
 use daq_core::Measurement;
-use log::{error, info, warn};
+use log::{error, info};
 use std::path::Path;
 use std::sync::Arc;
 use std::{collections::HashMap, time::Duration};
@@ -411,13 +411,16 @@ where
                 DaqCommand::RollbackToVersion {
                     version_id,
                     response,
-                } => {
-                    let result = self.version_manager.rollback(&version_id).await;
-                    if let Ok(settings) = result {
+                } => match self.version_manager.rollback(&version_id).await {
+                    Ok(settings) => {
                         self.settings = settings;
+                        let _ = response.send(Ok(()));
                     }
-                    let _ = response.send(Ok(()));
-                }
+                    Err(e) => {
+                        error!("Failed to rollback to version '{}': {}", version_id.0, e);
+                        let _ = response.send(Err(e));
+                    }
+                },
                 DaqCommand::CompareConfigVersions {
                     version_a,
                     version_b,

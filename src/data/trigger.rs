@@ -121,13 +121,21 @@ impl Trigger {
         if self.stats.count == 1 {
             self.first_trigger_time = Some(timestamp);
         } else if let Some(first_time) = self.first_trigger_time {
-            let elapsed = timestamp
-                .signed_duration_since(first_time)
-                .to_std()
-                .unwrap()
-                .as_secs_f64();
-            if elapsed > 0.0 {
-                self.stats.rate = self.stats.count as f64 / elapsed;
+            let elapsed_duration = timestamp.signed_duration_since(first_time);
+            match elapsed_duration.to_std() {
+                Ok(elapsed) => {
+                    let elapsed_secs = elapsed.as_secs_f64();
+                    if elapsed_secs > 0.0 {
+                        self.stats.rate = self.stats.count as f64 / elapsed_secs;
+                    }
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        "Trigger received out-of-order timestamp; skipping rate update (first={:?}, current={:?})",
+                        first_time,
+                        timestamp
+                    );
+                }
             }
         }
     }
@@ -212,6 +220,7 @@ mod tests {
     use super::*;
     use crate::core::DataPoint;
     use chrono::{Duration, Utc};
+    use std::panic::{self, AssertUnwindSafe};
 
     fn create_datapoint(value: f64, timestamp_offset_ms: i64) -> DataPoint {
         DataPoint {
@@ -400,5 +409,42 @@ mod tests {
             data[5].timestamp.timestamp_millis()
         );
         assert_is_trigger(&output[1]);
+    }
+
+    #[test]
+    fn update_stats_handles_out_of_order_timestamps_without_panic() {
+        let mode = TriggerMode::Level {
+            threshold: 0.5,
+            above: true,
+        };
+        let mut trigger = Trigger::new(mode, Duration::zero(), 0, 0);
+
+        let base = Utc::now();
+        let newer = DataPoint {
+            value: 1.0,
+            timestamp: base + Duration::milliseconds(10),
+            instrument_id: "test_instrument".to_string(),
+            channel: "test".to_string(),
+            unit: "V".to_string(),
+            metadata: None,
+        };
+        let older = DataPoint {
+            value: 2.0,
+            timestamp: base,
+            instrument_id: "test_instrument".to_string(),
+            channel: "test".to_string(),
+            unit: "V".to_string(),
+            metadata: None,
+        };
+
+        trigger.process(&[newer]);
+
+        let result = panic::catch_unwind(AssertUnwindSafe(|| {
+            trigger.process(&[older]);
+        }));
+        assert!(
+            result.is_ok(),
+            "Trigger should handle out-of-order timestamps without panicking"
+        );
     }
 }

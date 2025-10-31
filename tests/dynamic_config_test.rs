@@ -4,7 +4,7 @@
 //! DaqCommand::AddInstrumentDynamic, RemoveInstrumentDynamic, and UpdateInstrumentParameter.
 
 use rust_daq::app_actor::DaqManagerActor;
-use rust_daq::config::{ApplicationSettings, Settings, StorageSettings};
+use rust_daq::config::{versioning::VersionId, ApplicationSettings, Settings, StorageSettings};
 use rust_daq::data::registry::ProcessorRegistry;
 use rust_daq::instrument::mock::MockInstrument;
 use rust_daq::instrument::InstrumentRegistry;
@@ -44,7 +44,7 @@ async fn setup_actor() -> mpsc::Sender<DaqCommand> {
     instrument_registry.register("mock", |_id| Box::new(MockInstrument::new()));
 
     let actor = DaqManagerActor::<InstrumentMeasurement>::new(
-        Arc::new(settings),
+        settings,
         Arc::new(instrument_registry),
         Arc::new(ProcessorRegistry::new()),
         Arc::new(ModuleRegistry::new()),
@@ -208,6 +208,27 @@ async fn test_remove_instrument_dynamic_not_found() {
     );
 
     // Cleanup
+    let (shutdown_cmd, _) = DaqCommand::shutdown();
+    let _ = cmd_tx.send(shutdown_cmd).await;
+}
+
+#[tokio::test]
+async fn test_rollback_to_version_propagates_errors() {
+    let cmd_tx = setup_actor().await;
+
+    // Use obviously missing snapshot id to trigger failure path
+    let missing = VersionId("config-19700101_000000-missing.toml".to_string());
+    let (cmd, rx) = DaqCommand::rollback_to_version(missing);
+    cmd_tx
+        .send(cmd)
+        .await
+        .expect("Failed to send rollback command");
+    let result = rx.await.expect("Rollback response channel dropped");
+    assert!(
+        result.is_err(),
+        "Rollback should propagate underlying error when snapshot is missing"
+    );
+
     let (shutdown_cmd, _) = DaqCommand::shutdown();
     let _ = cmd_tx.send(shutdown_cmd).await;
 }

@@ -203,10 +203,7 @@ impl<T: Clone> DataDistributor<T> {
                     entry.metrics.record_drop();
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
-                    tracing::info!(
-                        "DataDistributor subscriber '{}' disconnected",
-                        entry.name
-                    );
+                    tracing::info!("DataDistributor subscriber '{}' disconnected", entry.name);
                     disconnected_indices.push(i);
                     continue;
                 }
