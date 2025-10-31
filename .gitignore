@@ -55,7 +55,7 @@ example_*.yaml
 
 
 # Local docs (keep main docs/)
-/docs/
+/docs/**
 !docs/PVCAM_HARDWARE_VALIDATION.md
 
 # But keep important project documentation
