@@ -543,7 +543,7 @@ impl InstrumentHandle {
 
     /// Check if instrument implements Camera trait
     pub async fn as_camera(&self) -> Option<Arc<tokio::sync::Mutex<Box<dyn Camera>>>> {
-        let guard = self.instrument.lock().await;
+        let _guard = self.instrument.lock().await;
         // Attempt downcast (simplified for Phase 1)
         // Full implementation would use proper trait object casting
         None

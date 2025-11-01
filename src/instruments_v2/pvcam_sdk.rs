@@ -577,21 +577,23 @@ impl PvcamSdk for RealPvcamSdk {
     fn init(&self) -> Result<(), PvcamError> {
         Self::ensure_hardware_enabled("init")?;
 
-        let inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap();
         if inner.is_initialized {
             return Err(PvcamError::AlreadyInitialized);
         }
         #[cfg(feature = "pvcam_hardware")]
-        unsafe {
-            Self::sdk_bool(pvcam_sys::pl_pvcam_init(), "pl_pvcam_init")?;
+        {
+            unsafe {
+                Self::sdk_bool(pvcam_sys::pl_pvcam_init(), "pl_pvcam_init")?;
+            }
+            inner.is_initialized = true;
+            log::info!("PVCAM SDK initialized successfully");
+            Ok(())
         }
         #[cfg(not(feature = "pvcam_hardware"))]
         {
             unreachable!("pvcam_hardware feature gate mismatch");
         }
-        inner.is_initialized = true;
-        log::info!("PVCAM SDK initialized successfully");
-        Ok(())
     }
 
     fn uninit(&self) -> Result<(), PvcamError> {
@@ -616,16 +618,18 @@ impl PvcamSdk for RealPvcamSdk {
         inner.active_acquisitions.clear();
 
         #[cfg(feature = "pvcam_hardware")]
-        unsafe {
-            Self::sdk_bool(pvcam_sys::pl_pvcam_uninit(), "pl_pvcam_uninit")?;
+        {
+            unsafe {
+                Self::sdk_bool(pvcam_sys::pl_pvcam_uninit(), "pl_pvcam_uninit")?;
+            }
+            inner.is_initialized = false;
+            log::info!("PVCAM SDK uninitialized successfully");
+            Ok(())
         }
         #[cfg(not(feature = "pvcam_hardware"))]
         {
             unreachable!("pvcam_hardware feature gate mismatch");
         }
-        inner.is_initialized = false;
-        log::info!("PVCAM SDK uninitialized successfully");
-        Ok(())
     }
 
     fn enumerate_cameras(&self) -> Result<Vec<String>, PvcamError> {
@@ -664,7 +668,7 @@ impl PvcamSdk for RealPvcamSdk {
         }
     }
 
-    fn open_camera(&self, name: &str) -> Result<CameraHandle, PvcamError> {
+    fn open_camera(&self, _name: &str) -> Result<CameraHandle, PvcamError> {
         Self::ensure_hardware_enabled("open_camera")?;
 
         let inner = self.inner.lock().unwrap();
@@ -717,18 +721,20 @@ impl PvcamSdk for RealPvcamSdk {
         drop(inner);
 
         #[cfg(feature = "pvcam_hardware")]
-        unsafe {
-            Self::sdk_bool(
-                pvcam_sys::pl_cam_close(handle.0 as pvcam_sys::int16),
-                "pl_cam_close",
-            )?;
+        {
+            unsafe {
+                Self::sdk_bool(
+                    pvcam_sys::pl_cam_close(handle.0 as pvcam_sys::int16),
+                    "pl_cam_close",
+                )?;
+            }
+            log::info!("Closed camera '{}' with handle {:?}", camera_name, handle);
+            Ok(())
         }
         #[cfg(not(feature = "pvcam_hardware"))]
         {
             unreachable!("pvcam_hardware feature gate mismatch");
         }
-        log::info!("Closed camera '{}' with handle {:?}", camera_name, handle);
-        Ok(())
     }
 
     fn get_param_u16(&self, handle: &CameraHandle, param: PvcamParam) -> Result<u16, PvcamError> {

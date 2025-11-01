@@ -278,7 +278,7 @@ where
                 }
 
                 DaqCommand::StopInstrument { id, response } => {
-                    self.stop_instrument(&id).await;
+                    let _ = self.stop_instrument(&id).await;
                     let _ = response.send(());
                 }
 
@@ -297,7 +297,7 @@ where
                 }
 
                 DaqCommand::StopRecording { response } => {
-                    self.stop_recording().await;
+                    let _ = self.stop_recording().await;
                     let _ = response.send(());
                 }
 
@@ -1084,7 +1084,7 @@ where
         // Stop all current instruments
         let current_instruments: Vec<String> = self.instruments.keys().cloned().collect();
         for id in current_instruments {
-            self.stop_instrument(&id).await;
+            let _ = self.stop_instrument(&id).await;
         }
 
         // Start instruments from the session
@@ -1179,7 +1179,7 @@ where
         &mut self,
         id: &str,
         instrument_type: &str,
-        config: toml::Value,
+        _config: toml::Value,
     ) -> Result<()> {
         self.version_manager
             .create_snapshot(&self.settings, None)

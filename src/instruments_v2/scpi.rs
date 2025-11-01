@@ -112,13 +112,13 @@ impl ScpiInstrumentV2 {
     ///
     /// For query commands (ending with ?), returns the response.
     /// For write commands, returns an empty string.
-    pub async fn send_command(&self, command: &str) -> Result<String> {
+    pub async fn send_command(&self, _command: &str) -> Result<String> {
         // TODO: Implement SCPI command execution
         Ok(String::new())
     }
 
     /// Send a SCPI write command (no response expected)
-    pub async fn send_write(&self, command: &str) -> Result<()> {
+    pub async fn send_write(&self, _command: &str) -> Result<()> {
         // TODO: Implement SCPI write command
         Ok(())
     }

@@ -579,7 +579,6 @@ impl ElliptecV2 {
         }
 
         let tx = self.measurement_tx.clone();
-        let id = self.id.clone();
         let addresses = self.device_addresses.clone();
 
         // Create a minimal clone for the task

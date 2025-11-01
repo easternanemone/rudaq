@@ -183,7 +183,7 @@ impl Hdf5Writer {
 
 #[async_trait]
 impl StorageWriter for Hdf5Writer {
-    async fn init(&mut self, settings: &Arc<Settings>) -> Result<()> {
+    async fn init(&mut self, _settings: &Arc<Settings>) -> Result<()> {
         #[cfg(feature = "storage_hdf5")]
         {
             let file_name = format!(

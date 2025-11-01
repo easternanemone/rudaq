@@ -276,7 +276,7 @@ impl Instrument for MaiTai {
             InstrumentCommand::Capability {
                 capability,
                 operation,
-                parameters,
+                parameters: _parameters,
             } => {
                 if capability == power_measurement_capability_id() {
                     match operation.as_str() {
