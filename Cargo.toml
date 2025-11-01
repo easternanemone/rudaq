@@ -104,7 +104,7 @@ networking = []
 # Phase 3B (bd-64): Module system with runtime instrument assignment
 modules = []
 # Hardware integrations
-# pvcam_hardware = ["pvcam-sys/pvcam-sdk"]  # Requires pvcam-sys dependency
+pvcam_hardware = []  # Enable real PVCAM SDK integration (requires SDK installed)
 
 [[bin]]
 name = "rust_daq"
