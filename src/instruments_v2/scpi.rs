@@ -24,15 +24,13 @@
 
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use chrono::Utc;
 use daq_core::{
-    arc_measurement, DaqError, DataPoint, HardwareAdapter, Instrument, InstrumentCommand,
-    InstrumentState, Measurement, MeasurementReceiver, MeasurementSender,
+    Instrument, InstrumentCommand,
+    InstrumentState, MeasurementReceiver, MeasurementSender,
 };
-use log::{info, warn};
-use std::sync::Arc;
+use log::info;
 use std::time::Duration;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
 /// Generic SCPI instrument implementation using VISA adapter

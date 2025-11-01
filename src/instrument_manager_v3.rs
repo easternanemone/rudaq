@@ -497,7 +497,7 @@ impl InstrumentManagerV3 {
 
                 // Await task completion with timeout
                 let timeout_duration = std::time::Duration::from_secs(5);
-                let mut task_handle = handle.task_handle;
+                let task_handle = handle.task_handle;
                 tokio::pin!(task_handle);
 
                 match tokio::time::timeout(timeout_duration, &mut task_handle).await {

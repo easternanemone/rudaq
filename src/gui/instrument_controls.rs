@@ -24,7 +24,7 @@
 
 use crate::{
     app::DaqApp,
-    core::{DataPoint, InstrumentCommand},
+    core::InstrumentCommand,
     measurement::Measure,
 };
 use daq_core::Measurement;

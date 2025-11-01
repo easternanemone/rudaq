@@ -577,7 +577,7 @@ impl PvcamSdk for RealPvcamSdk {
     fn init(&self) -> Result<(), PvcamError> {
         Self::ensure_hardware_enabled("init")?;
 
-        let mut inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap();
         if inner.is_initialized {
             return Err(PvcamError::AlreadyInitialized);
         }
@@ -597,7 +597,7 @@ impl PvcamSdk for RealPvcamSdk {
     fn uninit(&self) -> Result<(), PvcamError> {
         Self::ensure_hardware_enabled("uninit")?;
 
-        let mut inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap();
         if !inner.is_initialized {
             return Err(PvcamError::NotInitialized);
         }
@@ -667,7 +667,7 @@ impl PvcamSdk for RealPvcamSdk {
     fn open_camera(&self, name: &str) -> Result<CameraHandle, PvcamError> {
         Self::ensure_hardware_enabled("open_camera")?;
 
-        let mut inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap();
         if !inner.is_initialized {
             return Err(PvcamError::NotInitialized);
         }
@@ -944,7 +944,7 @@ impl PvcamSdk for RealPvcamSdk {
     ) -> Result<(mpsc::Receiver<Frame>, AcquisitionGuard), PvcamError> {
         Self::ensure_hardware_enabled("start_acquisition")?;
 
-        let mut inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap();
         if !inner.is_initialized {
             return Err(PvcamError::NotInitialized);
         }
@@ -1048,7 +1048,7 @@ impl PvcamSdk for RealPvcamSdk {
             }
         };
 
-        let mut inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap();
         if inner.active_acquisitions.contains_key(&handle) {
             return Err(PvcamError::AcquisitionInProgress(handle));
         }

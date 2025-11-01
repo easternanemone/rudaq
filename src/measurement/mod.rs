@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, Mutex};
 
-use crate::core::DataPoint;
 
 /// Fan-out data distributor for efficient multi-consumer broadcasting without backpressure.
 ///

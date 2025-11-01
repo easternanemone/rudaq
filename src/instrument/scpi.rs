@@ -1,7 +1,7 @@
 //! A basic skeleton for an SCPI-based instrument.
 use crate::{
     config::Settings,
-    core::{DataPoint, Instrument},
+    core::Instrument,
     measurement::InstrumentMeasurement,
 };
 use anyhow::Result;

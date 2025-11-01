@@ -1,6 +1,6 @@
 //! Instrument trait, registry, and implementations.
 use crate::core::Instrument;
-use crate::measurement::{InstrumentMeasurement, Measure};
+use crate::measurement::Measure;
 use std::collections::HashMap;
 
 pub mod capabilities;

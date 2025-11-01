@@ -1,10 +1,10 @@
 //! A mock instrument that generates synthetic data.
 use crate::{
     config::Settings,
-    core::{DataPoint, Instrument, InstrumentCommand},
+    core::{DataPoint, Instrument},
     measurement::InstrumentMeasurement,
 };
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use log::info;
 use std::sync::Arc;

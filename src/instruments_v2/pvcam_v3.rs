@@ -32,7 +32,6 @@
 
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -45,7 +44,7 @@ use super::pvcam_sdk::{
     RealPvcamSdk, TriggerMode,
 };
 use crate::core_v3::{
-    Camera, Command, ImageData, ImageMetadata, Instrument, InstrumentState, Measurement,
+    Camera, Command, ImageMetadata, Instrument, InstrumentState, Measurement,
     ParameterBase, PixelBuffer, Response, Roi,
 };
 use crate::parameter::{Parameter, ParameterBuilder};

@@ -81,7 +81,7 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt;
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 /// A single data point captured from an instrument.

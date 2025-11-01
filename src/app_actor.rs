@@ -80,7 +80,7 @@
 
 use crate::{
     config::{dependencies::DependencyGraph, versioning::VersionManager, Settings},
-    core::{DataPoint, InstrumentHandle, MeasurementProcessor},
+    core::{InstrumentHandle, MeasurementProcessor},
     data::registry::ProcessorRegistry,
     instrument::InstrumentRegistry,
     instrument_manager_v3::InstrumentManagerV3,
@@ -89,7 +89,7 @@ use crate::{
     measurement::{DataDistributor, DataDistributorConfig, Measure, SubscriberMetricsSnapshot},
     messages::{DaqCommand, SpawnError},
     metadata::Metadata,
-    modules::{Module, ModuleConfig, ModuleInstrumentAssignment, ModuleStatus},
+    modules::{Module, ModuleConfig, ModuleInstrumentAssignment},
     session::{self, Session},
 };
 use anyhow::{anyhow, Context, Result};
@@ -759,7 +759,7 @@ where
         &mut self,
         id: &str,
         module_type: &str,
-        mut config: ModuleConfig,
+        config: ModuleConfig,
     ) -> Result<()> {
         if self.modules.contains_key(id) {
             return Err(anyhow!("Module '{}' is already spawned", id));

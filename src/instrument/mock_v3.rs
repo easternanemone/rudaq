@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{broadcast, RwLock};
 use tokio::task::JoinHandle;
 
 use crate::core_v3::{
@@ -84,7 +84,7 @@ impl MockCameraV3 {
         ));
 
         // Create parameter map for dynamic access
-        let mut parameters: HashMap<String, Box<dyn ParameterBase>> = HashMap::new();
+        let parameters: HashMap<String, Box<dyn ParameterBase>> = HashMap::new();
         // Note: Would need Clone for Parameter to put in map, this is simplified
 
         Self {

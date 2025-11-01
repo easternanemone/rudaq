@@ -47,10 +47,10 @@ pub mod verification;
 
 use self::instrument_controls::*;
 use self::storage_manager::StorageManager;
-use crate::{app::DaqApp, core::DataPoint, log_capture::LogBuffer};
+use crate::{app::DaqApp, log_capture::LogBuffer};
 use daq_core::Measurement;
 use eframe::egui;
-use egui_dock::{DockArea, DockState, Style, TabIndex, TabViewer};
+use egui_dock::{DockArea, DockState, Style, TabViewer};
 use egui_plot::{Line, Plot, PlotPoints};
 use log::{error, info, LevelFilter};
 use std::collections::{HashMap, VecDeque};

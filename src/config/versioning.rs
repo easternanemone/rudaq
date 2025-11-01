@@ -4,7 +4,6 @@ use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use similar::{ChangeTag, TextDiff};
 use std::path::PathBuf;
-use std::time::SystemTime;
 use tokio::fs;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]

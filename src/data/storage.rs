@@ -1,7 +1,7 @@
 //! Example data storage writers.
 use crate::{
     config::Settings,
-    core::{DataPoint, StorageWriter},
+    core::StorageWriter,
     error::DaqError,
     metadata::Metadata,
 };

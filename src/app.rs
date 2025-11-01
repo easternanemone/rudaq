@@ -5,7 +5,7 @@
 //! message-passing through mpsc channels.
 
 use crate::{
-    app_actor::DaqManagerActor, config::Settings, core::DataPoint,
+    app_actor::DaqManagerActor, config::Settings,
     data::registry::ProcessorRegistry, instrument::InstrumentRegistry, log_capture::LogBuffer,
     measurement::Measure, messages::DaqCommand, session,
 };
@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::{
     runtime::Runtime,
-    sync::{broadcast, mpsc},
+    sync::mpsc,
 };
 
 /// The main application struct (actor-based implementation)
