@@ -4,7 +4,7 @@
 //! patterns: time series acquisition, 1D scans, 2D grid scans, and adaptive sampling.
 
 use super::plan::{LogLevel, Message, Plan, PlanStream};
-use futures::stream::{self, StreamExt};
+use futures::stream;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;

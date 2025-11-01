@@ -577,7 +577,7 @@ impl PvcamSdk for RealPvcamSdk {
     fn init(&self) -> Result<(), PvcamError> {
         Self::ensure_hardware_enabled("init")?;
 
-        let mut inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap();
         if inner.is_initialized {
             return Err(PvcamError::AlreadyInitialized);
         }
@@ -714,7 +714,7 @@ impl PvcamSdk for RealPvcamSdk {
             inner = self.inner.lock().unwrap();
         }
 
-        let camera_name = inner
+        let _camera_name = inner
             .open_handles
             .remove(&handle)
             .ok_or_else(|| PvcamError::CameraNotOpen { camera: handle })?;
@@ -728,7 +728,7 @@ impl PvcamSdk for RealPvcamSdk {
                     "pl_cam_close",
                 )?;
             }
-            log::info!("Closed camera '{}' with handle {:?}", camera_name, handle);
+            log::info!("Closed camera '{}' with handle {:?}", _camera_name, handle);
             Ok(())
         }
         #[cfg(not(feature = "pvcam_hardware"))]
