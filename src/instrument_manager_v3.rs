@@ -705,6 +705,9 @@ mod tests {
                 gain: Some(2.0),
                 binning: None,
                 temperature_c: None,
+                hardware_timestamp_us: None,
+                readout_ms: None,
+                roi_origin: Some((0, 0)),
             },
             timestamp: Utc::now(),
         };

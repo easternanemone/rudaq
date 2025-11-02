@@ -84,6 +84,12 @@ pub struct ImageMetadata {
     pub binning: Option<(u32, u32)>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature_c: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hardware_timestamp_us: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub readout_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub roi_origin: Option<(u32, u32)>,
 }
 
 // =============================================================================

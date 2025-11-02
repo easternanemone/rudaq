@@ -44,8 +44,8 @@ use super::pvcam_sdk::{
     RealPvcamSdk, TriggerMode,
 };
 use crate::core_v3::{
-    Camera, Command, ImageMetadata, Instrument, InstrumentState, Measurement,
-    ParameterBase, PixelBuffer, Response, Roi,
+    Camera, Command, ImageMetadata, Instrument, InstrumentState, Measurement, ParameterBase,
+    PixelBuffer, Response, Roi,
 };
 use crate::parameter::{Parameter, ParameterBuilder};
 
@@ -578,6 +578,9 @@ impl PVCAMCameraV3 {
                         gain: Some(current_gain as f64),
                         binning: Some(current_binning),
                         temperature_c: frame.sensor_temperature_c,
+                        hardware_timestamp_us: frame.hardware_timestamp,
+                        readout_ms: frame.readout_time_ms,
+                        roi_origin: Some((effective_roi.x, effective_roi.y)),
                     },
                     timestamp: frame.software_timestamp,
                 };

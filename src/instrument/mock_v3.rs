@@ -180,6 +180,9 @@ impl MockCameraV3 {
                         gain: Some(gain_db),
                         binning: None,
                         temperature_c: None,
+                        hardware_timestamp_us: None,
+                        readout_ms: None,
+                        roi_origin: Some((roi_val.x, roi_val.y)),
                     },
                     timestamp: chrono::Utc::now(),
                 };
@@ -363,11 +366,18 @@ impl Camera for MockCameraV3 {
         }
 
         let image = self.generate_mock_image();
+        let exposure = self.exposure.read().await.get();
+        let gain = self.gain.read().await.get();
+        let binning = self.binning.read().await.get();
+        let roi_val = self.roi.read().await.get();
         let metadata = ImageMetadata {
-            exposure_ms: Some(self.exposure.read().await.get()),
-            gain: Some(self.gain.read().await.get()),
-            binning: Some(self.binning.read().await.get()),
+            exposure_ms: Some(exposure),
+            gain: Some(gain),
+            binning: Some(binning),
             temperature_c: None,
+            hardware_timestamp_us: None,
+            readout_ms: None,
+            roi_origin: Some((roi_val.x, roi_val.y)),
         };
 
         let measurement = Measurement::Image {
