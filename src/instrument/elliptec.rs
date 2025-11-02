@@ -148,10 +148,10 @@ impl Instrument for Elliptec {
 
         info!("Elliptec device addresses: {:?}", self.device_addresses);
 
-        // Open serial port
+        // Open serial port (RS-485 multidrop does NOT use hardware flow control)
         let port = serialport::new(port_name, baud_rate)
             .timeout(std::time::Duration::from_millis(100))
-            .flow_control(serialport::FlowControl::Hardware) // CRITICAL: Enable RTS/CTS for instrument communication
+            .flow_control(serialport::FlowControl::None) // RS-485 does not use RTS/CTS
             .open()
             .with_context(|| format!("Failed to open serial port '{}' for Elliptec", port_name))?;
 
