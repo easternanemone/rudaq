@@ -1,9 +1,5 @@
 //! A basic skeleton for an SCPI-based instrument.
-use crate::{
-    config::Settings,
-    core::Instrument,
-    measurement::InstrumentMeasurement,
-};
+use crate::{config::Settings, core::Instrument, measurement::InstrumentMeasurement};
 use anyhow::Result;
 use async_trait::async_trait;
 use log::info;

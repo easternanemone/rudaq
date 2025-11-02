@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, Mutex};
 
-
 /// Fan-out data distributor for efficient multi-consumer broadcasting without backpressure.
 ///
 /// Uses non-blocking try_send() to prevent slow subscribers from blocking fast ones.

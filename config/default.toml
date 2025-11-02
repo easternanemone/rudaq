@@ -51,35 +51,38 @@ queries = { "voltage" = ":MEAS:VPP? CHAN1", "frequency" = ":MEAS:FREQ? CHAN1" }
 [instruments.maitai]
 type = "maitai"
 name = "MaiTai Ti:Sapphire Laser"
-port = "/dev/ttyUSB0"
+port = "/dev/ttyUSB5"  # Silicon Labs CP2102 USB-to-UART (VALIDATED 2025-11-02)
 baud_rate = 9600
-wavelength = 800.0  # nm
+wavelength = 800.0  # nm (measured: 820nm)
 polling_rate_hz = 1.0
+# Flow control: XON/XOFF (Software)
 
 [instruments.newport_1830c]
 type = "newport_1830c"
 name = "Newport 1830-C Power Meter"
-port = "/dev/ttyS0"  # Native RS-232 port (NOT USB!)
+port = "/dev/ttyS0"  # Native RS-232 port (VALIDATED 2025-11-02)
 baud_rate = 9600
 attenuator = 0  # 0=off, 1=on
 filter = 2      # 1=Slow, 2=Medium, 3=Fast
 polling_rate_hz = 2.0
+# Flow control: None
 
-[instruments.elliptec]
-type = "elliptec"
-name = "Elliptec ELL14 Rotation Mounts"
-port = "/dev/ttyUSB2"
-baud_rate = 9600
-device_addresses = [0, 1]  # Multiple devices on RS-485 bus
-polling_rate_hz = 2.0
+# [instruments.elliptec]
+# type = "elliptec"
+# name = "Elliptec ELL14 Rotation Mounts"
+# port = "/dev/ttyUSB2"  # Hardware not detected during validation (2025-11-02)
+# baud_rate = 9600
+# device_addresses = [0, 1]  # Multiple devices on RS-485 bus
+# polling_rate_hz = 2.0
 
 [instruments.esp300]
 type = "esp300"
 name = "Newport ESP300 Motion Controller"
-port = "/dev/ttyUSB3"
+port = "/dev/ttyUSB1"  # FTDI USB-to-Serial (VALIDATED 2025-11-02)
 baud_rate = 19200
 num_axes = 3
 polling_rate_hz = 5.0
+# Flow control: None (NOT RTS/CTS despite documentation)
 
 [instruments.pvcam]
 type = "pvcam_v2"  # V2 enables image viewing in GUI

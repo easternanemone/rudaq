@@ -25,8 +25,7 @@
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use daq_core::{
-    Instrument, InstrumentCommand,
-    InstrumentState, MeasurementReceiver, MeasurementSender,
+    Instrument, InstrumentCommand, InstrumentState, MeasurementReceiver, MeasurementSender,
 };
 use log::info;
 use std::time::Duration;

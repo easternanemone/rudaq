@@ -1,5 +1,5 @@
 //! Hardware Scanner for DAQ Instruments
-//! 
+//!
 //! Automatically detects and identifies connected instruments by:
 //! - Scanning USB device metadata
 //! - Testing serial communication
@@ -22,18 +22,18 @@ struct InstrumentMatch {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== DAQ Hardware Scanner ===\n");
-    
+
     // Step 1: Enumerate all serial ports
     println!("Scanning for serial ports...");
     let ports = available_ports()?;
-    
+
     if ports.is_empty() {
         println!("No serial ports found!");
         return Ok(());
     }
-    
+
     println!("Found {} serial ports:\n", ports.len());
-    
+
     for port in &ports {
         print!("  {} - ", port.port_name);
         match &port.port_type {
@@ -57,18 +57,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         println!();
     }
-    
+
     // Step 2: Test each port with various protocols
     println!("\nProbing instruments...\n");
     let mut matches: Vec<InstrumentMatch> = Vec::new();
-    
+
     for port_info in &ports {
         let port_name = &port_info.port_name;
         println!("Testing {}...", port_name);
-        
+
         // Try different baud rates
         let baud_rates = vec![9600, 19200, 115200];
-        
+
         for &baud_rate in &baud_rates {
             // Test Newport 1830-C protocol
             if let Some(m) = test_newport_1830c(port_name, baud_rate) {
@@ -76,14 +76,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 matches.push(m);
                 break; // Found match, no need to try other baud rates
             }
-            
+
             // Test SCPI protocol (ESP300, MaiTai)
             if let Some(m) = test_scpi_idn(port_name, baud_rate) {
                 println!("  ✓ SCPI instrument detected!");
                 matches.push(m);
                 break;
             }
-            
+
             // Test Elliptec protocol
             if let Some(m) = test_elliptec(port_name, baud_rate) {
                 println!("  ✓ Elliptec device detected!");
@@ -91,13 +91,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 break;
             }
         }
-        
+
         println!();
     }
-    
+
     // Step 3: Display results
     println!("\n=== Detection Results ===\n");
-    
+
     if matches.is_empty() {
         println!("No instruments detected.");
         println!("\nTroubleshooting:");
@@ -106,19 +106,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  - Check user permissions (may need to be in 'dialout' group)");
     } else {
         println!("Found {} instrument(s):\n", matches.len());
-        
+
         for (i, m) in matches.iter().enumerate() {
-            println!("{}. {} ({}% confidence)", i + 1, m.instrument_type, m.confidence);
+            println!(
+                "{}. {} ({}% confidence)",
+                i + 1,
+                m.instrument_type,
+                m.confidence
+            );
             println!("   Port: {}", m.port);
             println!("   Baud: {}", m.baud_rate);
             println!("   Info: {}", m.details);
             println!();
         }
-        
+
         // Generate config snippet
         println!("\n=== Suggested Configuration ===\n");
         println!("Add to config/default.toml:\n");
-        
+
         for m in &matches {
             match m.instrument_type.as_str() {
                 "Newport 1830-C" => {
@@ -162,7 +167,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -171,16 +176,16 @@ fn test_newport_1830c(port_name: &str, baud_rate: u32) -> Option<InstrumentMatch
         .timeout(Duration::from_millis(500))
         .open()
         .ok()?;
-    
+
     // Newport 1830-C uses simple ASCII protocol
     // Send "D?" to get power reading
     port.write_all(b"D?\r").ok()?;
     std::thread::sleep(Duration::from_millis(200));
-    
+
     let mut buffer = [0u8; 128];
     let n = port.read(&mut buffer).ok()?;
     let response = String::from_utf8_lossy(&buffer[..n]);
-    
+
     // Newport responds with scientific notation like "+1.23E-9"
     let cleaned = response.trim();
     if cleaned.contains('E') || cleaned.contains('e') {
@@ -196,7 +201,7 @@ fn test_newport_1830c(port_name: &str, baud_rate: u32) -> Option<InstrumentMatch
             });
         }
     }
-    
+
     None
 }
 
@@ -207,20 +212,20 @@ fn test_scpi_idn(port_name: &str, baud_rate: u32) -> Option<InstrumentMatch> {
         .flow_control(serialport::FlowControl::Hardware)
         .open()
         .ok()?;
-    
+
     // Send SCPI identification query
     port.write_all(b"*IDN?\r\n").ok()?;
     std::thread::sleep(Duration::from_millis(300));
-    
+
     let mut buffer = [0u8; 256];
     let n = port.read(&mut buffer).ok()?;
     let response = String::from_utf8_lossy(&buffer[..n]);
     let cleaned = response.trim();
-    
+
     if cleaned.is_empty() || n == 0 {
         return None;
     }
-    
+
     // Identify specific instruments by response patterns
     if cleaned.contains("ESP300") || cleaned.contains("Newport") && cleaned.contains("300") {
         return Some(InstrumentMatch {
@@ -231,7 +236,7 @@ fn test_scpi_idn(port_name: &str, baud_rate: u32) -> Option<InstrumentMatch> {
             details: format!("IDN: {}", cleaned),
         });
     }
-    
+
     if cleaned.contains("MaiTai") || cleaned.contains("Spectra-Physics") {
         return Some(InstrumentMatch {
             port: port_name.to_string(),
@@ -241,7 +246,7 @@ fn test_scpi_idn(port_name: &str, baud_rate: u32) -> Option<InstrumentMatch> {
             details: format!("IDN: {}", cleaned),
         });
     }
-    
+
     // Generic SCPI device
     if !cleaned.is_empty() && cleaned.len() > 5 {
         return Some(InstrumentMatch {
@@ -252,7 +257,7 @@ fn test_scpi_idn(port_name: &str, baud_rate: u32) -> Option<InstrumentMatch> {
             details: format!("IDN: {}", cleaned),
         });
     }
-    
+
     None
 }
 
@@ -261,16 +266,16 @@ fn test_elliptec(port_name: &str, baud_rate: u32) -> Option<InstrumentMatch> {
         .timeout(Duration::from_millis(300))
         .open()
         .ok()?;
-    
+
     // Elliptec protocol: address + command
     // Try address 0: "0in" to get info
     port.write_all(b"0in\r").ok()?;
     std::thread::sleep(Duration::from_millis(200));
-    
+
     let mut buffer = [0u8; 128];
     let n = port.read(&mut buffer).ok()?;
     let response = String::from_utf8_lossy(&buffer[..n]);
-    
+
     // Elliptec responds with "0IN" followed by device info
     if response.starts_with("0IN") || response.starts_with("0PO") {
         return Some(InstrumentMatch {
@@ -281,6 +286,6 @@ fn test_elliptec(port_name: &str, baud_rate: u32) -> Option<InstrumentMatch> {
             details: format!("Response: {}", response.trim()),
         });
     }
-    
+
     None
 }

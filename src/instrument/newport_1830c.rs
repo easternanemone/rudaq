@@ -105,7 +105,7 @@ impl Newport1830C {
 
         // Small delay to allow meter to process command
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        
+
         Ok(())
     }
 
@@ -347,8 +347,7 @@ impl Instrument for Newport1830C {
                         .map(|v| v as i32)
                         .with_context(|| format!("Invalid filter value: {}", value))?;
                     Self::validate_filter(filter)?;
-                    self.send_config_command(&format!("F{}", filter))
-                        .await?;
+                    self.send_config_command(&format!("F{}", filter)).await?;
                     self.current_filter = Some(filter);
                     info!("Set Newport 1830-C filter to {}", filter);
                 }
