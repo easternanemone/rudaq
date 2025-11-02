@@ -433,6 +433,8 @@ impl RealPvcamSdk {
             PvcamParam::Exposure => Ok(pvcam_sys::PARAM_EXPOSURE_TIME),
             PvcamParam::Gain => Ok(pvcam_sys::PARAM_GAIN_INDEX),
             PvcamParam::Roi => Ok(pvcam_sys::PARAM_ROI),
+            PvcamParam::ExposureMode => Ok(pvcam_sys::PARAM_TRIG_MODE),
+            PvcamParam::EdgeTrigger => Ok(pvcam_sys::PARAM_EDGE_TRIGGER),
             // Remaining parameters require additional SDK integration; return explicit error for now.
             other => Err(PvcamError::ParamNotSupported(other)),
         }
