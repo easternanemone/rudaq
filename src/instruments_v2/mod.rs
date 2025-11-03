@@ -7,32 +7,20 @@
 //! - Meta-instrument traits (Camera, PowerMeter, etc.)
 
 pub mod elliptec;
-pub mod elliptec_v3; // Phase 2: V3 architecture implementation (validates Stage trait)
 pub mod esp300;
-pub mod esp300_v3; // Phase 2: V3 architecture implementation
 pub mod maitai;
-pub mod maitai_v3; // Phase 2: V3 architecture implementation
 pub mod mock_instrument;
-pub mod mock_power_meter_v3; // Phase 3: V3 architecture implementation (validates vertical slice)
 pub mod newport_1830c;
-pub mod newport_1830c_v3; // Phase 2: V3 architecture implementation
 pub mod pvcam;
-pub mod pvcam_sdk; // Added: SDK abstraction layer
-pub mod pvcam_v3; // Phase 2: V3 architecture implementation
+pub mod pvcam_sdk;
 pub mod scpi;
-pub mod scpi_v3; // Phase 2: V3 architecture implementation (validates generic instrument pattern)
+pub mod visa;
 
 pub use elliptec::ElliptecV2;
-pub use elliptec_v3::ElliptecV3;
 pub use esp300::ESP300V2;
-pub use esp300_v3::ESP300V3;
 pub use maitai::MaiTaiV2;
-pub use maitai_v3::MaiTaiV3;
 pub use mock_instrument::MockInstrumentV2;
-pub use mock_power_meter_v3::MockPowerMeterV3;
 pub use newport_1830c::Newport1830CV2;
-pub use newport_1830c_v3::Newport1830CV3;
 pub use pvcam::PVCAMInstrumentV2;
-pub use pvcam_v3::PVCAMCameraV3;
 pub use scpi::ScpiInstrumentV2;
-pub use scpi_v3::ScpiInstrumentV3;
+pub use visa::VisaInstrumentV2;

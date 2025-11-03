@@ -84,7 +84,7 @@ use crate::{
     data::registry::ProcessorRegistry,
     instrument::InstrumentRegistry,
     instrument_manager_v3::InstrumentManagerV3,
-    instruments_v2::{mock_power_meter_v3::MockPowerMeterV3, pvcam_v3::PVCAMCameraV3},
+    instruments_v2::{mock_instrument::MockInstrumentV2, pvcam::PVCAMInstrumentV2},
     log_capture::LogBuffer,
     measurement::{DataDistributor, DataDistributorConfig, Measure, SubscriberMetricsSnapshot},
     messages::{DaqCommand, SpawnError},
@@ -198,23 +198,12 @@ where
         let version_manager = VersionManager::new(".daq/config_versions".into());
 
         // V3 Instrument Manager Initialization (Phase 3)
-        let instrument_manager_v3 = if !settings.instruments_v3.is_empty() {
-            let mut manager = InstrumentManagerV3::new();
-            manager.set_data_distributor(data_distributor.clone());
+        // DISABLED: V3 instruments removed as part of Phase 1 (bd-cacd)
+        // V3 architecture will be reconsidered after V2 migration complete
+        let instrument_manager_v3 = None;
 
-            // Register V3 factories
-            manager.register_factory("MockPowerMeterV3", |id, settings| {
-                MockPowerMeterV3::from_config(id, settings)
-            });
-            manager.register_factory("PVCAMCameraV3", |id, settings| {
-                PVCAMCameraV3::from_config(id, settings)
-            });
-
-            // Note: Load from config will happen in the run() method to allow async
-            Some(Arc::new(Mutex::new(manager)))
-        } else {
-            None
-        };
+        // TODO(Phase 3): Re-enable V3 architecture after V2 migration complete
+        // See docs/V2_MIGRATION_ROADMAP.md Phase 3
 
         Ok(Self {
             settings,

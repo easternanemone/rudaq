@@ -541,7 +541,7 @@ impl Default for InstrumentManagerV3 {
 mod tests {
     use super::*;
     use crate::core_v3::{InstrumentState, ParameterBase, PixelBuffer};
-    use crate::instruments_v2::MockPowerMeterV3;
+    // MockPowerMeterV3 removed in Phase 1 - using local MockInstrumentV3 for tests
     use chrono::Utc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, OnceLock};
@@ -646,11 +646,11 @@ mod tests {
     #[tokio::test]
     async fn test_mock_power_meter_integration() {
         let mut manager = InstrumentManagerV3::new();
-        manager.register_factory("MockPowerMeterV3", MockPowerMeterV3::from_config);
+        manager.register_factory("MockInstrumentV3", MockInstrumentV3::from_config);
 
         let cfg = InstrumentConfigV3 {
             id: "power_meter_test".to_string(),
-            type_name: "MockPowerMeterV3".to_string(),
+            type_name: "MockInstrumentV3".to_string(),
             settings: serde_json::json!({
                 "sampling_rate": 10.0,
                 "wavelength_nm": 532.0
