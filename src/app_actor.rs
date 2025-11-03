@@ -94,7 +94,7 @@ use crate::{
 };
 use anyhow::{anyhow, Context, Result};
 use daq_core::Measurement;
-use log::{error, info};
+use log::{error, info, warn};
 use std::path::Path;
 use std::sync::Arc;
 use std::{collections::HashMap, time::Duration};
@@ -140,6 +140,7 @@ where
 {
     settings: Settings,
     instrument_registry: Arc<InstrumentRegistry<M>>,
+    instrument_registry_v2: Arc<crate::instrument::InstrumentRegistryV2>,
     processor_registry: Arc<ProcessorRegistry>,
     module_registry: Arc<crate::modules::ModuleRegistry<M>>,
     pub instruments: HashMap<String, InstrumentHandle>,
@@ -179,6 +180,7 @@ where
     pub fn new(
         settings: Settings,
         instrument_registry: Arc<InstrumentRegistry<M>>,
+        instrument_registry_v2: Arc<crate::instrument::InstrumentRegistryV2>,
         processor_registry: Arc<ProcessorRegistry>,
         module_registry: Arc<crate::modules::ModuleRegistry<M>>,
         log_buffer: LogBuffer,
@@ -208,6 +210,7 @@ where
         Ok(Self {
             settings,
             instrument_registry,
+            instrument_registry_v2,
             processor_registry,
             module_registry,
             instruments: HashMap::new(),
@@ -486,12 +489,20 @@ where
                 ))
             })?;
 
+        // Try V2 registry first (preferred for native V2 instruments)
+        if let Some(v2_instrument) = self.instrument_registry_v2.create(instrument_type, id) {
+            info!("Spawning V2 instrument '{}' of type '{}'", id, instrument_type);
+            return self.spawn_v2_instrument(id, v2_instrument).await;
+        }
+
+        // Fallback to V1 registry (legacy instruments)
+        info!("Spawning V1 instrument '{}' of type '{}'", id, instrument_type);
         let mut instrument = self
             .instrument_registry
             .create(instrument_type, id)
             .ok_or_else(|| {
                 SpawnError::InvalidConfig(format!(
-                    "Instrument type '{}' not registered in registry",
+                    "Instrument type '{}' not registered in either V1 or V2 registry",
                     instrument_type
                 ))
             })?;
@@ -608,6 +619,195 @@ where
             capabilities,
         };
         self.instruments.insert(id.to_string(), handle);
+        Ok(())
+    }
+
+    /// Spawns a V2 instrument task on the Tokio runtime.
+    ///
+    /// This method handles V2 instruments that implement `daq_core::Instrument` directly.
+    /// V2 instruments produce `Arc<Measurement>` natively and don't require conversion.
+    ///
+    /// # V2 Data Flow
+    ///
+    /// ```text
+    /// V2 Instrument → measurement_stream() → broadcast::Receiver<Arc<Measurement>>
+    ///               → DataDistributor → GUI/Storage
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `SpawnError` if:
+    /// - Instrument is already running
+    /// - Instrument initialization fails
+    /// - Measurement stream cannot be obtained
+    async fn spawn_v2_instrument(
+        &mut self,
+        id: &str,
+        mut instrument: std::pin::Pin<Box<dyn daq_core::Instrument>>,
+    ) -> Result<(), SpawnError> {
+        if self.instruments.contains_key(id) {
+            return Err(SpawnError::AlreadyRunning(format!(
+                "Instrument '{}' is already running",
+                id
+            )));
+        }
+
+        // Initialize the V2 instrument
+        // SAFETY: We own the Pin<Box<>> and the instrument won't be moved
+        unsafe {
+            instrument.as_mut().get_unchecked_mut().initialize().await.map_err(|e| {
+                SpawnError::ConnectionFailed(format!(
+                    "Failed to initialize V2 instrument '{}': {}",
+                    id, e
+                ))
+            })?;
+        }
+        info!("V2 instrument '{}' initialized", id);
+
+        // Get measurement stream from instrument
+        let mut measurement_rx = instrument.measurement_stream();
+        let data_distributor = self.data_distributor.clone();
+        let id_clone = id.to_string();
+
+        // Create command channel - V2 uses daq_core::InstrumentCommand internally
+        // but InstrumentHandle expects core::InstrumentCommand for compatibility
+        let (command_tx, mut command_rx) =
+            tokio::sync::mpsc::channel(self.settings.application.command_channel_capacity);
+
+        // V2 instruments don't expose capabilities yet (Phase 3)
+        // Use empty Vec for now to maintain InstrumentHandle compatibility
+        let capabilities = Vec::new();
+
+        // Spawn task to handle V2 instrument lifecycle
+        let task: JoinHandle<Result<()>> = self.runtime.spawn(async move {
+            loop {
+                tokio::select! {
+                    measurement_result = measurement_rx.recv() => {
+                        match measurement_result {
+                            Ok(measurement) => {
+                                // V2 instruments produce Arc<Measurement> directly
+                                if let Err(e) = data_distributor.broadcast(measurement).await {
+                                    error!(
+                                        "Failed to broadcast measurement from V2 instrument '{}': {}",
+                                        id_clone, e
+                                    );
+                                }
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                warn!(
+                                    "V2 instrument '{}' receiver lagged, dropped {} frames (bursty data)",
+                                    id_clone, n
+                                );
+                                // Continue processing - Lagged is recoverable
+                                continue;
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                error!(
+                                    "V2 instrument '{}' measurement stream closed",
+                                    id_clone
+                                );
+                                break;
+                            }
+                        }
+                    }
+                    Some(command) = command_rx.recv() => {
+                        // Convert core::InstrumentCommand (V1) to daq_core::InstrumentCommand (V2)
+                        let v2_command = match command {
+                            crate::core::InstrumentCommand::Shutdown => daq_core::InstrumentCommand::Shutdown,
+                            crate::core::InstrumentCommand::SetParameter(name, value) => {
+                                // Convert ParameterValue to serde_json::Value
+                                let json_value = match value {
+                                    crate::core::ParameterValue::Float(f) => serde_json::Value::from(f),
+                                    crate::core::ParameterValue::Int(i) => serde_json::Value::from(i),
+                                    crate::core::ParameterValue::String(s) => serde_json::Value::from(s),
+                                    crate::core::ParameterValue::Bool(b) => serde_json::Value::from(b),
+                                    crate::core::ParameterValue::FloatArray(arr) => serde_json::Value::from(arr),
+                                    crate::core::ParameterValue::IntArray(arr) => serde_json::Value::from(arr),
+                                    crate::core::ParameterValue::Null => serde_json::Value::Null,
+                                    crate::core::ParameterValue::Array(arr) => {
+                                        // Recursively convert array elements
+                                        serde_json::Value::Array(
+                                            arr.into_iter()
+                                                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+                                                .collect()
+                                        )
+                                    }
+                                    crate::core::ParameterValue::Object(map) => {
+                                        // Convert HashMap to JSON object
+                                        serde_json::to_value(map).unwrap_or(serde_json::Value::Null)
+                                    }
+                                };
+                                daq_core::InstrumentCommand::SetParameter { name, value: json_value }
+                            }
+                            crate::core::InstrumentCommand::QueryParameter(name) => {
+                                // V2 GetParameter returns result via measurement stream
+                                daq_core::InstrumentCommand::GetParameter { name }
+                            }
+                            crate::core::InstrumentCommand::Execute(cmd, _args) => {
+                                // V2 supports specific commands via typed enum
+                                // Map common V1 Execute commands to V2 equivalents
+                                match cmd.as_str() {
+                                    "start" | "start_acquisition" => daq_core::InstrumentCommand::StartAcquisition,
+                                    "stop" | "stop_acquisition" => daq_core::InstrumentCommand::StopAcquisition,
+                                    "recover" => daq_core::InstrumentCommand::Recover,
+                                    _ => {
+                                        log::warn!(
+                                            "Unknown Execute command '{}' for V2 instrument '{}', ignoring",
+                                            cmd, id_clone
+                                        );
+                                        continue;
+                                    }
+                                }
+                            }
+                            crate::core::InstrumentCommand::Capability { .. } => {
+                                // V2 doesn't support capability-based commands yet
+                                // This is a Phase 3 concern
+                                log::warn!(
+                                    "Capability commands not yet supported for V2 instrument '{}'",
+                                    id_clone
+                                );
+                                continue;
+                            }
+                        };
+
+                        match v2_command {
+                            daq_core::InstrumentCommand::Shutdown => {
+                                info!("V2 instrument '{}' received shutdown command", id_clone);
+                                break;
+                            }
+                            _ => {
+                                // Use Pin::get_unchecked_mut() to get mutable reference
+                                // SAFETY: We own the Pin<Box<>> and the instrument won't be moved
+                                if let Err(e) = unsafe { instrument.as_mut().get_unchecked_mut().handle_command(v2_command).await } {
+                                    error!(
+                                        "Failed to handle command for V2 instrument '{}': {}",
+                                        id_clone, e
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Graceful shutdown
+            info!("Shutting down V2 instrument '{}'", id_clone);
+            // SAFETY: We own the Pin<Box<>> and the instrument won't be moved
+            if let Err(e) = unsafe { instrument.as_mut().get_unchecked_mut().shutdown().await } {
+                error!("Error during V2 instrument '{}' shutdown: {}", id_clone, e);
+            }
+            info!("V2 instrument '{}' disconnected successfully", id_clone);
+            Ok(())
+        });
+
+        let handle = InstrumentHandle {
+            task,
+            command_tx,
+            capabilities,
+        };
+        self.instruments.insert(id.to_string(), handle);
+
+        info!("V2 instrument '{}' spawned successfully", id);
         Ok(())
     }
 

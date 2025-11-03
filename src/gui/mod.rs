@@ -47,15 +47,16 @@ pub mod verification;
 
 use self::instrument_controls::*;
 use self::storage_manager::StorageManager;
-use crate::{app::DaqApp, log_capture::LogBuffer};
+use crate::{config::Settings, log_capture::LogBuffer, instrument::InstrumentRegistry, messages::DaqCommand, measurement::Measure};
 use daq_core::Measurement;
 use eframe::egui;
 use egui_dock::{DockArea, DockState, Style, TabViewer};
 use egui_plot::{Line, Plot, PlotPoints};
-use log::{error, info, LevelFilter};
+use log::{debug, error, info, LevelFilter};
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
-use tokio::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
+use tokio::sync::{mpsc, oneshot};
 
 mod log_panel;
 
@@ -133,16 +134,31 @@ impl ImageTab {
 }
 
 /// The main GUI struct.
-use crate::measurement::Measure;
 
 pub struct Gui<M>
 where
     M: Measure + 'static,
     M::Data: Into<daq_core::Measurement>,
 {
-    app: DaqApp<M>,
+    // Direct actor communication (replaces DaqApp wrapper)
+    command_tx: mpsc::Sender<DaqCommand>,
+    runtime: Arc<tokio::runtime::Runtime>,
+
+    // Configuration access (read-only, shared)
+    settings: Arc<Settings>,
+    instrument_registry: Arc<InstrumentRegistry<M>>,
+
+    // Data and logging
     data_receiver: mpsc::Receiver<Arc<Measurement>>,
     log_buffer: LogBuffer,
+
+    // Pending async operations tracking
+    pending_operations: HashMap<String, PendingOperation>,
+
+    // Cached instrument state (refreshed periodically)
+    instrument_status_cache: HashMap<String, bool>, // id → is_running
+    cache_refresh_counter: u32,
+
     dock_state: DockState<DockTab>,
     selected_channel: String,
     storage_manager: StorageManager,
@@ -171,24 +187,62 @@ where
     screenshot_request: Option<std::path::PathBuf>,
 }
 
+/// Tracks a pending async operation for status display
+struct PendingOperation {
+    rx: oneshot::Receiver<Result<(), crate::messages::SpawnError>>,
+    description: String,
+    started_at: Instant,
+    /// Optional cache update to apply when operation completes
+    /// Wrapped in Arc<Mutex<>> to allow async task to update it
+    cache_update: Option<Arc<Mutex<HashMap<String, bool>>>>,
+}
+
+const CACHE_REFRESH_INTERVAL: u32 = 60; // Refresh every 60 frames (~1 second)
+
 impl<M> Gui<M>
 where
     M: Measure + 'static,
     M::Data: Into<daq_core::Measurement>,
 {
-    /// Creates a new GUI.
-    pub fn new(_cc: &eframe::CreationContext<'_>, app: DaqApp<M>) -> Self {
-        let (data_receiver, log_buffer) =
-            app.with_inner(|inner| (inner.data_sender.subscribe(), inner.log_buffer.clone()));
+    /// Creates a new GUI with async communication to DaqManagerActor.
+    pub fn new(
+        _cc: &eframe::CreationContext<'_>,
+        command_tx: mpsc::Sender<DaqCommand>,
+        runtime: Arc<tokio::runtime::Runtime>,
+        settings: Settings,
+        instrument_registry: Arc<InstrumentRegistry<M>>,
+        log_buffer: LogBuffer,
+    ) -> Self {
+        // Subscribe to data stream via blocking call during initialization.
+        // TECH DEBT (Phase 3): This blocks briefly during startup, but occurs before
+        // the GUI window is visible to the user, so no user-visible freeze.
+        // A full async migration would require restructuring eframe's App::new().
+        // The more critical blocking operations are in instrument control panels
+        // which block on every user action - see instrument_controls.rs migration.
+        let data_receiver = {
+            let (cmd, rx) = DaqCommand::subscribe_to_data();
+            command_tx.blocking_send(cmd).ok();
+            rx.blocking_recv().unwrap_or_else(|_| {
+                let (tx, rx) = mpsc::channel(1);
+                drop(tx);
+                rx
+            })
+        };
 
         let mut dock_state =
             DockState::new(vec![DockTab::Plot(PlotTab::new("sine_wave".to_string()))]);
         dock_state.push_to_focused_leaf(DockTab::Plot(PlotTab::new("cosine_wave".to_string())));
 
         Self {
-            app,
+            command_tx,
+            runtime,
+            settings: Arc::new(settings),
+            instrument_registry,
             data_receiver,
             log_buffer,
+            pending_operations: HashMap::new(),
+            instrument_status_cache: HashMap::new(),
+            cache_refresh_counter: 0,
             dock_state,
             selected_channel: "sine_wave".to_string(),
             storage_manager: StorageManager::new(),
@@ -425,6 +479,92 @@ where
     M::Data: Into<daq_core::Measurement>,
 {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Poll pending operations (non-blocking)
+        let mut completed = Vec::new();
+        for (op_id, pending) in &mut self.pending_operations {
+            match pending.rx.try_recv() {
+                Ok(Ok(())) => {
+                    info!("Operation '{}' completed successfully", pending.description);
+                    
+                    // Apply cache update if present
+                    if let Some(cache_update) = &pending.cache_update {
+                        let cache = cache_update.lock().unwrap();
+                        self.instrument_status_cache = cache.clone();
+                        debug!("Applied cache update: {} instruments", cache.len());
+                    }
+                    
+                    completed.push(op_id.clone());
+                }
+                Ok(Err(e)) => {
+                    error!("Operation '{}' failed: {}", pending.description, e);
+                    completed.push(op_id.clone());
+                }
+                Err(oneshot::error::TryRecvError::Empty) => {
+                    // Still pending, check timeout
+                    if pending.started_at.elapsed() > std::time::Duration::from_secs(30) {
+                        error!("Operation '{}' timed out", pending.description);
+                        completed.push(op_id.clone());
+                    }
+                }
+                Err(oneshot::error::TryRecvError::Closed) => {
+                    error!("Operation '{}' actor closed channel", pending.description);
+                    completed.push(op_id.clone());
+                }
+            }
+        }
+
+        // Remove completed operations
+        for op_id in completed {
+            self.pending_operations.remove(&op_id);
+        }
+
+        // Refresh instrument status cache periodically
+        self.cache_refresh_counter = self.cache_refresh_counter.wrapping_add(1);
+        if self.cache_refresh_counter % CACHE_REFRESH_INTERVAL == 0 {
+            // Query instrument list and update cache asynchronously
+            let (cmd, list_rx) = DaqCommand::get_instrument_list();
+
+            if self.command_tx.try_send(cmd).is_ok() {
+                let op_id = format!("cache_refresh_{}", self.cache_refresh_counter);
+
+                // Create shared cache that async task can update
+                let cache_update = Arc::new(Mutex::new(HashMap::new()));
+                let cache_clone = Arc::clone(&cache_update);
+
+                // Convert list receiver into PendingOperation receiver
+                let (op_tx, op_rx) = tokio::sync::oneshot::channel();
+
+                self.runtime.spawn(async move {
+                    match list_rx.await {
+                        Ok(list) => {
+                            // Update shared cache (this will be applied when operation completes)
+                            let mut cache = cache_clone.lock().unwrap();
+                            cache.clear();
+                            for id in list {
+                                cache.insert(id, true);
+                            }
+                            drop(cache); // Release lock before sending
+                            let _ = op_tx.send(Ok(()));
+                        }
+                        Err(e) => {
+                            let _ = op_tx.send(Err(crate::messages::SpawnError::InvalidConfig(
+                                format!("Failed to get instrument list: {}", e)
+                            )));
+                        }
+                    }
+                });
+
+                self.pending_operations.insert(op_id, PendingOperation {
+                    rx: op_rx,
+                    description: "Refreshing instrument status".to_string(),
+                    started_at: Instant::now(),
+                    cache_update: Some(cache_update),
+                });
+            } else {
+                error!("Failed to queue instrument status refresh (channel full)");
+            }
+        }
+
         // Rebuild subscriptions periodically (every 60 frames) or when explicitly marked dirty
         // This catches tab closes, channel changes, and other modifications
         self.frame_counter = self.frame_counter.wrapping_add(1);
@@ -447,6 +587,7 @@ where
             self.take_screenshot(ctx, path);
         }
 
+        // Process incoming measurements
         self.update_data();
 
         egui::TopBottomPanel::bottom("bottom_panel")
@@ -456,16 +597,19 @@ where
                 log_panel::render(ui, self);
             });
 
-        // Collect instrument data first
-        let (instruments, available_channels) = self.app.with_inner(|inner| {
-            let instruments: Vec<(String, toml::Value, bool)> = inner
-                .settings
-                .instruments
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone(), inner.instruments.contains_key(k)))
-                .collect();
-            (instruments, inner.get_available_channels())
-        });
+        // Collect instrument data from local settings + cache (no blocking)
+        let instruments: Vec<(String, toml::Value, bool)> = self
+            .settings
+            .instruments
+            .iter()
+            .map(|(k, v)| {
+                let is_running = self.instrument_status_cache.get(k).copied().unwrap_or(false);
+                (k.clone(), v.clone(), is_running)
+            })
+            .collect();
+
+        // Get available channels from registry (no actor call needed)
+        let available_channels: Vec<String> = self.instrument_registry.list().collect();
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -559,7 +703,7 @@ where
                 .resizable(true)
                 .min_width(300.0)
                 .show(ctx, |ui| {
-                    self.storage_manager.ui(ui, &self.app);
+                    self.storage_manager.ui(ui, &self.settings);
                 });
         }
 
@@ -567,18 +711,30 @@ where
             .resizable(true)
             .min_width(200.0)
             .show(ctx, |ui| {
-                render_instrument_panel(
+                render_instrument_panel::<M>(
                     ui,
                     &instruments,
-                    &self.app,
+                    &self.command_tx,
+                    &self.runtime,
+                    &mut self.pending_operations,
                     &mut self.dock_state,
                     &self.data_cache,
                 );
             });
 
+        let temp_app = crate::app::DaqApp {
+            command_tx: self.command_tx.clone(),
+            runtime: self.runtime.clone(),
+            settings: (*self.settings).clone(),
+            log_buffer: self.log_buffer.clone(),
+            instrument_registry: self.instrument_registry.clone(),
+            instrument_registry_v2: Arc::new(crate::instrument::InstrumentRegistryV2::new()),  // Empty for compatibility
+            _phantom: std::marker::PhantomData,
+        };
+
         let mut tab_viewer = DockTabViewer {
             available_channels,
-            app: &self.app,
+            app: temp_app,
             data_cache: &self.data_cache,
         };
 
@@ -629,7 +785,9 @@ fn display_cached_value(
 fn render_instrument_panel<M>(
     ui: &mut egui::Ui,
     instruments: &[(String, toml::Value, bool)],
-    app: &DaqApp<M>,
+    command_tx: &mpsc::Sender<DaqCommand>,
+    runtime: &Arc<tokio::runtime::Runtime>,
+    pending_operations: &mut HashMap<String, PendingOperation>,
     dock_state: &mut DockState<DockTab>,
     data_cache: &HashMap<String, Arc<Measurement>>,
 ) where
@@ -640,7 +798,10 @@ fn render_instrument_panel<M>(
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         for (id, config, is_running) in instruments {
-            let inst_type = config.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            let inst_type = config
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
 
             // Make the entire group draggable by wrapping it in dnd_drag_source
             let drag_id = egui::Id::new(format!("drag_{}", id));
@@ -658,19 +819,35 @@ fn render_instrument_panel<M>(
                                         if *is_running {
                                             ui.colored_label(egui::Color32::GREEN, "● Running");
                                             if ui.button("Stop").clicked() {
-                                                app.with_inner(|inner| inner.stop_instrument(id));
+                                                // Fire-and-forget async stop (no response tracking needed)
+                                                let cmd_tx = command_tx.clone();
+                                                let id_clone = id.clone();
+                                                runtime.spawn(async move {
+                                                    let (cmd, rx) = DaqCommand::stop_instrument(id_clone);
+                                                    if cmd_tx.send(cmd).await.is_ok() {
+                                                        let _ = rx.await; // Discard result
+                                                    }
+                                                });
                                             }
                                         } else {
                                             ui.colored_label(egui::Color32::GRAY, "● Stopped");
                                             if ui.button("Start").clicked() {
-                                                app.with_inner(|inner| {
-                                                    if let Err(e) = inner.spawn_instrument(id) {
-                                                        error!(
-                                                            "Failed to start instrument '{}': {}",
-                                                            id, e
-                                                        );
-                                                    }
-                                                });
+                                                // Track spawn operation for status display
+                                                let cmd_tx = command_tx.clone();
+                                                let id_clone = id.clone();
+                                                let op_id = format!("spawn_{}", id);
+
+                                                let (cmd, rx) = DaqCommand::spawn_instrument(id_clone.clone());
+                                                if cmd_tx.try_send(cmd).is_ok() {
+                                                    pending_operations.insert(op_id, PendingOperation {
+                                                        rx,
+                                                        description: format!("Starting {}", id_clone),
+                                                        started_at: Instant::now(),
+                                                        cache_update: None,
+                                                    });
+                                                } else {
+                                                    error!("Failed to queue start command for '{}' (command channel full)", id_clone);
+                                                }
                                             }
                                         }
                                     },
@@ -944,7 +1121,7 @@ where
     M::Data: Into<daq_core::Measurement>,
 {
     available_channels: Vec<String>,
-    app: &'a DaqApp<M>,
+    app: crate::app::DaqApp<M>,  // Temporary - will be refactored in next phase
     data_cache: &'a HashMap<String, Arc<Measurement>>,
 }
 
@@ -992,19 +1169,19 @@ where
                 image_view(ui, image_tab);
             }
             DockTab::MaiTaiControl(panel) => {
-                panel.ui(ui, self.app, self.data_cache);
+                panel.ui(ui, &self.app, self.data_cache);
             }
             DockTab::Newport1830CControl(panel) => {
-                panel.ui(ui, self.app, self.data_cache);
+                panel.ui(ui, &self.app, self.data_cache);
             }
             DockTab::ElliptecControl(panel) => {
-                panel.ui(ui, self.app, self.data_cache);
+                panel.ui(ui, &self.app, self.data_cache);
             }
             DockTab::ESP300Control(panel) => {
-                panel.ui(ui, self.app, self.data_cache);
+                panel.ui(ui, &self.app, self.data_cache);
             }
             DockTab::PVCAMControl(panel) => {
-                panel.ui(ui, self.app, self.data_cache);
+                panel.ui(ui, &self.app, self.data_cache);
             }
         }
     }

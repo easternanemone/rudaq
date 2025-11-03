@@ -31,6 +31,10 @@ pub mod pvcam;
 // V2 instrument adapter for bridging V2 instruments with V1 registry
 pub mod v2_adapter;
 
+// V2 instrument registry for Phase 2.1 migration (bd-46c9)
+pub mod registry_v2;
+pub use registry_v2::InstrumentRegistryV2;
+
 // Phase 1: V3 architecture prototype instruments
 pub mod mock_v3;
 
