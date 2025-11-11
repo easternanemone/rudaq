@@ -451,18 +451,28 @@ where
                 }
 
                 // Monitor instrument task completion/crashes (bd-6ae0)
-                Some(Ok((instrument_id, result))) = self.instrument_tasks.join_next() => {
+                Some(result) = self.instrument_tasks.join_next() => {
                     match result {
-                        Ok(_) => {
-                            info!("Instrument '{}' task completed, cleaning up handle", instrument_id);
+                        Ok((instrument_id, task_result)) => {
+                            match task_result {
+                                Ok(_) => info!("Instrument '{}' task completed gracefully.", instrument_id),
+                                Err(e) => error!("Instrument '{}' task failed: {}", instrument_id, e),
+                            }
+                            // Always remove the handle on task completion
+                            if self.instruments.remove(&instrument_id).is_some() {
+                                info!("Cleaned up handle for instrument '{}'.", instrument_id);
+                            }
                         }
-                        Err(e) => {
-                            error!("Instrument '{}' task crashed: {}", instrument_id, e);
+                        Err(join_error) => {
+                            if join_error.is_panic() {
+                                // Extracting the instrument ID from a panic is tricky.
+                                // This part of the bug is non-trivial to solve without major changes.
+                                // For now, we log that a task panicked.
+                                error!("An instrument task panicked: {:?}. Stale handle may remain.", join_error);
+                            } else {
+                                error!("Failed to join instrument task: {}", join_error);
+                            }
                         }
-                    }
-                    // Remove stale handle to allow respawn
-                    if let Some(_handle) = self.instruments.remove(&instrument_id) {
-                        info!("Removed stale handle for instrument '{}'", instrument_id);
                     }
                 }
 
@@ -589,74 +599,78 @@ where
 
         let capabilities = instrument.capabilities();
 
-        let task: JoinHandle<Result<()>> = self.runtime.spawn(async move {
-            let mut stream = instrument
-                .measure()
-                .data_stream()
-                .await
-                .context("Failed to get data stream")?;
-            loop {
-                tokio::select! {
-                    data_point_option = stream.recv() => {
-                        match data_point_option {
-                            Some(dp) => {
-                                // Extract data from Arc and convert M::Data to daq_core::Measurement using Into trait
-                                // Preserve instrument identity by embedding it into the channel name
-                                let mut measurement: daq_core::Measurement = (*dp).clone().into();
-                                if let daq_core::Measurement::Scalar(ref mut scalar) = measurement {
-                                    scalar.channel = format!("{}:{}", id_clone, scalar.channel);
-                                }
-                                let mut measurements = vec![Arc::new(measurement)];
+        let abort_handle = self.instrument_tasks.spawn(async move {
+            let task_logic = async {
+                let mut stream = instrument
+                    .measure()
+                    .data_stream()
+                    .await
+                    .context("Failed to get data stream")?;
+                loop {
+                    tokio::select! {
+                        data_point_option = stream.recv() => {
+                            match data_point_option {
+                                Some(dp) => {
+                                    // Extract data from Arc and convert M::Data to daq_core::Measurement using Into trait
+                                    // Preserve instrument identity by embedding it into the channel name
+                                    let mut measurement: daq_core::Measurement = (*dp).clone().into();
+                                    if let daq_core::Measurement::Scalar(ref mut scalar) = measurement {
+                                        scalar.channel = format!("{}:{}", id_clone, scalar.channel);
+                                    }
+                                    let mut measurements = vec![Arc::new(measurement)];
 
-                                // Process through measurement processor chain
-                                for processor in &mut processors {
-                                    measurements = processor.process_measurements(&measurements);
-                                }
+                                    // Process through measurement processor chain
+                                    for processor in &mut processors {
+                                        measurements = processor.process_measurements(&measurements);
+                                    }
 
-                                // Broadcast processed measurements
-                                for measurement in measurements {
-                                    if let Err(e) = data_distributor.broadcast(measurement).await {
-                                        error!("Failed to broadcast measurement: {}", e);
+                                    // Broadcast processed measurements
+                                    for measurement in measurements {
+                                        if let Err(e) = data_distributor.broadcast(measurement).await {
+                                            error!("Failed to broadcast measurement: {}", e);
+                                        }
+                                    }
+                                }
+                                None => {
+                                    error!("Stream closed");
+                                    break;
+                                }
+                            }
+                        }
+                        Some(command) = command_rx.recv() => {
+                            match command {
+                                crate::core::InstrumentCommand::Shutdown => {
+                                    info!("Instrument '{}' received shutdown command", id_clone);
+                                    break;
+                                }
+                                _ => {
+                                    if let Err(e) = instrument.handle_command(command).await {
+                                        error!("Failed to handle command for '{}': {}", id_clone, e);
                                     }
                                 }
                             }
-                            None => {
-                                error!("Stream closed");
-                                break;
-                            }
                         }
-                    }
-                    Some(command) = command_rx.recv() => {
-                        match command {
-                            crate::core::InstrumentCommand::Shutdown => {
-                                info!("Instrument '{}' received shutdown command", id_clone);
-                                break;
-                            }
-                            _ => {
-                                if let Err(e) = instrument.handle_command(command).await {
-                                    error!("Failed to handle command for '{}': {}", id_clone, e);
-                                }
-                            }
+                        _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+                            log::trace!("Instrument stream for {} is idle.", id_clone);
                         }
-                    }
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
-                        log::trace!("Instrument stream for {} is idle.", id_clone);
                     }
                 }
-            }
 
-            // Graceful cleanup after loop breaks
-            info!("Instrument '{}' disconnecting...", id_clone);
-            instrument
-                .disconnect()
-                .await
-                .context("Failed to disconnect instrument")?;
-            info!("Instrument '{}' disconnected successfully", id_clone);
-            Ok(())
+                // Graceful cleanup after loop breaks
+                info!("Instrument '{}' disconnecting...", id_clone);
+                instrument
+                    .disconnect()
+                    .await
+                    .context("Failed to disconnect instrument")?;
+                info!("Instrument '{}' disconnected successfully", id_clone);
+                Ok(())
+            };
+
+            (id_clone, task_logic.await)
         });
 
         let handle = InstrumentHandle {
-            task,
+            abort_handle,
             command_tx,
             capabilities,
         };
@@ -728,152 +742,136 @@ where
         let mut instrument_handle = instrument;
         let mut measurement_rx = measurement_rx;
 
-        let task: JoinHandle<Result<()>> = self.runtime.spawn(async move {
-            loop {
-                tokio::select! {
-                    measurement_result = measurement_rx.recv() => {
-                        match measurement_result {
-                            Ok(measurement) => {
-                                // V2 instruments produce Arc<Measurement> directly
-                                if let Err(e) = data_distributor.broadcast(measurement).await {
-                                    error!(
-                                        "Failed to broadcast measurement from V2 instrument '{}': {}",
-                                        id_clone, e
-                                    );
+        let abort_handle = self.instrument_tasks.spawn(async move {
+            let task_logic = async {
+                loop {
+                    tokio::select! {
+                        measurement_result = measurement_rx.recv() => {
+                            match measurement_result {
+                                Ok(measurement) => {
+                                    // V2 instruments produce Arc<Measurement> directly
+                                    if let Err(e) = data_distributor.broadcast(measurement).await {
+                                        error!(
+                                            "Failed to broadcast measurement from V2 instrument '{}': {}",
+                                            id_clone, e
+                                        );
+                                    }
                                 }
-                            }
-                            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                                warn!(
-                                    "V2 instrument '{}' receiver lagged, dropped {} frames (bursty data)",
-                                    id_clone, n
-                                );
-                                // Continue processing - Lagged is recoverable
-                                continue;
-                            }
-                            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                                error!(
-                                    "V2 instrument '{}' measurement stream closed",
-                                    id_clone
-                                );
-                                break;
+                                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                    warn!(
+                                        "V2 instrument '{}' receiver lagged, dropped {} frames (bursty data)",
+                                        id_clone, n
+                                    );
+                                    // Continue processing - Lagged is recoverable
+                                    continue;
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                    error!(
+                                        "V2 instrument '{}' measurement stream closed",
+                                        id_clone
+                                    );
+                                    break;
+                                }
                             }
                         }
-                    }
-                    Some(command) = command_rx.recv() => {
-                        // Convert core::InstrumentCommand (V1) to daq_core::InstrumentCommand (V2)
-                        let v2_command = match command {
-                            crate::core::InstrumentCommand::Shutdown => daq_core::InstrumentCommand::Shutdown,
-                            crate::core::InstrumentCommand::SetParameter(name, value) => {
-                                // Convert ParameterValue to serde_json::Value
-                                let json_value = match value {
-                                    crate::core::ParameterValue::Float(f) => serde_json::Value::from(f),
-                                    crate::core::ParameterValue::Int(i) => serde_json::Value::from(i),
-                                    crate::core::ParameterValue::String(s) => serde_json::Value::from(s),
-                                    crate::core::ParameterValue::Bool(b) => serde_json::Value::from(b),
-                                    crate::core::ParameterValue::FloatArray(arr) => serde_json::Value::from(arr),
-                                    crate::core::ParameterValue::IntArray(arr) => serde_json::Value::from(arr),
-                                    crate::core::ParameterValue::Null => serde_json::Value::Null,
-                                    crate::core::ParameterValue::Array(arr) => {
-                                        // Recursively convert array elements
-                                        serde_json::Value::Array(
-                                            arr.into_iter()
-                                                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
-                                                .collect()
-                                        )
-                                    }
-                                    crate::core::ParameterValue::Object(map) => {
-                                        // Convert HashMap to JSON object
-                                        serde_json::to_value(map).unwrap_or(serde_json::Value::Null)
-                                    }
-                                };
-                                daq_core::InstrumentCommand::SetParameter { name, value: json_value }
-                            }
-                            crate::core::InstrumentCommand::QueryParameter(name) => {
-                                // V2 GetParameter returns result via measurement stream
-                                daq_core::InstrumentCommand::GetParameter { name }
-                            }
-                            crate::core::InstrumentCommand::Execute(cmd, _args) => {
-                                // V2 supports specific commands via typed enum
-                                // Map common V1 Execute commands to V2 equivalents
-                                match cmd.as_str() {
-                                    "start" | "start_acquisition" => daq_core::InstrumentCommand::StartAcquisition,
-                                    "stop" | "stop_acquisition" => daq_core::InstrumentCommand::StopAcquisition,
-                                    "snap" | "snap_frame" => daq_core::InstrumentCommand::SnapFrame,
-                                    "recover" => daq_core::InstrumentCommand::Recover,
-                                    _ => {
-                                        log::warn!(
-                                            "Unknown Execute command '{}' for V2 instrument '{}', ignoring",
-                                            cmd, id_clone
-                                        );
-                                        continue;
+                        Some(command) = command_rx.recv() => {
+                            // Convert core::InstrumentCommand (V1) to daq_core::InstrumentCommand (V2)
+                            let v2_command = match command {
+                                crate::core::InstrumentCommand::Shutdown => daq_core::InstrumentCommand::Shutdown,
+                                crate::core::InstrumentCommand::SetParameter(name, value) => {
+                                    // Convert ParameterValue to serde_json::Value
+                                    let json_value = match value {
+                                        crate::core::ParameterValue::Float(f) => serde_json::Value::from(f),
+                                        crate::core::ParameterValue::Int(i) => serde_json::Value::from(i),
+                                        crate::core::ParameterValue::String(s) => serde_json::Value::from(s),
+                                        crate::core::ParameterValue::Bool(b) => serde_json::Value::from(b),
+                                        crate::core::ParameterValue::FloatArray(arr) => serde_json::Value::from(arr),
+                                        crate::core::ParameterValue::IntArray(arr) => serde_json::Value::from(arr),
+                                        crate::core::ParameterValue::Null => serde_json::Value::Null,
+                                        crate::core::ParameterValue::Array(arr) => {
+                                            // Recursively convert array elements
+                                            serde_json::Value::Array(
+                                                arr.into_iter()
+                                                    .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+                                                    .collect()
+                                            )
+                                        }
+                                        crate::core::ParameterValue::Object(map) => {
+                                            // Convert HashMap to JSON object
+                                            serde_json::to_value(map).unwrap_or(serde_json::Value::Null)
+                                        }
+                                    };
+                                    daq_core::InstrumentCommand::SetParameter { name, value: json_value }
+                                }
+                                crate::core::InstrumentCommand::QueryParameter(name) => {
+                                    // V2 GetParameter returns result via measurement stream
+                                    daq_core::InstrumentCommand::GetParameter { name }
+                                }
+                                crate::core::InstrumentCommand::Execute(cmd, _args) => {
+                                    // V2 supports specific commands via typed enum
+                                    // Map common V1 Execute commands to V2 equivalents
+                                    match cmd.as_str() {
+                                        "start" | "start_acquisition" => daq_core::InstrumentCommand::StartAcquisition,
+                                        "stop" | "stop_acquisition" => daq_core::InstrumentCommand::StopAcquisition,
+                                        "snap" | "snap_frame" => daq_core::InstrumentCommand::SnapFrame,
+                                        "recover" => daq_core::InstrumentCommand::Recover,
+                                        _ => {
+                                            log::warn!(
+                                                "Unknown Execute command '{}' for V2 instrument '{}', ignoring",
+                                                cmd, id_clone
+                                            );
+                                            continue;
+                                        }
                                     }
                                 }
-                            }
-                            crate::core::InstrumentCommand::Capability { .. } => {
-                                // V2 doesn't support capability-based commands yet
-                                // This is a Phase 3 concern
-                                log::warn!(
-                                    "Capability commands not yet supported for V2 instrument '{}'",
-                                    id_clone
-                                );
-                                continue;
-                            }
-                        };
-
-                        match v2_command {
-                            daq_core::InstrumentCommand::Shutdown => {
-                                info!("V2 instrument '{}' received shutdown command", id_clone);
-                                break;
-                            }
-                            _ => {
-                                // Use Pin::get_unchecked_mut() to get mutable reference
-                                // SAFETY: We own the Pin<Box<>> and the instrument won't be moved
-                                if let Err(e) = instrument_handle.as_mut().get_mut().handle_command(v2_command).await {
-                                    error!(
-                                        "Failed to handle command for V2 instrument '{}': {}",
-                                        id_clone, e
+                                crate::core::InstrumentCommand::Capability { .. } => {
+                                    // V2 doesn't support capability-based commands yet
+                                    // This is a Phase 3 concern
+                                    log::warn!(
+                                        "Capability commands not yet supported for V2 instrument '{}'",
+                                        id_clone
                                     );
+                                    continue;
+                                }
+                            };
+
+                            match v2_command {
+                                daq_core::InstrumentCommand::Shutdown => {
+                                    info!("V2 instrument '{}' received shutdown command", id_clone);
+                                    break;
+                                }
+                                _ => {
+                                    // Use Pin::get_unchecked_mut() to get mutable reference
+                                    // SAFETY: We own the Pin<Box<>> and the instrument won't be moved
+                                    if let Err(e) = instrument_handle.as_mut().get_mut().handle_command(v2_command).await {
+                                        error!(
+                                            "Failed to handle command for V2 instrument '{}': {}",
+                                            id_clone, e
+                                        );
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            // Graceful shutdown
-            info!("Shutting down V2 instrument '{}'", id_clone);
-            if let Err(e) = instrument_handle.as_mut().get_mut().shutdown().await {
-                error!("Error during V2 instrument '{}' shutdown: {}", id_clone, e);
-            }
-            info!("V2 instrument '{}' disconnected successfully", id_clone);
-            Ok(())
+                // Graceful shutdown
+                info!("Shutting down V2 instrument '{}'", id_clone);
+                if let Err(e) = instrument_handle.as_mut().get_mut().shutdown().await {
+                    error!("Error during V2 instrument '{}' shutdown: {}", id_clone, e);
+                }
+                info!("V2 instrument '{}' disconnected successfully", id_clone);
+                Ok(())
+            };
+            (id_clone, task_logic.await)
         });
 
-        // Clone the abort handle for lifecycle monitoring (bd-6ae0)
-        let abort_handle = task.abort_handle();
-        let monitor_id = id.to_string();
-
         let handle = InstrumentHandle {
-            task,
+            abort_handle,
             command_tx,
             capabilities,
         };
         self.instruments.insert(id.to_string(), handle);
-
-        // Spawn monitoring task to detect completion/crashes (bd-6ae0)
-        // Uses abort handle to check if task is still running
-        self.instrument_tasks.spawn(async move {
-            // Poll abort handle - when task completes, this will detect it
-            // This is a lightweight way to monitor without awaiting the actual task
-            loop {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                if abort_handle.is_finished() {
-                    break;
-                }
-            }
-            // Task completed or was aborted
-            (monitor_id, Ok(()))
-        });
 
         info!("V2 instrument '{}' spawned successfully", id);
         Ok(())
@@ -894,7 +892,7 @@ where
     ///
     /// If the command channel is closed or full, the task is aborted immediately.
     async fn stop_instrument(&mut self, id: &str) -> Result<(), crate::error::DaqError> {
-        if let Some(handle) = self.instruments.remove(id) {
+        if let Some(handle) = self.instruments.get(id) {
             // Try graceful shutdown first
             info!("Sending shutdown command to instrument '{}'", id);
             if let Err(e) = handle
@@ -906,43 +904,14 @@ where
                     id, e
                 );
                 log::warn!("{}", error_msg);
-                handle.task.abort();
-                return Err(crate::error::DaqError::Instrument(error_msg));
+                handle.abort_handle.abort();
+                // We still remove the handle, allowing a respawn
             }
-
-            // Wait up to 5 seconds for graceful shutdown
-            let timeout_duration = std::time::Duration::from_secs(5);
-            let task_handle = handle.task;
-
-            match tokio::time::timeout(timeout_duration, task_handle).await {
-                Ok(Ok(Ok(()))) => {
-                    info!("Instrument '{}' stopped gracefully", id);
-                    Ok(())
-                }
-                Ok(Ok(Err(e))) => {
-                    let error_msg =
-                        format!("Instrument '{}' task failed during shutdown: {}", id, e);
-                    log::warn!("{}", error_msg);
-                    Err(crate::error::DaqError::Instrument(error_msg))
-                }
-                Ok(Err(e)) => {
-                    let error_msg =
-                        format!("Instrument '{}' task panicked during shutdown: {}", id, e);
-                    log::warn!("{}", error_msg);
-                    Err(crate::error::DaqError::Instrument(error_msg))
-                }
-                Err(_) => {
-                    let error_msg = format!(
-                        "Instrument '{}' did not stop within {:?}, aborting",
-                        id, timeout_duration
-                    );
-                    log::warn!("{}", error_msg);
-                    Err(crate::error::DaqError::Instrument(error_msg))
-                }
-            }
-        } else {
-            Ok(())
+            // The JoinSet in the main loop will handle cleanup.
+            // We can remove the handle from our map immediately.
+            self.instruments.remove(id);
         }
+        Ok(())
     }
 
     /// Sends a command to a running instrument task.

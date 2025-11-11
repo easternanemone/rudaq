@@ -82,7 +82,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
+use tokio::task::{AbortHandle, JoinHandle};
 
 /// A single data point captured from an instrument.
 ///
@@ -773,7 +773,7 @@ impl From<Vec<i32>> for ParameterValue {
 /// protected by a `Mutex` for safe multi-threaded access.
 pub struct InstrumentHandle {
     /// Tokio task handle (returns Result on completion/failure)
-    pub task: JoinHandle<anyhow::Result<()>>,
+    pub abort_handle: AbortHandle,
     /// Command channel sender (capacity: 32, bounded for backpressure)
     pub command_tx: mpsc::Sender<InstrumentCommand>,
     /// Capabilities advertised by the instrument instance
