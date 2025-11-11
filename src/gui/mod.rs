@@ -42,6 +42,7 @@
 //! - `storage_manager`: Provides the UI for creating, managing, and saving data acquisition sessions.
 
 pub mod instrument_controls;
+pub mod shortcuts;
 pub mod storage_manager;
 pub mod verification;
 
@@ -165,6 +166,8 @@ pub struct Gui {
     selected_channel: String,
     storage_manager: StorageManager,
     show_storage: bool,
+    show_instrument_window: bool,
+    selected_instrument: Option<String>,
     // Log panel state
     log_filter_text: String,
     log_level_filter: LevelFilter,
@@ -244,6 +247,8 @@ impl Gui {
             selected_channel: "sine_wave".to_string(),
             storage_manager: StorageManager::new(),
             show_storage: false,
+            show_instrument_window: false,
+            selected_instrument: None,
             log_filter_text: String::new(),
             log_level_filter: LevelFilter::Info,
             scroll_to_bottom: true,
@@ -583,6 +588,15 @@ impl eframe::App for Gui {
             self.take_screenshot(ctx, path);
         }
 
+        // Handle shortcuts
+        if let Some(action) = shortcuts::handle_shortcuts(ctx) {
+            match action {
+                shortcuts::ShortcutAction::ToggleInstrumentWindow => {
+                    self.show_instrument_window = !self.show_instrument_window;
+                }
+            }
+        }
+
         // Process incoming measurements
         self.update_data();
 
@@ -695,8 +709,53 @@ impl eframe::App for Gui {
                 {
                     self.show_storage = !self.show_storage;
                 }
+
+                ui.separator();
+
+                // Help menu
+                egui::menu::menu_button(ui, "Help", |ui| {
+                    ui.label("Shortcuts:");
+                    ui.label("Ctrl+I: Open Instrument");
+                });
             });
         });
+
+        if self.show_instrument_window {
+            egui::Window::new("Open Instrument")
+                .open(&mut self.show_instrument_window)
+                .show(ctx, |ui| {
+                    ui.label("Select an instrument to open its control panel.");
+                    let instruments: Vec<String> =
+                        self.settings.instruments.keys().cloned().collect();
+                    let selected_instrument_text =
+                        self.selected_instrument.clone().unwrap_or_default();
+                    egui::ComboBox::from_label("Instrument")
+                        .selected_text(selected_instrument_text)
+                        .show_ui(ui, |ui| {
+                            for instrument in &instruments {
+                                ui.selectable_value(
+                                    &mut self.selected_instrument,
+                                    Some(instrument.clone()),
+                                    instrument.clone(),
+                                );
+                            }
+                        });
+                    if ui.button("Open").clicked() {
+                        if let Some(selected_instrument) = &self.selected_instrument {
+                            let config =
+                                self.settings.instruments.get(selected_instrument).unwrap();
+                            let inst_type =
+                                config.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                            open_instrument_controls(
+                                inst_type,
+                                selected_instrument,
+                                config,
+                                &mut self.dock_state,
+                            );
+                        }
+                    }
+                });
+        }
 
         if self.show_storage {
             egui::SidePanel::right("storage_panel")
