@@ -62,7 +62,12 @@ pub async fn send_command_async(
         }
     }
 
-    let response = String::from_utf8_lossy(&response).trim().to_string();
+    // Trim whitespace and remove carriage returns ('\r') which can interfere
+    // with parsing numeric responses from some serial devices.
+    let response = String::from_utf8_lossy(&response)
+        .replace('\r', "")
+        .trim()
+        .to_string();
     debug!("[{}] Received response: {}", instrument_id, response);
     Ok(response)
 }
