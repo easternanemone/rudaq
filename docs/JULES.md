@@ -202,3 +202,152 @@ You have full autonomy to:
 ---
 
 **Remember**: You're an autonomous engineer. Use the tools and documentation to make good decisions. The orchestrator will help with integration and coordination, but the implementation approach is yours to determine.
+
+## Massive Parallel Execution (71-95 Concurrent Sessions)
+
+**CRITICAL**: To maximize Jules utilization (71-95/100 sessions), you MUST use **parallel session creation**, not sequential delays.
+
+### Parallel Session Creation Best Practices
+
+**Key Insight from Gemini**: The 100-session quota applies to **concurrently executing** sessions (`In Progress` state), NOT total active sessions. Your goal is to keep the execution queue full by creating sessions faster than Jules can schedule them.
+
+**Correct Approach** - Parallel Creation with Background Processes:
+```bash
+#!/bin/bash
+# Create 20 concurrent sessions at a time
+
+create_session_bg() {
+    local task="$1"
+    local repo="TheFermiSea/rust-daq"
+    local max_retries=3
+    local delay=1
+
+    for ((i=0; i<max_retries; i++)); do
+        output=$(jules new --repo "$repo" "$task" 2>&1)
+
+        if [[ $? -eq 0 ]]; then
+            sid=$(echo "$output" | grep "ID:" | awk '{print $2}')
+            echo "[SUCCESS] Created $sid"
+            return 0
+        elif [[ "$output" == *"429"* ]]; then
+            # Exponential backoff with jitter on rate limits
+            jitter=$(echo "scale=1; $delay + $RANDOM % 2" | bc)
+            sleep "$jitter"
+            delay=$((delay * 2))
+        fi
+    done
+    return 1
+}
+
+export -f create_session_bg
+
+# Process in batches of 20 concurrent
+MAX_PARALLEL=20
+COUNTER=0
+
+while IFS= read -r task; do
+    create_session_bg "$task" &
+    ((COUNTER++))
+
+    if (( COUNTER % MAX_PARALLEL == 0 )); then
+        wait  # Wait for batch to complete
+    fi
+done < tasks.txt
+
+wait  # Wait for final batch
+```
+
+**WRONG Approach** - Sequential with Delays:
+```bash
+# DON'T DO THIS - takes 12-15 minutes for 93 tasks
+for task in "${tasks[@]}"; do
+    jules new --repo TheFermiSea/rust-daq "$task"
+    sleep 8-10  # TOO SLOW!
+done
+```
+
+### Session States and Lifecycle
+
+**All Session States**:
+- **Planning**: Agent is analyzing task and creating implementation plan
+- **Awaiting Plan Approval**: Plan created, waiting for user/system approval
+- **In Progress**: Actively executing (consumes 1 of 100 execution slots)
+- **Completed**: Successfully finished
+- **Failed**: Encountered unrecoverable error
+- **Cancelled**: Manually terminated
+- **TimedOut**: Exceeded execution time limit
+
+**Orchestrator Intervention Points**:
+1. **Stuck in Planning (>1 hour)**: Provide reference implementations and architectural context
+2. **Failed**: Analyze logs, determine if retriable (network/hardware) or needs manual fix (compilation/test failures)
+3. **Awaiting Plan Approval**: Review plan quality, approve if reasonable
+
+### Session Management at Scale (50-100 Sessions)
+
+**High-Frequency Monitoring** (run every 60 seconds):
+```bash
+#!/bin/bash
+# Monitor session states and track progress
+
+while true; do
+    echo "=== Session State Summary ($(date)) ==="
+    jules remote list --session | awk '{print $2}' | sort | uniq -c | sort -nr
+
+    # Count sessions by state
+    in_progress=$(jules remote list --session | grep "In Progress" | wc -l)
+    planning=$(jules remote list --session | grep "Planning" | wc -l)
+    completed=$(jules remote list --session | grep "Completed" | wc -l)
+
+    echo "Utilization: $in_progress/100 executing | $planning queued | $completed finished"
+
+    sleep 60
+done
+```
+
+**Automated PR Review Workflow**:
+```bash
+#!/bin/bash
+# Check CI status on open PRs and comment with @jules for failures
+
+for pr in $(gh pr list --json number --jq '.[].number'); do
+    status=$(gh pr view $pr --json statusCheckRollup --jq '.statusCheckRollup[0].state')
+
+    if [[ "$status" == "FAILURE" ]]; then
+        # Find associated beads issue from branch name
+        branch=$(gh pr view $pr --json headRefName --jq '.headRefName')
+        bead_id=$(echo "$branch" | grep -oP 'bd-[a-f0-9]+')
+
+        # Comment with @jules
+        gh pr comment $pr --body "@jules CI is failing. Please:
+1. Rebase on latest main: git fetch origin && git rebase origin/main
+2. Fix failing tests shown in CI logs
+3. Run \`cargo test && cargo clippy\` locally before pushing
+
+Issue: $bead_id
+Reference: docs/rust-daq-app-architecture.md"
+    fi
+done
+```
+
+### Orchestrator Role (Claude Code)
+
+**Your Focus as Orchestrator**:
+1. **Strategic Decomposition**: Break epics into small, independent tasks (beads issues)
+2. **Resource Allocation**: Feed Jules swarm with ready tasks to keep 71-95/100 utilization
+3. **Exception Handling**: Manage stuck sessions, failed tasks, merge conflicts
+4. **Integration & QC**: Review PRs not auto-merged, perform final merge
+5. **Swarm Monitoring**: Watch overall health and throughput
+
+**Jules's Autonomy**: Jules handles **entire implementation** (coding, testing, documentation) for each task.
+
+**The Line**: You define **WHAT** (the task). Jules decides **HOW** (the implementation). Don't intervene unless stuck/failed.
+
+### Rate Limits and Quotas
+
+**Session Count Discrepancy Explained**:
+- `jules remote list --session` count (e.g., 52): **Total Active Sessions** (Planning + Awaiting Approval + In Progress)
+- Dashboard utilization (e.g., 21/100): **Concurrent Executing Sessions** (In Progress only)
+
+**Maximizing Utilization**: Always have MORE tasks in Planning/Awaiting than available execution slots. When one of 100 In Progress completes, a Planning task immediately schedules.
+
+**Your bottleneck is NOT the 100-session limit - it's the rate of session creation filling the queue.**
