@@ -112,3 +112,7 @@ path = "src/main.rs"
 [[test]]
 name = "storage_shutdown_test"
 path = "tests/storage_shutdown_test.rs"
+
+[[test]]
+name = "v2_instrument_test"
+path = "tests/v2_instrument_test.rs"
