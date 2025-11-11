@@ -3741,6 +3741,7 @@ dependencies = [
  "multi_log",
  "num-complex",
  "opener",
+ "pvcam-sys",
  "rand",
  "ringbuf",
  "rustfft",

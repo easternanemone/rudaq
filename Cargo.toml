@@ -69,6 +69,7 @@ futures = "0.3.30"
 
 # Instrument Communication
 serialport = { version = "4.3.0", optional = true }
+pvcam-sys = { path = "pvcam-sys", optional = true }
 
 # Utilities
 rand = "0.8.5"
@@ -102,7 +103,7 @@ networking = []
 # Phase 3B (bd-64): Module system with runtime instrument assignment
 modules = []
 # Hardware integrations
-pvcam_hardware = []  # Enable real PVCAM SDK integration (requires SDK installed)
+pvcam_hardware = ["dep:pvcam-sys"]  # Enable real PVCAM SDK integration (requires SDK installed)
 hardware_tests = []
 
 [[bin]]

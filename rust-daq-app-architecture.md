@@ -335,4 +335,80 @@ async fn test_data_pipeline() {
 - Use TLS for network communications
 - Sanitize all external inputs
 
-This architecture provides a solid foundation for building a high-performance, reliable scientific data acquisition application in Rust while maintaining the flexibility and modularity found in Python-based solutions like PyMoDAQ and ScopeFoundry.
+## V2 Architecture Migration
+
+The `rust-daq` application has recently undergone a significant architectural migration from a legacy V1 architecture to a more robust and scalable V2 architecture. This migration was undertaken to address several key issues with the original design, including performance bottlenecks, limited data type support, and a confusing mix of architectural patterns.
+
+### Key Improvements
+
+The V2 architecture introduces several key improvements over the legacy V1 design:
+
+*   **Actor-Based State Management**: The V2 architecture is built around the actor model, which eliminates the lock contention and performance bottlenecks of the previous `Arc<Mutex<>>`-based design. All application state is now owned by a central `DaqManagerActor`, which processes commands and manages the lifecycle of all instruments and other components.
+*   **Native `Measurement` Enum Support**: The V2 architecture natively supports the `Measurement` enum, which allows for the handling of rich data types like images and spectra. This is a significant improvement over the V1 architecture, which was limited to simple scalar values.
+*   **Asynchronous-First Design**: The V2 architecture is designed to be fully asynchronous, which allows for highly performant, non-blocking I/O. This is a key requirement for a scientific data acquisition application, where real-time performance is critical.
+*   **Clear Separation of Concerns**: The V2 architecture enforces a clear separation of concerns between the core application logic, the instrument drivers, and the GUI. This makes the codebase easier to understand, maintain, and extend.
+
+### Spawning a V2 Instrument
+
+The following code example illustrates how to spawn a V2 instrument in the new architecture:
+
+```rust
+async fn spawn_v2_instrument(
+    &mut self,
+    id: &str,
+    mut instrument: std::pin::Pin<
+        Box<dyn daq_core::Instrument + Send + Sync + 'static + Unpin>,
+    >,
+) -> Result<(), SpawnError> {
+    // ...
+
+    // Initialize the V2 instrument
+    instrument
+        .as_mut()
+        .get_mut()
+        .initialize()
+        .await
+        .map_err(|e| {
+            SpawnError::ConnectionFailed(format!(
+                "Failed to initialize V2 instrument '{}': {}",
+                id, e
+            ))
+        })?;
+
+    // Get measurement stream from instrument
+    let measurement_rx = instrument.as_ref().get_ref().measurement_stream();
+    let data_distributor = self.data_distributor.clone();
+    let id_clone = id.to_string();
+
+    // ...
+
+    // Spawn task to handle V2 instrument lifecycle
+    let mut instrument_handle = instrument;
+    let mut measurement_rx = measurement_rx;
+
+    let task: JoinHandle<Result<()>> = self.runtime.spawn(async move {
+        loop {
+            tokio::select! {
+                measurement_result = measurement_rx.recv() => {
+                    match measurement_result {
+                        Ok(measurement) => {
+                            // V2 instruments produce Arc<Measurement> directly
+                            if let Err(e) = data_distributor.broadcast(measurement).await {
+                                error!(
+                                    "Failed to broadcast measurement from V2 instrument '{}': {}",
+                                    id_clone, e
+                                );
+                            }
+                        }
+                        // ...
+                    }
+                }
+                // ...
+            }
+        }
+        // ...
+    });
+
+    // ...
+}
+```

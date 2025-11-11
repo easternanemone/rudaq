@@ -1,76 +1,18 @@
-# gemini-flow-project
+# rust-daq
 
-AI-powered project using Gemini-Flow
+`rust-daq` is a high-performance, modular data acquisition (DAQ) application written in Rust. It is designed for scientific and industrial applications that require real-time data acquisition, processing, and visualization.
+
+## V2 Architecture
+
+The `rust-daq` application has been recently migrated to a modern, actor-based V2 architecture. This new architecture provides several key benefits over the legacy V1 design, including:
+
+*   **Improved Performance**: The actor model eliminates the lock contention and performance bottlenecks of the previous `Arc<Mutex<>>`-based design.
+*   **Enhanced Scalability**: The V2 architecture is designed to be highly scalable, allowing for the easy addition of new instruments, data processors, and other components.
+*   **Rich Data Type Support**: The V2 architecture natively supports the `Measurement` enum, which allows for the handling of rich data types like images and spectra.
+*   **Clear Separation of Concerns**: The V2 architecture enforces a clear separation of concerns between the core application logic, the instrument drivers, and the GUI.
+
+For a more detailed overview of the V2 architecture, please see the [rust-daq Application Architecture Guide](rust-daq-app-architecture.md).
 
 ## Getting Started
 
-This project is powered by Gemini-Flow, an AI orchestration platform with intelligent agent swarms.
-
-### Prerequisites
-
-- Node.js 18+ 
-- npm or yarn
-- Google Cloud Project (for AI features)
-
-### Installation
-
-```bash
-npm install
-```
-
-### Configuration
-
-1. Set up Google Cloud credentials:
-```bash
-export GOOGLE_CLOUD_PROJECT_ID="your-project-id"
-export GOOGLE_APPLICATION_CREDENTIALS="path/to/service-account.json"
-```
-
-2. Initialize swarm:
-```bash
-npm run swarm:init
-```
-
-3. Spawn agents:
-```bash
-npm run agents:spawn
-```
-
-### Usage
-
-#### Development Mode
-```bash
-npm run dev
-```
-
-#### Build Project
-```bash
-npm run build
-```
-
-#### Run Tests
-```bash
-npm run test
-```
-
-## Gemini-Flow Commands
-
-- `gemini-flow swarm init` - Initialize agent swarm
-- `gemini-flow agent spawn` - Spawn AI agents
-- `gemini-flow sparc run <mode>` - Run SPARC methodology
-- `gemini-flow hive-mind sync` - Sync collective intelligence
-
-## Project Structure
-
-```
-gemini-flow-project/
-├── .gemini-flow/          # Gemini-Flow configuration
-├── src/                   # Source code
-├── tests/                 # Test files
-├── docs/                  # Documentation
-└── scripts/               # Build scripts
-```
-
-## License
-
-MIT
+To get started with `rust-daq`, please see the [Getting Started Guide](rust-daq-getting-started.md).

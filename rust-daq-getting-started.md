@@ -47,36 +47,17 @@ scientific-daq/
 ├── Cargo.toml
 ├── src/
 │   ├── main.rs
-│   ├── lib.rs
-│   ├── core/
-│   │   ├── mod.rs
-│   │   ├── instrument.rs
-│   │   ├── data_processor.rs
-│   │   └── plugin_manager.rs
-│   ├── gui/
-│   │   ├── mod.rs
-│   │   ├── main_window.rs
-│   │   └── components/
-│   ├── instruments/
-│   │   ├── mod.rs
-│   │   ├── mock.rs
-│   │   └── scpi/
+│   ├── app.rs
+│   ├── app_actor.rs
+│   ├── messages.rs
+│   ├── core.rs
+│   ├── instrument/
 │   ├── data/
-│   │   ├── mod.rs
-│   │   ├── buffer.rs
-│   │   └── storage.rs
-│   └── utils/
-│       ├── mod.rs
-│       ├── config.rs
-│       └── logging.rs
+│   └── gui/
+├── crates/
+│   └── daq-core/
 ├── config/
-│   ├── default.toml
-│   └── instruments.toml
-├── plugins/
-├── data/
 └── tests/
-    ├── integration/
-    └── unit/
 ```
 
 ### 3. Core Dependencies (Cargo.toml)
@@ -138,73 +119,46 @@ tokio-test = "0.4"
 tempfile = "3.8"
 ```
 
+## V2 Architecture and Actor Model
+
+The `rust-daq` application has been refactored to use a modern, actor-based architecture. This design eliminates performance bottlenecks and provides a more robust and scalable foundation for the application. For more details, see the "V2 Architecture Migration" section in the `rust-daq-app-architecture.md` file.
+
 ## Initial Implementation
 
 ### 1. Main Application Structure (src/main.rs)
 ```rust
-use eframe::egui;
-use scientific_daq::{
-    core::Application,
-    gui::MainWindow,
-    utils::{config::AppConfig, logging},
-};
+use rust_daq::{app::DaqApp, config::Settings, gui::Gui, log_capture::LogBuffer};
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use tracing::info;
+use eframe::egui;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
-    logging::init()?;
-    
-    // Load configuration
-    let config = AppConfig::load()?;
-    info!("Configuration loaded successfully");
-    
-    // Initialize application core
-    let app = Arc::new(RwLock::new(
-        Application::new(config).await?
-    ));
-    
-    // Start background tasks
-    let app_clone = app.clone();
-    tokio::spawn(async move {
-        if let Err(e) = app_clone.read().await.run_background_tasks().await {
-            tracing::error!("Background task error: {}", e);
-        }
-    });
-    
-    // Launch GUI
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1200.0, 800.0])
-            .with_title("Scientific Data Acquisition"),
-        ..Default::default()
-    };
-    
-    eframe::run_native(
-        "SciDAQ",
-        options,
-        Box::new(|_cc| Box::new(MainWindow::new(app))),
+fn main() -> anyhow::Result<()> {
+    // ... initialization ...
+
+    let settings = Arc::new(Settings::load()?);
+    let app = DaqApp::new(
+        settings.clone(),
+        // ... registries ...
     )?;
-    
-    Ok(())
+
+    // ... eframe setup ...
 }
 ```
 
-### 2. Core Application (src/lib.rs)
+### 2. Core Application (src/app.rs and src/app_actor.rs)
+The core application logic is now split between `src/app.rs` and `src/app_actor.rs`. `DaqApp` in `src/app.rs` is a lightweight handle that provides access to the application's functionality, while `DaqManagerActor` in `src/app_actor.rs` is the actor that owns and manages the application state.
 ```rust
-pub mod core;
-pub mod gui;
-pub mod instruments;
-pub mod data;
-pub mod utils;
+// src/app.rs
+pub struct DaqApp {
+    pub command_tx: mpsc::Sender<DaqCommand>,
+    // ...
+}
 
-pub use core::Application;
-
-// Re-exports for common types
-pub use core::{Instrument, DataProcessor, SystemMessage};
-pub use utils::config::AppConfig;
+// src/app_actor.rs
+pub struct DaqManagerActor {
+    settings: Settings,
+    instruments: HashMap<String, InstrumentHandle>,
+    // ...
+}
 ```
 
 ### 3. Configuration Module (src/utils/config.rs)

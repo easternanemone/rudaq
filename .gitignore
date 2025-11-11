@@ -1,3 +1,5 @@
+/target/
+
 # Gemini-Flow
 .gemini-flow/cache/
 .gemini-flow/logs/
@@ -26,4 +28,4 @@ Thumbs.db
 # Build
 dist/
 build/
-*.tsbuildinfo/target/
+*.tsbuildinfo
