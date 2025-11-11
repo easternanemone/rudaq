@@ -91,7 +91,7 @@ impl MockCameraV3 {
 
         Self {
             id,
-            state: InstrumentState::Uninitialized,
+            state: InstrumentState::Disconnected,
             data_tx,
             parameters,
             exposure,
@@ -221,11 +221,13 @@ impl Instrument for MockCameraV3 {
     }
 
     async fn initialize(&mut self) -> Result<()> {
-        if self.state != InstrumentState::Uninitialized {
+        if self.state != InstrumentState::Disconnected {
             return Err(anyhow!("Instrument already initialized"));
         }
 
-        self.state = InstrumentState::Idle;
+        self.state = InstrumentState::Connecting;
+        tokio::time::sleep(Duration::from_millis(100)).await; // Simulate connection delay
+        self.state = InstrumentState::Connected;
         log::info!("MockCameraV3 '{}' initialized", self.id);
         Ok(())
     }
@@ -244,7 +246,7 @@ impl Instrument for MockCameraV3 {
     async fn execute(&mut self, cmd: Command) -> Result<Response> {
         match cmd {
             Command::Start => {
-                if self.state != InstrumentState::Idle {
+                if self.state != InstrumentState::Connected {
                     return Err(anyhow!("Cannot start from {:?} state", self.state));
                 }
                 self.start_acquisition_task();
@@ -256,7 +258,7 @@ impl Instrument for MockCameraV3 {
             Command::Stop => {
                 self.stop_acquisition_task();
                 self.is_acquiring = false;
-                self.state = InstrumentState::Idle;
+                self.state = InstrumentState::Connected;
                 Ok(Response::Ok)
             }
 
@@ -430,7 +432,7 @@ impl MockPowerMeterV3 {
         let (data_tx, _) = broadcast::channel(128);
         Self {
             id: id.into(),
-            state: InstrumentState::Uninitialized,
+            state: InstrumentState::Disconnected,
             sampling_rate_hz: sampling_rate_hz.max(0.1),
             wavelength_nm,
             baseline_mw: 1.0,
@@ -546,8 +548,10 @@ impl Instrument for MockPowerMeterV3 {
     }
 
     async fn initialize(&mut self) -> Result<()> {
-        if matches!(self.state, InstrumentState::Uninitialized) {
-            self.state = InstrumentState::Idle;
+        if self.state == InstrumentState::Disconnected {
+            self.state = InstrumentState::Connecting;
+            tokio::time::sleep(Duration::from_millis(50)).await; // Simulate connection delay
+            self.state = InstrumentState::Connected;
         }
         self.start_streaming();
         Ok(())
@@ -571,7 +575,7 @@ impl Instrument for MockPowerMeterV3 {
             }
             Command::Stop => {
                 self.stop_streaming().await?;
-                self.state = InstrumentState::Idle;
+                self.state = InstrumentState::Connected;
                 Ok(Response::State(self.state))
             }
             Command::Pause => {
@@ -674,10 +678,10 @@ mod tests {
     #[tokio::test]
     async fn test_mock_camera_v3_initialization() {
         let mut camera = MockCameraV3::new("test_cam");
-        assert_eq!(camera.state(), InstrumentState::Uninitialized);
+        assert_eq!(camera.state(), InstrumentState::Disconnected);
 
         camera.initialize().await.unwrap();
-        assert_eq!(camera.state(), InstrumentState::Idle);
+        assert_eq!(camera.state(), InstrumentState::Connected);
     }
 
     #[tokio::test]
@@ -723,7 +727,7 @@ mod tests {
 
         // Stop acquisition
         camera.stop_acquisition().await.unwrap();
-        assert_eq!(camera.state(), InstrumentState::Idle);
+        assert_eq!(camera.state(), InstrumentState::Connected);
     }
 
     #[tokio::test]

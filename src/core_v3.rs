@@ -169,10 +169,12 @@ impl Measurement {
 /// Instrument lifecycle state
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InstrumentState {
-    /// Not yet initialized
-    Uninitialized,
-    /// Ready to operate
-    Idle,
+    /// Instrument is not connected to hardware.
+    Disconnected,
+    /// Instrument is in the process of connecting.
+    Connecting,
+    /// Instrument is connected and ready to operate.
+    Connected,
     /// Currently acquiring/operating
     Running,
     /// Paused (can resume)
@@ -286,7 +288,9 @@ pub trait ParameterBase: Send + Sync {
 ///     fn state(&self) -> InstrumentState { self.state }
 ///
 ///     async fn initialize(&mut self) -> Result<()> {
-///         self.state = InstrumentState::Idle;
+///         self.state = InstrumentState::Connecting;
+///         // ... hardware connection logic ...
+///         self.state = InstrumentState::Connected;
 ///         Ok(())
 ///     }
 ///
@@ -306,7 +310,7 @@ pub trait ParameterBase: Send + Sync {
 ///                 Ok(Response::Ok)
 ///             }
 ///             Command::Stop => {
-///                 self.state = InstrumentState::Idle;
+///                 self.state = InstrumentState::Connected;
 ///                 Ok(Response::Ok)
 ///             }
 ///             _ => Ok(Response::Error("Unsupported command".to_string()))
@@ -589,8 +593,8 @@ mod tests {
 
     #[test]
     fn test_instrument_state_transitions() {
-        assert_ne!(InstrumentState::Idle, InstrumentState::Running);
-        assert_eq!(InstrumentState::Idle, InstrumentState::Idle);
+        assert_ne!(InstrumentState::Connected, InstrumentState::Running);
+        assert_eq!(InstrumentState::Connected, InstrumentState::Connected);
     }
 
     #[test]
