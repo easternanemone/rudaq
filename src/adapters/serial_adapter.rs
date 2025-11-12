@@ -5,6 +5,7 @@
 
 use crate::config::TimeoutSettings;
 use crate::error::DaqError;
+use crate::error_recovery::{Recoverable, Resettable};
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use daq_core::{AdapterConfig, HardwareAdapter};
@@ -256,6 +257,24 @@ impl HardwareAdapter for SerialAdapter {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+#[async_trait]
+impl Recoverable<DaqError> for SerialAdapter {
+    async fn recover(&mut self) -> Result<(), DaqError> {
+        self.reset().await.map_err(|e| DaqError::Instrument(e.to_string()))
+    }
+}
+
+#[async_trait]
+impl Resettable<DaqError> for SerialAdapter {
+    async fn reset(&mut self) -> Result<(), DaqError> {
+        self.reset().await.map_err(|e| DaqError::Instrument(e.to_string()))
     }
 }
 

@@ -46,6 +46,7 @@ use daq_core::{
     arc_measurement, DaqError, DataPoint, HardwareAdapter, Instrument, InstrumentCommand,
     InstrumentState, Measurement, MeasurementReceiver, MeasurementSender, MotionController,
 };
+use crate::error_recovery::{handle_recoverable_error, Restartable, RetryPolicy};
 use log::{info, warn};
 use std::sync::Arc;
 use std::time::Duration;
@@ -361,6 +362,14 @@ impl ESP300V2 {
 }
 
 #[async_trait]
+impl Restartable<DaqError> for ESP300V2 {
+    async fn restart(&mut self) -> Result<(), DaqError> {
+        self.stop_streaming().await.map_err(|e| DaqError::Instrument(e.to_string()))?;
+        self.start_streaming().await.map_err(|e| DaqError::Instrument(e.to_string()))
+    }
+}
+
+#[async_trait]
 impl Instrument for ESP300V2 {
     fn id(&self) -> &str {
         &self.id
@@ -383,7 +392,10 @@ impl Instrument for ESP300V2 {
         self.state = InstrumentState::Connecting;
 
         // Connect hardware adapter
-        let connect_result = self.serial.lock().await.connect(&Default::default()).await;
+        let connect_result = {
+            let mut adapter = self.serial.lock().await;
+            handle_recoverable_error(&mut *adapter, &RetryPolicy::default()).await
+        };
 
         match connect_result {
             Ok(()) => {
@@ -439,16 +451,11 @@ impl Instrument for ESP300V2 {
             InstrumentState::Error(daq_error) if daq_error.can_recover => {
                 info!("Attempting to recover ESP300 '{}'", self.id);
 
-                // Disconnect and wait
-                let _ = self.serial.lock().await.disconnect().await;
-                tokio::time::sleep(Duration::from_millis(500)).await;
-
                 // Reconnect and reconfigure
-                self.serial
-                    .lock()
-                    .await
-                    .connect(&Default::default())
-                    .await?;
+                {
+                    let mut adapter = self.serial.lock().await;
+                    handle_recoverable_error(&mut *adapter, &RetryPolicy::default()).await?;
+                }
                 self.configure().await?;
 
                 self.state = InstrumentState::Ready;
