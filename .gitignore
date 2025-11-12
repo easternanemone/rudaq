@@ -30,6 +30,33 @@ dist/
 build/
 *.tsbuildinfo
 
+
+# Removed Windows wrapper files per user request
+hive-mind-prompt-*.txt
+
+# Local development artifacts
+.beads/
+.brv/
+.byterover-quick-ref.md
+.claude/agents/
+.claude/commands/
+.claude/helpers/
+.claude/skills/
+.claude/settings.json
+.claude/statusline-command.sh
+.gemini-flow/
+
+# Session data and temporary outputs
+data_output/
+*.csv
+
+# Temporary analysis files
+*_PLAN.md
+*_REPORT.md
+*_SUMMARY.md
+octocode_timeout_analysis.md
+codebase_analysis.md
+
 # Claude Flow generated files
 .claude/settings.local.json
 .mcp.json
@@ -56,26 +83,3 @@ coordination/orchestration/*
 claude-flow
 # Removed Windows wrapper files per user request
 hive-mind-prompt-*.txt
-
-# Local development artifacts
-.beads/
-.brv/
-.byterover-quick-ref.md
-.claude/agents/
-.claude/commands/
-.claude/helpers/
-.claude/skills/
-.claude/settings.json
-.claude/statusline-command.sh
-.gemini-flow/
-
-# Session data and temporary outputs
-data_output/
-*.csv
-
-# Temporary analysis files
-*_PLAN.md
-*_REPORT.md
-*_SUMMARY.md
-octocode_timeout_analysis.md
-codebase_analysis.md
