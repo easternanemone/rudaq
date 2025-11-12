@@ -38,6 +38,7 @@ pub mod app;
 pub mod app_actor;
 pub mod config;
 pub mod config_v4;  // V4 configuration system (bd-rir3)
+pub mod tracing_v4;  // V4 tracing infrastructure (bd-fxb7)
 pub mod core;
 pub mod data;
 pub mod error;

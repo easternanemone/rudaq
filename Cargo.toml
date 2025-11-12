@@ -63,6 +63,8 @@ log = "0.4.21"
 env_logger = "0.11.3"
 multi_log = "0.1.2"
 tracing = "0.1"
+# V4 tracing infrastructure
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json", "ansi"] }
 
 # CLI
 clap = { version = "4.5.4", features = ["derive"] }
