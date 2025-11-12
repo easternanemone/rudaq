@@ -13,6 +13,8 @@ pub use serial_adapter::SerialAdapter;
 pub mod mock_adapter;
 pub use mock_adapter::MockAdapter;
 
+pub mod command_batch;
+
 #[async_trait]
 pub trait Adapter: Send + Sync {
     async fn write(&mut self, command: Vec<u8>) -> Result<()>;

@@ -165,31 +165,30 @@ impl Instrument for ESP300 {
         info!("ESP300 version: {}", version);
 
         // Configure axes if specified
+        let mut batch = self.adapter.as_mut().unwrap().start_batch();
         for axis in 1..=self.num_axes {
             let axis_key = format!("axis{}", axis);
             if let Some(axis_config) = instrument_config.get(&axis_key) {
                 // Set units
                 if let Some(units) = axis_config.get("units").and_then(|v| v.as_integer()) {
-                    self.send_command_async(&format!("{}SN{}", axis, units))
-                        .await?;
+                    batch.queue(format!("{}SN{}", axis, units));
                     info!("Set axis {} units to {}", axis, units);
                 }
 
                 // Set velocity
                 if let Some(vel) = axis_config.get("velocity").and_then(|v| v.as_float()) {
-                    self.send_command_async(&format!("{}VA{}", axis, vel))
-                        .await?;
+                    batch.queue(format!("{}VA{}", axis, vel));
                     info!("Set axis {} velocity to {} units/s", axis, vel);
                 }
 
                 // Set acceleration
                 if let Some(accel) = axis_config.get("acceleration").and_then(|v| v.as_float()) {
-                    self.send_command_async(&format!("{}AC{}", axis, accel))
-                        .await?;
+                    batch.queue(format!("{}AC{}", axis, accel));
                     info!("Set axis {} acceleration to {} units/s²", axis, accel);
                 }
             }
         }
+        batch.flush().await?;
 
         // Create measurement distributor with configured capacity
         let capacity = settings.application.broadcast_channel_capacity;
@@ -332,9 +331,11 @@ impl Instrument for ESP300 {
                     "home" => {
                         if args.is_empty() {
                             // Home all axes
+                            let mut batch = self.adapter.as_mut().unwrap().start_batch();
                             for axis in 1..=self.num_axes {
-                                self.send_command_async(&format!("{}OR", axis)).await?;
+                                batch.queue(format!("{}OR", axis));
                             }
+                            batch.flush().await?;
                             info!("Homed all ESP300 axes");
                         } else {
                             let axis: u8 = args[0]

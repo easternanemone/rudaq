@@ -198,28 +198,27 @@ impl Instrument for Newport1830C {
 
         self.adapter = Some(SerialAdapter::new(port));
 
-        // Configure attenuator if specified
+        // Configure attenuator and filter if specified
+        let mut batch = self.adapter.as_mut().unwrap().start_batch();
         if let Some(attenuator) = instrument_config
             .get("attenuator")
             .and_then(|v| v.as_integer())
         {
             let attenuator_code = attenuator as i32;
             Self::validate_attenuator(attenuator_code)?;
-            self.send_config_command(&format!("A{}", attenuator_code))
-                .await?;
+            batch.queue(format!("A{}", attenuator_code));
             self.current_attenuator = Some(attenuator_code);
             info!("Set attenuator to {}", attenuator_code);
         }
 
-        // Configure filter if specified
         if let Some(filter) = instrument_config.get("filter").and_then(|v| v.as_integer()) {
             let filter_code = filter as i32;
             Self::validate_filter(filter_code)?;
-            self.send_config_command(&format!("F{}", filter_code))
-                .await?;
+            batch.queue(format!("F{}", filter_code));
             self.current_filter = Some(filter_code);
             info!("Set filter to {}", filter_code);
         }
+        batch.flush().await?;
 
         // Create broadcast channel with configured capacity
         let capacity = settings.application.broadcast_channel_capacity;

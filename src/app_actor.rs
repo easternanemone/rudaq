@@ -93,7 +93,7 @@ use crate::{
     session::{self, Session},
 };
 use anyhow::{anyhow, Context, Result};
-use daq_core::Measurement;
+use daq_core::{timestamp, Measurement};
 use log::{error, info, warn};
 use std::path::Path;
 use std::sync::Arc;
@@ -207,6 +207,17 @@ where
         manager_v3.register_factory("MockPowerMeterV3", MockPowerMeterV3::from_config);
         manager_v3.register_factory("Newport1830CV3", Newport1830CV3::from_config);
         let instrument_manager_v3 = Some(Arc::new(Mutex::new(manager_v3)));
+
+        // Spawn NTP synchronization task
+        tokio::spawn(async move {
+            loop {
+                if let Err(e) = timestamp::synchronize_ntp("pool.ntp.org").await {
+                    log::warn!("NTP synchronization failed: {}", e);
+                }
+                // Synchronize every hour
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+            }
+        });
 
         Ok(Self {
             settings,

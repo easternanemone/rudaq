@@ -444,9 +444,11 @@ impl Instrument for Elliptec {
                 if cmd == "home" {
                     if args.is_empty() {
                         // Home all devices
+                        let mut batch = self.adapter.as_mut().unwrap().start_batch();
                         for &addr in &self.device_addresses {
-                            self.send_command_async(addr, "ho").await?;
+                            batch.queue(format!("{}ho", addr));
                         }
+                        batch.flush().await?;
                         info!("Homed all Elliptec devices");
                     } else {
                         // Home specific device

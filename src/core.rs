@@ -75,6 +75,7 @@ use crate::measurement::Measure;
 use crate::metadata::Metadata;
 use async_trait::async_trait;
 pub use daq_core::Measurement;
+use daq_core::timestamp::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::any::TypeId;
 use std::collections::HashMap;
@@ -130,7 +131,7 @@ use tokio::task::{AbortHandle, JoinHandle};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DataPoint {
     /// UTC timestamp with nanosecond precision
-    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub timestamp: Timestamp,
     /// Instrument identifier (e.g., "maitai", "esp300")
     pub instrument_id: String,
     /// Channel identifier (format: `{parameter}` e.g., "power", "wavelength")
@@ -281,7 +282,7 @@ impl From<PixelBuffer> for daq_core::PixelBuffer {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SpectrumData {
     /// UTC timestamp when spectrum was captured
-    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub timestamp: Timestamp,
     /// Channel identifier (format: `{instrument_id}_{parameter}`)
     pub channel: String,
     /// Physical unit for magnitude values
@@ -330,7 +331,7 @@ impl From<SpectrumData> for daq_core::SpectrumData {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ImageData {
     /// UTC timestamp when image was captured
-    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub timestamp: Timestamp,
     /// Channel identifier (format: `{instrument_id}_{parameter}`)
     pub channel: String,
     /// Image width in pixels
@@ -452,11 +453,11 @@ pub enum Data {
 
 impl Data {
     /// Returns the timestamp of this measurement.
-    pub fn timestamp(&self) -> chrono::DateTime<chrono::Utc> {
+    pub fn timestamp(&self) -> Timestamp {
         match self {
-            Data::Scalar(dp) => dp.timestamp,
-            Data::Spectrum(sd) => sd.timestamp,
-            Data::Image(id) => id.timestamp,
+            Data::Scalar(dp) => dp.timestamp.clone(),
+            Data::Spectrum(sd) => sd.timestamp.clone(),
+            Data::Image(id) => id.timestamp.clone(),
         }
     }
 
@@ -1091,7 +1092,7 @@ impl MeasurementProcessor for DataProcessorAdapter {
                 if let Measurement::Scalar(dp) = m.as_ref() {
                     // Convert daq_core::DataPoint to core::DataPoint
                     Some(DataPoint {
-                        timestamp: dp.timestamp,
+                        timestamp: dp.timestamp.clone(),
                         instrument_id: String::new(), // daq_core doesn't have instrument_id
                         channel: dp.channel.clone(),
                         value: dp.value,

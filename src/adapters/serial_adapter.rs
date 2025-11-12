@@ -3,6 +3,7 @@
 //! Provides HardwareAdapter implementation for serial communication,
 //! supporting instruments like Newport 1830-C, ESP300, etc.
 
+use crate::adapters::command_batch::{BatchExecutor, CommandBatch};
 use crate::config::TimeoutSettings;
 use crate::error::DaqError;
 use crate::error_recovery::{Recoverable, Resettable};
@@ -163,6 +164,56 @@ impl SerialAdapter {
     #[cfg(not(feature = "instrument_serial"))]
     pub async fn send_command(&self, _command: &str) -> Result<String> {
         Err(DaqError::SerialFeatureDisabled.into())
+    }
+
+    /// Send a batch of commands without reading a response.
+    #[cfg(feature = "instrument_serial")]
+    pub async fn send_commands(&self, commands: &[String]) -> Result<()> {
+        let port = self
+            .port
+            .as_ref()
+            .ok_or(DaqError::SerialPortNotConnected)
+            .map_err(anyhow::Error::from)?;
+
+        let command_str = commands.join(&self.line_terminator);
+        let port_clone = port.clone();
+
+        // Execute blocking serial I/O on dedicated thread
+        tokio::task::spawn_blocking(move || {
+            use std::io::Write;
+
+            let mut port_guard = port_clone.blocking_lock();
+
+            // Write command
+            port_guard
+                .write_all(command_str.as_bytes())
+                .context("Failed to write to serial port")?;
+
+            port_guard.flush().context("Failed to flush serial port")?;
+
+            debug!("Sent serial commands: {}", command_str.trim());
+            Ok(())
+        })
+        .await
+        .context("Serial I/O task panicked")?
+    }
+
+    #[cfg(not(feature = "instrument_serial"))]
+    pub async fn send_commands(&self, _commands: &[String]) -> Result<()> {
+        Err(DaqError::SerialFeatureDisabled.into())
+    }
+
+    /// Starts a command batch.
+    pub fn start_batch<'a>(&'a mut self) -> CommandBatch<'a, Self> {
+        CommandBatch::new(self)
+    }
+}
+
+#[async_trait]
+impl BatchExecutor for SerialAdapter {
+    async fn flush(&mut self, batch: &CommandBatch<Self>) -> Result<()> {
+        self.send_commands(batch.commands()).await?;
+        Ok(())
     }
 }
 

@@ -30,5 +30,16 @@ thiserror = "1.0.61"
 # Logging
 log = "0.4.21"
 
+# NTP client
+rsntp = { version = "4.1.0", features = ["tokio"] }
+
+# Lazy static initialization
+lazy_static = "1.4.0"
+
 [dev-dependencies]
 tokio-test = "0.4"
+
+[[test]]
+name = "timestamp"
+path = "tests/timestamp.rs"
+harness = true

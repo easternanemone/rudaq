@@ -41,6 +41,9 @@ use tokio::sync::broadcast;
 pub use anyhow::{anyhow, Result};
 pub use thiserror::Error;
 
+pub mod timestamp;
+use timestamp::Timestamp;
+
 //==============================================================================
 // Core Data Types
 //==============================================================================
@@ -48,7 +51,7 @@ pub use thiserror::Error;
 /// A single scalar measurement from an instrument
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataPoint {
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
     pub channel: String,
     pub value: f64,
     pub unit: String,
@@ -125,7 +128,7 @@ impl PixelBuffer {
 /// Spectrum data (e.g., from FFT or spectrometer)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpectrumData {
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
     pub channel: String,
     pub wavelengths: Vec<f64>, // or frequencies
     pub intensities: Vec<f64>,
@@ -138,7 +141,7 @@ pub struct SpectrumData {
 /// Image data from cameras or 2D sensors
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageData {
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
     pub channel: String,
     pub width: u32,
     pub height: u32,
@@ -657,7 +660,7 @@ mod tests {
     #[test]
     fn test_arc_measurement_size() {
         let data = DataPoint {
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now_system(),
             channel: "test".to_string(),
             value: 42.0,
             unit: "V".to_string(),
@@ -672,7 +675,7 @@ mod tests {
     fn test_arc_measurement_zero_copy() {
         // This test verifies that cloning an ArcMeasurement does not copy the underlying Measurement data.
         let data = DataPoint {
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now_system(),
             channel: "test".to_string(),
             value: 1.0,
             unit: "V".to_string(),
@@ -883,13 +886,13 @@ mod tests {
         let mut rx2 = tx.subscribe();
 
         let m1 = arc_measurement(Measurement::Scalar(DataPoint {
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now_system(),
             channel: "c1".into(),
             value: 1.0,
             unit: "V".into(),
         }));
         let m2 = arc_measurement(Measurement::Scalar(DataPoint {
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now_system(),
             channel: "c1".into(),
             value: 2.0,
             unit: "V".into(),
@@ -915,13 +918,13 @@ mod tests {
         let (tx, mut rx) = measurement_channel(1); // Small capacity to easily trigger lagging
 
         let m1 = arc_measurement(Measurement::Scalar(DataPoint {
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now_system(),
             channel: "c1".into(),
             value: 1.0,
             unit: "V".into(),
         }));
         let m2 = arc_measurement(Measurement::Scalar(DataPoint {
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now_system(),
             channel: "c1".into(),
             value: 2.0,
             unit: "V".into(),
@@ -950,7 +953,7 @@ mod tests {
         let (tx, mut _initial_rx) = measurement_channel(10);
 
         let m1 = arc_measurement(Measurement::Scalar(DataPoint {
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now_system(),
             channel: "c1".into(),
             value: 1.0,
             unit: "V".into(),
@@ -968,7 +971,7 @@ mod tests {
 
         // It will, however, see new messages sent after it subscribed.
         let m2 = arc_measurement(Measurement::Scalar(DataPoint {
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now_system(),
             channel: "c1".into(),
             value: 2.0,
             unit: "V".into(),

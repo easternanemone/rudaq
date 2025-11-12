@@ -11,6 +11,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use daq_core::timestamp::Timestamp;
 
 /// Compatibility measurement wrapper for legacy instruments.
 #[derive(Clone)]
@@ -42,7 +43,7 @@ impl Measure for InstrumentMeasurement {
         // Minimal placeholder for APIs that still call `measure()` directly.
         // Primary data path should use `data_stream()`.
         Ok(DataPoint {
-            timestamp: chrono::Utc::now(),
+            timestamp: Timestamp::now_system(),
             instrument_id: self.id.clone(),
             channel: "placeholder".to_string(),
             value: 0.0,
