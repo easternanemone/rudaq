@@ -49,7 +49,9 @@ pub mod verification;
 use self::instrument_controls::*;
 use self::storage_manager::StorageManager;
 use crate::{
-    config::Settings, instrument::InstrumentRegistryV2, log_capture::LogBuffer,
+    config::Settings,
+    instrument::InstrumentRegistryV2,
+    log_capture::{LogBuffer, LogEntry},
     messages::DaqCommand,
 };
 use daq_core::Measurement;
@@ -140,6 +142,17 @@ impl ImageTab {
     }
 }
 
+/// Represents a log entry that has been consolidated.
+#[derive(Clone)]
+pub struct ConsolidatedLogEntry {
+    /// The original log entry. The timestamp is the first time it was seen.
+    pub entry: LogEntry,
+    /// How many times this entry has occurred.
+    pub count: usize,
+    /// The timestamp of the most recent occurrence.
+    pub last_timestamp: chrono::DateTime<chrono::Local>,
+}
+
 /// The main GUI struct.
 
 pub struct Gui {
@@ -172,6 +185,9 @@ pub struct Gui {
     log_filter_text: String,
     log_level_filter: LevelFilter,
     scroll_to_bottom: bool,
+    log_consolidation: bool,
+    consolidated_logs: HashMap<String, ConsolidatedLogEntry>,
+    last_log_buffer_len: usize,
     /// Centralized cache of latest instrument state from data stream
     /// Key: "instrument_id:channel" (e.g., "maitai:power", "esp300:axis1_position")
     /// Value: latest Measurement for that channel (wrapped in Arc for zero-copy)
@@ -252,6 +268,9 @@ impl Gui {
             log_filter_text: String::new(),
             log_level_filter: LevelFilter::Info,
             scroll_to_bottom: true,
+            log_consolidation: false,
+            consolidated_logs: HashMap::new(),
+            last_log_buffer_len: 0,
             data_cache: HashMap::new(),
             channel_subscriptions: HashMap::new(),
             subscriptions_dirty: true, // Rebuild on first frame

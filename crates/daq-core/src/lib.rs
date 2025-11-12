@@ -321,6 +321,9 @@ pub trait HardwareAdapter: Send + Sync {
     /// Required for accessing methods like SerialAdapter::send_command()
     /// from trait objects.
     fn as_any(&self) -> &dyn std::any::Any;
+
+    /// Downcast to a mutable concrete type.
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 
 //==============================================================================

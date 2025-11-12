@@ -9,6 +9,10 @@ use crate::data::storage::ArrowWriter;
 use crate::data::storage::CsvWriter;
 #[cfg(feature = "storage_hdf5")]
 use crate::data::storage::Hdf5Writer;
+#[cfg(feature = "storage_matlab")]
+use crate::data::storage::MatWriter;
+#[cfg(feature = "storage_netcdf")]
+use crate::data::storage::NetCdfWriter;
 
 type WriterFactory = Box<dyn Fn() -> Box<dyn StorageWriter> + Send + Sync>;
 
@@ -67,6 +71,12 @@ impl StorageWriterRegistry {
 
         #[cfg(feature = "storage_arrow")]
         registry.register("arrow", || Box::new(ArrowWriter::new()));
+
+        #[cfg(feature = "storage_matlab")]
+        registry.register("matlab", || Box::new(MatWriter::new()));
+
+        #[cfg(feature = "storage_netcdf")]
+        registry.register("netcdf", || Box::new(NetCdfWriter::new()));
 
         registry
     }

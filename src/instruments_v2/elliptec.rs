@@ -32,6 +32,7 @@ use daq_core::{
     InstrumentCommand, InstrumentState, Measurement, MeasurementReceiver, MeasurementSender,
     MotionController, Result,
 };
+use crate::error_recovery::{handle_recoverable_error, Restartable, RetryPolicy};
 use log::{debug, info, warn};
 use std::time::Duration;
 use tokio::task::JoinHandle;
@@ -296,6 +297,19 @@ impl ElliptecV2 {
 }
 
 #[async_trait]
+impl Restartable<DaqError> for ElliptecV2 {
+    async fn restart(&mut self) -> Result<(), DaqError> {
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(());
+        }
+        if let Some(handle) = self.task_handle.take() {
+            let _ = handle.await;
+        }
+        self.start_polling(2.0).await.map_err(|e| DaqError::Instrument(e.to_string()))
+    }
+}
+
+#[async_trait]
 impl Instrument for ElliptecV2 {
     fn id(&self) -> &str {
         &self.id
@@ -317,7 +331,12 @@ impl Instrument for ElliptecV2 {
         self.state = InstrumentState::Connecting;
 
         // Connect serial adapter
-        match self.adapter.connect(&Default::default()).await {
+        let connect_result = {
+            let adapter = self.adapter.as_any_mut().downcast_mut::<SerialAdapter>().ok_or_else(|| anyhow::anyhow!("Adapter is not a SerialAdapter"))?;
+            handle_recoverable_error(adapter, &RetryPolicy::default()).await
+        };
+
+        match connect_result {
             Ok(()) => {
                 // Query each device for info
                 for &addr in &self.device_addresses {
@@ -435,10 +454,9 @@ impl Instrument for ElliptecV2 {
             InstrumentState::Error(daq_error) if daq_error.can_recover => {
                 info!("Attempting recovery for Elliptec '{}'", self.id);
 
-                let _ = self.adapter.disconnect().await;
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                let adapter = self.adapter.as_any_mut().downcast_mut::<SerialAdapter>().ok_or_else(|| anyhow::anyhow!("Adapter is not a SerialAdapter"))?;
 
-                self.adapter.connect(&Default::default()).await?;
+                handle_recoverable_error(adapter, &RetryPolicy::default()).await?;
 
                 self.state = InstrumentState::Ready;
                 info!("Recovery successful for Elliptec '{}'", self.id);

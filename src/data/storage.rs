@@ -22,6 +22,163 @@ impl Default for CsvWriter {
     }
 }
 
+#[cfg(feature = "storage_matlab")]
+use std::collections::HashMap;
+
+#[cfg(feature = "storage_matlab")]
+pub struct MatWriter {
+    path: PathBuf,
+    metadata: Option<Metadata>,
+    buffer: HashMap<String, Vec<daq_core::DataPoint>>,
+    chunk_size: usize,
+    mat_file: matrw::MatFile,
+}
+
+#[cfg(feature = "storage_matlab")]
+impl Default for MatWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "storage_matlab")]
+impl MatWriter {
+    pub fn new() -> Self {
+        Self {
+            path: PathBuf::new(),
+            metadata: None,
+            buffer: HashMap::new(),
+            chunk_size: 1000,
+            mat_file: matrw::MatFile::new(),
+        }
+    }
+
+    fn flush_channel(&mut self, channel: &str) -> Result<()> {
+        if let Some(data_points) = self.buffer.get_mut(channel) {
+            if data_points.is_empty() {
+                return Ok(());
+            }
+
+            let timestamps: Vec<String> = data_points
+                .iter()
+                .map(|dp| dp.timestamp.to_rfc3339())
+                .collect();
+            let values: Vec<f64> = data_points.iter().map(|dp| dp.value).collect();
+            let units: Vec<String> = data_points.iter().map(|dp| dp.unit.clone()).collect();
+
+            let var_name = format!("channel_{}", channel);
+            let value = matrw::matvar!({
+                "timestamps": timestamps,
+                "values": values,
+                "units": units,
+            });
+            self.mat_file.add_variable(&var_name, value)?;
+            data_points.clear();
+        }
+        Ok(())
+    }
+}
+
+#[cfg(not(feature = "storage_matlab"))]
+pub struct MatWriter;
+
+#[cfg(not(feature = "storage_matlab"))]
+impl Default for MatWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(not(feature = "storage_matlab"))]
+impl MatWriter {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl StorageWriter for MatWriter {
+    async fn init(&mut self, settings: &Arc<Settings>) -> Result<()> {
+        #[cfg(not(feature = "storage_matlab"))]
+        return Err(DaqError::FeatureNotEnabled("storage_matlab".to_string()).into());
+
+        #[cfg(feature = "storage_matlab")]
+        {
+            let file_name = format!(
+                "{}_{}.mat",
+                "session",
+                chrono::Utc::now().format("%Y%m%d_%H%M%S")
+            );
+            let path = PathBuf::from(&settings.storage.default_path);
+            if !path.exists() {
+                std::fs::create_dir_all(&path)
+                    .with_context(|| format!("Failed to create storage directory at {:?}", path))?;
+            }
+            self.path = path.join(file_name);
+            log::info!(
+                "MAT Writer will be initialized at '{}'.",
+                self.path.display()
+            );
+            Ok(())
+        }
+    }
+
+    async fn set_metadata(&mut self, metadata: &Metadata) -> Result<()> {
+        #[cfg(feature = "storage_matlab")]
+        {
+            self.metadata = Some(metadata.clone());
+            Ok(())
+        }
+        #[cfg(not(feature = "storage_matlab"))]
+        Ok(())
+    }
+
+    async fn write(&mut self, data: &[Arc<Measurement>]) -> Result<()> {
+        #[cfg(feature = "storage_matlab")]
+        {
+            for measurement in data {
+                if let Measurement::Scalar(dp) = measurement.as_ref() {
+                    let buffer = self.buffer.entry(dp.channel.clone()).or_default();
+                    buffer.push(dp.clone());
+                    if buffer.len() >= self.chunk_size {
+                        self.flush_channel(&dp.channel)?;
+                    }
+                } else {
+                    log::trace!("MAT writer skipping non-scalar measurement");
+                }
+            }
+            Ok(())
+        }
+        #[cfg(not(feature = "storage_matlab"))]
+        Ok(())
+    }
+
+    async fn shutdown(&mut self) -> Result<()> {
+        #[cfg(feature = "storage_matlab")]
+        {
+            for channel in self.buffer.keys().cloned().collect::<Vec<_>>() {
+                self.flush_channel(&channel)?;
+            }
+
+            if let Some(metadata) = &self.metadata {
+                let json_string = serde_json::to_string_pretty(metadata)
+                    .context("Failed to serialize metadata to JSON")?;
+                self.mat_file
+                    .add_variable("metadata", matrw::matvar!(json_string))?;
+            }
+
+            let file = File::create(&self.path)
+                .with_context(|| format!("Failed to create MAT file at {:?}", self.path))?;
+            matrw::save_matfile_v7(file, &self.mat_file)?;
+
+            log::info!("MAT Writer shut down.");
+            Ok(())
+        }
+        #[cfg(not(feature = "storage_matlab"))]
+        Ok(())
+    }
+}
+
 #[cfg(feature = "storage_csv")]
 impl CsvWriter {
     pub fn new() -> Self {
@@ -348,6 +505,134 @@ impl StorageWriter for ArrowWriter {
     }
 }
 
+#[cfg(feature = "storage_netcdf")]
+pub struct NetCdfWriter {
+    path: PathBuf,
+    writer: Option<netcdf::MutableFile>,
+}
+
+#[cfg(feature = "storage_netcdf")]
+impl Default for NetCdfWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "storage_netcdf")]
+impl NetCdfWriter {
+    pub fn new() -> Self {
+        Self {
+            path: PathBuf::new(),
+            writer: None,
+        }
+    }
+}
+
+#[cfg(not(feature = "storage_netcdf"))]
+pub struct NetCdfWriter;
+
+#[cfg(not(feature = "storage_netcdf"))]
+impl Default for NetCdfWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(not(feature = "storage_netcdf"))]
+impl NetCdfWriter {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl StorageWriter for NetCdfWriter {
+    async fn init(&mut self, settings: &Arc<Settings>) -> Result<()> {
+        #[cfg(not(feature = "storage_netcdf"))]
+        return Err(DaqError::FeatureNotEnabled("storage_netcdf".to_string()).into());
+
+        #[cfg(feature = "storage_netcdf")]
+        {
+            let file_name = format!(
+                "{}_{}.nc",
+                "session",
+                chrono::Utc::now().format("%Y%m%d_%H%M%S")
+            );
+            let path = PathBuf::from(&settings.storage.default_path);
+            if !path.exists() {
+                std::fs::create_dir_all(&path)
+                    .with_context(|| format!("Failed to create storage directory at {:?}", path))?;
+            }
+            self.path = path.join(file_name);
+            log::info!(
+                "NetCDF Writer will be initialized at '{}'.",
+                self.path.display()
+            );
+            let mut file = netcdf::create(&self.path)?;
+            file.add_unlimited_dimension("time")?;
+            self.writer = Some(file);
+            Ok(())
+        }
+    }
+
+    async fn set_metadata(&mut self, metadata: &Metadata) -> Result<()> {
+        #[cfg(feature = "storage_netcdf")]
+        {
+            if let Some(writer) = self.writer.as_mut() {
+                let json_string = serde_json::to_string_pretty(metadata)
+                    .context("Failed to serialize metadata to JSON")?;
+                writer.add_attribute("metadata", json_string.as_str())?;
+            }
+            Ok(())
+        }
+        #[cfg(not(feature = "storage_netcdf"))]
+        Ok(())
+    }
+
+    async fn write(&mut self, data: &[Arc<Measurement>]) -> Result<()> {
+        #[cfg(feature = "storage_netcdf")]
+        {
+            if let Some(writer) = self.writer.as_mut() {
+                for measurement in data {
+                    if let Measurement::Scalar(dp) = measurement.as_ref() {
+                        let var_name = format!("channel_{}", dp.channel);
+                        if writer.variable(&var_name).is_none() {
+                            let mut var = writer.add_variable::<f64>(&var_name, &["time"])?;
+                            var.put_attribute("unit", dp.unit.clone())?;
+                        }
+
+                        let mut var = writer.variable_mut(&var_name).unwrap();
+                        let index = var.len();
+                        var.put_values(&[dp.value], Some(&[index]), None)?;
+
+                        if writer.variable("timestamps").is_none() {
+                            writer.add_variable::<i64>("timestamps", &["time"])?;
+                        }
+                        let mut ts_var = writer.variable_mut("timestamps").unwrap();
+                        ts_var.put_values(&[dp.timestamp.timestamp_millis()], Some(&[index]), None)?;
+
+                    } else {
+                        log::trace!("NetCDF writer skipping non-scalar measurement");
+                    }
+                }
+            }
+            Ok(())
+        }
+        #[cfg(not(feature = "storage_netcdf"))]
+        Ok(())
+    }
+
+    async fn shutdown(&mut self) -> Result<()> {
+        #[cfg(feature = "storage_netcdf")]
+        {
+            log::info!("NetCDF Writer shut down.");
+            Ok(())
+        }
+        #[cfg(not(feature = "storage_netcdf"))]
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -411,6 +696,70 @@ mod tests {
         }
 
         #[cfg(not(feature = "storage_arrow"))]
+        {
+            assert!(result.is_err());
+            let err_msg = result.unwrap_err().to_string();
+            assert!(err_msg.contains("not enabled"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mat_writer_returns_proper_errors() {
+        let mut writer = MatWriter::new();
+
+        use crate::config::{ApplicationSettings, StorageSettings, TimeoutSettings};
+        let settings = Arc::new(crate::config::Settings {
+            log_level: "info".to_string(),
+            application: ApplicationSettings {
+                broadcast_channel_capacity: 1024,
+                command_channel_capacity: 32,
+                data_distributor: Default::default(),
+                timeouts: TimeoutSettings::default(),
+            },
+            storage: StorageSettings {
+                default_path: "/tmp".to_string(),
+                default_format: "csv".to_string(),
+            },
+            instruments: std::collections::HashMap::new(),
+            processors: None,
+            instruments_v3: Vec::new(),
+        });
+
+        let result = writer.init(&settings).await;
+
+        #[cfg(not(feature = "storage_matlab"))]
+        {
+            assert!(result.is_err());
+            let err_msg = result.unwrap_err().to_string();
+            assert!(err_msg.contains("not enabled"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_netcdf_writer_returns_proper_errors() {
+        let mut writer = NetCdfWriter::new();
+
+        use crate::config::{ApplicationSettings, StorageSettings, TimeoutSettings};
+        let settings = Arc::new(crate::config::Settings {
+            log_level: "info".to_string(),
+            application: ApplicationSettings {
+                broadcast_channel_capacity: 1024,
+                command_channel_capacity: 32,
+                data_distributor: Default::default(),
+                timeouts: TimeoutSettings::default(),
+            },
+            storage: StorageSettings {
+                default_path: "/tmp".to_string(),
+                default_format: "csv".to_string(),
+            },
+            instruments: std::collections::HashMap::new(),
+            processors: None,
+            instruments_v3: Vec::new(),
+        });
+
+        let result = writer.init(&settings).await;
+
+        #[cfg(not(feature = "storage_netcdf"))]
         {
             assert!(result.is_err());
             let err_msg = result.unwrap_err().to_string();

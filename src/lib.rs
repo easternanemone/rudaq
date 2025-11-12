@@ -40,6 +40,7 @@ pub mod config;
 pub mod core;
 pub mod data;
 pub mod error;
+pub mod error_recovery;
 pub mod experiment;
 pub mod gui;
 pub mod instrument;
