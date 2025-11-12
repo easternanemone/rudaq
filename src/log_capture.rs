@@ -33,7 +33,7 @@ use log::{Level, Log, Metadata, Record};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-const MAX_LOG_ENTRIES: usize = 1000;
+const MAX_LOG_ENTRIES: usize = 10000;
 
 /// Represents a single log entry.
 #[derive(Clone)]
