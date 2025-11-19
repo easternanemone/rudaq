@@ -37,6 +37,7 @@ hive-mind-prompt-*.txt
 
 # Local development artifacts
 .beads/
+.beads-backup*/
 .brv/
 .byterover-quick-ref.md
 .claude/agents/
@@ -57,6 +58,9 @@ data_output/
 *_SUMMARY.md
 octocode_timeout_analysis.md
 codebase_analysis.md
+
+# Documentation archive
+docs/archive/
 
 # Claude Flow generated files
 .claude/settings.local.json

@@ -40,9 +40,24 @@ pub mod dependencies;
 use anyhow::{Context, Result};
 use config::Config;
 use serde::{Deserialize, Serialize};
+use figment::{
+    providers::{Format, Serialized, Toml},
+    Figment, Provider,
+};
 use std::collections::HashMap;
 
 pub mod versioning;
+
+impl Provider for Settings {
+    fn metadata(&self) -> figment::Metadata {
+        figment::Metadata::named("Library Defaults")
+    }
+
+    fn data(&self) -> Result<figment::value::Map<figment::Profile, figment::value::Dict>, figment::Error> {
+        Serialized::defaults(Settings::default()).data()
+    }
+}
+
 
 /// Configuration for V3 instruments (Phase 3)
 ///
@@ -80,16 +95,37 @@ pub struct Settings {
     pub instruments_v3: Vec<InstrumentConfigV3>,
 }
 
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            log_level: "info".to_string(),
+            application: ApplicationSettings::default(),
+            storage: StorageSettings::default(),
+            instruments: HashMap::new(),
+            processors: None,
+            instruments_v3: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct ApplicationSettings {
-    #[serde(default = "default_broadcast_capacity")]
     pub broadcast_channel_capacity: usize,
-    #[serde(default = "default_command_capacity")]
     pub command_channel_capacity: usize,
-    #[serde(default)]
     pub data_distributor: DataDistributorSettings,
-    #[serde(default)]
     pub timeouts: TimeoutSettings,
+}
+
+impl Default for ApplicationSettings {
+    fn default() -> Self {
+        Self {
+            broadcast_channel_capacity: default_broadcast_capacity(),
+            command_channel_capacity: default_command_capacity(),
+            data_distributor: DataDistributorSettings::default(),
+            timeouts: TimeoutSettings::default(),
+        }
+    }
 }
 
 fn default_broadcast_capacity() -> usize {
@@ -108,9 +144,19 @@ pub struct ProcessorConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct StorageSettings {
     pub default_path: String,
     pub default_format: String,
+}
+
+impl Default for StorageSettings {
+    fn default() -> Self {
+        Self {
+            default_path: "./data".to_string(),
+            default_format: "hdf5".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
