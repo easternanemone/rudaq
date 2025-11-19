@@ -53,7 +53,10 @@ async fn main() -> Result<()> {
     // Verify configuration
     let wavelength = power_meter.get_wavelength().await?;
     let unit = power_meter.get_unit().await?;
-    println!("  ✓ Configuration verified: {} nm, {:?}", wavelength.nm, unit);
+    println!(
+        "  ✓ Configuration verified: {} nm, {:?}",
+        wavelength.nm, unit
+    );
 
     // Test 2: Take measurements
     println!("\n📊 Test 2: Take 10 Measurements");
@@ -96,10 +99,7 @@ async fn main() -> Result<()> {
     power_meter.set_unit(PowerUnit::Dbm).await?;
 
     let measurement = power_meter.read_power().await?;
-    println!(
-        "  New measurement: {:.3} dBm",
-        measurement.power
-    );
+    println!("  New measurement: {:.3} dBm", measurement.power);
     println!("  ✓ Configuration change successful");
 
     // Test 5: Stress test

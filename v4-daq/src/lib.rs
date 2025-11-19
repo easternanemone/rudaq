@@ -30,8 +30,9 @@ pub mod actors;
 pub mod adapters;
 pub mod traits;
 pub mod hardware;
-pub mod config_v4;
+pub mod config;
 pub mod runtime;
+pub mod testing;
 
 #[cfg(feature = "gui")]
 pub mod gui;
@@ -42,5 +43,4 @@ pub use actors::{DataPublisher, HDF5Storage, InstrumentManager};
 pub use actors::Newport1830C;
 pub use traits::power_meter::{PowerMeter, PowerMeasurement, PowerUnit, Wavelength};
 pub use hardware::SerialAdapterV4;
-pub use config_v4::{V4Config, InstrumentDefinition, StorageConfig};
-pub use runtime::{DualRuntimeManager, ManagerState};
+pub use config::{V4Config, InstrumentDefinition, StorageConfig, ConfigError};

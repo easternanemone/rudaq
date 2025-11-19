@@ -1,0 +1,179 @@
+V4-DAQ WORKSPACE - COMPLETE FILE LISTING
+================================================================================
+
+WORKSPACE ROOT: /Users/briansquires/code/rust-daq/
+
+NEW WORKSPACE MEMBER:
+  /Users/briansquires/code/rust-daq/v4-daq/
+
+WORKSPACE MANIFEST (UPDATED):
+  /Users/briansquires/code/rust-daq/Cargo.toml
+    [Added v4-daq to workspace members]
+
+================================================================================
+V4-DAQ STRUCTURE (21 Rust files total)
+================================================================================
+
+CARGO MANIFEST:
+  /Users/briansquires/code/rust-daq/v4-daq/Cargo.toml
+
+LIBRARY ROOT:
+  /Users/briansquires/code/rust-daq/v4-daq/src/lib.rs
+
+CONFIGURATION:
+  /Users/briansquires/code/rust-daq/v4-daq/src/config_v4.rs
+
+ACTORS (4 files):
+  /Users/briansquires/code/rust-daq/v4-daq/src/actors/mod.rs
+  /Users/briansquires/code/rust-daq/v4-daq/src/actors/newport_1830c.rs
+  /Users/briansquires/code/rust-daq/v4-daq/src/actors/data_publisher.rs
+  /Users/briansquires/code/rust-daq/v4-daq/src/actors/hdf5_storage.rs
+  /Users/briansquires/code/rust-daq/v4-daq/src/actors/instrument_manager.rs
+
+TRAITS (2 files):
+  /Users/briansquires/code/rust-daq/v4-daq/src/traits/mod.rs
+  /Users/briansquires/code/rust-daq/v4-daq/src/traits/power_meter.rs
+
+HARDWARE (2 files):
+  /Users/briansquires/code/rust-daq/v4-daq/src/hardware/mod.rs
+  /Users/briansquires/code/rust-daq/v4-daq/src/hardware/serial_adapter_v4.rs
+
+ADAPTERS (7 files):
+  /Users/briansquires/code/rust-daq/v4-daq/src/adapters/mod.rs
+  /Users/briansquires/code/rust-daq/v4-daq/src/adapters/serial_adapter.rs (rewritten)
+  /Users/briansquires/code/rust-daq/v4-daq/src/adapters/mock_adapter.rs (rewritten)
+  /Users/briansquires/code/rust-daq/v4-daq/src/adapters/serial.rs
+  /Users/briansquires/code/rust-daq/v4-daq/src/adapters/mock.rs
+  /Users/briansquires/code/rust-daq/v4-daq/src/adapters/command_batch.rs
+  /Users/briansquires/code/rust-daq/v4-daq/src/adapters/visa_adapter.rs
+
+GUI (3 files):
+  /Users/briansquires/code/rust-daq/v4-daq/src/gui/mod.rs
+  /Users/briansquires/code/rust-daq/v4-daq/src/gui/v4_data_bridge.rs
+  /Users/briansquires/code/rust-daq/v4-daq/src/gui/v4_instrument_panel.rs
+
+EXAMPLES:
+  /Users/briansquires/code/rust-daq/v4-daq/examples/v4_newport_hardware_test.rs
+
+================================================================================
+DOCUMENTATION CREATED
+================================================================================
+
+  /Users/briansquires/code/rust-daq/V4_WORKSPACE_CREATION_REPORT.md
+  /Users/briansquires/code/rust-daq/V4_DAQ_WORKSPACE_SUMMARY.txt
+  /Users/briansquires/code/rust-daq/V4_WORKSPACE_FILE_LISTING.txt (this file)
+
+================================================================================
+KEY MODIFICATIONS
+================================================================================
+
+Files Rewritten (Legacy Dependency Removal):
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/adapters/serial_adapter.rs
+    - Removed: daq_core imports, TimeoutSettings, HardwareAdapter trait
+    - Added: Self-contained async serial implementation
+    
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/adapters/mock_adapter.rs
+    - Removed: daq_core imports, HardwareAdapter trait dependency
+    - Added: Simplified testing adapter without legacy trait
+
+Files Enhanced:
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/hardware/serial_adapter_v4.rs
+    - Added: connect() method for Newport1830C compatibility
+    - Added: Feature-gated implementations
+    - Added: Unit tests for adapter behavior
+
+Files Created:
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/lib.rs
+    - Main library export point
+    - Re-exports for convenience
+    
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/config_v4.rs
+    - Copied from main crate
+    - Updated toml::Value import handling
+
+Files Created (Module Organization):
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/actors/mod.rs
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/traits/mod.rs
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/hardware/mod.rs
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/gui/mod.rs
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/adapters/mod.rs
+
+Files Copied (Preserved):
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/actors/newport_1830c.rs
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/actors/data_publisher.rs
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/actors/hdf5_storage.rs
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/actors/instrument_manager.rs
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/traits/power_meter.rs
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/gui/v4_data_bridge.rs
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/gui/v4_instrument_panel.rs
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/adapters/serial.rs
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/adapters/mock.rs
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/adapters/command_batch.rs
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/src/adapters/visa_adapter.rs
+  ✓ /Users/briansquires/code/rust-daq/v4-daq/examples/v4_newport_hardware_test.rs
+
+Files Modified:
+  ✓ /Users/briansquires/code/rust-daq/Cargo.toml
+    - Added v4-daq to [workspace].members
+
+================================================================================
+CODEX FIXES PRESERVED
+================================================================================
+
+All Codex architectural fixes from previous work sessions are preserved
+in the copied files. No regressions introduced.
+
+Source Files With Codex Fixes:
+  - src/actors/newport_1830c.rs
+  - src/actors/data_publisher.rs
+  - src/actors/hdf5_storage.rs
+  - src/actors/instrument_manager.rs
+  - src/traits/power_meter.rs
+  - src/hardware/serial_adapter_v4.rs
+
+================================================================================
+HOW TO USE V4-DAQ WORKSPACE
+================================================================================
+
+Build v4-daq standalone:
+  $ cd /Users/briansquires/code/rust-daq/v4-daq
+  $ cargo build --features instrument_serial
+
+Build with all features:
+  $ cargo build --features full --release
+
+Run tests:
+  $ cargo test --lib --features instrument_serial
+
+Check compilation:
+  $ cargo check --features instrument_serial
+
+Build hardware test example:
+  $ cargo build --example v4_newport_hardware_test \
+      --features instrument_serial --release
+
+Output binary location:
+  /Users/briansquires/code/rust-daq/v4-daq/target/release/examples/v4_newport_hardware_test
+
+Deploy to hardware (maitai@100.117.5.12):
+  $ rsync -avz target/release/examples/v4_newport_hardware_test \
+      brian@100.117.5.12:/home/brian/bin/
+
+================================================================================
+INTEGRATION WITH MAIN WORKSPACE
+================================================================================
+
+The v4-daq workspace member integrates cleanly with the main rust-daq
+workspace. When building from root:
+
+  $ cd /Users/briansquires/code/rust-daq
+  $ cargo build -p v4-daq --features instrument_serial
+  
+Or build all workspace members:
+
+  $ cargo build --workspace
+
+The v4-daq crate is completely independent and does not conflict
+with the legacy rust_daq crate or other workspace members.
+
+================================================================================

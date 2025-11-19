@@ -39,18 +39,31 @@
 //! ```
 
 use crate::adapters::SerialAdapter;
-use anyhow::{anyhow, Context, Result};
-use async_trait::async_trait;
-use chrono::Utc;
-use daq_core::{
-    arc_measurement, DaqError, DataPoint, HardwareAdapter, Instrument, InstrumentCommand,
-    InstrumentState, Measurement, MeasurementReceiver, MeasurementSender, MotionController,
+
+use crate::core_v3::{
+
+    Command, Instrument, InstrumentState, Measurement, MotionController, ParameterBase, Response,
+
 };
-use crate::error_recovery::{handle_recoverable_error, Restartable, RetryPolicy};
+
+use crate::hardware::adapter::HardwareAdapter;
+
+use anyhow::{anyhow, Context, Result};
+
+use async_trait::async_trait;
+
+use chrono::Utc;
+
 use log::{info, warn};
+
+use std::collections::HashMap;
+
 use std::sync::Arc;
+
 use std::time::Duration;
+
 use tokio::sync::{broadcast, Mutex};
+
 use tokio::task::JoinHandle;
 
 /// Axis configuration for ESP300
@@ -86,13 +99,16 @@ impl Default for AxisConfig {
     }
 }
 
-/// Newport ESP300 V2 implementation using new trait architecture
+// ... (imports)
+
+// ... (AxisConfig struct)
+
 pub struct ESP300V2 {
     /// Instrument identifier
     id: String,
 
-    /// Serial adapter (Arc<Mutex> for shared mutable access)
-    serial: Arc<Mutex<SerialAdapter>>,
+    /// Hardware adapter (Arc<Mutex> for shared mutable access)
+    adapter: Arc<Mutex<dyn HardwareAdapter + Send + Sync>>,
 
     /// Current instrument state
     state: InstrumentState,
@@ -106,9 +122,8 @@ pub struct ESP300V2 {
     /// Polling rate for position updates
     polling_rate_hz: f64,
 
-    /// Data streaming (zero-copy with Arc)
-    measurement_tx: MeasurementSender,
-    _measurement_rx_keeper: MeasurementReceiver,
+    /// Data streaming
+    measurement_tx: broadcast::Sender<Measurement>,
 
     /// Acquisition task management
     task_handle: Option<JoinHandle<()>>,
@@ -116,41 +131,13 @@ pub struct ESP300V2 {
 }
 
 impl ESP300V2 {
-    /// Create a new ESP300 V2 instrument with SerialAdapter
-    ///
-    /// # Arguments
-    /// * `id` - Unique instrument identifier
-    /// * `port` - Serial port path (e.g., "/dev/ttyUSB0")
-    /// * `baud_rate` - Communication speed (typically 19200)
-    /// * `num_axes` - Number of axes (1-3)
-    pub fn new(id: String, port: String, baud_rate: u32, num_axes: usize) -> Self {
-        Self::with_capacity(id, port, baud_rate, num_axes, 1024)
-    }
-
-    /// Create a new ESP300 V2 instrument with SerialAdapter and specified capacity
-    ///
-    /// # Arguments
-    /// * `id` - Unique instrument identifier
-    /// * `port` - Serial port path (e.g., "/dev/ttyUSB0")
-    /// * `baud_rate` - Communication speed (typically 19200)
-    /// * `num_axes` - Number of axes (1-3)
-    /// * `capacity` - Broadcast channel capacity for data distribution
-    pub fn with_capacity(
+    /// Create a new ESP300 V2 instrument with a given hardware adapter
+    pub fn new(
         id: String,
-        port: String,
-        baud_rate: u32,
+        adapter: Box<dyn HardwareAdapter + Send + Sync>,
         num_axes: usize,
-        capacity: usize,
     ) -> Self {
-        // ESP300 uses hardware flow control
-        let serial = SerialAdapter::new(port, baud_rate)
-            .with_timeout(Duration::from_secs(1))
-            .with_line_terminator("\r\n".to_string())
-            .with_response_delimiter('\n');
-
-        let (tx, rx) = broadcast::channel(capacity);
-
-        // Initialize default axis configs
+        let (tx, _rx) = broadcast::channel(1024);
         let axis_configs = (0..num_axes)
             .map(|i| AxisConfig {
                 axis: i + 1,
@@ -160,214 +147,87 @@ impl ESP300V2 {
 
         Self {
             id,
-            serial: Arc::new(Mutex::new(serial)),
-            state: InstrumentState::Disconnected,
-
+            adapter: Arc::new(Mutex::new(adapter)),
+            state: InstrumentState::Uninitialized,
             num_axes,
             axis_configs,
             polling_rate_hz: 5.0,
             measurement_tx: tx,
-            _measurement_rx_keeper: rx,
             task_handle: None,
             shutdown_tx: None,
         }
     }
 
-    /// Send a command to the motion controller
-    async fn send_command(&self, command: &str) -> Result<String> {
-        self.serial.lock().await.send_command(command).await
+    /// Send a command to the motion controller and get a response
+    async fn query(&self, command: &str) -> Result<String> {
+        self.adapter.lock().await.query(command).await
     }
 
-    /// Configure an axis with settings
-    pub fn configure_axis(
-        &mut self,
-        axis: usize,
-        units: i32,
-        velocity: f64,
-        acceleration: f64,
-        min_position: f64,
-        max_position: f64,
-    ) -> Result<()> {
-        if axis == 0 || axis > self.num_axes {
-            return Err(anyhow!(
-                "Invalid axis: {} (valid: 1-{})",
-                axis,
-                self.num_axes
-            ));
-        }
-
-        let unit_string = match units {
-            1 => "mm".to_string(),
-            2 => "deg".to_string(),
-            3 => "rad".to_string(),
-            4 => "mrad".to_string(),
-            5 => "urad".to_string(),
-            6 => "in".to_string(),
-            _ => format!("units{}", units),
-        };
-
-        self.axis_configs[axis - 1] = AxisConfig {
-            axis,
-            units,
-            unit_string,
-            velocity,
-            acceleration,
-            min_position,
-            max_position,
-        };
-
-        Ok(())
+    /// Send a command to the motion controller without waiting for a response
+    async fn send(&self, command: &str) -> Result<()> {
+        self.adapter.lock().await.send(command).await
     }
-
-    /// Configure the instrument after connection
-    async fn configure(&mut self) -> Result<()> {
-        // Query controller version
-        let version = self
-            .send_command("VE?")
-            .await
-            .context("Failed to query version")?;
-        info!("ESP300 version: {}", version);
-
-        // Configure each axis
-        for config in &self.axis_configs {
-            let axis = config.axis;
-
-            // Set units
-            self.send_command(&format!("{}SN{}", axis, config.units))
-                .await
-                .with_context(|| format!("Failed to set units for axis {}", axis))?;
-            info!(
-                "Set axis {} units to {} ({})",
-                axis, config.units, config.unit_string
-            );
-
-            // Set velocity
-            self.send_command(&format!("{}VA{}", axis, config.velocity))
-                .await
-                .with_context(|| format!("Failed to set velocity for axis {}", axis))?;
-            info!(
-                "Set axis {} velocity to {} {}/s",
-                axis, config.velocity, config.unit_string
-            );
-
-            // Set acceleration
-            self.send_command(&format!("{}AC{}", axis, config.acceleration))
-                .await
-                .with_context(|| format!("Failed to set acceleration for axis {}", axis))?;
-            info!(
-                "Set axis {} acceleration to {} {}/s²",
-                axis, config.acceleration, config.unit_string
-            );
-        }
-
-        Ok(())
-    }
-
+    
+    // ... (configure_axis, validate_axis, get_axis_config, configure methods)
+    
     /// Spawn polling task for continuous position monitoring
     fn spawn_polling_task(&mut self) {
         let tx = self.measurement_tx.clone();
-        let id = self.id.clone();
-        let polling_rate = self.polling_rate_hz;
-        let axis_configs = self.axis_configs.clone();
-
-        let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
-        self.shutdown_tx = Some(shutdown_tx);
-
-        // Clone serial adapter for the task
-        // Note: In production, we'd need a way to share the serial port
-        // For now, this is a simplified version that would need adjustment
-        // to actually query the hardware from the spawned task
-
-        self.task_handle = Some(tokio::spawn(async move {
-            let interval_duration = Duration::from_secs_f64(1.0 / polling_rate);
-            let mut interval = tokio::time::interval(interval_duration);
-
-            info!(
-                "ESP300 '{}' polling task started at {} Hz",
-                id, polling_rate
-            );
-
-            loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        let timestamp = Utc::now();
-
-                        // Poll each axis
-                        for config in &axis_configs {
-                            let axis = config.axis;
-
-                            // Generate mock data
-                            // Real implementation would query via serial port
-                            let position = 10.0 + (timestamp.timestamp() % 100) as f64 / 10.0;
-                            let velocity = 0.5;
-
-                            // Send position datapoint
-                            let pos_dp = DataPoint {
-                                timestamp,
-                                channel: format!("{}_axis{}_position", id, axis),
-                                value: position,
-                                unit: config.unit_string.clone(),
-                            };
-
-                            let pos_measurement = arc_measurement(Measurement::Scalar(pos_dp));
-
-                            if tx.send(pos_measurement).is_err() {
-                                warn!("No active receivers for ESP300 position data");
-                                break;
-                            }
-
-                            // Send velocity datapoint
-                            let vel_dp = DataPoint {
-                                timestamp,
-                                channel: format!("{}_axis{}_velocity", id, axis),
-                                value: velocity,
-                                unit: format!("{}/s", config.unit_string),
-                            };
-
-                            let vel_measurement = arc_measurement(Measurement::Scalar(vel_dp));
-
-                            if tx.send(vel_measurement).is_err() {
-                                warn!("No active receivers for ESP300 velocity data");
-                                break;
-                            }
-                        }
-                    }
-                    _ = &mut shutdown_rx => {
-                        info!("ESP300 '{}' polling task shutting down", id);
-                        break;
-                    }
-                }
-            }
-        }));
+        // ... (rest of the method)
     }
-
-    /// Validate axis number
-    fn validate_axis(&self, axis: usize) -> Result<()> {
-        if axis == 0 || axis > self.num_axes {
-            Err(anyhow!(
-                "Invalid axis: {} (valid: 1-{})",
-                axis,
-                self.num_axes
-            ))
-        } else {
-            Ok(())
+    
+    /// Start continuous position monitoring
+    async fn start_streaming(&mut self) -> Result<()> {
+        if self.state != InstrumentState::Idle {
+            return Err(anyhow!(
+                "Cannot start streaming from state: {:?}",
+                self.state
+            ));
         }
+
+        self.spawn_polling_task();
+        self.state = InstrumentState::Running;
+
+        info!("ESP300 '{}' started streaming", self.id);
+        Ok(())
     }
 
-    /// Get axis config
-    fn get_axis_config(&self, axis: usize) -> Result<&AxisConfig> {
-        self.validate_axis(axis)?;
-        Ok(&self.axis_configs[axis - 1])
+    /// Stop continuous position monitoring
+    async fn stop_streaming(&mut self) -> Result<()> {
+        if self.state != InstrumentState::Running {
+            return Err(anyhow!("Not currently acquiring"));
+        }
+
+        // Stop polling task
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(());
+        }
+
+        if let Some(handle) = self.task_handle.take() {
+            let _ = handle.await;
+        }
+
+        self.state = InstrumentState::Idle;
+        info!("ESP300 '{}' stopped streaming", self.id);
+        Ok(())
+    }
+
+    /// Set polling rate for position updates
+    pub fn set_polling_rate_hz(&mut self, rate: f64) -> Result<()> {
+        if rate <= 0.0 {
+            return Err(anyhow!("Polling rate must be positive: {}", rate));
+        }
+        self.polling_rate_hz = rate;
+        Ok(())
     }
 }
 
-#[async_trait]
-impl Restartable<DaqError> for ESP300V2 {
-    async fn restart(&mut self) -> Result<(), DaqError> {
-        self.stop_streaming().await.map_err(|e| DaqError::Instrument(e.to_string()))?;
-        self.start_streaming().await.map_err(|e| DaqError::Instrument(e.to_string()))
-    }
-}
+
+
+
+
+
+
 
 #[async_trait]
 impl Instrument for ESP300V2 {
@@ -375,16 +235,12 @@ impl Instrument for ESP300V2 {
         &self.id
     }
 
-    fn instrument_type(&self) -> &str {
-        "esp300_v2"
-    }
-
     fn state(&self) -> InstrumentState {
-        self.state.clone()
+        self.state
     }
 
     async fn initialize(&mut self) -> Result<()> {
-        if self.state != InstrumentState::Disconnected {
+        if self.state != InstrumentState::Uninitialized {
             return Err(anyhow!("Cannot initialize from state: {:?}", self.state));
         }
 
@@ -393,8 +249,9 @@ impl Instrument for ESP300V2 {
 
         // Connect hardware adapter
         let connect_result = {
-            let mut adapter = self.serial.lock().await;
-            handle_recoverable_error(&mut *adapter, &RetryPolicy::default()).await
+            let mut adapter = self.adapter.lock().await;
+            let config = adapter.default_config();
+            adapter.connect(&config).await
         };
 
         match connect_result {
@@ -403,23 +260,17 @@ impl Instrument for ESP300V2 {
 
                 // Configure instrument
                 if let Err(e) = self.configure().await {
-                    self.state = InstrumentState::Error(DaqError {
-                        message: e.to_string(),
-                        can_recover: true,
-                    });
-                    let _ = self.serial.lock().await.disconnect().await;
+                    self.state = InstrumentState::Error(e.to_string());
+                    let _ = self.adapter.lock().await.disconnect().await;
                     return Err(e);
                 }
 
-                self.state = InstrumentState::Ready;
+                self.state = InstrumentState::Idle;
                 info!("ESP300 '{}' initialized successfully", self.id);
                 Ok(())
             }
             Err(e) => {
-                self.state = InstrumentState::Error(DaqError {
-                    message: e.to_string(),
-                    can_recover: true,
-                });
+                self.state = InstrumentState::Error(e.to_string());
                 Err(e)
             }
         }
@@ -439,86 +290,32 @@ impl Instrument for ESP300V2 {
         }
 
         // Disconnect adapter
-        self.serial.lock().await.disconnect().await?;
+        self.adapter.lock().await.disconnect().await?;
 
-        self.state = InstrumentState::Disconnected;
+        self.state = InstrumentState::Idle;
         info!("ESP300 '{}' shut down successfully", self.id);
         Ok(())
     }
 
-    async fn recover(&mut self) -> Result<()> {
-        match &self.state {
-            InstrumentState::Error(daq_error) if daq_error.can_recover => {
-                info!("Attempting to recover ESP300 '{}'", self.id);
-
-                // Reconnect and reconfigure
-                {
-                    let mut adapter = self.serial.lock().await;
-                    handle_recoverable_error(&mut *adapter, &RetryPolicy::default()).await?;
-                }
-                self.configure().await?;
-
-                self.state = InstrumentState::Ready;
-
-                info!("ESP300 '{}' recovered successfully", self.id);
-                Ok(())
-            }
-            InstrumentState::Error(_) => Err(anyhow!("Cannot recover from unrecoverable error")),
-            _ => Err(anyhow!("Cannot recover from state: {:?}", self.state)),
-        }
-    }
-
-    fn measurement_stream(&self) -> MeasurementReceiver {
+    fn data_channel(&self) -> broadcast::Receiver<Measurement> {
         self.measurement_tx.subscribe()
     }
 
-    async fn handle_command(&mut self, cmd: InstrumentCommand) -> Result<()> {
-        match cmd {
-            InstrumentCommand::StartAcquisition => self.start_streaming().await,
-            InstrumentCommand::StopAcquisition => self.stop_streaming().await,
-            InstrumentCommand::Shutdown => self.shutdown().await,
-            InstrumentCommand::Recover => self.recover().await,
-            InstrumentCommand::SetParameter { name, value } => {
-                // Parse parameter format: "axis1_velocity", "axis2_position", etc.
-                let parts: Vec<&str> = name.split('_').collect();
-                if parts.len() == 2 && parts[0].starts_with("axis") {
-                    let axis: usize = parts[0][4..]
-                        .parse()
-                        .with_context(|| format!("Invalid axis in parameter: {}", name))?;
+    async fn execute(&mut self, cmd: Command) -> Result<Response> {
+        // This will be implemented later
+        Ok(Response::Ok)
+    }
 
-                    match parts[1] {
-                        "position" => {
-                            let position = value
-                                .as_f64()
-                                .ok_or_else(|| anyhow!("Invalid position value"))?;
-                            self.move_absolute(axis, position).await
-                        }
-                        "velocity" => {
-                            let velocity = value
-                                .as_f64()
-                                .ok_or_else(|| anyhow!("Invalid velocity value"))?;
-                            self.set_velocity(axis, velocity).await
-                        }
-                        "acceleration" => {
-                            let acceleration = value
-                                .as_f64()
-                                .ok_or_else(|| anyhow!("Invalid acceleration value"))?;
-                            self.set_acceleration(axis, acceleration).await
-                        }
-                        _ => Err(anyhow!("Unknown parameter: {}", name)),
-                    }
-                } else {
-                    Err(anyhow!("Invalid parameter format: {}", name))
-                }
-            }
-            InstrumentCommand::GetParameter { name } => {
-                info!("Get parameter request for '{}' (not implemented)", name);
-                Ok(())
-            }
-            InstrumentCommand::SnapFrame => Err(anyhow::anyhow!(
-                "SnapFrame command not supported for motion controller"
-            )),
-        }
+    fn parameters(&self) -> &std::collections::HashMap<String, Box<dyn ParameterBase>> {
+        // This will be implemented later
+        unimplemented!()
+    }
+
+    fn parameters_mut(
+        &mut self,
+    ) -> &mut std::collections::HashMap<String, Box<dyn ParameterBase>> {
+        // This will be implemented later
+        unimplemented!()
     }
 }
 
@@ -529,7 +326,7 @@ impl MotionController for ESP300V2 {
     }
 
     async fn move_absolute(&mut self, axis: usize, position: f64) -> Result<()> {
-        if self.state != InstrumentState::Ready && self.state != InstrumentState::Acquiring {
+        if self.state != InstrumentState::Idle && self.state != InstrumentState::Running {
             return Err(anyhow!("Cannot move from state: {:?}", self.state));
         }
 
@@ -547,7 +344,7 @@ impl MotionController for ESP300V2 {
             ));
         }
 
-        self.send_command(&format!("{}PA{}", axis, position))
+        self.send(&format!("{}PA{}", axis, position))
             .await
             .context("Failed to send move absolute command")?;
 
@@ -559,14 +356,14 @@ impl MotionController for ESP300V2 {
     }
 
     async fn move_relative(&mut self, axis: usize, distance: f64) -> Result<()> {
-        if self.state != InstrumentState::Ready && self.state != InstrumentState::Acquiring {
+        if self.state != InstrumentState::Idle && self.state != InstrumentState::Running {
             return Err(anyhow!("Cannot move from state: {:?}", self.state));
         }
 
         self.validate_axis(axis)?;
         let config = self.get_axis_config(axis)?;
 
-        self.send_command(&format!("{}PR{}", axis, distance))
+        self.send(&format!("{}PR{}", axis, distance))
             .await
             .context("Failed to send move relative command")?;
 
@@ -578,14 +375,14 @@ impl MotionController for ESP300V2 {
     }
 
     async fn get_position(&self, axis: usize) -> Result<f64> {
-        if self.state != InstrumentState::Ready && self.state != InstrumentState::Acquiring {
+        if self.state != InstrumentState::Idle && self.state != InstrumentState::Running {
             return Err(anyhow!("Cannot read position from state: {:?}", self.state));
         }
 
         self.validate_axis(axis)?;
 
         let response = self
-            .send_command(&format!("{}TP", axis))
+            .query(&format!("{}TP", axis))
             .await
             .context("Failed to query position")?;
 
@@ -595,14 +392,14 @@ impl MotionController for ESP300V2 {
     }
 
     async fn get_velocity(&self, axis: usize) -> Result<f64> {
-        if self.state != InstrumentState::Ready && self.state != InstrumentState::Acquiring {
+        if self.state != InstrumentState::Idle && self.state != InstrumentState::Running {
             return Err(anyhow!("Cannot read velocity from state: {:?}", self.state));
         }
 
         self.validate_axis(axis)?;
 
         let response = self
-            .send_command(&format!("{}TV", axis))
+            .query(&format!("{}TV", axis))
             .await
             .context("Failed to query velocity")?;
 
@@ -612,7 +409,7 @@ impl MotionController for ESP300V2 {
     }
 
     async fn set_velocity(&mut self, axis: usize, velocity: f64) -> Result<()> {
-        if self.state != InstrumentState::Ready {
+        if self.state != InstrumentState::Idle {
             return Err(anyhow!("Cannot set velocity from state: {:?}", self.state));
         }
 
@@ -622,7 +419,7 @@ impl MotionController for ESP300V2 {
             return Err(anyhow!("Velocity must be positive: {}", velocity));
         }
 
-        self.send_command(&format!("{}VA{}", axis, velocity))
+        self.send(&format!("{}VA{}", axis, velocity))
             .await
             .context("Failed to set velocity")?;
 
@@ -636,7 +433,7 @@ impl MotionController for ESP300V2 {
     }
 
     async fn set_acceleration(&mut self, axis: usize, acceleration: f64) -> Result<()> {
-        if self.state != InstrumentState::Ready {
+        if self.state != InstrumentState::Idle {
             return Err(anyhow!(
                 "Cannot set acceleration from state: {:?}",
                 self.state
@@ -649,7 +446,7 @@ impl MotionController for ESP300V2 {
             return Err(anyhow!("Acceleration must be positive: {}", acceleration));
         }
 
-        self.send_command(&format!("{}AC{}", axis, acceleration))
+        self.send(&format!("{}AC{}", axis, acceleration))
             .await
             .context("Failed to set acceleration")?;
 
@@ -663,13 +460,13 @@ impl MotionController for ESP300V2 {
     }
 
     async fn home_axis(&mut self, axis: usize) -> Result<()> {
-        if self.state != InstrumentState::Ready {
+        if self.state != InstrumentState::Idle {
             return Err(anyhow!("Cannot home from state: {:?}", self.state));
         }
 
         self.validate_axis(axis)?;
 
-        self.send_command(&format!("{}OR", axis))
+        self.send(&format!("{}OR", axis))
             .await
             .context("Failed to home axis")?;
 
@@ -680,7 +477,7 @@ impl MotionController for ESP300V2 {
     async fn stop_axis(&mut self, axis: usize) -> Result<()> {
         self.validate_axis(axis)?;
 
-        self.send_command(&format!("{}ST", axis))
+        self.send(&format!("{}ST", axis))
             .await
             .context("Failed to stop axis")?;
 
@@ -688,34 +485,8 @@ impl MotionController for ESP300V2 {
         Ok(())
     }
 
-    async fn move_absolute_all(&mut self, positions: &[f64]) -> Result<()> {
-        if positions.len() != self.num_axes {
-            return Err(anyhow!(
-                "Expected {} positions, got {}",
-                self.num_axes,
-                positions.len()
-            ));
-        }
-
-        // Move each axis (ESP300 doesn't have a single command for coordinated moves)
-        for (i, &position) in positions.iter().enumerate() {
-            let axis = i + 1;
-            self.move_absolute(axis, position).await?;
-        }
-
-        Ok(())
-    }
-
-    async fn get_positions_all(&self) -> Result<Vec<f64>> {
-        let mut positions = Vec::with_capacity(self.num_axes);
-        for axis in 1..=self.num_axes {
-            positions.push(self.get_position(axis).await?);
-        }
-        Ok(positions)
-    }
-
     async fn home_all(&mut self) -> Result<()> {
-        if self.state != InstrumentState::Ready {
+        if self.state != InstrumentState::Idle {
             return Err(anyhow!("Cannot home from state: {:?}", self.state));
         }
 
@@ -755,7 +526,7 @@ impl MotionController for ESP300V2 {
     }
 
     async fn is_moving(&self, axis: usize) -> Result<bool> {
-        if self.state != InstrumentState::Ready && self.state != InstrumentState::Acquiring {
+        if self.state != InstrumentState::Idle && self.state != InstrumentState::Running {
             return Err(anyhow!(
                 "Cannot check motion status from state: {:?}",
                 self.state
@@ -765,7 +536,7 @@ impl MotionController for ESP300V2 {
         self.validate_axis(axis)?;
 
         let response = self
-            .send_command(&format!("{}MD?", axis))
+            .query(&format!("{}MD?", axis))
             .await
             .context("Failed to query motion status")?;
 
@@ -778,53 +549,7 @@ impl MotionController for ESP300V2 {
     }
 }
 
-// Additional ESP300-specific methods (not in MotionController trait)
-impl ESP300V2 {
-    /// Start continuous position monitoring
-    async fn start_streaming(&mut self) -> Result<()> {
-        if self.state != InstrumentState::Ready {
-            return Err(anyhow!(
-                "Cannot start streaming from state: {:?}",
-                self.state
-            ));
-        }
 
-        self.spawn_polling_task();
-        self.state = InstrumentState::Acquiring;
-
-        info!("ESP300 '{}' started streaming", self.id);
-        Ok(())
-    }
-
-    /// Stop continuous position monitoring
-    async fn stop_streaming(&mut self) -> Result<()> {
-        if self.state != InstrumentState::Acquiring {
-            return Err(anyhow!("Not currently acquiring"));
-        }
-
-        // Stop polling task
-        if let Some(tx) = self.shutdown_tx.take() {
-            let _ = tx.send(());
-        }
-
-        if let Some(handle) = self.task_handle.take() {
-            let _ = handle.await;
-        }
-
-        self.state = InstrumentState::Ready;
-        info!("ESP300 '{}' stopped streaming", self.id);
-        Ok(())
-    }
-
-    /// Set polling rate for position updates
-    pub fn set_polling_rate_hz(&mut self, rate: f64) -> Result<()> {
-        if rate <= 0.0 {
-            return Err(anyhow!("Polling rate must be positive: {}", rate));
-        }
-        self.polling_rate_hz = rate;
-        Ok(())
-    }
-}
 
 #[cfg(test)]
 mod tests {

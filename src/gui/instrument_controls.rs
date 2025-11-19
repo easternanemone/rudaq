@@ -22,8 +22,8 @@
 //!   (e.g., a display of the current position) is often updated immediately, assuming the command
 //!   will be successful. The actual instrument state is updated asynchronously.
 
-use crate::{app::DaqApp, core::InstrumentCommand, messages::DaqCommand};
 use crate::core_v3::Measurement;
+use crate::{app::DaqApp, core::InstrumentCommand, messages::DaqCommand};
 use egui::{Color32, Slider, Ui};
 use log::error;
 use std::{collections::HashMap, sync::Arc};

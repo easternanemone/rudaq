@@ -39,10 +39,10 @@
 //!
 //! Once synchronized, `ntp_now()` can be used to get a corrected timestamp.
 
-use chrono::{DateTime, Utc, Duration};
+use chrono::{DateTime, Duration, Utc};
+use rsntp::AsyncSntpClient;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use rsntp::AsyncSntpClient;
 
 /// The source of a timestamp, indicating its origin and accuracy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,14 +97,14 @@ impl Timestamp {
     }
 
     /// Creates a new timestamp from the current system time.
-    /// 
+    ///
     /// This is an alias for `now_system()` for convenience.
     pub fn now() -> Self {
         Self::now_system()
     }
 
     /// Creates a new timestamp from a chrono DateTime.
-    /// 
+    ///
     /// The timestamp will have a System source and unknown accuracy.
     pub fn from_datetime(dt: DateTime<Utc>) -> Self {
         Self {
@@ -129,7 +129,7 @@ impl Timestamp {
 }
 
 /// Convert from chrono DateTime to Timestamp.
-/// 
+///
 /// The timestamp will have a System source and unknown accuracy.
 impl From<DateTime<Utc>> for Timestamp {
     fn from(dt: DateTime<Utc>) -> Self {
@@ -183,7 +183,10 @@ pub async fn synchronize_ntp(server: &str) -> Result<(), Box<dyn std::error::Err
 
     let mut state = NTP_SYNC_STATE.lock().unwrap();
 
-    let new_point = SyncPoint { time: sync_time, offset };
+    let new_point = SyncPoint {
+        time: sync_time,
+        offset,
+    };
     state.history.push(new_point);
 
     // Keep the history size manageable.

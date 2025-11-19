@@ -187,17 +187,19 @@ impl From<daq_core::Measurement> for Measurement {
             },
             daq_core::Measurement::Image(img) => {
                 // Extract metadata from serde_json::Value to ImageMetadata
-                let metadata = img.metadata.as_ref().and_then(|m| {
-                    serde_json::from_value::<ImageMetadata>(m.clone()).ok()
-                }).unwrap_or_else(|| ImageMetadata {
-                    exposure_ms: None,
-                    gain: None,
-                    binning: None,
-                    temperature_c: None,
-                    hardware_timestamp_us: None,
-                    readout_ms: None,
-                    roi_origin: None,
-                });
+                let metadata = img
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| serde_json::from_value::<ImageMetadata>(m.clone()).ok())
+                    .unwrap_or_else(|| ImageMetadata {
+                        exposure_ms: None,
+                        gain: None,
+                        binning: None,
+                        temperature_c: None,
+                        hardware_timestamp_us: None,
+                        readout_ms: None,
+                        roi_origin: None,
+                    });
 
                 Measurement::Image {
                     name: img.channel,

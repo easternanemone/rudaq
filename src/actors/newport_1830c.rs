@@ -131,7 +131,8 @@ impl kameo::Actor for Newport1830C {
         if args.adapter.is_some() {
             if let Err(err) = args.configure_hardware().await {
                 tracing::error!("Failed to configure hardware on start: {err}");
-                let error_msg: Box<dyn Any + Send> = Box::new(format!("Hardware configuration failed: {err}"));
+                let error_msg: Box<dyn Any + Send> =
+                    Box::new(format!("Hardware configuration failed: {err}"));
                 return Err(SendError::HandlerError(error_msg));
             }
         }
@@ -228,18 +229,17 @@ pub struct SetUnit(pub PowerUnit);
 impl Message<SetUnit> for Newport1830C {
     type Reply = Result<()>;
 
-    async fn handle(
-        &mut self,
-        msg: SetUnit,
-        _ctx: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
+    async fn handle(&mut self, msg: SetUnit, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
         self.unit = msg.0;
         tracing::debug!("Set power unit to {:?}", msg.0);
 
         // Update hardware if connected
         if let Some(adapter) = &self.adapter {
             let unit_code = match msg.0 {
-                PowerUnit::Watts | PowerUnit::MilliWatts | PowerUnit::MicroWatts | PowerUnit::NanoWatts => 0,
+                PowerUnit::Watts
+                | PowerUnit::MilliWatts
+                | PowerUnit::MicroWatts
+                | PowerUnit::NanoWatts => 0,
                 PowerUnit::Dbm => 1,
             };
 

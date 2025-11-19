@@ -25,6 +25,7 @@
 //! - ELL14 pulses per revolution: 136,533 (official specification)
 //! - Timing: 100ms delay after command, 100ms delay after response (200ms cycle minimum)
 
+use crate::error_recovery::{handle_recoverable_error, Restartable, RetryPolicy};
 use async_trait::async_trait;
 use chrono::Utc;
 use daq_core::{
@@ -32,7 +33,6 @@ use daq_core::{
     InstrumentCommand, InstrumentState, Measurement, MeasurementReceiver, MeasurementSender,
     MotionController, Result,
 };
-use crate::error_recovery::{handle_recoverable_error, Restartable, RetryPolicy};
 use log::{debug, info, warn};
 use std::time::Duration;
 use tokio::task::JoinHandle;
@@ -305,7 +305,9 @@ impl Restartable<DaqError> for ElliptecV2 {
         if let Some(handle) = self.task_handle.take() {
             let _ = handle.await;
         }
-        self.start_polling(2.0).await.map_err(|e| DaqError::Instrument(e.to_string()))
+        self.start_polling(2.0)
+            .await
+            .map_err(|e| DaqError::Instrument(e.to_string()))
     }
 }
 
@@ -332,7 +334,11 @@ impl Instrument for ElliptecV2 {
 
         // Connect serial adapter
         let connect_result = {
-            let adapter = self.adapter.as_any_mut().downcast_mut::<SerialAdapter>().ok_or_else(|| anyhow::anyhow!("Adapter is not a SerialAdapter"))?;
+            let adapter = self
+                .adapter
+                .as_any_mut()
+                .downcast_mut::<SerialAdapter>()
+                .ok_or_else(|| anyhow::anyhow!("Adapter is not a SerialAdapter"))?;
             handle_recoverable_error(adapter, &RetryPolicy::default()).await
         };
 
@@ -454,7 +460,11 @@ impl Instrument for ElliptecV2 {
             InstrumentState::Error(daq_error) if daq_error.can_recover => {
                 info!("Attempting recovery for Elliptec '{}'", self.id);
 
-                let adapter = self.adapter.as_any_mut().downcast_mut::<SerialAdapter>().ok_or_else(|| anyhow::anyhow!("Adapter is not a SerialAdapter"))?;
+                let adapter = self
+                    .adapter
+                    .as_any_mut()
+                    .downcast_mut::<SerialAdapter>()
+                    .ok_or_else(|| anyhow::anyhow!("Adapter is not a SerialAdapter"))?;
 
                 handle_recoverable_error(adapter, &RetryPolicy::default()).await?;
 

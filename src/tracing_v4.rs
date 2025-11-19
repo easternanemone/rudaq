@@ -192,7 +192,9 @@ pub fn init(config: TracingConfig) -> Result<(), String> {
                 .or_else(|e| {
                     // Handle "already initialized" gracefully - this is expected in tests
                     // and when multiple components try to init tracing
-                    if e.to_string().contains("a global default trace dispatcher has already been set") {
+                    if e.to_string()
+                        .contains("a global default trace dispatcher has already been set")
+                    {
                         Ok(())
                     } else {
                         Err(format!("Failed to initialize tracing: {}", e))
@@ -214,7 +216,9 @@ pub fn init(config: TracingConfig) -> Result<(), String> {
                 .with(fmt_layer)
                 .try_init()
                 .or_else(|e| {
-                    if e.to_string().contains("a global default trace dispatcher has already been set") {
+                    if e.to_string()
+                        .contains("a global default trace dispatcher has already been set")
+                    {
                         Ok(())
                     } else {
                         Err(format!("Failed to initialize tracing: {}", e))
@@ -235,7 +239,9 @@ pub fn init(config: TracingConfig) -> Result<(), String> {
                 .with(fmt_layer)
                 .try_init()
                 .or_else(|e| {
-                    if e.to_string().contains("a global default trace dispatcher has already been set") {
+                    if e.to_string()
+                        .contains("a global default trace dispatcher has already been set")
+                    {
                         Ok(())
                     } else {
                         Err(format!("Failed to initialize tracing: {}", e))

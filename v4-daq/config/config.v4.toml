@@ -1,0 +1,143 @@
+# V4-Only Configuration File
+#
+# This is the primary configuration for the V4 DAQ system.
+# All settings can be overridden via environment variables with the RUSTDAQ_ prefix.
+#
+# Created: 2025-11-17
+# For documentation, see: docs/V4_ONLY_ARCHITECTURE_PLAN.md
+
+# ============================================================================
+# Application Settings
+# ============================================================================
+
+[application]
+name = "rust-daq-v4"
+log_level = "info"
+# Optional: Directory for persistent data storage
+# data_dir = "/var/lib/rust-daq"
+
+# ============================================================================
+# Actor System Settings
+# ============================================================================
+
+[actors]
+# Default mailbox capacity for actor message queues
+default_mailbox_capacity = 100
+# Timeout for spawning new actors (milliseconds)
+spawn_timeout_ms = 5000
+# Timeout for graceful actor shutdown (milliseconds)
+shutdown_timeout_ms = 5000
+
+# ============================================================================
+# Storage Backend Settings
+# ============================================================================
+
+[storage]
+# Default storage backend: "arrow", "hdf5", or "both"
+default_backend = "hdf5"
+# Output directory for data files
+output_dir = "/var/lib/rust-daq/data"
+# Compression level for stored data (0-9, default 6)
+compression_level = 6
+# Auto-flush interval in seconds (0 = manual only)
+auto_flush_interval_secs = 30
+
+# ============================================================================
+# V4 Instruments - All 5 Actor Types
+# ============================================================================
+
+# SCPI Instrument (Generic power meter via TCPIP)
+[[instruments]]
+id = "scpi_meter"
+type = "ScpiInstrument"
+enabled = true
+
+[instruments.config.scpi]
+resource = "TCPIP0::192.168.1.100::INSTR"
+timeout_ms = 5000
+enable_caching = false
+
+# ============================================================================
+
+# ESP300 Motion Controller (3-axis stage)
+[[instruments]]
+id = "esp300_stage"
+type = "ESP300"
+enabled = true
+
+[instruments.config.esp300]
+serial_port = "/dev/ttyUSB1"
+axes = 3
+baud_rate = 9600
+
+# ============================================================================
+
+# PVCAM Camera (Princeton Instruments camera)
+[[instruments]]
+id = "pvcam_camera"
+type = "PVCAMInstrument"
+enabled = true
+
+[instruments.config.pvcam]
+camera_name = "PrimeBSI"
+# Optional frame dimensions (auto-detect if not specified)
+# frame_width = 1024
+# frame_height = 1024
+# Optional exposure time in milliseconds
+# exposure_ms = 100.0
+
+# ============================================================================
+
+# Newport 1830-C Power Meter (via VISA/Serial)
+[[instruments]]
+id = "newport_power"
+type = "Newport1830C"
+enabled = true
+
+[instruments.config.newport]
+resource = "ASRL2::INSTR"
+timeout_ms = 5000
+# Optional: Wavelength for power measurement correction (nanometers)
+# wavelength_nm = 800.0
+
+# ============================================================================
+
+# MaiTai Laser (Coherent MaiTai via Serial)
+[[instruments]]
+id = "maitai_laser"
+type = "MaiTai"
+enabled = true
+
+[instruments.config.maitai]
+serial_port = "/dev/ttyUSB2"
+baud_rate = 19200
+timeout_ms = 5000
+# Enable automatic wavelength control
+auto_control = false
+
+# ============================================================================
+# Configuration Notes
+# ============================================================================
+#
+# Environment Variable Overrides:
+# All configuration values can be overridden via environment variables.
+# Use the RUSTDAQ_ prefix with keys separated by underscores.
+#
+# Examples:
+#   RUSTDAQ_APPLICATION_LOG_LEVEL=debug
+#   RUSTDAQ_STORAGE_COMPRESSION_LEVEL=9
+#   RUSTDAQ_STORAGE_OUTPUT_DIR=/custom/path
+#
+# Instrument Resources (SCPI/Newport):
+# - TCP/IP: "TCPIP0::<IP>::INSTR"
+# - Serial: "ASRL<port>::INSTR" (e.g., "ASRL2::INSTR")
+#
+# Serial Port Examples:
+# - Linux: "/dev/ttyUSB0", "/dev/ttyUSB1", "/dev/ttyACM0"
+# - macOS: "/dev/tty.usbserial-*"
+# - Windows: "COM1", "COM2"
+#
+# Safety Notes:
+# - MaiTai laser requires laser safety officer approval before operation
+# - Always verify hardware connections before enabling instruments
+# - Set log_level to "debug" for troubleshooting hardware issues

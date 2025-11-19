@@ -1,16 +1,11 @@
-//! Serial Hardware Adapter for RS-232/USB-Serial instruments
-//!
-//! Provides HardwareAdapter implementation for serial communication,
-//! supporting instruments like Newport 1830-C, ESP300, etc.
-
-use crate::adapters::command_batch::{BatchExecutor, CommandBatch};
 use crate::config::TimeoutSettings;
-use crate::error::DaqError;
-use crate::error_recovery::{Recoverable, Resettable};
+
+
+use crate::hardware::adapter::{AdapterError, HardwareAdapter};
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use daq_core::{AdapterConfig, HardwareAdapter};
 use log::debug;
+use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -61,160 +56,6 @@ impl SerialAdapter {
             port: None,
         }
     }
-
-    /// Apply timeout configuration sourced from [`TimeoutSettings`].
-    pub fn with_timeout_settings(mut self, timeouts: &TimeoutSettings) -> Self {
-        self.timeout = Duration::from_millis(timeouts.serial_read_timeout_ms);
-        self
-    }
-
-    /// Set read timeout
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
-        self
-    }
-
-    /// Set line terminator for commands
-    pub fn with_line_terminator(mut self, terminator: String) -> Self {
-        self.line_terminator = terminator;
-        self
-    }
-
-    /// Set response delimiter character
-    pub fn with_response_delimiter(mut self, delimiter: char) -> Self {
-        self.response_delimiter = delimiter;
-        self
-    }
-
-    /// Send a command and read the response asynchronously
-    ///
-    /// This method executes serial I/O on a blocking thread to avoid
-    /// blocking the Tokio runtime.
-    #[cfg(feature = "instrument_serial")]
-    pub async fn send_command(&self, command: &str) -> Result<String> {
-        let port = self
-            .port
-            .as_ref()
-            .ok_or(DaqError::SerialPortNotConnected)
-            .map_err(anyhow::Error::from)?;
-
-        let command_str = format!("{}{}", command, self.line_terminator);
-        let command_for_log = command.to_string(); // Clone for logging
-        let delimiter = self.response_delimiter;
-        let timeout = self.timeout;
-        let port_clone = port.clone();
-
-        // Execute blocking serial I/O on dedicated thread
-        tokio::task::spawn_blocking(move || {
-            use std::io::{Read, Write};
-
-            let mut port_guard = port_clone.blocking_lock();
-
-            // Write command
-            port_guard
-                .write_all(command_str.as_bytes())
-                .context("Failed to write to serial port")?;
-
-            port_guard.flush().context("Failed to flush serial port")?;
-
-            debug!("Sent serial command: {}", command_for_log.trim());
-
-            // Read response line-by-line until delimiter
-            let mut response = String::new();
-            let mut buffer = [0u8; 1];
-            let start = std::time::Instant::now();
-
-            loop {
-                if start.elapsed() > timeout {
-                    return Err(anyhow!("Serial read timeout after {:?}", timeout));
-                }
-
-                match port_guard.read(&mut buffer) {
-                    Ok(1) => {
-                        let ch = buffer[0] as char;
-                        response.push(ch);
-
-                        if ch == delimiter {
-                            break;
-                        }
-                    }
-                    Ok(0) => {
-                        // EOF - shouldn't happen with serial ports
-                        return Err(DaqError::SerialUnexpectedEof.into());
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
-                        // Port timeout is shorter than our overall timeout
-                        continue;
-                    }
-                    Err(e) => {
-                        return Err(anyhow!("Serial read error: {}", e));
-                    }
-                    Ok(_) => unreachable!("Read into single-byte buffer returned >1"),
-                }
-            }
-
-            let response = response.trim().to_string();
-            debug!("Received serial response: {}", response);
-            Ok(response)
-        })
-        .await
-        .context("Serial I/O task panicked")?
-    }
-
-    #[cfg(not(feature = "instrument_serial"))]
-    pub async fn send_command(&self, _command: &str) -> Result<String> {
-        Err(DaqError::SerialFeatureDisabled.into())
-    }
-
-    /// Send a batch of commands without reading a response.
-    #[cfg(feature = "instrument_serial")]
-    pub async fn send_commands(&self, commands: &[String]) -> Result<()> {
-        let port = self
-            .port
-            .as_ref()
-            .ok_or(DaqError::SerialPortNotConnected)
-            .map_err(anyhow::Error::from)?;
-
-        let command_str = commands.join(&self.line_terminator);
-        let port_clone = port.clone();
-
-        // Execute blocking serial I/O on dedicated thread
-        tokio::task::spawn_blocking(move || {
-            use std::io::Write;
-
-            let mut port_guard = port_clone.blocking_lock();
-
-            // Write command
-            port_guard
-                .write_all(command_str.as_bytes())
-                .context("Failed to write to serial port")?;
-
-            port_guard.flush().context("Failed to flush serial port")?;
-
-            debug!("Sent serial commands: {}", command_str.trim());
-            Ok(())
-        })
-        .await
-        .context("Serial I/O task panicked")?
-    }
-
-    #[cfg(not(feature = "instrument_serial"))]
-    pub async fn send_commands(&self, _commands: &[String]) -> Result<()> {
-        Err(DaqError::SerialFeatureDisabled.into())
-    }
-
-    /// Starts a command batch.
-    pub fn start_batch<'a>(&'a mut self) -> CommandBatch<'a, Self> {
-        CommandBatch::new(self)
-    }
-}
-
-#[async_trait]
-impl BatchExecutor for SerialAdapter {
-    async fn flush(&mut self, commands: &[String]) -> Result<()> {
-        self.send_commands(commands).await?;
-        Ok(())
-    }
 }
 
 fn default_serial_timeout() -> Duration {
@@ -223,18 +64,52 @@ fn default_serial_timeout() -> Duration {
 
 #[async_trait]
 impl HardwareAdapter for SerialAdapter {
-    async fn connect(&mut self, config: &AdapterConfig) -> Result<()> {
+    fn name(&self) -> &str {
+        "serial"
+    }
+
+    fn default_config(&self) -> serde_json::Value {
+        json!({
+            "port": self.port_name,
+            "baud_rate": self.baud_rate,
+            "timeout_ms": self.timeout.as_millis(),
+            "line_terminator": self.line_terminator,
+            "response_delimiter": self.response_delimiter.to_string(),
+        })
+    }
+
+    fn validate_config(&self, config: &serde_json::Value) -> Result<()> {
+        if !config.is_object() {
+            return Err(AdapterError::InvalidConfig("Config must be an object".to_string()).into());
+        }
+        if !config["port"].is_string() {
+            return Err(AdapterError::InvalidConfig("Port must be a string".to_string()).into());
+        }
+        if !config["baud_rate"].is_u64() {
+            return Err(AdapterError::InvalidConfig("Baud rate must be a number".to_string()).into());
+        }
+        Ok(())
+    }
+
+    async fn connect(&mut self, config: &serde_json::Value) -> Result<()> {
+        self.port_name = config["port"].as_str().unwrap_or(&self.port_name).to_string();
+        self.baud_rate = config["baud_rate"].as_u64().unwrap_or(self.baud_rate as u64) as u32;
+        self.timeout = Duration::from_millis(
+            config["timeout_ms"].as_u64().unwrap_or(self.timeout.as_millis() as u64),
+        );
+        self.line_terminator = config["line_terminator"]
+            .as_str()
+            .unwrap_or(&self.line_terminator)
+            .to_string();
+        self.response_delimiter = config["response_delimiter"]
+            .as_str()
+            .unwrap_or(&self.response_delimiter.to_string())
+            .chars()
+            .next()
+            .unwrap_or(self.response_delimiter);
+
         #[cfg(feature = "instrument_serial")]
         {
-            // Override settings from config if provided
-            if let Some(baud) = config.params.get("baud_rate").and_then(|v| v.as_u64()) {
-                self.baud_rate = baud as u32;
-            }
-
-            if let Some(timeout_ms) = config.params.get("timeout_ms").and_then(|v| v.as_u64()) {
-                self.timeout = Duration::from_millis(timeout_ms);
-            }
-
             // Open serial port using serialport crate
             let port = serialport::new(&self.port_name, self.baud_rate)
                 .timeout(Duration::from_millis(100)) // Internal read timeout
@@ -258,7 +133,7 @@ impl HardwareAdapter for SerialAdapter {
         #[cfg(not(feature = "instrument_serial"))]
         {
             let _ = config;
-            Err(DaqError::SerialFeatureDisabled.into())
+            Err(AdapterError::ConnectionFailed("Serial feature disabled".to_string()).into())
         }
     }
 
@@ -273,61 +148,125 @@ impl HardwareAdapter for SerialAdapter {
         Ok(())
     }
 
-    async fn reset(&mut self) -> Result<()> {
-        // For serial adapters, reset means disconnect and reconnect
-        self.disconnect().await?;
-
-        // Small delay to let hardware reset
-        tokio::time::sleep(Duration::from_millis(500)).await;
-
-        self.connect(&AdapterConfig::default()).await
-    }
-
-    fn is_connected(&self) -> bool {
+    async fn send(&mut self, command: &str) -> Result<()> {
         #[cfg(feature = "instrument_serial")]
         {
-            self.port.is_some()
+            let port = self
+                .port
+                .as_ref()
+                .ok_or(AdapterError::NotConnected)
+                .map_err(anyhow::Error::from)?;
+
+            let command_str = format!("{}{}", command, self.line_terminator);
+            let port_clone = port.clone();
+            let command_clone = command.to_string();
+
+            // Execute blocking serial I/O on dedicated thread
+            tokio::task::spawn_blocking(move || {
+                use std::io::Write;
+
+                let mut port_guard = port_clone.blocking_lock();
+
+                // Write command
+                port_guard
+                    .write_all(command_str.as_bytes())
+                    .context("Failed to write to serial port")?;
+
+                port_guard.flush().context("Failed to flush serial port")?;
+
+                debug!("Sent serial command: {}", command_clone.trim());
+                Ok(())
+            })
+            .await
+            .context("Serial I/O task panicked")?
         }
 
         #[cfg(not(feature = "instrument_serial"))]
         {
-            false
+Err(AdapterError::SendFailed("Serial feature disabled".to_string()).into())
         }
     }
 
-    fn adapter_type(&self) -> &str {
-        "serial"
-    }
+    async fn query(&mut self, query: &str) -> Result<String> {
+        #[cfg(feature = "instrument_serial")]
+        {
+            let port = self
+                .port
+                .as_ref()
+                .ok_or(AdapterError::NotConnected)
+                .map_err(anyhow::Error::from)?;
 
-    fn info(&self) -> String {
-        format!(
-            "SerialAdapter({} @ {} baud)",
-            self.port_name, self.baud_rate
-        )
-    }
+            let command_str = format!("{}{}", query, self.line_terminator);
+            let command_for_log = query.to_string(); // Clone for logging
+            let delimiter = self.response_delimiter;
+            let timeout = self.timeout;
+            let port_clone = port.clone();
 
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
+            // Execute blocking serial I/O on dedicated thread
+            tokio::task::spawn_blocking(move || -> Result<String> {
+                use std::io::{Read, Write};
 
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
+                let mut port_guard = port_clone.blocking_lock();
+
+                // Write command
+                port_guard
+                    .write_all(command_str.as_bytes())
+                    .context("Failed to write to serial port")?;
+
+                port_guard.flush().context("Failed to flush serial port")?;
+
+                debug!("Sent serial command: {}", command_for_log.trim());
+
+                // Read response line-by-line until delimiter
+                let mut response = String::new();
+                let mut buffer = [0u8; 1];
+                let start = std::time::Instant::now();
+
+                loop {
+                    if start.elapsed() > timeout {
+                        return Err(anyhow!("Serial read timeout after {:?}", timeout));
+                    }
+
+                    match port_guard.read(&mut buffer) {
+                        Ok(1) => {
+                            let ch = buffer[0] as char;
+                            response.push(ch);
+
+                            if ch == delimiter {
+                                break;
+                            }
+                        }
+                        Ok(0) => {
+                            // EOF - shouldn't happen with serial ports
+                            return Err(AdapterError::ConnectionFailed("Unexpected EOF".to_string()).into());
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                            // Port timeout is shorter than our overall timeout
+                            continue;
+                        }
+                        Err(e) => {
+                            return Err(anyhow!("Serial read error: {}", e));
+                        }
+                        Ok(_) => unreachable!("Read into single-byte buffer returned >1"),
+                    }
+                }
+
+                let response = response.trim().to_string();
+                debug!("Received serial response: {}", response);
+                Ok(response)
+            })
+            .await
+            .context("Serial I/O task panicked")?
+        }
+
+        #[cfg(not(feature = "instrument_serial"))]
+        {
+            let _ = query;
+            Err(AdapterError::QueryFailed("Serial feature disabled".to_string()).into())
+        }
     }
 }
 
-#[async_trait]
-impl Recoverable<DaqError> for SerialAdapter {
-    async fn recover(&mut self) -> Result<(), DaqError> {
-        self.reset().await.map_err(|e| DaqError::Instrument(e.to_string()))
-    }
-}
-
-#[async_trait]
-impl Resettable<DaqError> for SerialAdapter {
-    async fn reset(&mut self) -> Result<(), DaqError> {
-        self.reset().await.map_err(|e| DaqError::Instrument(e.to_string()))
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -336,29 +275,16 @@ mod tests {
     #[test]
     fn test_serial_adapter_creation() {
         let adapter = SerialAdapter::new("/dev/ttyUSB0".to_string(), 9600);
-        assert_eq!(adapter.adapter_type(), "serial");
-        assert!(!adapter.is_connected());
+        assert_eq!(adapter.name(), "serial");
         assert_eq!(adapter.port_name, "/dev/ttyUSB0");
         assert_eq!(adapter.baud_rate, 9600);
     }
 
     #[test]
-    fn test_serial_adapter_builder() {
-        let adapter = SerialAdapter::new("/dev/ttyUSB0".to_string(), 9600)
-            .with_timeout(Duration::from_millis(500))
-            .with_line_terminator("\n".to_string())
-            .with_response_delimiter('\r');
-
-        assert_eq!(adapter.timeout, Duration::from_millis(500));
-        assert_eq!(adapter.line_terminator, "\n");
-        assert_eq!(adapter.response_delimiter, '\r');
-    }
-
-    #[test]
     fn test_info_string() {
         let adapter = SerialAdapter::new("COM3".to_string(), 115200);
-        let info = adapter.info();
-        assert!(info.contains("COM3"));
-        assert!(info.contains("115200"));
+        let config = adapter.default_config();
+        assert_eq!(config["port"], "COM3");
+        assert_eq!(config["baud_rate"], 115200);
     }
 }

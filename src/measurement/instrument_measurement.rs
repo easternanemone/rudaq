@@ -9,9 +9,9 @@ use crate::core::DataPoint;
 use crate::measurement::{DataDistributor, Measure};
 use anyhow::Result;
 use async_trait::async_trait;
+use daq_core::timestamp::Timestamp;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use daq_core::timestamp::Timestamp;
 
 /// Compatibility measurement wrapper for legacy instruments.
 #[derive(Clone)]

@@ -2,6 +2,7 @@
 members = [
     "crates/daq-core",
     "pvcam-sys",
+    "v4-daq",
 ]
 exclude = ["python"]
 

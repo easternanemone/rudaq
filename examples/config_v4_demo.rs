@@ -22,16 +22,17 @@ fn sanitize_config(value: &toml::Value) -> toml::Value {
                     || key_lower.contains("key")
                     || key_lower.contains("credential")
                 {
-                    sanitized.insert(key.clone(), toml::Value::String("***REDACTED***".to_string()));
+                    sanitized.insert(
+                        key.clone(),
+                        toml::Value::String("***REDACTED***".to_string()),
+                    );
                 } else {
                     sanitized.insert(key.clone(), sanitize_config(val));
                 }
             }
             toml::Value::Table(sanitized)
         }
-        toml::Value::Array(arr) => {
-            toml::Value::Array(arr.iter().map(sanitize_config).collect())
-        }
+        toml::Value::Array(arr) => toml::Value::Array(arr.iter().map(sanitize_config).collect()),
         _ => value.clone(),
     }
 }
@@ -56,7 +57,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Log Level: {}", config.application.log_level);
 
     println!("\n=== Actor System Settings ===");
-    println!("Mailbox Capacity: {}", config.actors.default_mailbox_capacity);
+    println!(
+        "Mailbox Capacity: {}",
+        config.actors.default_mailbox_capacity
+    );
     println!("Spawn Timeout: {}ms", config.actors.spawn_timeout_ms);
     println!("Shutdown Timeout: {}ms", config.actors.shutdown_timeout_ms);
 
@@ -64,11 +68,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Backend: {}", config.storage.default_backend);
     println!("Output Directory: {}", config.storage.output_dir.display());
     println!("Compression Level: {}", config.storage.compression_level);
-    println!("Auto-flush Interval: {}s", config.storage.auto_flush_interval_secs);
+    println!(
+        "Auto-flush Interval: {}s",
+        config.storage.auto_flush_interval_secs
+    );
 
     println!("\n=== Instruments ===");
     let enabled_instruments = config.enabled_instruments();
-    println!("Total: {}, Enabled: {}", config.instruments.len(), enabled_instruments.len());
+    println!(
+        "Total: {}, Enabled: {}",
+        config.instruments.len(),
+        enabled_instruments.len()
+    );
 
     for instrument in enabled_instruments {
         println!("\n  ID: {}", instrument.id);

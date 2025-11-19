@@ -51,7 +51,7 @@ struct InstrumentHandle {
     task_handle: JoinHandle<Result<()>>,
 
     /// Broadcast receiver for measurement data
-    measurement_rx: broadcast::Receiver<V3Measurement>,
+    measurement_rx: broadcast::Receiver<Measurement>,
 
     /// Command channel sender
     command_tx: mpsc::Sender<CommandMessage>,
@@ -361,7 +361,7 @@ impl InstrumentManagerV3 {
     pub async fn subscribe_measurements(
         &self,
         instrument_id: &str,
-    ) -> Result<broadcast::Receiver<V3Measurement>> {
+    ) -> Result<broadcast::Receiver<Measurement>> {
         let instruments = self.active_instruments.lock().await;
         let handle = instruments
             .get(instrument_id)
@@ -465,7 +465,7 @@ mod tests {
     // Mock instrument for testing
     struct MockInstrumentV3 {
         id: String,
-        tx: broadcast::Sender<V3Measurement>,
+        tx: broadcast::Sender<Measurement>,
         params: HashMap<String, Box<dyn ParameterBase>>,
         task: Option<tokio::task::JoinHandle<()>>,
     }
@@ -494,7 +494,7 @@ mod tests {
             self.task = Some(tokio::spawn(async move {
                 loop {
                     if tx
-                        .send(V3Measurement::Scalar {
+                        .send(Measurement::Scalar {
                             name: format!("{}_power", id),
                             value: 1.0,
                             unit: "W".to_string(),
@@ -517,7 +517,7 @@ mod tests {
             Ok(())
         }
 
-        fn data_channel(&self) -> broadcast::Receiver<V3Measurement> {
+        fn data_channel(&self) -> broadcast::Receiver<Measurement> {
             self.tx.subscribe()
         }
 
@@ -630,7 +630,7 @@ mod tests {
         let forwarder =
             InstrumentManagerV3::spawn_data_bridge("camera1".to_string(), rx, distributor.clone());
 
-        let measurement = V3Measurement::Image {
+        let measurement = Measurement::Image {
             name: "camera1_frame".to_string(),
             width: 2,
             height: 2,
@@ -680,7 +680,7 @@ mod tests {
             distributor.clone(),
         );
 
-        let measurement = V3Measurement::Spectrum {
+        let measurement = Measurement::Spectrum {
             name: "spectrum1_fft".to_string(),
             frequencies: vec![0.0, 100.0, 200.0],
             amplitudes: vec![-10.0, -3.0, -6.0],
@@ -714,7 +714,7 @@ mod tests {
 
     struct BlockingShutdownInstrument {
         id: String,
-        tx: broadcast::Sender<V3Measurement>,
+        tx: broadcast::Sender<Measurement>,
         params: HashMap<String, Box<dyn ParameterBase>>,
         state: InstrumentState,
         drop_flag: Arc<AtomicBool>,
@@ -769,7 +769,7 @@ mod tests {
             Ok(())
         }
 
-        fn data_channel(&self) -> broadcast::Receiver<V3Measurement> {
+        fn data_channel(&self) -> broadcast::Receiver<Measurement> {
             self.tx.subscribe()
         }
 

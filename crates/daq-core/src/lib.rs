@@ -17,10 +17,10 @@ pub use timestamp::{Timestamp, TimestampSource};
 
 /// Temporary re-export for V2 instruments - use `crate::core_v3::Measurement` in new code
 pub use crate::legacy_v2::{
-    AdapterConfig, Camera, DaqError, DataPoint, HardwareAdapter, ImageData, Instrument,
-    InstrumentCommand, InstrumentState, Measurement, MeasurementReceiver, MeasurementSender,
-    MotionController, PixelBuffer, PowerMeter, PowerRange, Result, SpectrumData, TunableLaser,
-    ROI, arc_measurement, measurement_channel,
+    arc_measurement, measurement_channel, AdapterConfig, Camera, DaqError, DataPoint,
+    HardwareAdapter, ImageData, Instrument, InstrumentCommand, InstrumentState, Measurement,
+    MeasurementReceiver, MeasurementSender, MotionController, PixelBuffer, PowerMeter, PowerRange,
+    Result, SpectrumData, TunableLaser, ROI,
 };
 
 mod legacy_v2 {
@@ -146,8 +146,13 @@ mod legacy_v2 {
         StartAcquisition,
         StopAcquisition,
         SnapFrame,
-        SetParameter { name: String, value: serde_json::Value },
-        GetParameter { name: String },
+        SetParameter {
+            name: String,
+            value: serde_json::Value,
+        },
+        GetParameter {
+            name: String,
+        },
         Recover,
     }
 

@@ -71,10 +71,10 @@
 //! }
 //! ```
 use crate::config::Settings;
+pub use crate::core_v3::Measurement;
 use crate::measurement::Measure;
 use crate::metadata::Metadata;
 use async_trait::async_trait;
-pub use crate::core_v3::Measurement;
 use daq_core::timestamp::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::any::TypeId;

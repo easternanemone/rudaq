@@ -76,6 +76,7 @@
 //! # }
 //! ```
 
+use crate::core_v3::Measurement;
 use crate::{
     config::{dependencies::DependencyGraph, versioning::VersionManager, Settings},
     core::{InstrumentHandle, MeasurementProcessor},
@@ -94,7 +95,6 @@ use crate::{
 };
 use anyhow::{anyhow, Context, Result};
 use daq_core::timestamp;
-use crate::core_v3::Measurement;
 use log::{error, info, warn};
 use std::path::Path;
 use std::sync::Arc;

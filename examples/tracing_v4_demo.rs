@@ -27,7 +27,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load configuration from config.v4.toml
     println!("Loading configuration...");
     let config = V4Config::load()?;
-    println!("✓ Configuration loaded (log level: {})\n", config.application.log_level);
+    println!(
+        "✓ Configuration loaded (log level: {})\n",
+        config.application.log_level
+    );
 
     // Initialize tracing from configuration
     println!("Initializing tracing...");

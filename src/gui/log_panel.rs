@@ -63,14 +63,13 @@ pub fn render(ui: &mut Ui, gui: &mut Gui) {
             gui.consolidated_logs.clear();
             for entry in logs.iter() {
                 let key = format!("{}:{}", entry.target, entry.message);
-                let consolidated_entry =
-                    gui.consolidated_logs
-                        .entry(key)
-                        .or_insert_with(|| crate::gui::ConsolidatedLogEntry {
-                            entry: entry.clone(),
-                            count: 0,
-                            last_timestamp: entry.timestamp,
-                        });
+                let consolidated_entry = gui.consolidated_logs.entry(key).or_insert_with(|| {
+                    crate::gui::ConsolidatedLogEntry {
+                        entry: entry.clone(),
+                        count: 0,
+                        last_timestamp: entry.timestamp,
+                    }
+                });
                 consolidated_entry.count += 1;
                 consolidated_entry.last_timestamp = entry.timestamp;
             }
@@ -104,10 +103,7 @@ pub fn render(ui: &mut Ui, gui: &mut Gui) {
                         ui.colored_label(Color32::from_gray(150), &entry.target);
                         ui.label(&entry.message);
                         if consolidated.count > 1 {
-                            ui.colored_label(
-                                Color32::YELLOW,
-                                format!("(×{})", consolidated.count),
-                            );
+                            ui.colored_label(Color32::YELLOW, format!("(×{})", consolidated.count));
                         }
                     });
                 }

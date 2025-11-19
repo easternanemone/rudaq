@@ -50,6 +50,7 @@
 //!
 //! This pattern ensures the GUI always gets a receiver to await the response.
 
+use crate::core_v3::Measurement;
 use crate::{
     config::versioning::{VersionId, VersionInfo},
     core::InstrumentCommand,
@@ -58,7 +59,6 @@ use crate::{
     session::GuiState,
 };
 use anyhow::Result;
-use crate::core_v3::Measurement;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};

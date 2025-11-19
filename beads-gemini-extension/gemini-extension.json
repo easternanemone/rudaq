@@ -1,0 +1,6 @@
+{
+  "name": "bd-issue-tracking",
+  "version": "1.0.0",
+  "description": "Track complex, multi-session work with dependency graphs using bd (beads) issue tracker. Use when work spans multiple sessions, has complex dependencies, or requires persistent context across compaction cycles. For simple single-session linear tasks, TodoWrite remains appropriate.",
+  "contextFileName": "GEMINI.md"
+}

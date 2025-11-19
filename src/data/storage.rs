@@ -1,8 +1,8 @@
 //! Example data storage writers.
+use crate::core_v3::Measurement;
 use crate::{config::Settings, core::StorageWriter, error::DaqError, metadata::Metadata};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use crate::core_v3::Measurement;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -609,8 +609,11 @@ impl StorageWriter for NetCdfWriter {
                             writer.add_variable::<i64>("timestamps", &["time"])?;
                         }
                         let mut ts_var = writer.variable_mut("timestamps").unwrap();
-                        ts_var.put_values(&[dp.timestamp.timestamp_millis()], Some(&[index]), None)?;
-
+                        ts_var.put_values(
+                            &[dp.timestamp.timestamp_millis()],
+                            Some(&[index]),
+                            None,
+                        )?;
                     } else {
                         log::trace!("NetCDF writer skipping non-scalar measurement");
                     }

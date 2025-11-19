@@ -37,8 +37,7 @@
 pub mod app;
 pub mod app_actor;
 pub mod config;
-pub mod config_v4;  // V4 configuration system (bd-rir3)
-pub mod tracing_v4;  // V4 tracing infrastructure (bd-fxb7)
+pub mod config_v4; // V4 configuration system (bd-rir3)
 pub mod core;
 pub mod data;
 pub mod error;
@@ -52,6 +51,7 @@ pub mod messages;
 pub mod metadata;
 pub mod modules;
 pub mod session;
+pub mod tracing_v4; // V4 tracing infrastructure (bd-fxb7)
 pub mod validation;
 
 // Phase 1: Architectural redesign - New core abstractions (coexist with old)
@@ -76,5 +76,4 @@ pub mod actors;
 #[cfg(feature = "v4")]
 pub mod traits;
 
-#[cfg(feature = "v4")]
 pub mod hardware;

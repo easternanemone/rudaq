@@ -40,21 +40,28 @@
 //! - `instrument_controls`: Defines the UI panels for controlling specific instruments (e.g., lasers, cameras).
 //! - `log_panel`: Implements the UI for the filterable log view at the bottom of the screen.
 //! - `storage_manager`: Provides the UI for creating, managing, and saving data acquisition sessions.
+//! - `v4_data_bridge`: V4 bridge for consuming Arrow data from DataPublisher actor.
+//! - `v4_instrument_panel`: Real-time V4 instrument visualization with plots and statistics.
 
 pub mod instrument_controls;
 pub mod shortcuts;
 pub mod storage_manager;
 pub mod verification;
 
+#[cfg(feature = "v4")]
+pub mod v4_data_bridge;
+#[cfg(feature = "v4")]
+pub mod v4_instrument_panel;
+
 use self::instrument_controls::*;
 use self::storage_manager::StorageManager;
+use crate::core_v3::Measurement;
 use crate::{
     config::Settings,
     instrument::InstrumentRegistryV2,
     log_capture::{LogBuffer, LogEntry},
     messages::DaqCommand,
 };
-use crate::core_v3::Measurement;
 use eframe::egui;
 use egui_dock::{DockArea, DockState, Style, TabViewer};
 use egui_plot::{Line, Plot, PlotPoints};
