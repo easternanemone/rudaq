@@ -30,6 +30,9 @@ use rust_daq::scripting::{ScriptHost, StageHandle, CameraHandle};
 use rust_daq::hardware::mock::{MockStage, MockCamera};
 use std::sync::Arc;
 
+#[cfg(feature = "networking")]
+use tonic::transport::Server;
+
 #[derive(Parser)]
 #[command(name = "rust-daq")]
 #[command(about = "Headless DAQ system with scriptable control", long_about = None)]
