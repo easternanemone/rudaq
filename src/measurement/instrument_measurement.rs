@@ -9,7 +9,7 @@ use crate::core::DataPoint;
 use crate::measurement::{DataDistributor, Measure};
 use anyhow::Result;
 use async_trait::async_trait;
-use daq_core::timestamp::Timestamp;
+use chrono::Utc;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -43,7 +43,7 @@ impl Measure for InstrumentMeasurement {
         // Minimal placeholder for APIs that still call `measure()` directly.
         // Primary data path should use `data_stream()`.
         Ok(DataPoint {
-            timestamp: Timestamp::now_system(),
+            timestamp: Utc::now(),
             instrument_id: self.id.clone(),
             channel: "placeholder".to_string(),
             value: 0.0,

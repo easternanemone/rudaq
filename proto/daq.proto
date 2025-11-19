@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package daq;
+
+// Control service for script management and execution
+service ControlService {
+  // Upload a script for later execution
+  rpc UploadScript(UploadRequest) returns (UploadResponse);
+
+  // Start execution of an uploaded script
+  rpc StartScript(StartRequest) returns (StartResponse);
+
+  // Stop a running script
+  rpc StopScript(StopRequest) returns (StopResponse);
+
+  // Get status of a script execution
+  rpc GetScriptStatus(StatusRequest) returns (ScriptStatus);
+
+  // Stream system status updates
+  rpc StreamStatus(StatusRequest) returns (stream SystemStatus);
+
+  // Stream measurement data
+  rpc StreamMeasurements(MeasurementRequest) returns (stream DataPoint);
+}
+
+// Request to upload a script
+message UploadRequest {
+  string script_content = 1;
+  string name = 2;
+  map<string, string> metadata = 3;
+}
+
+// Response from script upload
+message UploadResponse {
+  string script_id = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+// Request to start script execution
+message StartRequest {
+  string script_id = 1;
+  map<string, string> parameters = 2;
+}
+
+// Response from starting script
+message StartResponse {
+  bool started = 1;
+  string execution_id = 2;
+}
+
+// Request to stop script execution
+message StopRequest {
+  string execution_id = 1;
+}
+
+// Response from stopping script
+message StopResponse {
+  bool stopped = 1;
+}
+
+// Request for status information
+message StatusRequest {
+  string execution_id = 1;
+}
+
+// Status of a script execution
+message ScriptStatus {
+  string execution_id = 1;
+  string state = 2; // PENDING, RUNNING, COMPLETED, ERROR
+  string error_message = 3;
+  uint64 start_time_ns = 4;
+  uint64 end_time_ns = 5;
+}
+
+// System status snapshot
+message SystemStatus {
+  string current_state = 1;
+  double current_memory_usage_mb = 2;
+  map<string, double> live_values = 3;
+  uint64 timestamp_ns = 4;
+}
+
+// Request for measurement streaming
+message MeasurementRequest {
+  repeated string channels = 1;
+  uint32 max_rate_hz = 2;
+}
+
+// Single measurement data point
+message DataPoint {
+  string channel = 1;
+  double value = 2;
+  uint64 timestamp_ns = 3;
+}

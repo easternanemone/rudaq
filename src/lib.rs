@@ -34,22 +34,22 @@
 //! - **`core_v3`**: New unified core abstractions (Phase 1 architectural redesign)
 //! - **`parameter`**: Parameter<T> abstraction for declarative parameter management
 
-pub mod app;
-pub mod app_actor;
+// pub mod app; // REMOVED: Depends on app_actor (bd-9si6)
+// pub mod app_actor; // REMOVED: V2 actor pattern deleted (bd-9si6)
 pub mod config;
 pub mod config_v4; // V4 configuration system (bd-rir3)
 pub mod core;
-pub mod data;
+pub mod data; // Re-enabled for ring buffer implementation (Phase 4J: bd-q2we)
 pub mod error;
 pub mod error_recovery;
-pub mod experiment;
-pub mod gui;
-pub mod instrument;
+// pub mod experiment; // DISABLED - References messages (to be fixed separately)
+// pub mod gui; // REMOVED: GUI deleted for headless-first pivot (bd-9si6)
+// pub mod instrument; // DISABLED - References removed adapters module (to be fixed separately)
 pub mod log_capture;
 pub mod measurement;
-pub mod messages;
+// pub mod messages; // DISABLED - References modules (to be fixed separately)
 pub mod metadata;
-pub mod modules;
+// pub mod modules; // DISABLED - References instrument module (to be fixed separately)
 pub mod session;
 pub mod tracing_v4; // V4 tracing infrastructure (bd-fxb7)
 pub mod validation;
@@ -59,11 +59,11 @@ pub mod core_v3;
 pub mod parameter;
 
 // Phase 3: V3 Orchestration layer (instrument manager)
-pub mod instrument_manager_v3;
+// pub mod instrument_manager_v3; // DISABLED - References V1Measurement (to be fixed separately)
 
-// New v2 architecture modules (Phase 1)
-pub mod adapters;
-pub mod instruments_v2;
+// V2 modules REMOVED (bd-9si6) - all depend on deleted daq_core crate
+// pub mod adapters;
+// pub mod instruments_v2;
 
 // Phase 2: Networking layer (bd-63)
 #[cfg(feature = "networking")]
@@ -77,3 +77,7 @@ pub mod actors;
 pub mod traits;
 
 pub mod hardware;
+pub mod scripting;
+
+// Phase 3: gRPC remote control server (bd-8gsx)
+pub mod grpc;

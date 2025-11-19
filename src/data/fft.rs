@@ -232,18 +232,17 @@ impl MeasurementProcessor for FFTProcessor {
     /// analysis, and returns `Measurement::Spectrum` containing properly typed frequency
     /// bins instead of JSON metadata workarounds.
     fn process_measurements(&mut self, data: &[Arc<Measurement>]) -> Vec<Arc<Measurement>> {
-        // Extract scalar data points from Arc<Measurement> and convert to core::DataPoint
+        // Extract scalar data points from Arc<Measurement> and convert to DataPoint
         let scalars: Vec<DataPoint> = data
             .iter()
             .filter_map(|m| {
-                if let Measurement::Scalar(dp) = m.as_ref() {
-                    // Convert daq_core::DataPoint to core::DataPoint
+                if let Measurement::Scalar { name, value, unit, timestamp } = m.as_ref() {
                     Some(DataPoint {
-                        timestamp: dp.timestamp,
-                        instrument_id: String::new(), // daq_core doesn't have instrument_id
-                        channel: dp.channel.clone(),
-                        value: dp.value,
-                        unit: dp.unit.clone(),
+                        timestamp: *timestamp,
+                        instrument_id: String::new(),
+                        channel: name.clone(),
+                        value: *value,
+                        unit: unit.clone(),
                         metadata: None,
                     })
                 } else {
@@ -267,34 +266,28 @@ impl MeasurementProcessor for FFTProcessor {
             self.channel = scalars[0].channel.clone();
         }
 
-        // Create a single spectrum measurement instead of multiple scalar DataPoints
-        let spectrum_v1 = SpectrumData {
-            timestamp: scalars.last().map_or_else(Utc::now, |dp| dp.timestamp),
-            channel: format!("{}_fft", self.channel),
-            unit: "dB".to_string(),
-            bins: fft_bins.clone(),
+        // Extract frequencies and amplitudes from bins
+        let (frequencies, amplitudes): (Vec<f64>, Vec<f64>) = fft_bins
+            .iter()
+            .map(|bin| (bin.frequency, bin.magnitude))
+            .unzip();
+
+        // Create a single spectrum measurement using Measurement::Spectrum struct variant
+        let measurement = Measurement::Spectrum {
+            name: format!("{}_fft", self.channel),
+            frequencies,
+            amplitudes,
+            frequency_unit: Some("Hz".to_string()),
+            amplitude_unit: Some("dB".to_string()),
             metadata: Some(serde_json::json!({
                 "window_size": self.window_size,
                 "overlap": self.overlap,
                 "sampling_rate": self.sampling_rate,
             })),
+            timestamp: scalars.last().map_or_else(Utc::now, |dp| dp.timestamp),
         };
 
-        // Convert from core::SpectrumData to daq_core::SpectrumData
-        let wavelengths: Vec<f64> = fft_bins.iter().map(|bin| bin.frequency).collect();
-        let intensities: Vec<f64> = fft_bins.iter().map(|bin| bin.magnitude).collect();
-
-        let spectrum_v2 = daq_core::SpectrumData {
-            timestamp: spectrum_v1.timestamp,
-            channel: spectrum_v1.channel,
-            wavelengths,
-            intensities,
-            unit_x: "Hz".to_string(),
-            unit_y: spectrum_v1.unit,
-            metadata: spectrum_v1.metadata,
-        };
-
-        vec![Arc::new(Measurement::Spectrum(spectrum_v2))]
+        vec![Arc::new(measurement)]
     }
 }
 
@@ -317,11 +310,13 @@ mod tests {
         for i in 0..16 {
             let t = i as f64 / 8.0;
             let value = (2.0 * std::f64::consts::PI * 1.0 * t).sin(); // 1 Hz sine wave
-            measurements.push(Arc::new(Measurement::Scalar(daq_core::DataPoint {
-                timestamp: Utc.timestamp_nanos((t * 1_000_000_000.0) as i64),
+            measurements.push(Arc::new(Measurement::Scalar(DataPoint {
+                timestamp: Utc.timestamp_nanos((t * 1_000_000_000.0) as i64).and_utc(),
+                instrument_id: "test".to_string(),
                 channel: "test_signal".to_string(),
                 value,
                 unit: "V".to_string(),
+                metadata: None,
             })));
         }
 
@@ -331,20 +326,20 @@ mod tests {
         // Should get spectrum measurements
         assert_eq!(result.len(), 1);
         match result[0].as_ref() {
-            Measurement::Spectrum(spectrum) => {
-                assert_eq!(spectrum.channel, "test_signal_fft");
-                assert_eq!(spectrum.unit_y, "dB");
-                assert!(!spectrum.wavelengths.is_empty());
-                assert!(!spectrum.intensities.is_empty());
+            Measurement::Spectrum { name, frequencies, amplitudes, frequency_unit, amplitude_unit, metadata, .. } => {
+                assert_eq!(name, "test_signal_fft");
+                assert_eq!(amplitude_unit.as_ref().unwrap(), "dB");
+                assert!(!frequencies.is_empty());
+                assert!(!amplitudes.is_empty());
 
                 // Verify frequency bins are properly structured
-                assert_eq!(spectrum.wavelengths[0], 0.0); // DC component
+                assert_eq!(frequencies[0], 0.0); // DC component
 
                 // Should have metadata about FFT parameters
-                assert!(spectrum.metadata.is_some());
-                let metadata = spectrum.metadata.as_ref().unwrap();
-                assert_eq!(metadata["window_size"], 8);
-                assert_eq!(metadata["sampling_rate"], 8.0);
+                assert!(metadata.is_some());
+                let meta = metadata.as_ref().unwrap();
+                assert_eq!(meta["window_size"], 8);
+                assert_eq!(meta["sampling_rate"], 8.0);
             }
             _ => panic!("Expected Spectrum measurement, got {:?}", result[0]),
         }
@@ -361,21 +356,21 @@ mod tests {
 
         // Mix of measurement types - only scalars should be processed
         let measurements = vec![
-            Arc::new(Measurement::Spectrum(daq_core::SpectrumData {
-                timestamp: Utc::now(),
-                channel: "existing_spectrum".to_string(),
-                wavelengths: vec![],
-                intensities: vec![],
-                unit_x: "Hz".to_string(),
-                unit_y: "dB".to_string(),
+            Arc::new(Measurement::Spectrum {
+                name: "existing_spectrum".to_string(),
+                frequencies: vec![],
+                amplitudes: vec![],
+                frequency_unit: Some("Hz".to_string()),
+                amplitude_unit: Some("dB".to_string()),
                 metadata: None,
-            })),
-            Arc::new(Measurement::Scalar(daq_core::DataPoint {
                 timestamp: Utc::now(),
-                channel: "scalar_data".to_string(),
+            }),
+            Arc::new(Measurement::Scalar {
+                name: "scalar_data".to_string(),
                 value: 1.0,
                 unit: "V".to_string(),
-            })),
+                timestamp: Utc::now(),
+            }),
         ];
 
         let result = fft_processor.process_measurements(&measurements);

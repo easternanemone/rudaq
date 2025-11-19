@@ -1,0 +1,75 @@
+syntax = "proto3";
+package daq;
+
+service ControlService {
+  // Script Management
+  rpc UploadScript (UploadRequest) returns (UploadResponse);
+  rpc StartScript (StartRequest) returns (StartResponse);
+  rpc StopScript (StopRequest) returns (StopResponse);
+  rpc GetScriptStatus (StatusRequest) returns (ScriptStatus);
+
+  // Live Data Streaming
+  rpc StreamStatus (StatusRequest) returns (stream SystemStatus);
+  rpc StreamMeasurements (MeasurementRequest) returns (stream DataPoint);
+}
+
+message UploadRequest {
+  string script_content = 1;
+  string name = 2;
+  map<string, string> metadata = 3;
+}
+
+message UploadResponse {
+  string script_id = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+message StartRequest {
+  string script_id = 1;
+}
+
+message StartResponse {
+  bool started = 1;
+  string execution_id = 2;
+}
+
+message StopRequest {
+  string execution_id = 1;
+}
+
+message StopResponse {
+  bool stopped = 1;
+}
+
+message StatusRequest {
+  string execution_id = 1;
+}
+
+message ScriptStatus {
+  string execution_id = 1;
+  string state = 2; // "IDLE", "RUNNING", "COMPLETED", "ERROR"
+  string error_message = 3;
+  uint64 start_time_ns = 4;
+  uint64 end_time_ns = 5;
+}
+
+message SystemStatus {
+  string current_state = 1; // "IDLE", "RUNNING", "ERROR"
+  double current_memory_usage_mb = 2;
+  map<string, double> live_values = 3; // e.g., {"stage_x": 10.2}
+  uint64 timestamp_ns = 4;
+}
+
+message MeasurementRequest {
+  string instrument = 1;
+}
+
+message DataPoint {
+  string instrument = 1;
+  oneof value {
+    double scalar = 2;
+    bytes image = 3; // Compressed image data
+  }
+  uint64 timestamp_ns = 4;
+}

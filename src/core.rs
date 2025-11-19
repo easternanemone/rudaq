@@ -75,7 +75,7 @@ pub use crate::core_v3::Measurement;
 use crate::measurement::Measure;
 use crate::metadata::Metadata;
 use async_trait::async_trait;
-use daq_core::timestamp::Timestamp;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::any::TypeId;
 use std::collections::HashMap;
@@ -131,7 +131,7 @@ use tokio::task::{AbortHandle, JoinHandle};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DataPoint {
     /// UTC timestamp with nanosecond precision
-    pub timestamp: Timestamp,
+    pub timestamp: DateTime<Utc>,
     /// Instrument identifier (e.g., "maitai", "esp300")
     pub instrument_id: String,
     /// Channel identifier (format: `{parameter}` e.g., "power", "wavelength")
@@ -145,29 +145,8 @@ pub struct DataPoint {
     pub metadata: Option<serde_json::Value>,
 }
 
-// Conversion from V1 core::DataPoint to V2 daq_core::DataPoint
-// This allows V1 instruments to integrate with V2 architecture
-impl From<DataPoint> for daq_core::DataPoint {
-    fn from(dp: DataPoint) -> Self {
-        Self {
-            timestamp: dp.timestamp,
-            channel: dp.channel,
-            value: dp.value,
-            unit: dp.unit,
-            // Note: instrument_id and metadata are dropped in conversion to V2
-        }
-    }
-}
-
-// Conversion from V1 core::DataPoint to V2 daq_core::Measurement
-// This allows V1 instruments to work with the new Measurement enum architecture
-impl From<DataPoint> for daq_core::Measurement {
-    fn from(dp: DataPoint) -> Self {
-        // Convert V1 DataPoint to V2 DataPoint first, then wrap in Scalar variant
-        let v2_dp: daq_core::DataPoint = dp.into();
-        daq_core::Measurement::Scalar(v2_dp)
-    }
-}
+// Note: Removed daq_core conversions - daq_core crate has been deleted
+// All data now uses local types (core::DataPoint, core_v3::Measurement)
 
 /// Represents a frequency bin in a spectrum measurement.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -268,21 +247,13 @@ impl PixelBuffer {
     }
 }
 
-impl From<PixelBuffer> for daq_core::PixelBuffer {
-    fn from(buffer: PixelBuffer) -> Self {
-        match buffer {
-            PixelBuffer::U8(data) => daq_core::PixelBuffer::U8(data),
-            PixelBuffer::U16(data) => daq_core::PixelBuffer::U16(data),
-            PixelBuffer::F64(data) => daq_core::PixelBuffer::F64(data),
-        }
-    }
-}
+// Note: Removed daq_core::PixelBuffer conversion - daq_core crate deleted
 
 /// Represents spectrum data from FFT or other frequency analysis.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SpectrumData {
     /// UTC timestamp when spectrum was captured
-    pub timestamp: Timestamp,
+    pub timestamp: DateTime<Utc>,
     /// Channel identifier (format: `{instrument_id}_{parameter}`)
     pub channel: String,
     /// Physical unit for magnitude values
@@ -294,44 +265,13 @@ pub struct SpectrumData {
     pub metadata: Option<serde_json::Value>,
 }
 
-impl From<SpectrumData> for daq_core::SpectrumData {
-    fn from(spectrum: SpectrumData) -> Self {
-        let SpectrumData {
-            timestamp,
-            channel,
-            unit,
-            bins,
-            metadata,
-        } = spectrum;
-
-        let (wavelengths, intensities): (Vec<f64>, Vec<f64>) = bins
-            .into_iter()
-            .map(|bin| (bin.frequency, bin.magnitude))
-            .unzip();
-
-        let unit_x = metadata
-            .as_ref()
-            .and_then(|meta| meta.get("frequency_unit").and_then(|value| value.as_str()))
-            .unwrap_or("Hz")
-            .to_string();
-
-        daq_core::SpectrumData {
-            timestamp,
-            channel,
-            wavelengths,
-            intensities,
-            unit_x,
-            unit_y: unit,
-            metadata,
-        }
-    }
-}
+// Note: Removed daq_core::SpectrumData conversion - daq_core crate deleted
 
 /// Represents image data from cameras or 2D sensors.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ImageData {
     /// UTC timestamp when image was captured
-    pub timestamp: Timestamp,
+    pub timestamp: DateTime<Utc>,
     /// Channel identifier (format: `{instrument_id}_{parameter}`)
     pub channel: String,
     /// Image width in pixels
@@ -372,29 +312,7 @@ impl ImageData {
     }
 }
 
-impl From<ImageData> for daq_core::ImageData {
-    fn from(image: ImageData) -> Self {
-        let ImageData {
-            timestamp,
-            channel,
-            width,
-            height,
-            pixels,
-            unit,
-            metadata,
-        } = image;
-
-        daq_core::ImageData {
-            timestamp,
-            channel,
-            width: u32::try_from(width).unwrap_or(u32::MAX),
-            height: u32::try_from(height).unwrap_or(u32::MAX),
-            pixels: pixels.into(),
-            unit,
-            metadata,
-        }
-    }
-}
+// Note: Removed daq_core::ImageData conversion - daq_core crate deleted
 
 /// A measurement from an instrument, supporting different data types.
 ///
@@ -453,11 +371,11 @@ pub enum Data {
 
 impl Data {
     /// Returns the timestamp of this measurement.
-    pub fn timestamp(&self) -> Timestamp {
+    pub fn timestamp(&self) -> DateTime<Utc> {
         match self {
-            Data::Scalar(dp) => dp.timestamp.clone(),
-            Data::Spectrum(sd) => sd.timestamp.clone(),
-            Data::Image(id) => id.timestamp.clone(),
+            Data::Scalar(dp) => dp.timestamp,
+            Data::Spectrum(sd) => sd.timestamp,
+            Data::Image(id) => id.timestamp,
         }
     }
 
@@ -489,15 +407,7 @@ impl Data {
     }
 }
 
-impl From<Data> for daq_core::Measurement {
-    fn from(data: Data) -> Self {
-        match data {
-            Data::Scalar(dp) => daq_core::Measurement::Scalar(dp.into()),
-            Data::Spectrum(spectrum) => daq_core::Measurement::Spectrum(spectrum.into()),
-            Data::Image(image) => daq_core::Measurement::Image(image.into()),
-        }
-    }
-}
+// Note: Removed Data to daq_core::Measurement conversion - daq_core crate deleted
 
 /// Command that can be sent to an instrument.
 ///
@@ -1006,18 +916,13 @@ pub trait DataProcessor: Send + Sync {
 /// # }
 /// impl MeasurementProcessor for LegacyFilter {
 ///     fn process_measurements(&mut self, data: &[Arc<Measurement>]) -> Vec<Arc<Measurement>> {
+///         // Extract scalar data points and process with legacy DataProcessor
 ///         let scalars: Vec<DataPoint> = data.iter()
 ///             .filter_map(|m| if let Measurement::Scalar(dp) = m.as_ref() { Some(dp.clone()) } else { None })
 ///             .collect();
 ///         let filtered = self.process(&scalars); // Call legacy DataProcessor::process
 ///         filtered.into_iter().map(|dp| {
-///             let daq_dp = daq_core::DataPoint {
-///                 timestamp: dp.timestamp,
-///                 channel: dp.channel,
-///                 value: dp.value,
-///                 unit: dp.unit,
-///             };
-///             Arc::new(Measurement::Scalar(daq_dp))
+///             Arc::new(Measurement::Scalar(dp))
 ///         }).collect()
 ///     }
 /// }
@@ -1085,19 +990,18 @@ impl DataProcessorAdapter {
 
 impl MeasurementProcessor for DataProcessorAdapter {
     fn process_measurements(&mut self, data: &[Arc<Measurement>]) -> Vec<Arc<Measurement>> {
-        // Extract scalar measurements and convert from daq_core::DataPoint to core::DataPoint
+        // Extract scalar measurements and convert from Measurement::Scalar to DataPoint
         let scalars: Vec<DataPoint> = data
             .iter()
             .filter_map(|m| {
-                if let Measurement::Scalar(dp) = m.as_ref() {
-                    // Convert daq_core::DataPoint to core::DataPoint
+                if let Measurement::Scalar { name, value, unit, timestamp } = m.as_ref() {
                     Some(DataPoint {
-                        timestamp: dp.timestamp.clone(),
-                        instrument_id: String::new(), // daq_core doesn't have instrument_id
-                        channel: dp.channel.clone(),
-                        value: dp.value,
-                        unit: dp.unit.clone(),
-                        metadata: None, // daq_core DataPoint doesn't have metadata in this context
+                        timestamp: *timestamp,
+                        instrument_id: String::new(), // Measurement doesn't have instrument_id
+                        channel: name.clone(),
+                        value: *value,
+                        unit: unit.clone(),
+                        metadata: None,
                     })
                 } else {
                     None
@@ -1109,23 +1013,21 @@ impl MeasurementProcessor for DataProcessorAdapter {
         let processed = self.inner.process(&scalars);
 
         // Wrap results back into Arc<Measurement>
-        // Convert from core::DataPoint to daq_core::DataPoint
         let mut results: Vec<Arc<Measurement>> = processed
             .into_iter()
             .map(|dp| {
-                let daq_dp = daq_core::DataPoint {
-                    timestamp: dp.timestamp,
-                    channel: dp.channel,
+                Arc::new(Measurement::Scalar {
+                    name: dp.channel,
                     value: dp.value,
                     unit: dp.unit,
-                };
-                Arc::new(Measurement::Scalar(daq_dp))
+                    timestamp: dp.timestamp,
+                })
             })
             .collect();
 
         // Pass through non-scalar measurements unchanged
         for measurement in data {
-            if !matches!(measurement.as_ref(), Measurement::Scalar(_)) {
+            if !matches!(measurement.as_ref(), Measurement::Scalar { .. }) {
                 results.push(measurement.clone());
             }
         }

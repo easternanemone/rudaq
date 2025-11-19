@@ -166,54 +166,8 @@ impl Measurement {
 // Measurement Conversions (V2 Compatibility)
 // =============================================================================
 
-/// Convert V2 daq_core::Measurement to V3 core_v3::Measurement
-impl From<daq_core::Measurement> for Measurement {
-    fn from(v2: daq_core::Measurement) -> Self {
-        match v2 {
-            daq_core::Measurement::Scalar(dp) => Measurement::Scalar {
-                name: dp.channel,
-                value: dp.value,
-                unit: dp.unit,
-                timestamp: dp.timestamp.time, // Extract DateTime<Utc> from Timestamp struct
-            },
-            daq_core::Measurement::Spectrum(spec) => Measurement::Spectrum {
-                name: spec.channel,
-                frequencies: spec.wavelengths,
-                amplitudes: spec.intensities,
-                frequency_unit: Some(spec.unit_x),
-                amplitude_unit: Some(spec.unit_y),
-                metadata: spec.metadata,
-                timestamp: spec.timestamp.time, // Extract DateTime<Utc> from Timestamp struct
-            },
-            daq_core::Measurement::Image(img) => {
-                // Extract metadata from serde_json::Value to ImageMetadata
-                let metadata = img
-                    .metadata
-                    .as_ref()
-                    .and_then(|m| serde_json::from_value::<ImageMetadata>(m.clone()).ok())
-                    .unwrap_or_else(|| ImageMetadata {
-                        exposure_ms: None,
-                        gain: None,
-                        binning: None,
-                        temperature_c: None,
-                        hardware_timestamp_us: None,
-                        readout_ms: None,
-                        roi_origin: None,
-                    });
-
-                Measurement::Image {
-                    name: img.channel,
-                    width: img.width as u32,
-                    height: img.height as u32,
-                    buffer: img.pixels,
-                    unit: img.unit,
-                    metadata,
-                    timestamp: img.timestamp.time, // Extract DateTime<Utc> from Timestamp struct
-                }
-            }
-        }
-    }
-}
+// Note: Removed daq_core::Measurement conversion - daq_core crate deleted
+// V3 Measurement now uses core::DataPoint, core::SpectrumData, core::ImageData directly
 
 // =============================================================================
 // Instrument State and Commands

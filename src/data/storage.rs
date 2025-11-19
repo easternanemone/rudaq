@@ -24,12 +24,14 @@ impl Default for CsvWriter {
 
 #[cfg(feature = "storage_matlab")]
 use std::collections::HashMap;
+#[cfg(feature = "storage_matlab")]
+use crate::core::DataPoint;
 
 #[cfg(feature = "storage_matlab")]
 pub struct MatWriter {
     path: PathBuf,
     metadata: Option<Metadata>,
-    buffer: HashMap<String, Vec<daq_core::DataPoint>>,
+    buffer: HashMap<String, Vec<DataPoint>>,
     chunk_size: usize,
     mat_file: matrw::MatFile,
 }
@@ -261,13 +263,13 @@ impl StorageWriter for CsvWriter {
                 for measurement in data {
                     // CSV writer only handles Scalar measurements
                     // Spectrum and Image data require HDF5/Arrow format
-                    if let Measurement::Scalar(dp) = measurement.as_ref() {
+                    if let Measurement::Scalar { name, value, unit, timestamp } = measurement.as_ref() {
                         writer
                             .write_record(&[
-                                dp.timestamp.to_rfc3339(),
-                                dp.channel.clone(),
-                                dp.value.to_string(),
-                                dp.unit.clone(),
+                                timestamp.to_rfc3339(),
+                                name.clone(),
+                                value.to_string(),
+                                unit.clone(),
                             ])
                             .context("Failed to write data point to CSV file")?;
                     } else {
@@ -640,7 +642,6 @@ impl StorageWriter for NetCdfWriter {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use daq_core::{DataPoint, Measurement};
 
     #[tokio::test]
     async fn test_hdf5_writer_returns_proper_errors() {
@@ -774,12 +775,12 @@ mod tests {
     async fn test_no_silent_failures() {
         // Test that HDF5 write fails with error, not Ok(())
         let mut hdf5_writer = Hdf5Writer::new();
-        let test_data = vec![Arc::new(Measurement::Scalar(DataPoint {
-            timestamp: Utc::now(),
-            channel: "test".to_string(),
+        let test_data = vec![Arc::new(Measurement::Scalar {
+            name: "test".to_string(),
             value: 1.0,
             unit: "V".to_string(),
-        }))];
+            timestamp: Utc::now(),
+        })];
 
         let result = hdf5_writer.write(&test_data).await;
         assert!(result.is_err(), "HDF5 write should fail, not return Ok(())");
