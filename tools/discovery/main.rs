@@ -151,7 +151,7 @@ fn try_probe(port_name: &str, probe: &Probe, baud_rate: u32) -> bool {
     // 4. Send challenge command
     // 5. Check response substring
     let port_result = serialport::new(port_name, baud_rate)
-        .timeout(Duration::from_millis(1000))  // Laboratory instruments need more time
+        .timeout(Duration::from_millis(3000))  // MaiTai needs 2+ seconds to respond
         .flow_control(probe.flow_control)
         .open();
 
@@ -164,9 +164,14 @@ fn try_probe(port_name: &str, probe: &Probe, baud_rate: u32) -> bool {
             if let Err(_) = port.write_all(probe.command) {
                 return false;
             }
-            
-            // Wait for hardware processing time (laboratory instruments need this)
-            thread::sleep(Duration::from_millis(200));
+
+            // Flush to ensure command is actually sent
+            if let Err(_) = port.flush() {
+                return false;
+            }
+
+            // Wait for hardware processing time (MaiTai needs 2+ seconds)
+            thread::sleep(Duration::from_millis(2000));  // MaiTai is very slow to respond
 
             // Read Response
             let mut serial_buf: Vec<u8> = vec![0; 1024];
