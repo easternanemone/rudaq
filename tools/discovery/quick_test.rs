@@ -64,12 +64,23 @@ fn main() {
         found += 1;
     }
 
-    // Test ELL14 on /dev/ttyUSB0
-    println!("\nTesting ELL14 on /dev/ttyUSB0...");
-    if test_port("/dev/ttyUSB0", 9600, serialport::FlowControl::None, b"0in", "0IN", "Elliptec ELL14") {
+    // Test ELL14 on /dev/ttyUSB0 (scan addresses 2, 3, 8)
+    println!("\nTesting ELL14 bus on /dev/ttyUSB0...");
+    let ell14_addresses = [2, 3, 8];
+    let mut ell14_found = 0;
+    for addr in ell14_addresses {
+        let cmd = format!("{}in", addr);
+        let expected = format!("{}IN", addr);
+        if test_port("/dev/ttyUSB0", 9600, serialport::FlowControl::None, cmd.as_bytes(), &expected, &format!("Elliptec ELL14 (addr {})", addr)) {
+            ell14_found += 1;
+        }
+    }
+    if ell14_found > 0 {
         found += 1;
+        println!("  Found {} ELL14 devices on bus", ell14_found);
     }
 
     println!("\n===================");
     println!("Total devices found: {}/4", found);
+    println!("(ELL14 bus counts as 1 device, contains {} units)", ell14_found);
 }
