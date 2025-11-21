@@ -188,3 +188,7 @@ path = "tools/script_runner/main.rs"
 # [[test]]
 # name = "v2_instrument_test"
 # path = "tests/v2_instrument_test.rs"
+
+[[example]]
+name = "grpc_server_demo"
+required-features = ["networking"]
