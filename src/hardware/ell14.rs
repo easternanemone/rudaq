@@ -33,10 +33,10 @@
 use crate::hardware::capabilities::Movable;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
+use serial2_tokio::SerialPort;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
-use tokio_serial::{SerialPortBuilderExt, SerialStream};
 
 /// Driver for Thorlabs Elliptec ELL14 Rotation Mount
 ///
@@ -45,7 +45,7 @@ use tokio_serial::{SerialPortBuilderExt, SerialStream};
 /// to/from degrees based on device calibration.
 pub struct Ell14Driver {
     /// Serial port protected by Mutex for exclusive access during transactions
-    port: Mutex<SerialStream>,
+    port: Mutex<SerialPort>,
     /// Device address (usually "0")
     address: String,
     /// Calibration factor: Pulses per Degree
@@ -63,9 +63,13 @@ impl Ell14Driver {
     /// # Errors
     /// Returns error if serial port cannot be opened
     pub fn new(port_path: &str, address: &str) -> Result<Self> {
-        let port = tokio_serial::new(port_path, 9600)
-            .open_native_async()
-            .context("Failed to open ELL14 serial port")?;
+        // Configure serial settings with no flow control (per Thorlabs ELL14 spec)
+        let port = SerialPort::open(port_path, |mut settings: serial2::Settings| {
+            settings.set_raw();
+            settings.set_baud_rate(9600)?;
+            settings.set_flow_control(serial2::FlowControl::None);
+            Ok(settings)
+        }).context("Failed to open ELL14 serial port")?;
 
         Ok(Self {
             port: Mutex::new(port),
@@ -244,8 +248,10 @@ mod tests {
 
     #[test]
     fn test_parse_position_response() {
+        // Create a mock driver for testing parse logic
+        let port = SerialPort::open("/dev/null", 9600).unwrap();
         let driver = Ell14Driver {
-            port: Mutex::new(unsafe { std::mem::zeroed() }), // Won't be used
+            port: Mutex::new(port),
             address: "0".to_string(),
             pulses_per_degree: 398.2222,
         };
@@ -260,8 +266,10 @@ mod tests {
 
     #[test]
     fn test_position_conversion() {
+        // Create a mock driver for testing conversion logic
+        let port = SerialPort::open("/dev/null", 9600).unwrap();
         let driver = Ell14Driver {
-            port: Mutex::new(unsafe { std::mem::zeroed() }),
+            port: Mutex::new(port),
             address: "0".to_string(),
             pulses_per_degree: 398.2222,
         };
