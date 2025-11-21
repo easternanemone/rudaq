@@ -553,25 +553,25 @@ pub fn register_v3_hardware(engine: &mut Engine) {
         .unwrap()
     });
 
-    // laser.shutter_open() - Open shutter
+    // laser.shutter_open() - Open shutter (calls enable_shutter)
     engine.register_fn("shutter_open", |laser: &mut V3LaserHandle| {
         let inst = laser.instrument.clone();
         block_in_place(|| {
             Handle::current().block_on(async {
                 let mut locked = inst.lock().await;
-                locked.shutter_open().await
+                locked.enable_shutter().await
             })
         })
         .unwrap()
     });
 
-    // laser.shutter_close() - Close shutter
+    // laser.shutter_close() - Close shutter (calls disable_shutter)
     engine.register_fn("shutter_close", |laser: &mut V3LaserHandle| {
         let inst = laser.instrument.clone();
         block_in_place(|| {
             Handle::current().block_on(async {
                 let mut locked = inst.lock().await;
-                locked.shutter_close().await
+                locked.disable_shutter().await
             })
         })
         .unwrap()
