@@ -35,20 +35,12 @@
 //! ## Implementing an Instrument
 //!
 //!
-use crate::config::Settings;
 pub use crate::core_v3::Measurement;
-use crate::measurement::Measure;
-use crate::metadata::Metadata;
-use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::any::TypeId;
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::fmt;
 use std::sync::Arc;
-use tokio::sync::mpsc;
-use tokio::task::{AbortHandle, JoinHandle};
 
 /// A single data point captured from an instrument.
 ///

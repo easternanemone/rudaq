@@ -74,6 +74,7 @@ struct RingBufferHeader {
 /// - Writers use appropriate atomic ordering (Release)
 pub struct RingBuffer {
     /// Memory-mapped file backing the ring buffer
+    #[allow(dead_code)]
     mmap: MmapMut,
 
     /// Pointer to the header structure

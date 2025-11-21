@@ -40,7 +40,7 @@ pub mod dependencies;
 use anyhow::{Context, Result};
 use config::Config;
 use figment::{
-    providers::{Format, Serialized, Toml},
+    providers::Serialized,
     Figment, Provider,
 };
 use serde::{Deserialize, Serialize};

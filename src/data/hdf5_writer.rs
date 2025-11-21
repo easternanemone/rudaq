@@ -8,7 +8,7 @@
 //! The background writer translates Arrow → HDF5 at 1 Hz without blocking
 //! the hardware loop.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -56,6 +56,7 @@ use super::ring_buffer::RingBuffer;
 /// }
 /// ```
 pub struct HDF5Writer {
+    #[allow(dead_code)]
     output_path: PathBuf,
     ring_buffer: Arc<RingBuffer>,
     flush_interval: Duration,

@@ -5,6 +5,7 @@ use crate::scripting::bindings;
 
 pub struct ScriptHost {
     engine: Engine,
+    #[allow(dead_code)]
     runtime: Handle,
 }
 

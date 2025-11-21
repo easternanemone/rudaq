@@ -51,7 +51,7 @@ pub async fn handle_recoverable_error<T: Recoverable<DaqError>>(
     recoverable: &mut T,
     policy: &RetryPolicy,
 ) -> Result<(), DaqError> {
-    for attempt in 0..policy.max_attempts {
+    for _attempt in 0..policy.max_attempts {
         if recoverable.recover().await.is_ok() {
             return Ok(());
         }
