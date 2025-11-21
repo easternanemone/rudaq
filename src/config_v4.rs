@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_invalid_log_level() {
-        let mut config = V4Config {
+        let config = V4Config {
             application: ApplicationConfig {
                 name: "Test".to_string(),
                 log_level: "invalid".to_string(),
