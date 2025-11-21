@@ -1,6 +1,9 @@
 //! V4 Newport 1830-C vertical slice demonstration
 //!
 //! Shows complete flow: Actor → Trait → Arrow data
+//! Requires 'v4' and 'storage_arrow' features
+
+#![cfg(all(feature = "v4", feature = "storage_arrow"))]
 
 use anyhow::Result;
 use kameo::actor::spawn;
@@ -80,4 +83,10 @@ async fn main() -> Result<()> {
     println!("\n✅ Actor stopped gracefully");
 
     Ok(())
+}
+
+#[cfg(not(all(feature = "v4", feature = "storage_arrow")))]
+fn main() {
+    println!("This example requires both 'v4' and 'storage_arrow' features");
+    println!("Run with: cargo run --example v4_newport_demo --features v4,storage_arrow");
 }

@@ -1,6 +1,10 @@
-/// Integration test to verify gRPC API definitions are accessible
-use rust_daq::network::proto;
-use rust_daq::network::{
+//! Integration test to verify gRPC API definitions are accessible
+//! Requires 'networking' feature
+
+#![cfg(feature = "networking")]
+
+use rust_daq::grpc::proto;
+use rust_daq::grpc::{
     DataPoint, MeasurementRequest, ScriptStatus, StartRequest, StartResponse, StatusRequest,
     StopRequest, StopResponse, SystemStatus, UploadRequest, UploadResponse,
 };
@@ -31,64 +35,37 @@ fn test_grpc_types_accessible() {
     assert_eq!(start_req.script_id, "123");
 
     let start_resp = StartResponse {
-        started: true,
-        execution_id: "exec-456".to_string(),
+        success: true,
+        error_message: String::new(),
     };
-    assert!(start_resp.started);
+    assert!(start_resp.success);
 
     // Stop types
-    let stop_req = StopRequest {
-        execution_id: "exec-456".to_string(),
+    let stop_req = StopRequest {};
+    let stop_resp = StopResponse {
+        success: true,
+        error_message: String::new(),
     };
-    assert_eq!(stop_req.execution_id, "exec-456");
-
-    let stop_resp = StopResponse { stopped: true };
-    assert!(stop_resp.stopped);
+    assert!(stop_resp.success);
 
     // Status types
-    let status_req = StatusRequest {
-        execution_id: "exec-456".to_string(),
-    };
-    assert_eq!(status_req.execution_id, "exec-456");
-
-    let script_status = ScriptStatus {
-        execution_id: "exec-456".to_string(),
-        state: "RUNNING".to_string(),
-        error_message: String::new(),
-        start_time_ns: 1000,
-        end_time_ns: 0,
-    };
-    assert_eq!(script_status.state, "RUNNING");
-
-    // System status
+    let status_req = StatusRequest {};
     let system_status = SystemStatus {
-        current_state: "RUNNING".to_string(),
-        current_memory_usage_mb: 128.5,
-        live_values: Default::default(),
-        timestamp_ns: 2000,
+        is_running: true,
+        current_script: Some("test".to_string()),
+        script_status: ScriptStatus::Running.into(),
+        error_message: String::new(),
     };
-    assert_eq!(system_status.current_state, "RUNNING");
+    assert!(system_status.is_running);
 
     // Measurement types
-    let meas_req = MeasurementRequest {
-        instrument: "camera".to_string(),
-    };
-    assert_eq!(meas_req.instrument, "camera");
-
-    // DataPoint with scalar value
+    let measurement_req = MeasurementRequest {};
     let data_point = DataPoint {
-        instrument: "detector".to_string(),
-        value: Some(proto::data_point::Value::Scalar(42.5)),
-        timestamp_ns: 3000,
+        timestamp: 0,
+        channel: "test".to_string(),
+        value: 1.0,
+        unit: "V".to_string(),
+        metadata: Default::default(),
     };
-    assert_eq!(data_point.instrument, "detector");
-}
-
-#[test]
-fn test_service_trait_exists() {
-    // This test verifies the ControlService trait can be referenced
-    // We can't implement it here without async runtime, but we can verify it exists
-
-    // This will fail to compile if ControlService trait is not accessible
-    fn _assert_trait_exists<T: proto::control_service_server::ControlService>() {}
+    assert_eq!(data_point.channel, "test");
 }

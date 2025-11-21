@@ -7,6 +7,9 @@
 //! - Real hardware command/response
 //! - Arrow data format
 //! - Fault tolerance
+//! Requires 'v4' and 'storage_arrow' features
+
+#![cfg(all(feature = "v4", feature = "storage_arrow"))]
 
 use anyhow::Result;
 use kameo::actor::spawn;
@@ -122,4 +125,10 @@ async fn main() -> Result<()> {
     println!("\nV4 vertical slice successfully validated with real hardware.");
 
     Ok(())
+}
+
+#[cfg(not(all(feature = "v4", feature = "storage_arrow")))]
+fn main() {
+    println!("This example requires both 'v4' and 'storage_arrow' features");
+    println!("Run with: cargo run --example v4_newport_hardware_test --features v4,storage_arrow");
 }

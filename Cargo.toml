@@ -177,10 +177,11 @@ name = "quick_test"
 path = "tools/discovery/quick_test.rs"
 required-features = ["instrument_serial"]
 
-[[test]]
-name = "storage_shutdown_test"
-path = "tests/storage_shutdown_test.rs"
-
-[[test]]
-name = "v2_instrument_test"
-path = "tests/v2_instrument_test.rs"
+# Tests removed - files do not exist
+# [[test]]
+# name = "storage_shutdown_test"
+# path = "tests/storage_shutdown_test.rs"
+#
+# [[test]]
+# name = "v2_instrument_test"
+# path = "tests/v2_instrument_test.rs"
