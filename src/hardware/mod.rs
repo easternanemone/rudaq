@@ -1,6 +1,63 @@
+//! Hardware drivers and capability traits for laboratory instruments
+//!
+//! This module provides a unified interface for controlling various scientific instruments
+//! including motion controllers, cameras, lasers, and power meters.
+//!
+//! # Testing Strategy
+//!
+//! ## Mock Serial Port Testing
+//!
+//! All serial-based hardware drivers can be tested using the `mock_serial` module, which
+//! provides a drop-in replacement for `serial2_tokio::SerialPort` that works entirely
+//! in-memory without requiring physical hardware.
+//!
+//! ### Architecture
+//!
+//! - **MockSerialPort**: Implements `AsyncRead` + `AsyncWrite`, given to driver code
+//! - **MockDeviceHarness**: Controls mock from test, simulates device behavior
+//! - **Channels**: Unbounded mpsc channels connect the two for bidirectional communication
+//!
+//! ### Key Testing Capabilities
+//!
+//! 1. **Command/Response Sequences**: Script exact device behavior
+//! 2. **Timeout Testing**: Simulate non-responsive devices by not sending responses
+//! 3. **Flow Control**: Test rapid command sequences with realistic delays
+//! 4. **Error Handling**: Simulate malformed responses, partial data, broken pipes
+//! 5. **Protocol Validation**: Assert exact byte sequences sent/received
+//!
+//! ### Example Test Pattern
+//!
+//! ```rust,ignore
+//! use rust_daq::hardware::mock_serial;
+//! use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+//!
+//! #[tokio::test]
+//! async fn test_laser_power_query() {
+//!     let (port, mut harness) = mock_serial::new();
+//!     let mut reader = BufReader::new(port);
+//!
+//!     let app_task = tokio::spawn(async move {
+//!         reader.write_all(b"POWER?\r").await.unwrap();
+//!         let mut response = String::new();
+//!         reader.read_line(&mut response).await.unwrap();
+//!         response
+//!     });
+//!
+//!     harness.expect_write(b"POWER?\r").await;
+//!     harness.send_response(b"POWER:2.5\r\n").unwrap();
+//!
+//!     assert_eq!(app_task.await.unwrap(), "POWER:2.5\r\n");
+//! }
+//! ```
+//!
+//! See `tests/hardware_serial_tests.rs` for comprehensive integration tests.
+
 pub mod adapter;
 pub mod capabilities;
 pub mod mock;
+
+// Mock serial port for testing (always available)
+pub mod mock_serial;
 
 // =============================================================================
 // Real Hardware Drivers
