@@ -5,6 +5,83 @@ All notable changes to Rust DAQ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - V5 Architectural Transition
+
+### Changed - V5 Architectural Transition (2025-11-20)
+
+#### 🚨 BREAKING CHANGES - Complete V5 Migration
+
+**All V1-V4 legacy code removed** (~295KB deleted). The codebase is now exclusively V5 headless-first architecture.
+
+**Removed Architectures**:
+- **V1 Monolithic Instruments**: `src/instrument/` (~120KB)
+- **V2 Module System**: `src/modules/` (~30KB)
+- **V2 Actor Messages**: `src/messages.rs` (~23KB)
+- **V3 Instrument Manager**: `src/instrument_manager_v3.rs` (~29KB)
+- **V4 Kameo Actors**: `src/actors/` (~73KB)
+- **V4 Traits**: `src/traits/` (~3KB)
+- **V1 Experiment Orchestration**: `src/experiment/` (~49KB)
+- **GUI Components**: Removed for headless-first design
+
+**Migration Required**:
+- Replace `crate::instrument::*` with `crate::hardware::*`
+- Replace V2 modules with Rhai scripts
+- Replace `RunEngine` with script_runner CLI
+- Replace actor messages with gRPC proto (Phase 3)
+
+See [docs/architecture/V5_TRANSITION_COMPLETE.md](docs/architecture/V5_TRANSITION_COMPLETE.md) for complete migration guide.
+
+### Added
+
+- ✅ **V5 Capability-Based Hardware** (`src/hardware/capabilities.rs`)
+  - Atomic traits: `Readable`, `Writable`, `Triggerable`, `Movable`, `ImageCapture`
+  - 13 V5 drivers in `src/hardware/`
+  - Composable hardware abstraction
+
+- ✅ **Zero-Warning Builds** (commit 0429d0f1)
+  - All compiler warnings resolved
+  - Clean CI builds (commit de1d4a4f)
+
+- ✅ **Feature Flag Normalization** (PR #107)
+  - Consistent feature scoping across all V5 components
+  - Removed legacy feature dependencies
+
+- ✅ **Serial2-tokio Migration**
+  - MaiTai driver migrated (commit ab38473f, bd-qiwv)
+  - Modern async serial communication
+
+### Fixed
+
+- CI build failures (commit de1d4a4f)
+- Compiler warnings cleanup (commit 0429d0f1)
+- Feature flag inconsistencies (PR #107)
+- V1 legacy data module compilation errors (commit 5ba543b9)
+
+### Removed
+
+- **BREAKING**: All V1-V4 architectures (~295KB)
+- **BREAKING**: GUI components (headless-first)
+- **BREAKING**: V2 actor pattern
+- **BREAKING**: V4 kameo actors
+- **BREAKING**: V1 experiment orchestration
+- Commented-out module declarations in `src/lib.rs`
+- Legacy dependency: `kameo` (optional, now removed)
+
+### Architecture
+
+**New V5 Design**:
+1. 🎯 **Headless-First**: No GUI dependency, crash resilience
+2. 📝 **Script-Driven**: Rhai + Python engines for experiment logic
+3. 🌐 **Remote-First**: gRPC API for network control (Phase 3)
+4. 📊 **High-Throughput**: Arrow batching + HDF5 storage
+5. 🔒 **Type-Safe**: Pure Rust with async throughout
+
+**Related Issues**:
+- Closes: bd-9si6 (V4 cleanup)
+- Closes: bd-qiwv (MaiTai migration)
+- Closes: bd-kal8 (architectural reset)
+- Related: bd-oq51 (V5 headless-first architecture)
+
 ## [0.2.0] - 2025-10-15
 
 ### Added - Major Architecture Enhancement

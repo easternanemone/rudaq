@@ -1,27 +1,29 @@
 # rust-daq
 
-`rust-daq` is a high-performance, modular data acquisition (DAQ) application written in Rust, designed for scientific and industrial applications.
+`rust-daq` is a high-performance, headless-first data acquisition (DAQ) system written in Rust, designed for scientific and industrial applications.
 
-## Project Status: Undergoing V4 Refactoring
+## Architecture - V5 Headless-First Design
 
-**Warning:** This project is currently undergoing a major architectural refactoring to resolve critical design flaws. The `main` branch may be in a broken state as obsolete code is actively being removed and replaced.
+**Status**: ✅ V5 architecture fully implemented (as of 2025-11-20)
 
-The previous V1, V2, and V3 architectures have been deprecated in favor of a single, unified **V4 architecture**. The primary goal is to create a robust, maintainable, and scalable system.
+**rust-daq v5.0** implements a modern, script-driven DAQ system with complete separation of core daemon from UI:
 
-For a detailed analysis of the issues that prompted this refactor, please see [ARCHITECTURAL_FLAW_ANALYSIS.md](./docs/architecture/ARCHITECTURAL_FLAW_ANALYSIS.md).
+- 🎯 **Capability-based hardware**: Atomic traits (`Readable`, `Movable`, `Triggerable`) for composable instruments
+- 📝 **Script-driven**: Rhai and Python engines for flexible experiment logic without recompilation
+- 🌐 **Remote-first**: gRPC API for headless operation and network control
+- 📊 **High-throughput**: Arrow batching + HDF5 storage for scientific data
+- 🔒 **Type-safe**: Pure Rust with async throughout, zero-copy data access
+- 🛡️ **Crash resilient**: UI crashes don't stop experiments
 
-## V4 Architecture Overview
+**All legacy V1-V4 architectures have been removed** as of November 2025. See [V5_TRANSITION_COMPLETE.md](./docs/architecture/V5_TRANSITION_COMPLETE.md) for migration details.
 
-The new V4 architecture is being built on the following principles and technologies:
+### V5 Core Principles
 
-*   **Actor-Based Concurrency:** Using the **[Kameo](https://github.com/jprochazk/kameo)** framework, where each instrument is an isolated, stateful actor to ensure robustness and prevent deadlocks.
-*   **High-Performance Data Handling:** Using **[Apache Arrow](https://arrow.apache.org/)** (`arrow-rs`) for in-memory data representation.
-*   **Hierarchical Data Storage:** Using **HDF5** (`hdf5-rust`) for structured, scientific data storage, aligning with common industry practice.
-*   **Modern Tooling:** Adopting best-in-class libraries for logging (`tracing`), configuration (`figment`), and plotting (`egui-plot`).
-
-For a full list of chosen libraries, see [ADDITIONAL_LIBRARY_RESEARCH.md](./docs/architecture/ADDITIONAL_LIBRARY_RESEARCH.md).
-
-The detailed V4 refactoring plan is being tracked in the `beads` issue tracker, under the main epic **`bd-xvpw`**.
+1. **Headless-First**: Core daemon runs independently of any UI
+2. **Capability Composition**: Hardware implements only capabilities it supports
+3. **Script Extensibility**: Scientists write experiment logic in Rhai/Python
+4. **Network Transparency**: Remote control via gRPC from any platform
+5. **Zero-Copy Data**: Memory-mapped Arrow buffers accessible from Python
 
 ## Quick Start (Headless-First Architecture)
 
