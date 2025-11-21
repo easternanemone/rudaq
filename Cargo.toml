@@ -81,6 +81,7 @@ tokio-stream = "0.1"
 # Instrument Communication
 serialport = { version = "4.3.0", optional = true }
 tokio-serial = { version = "5.4", optional = true }
+serial2 = { version = "0.2", optional = true }  # Base serial2 library
 serial2-tokio = { version = "0.1.19", optional = true }  # Recommended for safe async serial communication
 bytes = "1.0"
 pvcam-sys = { path = "pvcam-sys", optional = true }
@@ -127,7 +128,7 @@ instrument_serial = ["dep:serialport"]
 instrument_visa = ["dep:visa-rs"]
 
 # V5+ Serial communication (safe async for laboratory devices)
-serial2_tokio = ["dep:serial2-tokio"]
+serial2_tokio = ["dep:serial2", "dep:serial2-tokio"]
 
 # V5 Hardware drivers (async, capability-based)
 # NOTE: These currently use tokio-serial, will be migrated to serial2-tokio per bd-rxur
@@ -143,7 +144,8 @@ all_hardware = [
     "instrument_newport",
     "instrument_photometrics",
     "instrument_spectra_physics",
-    "instrument_newport_power_meter"
+    "instrument_newport_power_meter",
+    "serial2_tokio"
 ]
 
 # Phase 2 (bd-63): Networking layer with FlatBuffers protocol

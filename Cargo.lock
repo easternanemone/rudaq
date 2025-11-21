@@ -4432,6 +4432,7 @@ dependencies = [
  "rustfft",
  "serde",
  "serde_json",
+ "serial2",
  "serial2-tokio",
  "serial_test",
  "serialport",

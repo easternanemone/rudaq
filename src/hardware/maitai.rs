@@ -63,15 +63,13 @@ impl MaiTaiDriver {
     /// # Errors
     /// Returns error if serial port cannot be opened
     pub fn new(port_path: &str) -> Result<Self> {
-        use serial2::SerialPort as Serial2Settings;
-
-        // Open serial port with 9600 baud
-        let mut port =
-            SerialPort::open(port_path, 9600).context("Failed to open MaiTai serial port")?;
-
-        // Configure XON/XOFF software flow control
-        port.set_flow_control(serial2::FlowControl::XonXoff)
-            .context("Failed to set flow control")?;
+        // Configure serial settings with XonXoff flow control (required for MaiTai)
+        let port = SerialPort::open(port_path, |mut settings: serial2::Settings| {
+            settings.set_raw();
+            settings.set_baud_rate(9600)?;
+            settings.set_flow_control(serial2::FlowControl::XonXoff);
+            Ok(settings)
+        }).context("Failed to open MaiTai serial port")?;
 
         Ok(Self {
             port: Mutex::new(BufReader::new(port)),
