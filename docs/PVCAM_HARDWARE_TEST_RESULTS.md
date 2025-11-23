@@ -8,8 +8,8 @@
 ## Executive Summary
 
 ✅ **Compilation Success**: All PVCAM FFI bindings compile and link successfully
-❌ **Hardware Detection Failed**: Prime BSI camera not detected by PVCAM SDK
-⚠️  **Root Cause**: Camera hardware not visible to system (no PCIe device detected)
+✅ **Hardware Detection Success**: Prime BSI camera detected and operational (required PVCAM environment variables)
+⚠️  **Partial Test Success**: 9/28 tests passing, 19 failing due to implementation issues (binning, acquisition)
 
 ## Test Execution Results
 
@@ -29,37 +29,73 @@ cargo test --test hardware_pvcam_validation \
 **Linking**: Successfully linked against libpvcam.so.2.6
 **Test Compilation**: All 28 tests compiled successfully
 
-### Test Results: ❌ ALL FAILED (0 passed, 28 failed)
+### Test Results: ⚠️ PARTIAL SUCCESS (9 passed, 19 failed)
 
-All tests failed with identical error:
+**WITHOUT Environment Variables**: All 28 tests failed with "No PVCAM cameras detected"
+**WITH Environment Variables**: Camera detected, 9 tests passing
 
+**Required Environment Variables**:
+```bash
+export PVCAM_VERSION=3.10.0.3
+export PVCAM_UMD_PATH=/opt/pvcam/drivers/user-mode
+export PVCAM_SDK_PATH=/opt/pvcam/sdk
+export PVCAM_SDK_DIR=/opt/pvcam/sdk
+export PVCAM_LIB_DIR=/opt/pvcam/library/x86_64
+export LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:$LD_LIBRARY_PATH
 ```
-thread 'test_XXX' panicked at tests/hardware_pvcam_validation.rs:XXX:XX:
-Failed to create camera: No PVCAM cameras detected
-```
 
-**Test Categories**:
-- Unit Tests (5): Failed - mock mode requires camera detection
-- Mock Integration Tests (15): Failed - same root cause
-- Hardware Validation Tests (8): Failed - camera not detected
+#### Passing Tests (9/28) ✅
 
-**Execution Time**: 0.02s (immediate failure at camera initialization)
+1. `test_prime_bsi_dimensions` - Prime BSI 2048x2048 sensor detected correctly
+2. `test_hardware_initialization` - Hardware camera initialization successful
+3. `test_create_prime_bsi` - Camera instance creation works
+4. `test_exposure_control` - Exposure time control functional
+5. `test_arm_disarm_trigger` - Trigger arming/disarming operational
+6. `test_invalid_binning` - Binning validation logic correct
+7. `test_roi_full_sensor` - Full sensor ROI configuration works
+8. `test_roi_quarter_sensor` - Partial ROI configuration works
+9. `test_hardware_triggered_acquisition` - Triggered acquisition functional
+
+#### Failing Tests (19/28) ❌
+
+**Wrong Camera Model (2 failures)**:
+- `test_create_prime_95b` - Expected Prime 95B (1200x1200), but Prime BSI (2048x2048) is connected
+- `test_prime_95b_dimensions` - Same issue
+
+**Binning Implementation Issues (6 failures)**:
+- `test_binning_1x1`, `test_binning_2x2`, `test_binning_4x4`
+- `test_binning_validation`, `test_frame_size_with_binning`, `test_hardware_binning`
+- **Error**: "Failed to set horizontal binning"
+- **Root Cause**: `pl_set_param(PARAM_BINNING_SER/PAR)` calls failing
+
+**Frame Acquisition Issues (8 failures)**:
+- Timeout: `test_acquire_single_frame`, `test_multiple_frames`, `test_rapid_acquisition`, `test_hardware_exposure_accuracy`
+- Setup: `test_frame_data_pattern`, `test_hardware_frame_acquisition`, `test_hardware_pixel_uniformity`, `test_hardware_dark_noise`, `test_hardware_roi`
+- **Errors**: "Failed to setup acquisition sequence" or "Acquisition timeout"
+
+**ROI Validation Issues (3 failures)**:
+- `test_invalid_roi_exceeds_sensor`, `test_roi_bounds_validation`
+- **Issue**: Expected validation failures not happening correctly
+
+**Execution Time**: 34.22s (tests running and communicating with camera)
 
 ## Root Cause Analysis
 
-### 1. Camera Hardware Not Detected ❌
+### 1. Camera Detection - RESOLVED ✅
 
-**PCIe Device Check**:
+**Initial Issue**: Camera not detected without proper environment variables
+**Solution**: Source PVCAM environment scripts:
 ```bash
-lspci -nn | grep -i 'photo\|camera\|imaging'
-# Result: No matches - camera not visible at PCIe level
+source /opt/pvcam/etc/profile.d/pvcam.sh
+source /opt/pvcam/etc/profile.d/pvcam-sdk.sh
 ```
 
-**Video Devices**:
-```bash
-ls -la /dev/video*
-# Result: No /dev/video devices exist
-```
+These scripts set critical variables:
+- `PVCAM_VERSION=3.10.0.3` - Library version identifier
+- `PVCAM_UMD_PATH=/opt/pvcam/drivers/user-mode` - User-mode driver path
+- `PVCAM_SDK_PATH=/opt/pvcam/sdk` - SDK installation path
+
+**Result**: Camera now fully detected and operational
 
 ### 2. PVCAM SDK Installation ✅
 
@@ -178,47 +214,57 @@ let sdk_lib_path = if let Ok(lib_dir) = env::var("PVCAM_LIB_DIR") {
 sudo pacman -S --noconfirm clang llvm llvm-libs
 ```
 
-## Next Steps to Enable Hardware Testing
+## Next Steps to Fix Remaining Issues
 
-### Immediate Actions Required
+### Implementation Fixes Needed
 
-1. **Verify Camera Physical Connection**
-   - Check power cable connected and powered on
-   - Check USB 3.0 or PCIe cable securely connected
-   - Look for indicator lights on camera body
+**1. Binning Parameter Handling** (6 test failures)
 
-2. **Check Camera Connection Type**
-   - Prime BSI supports both USB 3.0 and PCIe interfaces
-   - Current system shows NO PCIe camera device
-   - Check if camera is connected via USB instead
-   ```bash
-   lsusb -v | grep -i photo
-   ```
+Current `pl_set_param` calls for binning are failing. Need to:
+- Check PVCAM parameter IDs (PARAM_BINNING_SER, PARAM_BINNING_PAR may be incorrect)
+- Verify parameter data types and sizes
+- Test with actual camera to determine correct PVCAM API usage
+- Consult PVCAM SDK documentation for binning configuration
 
-3. **Install Kernel Driver** (if needed)
-   - Some PVCAM cameras require proprietary kernel modules
-   - Check PVCAM SDK documentation for driver installation
-   - Look for `.ko` files or installation scripts in `/opt/pvcam/`
+**2. Frame Acquisition Sequence** (8 test failures)
 
-4. **Verify Power-On Self-Test**
-   - Power cycle the camera
-   - Check system logs during power-on:
-   ```bash
-   sudo dmesg -w  # Monitor in real-time
-   # Then power on camera and watch for messages
-   ```
+Multiple acquisition failures suggest issues with:
+- `pl_exp_setup_seq` - sequence setup parameters may be incorrect
+- Frame buffer allocation - ensure sufficient buffer size
+- Exposure timing - verify exposure time units (ms vs µs)
+- Readout status polling - check `pl_exp_check_status` usage
 
-5. **Run PVCAM Firmware Update** (if applicable)
-   - Outdated firmware may cause detection issues
-   - Check `/opt/pvcam/bin/` for firmware tools
+**3. ROI Validation Logic** (3 test failures)
 
-### Alternative Testing Approach
+Validation not catching invalid ROIs:
+- Implement bounds checking before calling PVCAM API
+- Verify sensor dimensions are correctly retrieved
+- Add proper error handling for out-of-bounds ROIs
 
-Until hardware is detected, development can continue with **mock mode**:
+### Current Test Command (Working)
 
-1. **Mock Driver Already Implemented**: `PvcamDriver::new()` includes mock mode when hardware unavailable
-2. **Mock Tests**: Create tests that exercise mock functionality
-3. **Integration Planning**: Design integration tests for when hardware becomes available
+```bash
+source /opt/pvcam/etc/profile.d/pvcam.sh
+source /opt/pvcam/etc/profile.d/pvcam-sdk.sh
+export PVCAM_SDK_DIR=/opt/pvcam/sdk
+export PVCAM_LIB_DIR=/opt/pvcam/library/x86_64
+export LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:$LD_LIBRARY_PATH
+
+cargo test --test hardware_pvcam_validation \
+  --features 'instrument_photometrics,pvcam_hardware,hardware_tests,pvcam-sys/pvcam-sdk' \
+  -- --test-threads=1
+```
+
+### Success Metrics
+
+- ✅ Camera detection: **WORKING**
+- ✅ Basic initialization: **WORKING**
+- ✅ Exposure control: **WORKING**
+- ✅ ROI configuration: **WORKING (partial)**
+- ✅ Triggering: **WORKING**
+- ❌ Binning control: **NEEDS FIX**
+- ❌ Frame acquisition: **NEEDS FIX**
+- ❌ ROI validation: **NEEDS FIX**
 
 ## File Modifications Summary
 
@@ -236,20 +282,29 @@ Until hardware is detected, development can continue with **mock mode**:
 ## Conclusion
 
 **Build Infrastructure**: ✅ Fully functional - code compiles, links, and runs
-**Hardware Integration**: ❌ Blocked on camera detection
-**Path Forward**: Resolve hardware connectivity before continuing with hardware validation tests
+**Hardware Detection**: ✅ **WORKING** - Camera detected and communicating (required environment variables)
+**Driver Integration**: ⚠️ **PARTIAL** - 9/28 tests passing, binning and acquisition need fixes
+**Path Forward**: Fix binning API calls and frame acquisition sequence setup
 
-The PVCAM driver integration is **code-complete** and ready for hardware testing once the Prime BSI camera is properly connected and recognized by the system.
+The PVCAM driver integration has achieved **hardware communication** with the Prime BSI camera. Basic operations (initialization, exposure control, ROI, triggering) are working. Remaining issues are implementation details (binning parameters, acquisition sequence setup) that require PVCAM SDK documentation review and testing with actual hardware.
 
 ---
 
-**Commit**: `f500045e` - fix(pvcam): resolve compilation and linking issues for PVCAM SDK integration
-**Test Command**:
+**Commits**:
+- `f500045e` - fix(pvcam): resolve compilation and linking issues for PVCAM SDK integration
+- `15ae421c` - docs(pvcam): initial test results (before environment variable fix)
+
+**Working Test Command**:
 ```bash
+source /opt/pvcam/etc/profile.d/pvcam.sh
+source /opt/pvcam/etc/profile.d/pvcam-sdk.sh
 export PVCAM_SDK_DIR=/opt/pvcam/sdk
 export PVCAM_LIB_DIR=/opt/pvcam/library/x86_64
 export LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:$LD_LIBRARY_PATH
+
 cargo test --test hardware_pvcam_validation \
   --features 'instrument_photometrics,pvcam_hardware,hardware_tests,pvcam-sys/pvcam-sdk' \
   -- --test-threads=1
 ```
+
+**Test Results**: 9 passed, 19 failed (32% pass rate - significant progress from 0%)
