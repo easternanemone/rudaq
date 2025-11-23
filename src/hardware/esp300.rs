@@ -34,10 +34,10 @@
 use crate::hardware::capabilities::Movable;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use serial2_tokio::SerialPort;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
+use tokio_serial::{SerialPortBuilderExt, SerialStream};
 
 /// Driver for Newport ESP300 Universal Motion Controller
 ///
@@ -45,7 +45,7 @@ use tokio::sync::Mutex;
 /// a separate driver instance.
 pub struct Esp300Driver {
     /// Serial port protected by Mutex for exclusive access
-    port: Mutex<BufReader<SerialPort>>,
+    port: Mutex<BufReader<SerialStream>>,
     /// Axis number (1-3)
     axis: u8,
     /// Command timeout duration
@@ -66,13 +66,15 @@ impl Esp300Driver {
             return Err(anyhow!("ESP300 axis must be 1-3, got {}", axis));
         }
 
-        // Configure serial settings: 19200 baud, 8N1, RTS/CTS flow control
-        let port = SerialPort::open(port_path, |mut settings: serial2::Settings| {
-            settings.set_raw();
-            settings.set_baud_rate(19200)?;
-            settings.set_flow_control(serial2::FlowControl::RtsCts);
-            Ok(settings)
-        }).context("Failed to open ESP300 serial port")?;
+        // Configure serial settings: 19200 baud, 8N1, no flow control
+        // Note: ESP300 v3.04 confirmed to work with FlowControl::None (tested 2025-11-02)
+        let port = tokio_serial::new(port_path, 19200)
+            .data_bits(tokio_serial::DataBits::Eight)
+            .parity(tokio_serial::Parity::None)
+            .stop_bits(tokio_serial::StopBits::One)
+            .flow_control(tokio_serial::FlowControl::None)
+            .open_native_async()
+            .context(format!("Failed to open ESP300 serial port: {}", port_path))?;
 
         Ok(Self {
             port: Mutex::new(BufReader::new(port)),

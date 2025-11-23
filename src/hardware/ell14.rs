@@ -249,7 +249,12 @@ mod tests {
     #[test]
     fn test_parse_position_response() {
         // Create a mock driver for testing parse logic
-        let port = SerialPort::open("/dev/null", 9600).unwrap();
+        let port = SerialPort::open("/dev/null", |mut settings: serial2::Settings| {
+            settings.set_raw();
+            settings.set_baud_rate(9600).unwrap();
+            settings.set_flow_control(serial2::FlowControl::None);
+            Ok(settings)
+        }).unwrap();
         let driver = Ell14Driver {
             port: Mutex::new(port),
             address: "0".to_string(),
@@ -267,7 +272,12 @@ mod tests {
     #[test]
     fn test_position_conversion() {
         // Create a mock driver for testing conversion logic
-        let port = SerialPort::open("/dev/null", 9600).unwrap();
+        let port = SerialPort::open("/dev/null", |mut settings: serial2::Settings| {
+            settings.set_raw();
+            settings.set_baud_rate(9600).unwrap();
+            settings.set_flow_control(serial2::FlowControl::None);
+            Ok(settings)
+        }).unwrap();
         let driver = Ell14Driver {
             port: Mutex::new(port),
             address: "0".to_string(),

@@ -28,8 +28,8 @@
 //! }
 //! ```
 
-use crate::hardware::capabilities::{ExposureControl, FrameProducer};
-use crate::hardware::{FrameRef, Roi};
+use crate::hardware::capabilities::{ExposureControl, FrameProducer, Triggerable};
+use crate::hardware::Roi;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -38,10 +38,11 @@ use tokio::sync::Mutex;
 
 /// Driver for Photometrics PVCAM cameras
 ///
-/// Implements FrameProducer and ExposureControl capability traits.
+/// Implements FrameProducer, ExposureControl, and Triggerable capability traits.
 /// Uses PVCAM SDK for hardware communication.
 pub struct PvcamDriver {
     /// Camera name (e.g., "PrimeBSI", "Prime95B")
+    #[allow(dead_code)]
     camera_name: String,
     /// Current exposure time in milliseconds
     exposure_ms: Arc<Mutex<f64>>,
@@ -50,10 +51,13 @@ pub struct PvcamDriver {
     /// Binning factors (x, y)
     binning: Arc<Mutex<(u16, u16)>>,
     /// Frame buffer (simulated for now, real impl would use PVCAM SDK)
+    #[allow(dead_code)]
     frame_buffer: Arc<Mutex<Vec<u16>>>,
     /// Sensor dimensions
     sensor_width: u32,
     sensor_height: u32,
+    /// Whether the camera is armed for triggering
+    armed: Arc<Mutex<bool>>,
 }
 
 impl PvcamDriver {
@@ -96,6 +100,7 @@ impl PvcamDriver {
             frame_buffer: Arc::new(Mutex::new(vec![0u16; (width * height) as usize])),
             sensor_width: width,
             sensor_height: height,
+            armed: Arc::new(Mutex::new(false)),
         })
     }
 
@@ -140,6 +145,7 @@ impl PvcamDriver {
     /// - pl_exp_start_seq() to start capture
     /// - pl_exp_check_status() to poll completion
     /// - pl_exp_get_latest_frame() to retrieve data
+    #[allow(dead_code)]
     async fn acquire_frame_internal(&self) -> Result<Vec<u16>> {
         let exposure = *self.exposure_ms.lock().await;
         let roi = *self.roi.lock().await;
@@ -204,6 +210,35 @@ impl ExposureControl for PvcamDriver {
     }
 }
 
+#[async_trait]
+impl Triggerable for PvcamDriver {
+    async fn arm(&self) -> Result<()> {
+        // TODO: Real PVCAM SDK call
+        // - pl_exp_setup_seq() to configure acquisition
+        // - Initialize trigger waiting mode
+        *self.armed.lock().await = true;
+        Ok(())
+    }
+
+    async fn trigger(&self) -> Result<()> {
+        let is_armed = *self.armed.lock().await;
+        if !is_armed {
+            return Err(anyhow!("Camera must be armed before triggering"));
+        }
+
+        // TODO: Real PVCAM SDK call
+        // - pl_exp_start_seq() to start capture
+        // - pl_exp_check_status() to poll completion
+        // - pl_exp_get_latest_frame() to retrieve data
+
+        // Simulate exposure delay
+        let exposure = *self.exposure_ms.lock().await;
+        tokio::time::sleep(Duration::from_millis(exposure as u64)).await;
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,5 +276,69 @@ mod tests {
 
         camera.set_roi(roi).await.unwrap();
         assert_eq!(camera.roi().await, roi);
+    }
+
+    #[tokio::test]
+    async fn test_triggerable_arm() {
+        let camera = PvcamDriver::new("PrimeBSI").unwrap();
+
+        // Camera should not be armed initially
+        assert!(!*camera.armed.lock().await);
+
+        // Arm the camera
+        camera.arm().await.unwrap();
+        assert!(*camera.armed.lock().await);
+    }
+
+    #[tokio::test]
+    async fn test_triggerable_trigger_without_arm() {
+        let camera = PvcamDriver::new("PrimeBSI").unwrap();
+
+        // Triggering without arming should fail
+        assert!(camera.trigger().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_triggerable_trigger_with_arm() {
+        let camera = PvcamDriver::new("PrimeBSI").unwrap();
+
+        // Arm the camera
+        camera.arm().await.unwrap();
+
+        // Now triggering should succeed
+        assert!(camera.trigger().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_frame_producer_traits() {
+        let camera = PvcamDriver::new("PrimeBSI").unwrap();
+
+        // Test resolution
+        let (width, height) = camera.resolution();
+        assert_eq!((width, height), (2048, 2048));
+
+        // Test streaming
+        assert!(camera.start_stream().await.is_ok());
+        assert!(camera.stop_stream().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_combined_traits() {
+        let camera = PvcamDriver::new("Prime95B").unwrap();
+
+        // Verify resolution
+        assert_eq!(camera.resolution(), (1200, 1200));
+
+        // Set up exposure
+        camera.set_exposure(0.1).await.unwrap();
+        assert_eq!(camera.get_exposure().await.unwrap(), 0.1);
+
+        // Arm and trigger
+        camera.arm().await.unwrap();
+        camera.trigger().await.unwrap();
+
+        // Stream control
+        camera.start_stream().await.unwrap();
+        camera.stop_stream().await.unwrap();
     }
 }

@@ -5,8 +5,9 @@ use crate::grpc::proto::{
     StartResponse, StatusRequest, StopRequest, StopResponse, SystemStatus, UploadRequest,
     UploadResponse,
 };
-use crate::measurement_types::DataPoint;
+use crate::core_v3::Measurement;
 use crate::scripting::ScriptHost;
+use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -49,7 +50,7 @@ pub struct DaqServer {
 
     /// Broadcast channel for distributing hardware measurements to multiple consumers.
     /// Receivers can be cloned for gRPC clients, storage writers, etc.
-    data_tx: Arc<broadcast::Sender<DataPoint>>,
+    data_tx: Arc<broadcast::Sender<Measurement>>,
 
     /// Optional ring buffer for persistent storage (only when storage features enabled)
     #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
@@ -140,7 +141,7 @@ impl DaqServer {
     ///
     /// Hardware drivers should call this during initialization to get a sender
     /// they can use to publish measurements.
-    pub fn data_sender(&self) -> Arc<broadcast::Sender<DataPoint>> {
+    pub fn data_sender(&self) -> Arc<broadcast::Sender<Measurement>> {
         Arc::clone(&self.data_tx)
     }
 }
@@ -417,16 +418,41 @@ impl ControlService for DaqServer {
                     }
                 };
 
+                // Extract channel and value from Measurement for filtering and conversion
+                let (name, value, timestamp_ns) = match &data_point {
+                    Measurement::Scalar { name, value, timestamp, .. } => {
+                        let ts_ns = timestamp.timestamp_nanos_opt()
+                            .unwrap_or(0) as u64;
+                        (name.clone(), *value, ts_ns)
+                    },
+                    Measurement::Vector { name, values, timestamp, .. } => {
+                        let ts_ns = timestamp.timestamp_nanos_opt()
+                            .unwrap_or(0) as u64;
+                        // For vectors, we can emit the length or first value
+                        (format!("{}_len", name), values.len() as f64, ts_ns)
+                    },
+                    Measurement::Image { name, width, height, timestamp, .. } => {
+                        let ts_ns = timestamp.timestamp_nanos_opt()
+                            .unwrap_or(0) as u64;
+                        (name.clone(), (width * height) as f64, ts_ns)
+                    },
+                    Measurement::Spectrum { name, amplitudes, timestamp, .. } => {
+                        let ts_ns = timestamp.timestamp_nanos_opt()
+                            .unwrap_or(0) as u64;
+                        (format!("{}_spectrum", name), amplitudes.len() as f64, ts_ns)
+                    }
+                };
+
                 // Filter by channel if specified
-                if !channels.is_empty() && !channels.contains(&data_point.channel) {
+                if !channels.is_empty() && !channels.contains(&name) {
                     continue;
                 }
 
-                // Convert internal DataPoint to proto DataPoint
+                // Convert to proto DataPoint
                 let proto_data_point = crate::grpc::proto::DataPoint {
-                    channel: data_point.channel,
-                    value: data_point.value,
-                    timestamp_ns: data_point.timestamp_ns,
+                    channel: name,
+                    value,
+                    timestamp_ns,
                 };
 
                 // Forward to gRPC client
@@ -662,10 +688,11 @@ mod tests {
         // Spawn task to send mock data
         tokio::spawn(async move {
             for i in 0..5 {
-                let _ = data_sender.send(DataPoint {
-                    channel: "test_channel".to_string(),
+                let _ = data_sender.send(Measurement::Scalar {
+                    name: "test_channel".to_string(),
                     value: i as f64,
-                    timestamp_ns: (i * 1000) as u64,
+                    unit: "V".to_string(),
+                    timestamp: Utc::now(),
                 });
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
@@ -708,10 +735,11 @@ mod tests {
         tokio::spawn(async move {
             for i in 0..10 {
                 let channel = if i % 2 == 0 { "channel_a" } else { "channel_b" };
-                let _ = data_sender.send(DataPoint {
-                    channel: channel.to_string(),
+                let _ = data_sender.send(Measurement::Scalar {
+                    name: channel.to_string(),
                     value: i as f64,
-                    timestamp_ns: (i * 1000) as u64,
+                    unit: "V".to_string(),
+                    timestamp: Utc::now(),
                 });
                 tokio::time::sleep(std::time::Duration::from_millis(5)).await;
             }
@@ -759,10 +787,11 @@ mod tests {
         // Send data faster than rate limit
         tokio::spawn(async move {
             for i in 0..20 {
-                let _ = data_sender.send(DataPoint {
-                    channel: "test".to_string(),
+                let _ = data_sender.send(Measurement::Scalar {
+                    name: "test".to_string(),
                     value: i as f64,
-                    timestamp_ns: 0,
+                    unit: "V".to_string(),
+                    timestamp: Utc::now(),
                 });
                 tokio::time::sleep(std::time::Duration::from_millis(1)).await;
             }
@@ -812,10 +841,11 @@ mod tests {
         // Send test data
         tokio::spawn(async move {
             for i in 0..3 {
-                let _ = data_sender.send(DataPoint {
-                    channel: "shared".to_string(),
+                let _ = data_sender.send(Measurement::Scalar {
+                    name: "shared".to_string(),
                     value: i as f64,
-                    timestamp_ns: (i * 1000) as u64,
+                    unit: "V".to_string(),
+                    timestamp: Utc::now(),
                 });
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }

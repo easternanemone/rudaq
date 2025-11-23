@@ -39,9 +39,10 @@ use std::sync::Arc;
 use tokio::runtime::Handle;
 use tokio::sync::broadcast;
 use tokio::task::block_in_place;
+use chrono::Utc;
 
 use crate::hardware::capabilities::{Camera, Movable};
-use crate::measurement_types::DataPoint;
+use crate::core_v3::Measurement;
 
 // =============================================================================
 // Handle Types - Rhai-Compatible Wrappers
@@ -63,7 +64,7 @@ use crate::measurement_types::DataPoint;
 pub struct StageHandle {
     pub driver: Arc<dyn Movable>,
     /// Optional data sender for broadcasting measurements to RingBuffer/gRPC clients
-    pub data_tx: Option<Arc<broadcast::Sender<DataPoint>>>,
+    pub data_tx: Option<Arc<broadcast::Sender<Measurement>>>,
 }
 
 /// Handle to a camera device that can be used in Rhai scripts
@@ -82,7 +83,7 @@ pub struct StageHandle {
 pub struct CameraHandle {
     pub driver: Arc<dyn Camera>,
     /// Optional data sender for broadcasting measurements to RingBuffer/gRPC clients
-    pub data_tx: Option<Arc<broadcast::Sender<DataPoint>>>,
+    pub data_tx: Option<Arc<broadcast::Sender<Measurement>>>,
 }
 
 // =============================================================================
@@ -118,21 +119,17 @@ pub fn register_hardware(engine: &mut Engine) {
     engine.register_fn("move_abs", move |stage: &mut StageHandle, pos: f64| {
         block_in_place(|| Handle::current().block_on(stage.driver.move_abs(pos))).unwrap();
 
-        // Send data point to broadcast channel if sender available
+        // Send measurement to broadcast channel if sender available
         if let Some(ref tx) = stage.data_tx {
-            let timestamp_ns = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos() as u64;
-
-            let data_point = DataPoint {
-                channel: "stage_position".to_string(),
+            let measurement = Measurement::Scalar {
+                name: "stage_position".to_string(),
                 value: pos,
-                timestamp_ns,
+                unit: "mm".to_string(),
+                timestamp: Utc::now(),
             };
 
             // Ignore errors if no receivers (non-critical)
-            let _ = tx.send(data_point);
+            let _ = tx.send(measurement);
         }
     });
 
@@ -173,21 +170,17 @@ pub fn register_hardware(engine: &mut Engine) {
             Handle::current().block_on(camera.driver.trigger())
         }) {
             Ok(_) => {
-                // Send data point to broadcast channel if sender available
+                // Send measurement to broadcast channel if sender available
                 if let Some(ref tx) = camera.data_tx {
-                    let timestamp_ns = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_nanos() as u64;
-
-                    let data_point = DataPoint {
-                        channel: "camera_trigger".to_string(),
+                    let measurement = Measurement::Scalar {
+                        name: "camera_trigger".to_string(),
                         value: 1.0, // Trigger event indicator
-                        timestamp_ns,
+                        unit: "event".to_string(),
+                        timestamp: Utc::now(),
                     };
 
                     // Ignore errors if no receivers (non-critical)
-                    let _ = tx.send(data_point);
+                    let _ = tx.send(measurement);
                 }
             }
             Err(e) => panic!("Camera trigger failed: {}", e),

@@ -58,11 +58,11 @@ struct Args {
     engine: EngineType,
 
     /// Set global variables (format: key=value)
-    #[arg(short, long = "global", value_name = "KEY=VALUE")]
+    #[arg(short = 'g', long = "global", value_name = "KEY=VALUE")]
     globals: Vec<String>,
 
     /// Validate script syntax without execution
-    #[arg(short, long)]
+    #[arg(long)]
     validate: bool,
 
     /// Enable verbose logging
