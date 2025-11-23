@@ -5,7 +5,7 @@ use crate::grpc::proto::{
     StartResponse, StatusRequest, StopRequest, StopResponse, SystemStatus, UploadRequest,
     UploadResponse,
 };
-use crate::core_v3::Measurement;
+use crate::core::Measurement;
 use crate::scripting::ScriptHost;
 use chrono::Utc;
 use std::collections::HashMap;

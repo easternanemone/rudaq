@@ -1,90 +1,57 @@
-//! Core traits and data types for the DAQ application.
+//! Core traits and data types for the DAQ application (V5 Architecture).
 //!
 //! This module defines the foundational abstractions for the entire data acquisition system,
 //! providing trait-based interfaces for instruments, data processors, and storage backends.
 //!
 //! # Architecture Overview
 //!
-//! The core architecture follows a plugin-based design with three primary traits:
+//! The V5 architecture uses capability-based traits:
 //!
-//! - [`Instrument`]: Represents any physical or virtual data acquisition device
-//! - [`DataProcessor`]: Transforms data points in real-time processing pipelines
-//! - [`StorageWriter`]: Persists data to various storage backends (CSV, HDF5, etc.)
+//! - [`Instrument`]: Base trait for all instruments with lifecycle management
+//! - [`Camera`], [`Stage`], [`Laser`], etc.: Capability traits for specific functionality
+//! - [`Measurement`]: Unified measurement type supporting scalars, vectors, images, spectra
+//! - [`MeasurementProcessor`]: Transform measurements in real-time processing pipelines
 //!
 //! # Data Flow
 //!
 //! ```text
-//! Instrument --[DataPoint]--> DataProcessor --[DataPoint]--> StorageWriter
-//!     ↓                            ↓                              ↓
-//! broadcast::channel        Ring buffer cache              CSV/HDF5 file
+//! Instrument --[Measurement]--> broadcast::channel ---> Processors/Storage/GUI
 //! ```
-//!
-//! # Command System
-//!
-//! Instruments are controlled via [`InstrumentCommand`] messages sent through
-//! async channels, enabling non-blocking parameter updates and graceful shutdown.
 //!
 //! # Thread Safety
 //!
 //! All traits require `Send + Sync` to enable safe concurrent access across
 //! async tasks and threads. Data streaming uses Tokio's `broadcast` channels
 //! for multi-consumer patterns.
-//!
-//! # Examples
-//!
-//! ## Implementing an Instrument
-//!
-//!
-pub use crate::core_v3::Measurement;
+
+use anyhow::Result;
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
+use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::task::JoinHandle;
 
-/// A single data point captured from an instrument.
+// =============================================================================
+// Basic Data Types
+// =============================================================================
+
+/// A single data point captured from an instrument (legacy V1 structure).
 ///
-/// `DataPoint` is the fundamental unit of data in the DAQ system, representing
-/// a single measurement at a specific time. All data flowing through the system
-/// uses this structure, enabling uniform processing and storage.
+/// `DataPoint` is maintained for backwards compatibility but new code should
+/// use the `Measurement` enum which supports structured data types.
 ///
 /// # Fields
 ///
-/// * `timestamp` - UTC timestamp when the measurement was captured. Uses `chrono::DateTime`
-///   for nanosecond precision and timezone awareness.
-/// * `channel` - Unique identifier for the data source (e.g., "laser_power", "stage_x_position").
-///   Channel naming convention: `{instrument_id}_{parameter_name}`
-/// * `value` - The measured value as a 64-bit float. All measurements are normalized to f64
-///   regardless of the instrument's native data type.
-/// * `unit` - Physical unit of the measurement (e.g., "W", "nm", "deg", "V"). Should follow
-///   SI unit conventions or common scientific notation.
-/// * `metadata` - Optional JSON metadata for instrument-specific information. Serialized
-///   only when present. Use for context like device address, calibration coefficients, etc.
-///
-/// # Memory Layout
-///
-/// Size: ~96 bytes (timestamp: 12, channel: 24, value: 8, unit: 24, metadata: 24, padding: 4)
-///
-/// # Examples
-///
-/// ```rust
-/// use rust_daq::core::DataPoint;
-/// use chrono::Utc;
-///
-/// let dp = DataPoint {
-///     timestamp: Utc::now(),
-///     channel: "power_meter_1_power".to_string(),
-///     value: 0.125,
-///     unit: "W".to_string(),
-///     metadata: Some(serde_json::json!({"wavelength": 1550.0})),
-/// };
-/// ```
-///
-/// # Serialization
-///
-/// DataPoint implements `Serialize`/`Deserialize` for efficient storage and transmission.
-/// The metadata field is skipped during serialization if `None`, reducing storage overhead
-/// for high-rate data streams.
+/// * `timestamp` - UTC timestamp when the measurement was captured
+/// * `instrument_id` - Instrument identifier (e.g., "maitai", "esp300")
+/// * `channel` - Channel identifier (e.g., "power", "wavelength")
+/// * `value` - Measured value (all measurements normalized to f64)
+/// * `unit` - Physical unit (SI notation recommended)
+/// * `metadata` - Optional instrument-specific metadata (JSON)
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DataPoint {
     /// UTC timestamp with nanosecond precision
@@ -102,9 +69,6 @@ pub struct DataPoint {
     pub metadata: Option<serde_json::Value>,
 }
 
-// Note: Removed daq_core conversions - daq_core crate has been deleted
-// All data now uses local types (core::DataPoint, core_v3::Measurement)
-
 /// Represents a frequency bin in a spectrum measurement.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FrequencyBin {
@@ -118,14 +82,13 @@ pub struct FrequencyBin {
 ///
 /// `PixelBuffer` stores image data in its native format to avoid unnecessary
 /// type conversions and memory bloat. Camera sensors typically output 8-bit
-/// or 16-bit unsigned integers, but were previously upcast to 64-bit floats,
-/// wasting 4-8× memory.
+/// or 16-bit unsigned integers.
 ///
 /// # Memory Savings
 ///
 /// For a 2048×2048 camera frame:
 /// - U8: 4 MB (1 byte/pixel)
-/// - U16: 8.4 MB (2 bytes/pixel)  
+/// - U16: 8.4 MB (2 bytes/pixel)
 /// - F64: 33.6 MB (8 bytes/pixel) ← previous implementation
 ///
 /// Using U16 instead of F64 saves 25 MB per frame. At 10 Hz acquisition,
@@ -136,19 +99,6 @@ pub struct FrequencyBin {
 /// * `U8` - 8-bit unsigned integer pixels (0-255)
 /// * `U16` - 16-bit unsigned integer pixels (0-65535)
 /// * `F64` - 64-bit floating point pixels (for computed images)
-///
-/// # Examples
-///
-/// ```rust
-/// use rust_daq::core::PixelBuffer;
-///
-/// // Camera data in native u16 format
-/// let raw_frame: Vec<u16> = vec![1024, 2048, 4096];
-/// let buffer = PixelBuffer::U16(raw_frame);
-///
-/// // Get as f64 for processing (zero-copy for F64 variant)
-/// let pixels_f64 = buffer.as_f64();
-/// ```
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PixelBuffer {
     /// 8-bit unsigned integer pixels (1 byte/pixel)
@@ -164,13 +114,6 @@ impl PixelBuffer {
     ///
     /// For U8 and U16 variants, this allocates a new Vec and converts each
     /// pixel. For F64 variant, this returns a borrowed reference with no allocation.
-    ///
-    /// # Performance
-    ///
-    /// - F64: O(1) - zero-copy borrow
-    /// - U8/U16: O(n) - allocation + type conversion
-    ///
-    /// GUI code can use this for rendering without needing to match on variants.
     pub fn as_f64(&self) -> std::borrow::Cow<'_, [f64]> {
         use std::borrow::Cow;
         match self {
@@ -204,7 +147,69 @@ impl PixelBuffer {
     }
 }
 
-// Note: Removed daq_core::PixelBuffer conversion - daq_core crate deleted
+/// Region of Interest for camera acquisition
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Roi {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl PartialOrd for Roi {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Roi {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Compare by area first, then by position
+        let self_area = self.width * self.height;
+        let other_area = other.width * other.height;
+
+        match self_area.cmp(&other_area) {
+            std::cmp::Ordering::Equal => {
+                // If equal area, compare by top-left position
+                match self.x.cmp(&other.x) {
+                    std::cmp::Ordering::Equal => self.y.cmp(&other.y),
+                    other => other,
+                }
+            }
+            other => other,
+        }
+    }
+}
+
+impl Default for Roi {
+    fn default() -> Self {
+        Self {
+            x: 0,
+            y: 0,
+            width: 1024,
+            height: 1024,
+        }
+    }
+}
+
+/// Image metadata (exposure, gain, etc.)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ImageMetadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exposure_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gain: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub binning: Option<(u32, u32)>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature_c: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hardware_timestamp_us: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub readout_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub roi_origin: Option<(u32, u32)>,
+}
 
 /// Represents spectrum data from FFT or other frequency analysis.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -221,8 +226,6 @@ pub struct SpectrumData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
 }
-
-// Note: Removed daq_core::SpectrumData conversion - daq_core crate deleted
 
 /// Represents image data from cameras or 2D sensors.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -249,11 +252,6 @@ impl ImageData {
     ///
     /// This is a convenience method that delegates to PixelBuffer::as_f64().
     /// Use PixelBuffer directly when possible to avoid unnecessary allocations.
-    ///
-    /// # Performance
-    ///
-    /// - For F64 PixelBuffer: Zero-copy borrow
-    /// - For U8/U16 PixelBuffer: Allocation + conversion
     pub fn pixels_as_f64(&self) -> std::borrow::Cow<'_, [f64]> {
         self.pixels.as_f64()
     }
@@ -269,53 +267,82 @@ impl ImageData {
     }
 }
 
-// Note: Removed daq_core::ImageData conversion - daq_core crate deleted
-
-/// A measurement from an instrument, supporting different data types.
+/// Unified measurement representation (V5 architecture).
 ///
-/// `Measurement` replaces the scalar-only `DataPoint` design with an extensible
-/// enum that can represent scalar values, frequency spectra, images, and other
-/// measurement types. This eliminates the need for JSON metadata workarounds
-/// and provides type-safe access to structured data.
+/// All instruments emit this enum directly. Supports scalars, vectors, images, and spectra.
 ///
 /// # Variants
 ///
-/// * `Scalar(DataPoint)` - Traditional scalar measurement (temperature, voltage, etc.)
-/// * `Spectrum(SpectrumData)` - Frequency spectrum from FFT or spectral analysis
-/// * `Image(ImageData)` - 2D image data from cameras or imaging sensors
+/// * `Scalar` - Single scalar value (temperature, voltage, power, etc.)
+/// * `Vector` - Array of values (spectrum, time series)
+/// * `Image` - 2D image data with zero-copy optimization
+/// * `Spectrum` - Frequency spectrum with frequency/amplitude pairs
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Measurement {
+    /// Single scalar value with metadata
+    Scalar {
+        name: String,
+        value: f64,
+        unit: String,
+        timestamp: DateTime<Utc>,
+    },
+
+    /// Vector of values (e.g., spectrum, time series)
+    Vector {
+        name: String,
+        values: Vec<f64>,
+        unit: String,
+        timestamp: DateTime<Utc>,
+    },
+
+    /// 2D image data with zero-copy optimization
+    Image {
+        name: String,
+        width: u32,
+        height: u32,
+        buffer: PixelBuffer,
+        unit: String,
+        metadata: ImageMetadata,
+        timestamp: DateTime<Utc>,
+    },
+
+    /// Spectrum with frequency/amplitude pairs
+    Spectrum {
+        name: String,
+        frequencies: Vec<f64>,
+        amplitudes: Vec<f64>,
+        frequency_unit: Option<String>,
+        amplitude_unit: Option<String>,
+        metadata: Option<Value>,
+        timestamp: DateTime<Utc>,
+    },
+}
+
+impl Measurement {
+    /// Extract timestamp regardless of variant
+    pub fn timestamp(&self) -> DateTime<Utc> {
+        match self {
+            Measurement::Scalar { timestamp, .. } => *timestamp,
+            Measurement::Vector { timestamp, .. } => *timestamp,
+            Measurement::Image { timestamp, .. } => *timestamp,
+            Measurement::Spectrum { timestamp, .. } => *timestamp,
+        }
+    }
+
+    /// Extract name regardless of variant
+    pub fn name(&self) -> &str {
+        match self {
+            Measurement::Scalar { name, .. } => name,
+            Measurement::Vector { name, .. } => name,
+            Measurement::Image { name, .. } => name,
+            Measurement::Spectrum { name, .. } => name,
+        }
+    }
+}
+
+/// Legacy Data enum (being replaced by Measurement).
 ///
-/// # Migration from DataPoint
-///
-/// Existing code using `DataPoint` can be wrapped in `Measurement::Scalar(datapoint)`.
-/// New processors can emit strongly-typed variants instead of encoding data in JSON metadata.
-///
-/// # Examples
-///
-/// ```rust
-/// use rust_daq::core::{Measurement, DataPoint, SpectrumData, FrequencyBin};
-/// use chrono::Utc;
-///
-/// // Scalar measurement (traditional)
-/// let scalar = Measurement::Scalar(DataPoint {
-///     timestamp: Utc::now(),
-///     channel: "sensor1_temperature".to_string(),
-///     value: 23.5,
-///     unit: "°C".to_string(),
-///     metadata: None,
-/// });
-///
-/// // Spectrum measurement (FFT output)
-/// let spectrum = Measurement::Spectrum(SpectrumData {
-///     timestamp: Utc::now(),
-///     channel: "mic1_fft".to_string(),
-///     unit: "dB".to_string(),
-///     bins: vec![
-///         FrequencyBin { frequency: 0.0, magnitude: -60.0 },
-///         FrequencyBin { frequency: 1000.0, magnitude: -20.0 },
-///     ],
-///     metadata: None,
-/// });
-/// ```
+/// Kept for backwards compatibility during migration.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Data {
     /// Scalar measurement (traditional DataPoint)
@@ -363,8 +390,6 @@ impl Data {
         }
     }
 }
-
-// Note: Removed Data to daq_core::Measurement conversion - daq_core crate deleted
 
 /// Strongly-typed argument for capability operations.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -504,6 +529,368 @@ impl From<Vec<i32>> for ParameterValue {
     }
 }
 
+// =============================================================================
+// Instrument State and Commands (V5)
+// =============================================================================
+
+/// Instrument lifecycle state
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InstrumentState {
+    /// Instrument object created but not yet initialized
+    Uninitialized,
+    /// Instrument is not connected to hardware
+    Disconnected,
+    /// Instrument is in the process of connecting
+    Connecting,
+    /// Instrument is connected and ready to operate
+    Connected,
+    /// Connected and ready (alias for Connected for V2 compatibility)
+    Idle,
+    /// Currently acquiring/operating
+    Running,
+    /// Paused (can resume)
+    Paused,
+    /// Error state (see error message)
+    Error,
+    /// Shutting down
+    ShuttingDown,
+}
+
+/// Generic command envelope for instrument control
+///
+/// Replaces the complex InstrumentCommand enum. Instruments handle
+/// commands via their trait methods instead.
+#[derive(Clone, Debug)]
+pub enum Command {
+    /// Start acquisition/operation
+    Start,
+    /// Stop acquisition/operation
+    Stop,
+    /// Pause acquisition/operation
+    Pause,
+    /// Resume from pause
+    Resume,
+    /// Request current state
+    GetState,
+    /// Request parameter value
+    GetParameter(String),
+    /// Set parameter value (parameter name, JSON value)
+    SetParameter(String, serde_json::Value),
+    /// Configure multiple parameters at once
+    Configure {
+        params: HashMap<String, ParameterValue>,
+    },
+    /// Instrument-specific command (for specialized operations)
+    Custom(String, serde_json::Value),
+}
+
+/// Response to command execution
+#[derive(Clone, Debug)]
+pub enum Response {
+    /// Command completed successfully
+    Ok,
+    /// Command completed with state update
+    State(InstrumentState),
+    /// Command completed with parameter value
+    Parameter(serde_json::Value),
+    /// Command completed with custom data
+    Custom(serde_json::Value),
+    /// Command failed with error message
+    Error(String),
+}
+
+// =============================================================================
+// Parameter Base Trait (for dynamic access)
+// =============================================================================
+
+/// Base trait for all parameters (enables heterogeneous collections)
+///
+/// Concrete parameters use `Parameter<T>` (see parameter.rs).
+pub trait ParameterBase: Send + Sync {
+    /// Parameter name
+    fn name(&self) -> &str;
+
+    /// Get current value as JSON
+    fn value_json(&self) -> serde_json::Value;
+
+    /// Set value from JSON
+    fn set_json(&mut self, value: serde_json::Value) -> Result<()>;
+
+    /// Get parameter constraints as JSON
+    fn constraints_json(&self) -> serde_json::Value;
+}
+
+// =============================================================================
+// Core Instrument Trait (V5 Unified Architecture)
+// =============================================================================
+
+/// Base trait for all instruments (V5 unified architecture).
+///
+/// All instruments implement this trait directly. No wrapper types needed.
+/// Instruments run in their own Tokio tasks and communicate via channels.
+///
+/// # Data Flow
+///
+/// ```text
+/// Instrument Task → data_channel() → broadcast::Receiver<Measurement>
+///                                    ↓
+///                                   GUI/Storage/Processors subscribe directly
+/// ```
+///
+/// # Command Flow
+///
+/// ```text
+/// Manager → execute(cmd) → Instrument implementation
+/// ```
+#[async_trait]
+pub trait Instrument: Send + Sync {
+    /// Unique instrument identifier
+    fn id(&self) -> &str;
+
+    /// Current lifecycle state
+    fn state(&self) -> InstrumentState;
+
+    /// Initialize hardware connection
+    ///
+    /// Called once before instrument can be used. Should establish
+    /// hardware connection, verify communication, and prepare for operation.
+    async fn initialize(&mut self) -> Result<()>;
+
+    /// Shutdown hardware connection gracefully
+    ///
+    /// Called during application shutdown or instrument removal.
+    /// Should release hardware resources and clean up.
+    async fn shutdown(&mut self) -> Result<()>;
+
+    /// Subscribe to data stream
+    ///
+    /// Returns a broadcast receiver for measurements. Multiple subscribers
+    /// can receive the same data stream independently.
+    fn data_channel(&self) -> broadcast::Receiver<Measurement>;
+
+    /// Execute command (direct async call, no message passing)
+    ///
+    /// Replaces the old InstrumentCommand enum with direct method dispatch.
+    /// Instruments can implement custom command handling as needed.
+    async fn execute(&mut self, cmd: Command) -> Result<Response>;
+
+    /// Access instrument parameters
+    ///
+    /// Returns reference to parameter collection for introspection and
+    /// dynamic access (e.g., GUI parameter editors).
+    fn parameters(&self) -> &HashMap<String, Box<dyn ParameterBase>>;
+
+    /// Get mutable access to parameters (for setting)
+    fn parameters_mut(&mut self) -> &mut HashMap<String, Box<dyn ParameterBase>>;
+}
+
+// =============================================================================
+// Capability Traits (V5 Meta Instrument Pattern)
+// =============================================================================
+
+/// Camera capability trait
+///
+/// Modules that require camera functionality should work with this trait
+/// instead of concrete camera types. This enables hardware-agnostic
+/// experiment logic.
+#[async_trait]
+pub trait Camera: Instrument {
+    /// Set exposure time in milliseconds
+    async fn set_exposure(&mut self, ms: f64) -> Result<()>;
+
+    /// Set region of interest
+    async fn set_roi(&mut self, roi: Roi) -> Result<()>;
+
+    /// Get current ROI
+    async fn roi(&self) -> Roi;
+
+    /// Set binning (horizontal, vertical)
+    async fn set_binning(&mut self, h: u32, v: u32) -> Result<()>;
+
+    /// Start continuous acquisition
+    async fn start_acquisition(&mut self) -> Result<()>;
+
+    /// Stop acquisition
+    async fn stop_acquisition(&mut self) -> Result<()>;
+
+    /// Arm camera for triggered acquisition
+    async fn arm_trigger(&mut self) -> Result<()>;
+
+    /// Software trigger (if supported)
+    async fn trigger(&mut self) -> Result<()>;
+}
+
+/// Stage/positioner capability trait
+///
+/// Modules that control motion should work with this trait for
+/// hardware-agnostic positioning logic.
+#[async_trait]
+pub trait Stage: Instrument {
+    /// Move to absolute position in mm
+    async fn move_absolute(&mut self, position_mm: f64) -> Result<()>;
+
+    /// Move relative to current position in mm
+    async fn move_relative(&mut self, distance_mm: f64) -> Result<()>;
+
+    /// Get current position in mm
+    async fn position(&self) -> Result<f64>;
+
+    /// Stop motion immediately
+    async fn stop_motion(&mut self) -> Result<()>;
+
+    /// Check if stage is currently moving
+    async fn is_moving(&self) -> Result<bool>;
+
+    /// Home stage (find reference position)
+    async fn home(&mut self) -> Result<()>;
+
+    /// Set velocity in mm/s
+    async fn set_velocity(&mut self, mm_per_sec: f64) -> Result<()>;
+
+    /// Wait for motion to settle (with timeout)
+    async fn wait_settled(&self, timeout: std::time::Duration) -> Result<()> {
+        let start = std::time::Instant::now();
+        loop {
+            if !self.is_moving().await? {
+                return Ok(());
+            }
+            if start.elapsed() > timeout {
+                return Err(anyhow::anyhow!("Timeout waiting for motion to settle"));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
+}
+
+/// Spectrometer capability trait
+#[async_trait]
+pub trait Spectrometer: Instrument {
+    /// Set integration time in milliseconds
+    async fn set_integration_time(&mut self, ms: f64) -> Result<()>;
+
+    /// Get wavelength range
+    fn wavelength_range(&self) -> (f64, f64);
+
+    /// Start spectrum acquisition
+    async fn start_acquisition(&mut self) -> Result<()>;
+
+    /// Stop acquisition
+    async fn stop_acquisition(&mut self) -> Result<()>;
+}
+
+/// Power meter capability trait
+#[async_trait]
+pub trait PowerMeter: Instrument {
+    /// Set wavelength for calibration (nm)
+    async fn set_wavelength(&mut self, nm: f64) -> Result<()>;
+
+    /// Set measurement range (watts)
+    async fn set_range(&mut self, watts: f64) -> Result<()>;
+
+    /// Zero/calibrate sensor
+    async fn zero(&mut self) -> Result<()>;
+}
+
+/// Laser capability trait
+///
+/// V5 Design: Control methods for tunable lasers with wavelength/power control.
+/// Power/wavelength readings are broadcast via Instrument::data_channel().
+#[async_trait]
+pub trait Laser: Instrument {
+    /// Set wavelength in nanometers (for tunable lasers)
+    async fn set_wavelength(&mut self, nm: f64) -> Result<()>;
+
+    /// Get current wavelength setting in nanometers
+    async fn wavelength(&self) -> Result<f64>;
+
+    /// Set output power in watts
+    async fn set_power(&mut self, watts: f64) -> Result<()>;
+
+    /// Get current power output in watts
+    async fn power(&self) -> Result<f64>;
+
+    /// Enable shutter (allow laser emission)
+    async fn enable_shutter(&mut self) -> Result<()>;
+
+    /// Disable shutter (block laser emission)
+    async fn disable_shutter(&mut self) -> Result<()>;
+
+    /// Check if shutter is enabled (laser can emit)
+    async fn is_enabled(&self) -> Result<bool>;
+}
+
+// =============================================================================
+// Instrument Handle (Direct Management)
+// =============================================================================
+
+/// Handle for managing instrument lifecycle and communication
+///
+/// Replaces the actor-based management. Each instrument runs in a task,
+/// and the handle provides direct access to channels and lifecycle control.
+pub struct InstrumentHandle {
+    /// Instrument identifier
+    pub id: String,
+
+    /// Tokio task handle (for monitoring and cancellation)
+    pub task: JoinHandle<Result<()>>,
+
+    /// Shutdown signal sender
+    pub shutdown_tx: oneshot::Sender<()>,
+
+    /// Data broadcast receiver (subscribe to get measurements)
+    pub data_rx: broadcast::Receiver<Measurement>,
+
+    /// Command channel for instrument control
+    pub command_tx: mpsc::Sender<Command>,
+
+    /// Reference to instrument (for capability downcasting)
+    pub instrument: Arc<tokio::sync::Mutex<Box<dyn Instrument>>>,
+}
+
+impl InstrumentHandle {
+    /// Send command and wait for response
+    pub async fn send_command(&self, cmd: Command) -> Result<Response> {
+        self.command_tx.send(cmd).await?;
+        // Response will come via oneshot channel in actual implementation
+        // This is simplified for Phase 1
+        Ok(Response::Ok)
+    }
+
+    /// Subscribe to data stream
+    pub fn subscribe(&self) -> broadcast::Receiver<Measurement> {
+        self.data_rx.resubscribe()
+    }
+
+    /// Request graceful shutdown
+    pub async fn shutdown(self) -> Result<()> {
+        let _ = self.shutdown_tx.send(());
+        self.task.await??;
+        Ok(())
+    }
+
+    /// Check if instrument implements Camera trait
+    pub async fn as_camera(&self) -> Option<Arc<tokio::sync::Mutex<Box<dyn Camera>>>> {
+        let _guard = self.instrument.lock().await;
+        // Attempt downcast (simplified for Phase 1)
+        // Full implementation would use proper trait object casting
+        None
+    }
+
+    /// Check if instrument implements Stage trait
+    pub async fn as_stage(&self) -> Option<Arc<tokio::sync::Mutex<Box<dyn Stage>>>> {
+        None
+    }
+
+    /// Check if instrument implements Spectrometer trait
+    pub async fn as_spectrometer(&self) -> Option<Arc<tokio::sync::Mutex<Box<dyn Spectrometer>>>> {
+        None
+    }
+}
+
+// =============================================================================
+// Processor Traits
+// =============================================================================
+
 /// Trait for processing measurements with support for different data types.
 ///
 /// `MeasurementProcessor` is the next-generation processor interface that works
@@ -517,59 +904,6 @@ impl From<Vec<i32>> for ParameterValue {
 /// - **Composability**: Processors can transform one measurement type to another
 /// - **Efficiency**: Structured data avoids serialization/deserialization overhead
 /// - **Extensibility**: New measurement types can be added without breaking existing code
-///
-/// # Examples
-///
-/// ```rust
-/// use rust_daq::core::{MeasurementProcessor, Measurement, DataPoint, SpectrumData, FrequencyBin};
-/// use chrono::Utc;
-///
-/// struct FFTProcessor;
-///
-/// impl MeasurementProcessor for FFTProcessor {
-///     fn process_measurements(&mut self, data: &[Measurement]) -> Vec<Measurement> {
-///         let mut spectra = Vec::new();
-///         for measurement in data {
-///             if let Measurement::Scalar(_dp) = measurement {
-///                 // Convert scalar time-series to spectrum (simplified)
-///                 let spectrum_data = SpectrumData {
-///                     timestamp: Utc::now(),
-///                     channel: "example_fft".to_string(),
-///                     unit: "dB".to_string(),
-///                     bins: vec![FrequencyBin { frequency: 1000.0, magnitude: -20.0 }],
-///                     metadata: None,
-///                 };
-///                 spectra.push(Measurement::Spectrum(spectrum_data));
-///             }
-///         }
-///         spectra
-///     }
-/// }
-/// ```
-///
-/// # Migration Path
-///
-/// Existing `DataProcessor` implementations can be wrapped:
-///
-/// ```rust
-/// # use rust_daq::core::{MeasurementProcessor, Measurement, DataPoint, DataProcessor};
-/// # struct LegacyFilter;
-/// # impl DataProcessor for LegacyFilter {
-/// #     fn process(&mut self, data: &[DataPoint]) -> Vec<DataPoint> { data.to_vec() }
-/// # }
-/// impl MeasurementProcessor for LegacyFilter {
-///     fn process_measurements(&mut self, data: &[Arc<Measurement>]) -> Vec<Arc<Measurement>> {
-///         // Extract scalar data points and process with legacy DataProcessor
-///         let scalars: Vec<DataPoint> = data.iter()
-///             .filter_map(|m| if let Measurement::Scalar(dp) = m.as_ref() { Some(dp.clone()) } else { None })
-///             .collect();
-///         let filtered = self.process(&scalars); // Call legacy DataProcessor::process
-///         filtered.into_iter().map(|dp| {
-///             Arc::new(Measurement::Scalar(dp))
-///         }).collect()
-///     }
-/// }
-/// ```
 pub trait MeasurementProcessor: Send + Sync {
     /// Processes a batch of measurements and returns transformed measurements.
     ///
@@ -584,35 +918,45 @@ pub trait MeasurementProcessor: Send + Sync {
     /// - Transform measurement types (e.g., Scalar → Spectrum via FFT)
     /// - Combine multiple measurements into one (e.g., stereo → mono)
     /// - Generate multiple outputs from one input (e.g., image → histogram + stats)
-    ///
-    /// # Type Conversions
-    ///
-    /// Common patterns:
-    /// - `Scalar → Scalar`: Traditional filtering, calibration
-    /// - `Scalar → Spectrum`: FFT, spectral analysis
-    /// - `Image → Scalar`: Statistics (mean, max, etc.)
-    /// - `Spectrum → Scalar`: Peak detection, power calculation
-    ///
-    /// # Performance
-    ///
-    /// Arc-wrapping enables zero-copy sharing of measurements between processors,
-    /// storage, and GUI without cloning large data arrays.
     fn process_measurements(&mut self, data: &[Arc<Measurement>]) -> Vec<Arc<Measurement>>;
 }
 
-//==============================================================================
-// Phase 2 Complete: V2 Infrastructure Ready (bd-62)
-//==============================================================================
-//
-// V2InstrumentAdapter removed in Phase 2 (bd-62). The app infrastructure now
-// uses Arc<Measurement> natively, supporting Scalar, Spectrum, and Image data.
-//
-// V2 instruments (MockInstrumentV2, etc.) will be integrated in Phase 3 (bd-51)
-// via a native V2 InstrumentRegistry that works directly with daq_core::Instrument.
-//
-// Migration path:
-// - Phase 1 (bd-49): Created V2InstrumentAdapter as temporary bridge
-// - Phase 2 (bd-62): Updated infrastructure for Arc<Measurement>, removed adapter
-// - Phase 3 (bd-51): Implement native V2 instrument support
-//
-//==============================================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_measurement_accessors() {
+        let m = Measurement::Scalar {
+            name: "test".to_string(),
+            value: 42.0,
+            unit: "mW".to_string(),
+            timestamp: Utc::now(),
+        };
+
+        assert_eq!(m.name(), "test");
+        assert!(m.timestamp() <= Utc::now());
+    }
+
+    #[test]
+    fn test_instrument_state_transitions() {
+        assert_ne!(InstrumentState::Connected, InstrumentState::Running);
+        assert_eq!(InstrumentState::Connected, InstrumentState::Connected);
+    }
+
+    #[test]
+    fn test_command_types() {
+        let cmd = Command::Start;
+        assert!(matches!(cmd, Command::Start));
+
+        let cmd = Command::SetParameter("exposure".to_string(), serde_json::json!(100.0));
+        assert!(matches!(cmd, Command::SetParameter(_, _)));
+    }
+
+    #[test]
+    fn test_roi_ordering() {
+        let roi1 = Roi { x: 0, y: 0, width: 100, height: 100 };
+        let roi2 = Roi { x: 0, y: 0, width: 200, height: 200 };
+        assert!(roi1 < roi2);
+    }
+}

@@ -42,7 +42,7 @@ use tokio::task::block_in_place;
 use chrono::Utc;
 
 use crate::hardware::capabilities::{Camera, Movable};
-use crate::core_v3::Measurement;
+use crate::core::Measurement;
 
 // =============================================================================
 // Handle Types - Rhai-Compatible Wrappers

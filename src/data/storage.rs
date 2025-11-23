@@ -1,5 +1,5 @@
 //! Example data storage writers.
-use crate::core_v3::Measurement;
+use crate::core::Measurement;
 use crate::{config::Settings, core::StorageWriter, error::DaqError, metadata::Metadata};
 use anyhow::{Context, Result};
 use async_trait::async_trait;

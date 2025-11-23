@@ -31,7 +31,6 @@
 //!   that orchestrate instruments to accomplish scientific tasks.
 //! - **`session`**: Implements session management for saving and loading the application state.
 //! - **`validation`**: A collection of utility functions for validating configuration parameters.
-//! - **`core_v3`**: New unified core abstractions (Phase 1 architectural redesign)
 //! - **`parameter`**: Parameter<T> abstraction for declarative parameter management
 
 // pub mod app; // REMOVED: Depends on app_actor (bd-9si6)
@@ -49,8 +48,7 @@ pub mod session;
 pub mod tracing_v4; // V4 tracing infrastructure (bd-fxb7)
 pub mod validation;
 
-// Phase 1: Architectural redesign - New core abstractions (coexist with old)
-pub mod core_v3;
+// Phase 1: Architectural redesign - New core abstractions
 pub mod parameter;
 
 // V2 modules REMOVED (bd-9si6) - all depend on deleted daq_core crate

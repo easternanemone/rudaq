@@ -47,7 +47,7 @@ use tokio::runtime::Handle;
 use tokio::sync::Mutex;
 use tokio::task::block_in_place;
 
-use crate::core_v3::{Camera, Laser, PowerMeter, Roi, Stage};
+use crate::core::{Camera, Laser, PowerMeter, Roi, Stage};
 
 // =============================================================================
 // Handle Types - V3 Rhai-Compatible Wrappers

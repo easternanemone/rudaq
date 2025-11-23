@@ -43,7 +43,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::{watch, RwLock};
 
-use crate::core_v3::ParameterBase;
+use crate::core::ParameterBase;
 use crate::error::DaqError;
 
 // =============================================================================
