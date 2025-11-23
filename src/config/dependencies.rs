@@ -5,6 +5,12 @@ pub struct DependencyGraph {
     instrument_to_modules: HashMap<String, HashSet<(String, String)>>,
 }
 
+impl Default for DependencyGraph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DependencyGraph {
     pub fn new() -> Self {
         Self {
@@ -15,7 +21,7 @@ impl DependencyGraph {
     pub fn add_assignment(&mut self, module_id: &str, role: &str, instrument_id: &str) {
         self.instrument_to_modules
             .entry(instrument_id.to_string())
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert((module_id.to_string(), role.to_string()));
     }
 
