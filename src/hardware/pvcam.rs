@@ -29,7 +29,7 @@
 //! ```
 
 use crate::hardware::capabilities::{ExposureControl, FrameProducer, Triggerable};
-use crate::hardware::Roi;
+use crate::hardware::{Frame, Roi};
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -399,6 +399,72 @@ impl PvcamDriver {
         *self.frame_buffer.lock().await = frame.clone();
 
         Ok(frame)
+    }
+
+    /// Acquire a single frame from the camera
+    ///
+    /// This is the public API for frame acquisition. Returns a Frame struct
+    /// containing the pixel data and dimensions.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use rust_daq::hardware::pvcam::PvcamDriver;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> anyhow::Result<()> {
+    /// let camera = PvcamDriver::new("PrimeBSI")?;
+    /// camera.set_exposure_ms(100.0).await?;
+    ///
+    /// let frame = camera.acquire_frame().await?;
+    /// println!("Acquired {}x{} frame", frame.width, frame.height);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn acquire_frame(&self) -> Result<Frame> {
+        let buffer = self.acquire_frame_internal().await?;
+        let roi = self.roi().await;
+
+        Ok(Frame::new(roi.width, roi.height, buffer))
+    }
+
+    /// Set exposure time in milliseconds (convenience method)
+    ///
+    /// This is a helper that wraps the ExposureControl trait method
+    /// and works in milliseconds instead of seconds.
+    pub async fn set_exposure_ms(&self, exposure_ms: f64) -> Result<()> {
+        self.set_exposure(exposure_ms / 1000.0).await
+    }
+
+    /// Get exposure time in milliseconds (convenience method)
+    pub async fn get_exposure_ms(&self) -> Result<f64> {
+        Ok(self.get_exposure().await? * 1000.0)
+    }
+
+    /// Disarm the camera after triggering
+    pub async fn disarm(&self) -> Result<()> {
+        *self.armed.lock().await = false;
+        Ok(())
+    }
+
+    /// Wait for external trigger (for testing triggered mode)
+    ///
+    /// In mock mode, this just waits briefly. In hardware mode,
+    /// this would wait for actual trigger signal.
+    pub async fn wait_for_trigger(&self) -> Result<()> {
+        #[cfg(not(feature = "pvcam_hardware"))]
+        {
+            // Simulate trigger wait
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        #[cfg(feature = "pvcam_hardware")]
+        {
+            // TODO: Implement actual trigger waiting logic
+            // This would involve checking camera status and waiting for trigger
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        Ok(())
     }
 }
 

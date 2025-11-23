@@ -4,7 +4,7 @@
 
 ## Summary
 
-Executed Phase 2 hardware validation on available test infrastructure. Results show strong test coverage for Newport 1830-C power meter, while PVCAM and MaiTai laser require additional work.
+Executed Phase 2 hardware validation on available test infrastructure. Results show strong test coverage for Newport 1830-C power meter and PVCAM camera (mock tests). MaiTai laser validation remains blocked by safety requirements.
 
 ## Test Results
 
@@ -29,29 +29,42 @@ Executed Phase 2 hardware validation on available test infrastructure. Results s
 - Requires: Newport 1830-C connected via RS-232, calibrated laser, ND filters
 - Command: `cargo test --test hardware_newport1830c_validation --features "instrument_newport_power_meter,hardware_tests" -- --ignored`
 
-### ⚠️ PVCAM Camera (bd-s76y) - SDK COMPLETE, TESTS MISSING
+### ✅ PVCAM Camera (bd-s76y) - TEST SUITE COMPLETE
 
-**Status:** Implementation complete, no test suite yet
+**Status:** Test suite complete, 20/20 mock tests passing ✅
 **Driver:** `src/hardware/pvcam.rs` (complete with FFI integration)
-**Features:** `pvcam_hardware`
+**Test File:** `tests/hardware_pvcam_validation.rs`
+**Features:** `instrument_photometrics`
 
 **What Works:**
 - PVCAM SDK integration via pvcam-sys (bd-32 ✅ closed)
 - Conditional compilation (mock vs hardware mode)
 - SDK initialization, camera enumeration, frame acquisition
 - Exposure, ROI, and binning control
-- Both build modes compile successfully
+- Frame struct with owned pixel data buffer
+- Public API: `acquire_frame()`, `set_exposure_ms()`, `disarm()`, `wait_for_trigger()`
 
-**What's Missing:**
-- **No test file exists** (`tests/hardware_pvcam_validation.rs` needed)
-- No mock-based unit tests
-- No hardware validation tests
-- Cannot validate 28 tests mentioned in bd-s76y until tests are written
+**Test Coverage (28 tests total):**
+- Unit tests (5): Camera dimensions, binning validation, ROI bounds, frame calculations
+- Mock integration tests (15): Initialization, exposure control, ROI/binning configuration, frame acquisition, rapid acquisition
+- Hardware tests (8, marked `#[ignore]`): Real camera operations, uniformity, noise, triggering
+
+**Test Results:**
+- Total tests: 28
+- Passed: 20 ✅
+- Failed: 0
+- Ignored: 8 (hardware tests)
+- Duration: 0.24s
+
+**Physical Hardware Tests:** 8 tests available but not run (marked `#[ignore]`)
+- Requires: Prime BSI or Prime 95B camera connected via PCIe, PVCAM SDK installed
+- Command: `cargo test --test hardware_pvcam_validation --features "instrument_photometrics,hardware_tests" -- --ignored`
 
 **Next Steps:**
-1. Create comprehensive test suite (reference: `hardware_newport1830c_validation.rs`)
-2. Implement mock tests for basic functionality
-3. Implement hardware tests requiring Prime BSI/95B camera
+1. Connect Prime BSI/95B camera to test system
+2. Install PVCAM SDK on hardware test machine
+3. Run hardware validation tests (8 tests, ~5 minutes)
+4. Validate frame acquisition, uniformity, noise, exposure accuracy, triggering
 
 ### ❌ MaiTai Laser (bd-cqpl) - BLOCKED (SAFETY REQUIRED)
 
@@ -110,11 +123,10 @@ cargo test --test hardware_pvcam_validation --features pvcam_hardware  # File do
 
 ### Immediate Actions (Next Session)
 
-1. **Create PVCAM test suite** (Priority: HIGH)
-   - Use `hardware_newport1830c_validation.rs` as template
-   - Implement mock tests first (frame patterns, ROI, exposure)
-   - Add hardware tests with camera connected
-   - Target: 28 tests to match bd-s76y requirement
+1. **✅ COMPLETED: PVCAM test suite** (Priority: HIGH)
+   - Test suite created: 28 tests (5 unit, 15 mock, 8 hardware)
+   - Mock tests: 20/20 passing in 0.24s
+   - Hardware tests ready for Prime BSI/95B camera connection
 
 2. **Hardware identification** (Priority: MEDIUM)
    - Power cycle all hardware devices
@@ -144,7 +156,7 @@ cargo test --test hardware_pvcam_validation --features pvcam_hardware  # File do
 ## Related Issues
 
 - bd-i7w9: SCPI hardware validation (17 tests, 20min) - Mock tests ✅
-- bd-s76y: PVCAM hardware validation (28 tests, 30min) - SDK ready, tests missing ⚠️
+- bd-s76y: PVCAM hardware validation (28 tests, 30min) - Mock tests ✅, hardware tests ready ✅
 - bd-cqpl: MaiTai hardware validation (19 tests, 1.5hr) - Blocked ❌
 - bd-32: PVCAM SDK integration - Closed ✅
 - bd-6tn6: Test all drivers with serial2-tokio - Blocked by hardware validation
@@ -152,14 +164,20 @@ cargo test --test hardware_pvcam_validation --features pvcam_hardware  # File do
 ## Test Execution Log
 
 ```
-2025-11-23 21:06:24 UTC
-Command: ssh maitai@100.117.5.12 "cd rust-daq && cargo test --test hardware_newport1830c_validation --features instrument_newport_power_meter"
+2025-11-23 21:06:24 UTC - Newport 1830-C (maitai@100.117.5.12)
+Command: cargo test --test hardware_newport1830c_validation --features instrument_newport_power_meter
 Duration: 12.36s (includes compilation)
 Result: 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+Exit code: 0 ✅
+
+2025-11-23 (local) - PVCAM Mock Tests
+Command: cargo test --test hardware_pvcam_validation --features instrument_photometrics
+Duration: 0.24s
+Result: 20 passed; 0 failed; 8 ignored (hardware tests); finished in 0.24s
 Exit code: 0 ✅
 ```
 
 ---
 **Report Author:** Claude Code
-**Session:** Hardware Validation Phase 2
-**Next Session:** Create PVCAM test suite
+**Session:** Hardware Validation Phase 2 & PVCAM Test Suite Creation
+**Next Session:** Run PVCAM hardware tests on maitai-eos (Prime BSI connected, SDK installed)

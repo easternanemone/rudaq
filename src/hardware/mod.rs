@@ -216,3 +216,51 @@ impl Roi {
         self.x + self.width <= sensor_width && self.y + self.height <= sensor_height
     }
 }
+
+/// Owned frame data from camera acquisition
+///
+/// Unlike FrameRef (zero-copy), this struct owns the pixel data.
+/// Used by camera drivers that return owned buffers (e.g., PVCAM).
+#[derive(Clone, Debug)]
+pub struct Frame {
+    /// Frame width in pixels
+    pub width: u32,
+
+    /// Frame height in pixels
+    pub height: u32,
+
+    /// Pixel data buffer (u16 values for scientific cameras)
+    ///
+    /// Data is stored in row-major order (scan line by line).
+    /// Length should equal width * height.
+    pub buffer: Vec<u16>,
+}
+
+impl Frame {
+    /// Create a new frame with given dimensions and buffer
+    pub fn new(width: u32, height: u32, buffer: Vec<u16>) -> Self {
+        Self {
+            width,
+            height,
+            buffer,
+        }
+    }
+
+    /// Get pixel value at (x, y)
+    pub fn get_pixel(&self, x: u32, y: u32) -> Option<u16> {
+        if x >= self.width || y >= self.height {
+            return None;
+        }
+        let index = (y * self.width + x) as usize;
+        self.buffer.get(index).copied()
+    }
+
+    /// Calculate mean pixel value
+    pub fn mean(&self) -> f64 {
+        if self.buffer.is_empty() {
+            return 0.0;
+        }
+        let sum: u64 = self.buffer.iter().map(|&v| v as u64).sum();
+        sum as f64 / self.buffer.len() as f64
+    }
+}

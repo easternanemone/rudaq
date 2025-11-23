@@ -218,12 +218,12 @@ async fn test_exposure_control() {
 
     // Set exposure to 50ms
     camera.set_exposure_ms(50.0).await.expect("Failed to set exposure");
-    let exposure = camera.exposure_ms().await;
+    let exposure = camera.get_exposure_ms().await.expect("Failed to get exposure");
     assert_eq!(exposure, 50.0, "Exposure should be 50ms");
 
     // Change to 100ms
     camera.set_exposure_ms(100.0).await.expect("Failed to set exposure");
-    let exposure = camera.exposure_ms().await;
+    let exposure = camera.get_exposure_ms().await.expect("Failed to get exposure");
     assert_eq!(exposure, 100.0, "Exposure should be 100ms");
 }
 
