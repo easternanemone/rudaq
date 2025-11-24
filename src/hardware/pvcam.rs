@@ -225,21 +225,9 @@ impl PvcamDriver {
 
         #[cfg(feature = "pvcam_hardware")]
         {
-            let handle = *self.camera_handle.lock().await;
-            if let Some(h) = handle {
-                unsafe {
-                    // Set binning via PVCAM parameters
-                    let mut x_bin_param = x_bin as uns16;
-                    let mut y_bin_param = y_bin as uns16;
-
-                    if pl_set_param(h, PARAM_BINNING_SER, &mut x_bin_param as *mut _ as *mut _) == 0 {
-                        return Err(anyhow!("Failed to set horizontal binning"));
-                    }
-                    if pl_set_param(h, PARAM_BINNING_PAR, &mut y_bin_param as *mut _ as *mut _) == 0 {
-                        return Err(anyhow!("Failed to set vertical binning"));
-                    }
-                }
-            }
+            // Note: PVCAM binning is set via the rgn_type structure during acquisition,
+            // not as camera parameters. The binning values are stored and used when
+            // calling pl_exp_setup_seq. See acquire_frame_hardware() for implementation.
         }
 
         *self.binning.lock().await = (x_bin, y_bin);
@@ -317,8 +305,11 @@ impl PvcamDriver {
             rgn
         };
 
-        // Calculate frame size
-        let frame_size: uns32 = (roi.width * roi.height / (x_bin as u32 * y_bin as u32)) as uns32;
+        // Calculate frame size (region dimensions are in unbinned coordinates,
+        // but the actual frame will have binned dimensions)
+        let binned_width = roi.width / x_bin as u32;
+        let binned_height = roi.height / y_bin as u32;
+        let frame_size: uns32 = (binned_width * binned_height) as uns32;
         let mut frame = vec![0u16; frame_size as usize];
 
         unsafe {
