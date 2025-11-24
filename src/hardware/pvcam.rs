@@ -414,8 +414,14 @@ impl PvcamDriver {
     pub async fn acquire_frame(&self) -> Result<Frame> {
         let buffer = self.acquire_frame_internal().await?;
         let roi = self.roi().await;
+        let (x_bin, y_bin) = *self.binning.lock().await;
 
-        Ok(Frame::new(roi.width, roi.height, buffer))
+        // Calculate actual frame dimensions (binned)
+        // ROI coordinates are in unbinned pixels, but the frame size is binned
+        let frame_width = roi.width / x_bin as u32;
+        let frame_height = roi.height / y_bin as u32;
+
+        Ok(Frame::new(frame_width, frame_height, buffer))
     }
 
     /// Set exposure time in milliseconds (convenience method)
