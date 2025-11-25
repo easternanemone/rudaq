@@ -156,6 +156,10 @@ modules = []
 pvcam_hardware = ["dep:pvcam-sys", "pvcam-sys/pvcam-sdk"]
 hardware_tests = []
 
+# Camera model for tests (default: Prime BSI 2048x2048)
+# Enable for Prime 95B (1200x1200) instead
+prime_95b_tests = []
+
 # Python scripting backend
 scripting_python = ["dep:pyo3"]
 

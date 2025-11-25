@@ -117,7 +117,11 @@ impl PvcamDriver {
         // Initialize PVCAM SDK
         unsafe {
             if pl_pvcam_init() == 0 {
-                return Err(anyhow!("Failed to initialize PVCAM SDK"));
+                let err_code = pl_error_code();
+                let mut err_msg = vec![0i8; 256];
+                pl_error_message(err_code, err_msg.as_mut_ptr());
+                let err_str = std::ffi::CStr::from_ptr(err_msg.as_ptr()).to_string_lossy();
+                return Err(anyhow!("Failed to initialize PVCAM SDK: error {} - {}", err_code, err_str));
             }
         }
 
@@ -125,14 +129,18 @@ impl PvcamDriver {
         let mut total_cameras: i16 = 0;
         unsafe {
             if pl_cam_get_total(&mut total_cameras) == 0 {
+                let err_code = pl_error_code();
+                let mut err_msg = vec![0i8; 256];
+                pl_error_message(err_code, err_msg.as_mut_ptr());
+                let err_str = std::ffi::CStr::from_ptr(err_msg.as_ptr()).to_string_lossy();
                 pl_pvcam_uninit();
-                return Err(anyhow!("Failed to get camera count"));
+                return Err(anyhow!("Failed to get camera count: error {} - {}", err_code, err_str));
             }
         }
 
         if total_cameras == 0 {
             unsafe { pl_pvcam_uninit(); }
-            return Err(anyhow!("No PVCAM cameras detected"));
+            return Err(anyhow!("No PVCAM cameras detected (is pvcam_usb daemon running?)"));
         }
 
         // Find camera by name or use first camera
@@ -280,13 +288,9 @@ impl PvcamDriver {
 
         #[cfg(feature = "pvcam_hardware")]
         {
-            let handle = *self.camera_handle.lock().await;
-            if let Some(h) = handle {
-                unsafe {
-                    // ROI in PVCAM is set during pl_exp_setup_seq, not via parameters
-                    // Store for use during acquisition setup
-                }
-            }
+            let _handle = *self.camera_handle.lock().await;
+            // Note: ROI in PVCAM is set during pl_exp_setup_seq, not via parameters
+            // Store for use during acquisition setup
         }
 
         *self.roi.lock().await = roi;
@@ -517,6 +521,7 @@ impl PvcamDriver {
     /// Hardware polling loop for continuous acquisition
     ///
     /// This runs in a blocking thread and polls the PVCAM SDK for new frames.
+    /// Uses get_oldest_frame + unlock_oldest_frame pattern for ordered, lossless delivery.
     #[cfg(feature = "pvcam_hardware")]
     fn poll_loop_hardware(
         hcam: i16,
@@ -530,6 +535,8 @@ impl PvcamDriver {
         let mut status: i16 = 0;
         let mut bytes_arrived: uns32 = 0;
         let mut buffer_cnt: uns32 = 0;
+        let mut no_frame_count: u32 = 0;
+        const MAX_NO_FRAME_ITERATIONS: u32 = 5000; // ~5 seconds at 1ms sleep
 
         while streaming.load(Ordering::SeqCst) {
             unsafe {
@@ -547,20 +554,33 @@ impl PvcamDriver {
 
                 match status {
                     s if s == READOUT_COMPLETE || s == EXPOSURE_IN_PROGRESS => {
-                        // Try to get the latest frame
+                        // Use get_oldest_frame for ordered delivery (FIFO)
                         let mut frame_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
 
-                        if pl_exp_get_latest_frame(hcam, &mut frame_ptr) != 0 && !frame_ptr.is_null()
+                        if pl_exp_get_oldest_frame(hcam, &mut frame_ptr) != 0 && !frame_ptr.is_null()
                         {
-                            // Copy frame data
+                            // Copy frame data BEFORE unlock
                             let src = std::slice::from_raw_parts(frame_ptr as *const u16, frame_pixels);
                             let pixels = src.to_vec();
+
+                            // CRITICAL: Unlock buffer slot so SDK can reuse it
+                            // Must be called after copy, pointer invalid after unlock
+                            pl_exp_unlock_oldest_frame(hcam);
 
                             let frame = Frame::new(width, height, pixels);
                             frame_count.fetch_add(1, Ordering::SeqCst);
 
-                            // Send frame (non-blocking)
-                            let _ = frame_tx.try_send(frame);
+                            // Send frame (non-blocking, log if channel full)
+                            if frame_tx.try_send(frame).is_err() {
+                                eprintln!("PVCAM: Frame channel full, frame dropped");
+                            }
+
+                            // Reset timeout counter on successful frame
+                            no_frame_count = 0;
+                        } else {
+                            // No frame available yet, wait briefly
+                            std::thread::sleep(Duration::from_millis(1));
+                            no_frame_count += 1;
                         }
                     }
                     s if s == READOUT_FAILED => {
@@ -570,12 +590,19 @@ impl PvcamDriver {
                     _ => {
                         // READOUT_NOT_ACTIVE or READOUT_IN_PROGRESS - wait a bit
                         std::thread::sleep(Duration::from_millis(1));
+                        no_frame_count += 1;
                     }
+                }
+
+                // Timeout watchdog: break if no frames for too long
+                if no_frame_count >= MAX_NO_FRAME_ITERATIONS {
+                    eprintln!("PVCAM: Acquisition timeout - no frames for {} iterations", no_frame_count);
+                    break;
                 }
             }
         }
 
-        // Cleanup: stop acquisition
+        // Cleanup: stop acquisition (poll loop owns this now)
         unsafe {
             pl_exp_stop_cont(hcam, CCS_HALT);
         }
@@ -584,12 +611,33 @@ impl PvcamDriver {
 
 impl Drop for PvcamDriver {
     fn drop(&mut self) {
-        // Stop streaming if active
+        // Signal streaming to stop first
         self.streaming.store(false, Ordering::SeqCst);
 
         #[cfg(feature = "pvcam_hardware")]
         {
-            // Cleanup PVCAM SDK resources
+            // CRITICAL: Wait for poll task to finish BEFORE closing camera
+            // The poll task will call pl_exp_stop_cont when it exits
+            if let Ok(mut poll_guard) = self.poll_handle.try_lock() {
+                if let Some(handle) = poll_guard.take() {
+                    // Block on the poll task with a timeout
+                    // Use std blocking since we're in Drop (can't be async)
+                    let _ = std::thread::spawn(move || {
+                        // This runs in a separate thread to avoid blocking Drop indefinitely
+                        let rt = tokio::runtime::Handle::try_current();
+                        if let Ok(rt) = rt {
+                            let _ = rt.block_on(async {
+                                tokio::time::timeout(
+                                    Duration::from_secs(2),
+                                    handle,
+                                ).await
+                            });
+                        }
+                    }).join();
+                }
+            }
+
+            // Now safe to close camera - poll task has exited
             if let Ok(handle) = self.camera_handle.try_lock() {
                 if let Some(h) = *handle {
                     unsafe {
@@ -769,6 +817,14 @@ impl FrameProducer for PvcamDriver {
     fn resolution(&self) -> (u32, u32) {
         (self.sensor_width, self.sensor_height)
     }
+
+    async fn take_frame_receiver(&self) -> Option<tokio::sync::mpsc::Receiver<Frame>> {
+        self.frame_rx.lock().await.take()
+    }
+
+    async fn is_streaming(&self) -> Result<bool> {
+        Ok(self.streaming.load(Ordering::SeqCst))
+    }
 }
 
 #[async_trait]
@@ -822,6 +878,10 @@ impl Triggerable for PvcamDriver {
         self.acquire_frame_internal().await?;
 
         Ok(())
+    }
+
+    async fn is_armed(&self) -> Result<bool> {
+        Ok(*self.armed.lock().await)
     }
 }
 
