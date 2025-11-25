@@ -72,7 +72,9 @@
 //! }
 //! ```
 
-use crate::hardware::capabilities::{ExposureControl, FrameProducer, Movable, Readable, Triggerable};
+use crate::hardware::capabilities::{
+    ExposureControl, FrameProducer, Movable, Readable, Triggerable,
+};
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -149,6 +151,15 @@ pub enum DriverType {
         /// Fixed reading value
         reading: f64,
     },
+
+    /// Mock camera for testing (FrameProducer + Triggerable + ExposureControl)
+    MockCamera,
+
+    /// Photometrics PVCAM camera driver (software or hardware backed)
+    Pvcam {
+        /// Camera name (e.g., "PrimeBSI", "PMCam")
+        camera_name: String,
+    },
 }
 
 impl DriverType {
@@ -161,6 +172,16 @@ impl DriverType {
             DriverType::Esp300 { .. } => vec![Capability::Movable],
             DriverType::MockStage { .. } => vec![Capability::Movable],
             DriverType::MockPowerMeter { .. } => vec![Capability::Readable],
+            DriverType::MockCamera => vec![
+                Capability::FrameProducer,
+                Capability::Triggerable,
+                Capability::ExposureControl,
+            ],
+            DriverType::Pvcam { .. } => vec![
+                Capability::FrameProducer,
+                Capability::Triggerable,
+                Capability::ExposureControl,
+            ],
         }
     }
 
@@ -173,6 +194,8 @@ impl DriverType {
             DriverType::Esp300 { .. } => "esp300",
             DriverType::MockStage { .. } => "mock_stage",
             DriverType::MockPowerMeter { .. } => "mock_power_meter",
+            DriverType::MockCamera => "mock_camera",
+            DriverType::Pvcam { .. } => "pvcam",
         }
     }
 }
@@ -297,7 +320,8 @@ impl DeviceRegistry {
         }
 
         let registered = self.instantiate_device(config).await?;
-        self.devices.insert(registered.config.id.clone(), registered);
+        self.devices
+            .insert(registered.config.id.clone(), registered);
         Ok(())
     }
 
@@ -378,7 +402,9 @@ impl DeviceRegistry {
 
     /// Get a device as ExposureControl (if it supports this capability)
     pub fn get_exposure_control(&self, id: &str) -> Option<Arc<dyn ExposureControl>> {
-        self.devices.get(id).and_then(|d| d.exposure_control.clone())
+        self.devices
+            .get(id)
+            .and_then(|d| d.exposure_control.clone())
     }
 
     /// Get all devices that support a specific capability
@@ -398,7 +424,9 @@ impl DeviceRegistry {
     async fn instantiate_device(&self, config: DeviceConfig) -> Result<RegisteredDevice> {
         match &config.driver {
             DriverType::MockStage { initial_position } => {
-                let driver = Arc::new(crate::hardware::mock::MockStage::with_position(*initial_position));
+                let driver = Arc::new(crate::hardware::mock::MockStage::with_position(
+                    *initial_position,
+                ));
                 Ok(RegisteredDevice {
                     config,
                     movable: Some(driver),
@@ -431,6 +459,50 @@ impl DeviceRegistry {
                 })
             }
 
+            DriverType::MockCamera => {
+                let driver = Arc::new(crate::hardware::mock::MockCamera::default());
+                let (width, height) = driver.resolution();
+                Ok(RegisteredDevice {
+                    config,
+                    movable: None,
+                    readable: None,
+                    triggerable: Some(driver.clone()),
+                    frame_producer: Some(driver.clone()),
+                    exposure_control: Some(driver.clone()),
+                    metadata: DeviceMetadata {
+                        frame_width: Some(width),
+                        frame_height: Some(height),
+                        bits_per_pixel: Some(16), // Mock frames are u16
+                        ..Default::default()
+                    },
+                })
+            }
+
+            #[cfg(feature = "instrument_photometrics")]
+            DriverType::Pvcam { camera_name } => {
+                let driver = Arc::new(crate::hardware::pvcam::PvcamDriver::new(camera_name)?);
+                let (width, height) = driver.resolution();
+                Ok(RegisteredDevice {
+                    config,
+                    movable: None,
+                    readable: None,
+                    triggerable: Some(driver.clone()),
+                    frame_producer: Some(driver.clone()),
+                    exposure_control: Some(driver.clone()),
+                    metadata: DeviceMetadata {
+                        frame_width: Some(width),
+                        frame_height: Some(height),
+                        bits_per_pixel: Some(16),
+                        ..Default::default()
+                    },
+                })
+            }
+
+            #[cfg(not(feature = "instrument_photometrics"))]
+            DriverType::Pvcam { .. } => {
+                Err(anyhow!("PVCAM driver requires 'instrument_photometrics' feature"))
+            }
+
             #[cfg(feature = "instrument_thorlabs")]
             DriverType::Ell14 { port, address } => {
                 let driver = Arc::new(crate::hardware::ell14::Ell14Driver::new(port, address)?);
@@ -452,7 +524,9 @@ impl DeviceRegistry {
 
             #[cfg(feature = "instrument_newport_power_meter")]
             DriverType::Newport1830C { port } => {
-                let driver = Arc::new(crate::hardware::newport_1830c::Newport1830CDriver::new(port)?);
+                let driver = Arc::new(crate::hardware::newport_1830c::Newport1830CDriver::new(
+                    port,
+                )?);
                 Ok(RegisteredDevice {
                     config,
                     movable: None,
@@ -496,7 +570,7 @@ impl DeviceRegistry {
                     exposure_control: None,
                     metadata: DeviceMetadata {
                         position_units: Some("mm".to_string()),
-                        min_position: Some(-25.0),  // Typical ESP300 stage range
+                        min_position: Some(-25.0), // Typical ESP300 stage range
                         max_position: Some(25.0),
                         ..Default::default()
                     },
@@ -505,24 +579,24 @@ impl DeviceRegistry {
 
             // Handle disabled features
             #[cfg(not(feature = "instrument_thorlabs"))]
-            DriverType::Ell14 { .. } => {
-                Err(anyhow!("ELL14 driver requires 'instrument_thorlabs' feature"))
-            }
+            DriverType::Ell14 { .. } => Err(anyhow!(
+                "ELL14 driver requires 'instrument_thorlabs' feature"
+            )),
 
             #[cfg(not(feature = "instrument_newport_power_meter"))]
-            DriverType::Newport1830C { .. } => {
-                Err(anyhow!("Newport 1830-C driver requires 'instrument_newport_power_meter' feature"))
-            }
+            DriverType::Newport1830C { .. } => Err(anyhow!(
+                "Newport 1830-C driver requires 'instrument_newport_power_meter' feature"
+            )),
 
             #[cfg(not(feature = "instrument_spectra_physics"))]
-            DriverType::MaiTai { .. } => {
-                Err(anyhow!("MaiTai driver requires 'instrument_spectra_physics' feature"))
-            }
+            DriverType::MaiTai { .. } => Err(anyhow!(
+                "MaiTai driver requires 'instrument_spectra_physics' feature"
+            )),
 
             #[cfg(not(feature = "instrument_newport"))]
-            DriverType::Esp300 { .. } => {
-                Err(anyhow!("ESP300 driver requires 'instrument_newport' feature"))
-            }
+            DriverType::Esp300 { .. } => Err(anyhow!(
+                "ESP300 driver requires 'instrument_newport' feature"
+            )),
         }
     }
 }
@@ -574,7 +648,10 @@ pub async fn create_lab_registry() -> Result<DeviceRegistry> {
         registry
             .register(DeviceConfig {
                 id: format!("rotator_{}", addr),
-                name: format!("Thorlabs ELL14 Rotation Mount (Addr {}, SN {})", addr, serial),
+                name: format!(
+                    "Thorlabs ELL14 Rotation Mount (Addr {}, SN {})",
+                    addr, serial
+                ),
                 driver: DriverType::Ell14 {
                     port: "/dev/ttyUSB0".into(),
                     address: addr.into(),
@@ -747,6 +824,10 @@ mod tests {
         // MockPowerMeter adds ~1% noise, so allow 2% tolerance
         let readable = registry.get_readable("mock_power_meter").unwrap();
         let reading = readable.read().await.unwrap();
-        assert!((reading - 1e-6).abs() < 1e-7, "Reading {} not close to 1e-6", reading);
+        assert!(
+            (reading - 1e-6).abs() < 1e-7,
+            "Reading {} not close to 1e-6",
+            reading
+        );
     }
 }

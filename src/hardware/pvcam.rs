@@ -121,7 +121,11 @@ impl PvcamDriver {
                 let mut err_msg = vec![0i8; 256];
                 pl_error_message(err_code, err_msg.as_mut_ptr());
                 let err_str = std::ffi::CStr::from_ptr(err_msg.as_ptr()).to_string_lossy();
-                return Err(anyhow!("Failed to initialize PVCAM SDK: error {} - {}", err_code, err_str));
+                return Err(anyhow!(
+                    "Failed to initialize PVCAM SDK: error {} - {}",
+                    err_code,
+                    err_str
+                ));
             }
         }
 
@@ -134,19 +138,27 @@ impl PvcamDriver {
                 pl_error_message(err_code, err_msg.as_mut_ptr());
                 let err_str = std::ffi::CStr::from_ptr(err_msg.as_ptr()).to_string_lossy();
                 pl_pvcam_uninit();
-                return Err(anyhow!("Failed to get camera count: error {} - {}", err_code, err_str));
+                return Err(anyhow!(
+                    "Failed to get camera count: error {} - {}",
+                    err_code,
+                    err_str
+                ));
             }
         }
 
         if total_cameras == 0 {
-            unsafe { pl_pvcam_uninit(); }
-            return Err(anyhow!("No PVCAM cameras detected (is pvcam_usb daemon running?)"));
+            unsafe {
+                pl_pvcam_uninit();
+            }
+            return Err(anyhow!(
+                "No PVCAM cameras detected (is pvcam_usb daemon running?)"
+            ));
         }
 
         // Find camera by name or use first camera
         let mut camera_handle: i16 = 0;
-        let camera_name_cstr = std::ffi::CString::new(camera_name)
-            .context("Invalid camera name")?;
+        let camera_name_cstr =
+            std::ffi::CString::new(camera_name).context("Invalid camera name")?;
 
         unsafe {
             if pl_cam_open(camera_name_cstr.as_ptr() as *mut i8, &mut camera_handle, 0) == 0 {
@@ -173,10 +185,22 @@ impl PvcamDriver {
             let mut par_height: uns16 = 0;
 
             // Get sensor dimensions via PARAM_SER_SIZE
-            if pl_get_param(camera_handle, PARAM_SER_SIZE, ATTR_CURRENT, &mut par_width as *mut _ as *mut _) != 0 {
+            if pl_get_param(
+                camera_handle,
+                PARAM_SER_SIZE,
+                ATTR_CURRENT,
+                &mut par_width as *mut _ as *mut _,
+            ) != 0
+            {
                 width = par_width as uns32;
             }
-            if pl_get_param(camera_handle, PARAM_PAR_SIZE, ATTR_CURRENT, &mut par_height as *mut _ as *mut _) != 0 {
+            if pl_get_param(
+                camera_handle,
+                PARAM_PAR_SIZE,
+                ATTR_CURRENT,
+                &mut par_height as *mut _ as *mut _,
+            ) != 0
+            {
                 height = par_height as uns32;
             }
         }
@@ -355,7 +379,16 @@ impl PvcamDriver {
             let exp_time_ms = exposure as uns32;
             let mut total_bytes: uns32 = 0;
 
-            if pl_exp_setup_seq(h, 1, 1, &region as *const _ as *const _, TIMED_MODE, exp_time_ms, &mut total_bytes) == 0 {
+            if pl_exp_setup_seq(
+                h,
+                1,
+                1,
+                &region as *const _ as *const _,
+                TIMED_MODE,
+                exp_time_ms,
+                &mut total_bytes,
+            ) == 0
+            {
                 return Err(anyhow!("Failed to setup acquisition sequence"));
             }
 
@@ -541,12 +574,8 @@ impl PvcamDriver {
         while streaming.load(Ordering::SeqCst) {
             unsafe {
                 // Check continuous acquisition status
-                if pl_exp_check_cont_status(
-                    hcam,
-                    &mut status,
-                    &mut bytes_arrived,
-                    &mut buffer_cnt,
-                ) == 0
+                if pl_exp_check_cont_status(hcam, &mut status, &mut bytes_arrived, &mut buffer_cnt)
+                    == 0
                 {
                     eprintln!("PVCAM: Failed to check continuous status");
                     break;
@@ -557,10 +586,12 @@ impl PvcamDriver {
                         // Use get_oldest_frame for ordered delivery (FIFO)
                         let mut frame_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
 
-                        if pl_exp_get_oldest_frame(hcam, &mut frame_ptr) != 0 && !frame_ptr.is_null()
+                        if pl_exp_get_oldest_frame(hcam, &mut frame_ptr) != 0
+                            && !frame_ptr.is_null()
                         {
                             // Copy frame data BEFORE unlock
-                            let src = std::slice::from_raw_parts(frame_ptr as *const u16, frame_pixels);
+                            let src =
+                                std::slice::from_raw_parts(frame_ptr as *const u16, frame_pixels);
                             let pixels = src.to_vec();
 
                             // CRITICAL: Unlock buffer slot so SDK can reuse it
@@ -596,7 +627,10 @@ impl PvcamDriver {
 
                 // Timeout watchdog: break if no frames for too long
                 if no_frame_count >= MAX_NO_FRAME_ITERATIONS {
-                    eprintln!("PVCAM: Acquisition timeout - no frames for {} iterations", no_frame_count);
+                    eprintln!(
+                        "PVCAM: Acquisition timeout - no frames for {} iterations",
+                        no_frame_count
+                    );
                     break;
                 }
             }
@@ -627,13 +661,11 @@ impl Drop for PvcamDriver {
                         let rt = tokio::runtime::Handle::try_current();
                         if let Ok(rt) = rt {
                             let _ = rt.block_on(async {
-                                tokio::time::timeout(
-                                    Duration::from_secs(2),
-                                    handle,
-                                ).await
+                                tokio::time::timeout(Duration::from_secs(2), handle).await
                             });
                         }
-                    }).join();
+                    })
+                    .join();
                 }
             }
 
@@ -737,7 +769,15 @@ impl FrameProducer for PvcamDriver {
             let height = binned_height;
 
             let poll_handle = tokio::task::spawn_blocking(move || {
-                Self::poll_loop_hardware(h, streaming, frame_tx, frame_count, frame_pixels, width, height);
+                Self::poll_loop_hardware(
+                    h,
+                    streaming,
+                    frame_tx,
+                    frame_count,
+                    frame_pixels,
+                    width,
+                    height,
+                );
             });
 
             *self.poll_handle.lock().await = Some(poll_handle);
@@ -769,7 +809,8 @@ impl FrameProducer for PvcamDriver {
                     // Create test pattern (gradient + frame number)
                     for y in 0..roi.height {
                         for x in 0..roi.width {
-                            let value = (((x + y + frame_num as u32) % 4096) as u16).saturating_add(100);
+                            let value =
+                                (((x + y + frame_num as u32) % 4096) as u16).saturating_add(100);
                             pixels[(y * roi.width + x) as usize] = value;
                         }
                     }
@@ -1009,7 +1050,10 @@ mod tests {
         camera.set_exposure(0.01).await.unwrap(); // 10ms for fast test
 
         // Take the receiver before starting stream
-        let mut rx = camera.take_frame_receiver().await.expect("Should get receiver");
+        let mut rx = camera
+            .take_frame_receiver()
+            .await
+            .expect("Should get receiver");
 
         // Verify not streaming initially
         assert!(!camera.is_streaming());

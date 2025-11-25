@@ -610,7 +610,10 @@ impl HardwareService for HardwareServiceImpl {
         match exposure_ctrl.set_exposure(exposure_seconds).await {
             Ok(_) => {
                 // Convert seconds back to ms for response
-                let actual_seconds = exposure_ctrl.get_exposure().await.unwrap_or(exposure_seconds);
+                let actual_seconds = exposure_ctrl
+                    .get_exposure()
+                    .await
+                    .unwrap_or(exposure_seconds);
                 Ok(Response::new(SetExposureResponse {
                     success: true,
                     error_message: String::new(),
@@ -646,7 +649,9 @@ impl HardwareService for HardwareServiceImpl {
 
         // Convert seconds to ms for response
         match exposure_ctrl.get_exposure().await {
-            Ok(seconds) => Ok(Response::new(GetExposureResponse { exposure_ms: seconds * 1000.0 })),
+            Ok(seconds) => Ok(Response::new(GetExposureResponse {
+                exposure_ms: seconds * 1000.0,
+            })),
             Err(e) => Err(Status::internal(format!("Failed to get exposure: {}", e))),
         }
     }
@@ -747,7 +752,8 @@ impl HardwareService for HardwareServiceImpl {
         })?;
 
         // Create gRPC output channel
-        let (tx, rx) = tokio::sync::mpsc::channel::<Result<crate::grpc::proto::FrameData, Status>>(32);
+        let (tx, rx) =
+            tokio::sync::mpsc::channel::<Result<crate::grpc::proto::FrameData, Status>>(32);
 
         // Spawn background task to convert Frame → FrameData and forward to gRPC stream
         tokio::spawn(async move {

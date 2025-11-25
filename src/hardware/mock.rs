@@ -13,13 +13,15 @@
 //! - MockStage: 10mm/sec motion speed, 50ms settling time
 //! - MockCamera: 33ms frame readout (30fps simulation)
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 
-use crate::hardware::capabilities::{FrameProducer, Movable, Readable, Triggerable};
+use crate::hardware::capabilities::{
+    ExposureControl, FrameProducer, Movable, Readable, Triggerable,
+};
 
 // =============================================================================
 // MockStage - Simulated Motion Stage
@@ -144,6 +146,7 @@ pub struct MockCamera {
     frame_count: Arc<RwLock<u32>>,
     armed: Arc<RwLock<bool>>,
     streaming: Arc<RwLock<bool>>,
+    exposure_s: Arc<RwLock<f64>>,
 }
 
 impl MockCamera {
@@ -158,6 +161,7 @@ impl MockCamera {
             frame_count: Arc::new(RwLock::new(0)),
             armed: Arc::new(RwLock::new(false)),
             streaming: Arc::new(RwLock::new(false)),
+            exposure_s: Arc::new(RwLock::new(0.033)),
         }
     }
 
@@ -215,6 +219,21 @@ impl Triggerable for MockCamera {
 
     async fn is_armed(&self) -> Result<bool> {
         Ok(*self.armed.read().await)
+    }
+}
+
+#[async_trait]
+impl ExposureControl for MockCamera {
+    async fn set_exposure(&self, seconds: f64) -> Result<()> {
+        if seconds <= 0.0 {
+            return Err(anyhow!("MockCamera: Exposure must be positive"));
+        }
+        *self.exposure_s.write().await = seconds;
+        Ok(())
+    }
+
+    async fn get_exposure(&self) -> Result<f64> {
+        Ok(*self.exposure_s.read().await)
     }
 }
 
@@ -309,10 +328,14 @@ impl Readable for MockPowerMeter {
 
         // Add small noise (~1% variation) for realism
         // Use simple deterministic noise based on time
-        let noise_factor = 1.0 + (std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() % 200) as f64 / 10000.0 - 0.01;
+        let noise_factor = 1.0
+            + (std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+                % 200) as f64
+                / 10000.0
+            - 0.01;
 
         let reading = base * noise_factor;
         println!("MockPowerMeter: Read {:.6}W", reading);
@@ -444,7 +467,11 @@ mod tests {
 
         // Read should return approximately the base value
         let reading = meter.read().await.unwrap();
-        assert!(reading > 2.4 && reading < 2.6, "Reading {} not in expected range", reading);
+        assert!(
+            reading > 2.4 && reading < 2.6,
+            "Reading {} not in expected range",
+            reading
+        );
     }
 
     #[tokio::test]
@@ -461,7 +488,11 @@ mod tests {
 
         // Reading should now be around 5.0
         let reading2 = meter.read().await.unwrap();
-        assert!(reading2 > 4.9 && reading2 < 5.1, "Reading {} not in expected range", reading2);
+        assert!(
+            reading2 > 4.9 && reading2 < 5.1,
+            "Reading {} not in expected range",
+            reading2
+        );
     }
 
     #[tokio::test]

@@ -1,3 +1,5 @@
+pub mod hardware_service;
+pub mod scan_service;
 /// gRPC server for remote DAQ control (Phase 3)
 ///
 /// This module provides a gRPC server that exposes the DAQ system for remote control.
@@ -24,8 +26,6 @@
 /// }
 /// ```
 pub mod server;
-pub mod hardware_service;
-pub mod scan_service;
 
 /// Protocol Buffer definitions for the DAQ Control Service
 pub mod proto {
@@ -41,9 +41,9 @@ pub mod proto {
     tonic::include_proto!("daq");
 }
 
-pub use server::{start_server, start_server_with_hardware, DaqServer};
 pub use hardware_service::HardwareServiceImpl;
 pub use scan_service::ScanServiceImpl;
+pub use server::{start_server, start_server_with_hardware, DaqServer};
 
 // Re-export commonly used proto types - ControlService
 pub use proto::control_service_client::ControlServiceClient;
@@ -57,15 +57,15 @@ pub use proto::{
 pub use proto::hardware_service_client::HardwareServiceClient;
 pub use proto::hardware_service_server::{HardwareService, HardwareServiceServer};
 pub use proto::{
-    DeviceInfo, DeviceMetadata, DeviceStateRequest, DeviceStateResponse,
-    ListDevicesRequest, ListDevicesResponse, MoveRequest, MoveResponse,
-    PositionUpdate, ReadValueRequest, ReadValueResponse, ValueUpdate,
+    DeviceInfo, DeviceMetadata, DeviceStateRequest, DeviceStateResponse, ListDevicesRequest,
+    ListDevicesResponse, MoveRequest, MoveResponse, PositionUpdate, ReadValueRequest,
+    ReadValueResponse, ValueUpdate,
 };
 
 // Re-export ScanService types (bd-4le6)
 pub use proto::scan_service_client::ScanServiceClient;
 pub use proto::scan_service_server::{ScanService, ScanServiceServer};
 pub use proto::{
-    AxisConfig, CreateScanRequest, CreateScanResponse, ScanConfig, ScanProgress,
-    ScanState, ScanStatus, ScanType,
+    AxisConfig, CreateScanRequest, CreateScanResponse, ScanConfig, ScanProgress, ScanState,
+    ScanStatus, ScanType,
 };

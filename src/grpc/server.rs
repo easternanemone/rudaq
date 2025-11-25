@@ -1,11 +1,10 @@
+use crate::core::Measurement;
 use crate::grpc::proto::{
     control_service_server::{ControlService, ControlServiceServer},
     DaemonInfoRequest, DaemonInfoResponse, ListExecutionsRequest, ListExecutionsResponse,
-    ListScriptsRequest, ListScriptsResponse, ScriptInfo, ScriptStatus, StartRequest,
-    StartResponse, StatusRequest, StopRequest, StopResponse, SystemStatus, UploadRequest,
-    UploadResponse,
+    ListScriptsRequest, ListScriptsResponse, ScriptInfo, ScriptStatus, StartRequest, StartResponse,
+    StatusRequest, StopRequest, StopResponse, SystemStatus, UploadRequest, UploadResponse,
 };
-use crate::core::Measurement;
 use crate::scripting::ScriptHost;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -419,25 +418,42 @@ impl ControlService for DaqServer {
 
                 // Extract channel and value from Measurement for filtering and conversion
                 let (name, value, timestamp_ns) = match &data_point {
-                    Measurement::Scalar { name, value, timestamp, .. } => {
-                        let ts_ns = timestamp.timestamp_nanos_opt()
-                            .unwrap_or(0) as u64;
+                    Measurement::Scalar {
+                        name,
+                        value,
+                        timestamp,
+                        ..
+                    } => {
+                        let ts_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
                         (name.clone(), *value, ts_ns)
-                    },
-                    Measurement::Vector { name, values, timestamp, .. } => {
-                        let ts_ns = timestamp.timestamp_nanos_opt()
-                            .unwrap_or(0) as u64;
+                    }
+                    Measurement::Vector {
+                        name,
+                        values,
+                        timestamp,
+                        ..
+                    } => {
+                        let ts_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
                         // For vectors, we can emit the length or first value
                         (format!("{}_len", name), values.len() as f64, ts_ns)
-                    },
-                    Measurement::Image { name, width, height, timestamp, .. } => {
-                        let ts_ns = timestamp.timestamp_nanos_opt()
-                            .unwrap_or(0) as u64;
+                    }
+                    Measurement::Image {
+                        name,
+                        width,
+                        height,
+                        timestamp,
+                        ..
+                    } => {
+                        let ts_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
                         (name.clone(), (width * height) as f64, ts_ns)
-                    },
-                    Measurement::Spectrum { name, amplitudes, timestamp, .. } => {
-                        let ts_ns = timestamp.timestamp_nanos_opt()
-                            .unwrap_or(0) as u64;
+                    }
+                    Measurement::Spectrum {
+                        name,
+                        amplitudes,
+                        timestamp,
+                        ..
+                    } => {
+                        let ts_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
                         (format!("{}_spectrum", name), amplitudes.len() as f64, ts_ns)
                     }
                 };
@@ -549,11 +565,7 @@ impl ControlService for DaqServer {
         #[cfg(feature = "storage_arrow")]
         features.push("storage_arrow".to_string());
 
-        let uptime = self
-            .start_time
-            .elapsed()
-            .unwrap_or_default()
-            .as_secs();
+        let uptime = self.start_time.elapsed().unwrap_or_default().as_secs();
 
         Ok(Response::new(DaemonInfoResponse {
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -720,19 +732,19 @@ mod tests {
         use tokio_stream::StreamExt;
 
         let server = DaqServer::default();
-        
+
         // Get sender to simulate hardware
         let data_sender = server.data_sender();
-        
+
         // Start streaming with no filters
         let request = Request::new(crate::grpc::proto::MeasurementRequest {
             channels: vec![],
             max_rate_hz: 0,
         });
-        
+
         let response = server.stream_measurements(request).await.unwrap();
         let mut stream = response.into_inner();
-        
+
         // Spawn task to send mock data
         tokio::spawn(async move {
             for i in 0..5 {
@@ -745,7 +757,7 @@ mod tests {
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
         });
-        
+
         // Collect measurements
         let mut received = Vec::new();
         while let Some(result) = stream.next().await {
@@ -755,7 +767,7 @@ mod tests {
                 break;
             }
         }
-        
+
         // Verify we got all 5 measurements
         assert_eq!(received.len(), 5);
         assert_eq!(received[0].channel, "test_channel");
@@ -769,16 +781,16 @@ mod tests {
 
         let server = DaqServer::default();
         let data_sender = server.data_sender();
-        
+
         // Request only "channel_a" measurements
         let request = Request::new(crate::grpc::proto::MeasurementRequest {
             channels: vec!["channel_a".to_string()],
             max_rate_hz: 0,
         });
-        
+
         let response = server.stream_measurements(request).await.unwrap();
         let mut stream = response.into_inner();
-        
+
         // Send mixed data
         tokio::spawn(async move {
             for i in 0..10 {
@@ -792,7 +804,7 @@ mod tests {
                 tokio::time::sleep(std::time::Duration::from_millis(5)).await;
             }
         });
-        
+
         // Collect filtered measurements
         let mut received = Vec::new();
         while let Some(result) = stream.next().await {
@@ -802,13 +814,13 @@ mod tests {
                 break;
             }
         }
-        
+
         // Verify only channel_a was received
         assert_eq!(received.len(), 5);
         for data_point in &received {
             assert_eq!(data_point.channel, "channel_a");
         }
-        
+
         // Verify values are even (0, 2, 4, 6, 8)
         assert_eq!(received[0].value, 0.0);
         assert_eq!(received[1].value, 2.0);
@@ -817,21 +829,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_stream_measurements_rate_limiting() {
-        use tokio_stream::StreamExt;
         use std::time::Instant;
+        use tokio_stream::StreamExt;
 
         let server = DaqServer::default();
         let data_sender = server.data_sender();
-        
+
         // Request max 10 Hz rate
         let request = Request::new(crate::grpc::proto::MeasurementRequest {
             channels: vec![],
             max_rate_hz: 10,
         });
-        
+
         let response = server.stream_measurements(request).await.unwrap();
         let mut stream = response.into_inner();
-        
+
         // Send data faster than rate limit
         tokio::spawn(async move {
             for i in 0..20 {
@@ -844,7 +856,7 @@ mod tests {
                 tokio::time::sleep(std::time::Duration::from_millis(1)).await;
             }
         });
-        
+
         // Measure time to receive 5 measurements
         let start = Instant::now();
         let mut count = 0;
@@ -856,11 +868,19 @@ mod tests {
             }
         }
         let elapsed = start.elapsed();
-        
+
         // At 10 Hz, 5 measurements should take ~400-500ms
         // (first is immediate, then 4 x 100ms intervals)
-        assert!(elapsed.as_millis() >= 400, "Rate limiting not working: took {:?}", elapsed);
-        assert!(elapsed.as_millis() < 700, "Rate limiting too slow: took {:?}", elapsed);
+        assert!(
+            elapsed.as_millis() >= 400,
+            "Rate limiting not working: took {:?}",
+            elapsed
+        );
+        assert!(
+            elapsed.as_millis() < 700,
+            "Rate limiting too slow: took {:?}",
+            elapsed
+        );
     }
 
     #[tokio::test]
@@ -869,7 +889,7 @@ mod tests {
 
         let server = DaqServer::default();
         let data_sender = server.data_sender();
-        
+
         // Start two concurrent streams
         let request1 = Request::new(crate::grpc::proto::MeasurementRequest {
             channels: vec![],
@@ -879,13 +899,13 @@ mod tests {
             channels: vec![],
             max_rate_hz: 0,
         });
-        
+
         let response1 = server.stream_measurements(request1).await.unwrap();
         let response2 = server.stream_measurements(request2).await.unwrap();
-        
+
         let mut stream1 = response1.into_inner();
         let mut stream2 = response2.into_inner();
-        
+
         // Send test data
         tokio::spawn(async move {
             for i in 0..3 {
@@ -898,11 +918,11 @@ mod tests {
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
         });
-        
+
         // Both clients should receive the same data
         let mut client1_data = Vec::new();
         let mut client2_data = Vec::new();
-        
+
         for _ in 0..3 {
             if let Some(result) = stream1.next().await {
                 client1_data.push(result.unwrap().value);
@@ -911,7 +931,7 @@ mod tests {
                 client2_data.push(result.unwrap().value);
             }
         }
-        
+
         assert_eq!(client1_data.len(), 3);
         assert_eq!(client2_data.len(), 3);
         assert_eq!(client1_data, client2_data);

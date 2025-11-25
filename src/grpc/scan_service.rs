@@ -11,13 +11,14 @@
 //! 5. `StopScan` - Abort scan
 
 use crate::grpc::proto::{
-    scan_service_server::ScanService, CreateScanRequest, CreateScanResponse,
-    GetScanStatusRequest, ListScansRequest, ListScansResponse, PauseScanRequest, PauseScanResponse,
-    ResumeScanRequest, ResumeScanResponse, ScanConfig, ScanDataPoint, ScanProgress, ScanState,
-    ScanStatus, ScanType, StartScanRequest, StartScanResponse, StopScanRequest, StopScanResponse,
+    scan_service_server::ScanService, CreateScanRequest, CreateScanResponse, GetScanStatusRequest,
+    ListScansRequest, ListScansResponse, PauseScanRequest, PauseScanResponse, ResumeScanRequest,
+    ResumeScanResponse, ScanConfig, ScanDataPoint, ScanProgress, ScanState, ScanStatus, ScanType,
+    StartScanRequest, StartScanResponse, StopScanRequest, StopScanResponse,
     StreamScanProgressRequest,
 };
 use crate::hardware::registry::DeviceRegistry;
+use log::warn;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -185,7 +186,13 @@ impl ScanServiceImpl {
         for &pos in iter {
             let mut next_point = current_point.clone();
             next_point.push(pos);
-            Self::build_scan_points_recursive(config, axis_positions, axis_idx + 1, next_point, result);
+            Self::build_scan_points_recursive(
+                config,
+                axis_positions,
+                axis_idx + 1,
+                next_point,
+                result,
+            );
         }
     }
 
@@ -259,7 +266,10 @@ impl ScanServiceImpl {
             let movables: Vec<_> = config
                 .axes
                 .iter()
-                .filter_map(|a| reg.get_movable(&a.device_id).map(|m| (a.device_id.clone(), m)))
+                .filter_map(|a| {
+                    reg.get_movable(&a.device_id)
+                        .map(|m| (a.device_id.clone(), m))
+                })
                 .collect();
             let readables: Vec<_> = config
                 .acquire_device_ids
@@ -277,7 +287,8 @@ impl ScanServiceImpl {
         if let Some((_, ref trig)) = triggerable {
             if config.arm_camera.unwrap_or(false) {
                 if let Err(e) = trig.arm().await {
-                    Self::set_scan_error(&scans, &scan_id, format!("Failed to arm camera: {}", e)).await;
+                    Self::set_scan_error(&scans, &scan_id, format!("Failed to arm camera: {}", e))
+                        .await;
                     return;
                 }
             }
@@ -287,15 +298,23 @@ impl ScanServiceImpl {
         for (point_idx, positions) in points.iter().enumerate() {
             // Check for stop/pause
             if stop_requested.load(Ordering::SeqCst) {
-                Self::set_scan_state(&scans, &scan_id, ScanState::ScanStopped, point_idx as u32).await;
+                Self::set_scan_state(&scans, &scan_id, ScanState::ScanStopped, point_idx as u32)
+                    .await;
                 return;
             }
 
             while pause_requested.load(Ordering::SeqCst) {
-                Self::set_scan_state(&scans, &scan_id, ScanState::ScanPaused, point_idx as u32).await;
+                Self::set_scan_state(&scans, &scan_id, ScanState::ScanPaused, point_idx as u32)
+                    .await;
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 if stop_requested.load(Ordering::SeqCst) {
-                    Self::set_scan_state(&scans, &scan_id, ScanState::ScanStopped, point_idx as u32).await;
+                    Self::set_scan_state(
+                        &scans,
+                        &scan_id,
+                        ScanState::ScanStopped,
+                        point_idx as u32,
+                    )
+                    .await;
                     return;
                 }
             }
@@ -308,7 +327,12 @@ impl ScanServiceImpl {
             for (i, (device_id, movable)) in movables.iter().enumerate() {
                 let target = positions[i];
                 if let Err(e) = movable.move_abs(target).await {
-                    Self::set_scan_error(&scans, &scan_id, format!("Move failed on {}: {}", device_id, e)).await;
+                    Self::set_scan_error(
+                        &scans,
+                        &scan_id,
+                        format!("Move failed on {}: {}", device_id, e),
+                    )
+                    .await;
                     return;
                 }
                 axis_positions_map.insert(device_id.clone(), target);
@@ -317,7 +341,12 @@ impl ScanServiceImpl {
             // Wait for all axes to settle
             for (device_id, movable) in &movables {
                 if let Err(e) = movable.wait_settled().await {
-                    Self::set_scan_error(&scans, &scan_id, format!("Settle failed on {}: {}", device_id, e)).await;
+                    Self::set_scan_error(
+                        &scans,
+                        &scan_id,
+                        format!("Settle failed on {}: {}", device_id, e),
+                    )
+                    .await;
                     return;
                 }
             }
@@ -333,7 +362,8 @@ impl ScanServiceImpl {
                 // Trigger camera if configured
                 if let Some((_, ref trig)) = triggerable {
                     if let Err(e) = trig.trigger().await {
-                        Self::set_scan_error(&scans, &scan_id, format!("Trigger failed: {}", e)).await;
+                        Self::set_scan_error(&scans, &scan_id, format!("Trigger failed: {}", e))
+                            .await;
                         return;
                     }
                 }
@@ -380,7 +410,23 @@ impl ScanServiceImpl {
                 axis_positions: axis_positions_map,
                 data_points,
             };
-            let _ = progress_tx.send(progress);
+            let scans_clone = scans.clone();
+            let scan_id_clone = scan_id.clone();
+            let progress_tx = progress_tx.clone();
+
+            // Send progress without blocking the scan loop; handle channel closure explicitly.
+            tokio::spawn(async move {
+                if let Err(e) = progress_tx.send(progress).await {
+                    warn!("Progress channel closed for {}: {}", scan_id_clone, e);
+                    // Transition scan to error to surface failure to clients.
+                    Self::set_scan_error(
+                        &scans_clone,
+                        &scan_id_clone,
+                        "Progress channel closed".to_string(),
+                    )
+                    .await;
+                }
+            });
 
             // Update current point
             {
@@ -428,7 +474,9 @@ impl ScanService for ScanServiceImpl {
         request: Request<CreateScanRequest>,
     ) -> Result<Response<CreateScanResponse>, Status> {
         let req = request.into_inner();
-        let config = req.config.ok_or_else(|| Status::invalid_argument("Missing scan config"))?;
+        let config = req
+            .config
+            .ok_or_else(|| Status::invalid_argument("Missing scan config"))?;
 
         // Validate configuration
         if let Err(e) = self.validate_config(&config).await {

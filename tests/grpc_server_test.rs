@@ -71,7 +71,10 @@ async fn test_grpc_status_no_execution() {
     let response = server.get_script_status(request).await;
 
     // Server returns NotFound status for nonexistent executions
-    assert!(response.is_err(), "Status for nonexistent execution should fail");
+    assert!(
+        response.is_err(),
+        "Status for nonexistent execution should fail"
+    );
     let err = response.unwrap_err();
     assert_eq!(err.code(), tonic::Code::NotFound);
 }
@@ -116,6 +119,9 @@ async fn test_grpc_full_workflow() {
         "Script state should be valid: {}",
         status.state
     );
-    assert_eq!(status.execution_id, execution_id, "Execution ID should match");
+    assert_eq!(
+        status.execution_id, execution_id,
+        "Execution ID should match"
+    );
     assert_eq!(status.script_id, script_id, "Script ID should match");
 }
