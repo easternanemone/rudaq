@@ -86,37 +86,45 @@ pub struct SpeedMode {
 }
 
 /// Fan speed setting
+///
+/// Maps to PVCAM's PL_FAN_SPEEDS enum values:
+/// - FAN_SPEED_HIGH = 0 (default for most cameras)
+/// - FAN_SPEED_MEDIUM = 1
+/// - FAN_SPEED_LOW = 2
+/// - FAN_SPEED_OFF = 3
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FanSpeed {
-    Off,
-    Low,
-    Medium,
+    /// Full fan speed (default for most cameras)
     High,
-    Max,
+    /// Medium fan speed
+    Medium,
+    /// Low fan speed
+    Low,
+    /// Fan is turned off
+    Off,
 }
 
 impl FanSpeed {
-    /// Convert from PVCAM enum value
+    /// Convert from PVCAM enum value (PL_FAN_SPEEDS)
     #[cfg(feature = "pvcam_hardware")]
-    fn from_pvcam(value: i32) -> Self {
+    pub fn from_pvcam(value: i32) -> Self {
         match value {
-            0 => FanSpeed::Off,
-            1 => FanSpeed::Low,
-            2 => FanSpeed::Medium,
-            3 => FanSpeed::High,
-            _ => FanSpeed::Max,
+            0 => FanSpeed::High,
+            1 => FanSpeed::Medium,
+            2 => FanSpeed::Low,
+            3 => FanSpeed::Off,
+            _ => FanSpeed::High, // Default to high for unknown values
         }
     }
 
-    /// Convert to PVCAM enum value
+    /// Convert to PVCAM enum value (PL_FAN_SPEEDS)
     #[cfg(feature = "pvcam_hardware")]
-    fn to_pvcam(self) -> i32 {
+    pub fn to_pvcam(self) -> i32 {
         match self {
-            FanSpeed::Off => 0,
-            FanSpeed::Low => 1,
-            FanSpeed::Medium => 2,
-            FanSpeed::High => 3,
-            FanSpeed::Max => 4,
+            FanSpeed::High => 0,
+            FanSpeed::Medium => 1,
+            FanSpeed::Low => 2,
+            FanSpeed::Off => 3,
         }
     }
 }
@@ -1169,6 +1177,100 @@ impl PvcamDriver {
         let index = self.get_speed_index().await?;
         let name = self.get_speed_name().await.unwrap_or_else(|_| "Unknown".to_string());
         Ok(SpeedMode { index, name })
+    }
+
+    // =========================================================================
+    // Temperature Control Methods
+    // =========================================================================
+
+    /// Get the temperature setpoint in degrees Celsius
+    ///
+    /// Returns the target temperature that the camera is trying to reach.
+    /// PVCAM stores this as hundredths of degrees Celsius.
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn get_temperature_setpoint(&self) -> Result<f64> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+        let mut temp_raw: i16 = 0;
+        unsafe {
+            if pl_get_param(h, PARAM_TEMP_SETPOINT, ATTR_CURRENT, &mut temp_raw as *mut _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to get temperature setpoint: {}", get_pvcam_error()));
+            }
+        }
+        Ok(temp_raw as f64 / 100.0)
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn get_temperature_setpoint(&self) -> Result<f64> {
+        Ok(-40.0) // Mock: typical cooled sensor setpoint
+    }
+
+    /// Set the temperature setpoint in degrees Celsius
+    ///
+    /// Sets the target temperature for the camera's cooling system.
+    /// The actual temperature may take time to reach the setpoint.
+    /// Typical range is -40°C to +25°C depending on camera model.
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn set_temperature_setpoint(&self, celsius: f64) -> Result<()> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        // PVCAM expects temperature in hundredths of degrees
+        let temp_raw = (celsius * 100.0) as i16;
+        unsafe {
+            if pl_set_param(h, PARAM_TEMP_SETPOINT, &temp_raw as *const _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to set temperature setpoint: {}", get_pvcam_error()));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn set_temperature_setpoint(&self, _celsius: f64) -> Result<()> {
+        Ok(())
+    }
+
+    /// Get the current fan speed setting
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn get_fan_speed(&self) -> Result<FanSpeed> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+        let mut speed: i32 = 0;
+        unsafe {
+            if pl_get_param(h, PARAM_FAN_SPEED_SETPOINT, ATTR_CURRENT, &mut speed as *mut _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to get fan speed: {}", get_pvcam_error()));
+            }
+        }
+        Ok(FanSpeed::from_pvcam(speed))
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn get_fan_speed(&self) -> Result<FanSpeed> {
+        Ok(FanSpeed::High) // Mock: default to high
+    }
+
+    /// Set the fan speed
+    ///
+    /// Controls the camera's cooling fan. Higher speeds provide better cooling
+    /// but may introduce vibration. Lower speeds or off may be needed for
+    /// vibration-sensitive applications but may limit cooling performance.
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn set_fan_speed(&self, speed: FanSpeed) -> Result<()> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        let speed_val = speed.to_pvcam();
+        unsafe {
+            if pl_set_param(h, PARAM_FAN_SPEED_SETPOINT, &speed_val as *const _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to set fan speed: {}", get_pvcam_error()));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn set_fan_speed(&self, _speed: FanSpeed) -> Result<()> {
+        Ok(())
     }
 
     /// Hardware polling loop for continuous acquisition

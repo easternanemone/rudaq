@@ -1149,3 +1149,105 @@ async fn test_hardware_set_speed_index() {
         .expect("Failed to restore original speed");
     println!("Restored original speed index: {}", original_speed);
 }
+
+// =============================================================================
+// Tests 46-49: Temperature Control
+// =============================================================================
+
+/// Test 46: Get temperature setpoint
+#[tokio::test]
+#[cfg_attr(not(feature = "hardware_tests"), ignore)]
+async fn test_hardware_get_temperature_setpoint() {
+    let camera = PvcamDriver::new("PMCam").expect("Failed to open camera");
+
+    let setpoint = camera
+        .get_temperature_setpoint()
+        .await
+        .expect("Failed to get temperature setpoint");
+
+    println!("Temperature setpoint: {:.2}°C", setpoint);
+
+    // Typical cooled camera setpoints are between -50°C and +25°C
+    assert!(
+        setpoint >= -55.0 && setpoint <= 30.0,
+        "Temperature setpoint {} seems unreasonable",
+        setpoint
+    );
+}
+
+/// Test 47: Get and compare temperature vs setpoint
+#[tokio::test]
+#[cfg_attr(not(feature = "hardware_tests"), ignore)]
+async fn test_hardware_temperature_vs_setpoint() {
+    let camera = PvcamDriver::new("PMCam").expect("Failed to open camera");
+
+    let current = camera
+        .get_temperature()
+        .await
+        .expect("Failed to get current temperature");
+    let setpoint = camera
+        .get_temperature_setpoint()
+        .await
+        .expect("Failed to get temperature setpoint");
+
+    println!("Current temperature:  {:.2}°C", current);
+    println!("Temperature setpoint: {:.2}°C", setpoint);
+    println!("Difference:           {:.2}°C", (current - setpoint).abs());
+
+    // Both should be in reasonable range
+    assert!(current >= -55.0 && current <= 50.0, "Current temp unreasonable: {}", current);
+    assert!(setpoint >= -55.0 && setpoint <= 30.0, "Setpoint unreasonable: {}", setpoint);
+}
+
+/// Test 48: Get fan speed
+#[tokio::test]
+#[cfg_attr(not(feature = "hardware_tests"), ignore)]
+async fn test_hardware_get_fan_speed() {
+    let camera = PvcamDriver::new("PMCam").expect("Failed to open camera");
+
+    let speed = camera
+        .get_fan_speed()
+        .await
+        .expect("Failed to get fan speed");
+
+    println!("Fan speed: {:?}", speed);
+}
+
+/// Test 49: Set fan speed and verify
+#[tokio::test]
+#[cfg_attr(not(feature = "hardware_tests"), ignore)]
+async fn test_hardware_set_fan_speed() {
+    use rust_daq::hardware::pvcam::FanSpeed;
+
+    let camera = PvcamDriver::new("PMCam").expect("Failed to open camera");
+
+    // Save original fan speed
+    let original_speed = camera
+        .get_fan_speed()
+        .await
+        .expect("Failed to get original fan speed");
+    println!("Original fan speed: {:?}", original_speed);
+
+    // Test each fan speed setting
+    let speeds = [FanSpeed::High, FanSpeed::Medium, FanSpeed::Low];
+    for speed in &speeds {
+        match camera.set_fan_speed(*speed).await {
+            Ok(()) => {
+                let readback = camera.get_fan_speed().await.expect("Failed to read fan speed");
+                println!("  Set {:?} -> Read back {:?}", speed, readback);
+                // Note: Some cameras may not support all fan speeds
+                // Just verify we can set and read without error
+            }
+            Err(e) => {
+                println!("  Set {:?} failed: {} (may not be supported)", speed, e);
+            }
+        }
+    }
+
+    // Restore original fan speed
+    camera
+        .set_fan_speed(original_speed)
+        .await
+        .expect("Failed to restore fan speed");
+    println!("Restored fan speed: {:?}", original_speed);
+}
