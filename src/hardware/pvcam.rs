@@ -1273,6 +1273,241 @@ impl PvcamDriver {
         Ok(())
     }
 
+    // =========================================================================
+    // Post-Processing Feature Methods
+    // =========================================================================
+
+    /// List all available post-processing features
+    ///
+    /// Returns information about each PP feature including its index, ID, and name.
+    /// Common features include defect correction, background subtraction, etc.
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn list_pp_features(&self) -> Result<Vec<PPFeature>> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        // Get count of PP features
+        let mut count: i16 = 0;
+        unsafe {
+            if pl_get_param(h, PARAM_PP_INDEX, ATTR_COUNT, &mut count as *mut _ as *mut _) == 0 {
+                // PP features may not be available on all cameras
+                return Ok(Vec::new());
+            }
+        }
+
+        let mut features = Vec::new();
+        for idx in 0..count {
+            // Set PP index to select this feature
+            unsafe {
+                if pl_set_param(h, PARAM_PP_INDEX, &idx as *const _ as *mut _) == 0 {
+                    continue; // Skip this feature if we can't select it
+                }
+
+                // Get feature ID
+                let mut feat_id: u16 = 0;
+                if pl_get_param(h, PARAM_PP_FEAT_ID, ATTR_CURRENT, &mut feat_id as *mut _ as *mut _) == 0 {
+                    continue;
+                }
+
+                // Get feature name
+                let mut name_buf = vec![0i8; 256];
+                if pl_get_param(h, PARAM_PP_FEAT_NAME, ATTR_CURRENT, name_buf.as_mut_ptr() as *mut _) == 0 {
+                    continue;
+                }
+                let name = std::ffi::CStr::from_ptr(name_buf.as_ptr())
+                    .to_string_lossy()
+                    .into_owned();
+
+                features.push(PPFeature {
+                    index: idx as u16,
+                    id: feat_id,
+                    name,
+                });
+            }
+        }
+
+        Ok(features)
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn list_pp_features(&self) -> Result<Vec<PPFeature>> {
+        // Mock: return some typical PP features
+        Ok(vec![
+            PPFeature { index: 0, id: 1, name: "Defect Correction".to_string() },
+            PPFeature { index: 1, id: 2, name: "Background Subtraction".to_string() },
+        ])
+    }
+
+    /// Get all parameters for a post-processing feature
+    ///
+    /// # Arguments
+    /// * `feature_index` - Index of the PP feature (from list_pp_features)
+    ///
+    /// Returns information about each parameter including its index, ID, name, and current value.
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn get_pp_params(&self, feature_index: u16) -> Result<Vec<PPParam>> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        // Select the PP feature
+        let idx = feature_index as i16;
+        unsafe {
+            if pl_set_param(h, PARAM_PP_INDEX, &idx as *const _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to select PP feature {}: {}", feature_index, get_pvcam_error()));
+            }
+
+            // Get count of parameters for this feature
+            let mut count: i16 = 0;
+            if pl_get_param(h, PARAM_PP_PARAM_INDEX, ATTR_COUNT, &mut count as *mut _ as *mut _) == 0 {
+                return Ok(Vec::new()); // No parameters for this feature
+            }
+
+            let mut params = Vec::new();
+            for param_idx in 0..count {
+                // Select this parameter
+                if pl_set_param(h, PARAM_PP_PARAM_INDEX, &param_idx as *const _ as *mut _) == 0 {
+                    continue;
+                }
+
+                // Get parameter ID
+                let mut param_id: u16 = 0;
+                if pl_get_param(h, PARAM_PP_PARAM_ID, ATTR_CURRENT, &mut param_id as *mut _ as *mut _) == 0 {
+                    continue;
+                }
+
+                // Get parameter name
+                let mut name_buf = vec![0i8; 256];
+                if pl_get_param(h, PARAM_PP_PARAM_NAME, ATTR_CURRENT, name_buf.as_mut_ptr() as *mut _) == 0 {
+                    continue;
+                }
+                let name = std::ffi::CStr::from_ptr(name_buf.as_ptr())
+                    .to_string_lossy()
+                    .into_owned();
+
+                // Get current value
+                let mut value: u32 = 0;
+                if pl_get_param(h, PARAM_PP_PARAM, ATTR_CURRENT, &mut value as *mut _ as *mut _) == 0 {
+                    continue;
+                }
+
+                params.push(PPParam {
+                    index: param_idx as u16,
+                    id: param_id,
+                    name,
+                    value,
+                });
+            }
+
+            Ok(params)
+        }
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn get_pp_params(&self, _feature_index: u16) -> Result<Vec<PPParam>> {
+        // Mock: return typical parameters
+        Ok(vec![
+            PPParam { index: 0, id: 1, name: "Enabled".to_string(), value: 1 },
+            PPParam { index: 1, id: 2, name: "Threshold".to_string(), value: 100 },
+        ])
+    }
+
+    /// Get a specific post-processing parameter value
+    ///
+    /// # Arguments
+    /// * `feature_index` - Index of the PP feature
+    /// * `param_index` - Index of the parameter within the feature
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn get_pp_param(&self, feature_index: u16, param_index: u16) -> Result<u32> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        let feat_idx = feature_index as i16;
+        let par_idx = param_index as i16;
+
+        unsafe {
+            // Select the PP feature
+            if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to select PP feature {}: {}", feature_index, get_pvcam_error()));
+            }
+
+            // Select the parameter
+            if pl_set_param(h, PARAM_PP_PARAM_INDEX, &par_idx as *const _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to select PP param {}: {}", param_index, get_pvcam_error()));
+            }
+
+            // Get the value
+            let mut value: u32 = 0;
+            if pl_get_param(h, PARAM_PP_PARAM, ATTR_CURRENT, &mut value as *mut _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to get PP param value: {}", get_pvcam_error()));
+            }
+
+            Ok(value)
+        }
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn get_pp_param(&self, _feature_index: u16, _param_index: u16) -> Result<u32> {
+        Ok(0) // Mock value
+    }
+
+    /// Set a post-processing parameter value
+    ///
+    /// # Arguments
+    /// * `feature_index` - Index of the PP feature
+    /// * `param_index` - Index of the parameter within the feature
+    /// * `value` - New value to set
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn set_pp_param(&self, feature_index: u16, param_index: u16, value: u32) -> Result<()> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        let feat_idx = feature_index as i16;
+        let par_idx = param_index as i16;
+
+        unsafe {
+            // Select the PP feature
+            if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to select PP feature {}: {}", feature_index, get_pvcam_error()));
+            }
+
+            // Select the parameter
+            if pl_set_param(h, PARAM_PP_PARAM_INDEX, &par_idx as *const _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to select PP param {}: {}", param_index, get_pvcam_error()));
+            }
+
+            // Set the value
+            if pl_set_param(h, PARAM_PP_PARAM, &value as *const _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to set PP param value: {}", get_pvcam_error()));
+            }
+
+            Ok(())
+        }
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn set_pp_param(&self, _feature_index: u16, _param_index: u16, _value: u32) -> Result<()> {
+        Ok(())
+    }
+
+    /// Reset all post-processing features to default values
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn reset_pp_features(&self) -> Result<()> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        unsafe {
+            if pl_pp_reset(h) == 0 {
+                return Err(anyhow!("Failed to reset PP features: {}", get_pvcam_error()));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn reset_pp_features(&self) -> Result<()> {
+        Ok(())
+    }
+
     /// Hardware polling loop for continuous acquisition
     ///
     /// This runs in a blocking thread and polls the PVCAM SDK for new frames.
