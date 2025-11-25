@@ -1365,3 +1365,137 @@ async fn test_hardware_reset_pp_features() {
         Err(e) => println!("PP reset not supported or failed: {}", e),
     }
 }
+
+// ============================================================================
+// SMART STREAMING TESTS (Tests 54-57)
+// ============================================================================
+
+/// Test 54: Check if Smart Streaming is available
+#[tokio::test]
+#[cfg_attr(not(feature = "hardware_tests"), ignore)]
+async fn test_hardware_smart_streaming_available() {
+    let camera = PvcamDriver::new("PMCam").expect("Failed to open camera");
+
+    let available = camera
+        .is_smart_streaming_available()
+        .await
+        .expect("Failed to check Smart Streaming availability");
+
+    println!("Smart Streaming available: {}", available);
+}
+
+/// Test 55: Get Smart Streaming max entries
+#[tokio::test]
+#[cfg_attr(not(feature = "hardware_tests"), ignore)]
+async fn test_hardware_smart_streaming_max_entries() {
+    let camera = PvcamDriver::new("PMCam").expect("Failed to open camera");
+
+    let available = camera
+        .is_smart_streaming_available()
+        .await
+        .expect("Failed to check availability");
+
+    if !available {
+        println!("Smart Streaming not available on this camera");
+        return;
+    }
+
+    match camera.get_smart_stream_max_entries().await {
+        Ok(max_entries) => println!("Smart Streaming max entries: {}", max_entries),
+        Err(e) => println!("Could not get max entries (may need different query): {}", e),
+    }
+}
+
+/// Test 56: Enable/disable Smart Streaming
+#[tokio::test]
+#[cfg_attr(not(feature = "hardware_tests"), ignore)]
+async fn test_hardware_smart_streaming_enable_disable() {
+    let camera = PvcamDriver::new("PMCam").expect("Failed to open camera");
+
+    let available = camera
+        .is_smart_streaming_available()
+        .await
+        .expect("Failed to check availability");
+
+    if !available {
+        println!("Smart Streaming not available on this camera");
+        return;
+    }
+
+    // Check initial status
+    let initial_status = camera
+        .is_smart_streaming_enabled()
+        .await
+        .expect("Failed to get initial status");
+    println!("Initial Smart Streaming status: {}", initial_status);
+
+    // Enable Smart Streaming
+    camera
+        .enable_smart_streaming()
+        .await
+        .expect("Failed to enable Smart Streaming");
+
+    let enabled = camera
+        .is_smart_streaming_enabled()
+        .await
+        .expect("Failed to check enabled status");
+    println!("After enable: {}", enabled);
+    assert!(enabled, "Should be enabled after enable call");
+
+    // Disable Smart Streaming
+    camera
+        .disable_smart_streaming()
+        .await
+        .expect("Failed to disable Smart Streaming");
+
+    let disabled = camera
+        .is_smart_streaming_enabled()
+        .await
+        .expect("Failed to check disabled status");
+    println!("After disable: {}", disabled);
+    assert!(!disabled, "Should be disabled after disable call");
+}
+
+/// Test 57: Set Smart Streaming exposure sequence
+#[tokio::test]
+#[cfg_attr(not(feature = "hardware_tests"), ignore)]
+async fn test_hardware_smart_streaming_set_exposures() {
+    let camera = PvcamDriver::new("PMCam").expect("Failed to open camera");
+
+    let available = camera
+        .is_smart_streaming_available()
+        .await
+        .expect("Failed to check availability");
+
+    if !available {
+        println!("Smart Streaming not available on this camera");
+        return;
+    }
+
+    // Enable Smart Streaming first
+    camera
+        .enable_smart_streaming()
+        .await
+        .expect("Failed to enable Smart Streaming");
+
+    // Set an HDR-style exposure sequence (short, medium, long)
+    let exposures_ms = vec![1.0, 10.0, 100.0];
+    println!("Setting exposure sequence: {:?}ms", exposures_ms);
+
+    match camera.set_smart_stream_exposures(&exposures_ms).await {
+        Ok(()) => println!("Exposure sequence set successfully"),
+        Err(e) => println!("Failed to set exposures: {} (may require setup_exp first)", e),
+    }
+
+    // Get exposure count
+    match camera.get_smart_stream_exposure_count().await {
+        Ok(count) => println!("Current exposure count: {}", count),
+        Err(e) => println!("Failed to get exposure count: {}", e),
+    }
+
+    // Clean up - disable Smart Streaming
+    camera
+        .disable_smart_streaming()
+        .await
+        .expect("Failed to disable Smart Streaming");
+}

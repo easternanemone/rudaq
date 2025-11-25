@@ -1508,6 +1508,192 @@ impl PvcamDriver {
         Ok(())
     }
 
+    // =========================================================================
+    // Smart Streaming Methods (Variable Exposure Sequences)
+    // =========================================================================
+
+    /// Check if Smart Streaming is available on this camera
+    ///
+    /// Smart Streaming allows specifying different exposure times for each
+    /// frame in a sequence, useful for HDR acquisition.
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn is_smart_streaming_available(&self) -> Result<bool> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        let mut available: rs_bool = 0;
+        unsafe {
+            // Check if PARAM_SMART_STREAM_MODE_ENABLED is available
+            if pl_get_param(h, PARAM_SMART_STREAM_MODE_ENABLED, ATTR_AVAIL, &mut available as *mut _ as *mut _) == 0 {
+                return Ok(false);
+            }
+        }
+        Ok(available != 0)
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn is_smart_streaming_available(&self) -> Result<bool> {
+        Ok(true) // Mock: assume available
+    }
+
+    /// Check if Smart Streaming is currently enabled
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn is_smart_streaming_enabled(&self) -> Result<bool> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        let mut enabled: rs_bool = 0;
+        unsafe {
+            if pl_get_param(h, PARAM_SMART_STREAM_MODE_ENABLED, ATTR_CURRENT, &mut enabled as *mut _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to get Smart Streaming status: {}", get_pvcam_error()));
+            }
+        }
+        Ok(enabled != 0)
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn is_smart_streaming_enabled(&self) -> Result<bool> {
+        Ok(false) // Mock: disabled by default
+    }
+
+    /// Enable Smart Streaming mode
+    ///
+    /// Must be called before setting exposure sequences.
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn enable_smart_streaming(&self) -> Result<()> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        let enabled: rs_bool = 1;
+        unsafe {
+            if pl_set_param(h, PARAM_SMART_STREAM_MODE_ENABLED, &enabled as *const _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to enable Smart Streaming: {}", get_pvcam_error()));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn enable_smart_streaming(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Disable Smart Streaming mode
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn disable_smart_streaming(&self) -> Result<()> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        let enabled: rs_bool = 0;
+        unsafe {
+            if pl_set_param(h, PARAM_SMART_STREAM_MODE_ENABLED, &enabled as *const _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to disable Smart Streaming: {}", get_pvcam_error()));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn disable_smart_streaming(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Get the maximum number of Smart Streaming entries supported
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn get_smart_stream_max_entries(&self) -> Result<u16> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        let mut max_entries: u16 = 0;
+        unsafe {
+            if pl_get_param(h, PARAM_SMART_STREAM_MODE, ATTR_MAX, &mut max_entries as *mut _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to get Smart Streaming max entries: {}", get_pvcam_error()));
+            }
+        }
+        Ok(max_entries)
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn get_smart_stream_max_entries(&self) -> Result<u16> {
+        Ok(128) // Mock: typical max
+    }
+
+    /// Set Smart Streaming exposure sequence
+    ///
+    /// # Arguments
+    /// * `exposures_ms` - Array of exposure times in milliseconds
+    ///
+    /// Smart Streaming must be enabled before calling this method.
+    /// The camera will cycle through these exposure times during acquisition.
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn set_smart_stream_exposures(&self, exposures_ms: &[f64]) -> Result<()> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        if exposures_ms.is_empty() {
+            return Err(anyhow!("At least one exposure time required"));
+        }
+
+        unsafe {
+            // Create smart_stream_type structure
+            let mut ss_ptr: *mut smart_stream_type = std::ptr::null_mut();
+            if pl_create_smart_stream_struct(&mut ss_ptr, exposures_ms.len() as u16) == 0 {
+                return Err(anyhow!("Failed to create Smart Stream struct: {}", get_pvcam_error()));
+            }
+
+            // Fill in exposure values (convert ms to microseconds)
+            let ss = &mut *ss_ptr;
+            for (i, &exp_ms) in exposures_ms.iter().enumerate() {
+                let exp_us = (exp_ms * 1000.0) as u32;
+                *(ss.params.add(i)) = exp_us;
+            }
+
+            // Set the exposure parameters
+            let result = pl_set_param(h, PARAM_SMART_STREAM_EXP_PARAMS, ss_ptr as *mut _);
+
+            // Clean up
+            pl_release_smart_stream_struct(&mut ss_ptr);
+
+            if result == 0 {
+                return Err(anyhow!("Failed to set Smart Stream exposures: {}", get_pvcam_error()));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn set_smart_stream_exposures(&self, _exposures_ms: &[f64]) -> Result<()> {
+        Ok(())
+    }
+
+    /// Get current Smart Streaming exposure sequence count
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn get_smart_stream_exposure_count(&self) -> Result<u16> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        unsafe {
+            let mut ss_ptr: *mut smart_stream_type = std::ptr::null_mut();
+
+            // Get current exposure params
+            if pl_get_param(h, PARAM_SMART_STREAM_EXP_PARAMS, ATTR_CURRENT, &mut ss_ptr as *mut _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to get Smart Stream exposures: {}", get_pvcam_error()));
+            }
+
+            if ss_ptr.is_null() {
+                return Ok(0);
+            }
+
+            let entries = (*ss_ptr).entries;
+            Ok(entries)
+        }
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn get_smart_stream_exposure_count(&self) -> Result<u16> {
+        Ok(0) // Mock: no entries
+    }
+
     /// Hardware polling loop for continuous acquisition
     ///
     /// This runs in a blocking thread and polls the PVCAM SDK for new frames.
