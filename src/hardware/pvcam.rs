@@ -82,6 +82,9 @@ pub struct PvcamDriver {
     /// Circular buffer for continuous acquisition (hardware only)
     #[cfg(feature = "pvcam_hardware")]
     circ_buffer: Arc<Mutex<Option<Vec<u16>>>>,
+    /// Trigger frame buffer - holds the frame during triggered acquisition
+    #[cfg(feature = "pvcam_hardware")]
+    trigger_frame: Arc<Mutex<Option<Vec<u16>>>>,
 }
 
 impl PvcamDriver {
@@ -239,6 +242,7 @@ impl PvcamDriver {
             frame_rx: Arc::new(Mutex::new(Some(frame_rx))),
             poll_handle: Arc::new(Mutex::new(None)),
             circ_buffer: Arc::new(Mutex::new(None)),
+            trigger_frame: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -520,8 +524,13 @@ impl PvcamDriver {
             let handle = *self.camera_handle.lock().await;
             if let Some(h) = handle {
                 unsafe {
-                    // Stop any ongoing acquisition
+                    // Stop any ongoing continuous acquisition
                     pl_exp_stop_cont(h, CCS_HALT);
+
+                    // Finish any pending triggered acquisition and cleanup buffer
+                    if let Some(mut frame) = self.trigger_frame.lock().await.take() {
+                        pl_exp_finish_seq(h, frame.as_mut_ptr() as *mut _, 0);
+                    }
                 }
             }
         }
@@ -576,28 +585,43 @@ impl PvcamDriver {
             let mut status: i16 = 0;
             let mut bytes_arrived: uns32 = 0;
 
-            loop {
+            let result = loop {
                 unsafe {
                     if pl_exp_check_status(h, &mut status, &mut bytes_arrived) == 0 {
-                        return Err(anyhow!("Failed to check acquisition status"));
+                        break Err(anyhow!("Failed to check acquisition status"));
                     }
                 }
 
                 // Frame ready or readout complete
                 if status == READOUT_COMPLETE || bytes_arrived > 0 {
-                    return Ok(());
+                    break Ok(());
                 }
 
                 if status == READOUT_FAILED {
-                    return Err(anyhow!("Acquisition failed"));
+                    break Err(anyhow!("Acquisition failed"));
                 }
 
                 if start.elapsed() > timeout {
-                    return Err(anyhow!("Trigger wait timeout after 30 seconds"));
+                    break Err(anyhow!("Trigger wait timeout after 30 seconds"));
                 }
 
                 tokio::time::sleep(Duration::from_millis(10)).await;
+            };
+
+            // Always finish the sequence and cleanup on exit
+            unsafe {
+                if let Some(mut frame) = self.trigger_frame.lock().await.take() {
+                    pl_exp_finish_seq(h, frame.as_mut_ptr() as *mut _, 0);
+                }
             }
+
+            // Clear armed flag and increment frame count on success
+            if result.is_ok() {
+                self.frame_count.fetch_add(1, Ordering::SeqCst);
+            }
+            *self.armed.lock().await = false;
+
+            return result;
         }
 
         Ok(())
@@ -1001,12 +1025,58 @@ impl Triggerable for PvcamDriver {
             if handle.is_none() {
                 return Err(anyhow!("Camera not opened"));
             }
+            let h = handle.unwrap();
 
-            // Currently supports software triggering only.
-            // Hardware trigger mode constants are not yet available in PVCAM bindings.
-            // The camera is now armed and ready for:
-            // - trigger() to capture a single frame
-            // - wait_for_trigger() to poll for trigger condition
+            let exposure = *self.exposure_ms.lock().await;
+            let roi = *self.roi.lock().await;
+            let (x_bin, y_bin) = *self.binning.lock().await;
+
+            // Setup region for acquisition
+            let region = unsafe {
+                let mut rgn: rgn_type = std::mem::zeroed();
+                rgn.s1 = roi.x as uns16;
+                rgn.s2 = (roi.x + roi.width - 1) as uns16;
+                rgn.sbin = x_bin;
+                rgn.p1 = roi.y as uns16;
+                rgn.p2 = (roi.y + roi.height - 1) as uns16;
+                rgn.pbin = y_bin;
+                rgn
+            };
+
+            // Calculate frame size with binning
+            let binned_width = roi.width / x_bin as u32;
+            let binned_height = roi.height / y_bin as u32;
+            let frame_size: uns32 = (binned_width * binned_height) as uns32;
+
+            // Create frame buffer for triggered acquisition
+            let mut frame = vec![0u16; frame_size as usize];
+
+            unsafe {
+                // Setup exposure sequence
+                let exp_time_ms = exposure as uns32;
+                let mut total_bytes: uns32 = 0;
+
+                if pl_exp_setup_seq(
+                    h,
+                    1,
+                    1,
+                    &region as *const _ as *const _,
+                    TIMED_MODE,
+                    exp_time_ms,
+                    &mut total_bytes,
+                ) == 0
+                {
+                    return Err(anyhow!("Failed to setup acquisition sequence for trigger"));
+                }
+
+                // Start acquisition - camera will begin exposure immediately
+                if pl_exp_start_seq(h, frame.as_mut_ptr() as *mut _) == 0 {
+                    return Err(anyhow!("Failed to start acquisition for trigger"));
+                }
+            }
+
+            // Store the frame buffer for retrieval after wait_for_trigger/trigger
+            *self.trigger_frame.lock().await = Some(frame);
         }
 
         *self.armed.lock().await = true;
@@ -1019,8 +1089,82 @@ impl Triggerable for PvcamDriver {
             return Err(anyhow!("Camera must be armed before triggering"));
         }
 
-        // Acquire a frame
-        self.acquire_frame_internal().await?;
+        #[cfg(feature = "pvcam_hardware")]
+        {
+            let handle = *self.camera_handle.lock().await;
+            if handle.is_none() {
+                return Err(anyhow!("Camera not opened"));
+            }
+            let h = handle.unwrap();
+
+            let exposure = *self.exposure_ms.lock().await;
+
+            // Wait for acquisition to complete
+            let mut status: i16 = 0;
+            let mut bytes_arrived: uns32 = 0;
+
+            let timeout = Duration::from_millis((exposure + 5000.0) as u64);
+            let start = std::time::Instant::now();
+
+            loop {
+                unsafe {
+                    if pl_exp_check_status(h, &mut status, &mut bytes_arrived) == 0 {
+                        // Cleanup on error
+                        if let Some(mut frame) = self.trigger_frame.lock().await.take() {
+                            pl_exp_finish_seq(h, frame.as_mut_ptr() as *mut _, 0);
+                        }
+                        *self.armed.lock().await = false;
+                        return Err(anyhow!("Failed to check acquisition status"));
+                    }
+                }
+
+                if status == READOUT_COMPLETE || bytes_arrived > 0 {
+                    break;
+                }
+
+                if status == READOUT_FAILED {
+                    // Cleanup on failure
+                    unsafe {
+                        if let Some(mut frame) = self.trigger_frame.lock().await.take() {
+                            pl_exp_finish_seq(h, frame.as_mut_ptr() as *mut _, 0);
+                        }
+                    }
+                    *self.armed.lock().await = false;
+                    return Err(anyhow!("Acquisition failed"));
+                }
+
+                if start.elapsed() > timeout {
+                    // Cleanup on timeout
+                    unsafe {
+                        if let Some(mut frame) = self.trigger_frame.lock().await.take() {
+                            pl_exp_finish_seq(h, frame.as_mut_ptr() as *mut _, 0);
+                        }
+                    }
+                    *self.armed.lock().await = false;
+                    return Err(anyhow!("Trigger timeout"));
+                }
+
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+
+            // Cleanup the sequence on success
+            unsafe {
+                if let Some(mut frame) = self.trigger_frame.lock().await.take() {
+                    pl_exp_finish_seq(h, frame.as_mut_ptr() as *mut _, 0);
+                }
+            }
+        }
+
+        #[cfg(not(feature = "pvcam_hardware"))]
+        {
+            // Mock: just simulate the acquisition time
+            let exposure = *self.exposure_ms.lock().await;
+            tokio::time::sleep(Duration::from_millis(exposure as u64)).await;
+        }
+
+        // Increment frame count and disarm
+        self.frame_count.fetch_add(1, Ordering::SeqCst);
+        *self.armed.lock().await = false;
 
         Ok(())
     }
