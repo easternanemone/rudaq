@@ -1,12 +1,43 @@
 //! Thorlabs Elliptec ELL14 Rotation Mount Driver
 //!
-//! Reference: ELLx modules protocol manual Issue 7-6
+//! Reference: ELLx modules protocol manual Issue 10
 //!
 //! Protocol Overview:
 //! - Format: [Address][Command][Data (optional)] (ASCII encoded)
 //! - Address: 0-9, A-F (usually '0' for first device)
 //! - Encoding: Positions as 32-bit integers in hex
 //! - Timing: Half-duplex request-response
+//!
+//! # Supported Commands
+//!
+//! ## Basic Movement
+//! - `ho` - Home to mechanical zero
+//! - `ma` - Move absolute (32-bit hex position)
+//! - `mr` - Move relative (32-bit hex distance)
+//! - `gp` - Get current position
+//! - `gs` - Get status
+//!
+//! ## Jog Control
+//! - `fw` - Jog forward by jog step
+//! - `bw` - Jog backward by jog step
+//! - `gj` - Get jog step size
+//! - `sj` - Set jog step size
+//! - `st` - Stop motion immediately
+//!
+//! ## Motor Optimization
+//! - `s1` - Search/optimize motor 1 frequency
+//! - `s2` - Search/optimize motor 2 frequency
+//! - `i1` - Get motor 1 info
+//! - `i2` - Get motor 2 info
+//!
+//! ## Configuration
+//! - `in` - Get device info
+//! - `go` - Get home offset
+//! - `so` - Set home offset
+//! - `gv` - Get velocity (percentage 60-100%)
+//! - `sv` - Set velocity (percentage 60-100%)
+//! - `us` - Save user data to flash
+//! - `ca` - Change device address
 //!
 //! # Example Usage
 //!
@@ -26,6 +57,14 @@
 //!     let pos = driver.position().await?;
 //!     println!("Position: {:.2}°", pos);
 //!
+//!     // Jog by 5 degrees
+//!     driver.set_jog_step(5.0).await?;
+//!     driver.jog_forward().await?;
+//!     driver.wait_settled().await?;
+//!
+//!     // Optimize motor frequencies
+//!     driver.optimize_motors().await?;
+//!
 //!     Ok(())
 //! }
 //! ```
@@ -37,6 +76,42 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
+
+/// Device information returned by the `in` command
+#[derive(Debug, Clone)]
+pub struct DeviceInfo {
+    /// Device type (e.g., "14" for ELL14)
+    pub device_type: String,
+    /// Serial number
+    pub serial: String,
+    /// Year of manufacture
+    pub year: u16,
+    /// Firmware version
+    pub firmware: String,
+    /// Hardware version (if available)
+    pub hardware: Option<String>,
+    /// Travel range in pulses
+    pub travel: u32,
+    /// Pulses per unit (degrees for rotation, mm for linear)
+    pub pulses_per_unit: u32,
+}
+
+/// Motor information returned by `i1` or `i2` commands
+#[derive(Debug, Clone)]
+pub struct MotorInfo {
+    /// Motor number (1 or 2)
+    pub motor_number: u8,
+    /// Loop state (0=off, 1=on)
+    pub loop_state: bool,
+    /// Motor state (0=stopped, 1=running)
+    pub motor_on: bool,
+    /// Current operating frequency in Hz
+    pub frequency: u32,
+    /// Forward period
+    pub forward_period: u16,
+    /// Backward period
+    pub backward_period: u16,
+}
 
 /// Driver for Thorlabs Elliptec ELL14 Rotation Mount
 ///
@@ -230,6 +305,444 @@ impl Ell14Driver {
         }
 
         Err(anyhow!("Unexpected position format: {}", response))
+    }
+
+    // =========================================================================
+    // Jog Control Commands
+    // =========================================================================
+
+    /// Jog forward by the configured jog step size
+    ///
+    /// The step size can be configured with `set_jog_step()`.
+    /// Default jog step is device-dependent.
+    pub async fn jog_forward(&self) -> Result<()> {
+        self.send_command("fw").await
+    }
+
+    /// Jog backward by the configured jog step size
+    ///
+    /// The step size can be configured with `set_jog_step()`.
+    pub async fn jog_backward(&self) -> Result<()> {
+        self.send_command("bw").await
+    }
+
+    /// Get the current jog step size in degrees
+    pub async fn get_jog_step(&self) -> Result<f64> {
+        let resp = self.transaction("gj").await?;
+
+        // Response format: "XGJ{Hex}" where Hex is 32-bit pulse count
+        if let Some(idx) = resp.find("GJ") {
+            let hex_str = resp[idx + 2..].trim();
+            if hex_str.is_empty() {
+                return Ok(0.0);
+            }
+
+            let hex_clean = if hex_str.len() > 8 {
+                &hex_str[..8]
+            } else {
+                hex_str
+            };
+
+            let pulses = u32::from_str_radix(hex_clean, 16)
+                .context(format!("Failed to parse jog step hex: {}", hex_clean))?;
+
+            return Ok(pulses as f64 / self.pulses_per_degree);
+        }
+
+        Err(anyhow!("Unexpected jog step response: {}", resp))
+    }
+
+    /// Set the jog step size in degrees
+    ///
+    /// This sets the distance the device moves when `jog_forward()` or
+    /// `jog_backward()` is called.
+    pub async fn set_jog_step(&self, degrees: f64) -> Result<()> {
+        let pulses = (degrees * self.pulses_per_degree).abs() as u32;
+        let hex_pulses = format!("{:08X}", pulses);
+        let cmd = format!("sj{}", hex_pulses);
+
+        // sj command returns a GJ response confirming the new value
+        let _ = self.transaction(&cmd).await;
+        Ok(())
+    }
+
+    /// Stop any ongoing motion immediately
+    ///
+    /// Useful for emergency stops or to halt motion mid-jog.
+    pub async fn stop(&self) -> Result<()> {
+        // st is a fire-and-forget command
+        self.send_command("st").await
+    }
+
+    // =========================================================================
+    // Motor Frequency Search / Optimization Commands
+    // =========================================================================
+
+    /// Search and optimize motor 1 frequency
+    ///
+    /// This performs a frequency scan to find the optimal resonant frequency
+    /// for motor 1 under current load conditions. Takes several seconds to complete.
+    ///
+    /// Call `save_user_data()` afterward to persist the optimized frequency.
+    pub async fn search_frequency_motor1(&self) -> Result<()> {
+        // s1 starts the frequency search, which takes several seconds
+        self.send_command("s1").await?;
+
+        // Wait for search to complete (can take 5-10 seconds)
+        let timeout = Duration::from_secs(15);
+        let start = std::time::Instant::now();
+
+        loop {
+            if start.elapsed() > timeout {
+                return Err(anyhow!("Motor 1 frequency search timed out"));
+            }
+
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            // Check if device is ready (not moving/searching)
+            if let Ok(resp) = self.transaction("gs").await {
+                if let Some(idx) = resp.find("GS") {
+                    let hex_str = resp[idx + 2..].trim();
+                    if hex_str.is_empty() || hex_str == "0" || hex_str == "00" {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+
+    /// Search and optimize motor 2 frequency
+    ///
+    /// Same as `search_frequency_motor1()` but for motor 2.
+    /// ELL14 has two motors for bidirectional rotation.
+    pub async fn search_frequency_motor2(&self) -> Result<()> {
+        self.send_command("s2").await?;
+
+        let timeout = Duration::from_secs(15);
+        let start = std::time::Instant::now();
+
+        loop {
+            if start.elapsed() > timeout {
+                return Err(anyhow!("Motor 2 frequency search timed out"));
+            }
+
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            if let Ok(resp) = self.transaction("gs").await {
+                if let Some(idx) = resp.find("GS") {
+                    let hex_str = resp[idx + 2..].trim();
+                    if hex_str.is_empty() || hex_str == "0" || hex_str == "00" {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+
+    /// Optimize both motors
+    ///
+    /// Convenience method that runs frequency search on both motors sequentially.
+    /// This is the "motor cleaning/optimization" feature.
+    pub async fn optimize_motors(&self) -> Result<()> {
+        self.search_frequency_motor1().await?;
+        self.search_frequency_motor2().await?;
+        Ok(())
+    }
+
+    /// Get motor 1 information
+    ///
+    /// Returns operating frequency and period settings.
+    pub async fn get_motor1_info(&self) -> Result<MotorInfo> {
+        self.parse_motor_info("i1", 1).await
+    }
+
+    /// Get motor 2 information
+    pub async fn get_motor2_info(&self) -> Result<MotorInfo> {
+        self.parse_motor_info("i2", 2).await
+    }
+
+    /// Parse motor info response (shared by i1 and i2)
+    async fn parse_motor_info(&self, cmd: &str, motor_num: u8) -> Result<MotorInfo> {
+        let resp = self.transaction(cmd).await?;
+
+        // Response format: "XI1{Loop}{Motor}{PWM_Fwd}{PWM_Bwd}{Period_Fwd}{Period_Bwd}"
+        // All fields are hex encoded
+        let marker = if motor_num == 1 { "I1" } else { "I2" };
+
+        if let Some(idx) = resp.find(marker) {
+            let data = resp[idx + 2..].trim();
+            if data.len() >= 12 {
+                // Parse fields (approximate, actual format may vary)
+                let loop_state = u8::from_str_radix(&data[0..2], 16).unwrap_or(0) != 0;
+                let motor_on = u8::from_str_radix(&data[2..4], 16).unwrap_or(0) != 0;
+                let forward_period = u16::from_str_radix(&data[4..8], 16).unwrap_or(0);
+                let backward_period = u16::from_str_radix(&data[8..12], 16).unwrap_or(0);
+
+                // Frequency is calculated from period
+                let frequency = if forward_period > 0 {
+                    1_000_000 / forward_period as u32
+                } else {
+                    0
+                };
+
+                return Ok(MotorInfo {
+                    motor_number: motor_num,
+                    loop_state,
+                    motor_on,
+                    frequency,
+                    forward_period,
+                    backward_period,
+                });
+            }
+        }
+
+        Err(anyhow!("Failed to parse motor {} info: {}", motor_num, resp))
+    }
+
+    // =========================================================================
+    // Device Information Commands
+    // =========================================================================
+
+    /// Get device information
+    ///
+    /// Returns device type, serial number, firmware version, and calibration data.
+    ///
+    /// Response format example: "2IN0E1140051720231701016800023000"
+    /// - Address (1) + "IN" (2) = 3 chars prefix
+    /// - Type (2): "0E" = hex 14 = ELL14
+    /// - Serial (8): "11400517"
+    /// - Year (4): "2023" (ASCII, not hex)
+    /// - Firmware (2): "17"
+    /// - Thread type (1): "0"
+    /// - Travel (8): "10168000" hex
+    /// - Pulses/unit (8): "00023000" hex
+    pub async fn get_device_info(&self) -> Result<DeviceInfo> {
+        let resp = self.transaction("in").await?;
+
+        if let Some(idx) = resp.find("IN") {
+            let data = resp[idx + 2..].trim();
+            if data.len() >= 25 {
+                // Parse device type (2 hex chars -> device number)
+                let device_type_hex = &data[0..2];
+                let device_type = u8::from_str_radix(device_type_hex, 16)
+                    .map(|n| format!("ELL{}", n))
+                    .unwrap_or_else(|_| device_type_hex.to_string());
+
+                // Serial number (8 chars)
+                let serial = data[2..10].to_string();
+
+                // Year (4 ASCII chars, not hex)
+                let year = data[10..14].parse::<u16>().unwrap_or(0);
+
+                // Firmware (2 chars)
+                let firmware = data[14..16].to_string();
+
+                // Thread type (1 char at position 16)
+                let hardware = if data.len() >= 17 {
+                    Some(data[16..17].to_string())
+                } else {
+                    None
+                };
+
+                // Travel in pulses (8 hex chars starting at 17)
+                let travel = if data.len() >= 25 {
+                    u32::from_str_radix(&data[17..25], 16).unwrap_or(0)
+                } else {
+                    0
+                };
+
+                // Pulses per unit (8 hex chars starting at 25)
+                let pulses_per_unit = if data.len() >= 33 {
+                    u32::from_str_radix(&data[25..33], 16).unwrap_or(0)
+                } else {
+                    0
+                };
+
+                return Ok(DeviceInfo {
+                    device_type,
+                    serial,
+                    year,
+                    firmware,
+                    hardware,
+                    travel,
+                    pulses_per_unit,
+                });
+            }
+        }
+
+        Err(anyhow!("Failed to parse device info: {}", resp))
+    }
+
+    // =========================================================================
+    // Home Offset Commands
+    // =========================================================================
+
+    /// Get the home offset in degrees
+    ///
+    /// The home offset shifts the zero position from the mechanical home.
+    pub async fn get_home_offset(&self) -> Result<f64> {
+        let resp = self.transaction("go").await?;
+
+        // Response format: "XGO{Hex}" where Hex is 32-bit signed offset in pulses
+        if let Some(idx) = resp.find("HO") {
+            // Note: response might be "HO" not "GO"
+            let hex_str = resp[idx + 2..].trim();
+            if hex_str.is_empty() {
+                return Ok(0.0);
+            }
+
+            let hex_clean = if hex_str.len() > 8 {
+                &hex_str[..8]
+            } else {
+                hex_str
+            };
+
+            let pulses_unsigned = u32::from_str_radix(hex_clean, 16)
+                .context(format!("Failed to parse home offset hex: {}", hex_clean))?;
+            let pulses = pulses_unsigned as i32;
+
+            return Ok(pulses as f64 / self.pulses_per_degree);
+        }
+
+        // Try alternate response marker
+        if let Some(idx) = resp.find("GO") {
+            let hex_str = resp[idx + 2..].trim();
+            if hex_str.is_empty() {
+                return Ok(0.0);
+            }
+
+            let hex_clean = if hex_str.len() > 8 {
+                &hex_str[..8]
+            } else {
+                hex_str
+            };
+
+            let pulses_unsigned = u32::from_str_radix(hex_clean, 16)
+                .context(format!("Failed to parse home offset hex: {}", hex_clean))?;
+            let pulses = pulses_unsigned as i32;
+
+            return Ok(pulses as f64 / self.pulses_per_degree);
+        }
+
+        Err(anyhow!("Unexpected home offset response: {}", resp))
+    }
+
+    /// Set the home offset in degrees
+    ///
+    /// This offsets the zero position from the mechanical home.
+    /// Call `save_user_data()` to persist this setting.
+    pub async fn set_home_offset(&self, degrees: f64) -> Result<()> {
+        let pulses = (degrees * self.pulses_per_degree) as i32;
+        let hex_pulses = format!("{:08X}", pulses as u32);
+        let cmd = format!("so{}", hex_pulses);
+
+        let _ = self.transaction(&cmd).await;
+        Ok(())
+    }
+
+    // =========================================================================
+    // Velocity Control Commands
+    // =========================================================================
+
+    /// Get the current velocity setting as a percentage (60-100%)
+    ///
+    /// The velocity controls the motor operating speed.
+    /// Lower velocities may improve positioning accuracy.
+    pub async fn get_velocity(&self) -> Result<u8> {
+        let resp = self.transaction("gv").await?;
+
+        // Response format: "XGV{Hex}" where Hex is percentage (00-64 = 0-100%)
+        if let Some(idx) = resp.find("GV") {
+            let hex_str = resp[idx + 2..].trim();
+            if hex_str.is_empty() {
+                return Ok(100); // Default to max
+            }
+
+            let hex_clean = if hex_str.len() > 2 {
+                &hex_str[..2]
+            } else {
+                hex_str
+            };
+
+            let velocity = u8::from_str_radix(hex_clean, 16)
+                .context(format!("Failed to parse velocity hex: {}", hex_clean))?;
+
+            return Ok(velocity);
+        }
+
+        Err(anyhow!("Unexpected velocity response: {}", resp))
+    }
+
+    /// Set the velocity as a percentage (60-100%)
+    ///
+    /// # Arguments
+    /// * `percent` - Velocity from 60 to 100 percent of maximum
+    ///
+    /// Values below 60% are clamped to 60%.
+    /// Call `save_user_data()` to persist this setting.
+    pub async fn set_velocity(&self, percent: u8) -> Result<()> {
+        // Clamp to valid range (60-100%)
+        let velocity = percent.clamp(60, 100);
+        let cmd = format!("sv{:02X}", velocity);
+
+        let _ = self.transaction(&cmd).await;
+        Ok(())
+    }
+
+    // =========================================================================
+    // Configuration / Persistence Commands
+    // =========================================================================
+
+    /// Save user data to flash memory
+    ///
+    /// Persists the current settings (home offset, jog step, velocity,
+    /// motor frequencies) to non-volatile memory.
+    ///
+    /// These settings will be restored on power cycle.
+    pub async fn save_user_data(&self) -> Result<()> {
+        let resp = self.transaction("us").await?;
+
+        // Should return "XUS00" on success
+        if resp.contains("US") {
+            Ok(())
+        } else {
+            Err(anyhow!("Failed to save user data: {}", resp))
+        }
+    }
+
+    /// Change the device address
+    ///
+    /// # Arguments
+    /// * `new_address` - New address (0-9, A-F)
+    ///
+    /// # Warning
+    /// This changes the device address permanently until changed again.
+    /// After calling this, you must create a new driver instance with
+    /// the new address to communicate with the device.
+    pub async fn change_address(&self, new_address: &str) -> Result<()> {
+        if new_address.len() != 1 {
+            return Err(anyhow!("Address must be a single character"));
+        }
+
+        let c = new_address.chars().next().unwrap();
+        if !c.is_ascii_hexdigit() {
+            return Err(anyhow!("Address must be 0-9 or A-F"));
+        }
+
+        let cmd = format!("ca{}", new_address);
+        let _ = self.transaction(&cmd).await;
+
+        Ok(())
+    }
+
+    /// Get the device address
+    pub fn get_address(&self) -> &str {
+        &self.address
+    }
+
+    /// Get the current pulses per degree calibration
+    pub fn get_pulses_per_degree(&self) -> f64 {
+        self.pulses_per_degree
     }
 }
 
