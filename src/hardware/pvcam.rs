@@ -153,6 +153,58 @@ pub struct PPParam {
     pub value: u32,
 }
 
+/// Centroids detection mode
+///
+/// Maps to PVCAM's PL_CENTROIDS_MODES enum:
+/// - PL_CENTROIDS_MODE_LOCATE = 0 (PrimeLocate)
+/// - PL_CENTROIDS_MODE_TRACK = 1 (Particle Tracking)
+/// - PL_CENTROIDS_MODE_BLOB = 2 (Blob Detection)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CentroidsMode {
+    /// Locate mode (PrimeLocate) - find particle positions
+    Locate,
+    /// Particle Tracking mode - track particles across frames
+    Track,
+    /// Blob Detection mode - detect larger objects
+    Blob,
+}
+
+impl CentroidsMode {
+    /// Convert from PVCAM enum value
+    #[cfg(feature = "pvcam_hardware")]
+    pub fn from_pvcam(value: i32) -> Self {
+        match value {
+            0 => CentroidsMode::Locate,
+            1 => CentroidsMode::Track,
+            2 => CentroidsMode::Blob,
+            _ => CentroidsMode::Locate, // Default
+        }
+    }
+
+    /// Convert to PVCAM enum value
+    #[cfg(feature = "pvcam_hardware")]
+    pub fn to_pvcam(self) -> i32 {
+        match self {
+            CentroidsMode::Locate => 0,
+            CentroidsMode::Track => 1,
+            CentroidsMode::Blob => 2,
+        }
+    }
+}
+
+/// Centroids configuration and status
+#[derive(Debug, Clone)]
+pub struct CentroidsConfig {
+    /// Detection mode
+    pub mode: CentroidsMode,
+    /// Search radius in pixels
+    pub radius: u16,
+    /// Maximum number of particles to detect
+    pub max_count: u16,
+    /// Detection threshold
+    pub threshold: u32,
+}
+
 /// Driver for Photometrics PVCAM cameras
 ///
 /// Implements FrameProducer, ExposureControl, and Triggerable capability traits.
@@ -1692,6 +1744,270 @@ impl PvcamDriver {
     #[cfg(not(feature = "pvcam_hardware"))]
     pub async fn get_smart_stream_exposure_count(&self) -> Result<u16> {
         Ok(0) // Mock: no entries
+    }
+
+    // =========================================================================
+    // Centroids Mode (PrimeLocate / Particle Tracking)
+    // =========================================================================
+
+    /// Check if centroids feature is available on this camera
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn is_centroids_available(&self) -> Result<bool> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        unsafe {
+            let mut avail: rs_bool = 0;
+            if pl_get_param(h, PARAM_CENTROIDS_ENABLED, ATTR_AVAIL, &mut avail as *mut _ as *mut _) == 0 {
+                // Parameter not supported
+                return Ok(false);
+            }
+            Ok(avail != 0)
+        }
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn is_centroids_available(&self) -> Result<bool> {
+        Ok(true) // Mock: always available
+    }
+
+    /// Check if centroids mode is currently enabled
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn is_centroids_enabled(&self) -> Result<bool> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        unsafe {
+            let mut enabled: rs_bool = 0;
+            if pl_get_param(h, PARAM_CENTROIDS_ENABLED, ATTR_CURRENT, &mut enabled as *mut _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to get centroids enabled state: {}", get_pvcam_error()));
+            }
+            Ok(enabled != 0)
+        }
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn is_centroids_enabled(&self) -> Result<bool> {
+        Ok(false) // Mock: disabled by default
+    }
+
+    /// Enable centroids mode
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn enable_centroids(&self) -> Result<()> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        unsafe {
+            let mut enabled: rs_bool = 1;
+            if pl_set_param(h, PARAM_CENTROIDS_ENABLED, &mut enabled as *mut _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to enable centroids: {}", get_pvcam_error()));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn enable_centroids(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Disable centroids mode
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn disable_centroids(&self) -> Result<()> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        unsafe {
+            let mut enabled: rs_bool = 0;
+            if pl_set_param(h, PARAM_CENTROIDS_ENABLED, &mut enabled as *mut _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to disable centroids: {}", get_pvcam_error()));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn disable_centroids(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Get current centroids mode (Locate, Track, or Blob)
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn get_centroids_mode(&self) -> Result<CentroidsMode> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        unsafe {
+            let mut mode: i32 = 0;
+            if pl_get_param(h, PARAM_CENTROIDS_MODE, ATTR_CURRENT, &mut mode as *mut _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to get centroids mode: {}", get_pvcam_error()));
+            }
+            Ok(CentroidsMode::from_pvcam(mode))
+        }
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn get_centroids_mode(&self) -> Result<CentroidsMode> {
+        Ok(CentroidsMode::Locate) // Mock: default to Locate
+    }
+
+    /// Set centroids mode (Locate, Track, or Blob)
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn set_centroids_mode(&self, mode: CentroidsMode) -> Result<()> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        unsafe {
+            let mut mode_val: i32 = mode.to_pvcam();
+            if pl_set_param(h, PARAM_CENTROIDS_MODE, &mut mode_val as *mut _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to set centroids mode: {}", get_pvcam_error()));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn set_centroids_mode(&self, _mode: CentroidsMode) -> Result<()> {
+        Ok(())
+    }
+
+    /// Get centroids search radius in pixels
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn get_centroids_radius(&self) -> Result<u16> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        unsafe {
+            let mut radius: uns16 = 0;
+            if pl_get_param(h, PARAM_CENTROIDS_RADIUS, ATTR_CURRENT, &mut radius as *mut _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to get centroids radius: {}", get_pvcam_error()));
+            }
+            Ok(radius)
+        }
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn get_centroids_radius(&self) -> Result<u16> {
+        Ok(5) // Mock: default radius
+    }
+
+    /// Set centroids search radius in pixels
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn set_centroids_radius(&self, radius: u16) -> Result<()> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        unsafe {
+            let mut r: uns16 = radius;
+            if pl_set_param(h, PARAM_CENTROIDS_RADIUS, &mut r as *mut _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to set centroids radius: {}", get_pvcam_error()));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn set_centroids_radius(&self, _radius: u16) -> Result<()> {
+        Ok(())
+    }
+
+    /// Get maximum number of centroids to detect
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn get_centroids_count(&self) -> Result<u16> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        unsafe {
+            let mut count: uns16 = 0;
+            if pl_get_param(h, PARAM_CENTROIDS_COUNT, ATTR_CURRENT, &mut count as *mut _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to get centroids count: {}", get_pvcam_error()));
+            }
+            Ok(count)
+        }
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn get_centroids_count(&self) -> Result<u16> {
+        Ok(100) // Mock: default max count
+    }
+
+    /// Set maximum number of centroids to detect
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn set_centroids_count(&self, count: u16) -> Result<()> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        unsafe {
+            let mut c: uns16 = count;
+            if pl_set_param(h, PARAM_CENTROIDS_COUNT, &mut c as *mut _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to set centroids count: {}", get_pvcam_error()));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn set_centroids_count(&self, _count: u16) -> Result<()> {
+        Ok(())
+    }
+
+    /// Get centroids detection threshold
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn get_centroids_threshold(&self) -> Result<u32> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        unsafe {
+            let mut thresh: uns32 = 0;
+            if pl_get_param(h, PARAM_CENTROIDS_THRESHOLD, ATTR_CURRENT, &mut thresh as *mut _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to get centroids threshold: {}", get_pvcam_error()));
+            }
+            Ok(thresh)
+        }
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn get_centroids_threshold(&self) -> Result<u32> {
+        Ok(1000) // Mock: default threshold
+    }
+
+    /// Set centroids detection threshold
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn set_centroids_threshold(&self, threshold: u32) -> Result<()> {
+        let guard = self.camera_handle.lock().await;
+        let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
+
+        unsafe {
+            let mut t: uns32 = threshold;
+            if pl_set_param(h, PARAM_CENTROIDS_THRESHOLD, &mut t as *mut _ as *mut _) == 0 {
+                return Err(anyhow!("Failed to set centroids threshold: {}", get_pvcam_error()));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn set_centroids_threshold(&self, _threshold: u32) -> Result<()> {
+        Ok(())
+    }
+
+    /// Get full centroids configuration
+    pub async fn get_centroids_config(&self) -> Result<CentroidsConfig> {
+        Ok(CentroidsConfig {
+            mode: self.get_centroids_mode().await?,
+            radius: self.get_centroids_radius().await?,
+            max_count: self.get_centroids_count().await?,
+            threshold: self.get_centroids_threshold().await?,
+        })
+    }
+
+    /// Set full centroids configuration
+    pub async fn set_centroids_config(&self, config: &CentroidsConfig) -> Result<()> {
+        self.set_centroids_mode(config.mode).await?;
+        self.set_centroids_radius(config.radius).await?;
+        self.set_centroids_count(config.max_count).await?;
+        self.set_centroids_threshold(config.threshold).await?;
+        Ok(())
     }
 
     /// Hardware polling loop for continuous acquisition

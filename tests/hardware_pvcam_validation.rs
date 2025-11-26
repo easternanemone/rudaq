@@ -64,7 +64,10 @@
 //! ```
 
 use rust_daq::hardware::capabilities::{ExposureControl, Triggerable};
-use rust_daq::hardware::pvcam::{CameraInfo, GainMode, PPFeature, PPParam, PvcamDriver, SpeedMode};
+use rust_daq::hardware::pvcam::{
+    CameraInfo, CentroidsConfig, CentroidsMode, GainMode, PPFeature, PPParam, PvcamDriver,
+    SpeedMode,
+};
 use rust_daq::hardware::Roi;
 use std::time::Instant;
 
@@ -1498,4 +1501,213 @@ async fn test_hardware_smart_streaming_set_exposures() {
         .disable_smart_streaming()
         .await
         .expect("Failed to disable Smart Streaming");
+}
+
+// ============================================================================
+// Centroids Mode Tests (PrimeLocate / Particle Tracking)
+// ============================================================================
+
+/// Test 58: Check if centroids feature is available
+#[tokio::test]
+#[cfg_attr(not(feature = "hardware_tests"), ignore)]
+async fn test_hardware_centroids_available() {
+    let camera = PvcamDriver::new("PMCam").expect("Failed to open camera");
+
+    match camera.is_centroids_available().await {
+        Ok(available) => {
+            println!("Centroids (PrimeLocate) available: {}", available);
+            // Note: Not all Prime cameras support centroids
+            // Prime BSI typically has this feature
+        }
+        Err(e) => println!("Failed to check centroids availability: {}", e),
+    }
+}
+
+/// Test 59: Enable/disable centroids mode
+#[tokio::test]
+#[cfg_attr(not(feature = "hardware_tests"), ignore)]
+async fn test_hardware_centroids_enable_disable() {
+    let camera = PvcamDriver::new("PMCam").expect("Failed to open camera");
+
+    let available = camera
+        .is_centroids_available()
+        .await
+        .expect("Failed to check availability");
+
+    if !available {
+        println!("Centroids not available on this camera");
+        return;
+    }
+
+    // Check initial state
+    let initial_enabled = camera
+        .is_centroids_enabled()
+        .await
+        .expect("Failed to get initial state");
+    println!("Initial centroids enabled: {}", initial_enabled);
+
+    // Enable centroids
+    match camera.enable_centroids().await {
+        Ok(()) => {
+            let enabled = camera
+                .is_centroids_enabled()
+                .await
+                .expect("Failed to check state");
+            println!("After enable_centroids(): enabled={}", enabled);
+        }
+        Err(e) => println!("Failed to enable centroids: {}", e),
+    }
+
+    // Disable centroids
+    match camera.disable_centroids().await {
+        Ok(()) => {
+            let enabled = camera
+                .is_centroids_enabled()
+                .await
+                .expect("Failed to check state");
+            println!("After disable_centroids(): enabled={}", enabled);
+        }
+        Err(e) => println!("Failed to disable centroids: {}", e),
+    }
+}
+
+/// Test 60: Get/set centroids mode (Locate, Track, Blob)
+#[tokio::test]
+#[cfg_attr(not(feature = "hardware_tests"), ignore)]
+async fn test_hardware_centroids_mode() {
+    let camera = PvcamDriver::new("PMCam").expect("Failed to open camera");
+
+    let available = camera
+        .is_centroids_available()
+        .await
+        .expect("Failed to check availability");
+
+    if !available {
+        println!("Centroids not available on this camera");
+        return;
+    }
+
+    // Get current mode
+    match camera.get_centroids_mode().await {
+        Ok(mode) => println!("Current centroids mode: {:?}", mode),
+        Err(e) => {
+            println!("Failed to get mode: {}", e);
+            return;
+        }
+    }
+
+    // Try each mode
+    for mode in [
+        CentroidsMode::Locate,
+        CentroidsMode::Track,
+        CentroidsMode::Blob,
+    ] {
+        match camera.set_centroids_mode(mode).await {
+            Ok(()) => {
+                let current = camera
+                    .get_centroids_mode()
+                    .await
+                    .expect("Failed to get mode");
+                println!("Set mode to {:?}, got {:?}", mode, current);
+            }
+            Err(e) => println!("Failed to set mode {:?}: {}", mode, e),
+        }
+    }
+
+    // Restore to default
+    let _ = camera.set_centroids_mode(CentroidsMode::Locate).await;
+}
+
+/// Test 61: Get/set centroids configuration (radius, count, threshold)
+#[tokio::test]
+#[cfg_attr(not(feature = "hardware_tests"), ignore)]
+async fn test_hardware_centroids_config() {
+    let camera = PvcamDriver::new("PMCam").expect("Failed to open camera");
+
+    let available = camera
+        .is_centroids_available()
+        .await
+        .expect("Failed to check availability");
+
+    if !available {
+        println!("Centroids not available on this camera");
+        return;
+    }
+
+    // Get current configuration
+    match camera.get_centroids_config().await {
+        Ok(config) => {
+            println!("Current centroids config:");
+            println!("  Mode: {:?}", config.mode);
+            println!("  Radius: {} pixels", config.radius);
+            println!("  Max count: {}", config.max_count);
+            println!("  Threshold: {}", config.threshold);
+        }
+        Err(e) => {
+            println!("Failed to get config: {}", e);
+            return;
+        }
+    }
+
+    // Try setting individual parameters
+    println!("\nTesting parameter changes:");
+
+    // Radius
+    match camera.set_centroids_radius(10).await {
+        Ok(()) => {
+            let r = camera
+                .get_centroids_radius()
+                .await
+                .expect("Failed to get radius");
+            println!("  Set radius=10, got radius={}", r);
+        }
+        Err(e) => println!("  Failed to set radius: {}", e),
+    }
+
+    // Count
+    match camera.set_centroids_count(500).await {
+        Ok(()) => {
+            let c = camera
+                .get_centroids_count()
+                .await
+                .expect("Failed to get count");
+            println!("  Set count=500, got count={}", c);
+        }
+        Err(e) => println!("  Failed to set count: {}", e),
+    }
+
+    // Threshold
+    match camera.set_centroids_threshold(2000).await {
+        Ok(()) => {
+            let t = camera
+                .get_centroids_threshold()
+                .await
+                .expect("Failed to get threshold");
+            println!("  Set threshold=2000, got threshold={}", t);
+        }
+        Err(e) => println!("  Failed to set threshold: {}", e),
+    }
+
+    // Test bulk config set
+    let test_config = CentroidsConfig {
+        mode: CentroidsMode::Locate,
+        radius: 5,
+        max_count: 100,
+        threshold: 1000,
+    };
+
+    match camera.set_centroids_config(&test_config).await {
+        Ok(()) => {
+            let config = camera
+                .get_centroids_config()
+                .await
+                .expect("Failed to get config");
+            println!("\nAfter set_centroids_config:");
+            println!("  Mode: {:?}", config.mode);
+            println!("  Radius: {}", config.radius);
+            println!("  Max count: {}", config.max_count);
+            println!("  Threshold: {}", config.threshold);
+        }
+        Err(e) => println!("Failed to set bulk config: {}", e),
+    }
 }
