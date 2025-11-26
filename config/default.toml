@@ -93,7 +93,7 @@ type = "elliptec"
 name = "Elliptec ELL14 Rotation Mounts"
 port = "/dev/ttyUSB0"  # VALIDATED 2025-11-07 via elliptec_scanner
 baud_rate = 9600
-device_addresses = [2, 3]  # RS-485 addresses confirmed via device info responses
+device_addresses = [2, 3, 8]  # RS-485 addresses confirmed via elliptec_scanner (3 rotators)
 polling_rate_hz = 2.0
 # Flow control: None (RS-485)
 
