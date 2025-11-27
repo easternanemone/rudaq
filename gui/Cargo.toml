@@ -1,0 +1,39 @@
+[package]
+name = "rust-daq-gui"
+version = "0.1.0"
+edition = "2021"
+description = "Slint-based GUI for rust-daq"
+authors = ["Brian Squires"]
+license = "MIT"
+
+[dependencies]
+# Slint UI framework
+slint = "1.9"
+
+# Async runtime
+tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+# gRPC client (must match rust_daq versions)
+tonic = "0.10"
+prost = "0.12"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Utility
+chrono = "0.4"
+
+# Proto definitions from main crate
+rust_daq = { path = "..", features = ["networking"] }
+
+[build-dependencies]
+slint-build = "1.9"
+
+[[bin]]
+name = "daq-gui"
+path = "src/main.rs"

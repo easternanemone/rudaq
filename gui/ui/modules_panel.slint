@@ -1,0 +1,820 @@
+// rust-daq GUI - Modules Panel Component
+// Manages experiment modules with runtime device assignment
+// Pattern: PyMoDAQ/DynExp-inspired module orchestration
+
+import { Button, ComboBox, GroupBox, HorizontalBox, LineEdit, ListView,
+         ScrollView, SpinBox, StandardButton, TabWidget, TextEdit,
+         VerticalBox, GridBox, ProgressIndicator, CheckBox } from "std-widgets.slint";
+
+// =============================================================================
+// Data Models
+// =============================================================================
+
+export struct ModuleTypeInfo {
+    type-id: string,
+    display-name: string,
+    description: string,
+    version: string,
+    required-roles: int,
+    optional-roles: int,
+    num-parameters: int,
+    num-event-types: int,
+    categories: string,  // Comma-separated: "monitoring,threshold"
+}
+
+export struct ModuleInstance {
+    module-id: string,
+    type-id: string,
+    instance-name: string,
+    state: string,  // "created", "configured", "running", "paused", "stopped", "error"
+    roles-filled: int,
+    roles-total: int,
+    ready-to-start: bool,
+    uptime-ms: int,
+    error-message: string,
+}
+
+export struct ModuleRole {
+    role-id: string,
+    display-name: string,
+    required-capability: string,  // "readable", "movable", "frame-producer"
+    allows-multiple: bool,
+    assigned-device-id: string,  // Current assignment
+}
+
+export struct ModuleParameter {
+    param-id: string,
+    display-name: string,
+    description: string,
+    param-type: string,  // "float", "int", "string", "bool", "enum"
+    current-value: string,
+    default-value: string,
+    min-value: string,
+    max-value: string,
+    enum-values: string,  // Comma-separated
+    units: string,
+    required: bool,
+}
+
+export struct ModuleEvent {
+    event-id: string,
+    event-type: string,
+    timestamp-ms: int,
+    message: string,
+    severity: string,  // "info", "warning", "error"
+}
+
+// =============================================================================
+// Module Type Browser Component
+// =============================================================================
+
+component ModuleTypeBrowser inherits Rectangle {
+    in property <[ModuleTypeInfo]> available-types;
+    in-out property <int> selected-type-index: -1;
+
+    callback module-type-selected(string);  // type-id
+
+    background: white;
+    border-radius: 8px;
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 12px;
+
+        Text {
+            text: "Available Module Types";
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        ScrollView {
+            ListView {
+                for module-type[idx] in available-types: Rectangle {
+                    height: 80px;
+                    background: idx == selected-type-index ? #e3f2fd : transparent;
+                    border-radius: 4px;
+
+                    TouchArea {
+                        clicked => {
+                            selected-type-index = idx;
+                            module-type-selected(module-type.type-id);
+                        }
+                    }
+
+                    VerticalBox {
+                        padding: 12px;
+                        spacing: 4px;
+
+                        HorizontalBox {
+                            spacing: 12px;
+                            Text {
+                                text: module-type.display-name;
+                                font-weight: 600;
+                                font-size: 13px;
+                            }
+                            Text {
+                                text: "v\{module-type.version}";
+                                font-size: 10px;
+                                color: #999;
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+
+                        Text {
+                            text: module-type.description;
+                            font-size: 11px;
+                            color: #666;
+                            wrap: word-wrap;
+                        }
+
+                        HorizontalBox {
+                            spacing: 8px;
+                            Text {
+                                text: "Roles: \{module-type.required-roles}R/\{module-type.optional-roles}O";
+                                font-size: 10px;
+                                color: #999;
+                            }
+                            Text {
+                                text: "Params: \{module-type.num-parameters}";
+                                font-size: 10px;
+                                color: #999;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Module Instance List Component
+// =============================================================================
+
+component ModuleInstanceList inherits Rectangle {
+    in property <[ModuleInstance]> instances;
+    in-out property <int> selected-module-index: -1;
+
+    callback module-selected(string);  // module-id
+    callback create-module();
+
+    background: #fafafa;
+    border-radius: 8px;
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 12px;
+
+        // Header
+        HorizontalBox {
+            spacing: 12px;
+            Text {
+                text: "Module Instances";
+                font-weight: 700;
+                font-size: 14px;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Button {
+                text: "New Module";
+                clicked => { create-module(); }
+            }
+        }
+
+        // Instance List
+        ScrollView {
+            ListView {
+                for module[idx] in instances: Rectangle {
+                    height: 72px;
+                    background: idx == selected-module-index ? #e3f2fd : transparent;
+                    border-radius: 4px;
+
+                    TouchArea {
+                        clicked => {
+                            selected-module-index = idx;
+                            module-selected(module.module-id);
+                        }
+                    }
+
+                    HorizontalBox {
+                        padding: 12px;
+                        spacing: 12px;
+
+                        // Status indicator
+                        Rectangle {
+                            width: 12px;
+                            height: 12px;
+                            border-radius: 6px;
+                            background: module.state == "running" ? #4caf50 :
+                                       module.state == "paused" ? #ff9800 :
+                                       module.state == "error" ? #f44336 :
+                                       module.state == "configured" ? #2196f3 : #bdbdbd;
+                        }
+
+                        VerticalBox {
+                            spacing: 4px;
+                            horizontal-stretch: 1;
+
+                            HorizontalBox {
+                                Text {
+                                    text: module.instance-name;
+                                    font-weight: 600;
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                                Text {
+                                    text: module.state;
+                                    font-size: 10px;
+                                    color: #666;
+                                    background: #f0f0f0;
+                                    padding: 2px 6px;
+                                    border-radius: 2px;
+                                }
+                            }
+
+                            Text {
+                                text: "\{module.type-id} | Roles: \{module.roles-filled}/\{module.roles-total}";
+                                font-size: 10px;
+                                color: #999;
+                            }
+
+                            if module.error-message != "": Text {
+                                text: module.error-message;
+                                font-size: 9px;
+                                color: #f44336;
+                                wrap: word-wrap;
+                            }
+
+                            if module.uptime-ms > 0: Text {
+                                text: "Uptime: \{module.uptime-ms / 1000}s";
+                                font-size: 9px;
+                                color: #4caf50;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Device Assignment UI Component
+// =============================================================================
+
+component DeviceAssignmentPanel inherits Rectangle {
+    in property <[ModuleRole]> roles;
+    in property <[string]> available-devices;  // List of device names/IDs
+    in property <string> selected-role-id: "";
+
+    callback assign-device(string, string);  // role-id, device-id
+    callback unassign-device(string);        // role-id
+
+    background: white;
+    border-radius: 8px;
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 12px;
+
+        Text {
+            text: "Device Assignments";
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        ScrollView {
+            ListView {
+                for role[idx] in roles: Rectangle {
+                    height: 64px;
+                    background: role.role-id == selected-role-id ? #f5f5f5 : transparent;
+                    border-radius: 4px;
+
+                    VerticalBox {
+                        padding: 12px;
+                        spacing: 8px;
+
+                        HorizontalBox {
+                            spacing: 8px;
+                            Text {
+                                text: role.display-name;
+                                font-weight: 600;
+                                font-size: 12px;
+                            }
+                            Text {
+                                text: "(\{role.required-capability})";
+                                font-size: 10px;
+                                color: #999;
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                            if role.allows-multiple: Text {
+                                text: "Multiple OK";
+                                font-size: 9px;
+                                color: #2196f3;
+                                background: #e3f2fd;
+                                padding: 2px 6px;
+                                border-radius: 2px;
+                            }
+                        }
+
+                        HorizontalBox {
+                            spacing: 8px;
+
+                            if role.assigned-device-id != "": Rectangle {
+                                horizontal-stretch: 1;
+                                background: #e8f5e9;
+                                border-radius: 4px;
+                                padding: 6px 8px;
+
+                                HorizontalBox {
+                                    spacing: 8px;
+                                    Text {
+                                        text: role.assigned-device-id;
+                                        font-size: 11px;
+                                        vertical-alignment: center;
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
+                                    Button {
+                                        text: "Remove";
+                                        clicked => { unassign-device(role.role-id); }
+                                    }
+                                }
+                            }
+
+                            if role.assigned-device-id == "": ComboBox {
+                                horizontal-stretch: 1;
+                                model: available-devices;
+                                current-index: -1;
+                                current-value-changed => {
+                                    if self.current-index >= 0 {
+                                        assign-device(role.role-id, available-devices[self.current-index]);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Configuration Panel Component
+// =============================================================================
+
+component ConfigurationPanel inherits Rectangle {
+    in property <[ModuleParameter]> parameters;
+    in property <bool> is-running: false;
+
+    callback parameter-changed(string, string);  // param-id, new-value
+
+    background: white;
+    border-radius: 8px;
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 12px;
+
+        Text {
+            text: "Configuration";
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        ScrollView {
+            VerticalBox {
+                spacing: 16px;
+
+                for param in parameters: Rectangle {
+                    height: param.param-type == "bool" ? 40px : 68px;
+                    background: #f9f9f9;
+                    border-radius: 4px;
+
+                    VerticalBox {
+                        padding: 12px;
+                        spacing: 4px;
+
+                        HorizontalBox {
+                            spacing: 8px;
+                            Text {
+                                text: param.display-name;
+                                font-weight: 600;
+                                font-size: 12px;
+                            }
+                            if param.required: Text {
+                                text: "*";
+                                color: #f44336;
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                            if param.units != "": Text {
+                                text: param.units;
+                                font-size: 10px;
+                                color: #999;
+                            }
+                        }
+
+                        Text {
+                            text: param.description;
+                            font-size: 10px;
+                            color: #666;
+                            wrap: word-wrap;
+                        }
+
+                        if param.param-type == "float" || param.param-type == "int": HorizontalBox {
+                            spacing: 8px;
+                            LineEdit {
+                                text: param.current-value;
+                                enabled: !is-running;
+                                edited(val) => {
+                                    parameter-changed(param.param-id, val);
+                                }
+                            }
+                            if param.min-value != "" && param.max-value != "": Text {
+                                text: "[\{param.min-value}, \{param.max-value}]";
+                                font-size: 10px;
+                                color: #999;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        if param.param-type == "string": LineEdit {
+                            text: param.current-value;
+                            enabled: !is-running;
+                            edited(val) => {
+                                parameter-changed(param.param-id, val);
+                            }
+                        }
+
+                        if param.param-type == "bool": CheckBox {
+                            checked: param.current-value == "true";
+                            enabled: !is-running;
+                            toggled => {
+                                parameter-changed(param.param-id, self.checked ? "true" : "false");
+                            }
+                        }
+
+                        if param.param-type == "enum": ComboBox {
+                            model: param.enum-values.split(",");
+                            current-value: param.current-value;
+                            enabled: !is-running;
+                            current-value-changed => {
+                                parameter-changed(param.param-id, self.current-value);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Event Log Component
+// =============================================================================
+
+component EventLog inherits Rectangle {
+    in property <[ModuleEvent]> events;
+    in property <int> max-events: 100;
+
+    background: #fafafa;
+    border-radius: 8px;
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 12px;
+
+        HorizontalBox {
+            spacing: 12px;
+            Text {
+                text: "Event Log";
+                font-weight: 700;
+                font-size: 14px;
+            }
+            Text {
+                text: "(\{events.length})";
+                font-size: 11px;
+                color: #999;
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+
+        ScrollView {
+            ListView {
+                for event[idx] in events: Rectangle {
+                    height: event.message.length > 60 ? 56px : 40px;
+                    background: idx % 2 == 0 ? transparent : #f5f5f5;
+                    border-radius: 2px;
+
+                    HorizontalBox {
+                        padding: 8px;
+                        spacing: 8px;
+
+                        Rectangle {
+                            width: 8px;
+                            height: 8px;
+                            border-radius: 4px;
+                            background: event.severity == "error" ? #f44336 :
+                                       event.severity == "warning" ? #ff9800 : #4caf50;
+                            y: parent.height / 2 - self.height / 2;
+                        }
+
+                        VerticalBox {
+                            spacing: 2px;
+                            horizontal-stretch: 1;
+
+                            HorizontalBox {
+                                spacing: 8px;
+                                Text {
+                                    text: event.event-type;
+                                    font-size: 11px;
+                                    font-weight: 600;
+                                    color: #333;
+                                }
+                                Text {
+                                    text: format-time(event.timestamp-ms);
+                                    font-size: 9px;
+                                    color: #999;
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+
+                            Text {
+                                text: event.message;
+                                font-size: 10px;
+                                color: #666;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pure function format-time(ms: int) -> string {
+        let total-secs = ms / 1000;
+        let mins = total-secs / 60;
+        let secs = total-secs % 60;
+        return "\{mins}:\{secs < 10 ? "0" : ""}\{secs}";
+    }
+}
+
+// =============================================================================
+// Data Preview Component (Placeholder)
+// =============================================================================
+
+component DataPreview inherits Rectangle {
+    in property <string> module-id: "";
+    in property <string> module-state: "idle";
+
+    background: white;
+    border-radius: 8px;
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 12px;
+
+        Text {
+            text: "Data Preview";
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        Rectangle {
+            background: #f5f5f5;
+            border-radius: 4px;
+
+            VerticalBox {
+                alignment: center;
+                Text {
+                    text: module-state == "running" ? "Real-time data visualization" :
+                          module-state == "paused" ? "Paused - last frame shown" : "No data available";
+                    color: #999;
+                    font-size: 12px;
+                }
+            }
+        }
+
+        GroupBox {
+            title: "Stats";
+
+            GridBox {
+                spacing: 12px;
+
+                Row {
+                    Text { text: "Points captured:"; }
+                    Text { text: "0"; color: #2196f3; }
+                }
+
+                Row {
+                    Text { text: "Last update:"; }
+                    Text { text: "--"; color: #999; }
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Main Modules Panel
+// =============================================================================
+
+export component ModulesPanel inherits Rectangle {
+    in property <[ModuleTypeInfo]> available-module-types;
+    in property <[ModuleInstance]> module-instances;
+    in property <[string]> available-devices;  // Device list for assignment
+    in property <[ModuleRole]> current-module-roles;
+    in property <[ModuleParameter]> current-module-parameters;
+    in property <[ModuleEvent]> current-module-events;
+    in property <string> selected-module-id: "";
+    in property <bool> selected-module-running: false;
+
+    callback list-module-types();
+    callback list-modules();
+    callback create-module(string);  // type-id
+    callback delete-module(string);  // module-id
+    callback configure-module(string, string, string);  // module-id, param-id, value
+    callback assign-device(string, string);  // module-id, role-id, device-id
+    callback unassign-device(string, string);  // module-id, role-id
+    callback start-module(string);  // module-id
+    callback pause-module(string);  // module-id
+    callback resume-module(string);  // module-id
+    callback stop-module(string);  // module-id
+
+    property <int> selected-type-index: -1;
+    property <int> selected-module-index: -1;
+    property <int> selected-role-index: -1;
+    property <string> selected-role-id: "";
+
+    background: #f0f0f0;
+    border-radius: 8px;
+
+    TabWidget {
+        Tab {
+            title: "Modules";
+
+            VerticalBox {
+                padding: 16px;
+                spacing: 16px;
+
+                HorizontalBox {
+                    spacing: 16px;
+
+                    // Left: Type browser
+                    ModuleTypeBrowser {
+                        width: 30%;
+                        available-types: available-module-types;
+                        selected-type-index <=> root.selected-type-index;
+                        module-type-selected(type-id) => {
+                            root.create-module(type-id);
+                        }
+                    }
+
+                    // Right: Instance list + management
+                    VerticalBox {
+                        horizontal-stretch: 1;
+                        spacing: 16px;
+
+                        ModuleInstanceList {
+                            instances: module-instances;
+                            selected-module-index <=> root.selected-module-index;
+                            module-selected(module-id) => {
+                                root.selected-module-id = module-id;
+                            }
+                            create-module => {
+                                root.list-modules();
+                            }
+                        }
+
+                        // Module controls (start/stop/pause)
+                        if selected-module-id != "": GroupBox {
+                            title: "Module Control";
+
+                            HorizontalBox {
+                                spacing: 8px;
+
+                                Button {
+                                    text: "Start";
+                                    enabled: !selected-module-running;
+                                    clicked => {
+                                        root.start-module(root.selected-module-id);
+                                    }
+                                }
+
+                                Button {
+                                    text: "Pause";
+                                    enabled: selected-module-running;
+                                    clicked => {
+                                        root.pause-module(root.selected-module-id);
+                                    }
+                                }
+
+                                Button {
+                                    text: "Resume";
+                                    enabled: selected-module-running;
+                                    clicked => {
+                                        root.resume-module(root.selected-module-id);
+                                    }
+                                }
+
+                                Button {
+                                    text: "Stop";
+                                    enabled: selected-module-running;
+                                    clicked => {
+                                        root.stop-module(root.selected-module-id);
+                                    }
+                                }
+
+                                Rectangle { horizontal-stretch: 1; }
+
+                                Button {
+                                    text: "Delete";
+                                    clicked => {
+                                        root.delete-module(root.selected-module-id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Tab {
+            title: "Assignment";
+
+            ScrollView {
+                if selected-module-id != "": DeviceAssignmentPanel {
+                    padding: 16px;
+                    roles: current-module-roles;
+                    available-devices: available-devices;
+                    assign-device(role-id, device-id) => {
+                        root.assign-device(root.selected-module-id, role-id);
+                    }
+                    unassign-device(role-id) => {
+                        root.unassign-device(root.selected-module-id, role-id);
+                    }
+                }
+
+                if selected-module-id == "": Rectangle {
+                    background: #f5f5f5;
+                    VerticalBox {
+                        alignment: center;
+                        Text {
+                            text: "Select a module to assign devices";
+                            color: #999;
+                        }
+                    }
+                }
+            }
+        }
+
+        Tab {
+            title: "Configuration";
+
+            ScrollView {
+                if selected-module-id != "": ConfigurationPanel {
+                    padding: 16px;
+                    parameters: current-module-parameters;
+                    is-running: selected-module-running;
+                    parameter-changed(param-id, value) => {
+                        root.configure-module(root.selected-module-id, param-id, value);
+                    }
+                }
+
+                if selected-module-id == "": Rectangle {
+                    background: #f5f5f5;
+                    VerticalBox {
+                        alignment: center;
+                        Text {
+                            text: "Select a module to configure";
+                            color: #999;
+                        }
+                    }
+                }
+            }
+        }
+
+        Tab {
+            title: "Data";
+
+            VerticalBox {
+                padding: 16px;
+                spacing: 16px;
+
+                HorizontalBox {
+                    spacing: 16px;
+
+                    if selected-module-id != "": DataPreview {
+                        width: 50%;
+                        module-id: selected-module-id;
+                        module-state: selected-module-running ? "running" : "idle";
+                    }
+
+                    EventLog {
+                        events: current-module-events;
+                    }
+                }
+            }
+        }
+    }
+}

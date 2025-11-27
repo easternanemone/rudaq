@@ -1,0 +1,803 @@
+// rust-daq GUI - Main Application
+// Modular panel-based design inspired by PyMoDAQ/DynExp
+
+import { Button, ComboBox, GroupBox, HorizontalBox, LineEdit, ListView,
+         ScrollView, Slider, SpinBox, StandardButton, TabWidget,
+         VerticalBox, GridBox, ProgressIndicator } from "std-widgets.slint";
+
+// =============================================================================
+// Data Models
+// =============================================================================
+
+export struct DeviceInfo {
+    id: string,
+    name: string,
+    driver-type: string,
+    is-movable: bool,
+    is-readable: bool,
+    is-triggerable: bool,
+    is-frame-producer: bool,
+    online: bool,
+}
+
+export struct PositionInfo {
+    device-id: string,
+    position: float,
+    units: string,
+    is-moving: bool,
+}
+
+export struct ReadingInfo {
+    device-id: string,
+    value: float,
+    units: string,
+    timestamp: string,
+}
+
+export struct ScanAxisConfig {
+    device-id: string,
+    start: float,
+    end: float,
+    points: int,
+}
+
+export struct ScanStatus {
+    scan-id: string,
+    state: string,
+    current-point: int,
+    total-points: int,
+    progress: float,
+}
+
+// =============================================================================
+// Connection Status Component
+// =============================================================================
+
+component ConnectionStatus inherits Rectangle {
+    in property <string> server-address: "localhost:50051";
+    in property <bool> connected: false;
+    in property <string> status-text: "Disconnected";
+
+    callback connect-clicked();
+    callback disconnect-clicked();
+
+    height: 40px;
+    background: connected ? #e8f5e9 : #ffebee;
+    border-radius: 4px;
+
+    HorizontalBox {
+        padding: 8px;
+        spacing: 8px;
+
+        Rectangle {
+            width: 12px;
+            height: 12px;
+            border-radius: 6px;
+            background: connected ? #4caf50 : #f44336;
+        }
+
+        Text {
+            text: status-text;
+            vertical-alignment: center;
+            color: #333;
+        }
+
+        Rectangle { horizontal-stretch: 1; }
+
+        LineEdit {
+            width: 200px;
+            text: server-address;
+            enabled: !connected;
+        }
+
+        Button {
+            text: connected ? "Disconnect" : "Connect";
+            clicked => {
+                if (connected) {
+                    disconnect-clicked();
+                } else {
+                    connect-clicked();
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Device List Component
+// =============================================================================
+
+component DeviceList inherits Rectangle {
+    in property <[DeviceInfo]> devices;
+    in-out property <int> selected-index: -1;
+
+    callback device-selected(int);
+
+    background: #fafafa;
+    border-radius: 4px;
+
+    VerticalBox {
+        padding: 8px;
+
+        Text {
+            text: "Connected Devices";
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        ListView {
+            for device[idx] in devices: Rectangle {
+                height: 48px;
+                background: idx == selected-index ? #e3f2fd : transparent;
+                border-radius: 4px;
+
+                TouchArea {
+                    clicked => {
+                        selected-index = idx;
+                        device-selected(idx);
+                    }
+                }
+
+                HorizontalBox {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    Rectangle {
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 4px;
+                        background: device.online ? #4caf50 : #9e9e9e;
+                        y: parent.height / 2 - self.height / 2;
+                    }
+
+                    VerticalBox {
+                        spacing: 2px;
+                        Text {
+                            text: device.name;
+                            font-weight: 600;
+                        }
+                        HorizontalBox {
+                            spacing: 4px;
+                            Text {
+                                text: device.driver-type;
+                                font-size: 11px;
+                                color: #666;
+                            }
+                            if device.is-movable: Rectangle {
+                                width: 16px;
+                                height: 16px;
+                                background: #2196f3;
+                                border-radius: 2px;
+                                Text {
+                                    text: "M";
+                                    font-size: 10px;
+                                    color: white;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            if device.is-readable: Rectangle {
+                                width: 16px;
+                                height: 16px;
+                                background: #ff9800;
+                                border-radius: 2px;
+                                Text {
+                                    text: "R";
+                                    font-size: 10px;
+                                    color: white;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Move Panel - Stage/Rotator Control
+// =============================================================================
+
+component MovePanel inherits Rectangle {
+    in property <string> device-name: "Stage";
+    in property <float> current-position: 0.0;
+    in property <string> units: "mm";
+    in property <float> min-position: -100.0;
+    in property <float> max-position: 100.0;
+    in property <bool> is-moving: false;
+
+    callback move-absolute(float);
+    callback move-relative(float);
+    callback stop-motion();
+    callback home();
+
+    property <float> target-position: current-position;
+    property <float> jog-step: 1.0;
+
+    background: white;
+    border-radius: 8px;
+    drop-shadow-blur: 4px;
+    drop-shadow-color: #0002;
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 12px;
+
+        // Header
+        HorizontalBox {
+            Text {
+                text: device-name;
+                font-weight: 700;
+                font-size: 16px;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            if is-moving: ProgressIndicator {
+                width: 20px;
+                height: 20px;
+                indeterminate: true;
+            }
+        }
+
+        // Current Position Display
+        Rectangle {
+            height: 60px;
+            background: #f5f5f5;
+            border-radius: 4px;
+
+            HorizontalBox {
+                padding: 12px;
+                Text {
+                    text: "Position:";
+                    vertical-alignment: center;
+                    color: #666;
+                }
+                Text {
+                    text: "\{round(current-position * 1000) / 1000} \{units}";
+                    font-size: 24px;
+                    font-weight: 700;
+                    color: is-moving ? #2196f3 : #333;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Position Slider
+        Slider {
+            minimum: min-position;
+            maximum: max-position;
+            value <=> target-position;
+            enabled: !is-moving;
+        }
+
+        // Target Input
+        HorizontalBox {
+            spacing: 8px;
+            Text {
+                text: "Target:";
+                vertical-alignment: center;
+            }
+            SpinBox {
+                minimum: round(min-position);
+                maximum: round(max-position);
+                value: round(target-position);
+                enabled: !is-moving;
+                edited(val) => {
+                    target-position = val;
+                }
+            }
+            Text {
+                text: units;
+                vertical-alignment: center;
+                color: #666;
+            }
+            Button {
+                text: "Go";
+                enabled: !is-moving;
+                clicked => { move-absolute(target-position); }
+            }
+        }
+
+        // Jog Controls
+        GroupBox {
+            title: "Jog Controls";
+
+            VerticalBox {
+                spacing: 8px;
+
+                HorizontalBox {
+                    spacing: 8px;
+                    Text {
+                        text: "Step:";
+                        vertical-alignment: center;
+                    }
+                    SpinBox {
+                        minimum: 1;
+                        maximum: 100;
+                        value: round(jog-step);
+                        edited(val) => {
+                            jog-step = val;
+                        }
+                    }
+                    Text {
+                        text: units;
+                        vertical-alignment: center;
+                        color: #666;
+                    }
+                }
+
+                HorizontalBox {
+                    spacing: 8px;
+                    Button {
+                        text: "<<";
+                        enabled: !is-moving;
+                        clicked => { move-relative(-jog-step * 10); }
+                    }
+                    Button {
+                        text: "<";
+                        enabled: !is-moving;
+                        clicked => { move-relative(-jog-step); }
+                    }
+                    Button {
+                        text: "STOP";
+                        enabled: is-moving;
+                        clicked => { stop-motion(); }
+                    }
+                    Button {
+                        text: ">";
+                        enabled: !is-moving;
+                        clicked => { move-relative(jog-step); }
+                    }
+                    Button {
+                        text: ">>";
+                        enabled: !is-moving;
+                        clicked => { move-relative(jog-step * 10); }
+                    }
+                }
+            }
+        }
+
+        // Home Button
+        Button {
+            text: "Home";
+            enabled: !is-moving;
+            clicked => { home(); }
+        }
+    }
+}
+
+// =============================================================================
+// Viewer Panel - Power Meter / Scalar Readings
+// =============================================================================
+
+component ViewerPanel inherits Rectangle {
+    in property <string> device-name: "Power Meter";
+    in property <float> current-value: 0.0;
+    in property <string> units: "W";
+    in property <bool> streaming: false;
+    in property <[float]> history;  // Recent values for sparkline
+
+    callback start-stream();
+    callback stop-stream();
+
+    background: white;
+    border-radius: 8px;
+    drop-shadow-blur: 4px;
+    drop-shadow-color: #0002;
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 12px;
+
+        // Header
+        HorizontalBox {
+            Text {
+                text: device-name;
+                font-weight: 700;
+                font-size: 16px;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            if streaming: Rectangle {
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: #4caf50;
+                // Blink animation
+            }
+        }
+
+        // Value Display
+        Rectangle {
+            height: 80px;
+            background: #f5f5f5;
+            border-radius: 4px;
+
+            VerticalBox {
+                padding: 12px;
+                alignment: center;
+
+                Text {
+                    text: format-scientific(current-value);
+                    font-size: 32px;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: units;
+                    font-size: 14px;
+                    color: #666;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+
+        // Sparkline (simplified - just a placeholder rectangle)
+        Rectangle {
+            height: 60px;
+            background: #fafafa;
+            border-radius: 4px;
+
+            // Simple bar chart visualization
+            HorizontalBox {
+                padding: 4px;
+                spacing: 2px;
+
+                for val[idx] in history: Rectangle {
+                    width: 4px;
+                    background: #2196f3;
+                    // Scale height based on value
+                    y: parent.height - (self.height);
+                }
+            }
+        }
+
+        // Stream Controls
+        HorizontalBox {
+            spacing: 8px;
+
+            Button {
+                text: streaming ? "Stop Stream" : "Start Stream";
+                clicked => {
+                    if (streaming) {
+                        stop-stream();
+                    } else {
+                        start-stream();
+                    }
+                }
+            }
+
+            Rectangle { horizontal-stretch: 1; }
+
+            Text {
+                text: streaming ? "Streaming..." : "Idle";
+                color: streaming ? #4caf50 : #666;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    // Helper function for scientific notation (simplified)
+    pure function format-scientific(value: float) -> string {
+        if (abs(value) < 0.001 && value != 0) {
+            // Would format as scientific, but Slint doesn't have this built-in
+            // Return as-is for now
+            return "\{round(value * 1000000000) / 1000} n";
+        } else if (abs(value) < 1) {
+            return "\{round(value * 1000000) / 1000} u";
+        } else if (abs(value) < 1000) {
+            return "\{round(value * 1000) / 1000}";
+        } else {
+            return "\{round(value / 1000 * 1000) / 1000} k";
+        }
+    }
+}
+
+// =============================================================================
+// Scan Panel - Scan Configuration and Control
+// =============================================================================
+
+component ScanPanel inherits Rectangle {
+    in property <[DeviceInfo]> movable-devices;
+    in property <[DeviceInfo]> readable-devices;
+    in property <ScanStatus> scan-status;
+    in property <bool> scan-running: false;
+
+    callback create-scan(ScanAxisConfig);
+    callback start-scan();
+    callback stop-scan();
+    callback pause-scan();
+
+    property <int> selected-axis-device: 0;
+    property <float> scan-start: 0.0;
+    property <float> scan-end: 10.0;
+    property <int> scan-points: 11;
+
+    background: white;
+    border-radius: 8px;
+    drop-shadow-blur: 4px;
+    drop-shadow-color: #0002;
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 12px;
+
+        // Header
+        Text {
+            text: "Scan Configuration";
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        // Scan Axis Selection
+        GroupBox {
+            title: "Scan Axis";
+
+            GridBox {
+                spacing: 8px;
+
+                Row {
+                    Text { text: "Device:"; vertical-alignment: center; }
+                    ComboBox {
+                        model: ["Stage", "Rotator"];  // Would be populated from movable-devices
+                        current-index <=> selected-axis-device;
+                        enabled: !scan-running;
+                    }
+                }
+
+                Row {
+                    Text { text: "Start:"; vertical-alignment: center; }
+                    SpinBox {
+                        minimum: -1000;
+                        maximum: 1000;
+                        value: round(scan-start);
+                        enabled: !scan-running;
+                        edited(val) => { scan-start = val; }
+                    }
+                }
+
+                Row {
+                    Text { text: "End:"; vertical-alignment: center; }
+                    SpinBox {
+                        minimum: -1000;
+                        maximum: 1000;
+                        value: round(scan-end);
+                        enabled: !scan-running;
+                        edited(val) => { scan-end = val; }
+                    }
+                }
+
+                Row {
+                    Text { text: "Points:"; vertical-alignment: center; }
+                    SpinBox {
+                        minimum: 2;
+                        maximum: 1000;
+                        value: scan-points;
+                        enabled: !scan-running;
+                        edited(val) => { scan-points = val; }
+                    }
+                }
+            }
+        }
+
+        // Scan Progress
+        if scan-running: Rectangle {
+            height: 60px;
+            background: #e3f2fd;
+            border-radius: 4px;
+
+            VerticalBox {
+                padding: 8px;
+                spacing: 4px;
+
+                HorizontalBox {
+                    Text {
+                        text: "Progress:";
+                    }
+                    Text {
+                        text: "\{scan-status.current-point} / \{scan-status.total-points}";
+                        font-weight: 600;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    Text {
+                        text: scan-status.state;
+                        color: #2196f3;
+                    }
+                }
+
+                Rectangle {
+                    height: 8px;
+                    background: #bbdefb;
+                    border-radius: 4px;
+
+                    Rectangle {
+                        width: parent.width * scan-status.progress / 100;
+                        height: parent.height;
+                        background: #2196f3;
+                        border-radius: 4px;
+                    }
+                }
+            }
+        }
+
+        // Control Buttons
+        HorizontalBox {
+            spacing: 8px;
+
+            Button {
+                text: "Start Scan";
+                enabled: !scan-running;
+                clicked => {
+                    create-scan({
+                        device-id: "stage",
+                        start: scan-start,
+                        end: scan-end,
+                        points: scan-points,
+                    });
+                    start-scan();
+                }
+            }
+
+            Button {
+                text: "Pause";
+                enabled: scan-running;
+                clicked => { pause-scan(); }
+            }
+
+            Button {
+                text: "Stop";
+                enabled: scan-running;
+                clicked => { stop-scan(); }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Main Application Window
+// =============================================================================
+
+export component MainWindow inherits Window {
+    title: "rust-daq Control";
+    min-width: 1200px;
+    min-height: 800px;
+    background: #f0f0f0;
+
+    // Connection state
+    in-out property <bool> connected: false;
+    in-out property <string> connection-status: "Disconnected";
+    in-out property <string> server-address: "localhost:50051";
+
+    // Device data
+    in property <[DeviceInfo]> devices: [];
+    in-out property <int> selected-device-index: -1;
+
+    // Position data (for move panel)
+    in property <float> stage-position: 0.0;
+    in property <bool> stage-moving: false;
+
+    // Reading data (for viewer panel)
+    in property <float> power-reading: 0.0;
+    in property <bool> power-streaming: false;
+
+    // Scan data
+    in property <ScanStatus> scan-status;
+    in property <bool> scan-running: false;
+
+    // Callbacks
+    callback connect(string);
+    callback disconnect();
+    callback refresh-devices();
+    callback move-stage-absolute(float);
+    callback move-stage-relative(float);
+    callback stop-stage();
+    callback start-power-stream();
+    callback stop-power-stream();
+    callback create-scan(ScanAxisConfig);
+    callback start-scan();
+    callback stop-scan();
+    callback pause-scan();
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 16px;
+
+        // Connection Status Bar
+        ConnectionStatus {
+            server-address: root.server-address;
+            connected: root.connected;
+            status-text: root.connection-status;
+            connect-clicked => { root.connect(server-address); }
+            disconnect-clicked => { root.disconnect(); }
+        }
+
+        // Main Content Area
+        HorizontalBox {
+            spacing: 16px;
+
+            // Left Sidebar - Device List
+            DeviceList {
+                width: 250px;
+                devices: root.devices;
+                selected-index <=> root.selected-device-index;
+                device-selected(idx) => {
+                    // Could trigger device-specific panel loading
+                }
+            }
+
+            // Main Panel Area - Tabbed Interface
+            TabWidget {
+                horizontal-stretch: 1;
+
+                Tab {
+                    title: "Move";
+                    MovePanel {
+                        device-name: "Stage";
+                        current-position: root.stage-position;
+                        units: "mm";
+                        min-position: -50.0;
+                        max-position: 50.0;
+                        is-moving: root.stage-moving;
+                        move-absolute(pos) => { root.move-stage-absolute(pos); }
+                        move-relative(delta) => { root.move-stage-relative(delta); }
+                        stop-motion => { root.stop-stage(); }
+                        home => { root.move-stage-absolute(0); }
+                    }
+                }
+
+                Tab {
+                    title: "Viewer";
+                    ViewerPanel {
+                        device-name: "Newport Power Meter";
+                        current-value: root.power-reading;
+                        units: "W";
+                        streaming: root.power-streaming;
+                        start-stream => { root.start-power-stream(); }
+                        stop-stream => { root.stop-power-stream(); }
+                    }
+                }
+
+                Tab {
+                    title: "Scan";
+                    ScanPanel {
+                        scan-status: root.scan-status;
+                        scan-running: root.scan-running;
+                        create-scan(config) => { root.create-scan(config); }
+                        start-scan => { root.start-scan(); }
+                        stop-scan => { root.stop-scan(); }
+                        pause-scan => { root.pause-scan(); }
+                    }
+                }
+            }
+        }
+
+        // Status Bar
+        Rectangle {
+            height: 24px;
+            background: #e0e0e0;
+            border-radius: 4px;
+
+            HorizontalBox {
+                padding-left: 8px;
+                padding-right: 8px;
+
+                Text {
+                    text: "Devices: \{devices.length}";
+                    font-size: 11px;
+                    color: #666;
+                    vertical-alignment: center;
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                Text {
+                    text: connected ? "Connected" : "Not connected";
+                    font-size: 11px;
+                    color: connected ? #4caf50 : #f44336;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}
