@@ -81,15 +81,19 @@ pub enum DaqError {
     ShutdownFailed(Vec<DaqError>),
 
     #[error("Failed to send value update (no subscribers)")]
+    #[cfg(feature = "v4")]
     ParameterNoSubscribers,
 
     #[error("Parameter is read-only")]
+    #[cfg(feature = "v4")]
     ParameterReadOnly,
 
     #[error("Invalid choice for parameter")]
+    #[cfg(feature = "v4")]
     ParameterInvalidChoice,
 
     #[error("No hardware reader connected")]
+    #[cfg(feature = "v4")]
     ParameterNoHardwareReader,
 }
 
