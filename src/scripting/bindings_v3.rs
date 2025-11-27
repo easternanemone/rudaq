@@ -517,8 +517,8 @@ pub fn register_v3_hardware(engine: &mut Engine) {
         .unwrap()
     });
 
-    // let wl = laser.wavelength() - Get wavelength in nm
-    engine.register_fn("wavelength", |laser: &mut V3LaserHandle| -> f64 {
+    // let wl = laser.get_wavelength() - Get wavelength in nm
+    engine.register_fn("get_wavelength", |laser: &mut V3LaserHandle| -> f64 {
         let inst = laser.instrument.clone();
         block_in_place(|| {
             Handle::current().block_on(async {

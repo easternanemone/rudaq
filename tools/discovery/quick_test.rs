@@ -1,5 +1,5 @@
 // Quick targeted test for specific known ports
-use serialport::{self, SerialPort};
+use serialport::{self};
 use std::io::{Read, Write};
 use std::thread;
 use std::time::Duration;
