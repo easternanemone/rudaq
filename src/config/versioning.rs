@@ -67,16 +67,15 @@ impl VersionManager {
         format!("{:x}", hasher.finalize())[..8].to_string()
     }
 
-    async fn cleanup_old_versions(&self, versions: &mut Vec<VersionInfo>) -> Result<()> {
+    async fn cleanup_old_versions(&self, versions: &mut [VersionInfo]) -> Result<()> {
         versions.sort_by_key(|v| v.created_at);
 
         let unlabeled_versions: Vec<_> = versions.iter().filter(|v| v.label.is_none()).collect();
 
         if unlabeled_versions.len() > self.max_versions {
             let versions_to_delete = unlabeled_versions.len() - self.max_versions;
-            for i in 0..versions_to_delete {
-                let version_to_delete = &unlabeled_versions[i];
-                let path = self.versions_dir.join(&version_to_delete.id.0);
+            for version in unlabeled_versions.iter().take(versions_to_delete) {
+                let path = self.versions_dir.join(&version.id.0);
                 fs::remove_file(path).await?;
             }
         }

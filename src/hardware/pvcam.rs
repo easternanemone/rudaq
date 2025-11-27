@@ -527,11 +527,8 @@ impl PvcamDriver {
 
     #[cfg(feature = "pvcam_hardware")]
     async fn acquire_frame_hardware(&self) -> Result<Vec<u16>> {
-        let handle = *self.camera_handle.lock().await;
-        if handle.is_none() {
-            return Err(anyhow!("Camera not opened"));
-        }
-        let h = handle.unwrap();
+        let h = (*self.camera_handle.lock().await)
+            .ok_or_else(|| anyhow!("Camera not opened"))?;
 
         let exposure = *self.exposure_ms.lock().await;
         let roi = *self.roi.lock().await;
@@ -747,11 +744,8 @@ impl PvcamDriver {
 
         #[cfg(feature = "pvcam_hardware")]
         {
-            let handle = *self.camera_handle.lock().await;
-            if handle.is_none() {
-                return Err(anyhow!("Camera not opened"));
-            }
-            let h = handle.unwrap();
+            let h = (*self.camera_handle.lock().await)
+                .ok_or_else(|| anyhow!("Camera not opened"))?;
 
             let is_armed = *self.armed.lock().await;
             if !is_armed {
@@ -2643,11 +2637,8 @@ impl Triggerable for PvcamDriver {
     async fn arm(&self) -> Result<()> {
         #[cfg(feature = "pvcam_hardware")]
         {
-            let handle = *self.camera_handle.lock().await;
-            if handle.is_none() {
-                return Err(anyhow!("Camera not opened"));
-            }
-            let h = handle.unwrap();
+            let h = (*self.camera_handle.lock().await)
+                .ok_or_else(|| anyhow!("Camera not opened"))?;
 
             let exposure = *self.exposure_ms.lock().await;
             let roi = *self.roi.lock().await;
@@ -2713,11 +2704,8 @@ impl Triggerable for PvcamDriver {
 
         #[cfg(feature = "pvcam_hardware")]
         {
-            let handle = *self.camera_handle.lock().await;
-            if handle.is_none() {
-                return Err(anyhow!("Camera not opened"));
-            }
-            let h = handle.unwrap();
+            let h = (*self.camera_handle.lock().await)
+                .ok_or_else(|| anyhow!("Camera not opened"))?;
 
             let exposure = *self.exposure_ms.lock().await;
 

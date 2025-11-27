@@ -132,11 +132,13 @@ async fn run_script(args: &Args) -> Result<(), ScriptError> {
 }
 
 /// Create a script engine instance based on the specified type
-fn create_engine(engine_type: EngineType, max_operations: u64) -> Box<dyn ScriptEngine> {
+fn create_engine(engine_type: EngineType, _max_operations: u64) -> Box<dyn ScriptEngine> {
     match engine_type {
         EngineType::Rhai => {
-            log::debug!("Creating Rhai engine with limit {}", max_operations);
-            Box::new(RhaiEngine::with_limit(max_operations).unwrap())
+            log::debug!("Creating Rhai engine with hardware bindings");
+            // Use with_hardware() to register mock factories and hardware bindings
+            // This enables create_mock_stage(), create_mock_camera(), etc.
+            Box::new(RhaiEngine::with_hardware().unwrap())
         }
     }
 }
@@ -152,10 +154,7 @@ fn read_script_file(path: &PathBuf) -> Result<String, ScriptError> {
 }
 
 /// Set global variables from command-line arguments
-fn set_globals(
-    engine: &mut Box<dyn ScriptEngine>,
-    globals: &[String],
-) -> Result<(), ScriptError> {
+fn set_globals(engine: &mut Box<dyn ScriptEngine>, globals: &[String]) -> Result<(), ScriptError> {
     for global in globals {
         let parts: Vec<&str> = global.splitn(2, '=').collect();
         if parts.len() != 2 {

@@ -5,14 +5,17 @@
 //! capability-based access to hardware devices.
 
 use crate::grpc::proto::{
-    hardware_service_server::HardwareService, ArmRequest, ArmResponse, DeviceInfo,
-    DeviceMetadata as ProtoDeviceMetadata, DeviceStateRequest, DeviceStateResponse,
-    GetExposureRequest, GetExposureResponse, ListDevicesRequest, ListDevicesResponse, MoveRequest,
-    MoveResponse, PositionUpdate, ReadValueRequest, ReadValueResponse, SetExposureRequest,
-    SetExposureResponse, StartStreamRequest, StartStreamResponse, StopMotionRequest,
-    StopMotionResponse, StopStreamRequest, StopStreamResponse, StreamFramesRequest,
-    StreamPositionRequest, StreamValuesRequest, TriggerRequest, TriggerResponse, ValueUpdate,
-    WaitSettledRequest, WaitSettledResponse,
+    hardware_service_server::HardwareService, ArmRequest, ArmResponse, DeviceCommandRequest,
+    DeviceCommandResponse, DeviceInfo, DeviceMetadata as ProtoDeviceMetadata, DeviceStateRequest,
+    DeviceStateResponse, GetExposureRequest, GetExposureResponse, GetParameterRequest,
+    ListDevicesRequest, ListDevicesResponse, ListParametersRequest, ListParametersResponse,
+    MoveRequest, MoveResponse, ParameterChange, ParameterValue, PositionUpdate, ReadValueRequest,
+    ReadValueResponse, SetExposureRequest, SetExposureResponse, SetParameterRequest,
+    SetParameterResponse, StageDeviceRequest, StageDeviceResponse, StartStreamRequest,
+    StartStreamResponse, StopMotionRequest, StopMotionResponse, StopStreamRequest,
+    StopStreamResponse, StreamFramesRequest, StreamParameterChangesRequest, StreamPositionRequest,
+    StreamValuesRequest, TriggerRequest, TriggerResponse, UnstageDeviceRequest,
+    UnstageDeviceResponse, ValueUpdate, WaitSettledRequest, WaitSettledResponse,
 };
 use crate::hardware::registry::{Capability, DeviceRegistry};
 use std::sync::Arc;
@@ -679,7 +682,10 @@ impl HardwareService for HardwareServiceImpl {
             ))
         })?;
 
-        match frame_producer.start_stream().await {
+        // Use frame_count from request (0 or None = continuous)
+        let frame_limit = req.frame_count.filter(|&n| n > 0);
+
+        match frame_producer.start_stream_finite(frame_limit).await {
             Ok(_) => Ok(Response::new(StartStreamResponse {
                 success: true,
                 error_message: String::new(),
@@ -711,10 +717,14 @@ impl HardwareService for HardwareServiceImpl {
         })?;
 
         match frame_producer.stop_stream().await {
-            Ok(_) => Ok(Response::new(StopStreamResponse {
-                success: true,
-                frames_captured: 0, // TODO: Track frame count
-            })),
+            Ok(_) => {
+                // Get frame count from device
+                let frames_captured = frame_producer.frame_count();
+                Ok(Response::new(StopStreamResponse {
+                    success: true,
+                    frames_captured,
+                }))
+            }
             Err(e) => Err(Status::internal(format!("Failed to stop stream: {}", e))),
         }
     }
@@ -788,6 +798,8 @@ impl HardwareService for HardwareServiceImpl {
                     } else {
                         String::new()
                     },
+                    // Arrow Flight ticket for bulk data transfer (not used for gRPC streaming)
+                    flight_ticket: None,
                 };
 
                 frame_number = frame_number.wrapping_add(1);
@@ -801,6 +813,113 @@ impl HardwareService for HardwareServiceImpl {
 
         Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
             rx,
+        )))
+    }
+
+    // =========================================================================
+    // Device Lifecycle (Stage/Unstage - Bluesky pattern)
+    // =========================================================================
+
+    async fn stage_device(
+        &self,
+        request: Request<StageDeviceRequest>,
+    ) -> Result<Response<StageDeviceResponse>, Status> {
+        let req = request.into_inner();
+        // TODO: Implement device staging (prepare device for acquisition)
+        // This should call a Stage trait method on the device when implemented
+        Err(Status::unimplemented(format!(
+            "StageDevice not yet implemented for device '{}'",
+            req.device_id
+        )))
+    }
+
+    async fn unstage_device(
+        &self,
+        request: Request<UnstageDeviceRequest>,
+    ) -> Result<Response<UnstageDeviceResponse>, Status> {
+        let req = request.into_inner();
+        // TODO: Implement device unstaging (cleanup after acquisition)
+        // This should call an Unstage trait method on the device when implemented
+        Err(Status::unimplemented(format!(
+            "UnstageDevice not yet implemented for device '{}'",
+            req.device_id
+        )))
+    }
+
+    // =========================================================================
+    // Passthrough Commands (escape hatch for device-specific features)
+    // =========================================================================
+
+    async fn execute_device_command(
+        &self,
+        request: Request<DeviceCommandRequest>,
+    ) -> Result<Response<DeviceCommandResponse>, Status> {
+        let req = request.into_inner();
+        // TODO: Implement passthrough command execution
+        // This allows sending device-specific commands that don't fit capability traits
+        Err(Status::unimplemented(format!(
+            "ExecuteDeviceCommand not yet implemented for device '{}', command '{}'",
+            req.device_id, req.command
+        )))
+    }
+
+    // =========================================================================
+    // Observable Parameters (QCodes/ScopeFoundry pattern)
+    // =========================================================================
+
+    async fn list_parameters(
+        &self,
+        request: Request<ListParametersRequest>,
+    ) -> Result<Response<ListParametersResponse>, Status> {
+        let req = request.into_inner();
+        // TODO: Implement parameter listing
+        // This should return all observable parameters for the device
+        Err(Status::unimplemented(format!(
+            "ListParameters not yet implemented for device '{}'",
+            req.device_id
+        )))
+    }
+
+    async fn get_parameter(
+        &self,
+        request: Request<GetParameterRequest>,
+    ) -> Result<Response<ParameterValue>, Status> {
+        let req = request.into_inner();
+        // TODO: Implement parameter reading
+        // This should return the current value of a named parameter
+        Err(Status::unimplemented(format!(
+            "GetParameter '{}' not yet implemented for device '{}'",
+            req.parameter_name, req.device_id
+        )))
+    }
+
+    async fn set_parameter(
+        &self,
+        request: Request<SetParameterRequest>,
+    ) -> Result<Response<SetParameterResponse>, Status> {
+        let req = request.into_inner();
+        // TODO: Implement parameter writing
+        // This should set a named parameter to a new value
+        Err(Status::unimplemented(format!(
+            "SetParameter '{}' not yet implemented for device '{}'",
+            req.parameter_name, req.device_id
+        )))
+    }
+
+    type StreamParameterChangesStream =
+        tokio_stream::wrappers::ReceiverStream<Result<ParameterChange, Status>>;
+
+    async fn stream_parameter_changes(
+        &self,
+        request: Request<StreamParameterChangesRequest>,
+    ) -> Result<Response<Self::StreamParameterChangesStream>, Status> {
+        let req = request.into_inner();
+        // TODO: Implement parameter change streaming
+        // This should stream changes to observable parameters in real-time
+        let device_filter = req.device_id.as_deref().unwrap_or("all devices");
+        Err(Status::unimplemented(format!(
+            "StreamParameterChanges not yet implemented for '{}'",
+            device_filter
         )))
     }
 }

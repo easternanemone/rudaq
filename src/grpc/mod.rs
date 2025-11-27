@@ -1,4 +1,5 @@
 pub mod hardware_service;
+pub mod module_service;
 pub mod scan_service;
 /// gRPC server for remote DAQ control (Phase 3)
 ///
@@ -42,6 +43,7 @@ pub mod proto {
 }
 
 pub use hardware_service::HardwareServiceImpl;
+pub use module_service::ModuleServiceImpl;
 pub use scan_service::ScanServiceImpl;
 pub use server::{start_server, start_server_with_hardware, DaqServer};
 
@@ -59,7 +61,7 @@ pub use proto::hardware_service_server::{HardwareService, HardwareServiceServer}
 pub use proto::{
     DeviceInfo, DeviceMetadata, DeviceStateRequest, DeviceStateResponse, ListDevicesRequest,
     ListDevicesResponse, MoveRequest, MoveResponse, PositionUpdate, ReadValueRequest,
-    ReadValueResponse, ValueUpdate,
+    ReadValueResponse, StopMotionRequest, StopMotionResponse, StreamValuesRequest, ValueUpdate,
 };
 
 // Re-export ScanService types (bd-4le6)

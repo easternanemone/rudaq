@@ -52,8 +52,10 @@ use crate::error::DaqError;
 
 /// Parameter constraints for validation
 #[derive(Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum Constraints<T> {
     /// No constraints
+    #[default]
     None,
 
     /// Numeric range (min, max)
@@ -109,11 +111,6 @@ impl<T: Debug> std::fmt::Debug for Constraints<T> {
     }
 }
 
-impl<T> Default for Constraints<T> {
-    fn default() -> Self {
-        Constraints::None
-    }
-}
 
 // =============================================================================
 // Parameter<T>

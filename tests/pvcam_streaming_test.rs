@@ -105,14 +105,21 @@ async fn test_streaming_frame_delivery() {
     let elapsed = start.elapsed();
     let fps = frame_count as f64 / elapsed.as_secs_f64();
 
-    println!("Received {} frames in {:?} ({:.1} FPS)", frame_count, elapsed, fps);
+    println!(
+        "Received {} frames in {:?} ({:.1} FPS)",
+        frame_count, elapsed, fps
+    );
     println!("Camera frame counter: {}", camera.frame_count());
 
     // Should have received at least some frames
     assert!(frame_count > 0, "Should have received at least one frame");
 
     // With 10ms exposure, expect roughly 30+ FPS (accounting for overhead)
-    assert!(fps > 10.0, "FPS ({:.1}) should be > 10 with 10ms exposure", fps);
+    assert!(
+        fps > 10.0,
+        "FPS ({:.1}) should be > 10 with 10ms exposure",
+        fps
+    );
 
     println!("Frame delivery test PASSED");
 }
@@ -161,10 +168,7 @@ async fn test_streaming_backpressure() {
     println!("Total frames captured: {}", camera.frame_count());
 
     // Should have captured frames even without immediate consumption
-    assert!(
-        camera.frame_count() > 0,
-        "Should have captured frames"
-    );
+    assert!(camera.frame_count() > 0, "Should have captured frames");
 
     println!("Backpressure test PASSED");
 }

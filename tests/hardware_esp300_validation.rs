@@ -99,7 +99,10 @@ async fn setup_esp300_axis() -> anyhow::Result<Esp300Driver> {
     // Verify homed position (should be near zero)
     let pos = driver.position().await?;
     if pos > 1.0 {
-        eprintln!("Warning: Position after homing is {:.3}mm (expected ~0mm)", pos);
+        eprintln!(
+            "Warning: Position after homing is {:.3}mm (expected ~0mm)",
+            pos
+        );
     }
 
     Ok(driver)

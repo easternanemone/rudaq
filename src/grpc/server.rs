@@ -615,22 +615,27 @@ pub async fn start_server_with_hardware(
     registry: std::sync::Arc<tokio::sync::RwLock<crate::hardware::registry::DeviceRegistry>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::grpc::hardware_service::HardwareServiceImpl;
+    use crate::grpc::module_service::ModuleServiceImpl;
     use crate::grpc::proto::hardware_service_server::HardwareServiceServer;
+    use crate::grpc::proto::module_service_server::ModuleServiceServer;
     use crate::grpc::proto::scan_service_server::ScanServiceServer;
     use crate::grpc::scan_service::ScanServiceImpl;
 
     let control_server = DaqServer::new();
     let hardware_server = HardwareServiceImpl::new(registry.clone());
+    let module_server = ModuleServiceImpl::new(registry.clone());
     let scan_server = ScanServiceImpl::new(registry);
 
     println!("DAQ gRPC server (with hardware) listening on {}", addr);
     println!("  - ControlService: script management");
     println!("  - HardwareService: direct device control");
+    println!("  - ModuleService: experiment modules (bd-c0ai)");
     println!("  - ScanService: coordinated multi-axis scans");
 
     Server::builder()
         .add_service(ControlServiceServer::new(control_server))
         .add_service(HardwareServiceServer::new(hardware_server))
+        .add_service(ModuleServiceServer::new(module_server))
         .add_service(ScanServiceServer::new(scan_server))
         .serve(addr)
         .await?;

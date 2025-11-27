@@ -34,15 +34,15 @@
 //! engine.eval_with_scope(&mut scope, script)?;
 //! ```
 
+use chrono::Utc;
 use rhai::{Dynamic, Engine};
 use std::sync::Arc;
 use tokio::runtime::Handle;
 use tokio::sync::broadcast;
 use tokio::task::block_in_place;
-use chrono::Utc;
 
-use crate::hardware::capabilities::{Camera, Movable};
 use crate::core::Measurement;
+use crate::hardware::capabilities::{Camera, Movable};
 
 // =============================================================================
 // Handle Types - Rhai-Compatible Wrappers
@@ -205,6 +205,40 @@ pub fn register_hardware(engine: &mut Engine) {
         use std::thread;
         use std::time::Duration;
         thread::sleep(Duration::from_secs_f64(seconds));
+    });
+
+    // =========================================================================
+    // Mock Hardware Factories - For script testing and demos
+    // =========================================================================
+
+    // create_mock_stage() - Create a mock stage for testing
+    engine.register_fn("create_mock_stage", || -> StageHandle {
+        use crate::hardware::mock::MockStage;
+        StageHandle {
+            driver: Arc::new(MockStage::new()),
+            data_tx: None,
+        }
+    });
+
+    // create_mock_camera(width, height) - Create a mock camera for testing
+    engine.register_fn("create_mock_camera", |width: i64, height: i64| -> CameraHandle {
+        use crate::hardware::mock::MockCamera;
+        CameraHandle {
+            driver: Arc::new(MockCamera::new(width as u32, height as u32)),
+            data_tx: None,
+        }
+    });
+
+    // create_mock_power_meter(base_power) - Create a mock power meter for testing
+    // Returns a StageHandle (using Readable trait exposed as stage for simplicity)
+    engine.register_fn("create_mock_power_meter", |_base_power: f64| -> StageHandle {
+        // Mock power meter uses MockStage for now (no dedicated mock)
+        // Real scripts should use actual Newport 1830-C
+        use crate::hardware::mock::MockStage;
+        StageHandle {
+            driver: Arc::new(MockStage::new()),
+            data_tx: None,
+        }
     });
 }
 

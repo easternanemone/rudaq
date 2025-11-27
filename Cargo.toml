@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "pvcam-sys",
+    "gui",
 ]
 exclude = ["python"]
 
@@ -108,8 +109,6 @@ tempfile = "3.10.1"
 serial_test = "3.1.1"
 tokio-test = "0.4"
 tracing-test = "0.2"
-anyhow = "1.0"
-tokio = { version = "1", features = ["full"] }
 
 [features]
 # NOTE: Phase 1 (bd-61) migrated to actor-based state management
@@ -151,8 +150,9 @@ all_hardware = [
 # Phase 2 (bd-63): Networking layer with FlatBuffers protocol
 networking = []
 
-# Phase 3B (bd-64): Module system with runtime instrument assignment
-modules = []
+# Phase 3B (bd-c0ai): Module system with runtime instrument assignment
+# Requires networking for gRPC proto types used in module context
+modules = ["networking"]
 
 # PVCAM SDK integration (requires PVCAM SDK installed)
 pvcam_hardware = ["dep:pvcam-sys", "pvcam-sys/pvcam-sdk"]
@@ -201,7 +201,7 @@ required-features = ["tokio_serial"]
 name = "grpc_server_demo"
 required-features = ["networking"]
 
-[[test]]
-name = "elliptec_newport_integration"
-path = "tests/elliptec_newport_integration.rs"
-required-features = ["instrument_thorlabs", "instrument_newport_power_meter"]
+[[example]]
+name = "hw_polarization_test"
+path = "examples/hw_polarization_test.rs"
+required-features = ["instrument_thorlabs", "instrument_spectra_physics", "instrument_newport_power_meter"]

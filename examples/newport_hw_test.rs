@@ -2,7 +2,7 @@
 //!
 //! Run with: cargo run --example newport_hw_test --features instrument_serial
 
-use serialport::SerialPort;
+use serialport;
 use std::io::{Read, Write};
 use std::time::Duration;
 

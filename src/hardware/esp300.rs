@@ -234,7 +234,7 @@ mod tests {
         let result1 = Esp300Driver::new("/dev/null", 1);
         let result2 = Esp300Driver::new("/dev/null", 2);
         let result3 = Esp300Driver::new("/dev/null", 3);
-        
+
         // On most systems /dev/null exists but isn't a serial port
         // so we just check that axis validation works
         assert!(result1.is_ok() || result1.is_err());

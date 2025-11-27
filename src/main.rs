@@ -35,9 +35,9 @@ use std::sync::Arc;
 use tonic::transport::Server;
 
 #[cfg(feature = "networking")]
-use std::collections::HashMap;
-#[cfg(feature = "networking")]
 use rust_daq::grpc::proto::*;
+#[cfg(feature = "networking")]
+use std::collections::HashMap;
 
 #[derive(Parser)]
 #[command(name = "rust-daq")]
@@ -325,7 +325,10 @@ async fn handle_client_command(cmd: ClientCommands) -> Result<()> {
         }
 
         ClientCommands::Stop { execution_id, addr } => {
-            println!("⏹️  Stopping execution {} on daemon at {}", execution_id, addr);
+            println!(
+                "⏹️  Stopping execution {} on daemon at {}",
+                execution_id, addr
+            );
             let mut client = ControlServiceClient::connect(addr).await?;
             let response = client
                 .stop_script(StopRequest {
@@ -344,7 +347,10 @@ async fn handle_client_command(cmd: ClientCommands) -> Result<()> {
         }
 
         ClientCommands::Status { execution_id, addr } => {
-            println!("📊 Checking status of execution {} on daemon at {}", execution_id, addr);
+            println!(
+                "📊 Checking status of execution {} on daemon at {}",
+                execution_id, addr
+            );
             let mut client = ControlServiceClient::connect(addr).await?;
             let response = client
                 .get_script_status(StatusRequest { execution_id })
@@ -381,10 +387,7 @@ async fn handle_client_command(cmd: ClientCommands) -> Result<()> {
                 .into_inner();
 
             while let Some(data) = stream.message().await? {
-                println!(
-                    "[{}] {} = {}",
-                    data.timestamp_ns, data.channel, data.value
-                );
+                println!("[{}] {} = {}", data.timestamp_ns, data.channel, data.value);
             }
             Ok(())
         }

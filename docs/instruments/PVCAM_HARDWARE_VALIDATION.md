@@ -46,22 +46,31 @@
 
 ## Automated Smoke Test
 
-An opt-in smoke test is available to verify real hardware connectivity. The test is disabled by default and only compiles when the `pvcam_hardware` feature is enabled.
+An opt-in smoke test is available to verify real hardware connectivity. The test is disabled by default and only runs when the `PVCAM_SMOKE_TEST` environment variable is set.
 
 ```bash
-# on the hardware host
-export PVCAM_SDK_DIR=/opt/pvcam      # set if not already exported
+# On the hardware host
+source /opt/pvcam/etc/profile.d/pvcam.sh
+export PVCAM_SDK_DIR=/opt/pvcam/sdk
+export LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:$LD_LIBRARY_PATH
+export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH
 export PVCAM_SMOKE_TEST=1
-export PVCAM_CAMERA_NAME=PrimeBSI    # optional; falls back to first enumerated camera
+export PVCAM_CAMERA_NAME=PrimeBSI    # optional; defaults to PrimeBSI
 
-cargo test --test pvcam_hardware_smoke --features pvcam_hardware -- --nocapture
+cargo test --test pvcam_hardware_smoke \
+  --features 'instrument_photometrics,pvcam_hardware' \
+  -- --nocapture
 ```
 
 The smoke test performs the following actions:
 
-1. Initializes the PVCAM SDK and enumerates available cameras.
-2. Opens the requested camera and applies a short exposure / default trigger mode.
-3. Starts a continuous acquisition and waits up to two seconds for an EOF callback to deliver a frame.
-4. Asserts that frame data was received, then stops acquisition and shuts down the SDK.
+1. Initializes the PVCAM SDK and creates driver for specified camera.
+2. Queries camera info (chip name, sensor dimensions, serial).
+3. Sets a short exposure (10ms).
+4. Starts continuous acquisition and waits for a frame (5s timeout).
+5. Validates frame data (dimensions, buffer size).
+6. Stops acquisition and reports statistics.
 
 If `PVCAM_SMOKE_TEST` is unset the test prints a skip message and exits immediately. This allows the test to live in the repository without impacting CI environments that lack hardware access.
+
+**CI Integration:** The smoke test is configured to run in `.github/workflows/ci.yml` under the `hardware-tests` job (main branch pushes only).

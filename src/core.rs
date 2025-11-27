@@ -955,8 +955,18 @@ mod tests {
 
     #[test]
     fn test_roi_ordering() {
-        let roi1 = Roi { x: 0, y: 0, width: 100, height: 100 };
-        let roi2 = Roi { x: 0, y: 0, width: 200, height: 200 };
+        let roi1 = Roi {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 100,
+        };
+        let roi2 = Roi {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 200,
+        };
         assert!(roi1 < roi2);
     }
 }

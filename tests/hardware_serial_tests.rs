@@ -73,13 +73,7 @@ async fn test_serial_command_parsing() {
         reader.read_line(&mut response).await.unwrap();
 
         // Parse "PARAM:123.45" format
-        let value: f64 = response
-            .trim()
-            .split(':')
-            .last()
-            .unwrap()
-            .parse()
-            .unwrap();
+        let value: f64 = response.trim().split(':').last().unwrap().parse().unwrap();
         value
     });
 
@@ -146,9 +140,7 @@ async fn test_serial_flow_control_simulation() {
 
     // Device processes commands with delays (simulating flow control)
     for i in 0..5 {
-        harness
-            .expect_write(format!("CMD{}\r", i).as_bytes())
-            .await;
+        harness.expect_write(format!("CMD{}\r", i).as_bytes()).await;
         tokio::time::sleep(Duration::from_millis(10)).await; // Simulate processing delay
         harness
             .send_response(format!("ACK{}\r\n", i).as_bytes())
@@ -156,10 +148,7 @@ async fn test_serial_flow_control_simulation() {
     }
 
     let responses = app_task.await.unwrap();
-    assert_eq!(
-        responses,
-        vec!["ACK0", "ACK1", "ACK2", "ACK3", "ACK4"]
-    );
+    assert_eq!(responses, vec!["ACK0", "ACK1", "ACK2", "ACK3", "ACK4"]);
 }
 
 // =============================================================================
@@ -181,13 +170,7 @@ async fn test_maitai_wavelength_query() {
         reader.read_line(&mut response).await.unwrap();
 
         // Parse wavelength from response
-        let wavelength: f64 = response
-            .trim()
-            .split(':')
-            .last()
-            .unwrap()
-            .parse()
-            .unwrap();
+        let wavelength: f64 = response.trim().split(':').last().unwrap().parse().unwrap();
         wavelength
     });
 
@@ -240,13 +223,7 @@ async fn test_maitai_power_query_with_timeout() {
 
         match result {
             Ok(Ok(_)) => {
-                let power: f64 = response
-                    .trim()
-                    .split(':')
-                    .last()
-                    .unwrap()
-                    .parse()
-                    .unwrap();
+                let power: f64 = response.trim().split(':').last().unwrap().parse().unwrap();
                 Ok(power)
             }
             Ok(Err(e)) => Err(format!("IO error: {}", e)),
@@ -280,13 +257,7 @@ async fn test_maitai_shutter_control() {
         let mut response = String::new();
         reader.read_line(&mut response).await.unwrap();
 
-        let state: i32 = response
-            .trim()
-            .split(':')
-            .last()
-            .unwrap()
-            .parse()
-            .unwrap();
+        let state: i32 = response.trim().split(':').last().unwrap().parse().unwrap();
 
         // Close shutter
         reader.write_all(b"SHUTTER:0\r").await.unwrap();
@@ -296,7 +267,9 @@ async fn test_maitai_shutter_control() {
 
     // Simulate device
     harness.expect_write(b"SHUTTER:1\r").await;
-    harness.expect_and_respond(b"SHUTTER?\r", b"SHUTTER:1\r\n").await;
+    harness
+        .expect_and_respond(b"SHUTTER?\r", b"SHUTTER:1\r\n")
+        .await;
     harness.expect_write(b"SHUTTER:0\r").await;
 
     let shutter_state = app_task.await.unwrap();
@@ -342,12 +315,7 @@ async fn test_serial_malformed_response() {
         reader.read_line(&mut response).await.unwrap();
 
         // Try to parse response that doesn't have expected format
-        response
-            .trim()
-            .split(':')
-            .last()
-            .unwrap()
-            .parse::<f64>()
+        response.trim().split(':').last().unwrap().parse::<f64>()
     });
 
     harness.expect_write(b"GET_VALUE?\r").await;

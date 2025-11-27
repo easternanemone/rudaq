@@ -243,6 +243,34 @@ pub trait FrameProducer: Send + Sync {
     /// - Err if already streaming or hardware error
     async fn start_stream(&self) -> Result<()>;
 
+    /// Start finite frame acquisition with a maximum frame count
+    ///
+    /// # Arguments
+    /// - `frame_limit`: Maximum number of frames to acquire.
+    ///   - `Some(n)` where n > 0: acquire exactly n frames then stop
+    ///   - `Some(0)` or `None`: continuous acquisition (same as `start_stream()`)
+    ///
+    /// # Returns
+    /// - Ok(()) if streaming started
+    /// - Err if already streaming or hardware error
+    ///
+    /// # Default Implementation
+    /// Calls `start_stream()` for continuous acquisition. Drivers that support
+    /// finite acquisition should override this method.
+    async fn start_stream_finite(&self, frame_limit: Option<u32>) -> Result<()> {
+        match frame_limit {
+            Some(n) if n > 0 => {
+                tracing::warn!(
+                    "Device does not support finite acquisition; starting continuous stream \
+                     (requested {} frames)",
+                    n
+                );
+                self.start_stream().await
+            }
+            _ => self.start_stream().await,
+        }
+    }
+
     /// Stop frame acquisition
     ///
     /// # Returns
@@ -318,32 +346,163 @@ pub trait Readable: Send + Sync {
     async fn read(&self) -> Result<f64>;
 }
 
+/// Capability: Wavelength Tuning
+///
+/// Devices with tunable wavelength output (lasers, monochromators, OPOs).
+///
+/// # Contract
+/// - Wavelength is in nanometers (nm)
+/// - `set_wavelength()` may block while tuning (device-specific)
+/// - Implementation should validate wavelength is within device range
+///
+/// # Safety
+/// CAUTION: Wavelength changes on high-power lasers may affect
+/// beam alignment and optical safety equipment effectiveness.
+#[async_trait]
+pub trait WavelengthTunable: Send + Sync {
+    /// Set output wavelength
+    ///
+    /// # Arguments
+    /// * `wavelength_nm` - Target wavelength in nanometers
+    ///
+    /// # Returns
+    /// - Ok(()) if wavelength set successfully
+    /// - Err if value is out of hardware range or tuning failed
+    async fn set_wavelength(&self, wavelength_nm: f64) -> Result<()>;
+
+    /// Get current wavelength setting
+    ///
+    /// # Returns
+    /// Current wavelength in nanometers
+    async fn get_wavelength(&self) -> Result<f64>;
+
+    /// Get wavelength tuning range
+    ///
+    /// # Returns
+    /// (min_nm, max_nm) tuple defining the valid wavelength range
+    ///
+    /// # Default Implementation
+    /// Returns a typical NIR range. Override for specific devices.
+    fn wavelength_range(&self) -> (f64, f64) {
+        (700.0, 1000.0)
+    }
+}
+
+/// Capability: Shutter Control
+///
+/// Devices with controllable beam shutter (lasers, light sources).
+///
+/// # Contract
+/// - `open_shutter()` allows beam to pass
+/// - `close_shutter()` blocks beam
+/// - Shutter state should be queryable
+///
+/// # Safety
+/// CAUTION: Always verify shutter state before assuming beam is blocked.
+/// Use hardware interlocks for laser safety, never rely on software alone.
+#[async_trait]
+pub trait ShutterControl: Send + Sync {
+    /// Open the shutter (allow beam to pass)
+    ///
+    /// # Returns
+    /// - Ok(()) if shutter opened successfully
+    /// - Err if shutter cannot be opened or hardware error
+    ///
+    /// # Safety
+    /// Opening the shutter on a high-power laser creates an immediate
+    /// eye/skin hazard. Verify safety interlocks before calling.
+    async fn open_shutter(&self) -> Result<()>;
+
+    /// Close the shutter (block beam)
+    ///
+    /// # Returns
+    /// - Ok(()) if shutter closed successfully
+    /// - Err if shutter cannot be closed or hardware error
+    async fn close_shutter(&self) -> Result<()>;
+
+    /// Query shutter state
+    ///
+    /// # Returns
+    /// - Ok(true) if shutter is open (beam can pass)
+    /// - Ok(false) if shutter is closed (beam blocked)
+    /// - Err if state cannot be determined
+    async fn is_shutter_open(&self) -> Result<bool>;
+}
+
+/// Capability: Emission Control
+///
+/// Devices with controllable emission (lasers, light sources).
+///
+/// # Contract
+/// - `enable_emission()` activates the source
+/// - `disable_emission()` deactivates the source
+/// - Emission state should be queryable when possible
+///
+/// # Safety
+/// CAUTION: Enabling emission on a high-power laser creates immediate
+/// hazards. Always verify safety interlocks and shutter state first.
+#[async_trait]
+pub trait EmissionControl: Send + Sync {
+    /// Enable emission (turn on the source)
+    ///
+    /// # Returns
+    /// - Ok(()) if emission enabled successfully
+    /// - Err if emission cannot be enabled or hardware error
+    ///
+    /// # Safety
+    /// Enabling emission on high-power sources requires:
+    /// - Proper PPE (safety glasses, etc.)
+    /// - Verified beam path
+    /// - Interlock systems active
+    async fn enable_emission(&self) -> Result<()>;
+
+    /// Disable emission (turn off the source)
+    ///
+    /// # Returns
+    /// - Ok(()) if emission disabled successfully
+    /// - Err if emission cannot be disabled or hardware error
+    async fn disable_emission(&self) -> Result<()>;
+
+    /// Query emission state
+    ///
+    /// # Returns
+    /// - Ok(true) if emission is active
+    /// - Ok(false) if emission is inactive
+    /// - Err if state cannot be determined
+    ///
+    /// # Default Implementation
+    /// Returns error indicating state query is not supported.
+    async fn is_emission_enabled(&self) -> Result<bool> {
+        anyhow::bail!("Emission state query not supported by this device")
+    }
+}
+
 // =============================================================================
 // Trait Composition Examples (Documentation)
 // =============================================================================
-
-/// Example: Triggered Camera
-///
-/// A camera that supports external triggering would implement:
-/// ```rust,ignore
-/// struct TriggeredCamera { /* ... */ }
-///
-/// impl Triggerable for TriggeredCamera { /* ... */ }
-/// impl ExposureControl for TriggeredCamera { /* ... */ }
-/// impl FrameProducer for TriggeredCamera { /* ... */ }
-///
-/// // Use in generic scan code
-/// async fn scan_with_camera<C>(camera: &C) -> Result<()>
-/// where
-///     C: Triggerable + ExposureControl + FrameProducer
-/// {
-///     camera.set_exposure(0.1).await?;
-///     camera.arm().await?;
-///     camera.trigger().await?;
-///     Ok(())
-/// }
-/// ```
-
+//
+// Example: Triggered Camera
+//
+// A camera that supports external triggering would implement:
+// ```rust,ignore
+// struct TriggeredCamera { /* ... */ }
+//
+// impl Triggerable for TriggeredCamera { /* ... */ }
+// impl ExposureControl for TriggeredCamera { /* ... */ }
+// impl FrameProducer for TriggeredCamera { /* ... */ }
+//
+// // Use in generic scan code
+// async fn scan_with_camera<C>(camera: &C) -> Result<()>
+// where
+//     C: Triggerable + ExposureControl + FrameProducer
+// {
+//     camera.set_exposure(0.1).await?;
+//     camera.arm().await?;
+//     camera.trigger().await?;
+//     Ok(())
+// }
+// ```
+//
 // =============================================================================
 // Combined Traits (for trait objects)
 // =============================================================================

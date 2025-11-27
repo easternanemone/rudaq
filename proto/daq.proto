@@ -184,6 +184,21 @@ service HardwareService {
   rpc StartStream(StartStreamRequest) returns (StartStreamResponse);
   rpc StopStream(StopStreamRequest) returns (StopStreamResponse);
   rpc StreamFrames(StreamFramesRequest) returns (stream FrameData);
+
+  // Device Lifecycle (Stage/Unstage for safe setup/teardown)
+  rpc StageDevice(StageDeviceRequest) returns (StageDeviceResponse);
+  rpc UnstageDevice(UnstageDeviceRequest) returns (UnstageDeviceResponse);
+
+  // Passthrough Commands (escape hatch for device-specific features)
+  // Solves the "Least Common Denominator" problem where generic interfaces
+  // lose access to advanced device features
+  rpc ExecuteDeviceCommand(DeviceCommandRequest) returns (DeviceCommandResponse);
+
+  // Observable Parameters (QCodes/ScopeFoundry pattern)
+  rpc ListParameters(ListParametersRequest) returns (ListParametersResponse);
+  rpc GetParameter(GetParameterRequest) returns (ParameterValue);
+  rpc SetParameter(SetParameterRequest) returns (SetParameterResponse);
+  rpc StreamParameterChanges(StreamParameterChangesRequest) returns (stream ParameterChange);
 }
 
 // --------------------------------------------------------------------------
@@ -393,7 +408,7 @@ message StopStreamRequest {
 
 message StopStreamResponse {
   bool success = 1;
-  uint32 frames_captured = 2;
+  uint64 frames_captured = 2;
 }
 
 message StreamFramesRequest {
@@ -409,8 +424,125 @@ message FrameData {
   uint64 timestamp_ns = 5;
 
   // Pixel data (optional, can be large)
+  // NOTE: For large frames, prefer Arrow Flight (see FlightTicket)
   bytes pixel_data = 10;
   string pixel_format = 11;  // "u16_le", "u8", etc.
+
+  // For bulk data, use Arrow Flight instead of embedding bytes
+  optional FlightTicket flight_ticket = 20;
+}
+
+// Arrow Flight ticket for zero-copy bulk data transfer
+message FlightTicket {
+  string endpoint = 1;  // e.g., "localhost:50052"
+  bytes ticket = 2;     // Opaque ticket for DoGet
+}
+
+// --------------------------------------------------------------------------
+// Device Lifecycle Messages (Stage/Unstage)
+// --------------------------------------------------------------------------
+
+message StageDeviceRequest {
+  string device_id = 1;
+}
+
+message StageDeviceResponse {
+  bool success = 1;
+  string error_message = 2;
+  bool staged = 3;
+}
+
+message UnstageDeviceRequest {
+  string device_id = 1;
+}
+
+message UnstageDeviceResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// --------------------------------------------------------------------------
+// Passthrough Commands (Device-Specific Features)
+// --------------------------------------------------------------------------
+
+message DeviceCommandRequest {
+  string device_id = 1;
+  string command = 2;           // Device-specific command name
+  map<string, string> args = 3; // Command arguments as strings
+}
+
+message DeviceCommandResponse {
+  bool success = 1;
+  string error_message = 2;
+  map<string, string> results = 3;
+}
+
+// --------------------------------------------------------------------------
+// Observable Parameters (QCodes/ScopeFoundry Pattern)
+// --------------------------------------------------------------------------
+
+message ListParametersRequest {
+  string device_id = 1;
+}
+
+message ListParametersResponse {
+  repeated ParameterDescriptor parameters = 1;
+}
+
+// Full description of a parameter
+message ParameterDescriptor {
+  string device_id = 1;
+  string name = 2;              // e.g., "exposure_ms", "wavelength"
+  string description = 3;
+  string dtype = 4;             // "float", "int", "bool", "string", "enum"
+  string units = 5;             // e.g., "ms", "nm", "mW"
+  bool readable = 6;
+  bool writable = 7;
+
+  // Validation constraints
+  optional double min_value = 10;
+  optional double max_value = 11;
+  repeated string enum_values = 12;  // For enum type
+}
+
+message GetParameterRequest {
+  string device_id = 1;
+  string parameter_name = 2;
+}
+
+message ParameterValue {
+  string device_id = 1;
+  string name = 2;
+  string value = 3;             // Value as string (type determined by descriptor)
+  string units = 4;
+  uint64 timestamp_ns = 5;
+}
+
+message SetParameterRequest {
+  string device_id = 1;
+  string parameter_name = 2;
+  string value = 3;             // Value as string
+}
+
+message SetParameterResponse {
+  bool success = 1;
+  string error_message = 2;
+  string actual_value = 3;      // Value after set (may differ from requested)
+}
+
+message StreamParameterChangesRequest {
+  optional string device_id = 1;     // Filter by device (empty = all)
+  repeated string parameter_names = 2; // Filter by param names (empty = all)
+}
+
+message ParameterChange {
+  string device_id = 1;
+  string name = 2;
+  string old_value = 3;
+  string new_value = 4;
+  string units = 5;
+  uint64 timestamp_ns = 6;
+  string source = 7;            // "user", "hardware", "script"
 }
 
 // =============================================================================
@@ -615,4 +747,689 @@ message ScanDataPoint {
   double value = 2;
   uint64 timestamp_ns = 3;
   uint32 trigger_index = 4;  // Which trigger within the point (0 to triggers_per_point-1)
+}
+
+// =============================================================================
+// ModuleService - Experiment modules with runtime instrument assignment (bd-64)
+// =============================================================================
+//
+// Modules are hardware-agnostic experiment controllers inspired by PyMoDAQ and DynExp.
+// Key concepts:
+//   - Modules operate on abstract "roles" (e.g., "position_source", "power_meter")
+//   - Devices are assigned to roles at runtime
+//   - Modules can be reconfigured without code changes
+//   - Multiple modules can share devices (with coordination)
+//
+// Example workflow:
+//   1. ListModuleTypes() - see available module types
+//   2. CreateModule(type="PowerMonitor") - instantiate module
+//   3. AssignDevice(role="power_meter", device="newport_1830c") - bind device
+//   4. ConfigureModule(params={threshold: 100.0}) - set parameters
+//   5. StartModule() - begin monitoring
+//   6. StreamModuleEvents() - receive threshold alerts, statistics
+
+service ModuleService {
+  // ==========================================================================
+  // Module Type Discovery
+  // ==========================================================================
+
+  // List available module types (PowerMonitor, DataLogger, PositionTracker, etc.)
+  rpc ListModuleTypes(ListModuleTypesRequest) returns (ListModuleTypesResponse);
+
+  // Get detailed info about a specific module type
+  rpc GetModuleTypeInfo(GetModuleTypeInfoRequest) returns (ModuleTypeInfo);
+
+  // ==========================================================================
+  // Module Lifecycle
+  // ==========================================================================
+
+  // Create a new module instance
+  rpc CreateModule(CreateModuleRequest) returns (CreateModuleResponse);
+
+  // Delete a module instance (must be stopped first)
+  rpc DeleteModule(DeleteModuleRequest) returns (DeleteModuleResponse);
+
+  // List all module instances
+  rpc ListModules(ListModulesRequest) returns (ListModulesResponse);
+
+  // Get detailed status of a module instance
+  rpc GetModuleStatus(GetModuleStatusRequest) returns (ModuleStatus);
+
+  // ==========================================================================
+  // Module Configuration
+  // ==========================================================================
+
+  // Update module configuration parameters
+  rpc ConfigureModule(ConfigureModuleRequest) returns (ConfigureModuleResponse);
+
+  // Get current module configuration
+  rpc GetModuleConfig(GetModuleConfigRequest) returns (ModuleConfig);
+
+  // ==========================================================================
+  // Device Assignment (Runtime Instrument Binding)
+  // ==========================================================================
+
+  // Assign a device to a module role
+  rpc AssignDevice(AssignDeviceRequest) returns (AssignDeviceResponse);
+
+  // Remove device assignment from a role
+  rpc UnassignDevice(UnassignDeviceRequest) returns (UnassignDeviceResponse);
+
+  // List all device assignments for a module
+  rpc ListAssignments(ListAssignmentsRequest) returns (ListAssignmentsResponse);
+
+  // ==========================================================================
+  // Module Execution Control
+  // ==========================================================================
+
+  // Start module execution
+  rpc StartModule(StartModuleRequest) returns (StartModuleResponse);
+
+  // Pause module execution
+  rpc PauseModule(PauseModuleRequest) returns (PauseModuleResponse);
+
+  // Resume paused module
+  rpc ResumeModule(ResumeModuleRequest) returns (ResumeModuleResponse);
+
+  // Stop module execution
+  rpc StopModule(StopModuleRequest) returns (StopModuleResponse);
+
+  // ==========================================================================
+  // Module Data Streaming
+  // ==========================================================================
+
+  // Stream events from a module (alerts, state changes, data)
+  rpc StreamModuleEvents(StreamModuleEventsRequest) returns (stream ModuleEvent);
+
+  // Stream computed/processed data from a module
+  rpc StreamModuleData(StreamModuleDataRequest) returns (stream ModuleDataPoint);
+}
+
+// --------------------------------------------------------------------------
+// Module Type Discovery Messages
+// --------------------------------------------------------------------------
+
+message ListModuleTypesRequest {
+  // Optional filter by required capability
+  optional string required_capability = 1;  // e.g., "readable" to list modules that need readable devices
+}
+
+message ListModuleTypesResponse {
+  repeated ModuleTypeSummary module_types = 1;
+}
+
+// Brief summary of a module type
+message ModuleTypeSummary {
+  string type_id = 1;           // e.g., "power_monitor", "data_logger", "position_tracker"
+  string display_name = 2;      // e.g., "Power Monitor"
+  string description = 3;       // Brief description of what the module does
+  repeated string categories = 4;  // e.g., ["monitoring", "threshold"]
+}
+
+message GetModuleTypeInfoRequest {
+  string type_id = 1;
+}
+
+// Detailed information about a module type
+message ModuleTypeInfo {
+  string type_id = 1;
+  string display_name = 2;
+  string description = 3;
+  string version = 4;
+
+  // Required device roles
+  repeated ModuleRole required_roles = 10;
+
+  // Optional device roles
+  repeated ModuleRole optional_roles = 11;
+
+  // Configuration parameters
+  repeated ModuleParameter parameters = 20;
+
+  // Event types this module can emit
+  repeated string event_types = 30;
+
+  // Data types this module produces
+  repeated string data_types = 31;
+}
+
+// A role that a device can fill within a module
+message ModuleRole {
+  string role_id = 1;              // e.g., "power_meter", "position_source"
+  string display_name = 2;         // e.g., "Power Meter"
+  string description = 3;
+  string required_capability = 4;  // Capability device must have: "readable", "movable", etc.
+  bool allows_multiple = 5;        // Can multiple devices fill this role?
+}
+
+// A configurable parameter for a module
+message ModuleParameter {
+  string param_id = 1;             // e.g., "threshold", "sample_rate"
+  string display_name = 2;         // e.g., "Alert Threshold"
+  string description = 3;
+  string param_type = 4;           // "float", "int", "string", "bool", "enum"
+  string default_value = 5;        // Default as string
+  optional string min_value = 6;   // For numeric types
+  optional string max_value = 7;   // For numeric types
+  repeated string enum_values = 8; // For enum types
+  string units = 9;                // e.g., "mW", "Hz", "ms"
+  bool required = 10;
+}
+
+// --------------------------------------------------------------------------
+// Module Lifecycle Messages
+// --------------------------------------------------------------------------
+
+message CreateModuleRequest {
+  string type_id = 1;              // Module type to instantiate
+  string instance_name = 2;        // User-friendly name for this instance
+  map<string, string> initial_config = 3;  // Initial parameter values
+}
+
+message CreateModuleResponse {
+  bool success = 1;
+  string module_id = 2;            // Unique ID for this instance
+  string error_message = 3;
+}
+
+message DeleteModuleRequest {
+  string module_id = 1;
+  bool force = 2;                  // If true, stop module first if running
+}
+
+message DeleteModuleResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message ListModulesRequest {
+  optional string type_filter = 1;    // Filter by module type
+  optional ModuleState state_filter = 2;  // Filter by state
+}
+
+message ListModulesResponse {
+  repeated ModuleStatus modules = 1;
+}
+
+message GetModuleStatusRequest {
+  string module_id = 1;
+}
+
+// Module execution state
+enum ModuleState {
+  MODULE_STATE_UNSPECIFIED = 0;
+  MODULE_CREATED = 1;       // Created but not configured
+  MODULE_CONFIGURED = 2;    // Configured, ready to start
+  MODULE_RUNNING = 3;       // Actively executing
+  MODULE_PAUSED = 4;        // Paused
+  MODULE_STOPPED = 5;       // Stopped by user
+  MODULE_ERROR = 6;         // Error state
+}
+
+// Full status of a module instance
+message ModuleStatus {
+  string module_id = 1;
+  string type_id = 2;
+  string instance_name = 3;
+  ModuleState state = 4;
+
+  // Assignment status
+  uint32 required_roles_filled = 10;
+  uint32 required_roles_total = 11;
+  bool ready_to_start = 12;        // All requirements met?
+
+  // Runtime info (when running)
+  uint64 start_time_ns = 20;
+  uint64 uptime_ns = 21;
+  uint64 events_emitted = 22;
+  uint64 data_points_produced = 23;
+
+  // Error info (when in error state)
+  string error_message = 30;
+  uint64 error_time_ns = 31;
+}
+
+// --------------------------------------------------------------------------
+// Module Configuration Messages
+// --------------------------------------------------------------------------
+
+message ConfigureModuleRequest {
+  string module_id = 1;
+  map<string, string> parameters = 2;  // Key-value pairs (values as strings)
+  bool partial = 3;                    // If true, only update provided params
+}
+
+message ConfigureModuleResponse {
+  bool success = 1;
+  string error_message = 2;
+  repeated string warnings = 3;        // Non-fatal config warnings
+}
+
+message GetModuleConfigRequest {
+  string module_id = 1;
+}
+
+message ModuleConfig {
+  string module_id = 1;
+  string type_id = 2;
+  map<string, string> parameters = 3;
+  repeated DeviceAssignment assignments = 4;
+}
+
+// --------------------------------------------------------------------------
+// Device Assignment Messages
+// --------------------------------------------------------------------------
+
+message AssignDeviceRequest {
+  string module_id = 1;
+  string role_id = 2;              // Role within the module
+  string device_id = 3;            // Device to assign
+}
+
+message AssignDeviceResponse {
+  bool success = 1;
+  string error_message = 2;
+  bool module_ready = 3;           // Is module now ready to start?
+}
+
+message UnassignDeviceRequest {
+  string module_id = 1;
+  string role_id = 2;
+  optional string device_id = 3;   // If multiple devices in role, specify which
+}
+
+message UnassignDeviceResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message ListAssignmentsRequest {
+  string module_id = 1;
+}
+
+message ListAssignmentsResponse {
+  repeated DeviceAssignment assignments = 1;
+}
+
+// A device assigned to a role
+message DeviceAssignment {
+  string role_id = 1;
+  string device_id = 2;
+  string device_name = 3;          // For display
+  bool device_online = 4;          // Is device currently accessible?
+}
+
+// --------------------------------------------------------------------------
+// Module Execution Control Messages
+// --------------------------------------------------------------------------
+
+message StartModuleRequest {
+  string module_id = 1;
+}
+
+message StartModuleResponse {
+  bool success = 1;
+  string error_message = 2;
+  uint64 start_time_ns = 3;
+}
+
+message PauseModuleRequest {
+  string module_id = 1;
+}
+
+message PauseModuleResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message ResumeModuleRequest {
+  string module_id = 1;
+}
+
+message ResumeModuleResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message StopModuleRequest {
+  string module_id = 1;
+  bool force = 2;                  // If true, immediate stop; if false, graceful
+}
+
+message StopModuleResponse {
+  bool success = 1;
+  string error_message = 2;
+  uint64 uptime_ns = 3;
+  uint64 events_emitted = 4;
+}
+
+// --------------------------------------------------------------------------
+// Module Event Streaming Messages
+// --------------------------------------------------------------------------
+
+message StreamModuleEventsRequest {
+  string module_id = 1;
+  repeated string event_types = 2;  // Filter by event type (empty = all)
+}
+
+// An event emitted by a module
+message ModuleEvent {
+  string module_id = 1;
+  string event_type = 2;           // e.g., "threshold_exceeded", "state_change", "error"
+  uint64 timestamp_ns = 3;
+  ModuleEventSeverity severity = 4;
+  string message = 5;
+  map<string, string> data = 6;    // Event-specific data as key-value pairs
+}
+
+enum ModuleEventSeverity {
+  MODULE_EVENT_SEVERITY_UNSPECIFIED = 0;
+  INFO = 1;
+  WARNING = 2;
+  ERROR = 3;
+  CRITICAL = 4;
+}
+
+message StreamModuleDataRequest {
+  string module_id = 1;
+  repeated string data_types = 2;  // Filter by data type (empty = all)
+  uint32 max_rate_hz = 3;          // Rate limit for data stream
+}
+
+// A data point produced by a module
+message ModuleDataPoint {
+  string module_id = 1;
+  string data_type = 2;            // e.g., "power_average", "position_error", "statistics"
+  uint64 timestamp_ns = 3;
+  map<string, double> values = 4;  // Named numeric values
+  map<string, string> metadata = 5; // Additional metadata
+}
+
+// =============================================================================
+// RunEngineService - Bluesky-style Plan Execution (Research-Informed)
+// =============================================================================
+//
+// Separates experiment logic (Plans) from execution (RunEngine).
+// Plans are declarative sequences that yield commands; the RunEngine executes them.
+// This enables:
+//   - Pause/Resume at safe checkpoints
+//   - Structured metadata (Document Model)
+//   - Clean separation of concerns
+//
+// Inspired by: Bluesky (NSLS-II), ophyd device abstraction
+
+service RunEngineService {
+  // ==========================================================================
+  // Plan Management
+  // ==========================================================================
+
+  // List available plan types (LineScan, GridScan, TimeSeries, etc.)
+  rpc ListPlanTypes(ListPlanTypesRequest) returns (ListPlanTypesResponse);
+
+  // Get detailed info about a plan type
+  rpc GetPlanTypeInfo(GetPlanTypeInfoRequest) returns (PlanTypeInfo);
+
+  // ==========================================================================
+  // Plan Execution
+  // ==========================================================================
+
+  // Queue a plan for execution
+  rpc QueuePlan(QueuePlanRequest) returns (QueuePlanResponse);
+
+  // Start executing queued plans (or resume if paused)
+  rpc StartEngine(StartEngineRequest) returns (StartEngineResponse);
+
+  // Pause at next checkpoint
+  rpc PauseEngine(PauseEngineRequest) returns (PauseEngineResponse);
+
+  // Resume from pause
+  rpc ResumeEngine(ResumeEngineRequest) returns (ResumeEngineResponse);
+
+  // Abort current plan (stops at next safe point)
+  rpc AbortPlan(AbortPlanRequest) returns (AbortPlanResponse);
+
+  // Halt immediately (emergency stop)
+  rpc HaltEngine(HaltEngineRequest) returns (HaltEngineResponse);
+
+  // Get engine status
+  rpc GetEngineStatus(GetEngineStatusRequest) returns (EngineStatus);
+
+  // ==========================================================================
+  // Document Streaming (Bluesky Pattern)
+  // ==========================================================================
+
+  // Stream documents from plan execution
+  rpc StreamDocuments(StreamDocumentsRequest) returns (stream Document);
+}
+
+// --------------------------------------------------------------------------
+// Plan Type Discovery
+// --------------------------------------------------------------------------
+
+message ListPlanTypesRequest {
+  // Empty for now
+}
+
+message ListPlanTypesResponse {
+  repeated PlanTypeSummary plan_types = 1;
+}
+
+message PlanTypeSummary {
+  string type_id = 1;           // e.g., "line_scan", "grid_scan", "time_series"
+  string display_name = 2;      // e.g., "Line Scan"
+  string description = 3;
+  repeated string categories = 4;  // e.g., ["scanning", "1d"]
+}
+
+message GetPlanTypeInfoRequest {
+  string type_id = 1;
+}
+
+message PlanTypeInfo {
+  string type_id = 1;
+  string display_name = 2;
+  string description = 3;
+
+  // Required parameters
+  repeated PlanParameter parameters = 10;
+
+  // Required device roles
+  repeated PlanDeviceRole device_roles = 20;
+}
+
+// A parameter for configuring a plan
+message PlanParameter {
+  string param_id = 1;
+  string display_name = 2;
+  string description = 3;
+  string dtype = 4;             // "float", "int", "string", "device_id"
+  string default_value = 5;
+  bool required = 6;
+  optional string min_value = 7;
+  optional string max_value = 8;
+  string units = 9;
+}
+
+// A device role required by a plan
+message PlanDeviceRole {
+  string role_id = 1;           // e.g., "motor", "detector"
+  string required_capability = 2;  // "movable", "readable", etc.
+  string description = 3;
+}
+
+// --------------------------------------------------------------------------
+// Plan Execution Messages
+// --------------------------------------------------------------------------
+
+message QueuePlanRequest {
+  string plan_type = 1;
+  map<string, string> parameters = 2;      // Plan configuration
+  map<string, string> device_mapping = 3;  // role_id -> device_id
+  map<string, string> metadata = 4;        // User-provided metadata
+}
+
+message QueuePlanResponse {
+  bool success = 1;
+  string run_uid = 2;           // Unique ID for this run
+  string error_message = 3;
+  uint32 queue_position = 4;
+}
+
+message StartEngineRequest {
+  // Empty - starts processing queue
+}
+
+message StartEngineResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message PauseEngineRequest {
+  bool defer = 1;               // If true, pause at next checkpoint; if false, immediate
+}
+
+message PauseEngineResponse {
+  bool success = 1;
+  string paused_at = 2;         // Description of pause point
+}
+
+message ResumeEngineRequest {
+  // Empty
+}
+
+message ResumeEngineResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message AbortPlanRequest {
+  string run_uid = 1;           // Which run to abort (empty = current)
+}
+
+message AbortPlanResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message HaltEngineRequest {
+  // Empty - emergency stop
+}
+
+message HaltEngineResponse {
+  bool halted = 1;
+  string message = 2;
+}
+
+message GetEngineStatusRequest {
+  // Empty
+}
+
+// Engine execution state
+enum EngineState {
+  ENGINE_STATE_UNSPECIFIED = 0;
+  ENGINE_IDLE = 1;              // No plans running
+  ENGINE_RUNNING = 2;           // Executing a plan
+  ENGINE_PAUSED = 3;            // Paused at checkpoint
+  ENGINE_ABORTING = 4;          // Abort in progress
+  ENGINE_HALTED = 5;            // Emergency halt
+}
+
+message EngineStatus {
+  EngineState state = 1;
+
+  // Current run info (if running/paused)
+  optional string current_run_uid = 10;
+  optional string current_plan_type = 11;
+  optional uint32 current_event_number = 12;
+  optional uint32 total_events_expected = 13;
+
+  // Queue info
+  uint32 queued_plans = 20;
+
+  // Timing
+  uint64 run_start_ns = 30;
+  uint64 elapsed_ns = 31;
+}
+
+// --------------------------------------------------------------------------
+// Document Model (Bluesky Pattern)
+// --------------------------------------------------------------------------
+
+// Document types for structured experiment data
+enum DocumentType {
+  DOC_TYPE_UNSPECIFIED = 0;
+  DOC_START = 1;                // Experiment intent and metadata
+  DOC_DESCRIPTOR = 2;           // Schema for data streams
+  DOC_EVENT = 3;                // Actual measurements
+  DOC_STOP = 4;                 // Completion status
+}
+
+message Document {
+  DocumentType doc_type = 1;
+  string uid = 2;               // Unique document ID
+  uint64 timestamp_ns = 3;
+
+  oneof payload {
+    StartDocument start = 10;
+    DescriptorDocument descriptor = 11;
+    EventDocument event = 12;
+    StopDocument stop = 13;
+  }
+}
+
+// Start document - emitted at beginning of a run
+message StartDocument {
+  string run_uid = 1;           // Unique run identifier
+  string plan_type = 2;
+  string plan_name = 3;         // User-friendly name
+  map<string, string> plan_args = 4;
+  map<string, string> metadata = 5;
+  repeated string hints = 6;    // Visualization hints
+  uint64 time_ns = 7;
+}
+
+// Descriptor document - defines schema for event data
+message DescriptorDocument {
+  string run_uid = 1;           // Links to StartDocument
+  string descriptor_uid = 2;
+  string name = 3;              // e.g., "primary", "baseline"
+  map<string, DataKey> data_keys = 4;
+  map<string, string> configuration = 5;
+}
+
+// Schema for a data field
+message DataKey {
+  string dtype = 1;             // "number", "array", "string"
+  repeated int32 shape = 2;     // For arrays, e.g., [2048, 2048]
+  string source = 3;            // Device ID
+  string units = 4;
+  optional double precision = 5;
+}
+
+// Event document - actual measurement data
+message EventDocument {
+  string descriptor_uid = 1;    // Links to DescriptorDocument
+  uint32 seq_num = 2;           // Event sequence number
+  uint64 time_ns = 3;
+
+  // Scalar data (embedded)
+  map<string, double> data = 10;
+  map<string, uint64> timestamps = 11;  // Per-field timestamps
+
+  // Bulk data references (use Arrow Flight to retrieve)
+  map<string, FlightTicket> bulk_data = 20;
+}
+
+// Stop document - emitted at end of a run
+message StopDocument {
+  string run_uid = 1;           // Links to StartDocument
+  string exit_status = 2;       // "success", "abort", "fail"
+  string reason = 3;            // If abort/fail, why
+  uint64 time_ns = 4;
+  uint32 num_events = 5;
+}
+
+message StreamDocumentsRequest {
+  optional string run_uid = 1;  // Filter by run (empty = all)
+  repeated DocumentType doc_types = 2;  // Filter by type (empty = all)
 }

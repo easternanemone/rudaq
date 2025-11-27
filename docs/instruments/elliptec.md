@@ -64,6 +64,16 @@ All position commands are based on a 360-degree circle. The control software typ
 -   **Polarization Control:** Rotating a polarizer or half-wave plate to control the polarization of a laser beam.
 -   **Manual Alignment:** Using the "Move Forward" and "Move Backward" (jog) commands for fine-tuning the angular alignment of an optical component.
 
+### 6.1 Rhai Script Examples
+
+The system provides ready-to-use Rhai scripts for common workflows:
+
+-   **`examples/angular_power_scan.rhai`** - Measures optical power at multiple rotation angles using the Newport 1830-C power meter and Elliptec rotator. Useful for characterizing polarization-dependent transmission.
+-   **`examples/multi_angle_acquisition.rhai`** - Acquires camera frames at multiple stage positions while rotating a polarization element. Demonstrates multi-dimensional scans.
+-   **`examples/focus_scan.rhai`** - Performs Z-axis focus scans to find the optimal focal plane.
+
+Run scripts with: `cargo run -- run examples/angular_power_scan.rhai`
+
 ## 7. Troubleshooting
 
 | Issue | Possible Cause | Solution |

@@ -239,10 +239,30 @@ jobs:
             ls -l /dev/ttyUSB* /dev/ttyS*
           '
 
+      - name: Run PVCAM smoke test
+        env:
+          SSH_HOST: ${{ secrets.MAITAI_SSH_HOST }}
+          SSH_USER: ${{ secrets.MAITAI_SSH_USER }}
+        run: |
+          echo "Running PVCAM hardware smoke test on remote..."
+          ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST '
+            source /opt/pvcam/etc/profile.d/pvcam.sh 2>/dev/null || true
+            export PVCAM_SDK_DIR=/opt/pvcam/sdk
+            export LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:$LD_LIBRARY_PATH
+            export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH
+            export PVCAM_SMOKE_TEST=1
+            export PVCAM_CAMERA_NAME=PrimeBSI
+            cd ~/rust-daq-sync || cd ~/rust-daq
+            cargo test --test pvcam_hardware_smoke \
+              --features "instrument_photometrics,pvcam_hardware" \
+              -- --nocapture
+          '
+        continue-on-error: true
+
       - name: Run hardware integration tests (when available)
         run: |
-          echo "Hardware tests not yet implemented"
-          echo "Future: cargo test --test hardware_integration -- --ignored"
+          echo "Additional hardware tests can be added here"
+          echo "Example: cargo test --test hardware_integration -- --ignored"
         continue-on-error: true
 
   features:

@@ -17,7 +17,6 @@
  * to detect cameras via the PVCAM C-Library.
  */
 
-use serialport;
 use std::io::{Read, Write};
 use std::thread;
 use std::time::Duration;

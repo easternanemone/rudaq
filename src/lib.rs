@@ -65,3 +65,7 @@ pub mod measurement_types;
 // Phase 3: gRPC remote control server (bd-8gsx)
 #[cfg(feature = "networking")]
 pub mod grpc;
+
+// Phase 3B: Module system for reusable experiment components (bd-c0ai)
+#[cfg(feature = "modules")]
+pub mod modules;

@@ -477,29 +477,35 @@ pub fn register_v3_hardware(engine: &mut Engine) {
     });
 
     // stage.set_velocity(10.0) - Set velocity in mm/s
-    engine.register_fn("set_velocity", |stage: &mut V3StageHandle, mm_per_sec: f64| {
-        let inst = stage.instrument.clone();
-        block_in_place(|| {
-            Handle::current().block_on(async {
-                let mut locked = inst.lock().await;
-                locked.set_velocity(mm_per_sec).await
+    engine.register_fn(
+        "set_velocity",
+        |stage: &mut V3StageHandle, mm_per_sec: f64| {
+            let inst = stage.instrument.clone();
+            block_in_place(|| {
+                Handle::current().block_on(async {
+                    let mut locked = inst.lock().await;
+                    locked.set_velocity(mm_per_sec).await
+                })
             })
-        })
-        .unwrap()
-    });
+            .unwrap()
+        },
+    );
 
     // stage.wait_settled(5.0) - Wait for motion to settle (timeout in seconds)
-    engine.register_fn("wait_settled", |stage: &mut V3StageHandle, timeout_sec: f64| {
-        let inst = stage.instrument.clone();
-        let timeout = std::time::Duration::from_secs_f64(timeout_sec);
-        block_in_place(|| {
-            Handle::current().block_on(async {
-                let locked = inst.lock().await;
-                locked.wait_settled(timeout).await
+    engine.register_fn(
+        "wait_settled",
+        |stage: &mut V3StageHandle, timeout_sec: f64| {
+            let inst = stage.instrument.clone();
+            let timeout = std::time::Duration::from_secs_f64(timeout_sec);
+            block_in_place(|| {
+                Handle::current().block_on(async {
+                    let locked = inst.lock().await;
+                    locked.wait_settled(timeout).await
+                })
             })
-        })
-        .unwrap()
-    });
+            .unwrap()
+        },
+    );
 
     // =========================================================================
     // Laser Methods - V3 Laser Trait

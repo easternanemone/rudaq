@@ -39,10 +39,7 @@ use crate::validation::{is_in_range, is_not_empty, is_valid_ip, is_valid_path, i
 pub mod dependencies;
 use anyhow::{Context, Result};
 use config::Config;
-use figment::{
-    providers::Serialized,
-    Figment, Provider,
-};
+use figment::{providers::Serialized, Figment, Provider};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

@@ -276,7 +276,8 @@ impl HDF5Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::{NamedTempFile};
+    #[allow(unused_imports)]
+    use tempfile::{NamedTempFile, TempDir};
 
     #[tokio::test]
     async fn test_hdf5_writer_create() {

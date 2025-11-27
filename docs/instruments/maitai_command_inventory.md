@@ -1,48 +1,81 @@
 # MaiTai Driver Command Inventory
 
-## Date: 2025-11-02
+## Date: 2025-11-26 (Updated)
 
 ## Currently Implemented Commands
 
-The MaiTai driver (`src/instrument/maitai.rs`) implements the following commands:
+The MaiTai driver (`src/hardware/maitai.rs`) implements the following commands:
 
 ### Query Commands (Read-Only)
 
-| Command | Line | Purpose | Tested |
-|---------|------|---------|--------|
-| `*IDN?` | 129 | Identity query - returns manufacturer, model, serial, firmware | ✅ |
-| `WAVELENGTH?` | 165 | Query current wavelength in nm | ✅ |
-| `POWER?` | 181 | Query laser power output in W | ✅ |
-| `SHUTTER?` | 194 | Query shutter state (0=closed, 1=open) | ✅ |
+| Command | Purpose | Tested |
+|---------|---------|--------|
+| `*IDN?` | Identity query - returns manufacturer, model, serial, firmware | ✅ Working |
+| `WAVELENGTH?` | Query current wavelength in nm | ✅ Working |
+| `POWER?` | Query laser power output in W | ✅ Working |
+| `SHUTTER?` | Query shutter state (0=closed, 1=open) | ✅ Working |
 
 ### Set Commands (Write)
 
-| Command | Line | Purpose | Tested |
-|---------|------|---------|--------|
-| `WAVELENGTH:value` | 244 | Set wavelength (e.g., `WAVELENGTH:820`) | ⏳ |
-| `SHUTTER:1` | 253 | Open shutter | ⏳ |
-| `SHUTTER:0` | 253 | Close shutter | ⏳ |
-| `ON` | 265 | Turn laser on | ⏳ |
-| `OFF` | 265 | Turn laser off | ⏳ |
+| Command | Purpose | Tested |
+|---------|---------|--------|
+| `SHUTter 1` | Open shutter (space separator, mixed case) | ⚠️ No effect |
+| `SHUTter 0` | Close shutter (space separator, mixed case) | ⚠️ No effect |
+| `ON` | Turn laser on | ⏳ Untested |
+| `OFF` | Turn laser off | ⏳ Untested |
 
-**Total: 7 commands** (4 query + 3 set operations)
+**Note:** The shutter set commands use space separator (not colon) per the
+[MaiTaiControl reference implementation](https://github.com/StPeres-Cerebellum/MaiTaiControl).
+
+**Total: 6 commands** (4 query + 2 set operations)
 
 ## Validation Status
 
-### Hardware Tested (2025-11-02)
+### Hardware Tested (2025-11-26)
 - **Remote Hardware**: `maitai@100.117.5.12` (Linux)
 - **Port**: `/dev/ttyUSB5` (Silicon Labs CP2102)
-- **Test Results**: All 4 query commands validated with correct responses
-  - `*IDN?` → `Spectra Physics,MaiTai,3227/51054/40856,0245-2.00.34 / CD00000019 / 214-00.004.057`
-  - `WAVELENGTH?` → `820nm`
-  - `POWER?` → `3.000W`
-  - `SHUTTER?` → `0`
 
-### Untested Commands
-The following set commands are implemented but not yet validated on hardware:
-- `WAVELENGTH:value` - Set wavelength
-- `SHUTTER:1` / `SHUTTER:0` - Shutter control
-- `ON` / `OFF` - Laser power control
+#### Query Commands - All Working
+| Query | Response |
+|-------|----------|
+| `*IDN?` | `Spectra Physics,MaiTai,3227/51054/40856,0245-2.00.34 / CD00000019 / 214-00.004.057` |
+| `WAVELENGTH?` | `820nm` |
+| `POWER?` | `3.000W` |
+| `SHUTTER?` | `0` |
+| `*STB?` | `8` |
+| `READ:PCTWarmedup?` | `100.00%` |
+| `MODE?` | `POW` |
+| `PLASer:POWer?` | `13.43W` |
+| `READ:HUM?` | `7.26%` |
+
+#### Shutter Commands - NOT Working
+**Issue:** Shutter commands (`SHUTter 1`, `SHUTter 0`) do not change the shutter state.
+- `SHUTTER?` always returns `0` (closed) regardless of commands sent
+- MaiTai internal power remains at 3.000W (laser is generating power)
+- Newport external power meter reads 0.11 nW (beam not reaching detector)
+
+**Possible Causes (Investigation 2025-11-26):**
+
+The RS-232 driver code has been validated and is correct:
+- Command terminator: CR+LF (`\r\n`) per protocol
+- Response reading: All commands read responses to clear buffer
+- Flow control: XON/XOFF enabled
+- Command format: `SHUTter:1` / `SHUTter:0` with colon separator
+
+Query commands work perfectly. Set commands (shutter) are received but NOT executed.
+This indicates a **hardware configuration issue**, not a software bug.
+
+Likely causes (in order of probability):
+1. **Front panel mode** - MaiTai must be in "Remote" or "Computer Control" mode
+   - Check the MaiTai front panel display for LOCAL/REMOTE indicator
+   - Use front panel buttons to switch to REMOTE mode
+2. **Keyswitch position** - The operator key may need to be in a specific position
+3. **Safety interlock chain** - External interlock may be blocking shutter operation
+4. **Shutter disabled** - Shutter control may be disabled in laser configuration
+5. **Physical mechanism** - Shutter mechanism malfunction (unlikely since SHUTTER? queries work)
+
+### Commands Not Yet Tested
+- `ON` / `OFF` - Laser power control (dangerous - requires safety approval)
 
 ## Command Implementation Details
 

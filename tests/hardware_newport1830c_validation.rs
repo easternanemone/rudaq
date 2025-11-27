@@ -133,16 +133,17 @@ fn test_parse_scientific_notation_5e_minus_9() {
 #[test]
 fn test_detect_error_responses() {
     let error_responses = vec![
-        "ERR",        // Generic error
-        "OVER",       // Measurement overflow (too bright)
-        "UNDER",      // Measurement underflow (too dim)
-        "ERROR",      // Extended error format
+        "ERR",   // Generic error
+        "OVER",  // Measurement overflow (too bright)
+        "UNDER", // Measurement underflow (too dim)
+        "ERROR", // Extended error format
     ];
 
     for error_response in error_responses {
         // In real implementation, driver should detect these and return Err
         assert!(
-            error_response.contains("ERR") || error_response.contains("OVER")
+            error_response.contains("ERR")
+                || error_response.contains("OVER")
                 || error_response.contains("UNDER"),
             "Failed to detect error in: {}",
             error_response
@@ -154,11 +155,11 @@ fn test_detect_error_responses() {
 #[test]
 fn test_reject_malformed_responses() {
     let malformed_responses = vec![
-        "",           // Empty response
-        "\n",         // Only newline
-        "   ",        // Whitespace only
+        "",    // Empty response
+        "\n",  // Only newline
+        "   ", // Whitespace only
         "not_a_number",
-        "E-9",        // Incomplete scientific notation
+        "E-9", // Incomplete scientific notation
     ];
 
     for response_str in malformed_responses {
@@ -167,11 +168,16 @@ fn test_reject_malformed_responses() {
         // Empty, whitespace-only, or non-numeric responses should fail to parse
         if response_str.trim().is_empty() {
             assert!(parsed.is_err(), "Should reject empty response");
-        } else if !response_str.trim().chars().all(|c| {
-            c.is_numeric() || c == '.' || c == 'E' || c == 'e'
-                || c == '+' || c == '-'
-        }) {
-            assert!(parsed.is_err(), "Should reject non-numeric response: {}", response_str);
+        } else if !response_str
+            .trim()
+            .chars()
+            .all(|c| c.is_numeric() || c == '.' || c == 'E' || c == 'e' || c == '+' || c == '-')
+        {
+            assert!(
+                parsed.is_err(),
+                "Should reject non-numeric response: {}",
+                response_str
+            );
         }
     }
 }
@@ -380,8 +386,9 @@ async fn test_timeout_handling_mock() {
         // Try to read with short timeout
         tokio::time::timeout(
             Duration::from_millis(100),
-            reader.read_line(&mut String::new())
-        ).await
+            reader.read_line(&mut String::new()),
+        )
+        .await
     });
 
     // Harness receives command but doesn't respond (simulating device hang)
@@ -435,7 +442,10 @@ async fn test_rapid_readings_mock() {
     // All readings should be in milliwatt range
     for (_idx, power) in readings {
         assert!(power > 0.0, "Power reading must be positive");
-        assert!(power < 1e-2, "Power reading must be less than 10mW for this test");
+        assert!(
+            power < 1e-2,
+            "Power reading must be less than 10mW for this test"
+        );
     }
 }
 
@@ -464,6 +474,162 @@ async fn test_error_response_handling_mock() {
 }
 
 // ============================================================================
+// WAVELENGTH TESTS: Query and Set Commands
+// ============================================================================
+
+/// Test 15: Parse wavelength response (4-digit format)
+#[test]
+fn test_parse_wavelength_response_format() {
+    // Newport 1830-C returns wavelength as 4-digit nm value (e.g., "0780" for 780nm)
+    let test_cases = vec![
+        ("0780", 780.0),
+        ("0800", 800.0),
+        ("1064", 1064.0),
+        ("0300", 300.0),
+        ("1100", 1100.0),
+    ];
+
+    for (response_str, expected_nm) in test_cases {
+        let parsed: Result<u16, _> = response_str.trim().parse();
+        assert!(
+            parsed.is_ok(),
+            "Failed to parse wavelength response: {}",
+            response_str
+        );
+        assert_eq!(
+            parsed.unwrap() as f64, expected_nm,
+            "Wavelength mismatch for {}",
+            response_str
+        );
+    }
+}
+
+/// Test 16: Wavelength query with mock device
+#[tokio::test]
+async fn test_wavelength_query_mock() {
+    let (port, mut harness) = mock_serial::new();
+    let mut reader = BufReader::new(port);
+
+    let app_task = tokio::spawn(async move {
+        // Send wavelength query command
+        reader.write_all(b"W?\n").await.unwrap();
+
+        // Read response
+        let mut response = String::new();
+        reader.read_line(&mut response).await.unwrap();
+
+        // Parse 4-digit wavelength response
+        response.trim().parse::<u16>().unwrap() as f64
+    });
+
+    // Harness simulates device responding with 800nm
+    harness.expect_write(b"W?\n").await;
+    harness.send_response(b"0800\n").unwrap();
+
+    let wavelength_nm = app_task.await.unwrap();
+    assert_eq!(wavelength_nm, 800.0);
+}
+
+/// Test 17: Wavelength set command format
+#[tokio::test]
+async fn test_wavelength_set_mock() {
+    let (port, mut harness) = mock_serial::new();
+    let mut writer = port;
+
+    let app_task = tokio::spawn(async move {
+        // Send wavelength set command (W0800 for 800nm)
+        writer.write_all(b"W0800\n").await.unwrap();
+
+        // No response expected for config commands
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        Ok::<(), String>(())
+    });
+
+    // Harness expects the command
+    harness.expect_write(b"W0800\n").await;
+
+    let result = app_task.await.unwrap();
+    assert!(result.is_ok());
+}
+
+/// Test 18: Wavelength set followed by query (verification pattern)
+#[tokio::test]
+async fn test_wavelength_set_and_verify_mock() {
+    let (port, mut harness) = mock_serial::new();
+    let mut reader = BufReader::new(port);
+
+    let app_task = tokio::spawn(async move {
+        // Set wavelength to 1064nm
+        reader.write_all(b"W1064\n").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Query wavelength to verify
+        reader.write_all(b"W?\n").await.unwrap();
+
+        let mut response = String::new();
+        reader.read_line(&mut response).await.unwrap();
+
+        response.trim().parse::<u16>().unwrap()
+    });
+
+    // Set command
+    harness.expect_write(b"W1064\n").await;
+
+    // Query command
+    harness.expect_write(b"W?\n").await;
+    harness.send_response(b"1064\n").unwrap();
+
+    let wavelength = app_task.await.unwrap();
+    assert_eq!(wavelength, 1064);
+}
+
+/// Test 19: Range query with mock device
+#[tokio::test]
+async fn test_range_query_mock() {
+    let (port, mut harness) = mock_serial::new();
+    let mut reader = BufReader::new(port);
+
+    let app_task = tokio::spawn(async move {
+        // Send range query command
+        reader.write_all(b"R?\n").await.unwrap();
+
+        let mut response = String::new();
+        reader.read_line(&mut response).await.unwrap();
+
+        response.trim().parse::<u8>().unwrap()
+    });
+
+    harness.expect_write(b"R?\n").await;
+    harness.send_response(b"3\n").unwrap();
+
+    let range = app_task.await.unwrap();
+    assert_eq!(range, 3);
+}
+
+/// Test 20: Units query with mock device
+#[tokio::test]
+async fn test_units_query_mock() {
+    let (port, mut harness) = mock_serial::new();
+    let mut reader = BufReader::new(port);
+
+    let app_task = tokio::spawn(async move {
+        // Send units query command
+        reader.write_all(b"U?\n").await.unwrap();
+
+        let mut response = String::new();
+        reader.read_line(&mut response).await.unwrap();
+
+        response.trim().parse::<u8>().unwrap()
+    });
+
+    harness.expect_write(b"U?\n").await;
+    harness.send_response(b"0\n").unwrap(); // 0 = Watts
+
+    let units = app_task.await.unwrap();
+    assert_eq!(units, 0);
+}
+
+// ============================================================================
 // HARDWARE VALIDATION TESTS
 // ============================================================================
 // These tests are only compiled when hardware_tests feature is enabled.
@@ -476,22 +642,21 @@ mod hardware_tests {
 
     /// Helper to get serial port from environment or use default
     fn get_serial_port() -> String {
-        env::var("NEWPORT_1830C_PORT")
-            .unwrap_or_else(|_| {
-                // Default paths for different OSes
-                #[cfg(target_os = "linux")]
-                {
-                    "/dev/ttyUSB0".to_string()
-                }
-                #[cfg(target_os = "macos")]
-                {
-                    "/dev/tty.usbserial-FTB8YKYD".to_string() // Example FTDI device
-                }
-                #[cfg(target_os = "windows")]
-                {
-                    "COM3".to_string()
-                }
-            })
+        env::var("NEWPORT_1830C_PORT").unwrap_or_else(|_| {
+            // Default paths for different OSes
+            #[cfg(target_os = "linux")]
+            {
+                "/dev/ttyUSB0".to_string()
+            }
+            #[cfg(target_os = "macos")]
+            {
+                "/dev/tty.usbserial-FTB8YKYD".to_string() // Example FTDI device
+            }
+            #[cfg(target_os = "windows")]
+            {
+                "COM3".to_string()
+            }
+        })
     }
 
     /// Test 15: Hardware - Power measurement across dynamic range
@@ -621,7 +786,10 @@ mod hardware_tests {
     #[ignore]
     async fn test_hardware_long_term_stability() {
         let port_name = get_serial_port();
-        println!("Hardware Test: Long-term Stability (1 hour) on {}", port_name);
+        println!(
+            "Hardware Test: Long-term Stability (1 hour) on {}",
+            port_name
+        );
 
         println!("SKIPPED: Requires 1 hour runtime in thermally stable environment");
     }
@@ -641,9 +809,128 @@ mod hardware_tests {
     #[ignore]
     async fn test_hardware_serial_reliability() {
         let port_name = get_serial_port();
-        println!("Hardware Test: Serial Communication Reliability on {}", port_name);
+        println!(
+            "Hardware Test: Serial Communication Reliability on {}",
+            port_name
+        );
 
         println!("SKIPPED: Requires stable serial connection and no interference");
+    }
+
+    /// Test 22: Hardware - Wavelength query and set using driver
+    ///
+    /// Requires:
+    /// - Newport 1830-C connected to NEWPORT_1830C_PORT
+    ///
+    /// Procedure:
+    /// 1. Query current wavelength (W?)
+    /// 2. Set new wavelength (W0800 for 800nm)
+    /// 3. Query again to verify
+    #[tokio::test]
+    #[ignore]
+    async fn test_hardware_wavelength_get_set() {
+        use rust_daq::hardware::capabilities::WavelengthTunable;
+        use rust_daq::hardware::newport_1830c::Newport1830CDriver;
+
+        let port_name = get_serial_port();
+        println!("Hardware Test: Wavelength Get/Set on {}", port_name);
+
+        // Create driver
+        let meter = Newport1830CDriver::new(&port_name).expect("Failed to open port");
+
+        // Query initial wavelength
+        let initial_wavelength = meter.get_wavelength().await.expect("Failed to query wavelength");
+        println!("Initial wavelength: {} nm", initial_wavelength);
+
+        // Set new wavelength to 800nm
+        meter.set_wavelength(800.0).await.expect("Failed to set wavelength");
+        println!("Set wavelength to 800nm");
+
+        // Small delay for meter to update
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Query to verify
+        let new_wavelength = meter.get_wavelength().await.expect("Failed to query wavelength");
+        println!("Verified wavelength: {} nm", new_wavelength);
+
+        assert_eq!(new_wavelength, 800.0, "Wavelength should be 800nm");
+
+        // Restore original wavelength
+        meter.set_wavelength(initial_wavelength).await.expect("Failed to restore wavelength");
+        println!("Restored wavelength to {} nm", initial_wavelength);
+    }
+
+    /// Test 23: Hardware - Range and Units query
+    ///
+    /// Requires:
+    /// - Newport 1830-C connected to NEWPORT_1830C_PORT
+    ///
+    /// Procedure:
+    /// 1. Query range (R?)
+    /// 2. Query units (U?)
+    #[tokio::test]
+    #[ignore]
+    async fn test_hardware_range_and_units_query() {
+        use rust_daq::hardware::newport_1830c::Newport1830CDriver;
+
+        let port_name = get_serial_port();
+        println!("Hardware Test: Range and Units Query on {}", port_name);
+
+        let meter = Newport1830CDriver::new(&port_name).expect("Failed to open port");
+
+        // Query range
+        let range = meter.query_range().await.expect("Failed to query range");
+        println!("Range setting: {}", range);
+        assert!(range >= 1 && range <= 8, "Range should be 1-8, got {}", range);
+
+        // Query units
+        let units = meter.query_units().await.expect("Failed to query units");
+        println!("Units setting: {} (0=W, 1=dBm, 2=dB)", units);
+        assert!(units <= 2, "Units should be 0-2, got {}", units);
+    }
+
+    /// Test 24: Hardware - Full WavelengthTunable trait test
+    ///
+    /// Requires:
+    /// - Newport 1830-C connected to NEWPORT_1830C_PORT
+    ///
+    /// Tests the WavelengthTunable trait implementation:
+    /// 1. wavelength_range() returns valid bounds
+    /// 2. set_wavelength() accepts values in range
+    /// 3. get_wavelength() returns expected value
+    #[tokio::test]
+    #[ignore]
+    async fn test_hardware_wavelength_tunable_trait() {
+        use rust_daq::hardware::capabilities::WavelengthTunable;
+        use rust_daq::hardware::newport_1830c::Newport1830CDriver;
+
+        let port_name = get_serial_port();
+        println!("Hardware Test: WavelengthTunable Trait on {}", port_name);
+
+        let meter = Newport1830CDriver::new(&port_name).expect("Failed to open port");
+
+        // Test wavelength_range()
+        let (min, max) = meter.wavelength_range();
+        println!("Wavelength range: {} - {} nm", min, max);
+        assert_eq!(min, 300.0, "Min should be 300nm");
+        assert_eq!(max, 1100.0, "Max should be 1100nm");
+
+        // Test set/get wavelength at multiple points
+        let test_wavelengths = vec![500.0, 780.0, 1064.0];
+        let initial = meter.get_wavelength().await.expect("Initial query failed");
+
+        for target in test_wavelengths {
+            meter.set_wavelength(target).await.expect(&format!("Failed to set {}nm", target));
+            tokio::time::sleep(Duration::from_millis(50)).await;
+
+            let actual = meter.get_wavelength().await.expect(&format!("Failed to get after setting {}nm", target));
+            println!("Set {} nm -> Read {} nm", target, actual);
+            assert_eq!(actual, target, "Wavelength mismatch at {}nm", target);
+        }
+
+        // Restore
+        meter.set_wavelength(initial).await.expect("Failed to restore");
+        println!("Restored to {} nm", initial);
     }
 }
 

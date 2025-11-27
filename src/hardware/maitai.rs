@@ -5,9 +5,15 @@
 //! Protocol Overview:
 //! - Format: ASCII command/response over RS-232
 //! - Baud: 9600, 8N1, software flow control (XON/XOFF)
-//! - Terminator: CR (\r)
+//! - Command terminator: CR (\r)
+//! - Response terminator: LF (\n)
 //! - Commands: WAVELENGTH:xxx, SHUTTER:x, ON/OFF
 //! - Queries: WAVELENGTH?, POWER?, SHUTTER?
+//!
+//! Response Formats (actual observed from hardware):
+//! - WAVELENGTH? -> "820nm\n" (value with "nm" suffix)
+//! - SHUTTER? -> "0\n" or "1\n" (0=closed, 1=open)
+//! - POWER? -> value with units
 //!
 //! # Example Usage
 //!
@@ -33,7 +39,7 @@
 //! }
 //! ```
 
-use crate::hardware::capabilities::Readable;
+use crate::hardware::capabilities::{EmissionControl, Readable, ShutterControl, WavelengthTunable};
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use std::time::Duration;
@@ -112,13 +118,14 @@ impl MaiTaiDriver {
     /// Wavelength in nanometers
     pub async fn wavelength(&self) -> Result<f64> {
         let response = self.query("WAVELENGTH?").await?;
-        let wavelength: f64 = response
-            .split(':')
-            .last()
-            .unwrap_or(&response)
+        // Response format: "820nm" - strip "nm" suffix if present
+        let clean = response
             .trim()
+            .trim_end_matches("nm")
+            .trim_end_matches("NM");
+        let wavelength: f64 = clean
             .parse()
-            .context("Failed to parse wavelength")?;
+            .context(format!("Failed to parse wavelength from '{}'", response))?;
 
         // Update cached value
         *self.wavelength_nm.lock().await = wavelength;
@@ -130,8 +137,12 @@ impl MaiTaiDriver {
     ///
     /// # Arguments
     /// * `open` - true to open shutter, false to close
+    ///
+    /// # Command Format
+    /// MaiTai uses `SHUTter:1` and `SHUTter:0` with colon separator
+    /// (verified from hardware test examples)
     pub async fn set_shutter(&self, open: bool) -> Result<()> {
-        let cmd = if open { "SHUTTER:1" } else { "SHUTTER:0" };
+        let cmd = if open { "SHUTter:1" } else { "SHUTter:0" };
         self.send_command(cmd).await
     }
 
@@ -139,24 +150,56 @@ impl MaiTaiDriver {
     ///
     /// # Returns
     /// true if shutter is open, false if closed
+    ///
+    /// # Note
+    /// Both `SHUTTER?` (uppercase) and `SHUTter?` (mixed case) work for queries.
+    /// Using uppercase for consistency with other query commands.
     pub async fn shutter(&self) -> Result<bool> {
         let response = self.query("SHUTTER?").await?;
+        // Response format: "0" or "1" (no prefix)
         let state: i32 = response
-            .split(':')
-            .last()
-            .unwrap_or(&response)
             .trim()
             .parse()
-            .context("Failed to parse shutter state")?;
+            .context(format!("Failed to parse shutter state from '{}'", response))?;
 
-        Ok(state == 1)
+        // Validate expected values - only 0 (closed) or 1 (open) are valid
+        match state {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(anyhow!(
+                "Unexpected shutter state '{}' (expected 0 or 1)",
+                state
+            )),
+        }
     }
 
     /// Turn laser emission on/off
     ///
     /// # Arguments
     /// * `on` - true to enable emission, false to disable
+    ///
+    /// # Safety
+    /// This method will refuse to enable emission if the shutter is open or
+    /// if shutter state cannot be determined. This prevents accidental laser
+    /// exposure. Always close the shutter before enabling emission.
     pub async fn set_emission(&self, on: bool) -> Result<()> {
+        // Safety: never enable emission with shutter open
+        if on {
+            // Query shutter state; treat unknown state as "open" (fail-safe)
+            let shutter_result = self.shutter().await;
+            let shutter_open = shutter_result.as_ref().map(|&v| v).unwrap_or(true);
+            if shutter_open {
+                // Audit log: emission refusal for safety traceability
+                log::warn!(
+                    "SAFETY: Emission enable refused - shutter_state={}, shutter_query_result={:?}",
+                    if shutter_open { "open/unknown" } else { "closed" },
+                    shutter_result.as_ref().map(|v| *v).map_err(|e| e.to_string())
+                );
+                return Err(anyhow!(
+                    "Refusing to enable emission: shutter is open or state unknown. Close shutter first."
+                ));
+            }
+        }
         let cmd = if on { "ON" } else { "OFF" };
         self.send_command(cmd).await
     }
@@ -172,25 +215,39 @@ impl MaiTaiDriver {
     /// Query power (used by Readable trait)
     async fn query_power(&self) -> Result<f64> {
         let response = self.query("POWER?").await?;
-        response
-            .split(':')
-            .last()
-            .unwrap_or(&response)
+        // Response format may include units - strip common suffixes (case-insensitive)
+        let clean = response
             .trim()
+            .to_lowercase();
+        let clean = clean
+            .trim_end_matches("mw")
+            .trim_end_matches("w")
+            .trim_end_matches("%")
+            .trim();
+        clean
             .parse::<f64>()
-            .context("Failed to parse power")
+            .context(format!("Failed to parse power from '{}'", response))
     }
 
     /// Send query and read response
     async fn query(&self, command: &str) -> Result<String> {
         let mut port = self.port.lock().await;
 
-        // Write command with CR terminator
-        let cmd = format!("{}\r", command);
+        // Write command with CR+LF terminator (per MaiTai protocol)
+        let cmd = format!("{}\r\n", command);
         port.get_mut()
             .write_all(cmd.as_bytes())
             .await
             .context("MaiTai write failed")?;
+
+        // Flush to ensure command is sent immediately
+        port.get_mut()
+            .flush()
+            .await
+            .context("MaiTai flush failed")?;
+
+        // Small delay for device to process command
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
         // Read response with timeout
         let mut response = String::new();
@@ -201,18 +258,47 @@ impl MaiTaiDriver {
         Ok(response.trim().to_string())
     }
 
-    /// Send command without expecting response
+    /// Send command and read any response (required for proper serial flow control)
+    ///
+    /// MaiTai requires reading responses even for "set" commands to:
+    /// 1. Clear the serial buffer (prevents XON/XOFF flow control issues)
+    /// 2. Get command acknowledgment/echo
+    /// 3. Allow the device to process the next command
     async fn send_command(&self, command: &str) -> Result<()> {
         let mut port = self.port.lock().await;
 
-        let cmd = format!("{}\r", command);
+        // Use CR+LF terminator (per MaiTai protocol - validated in hardware tests)
+        let cmd = format!("{}\r\n", command);
         port.get_mut()
             .write_all(cmd.as_bytes())
             .await
             .context("MaiTai write failed")?;
 
-        // Small delay to ensure command is processed
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        // Flush to ensure command is sent immediately
+        port.get_mut()
+            .flush()
+            .await
+            .context("MaiTai flush failed")?;
+
+        // Wait for device to process command
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        // Read and discard any response/echo (critical for XON/XOFF flow control)
+        // Device may send acknowledgment, echo, or error - we need to clear the buffer
+        let mut response = String::new();
+        match tokio::time::timeout(Duration::from_millis(500), port.read_line(&mut response)).await
+        {
+            Ok(Ok(_)) => {
+                log::debug!("MaiTai set command '{}' response: {}", command, response.trim());
+            }
+            Ok(Err(e)) => {
+                log::debug!("MaiTai set command '{}' read error (may be OK): {}", command, e);
+            }
+            Err(_) => {
+                log::debug!("MaiTai set command '{}' no response (may be OK)", command);
+            }
+        }
+
         Ok(())
     }
 }
@@ -224,13 +310,121 @@ impl Readable for MaiTaiDriver {
     }
 }
 
+#[async_trait]
+impl WavelengthTunable for MaiTaiDriver {
+    async fn set_wavelength(&self, wavelength_nm: f64) -> Result<()> {
+        // Delegate to existing method
+        MaiTaiDriver::set_wavelength(self, wavelength_nm).await
+    }
+
+    async fn get_wavelength(&self) -> Result<f64> {
+        // Delegate to existing method
+        MaiTaiDriver::wavelength(self).await
+    }
+
+    fn wavelength_range(&self) -> (f64, f64) {
+        // MaiTai Ti:Sapphire tuning range
+        (690.0, 1040.0)
+    }
+}
+
+#[async_trait]
+impl ShutterControl for MaiTaiDriver {
+    async fn open_shutter(&self) -> Result<()> {
+        self.set_shutter(true).await
+    }
+
+    async fn close_shutter(&self) -> Result<()> {
+        self.set_shutter(false).await
+    }
+
+    async fn is_shutter_open(&self) -> Result<bool> {
+        self.shutter().await
+    }
+}
+
+#[async_trait]
+impl EmissionControl for MaiTaiDriver {
+    async fn enable_emission(&self) -> Result<()> {
+        self.set_emission(true).await
+    }
+
+    async fn disable_emission(&self) -> Result<()> {
+        self.set_emission(false).await
+    }
+
+    // Note: MaiTai doesn't provide emission state query,
+    // so we use the default implementation which returns an error
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    #[test]
+    fn test_wavelength_range() {
+        // MaiTai Ti:Sapphire tuning range is 690-1040 nm
+        let min = 690.0;
+        let max = 1040.0;
+
+        // Test valid wavelengths
+        assert!((min..=max).contains(&800.0));
+        assert!((min..=max).contains(&690.0));
+        assert!((min..=max).contains(&1040.0));
+
+        // Test invalid wavelengths
+        assert!(!(min..=max).contains(&689.0));
+        assert!(!(min..=max).contains(&1041.0));
+    }
 
     #[test]
-    fn test_wavelength_validation() {
-        // Valid range is 690-1040 nm
-        assert!(MaiTaiDriver::new("/dev/null").is_ok());
+    fn test_parse_wavelength_response() {
+        // Test parsing "820nm" format
+        let response = "820nm";
+        let clean = response
+            .trim()
+            .trim_end_matches("nm")
+            .trim_end_matches("NM");
+        let wavelength: f64 = clean.parse().unwrap();
+        assert_eq!(wavelength, 820.0);
+
+        // Test parsing with whitespace
+        let response = " 750nm \n";
+        let clean = response
+            .trim()
+            .trim_end_matches("nm")
+            .trim_end_matches("NM");
+        let wavelength: f64 = clean.parse().unwrap();
+        assert_eq!(wavelength, 750.0);
+    }
+
+    #[test]
+    fn test_parse_power_response() {
+        // Test parsing power with various unit formats
+        let test_cases = vec![
+            ("3.00W", 3.0),
+            ("3.00w", 3.0),
+            ("100mW", 100.0),
+            ("100mw", 100.0),
+            ("50%", 50.0),
+            (" 2.5W \n", 2.5),
+        ];
+
+        for (response, expected) in test_cases {
+            let clean = response.trim().to_lowercase();
+            let clean = clean
+                .trim_end_matches("mw")
+                .trim_end_matches("w")
+                .trim_end_matches("%")
+                .trim();
+            let power: f64 = clean.parse().unwrap();
+            assert_eq!(power, expected, "Failed to parse '{}'", response);
+        }
+    }
+
+    #[test]
+    fn test_parse_shutter_response() {
+        // Test parsing shutter state
+        assert_eq!("0".trim().parse::<i32>().unwrap(), 0);
+        assert_eq!("1".trim().parse::<i32>().unwrap(), 1);
+        assert_eq!(" 0 \n".trim().parse::<i32>().unwrap(), 0);
     }
 }

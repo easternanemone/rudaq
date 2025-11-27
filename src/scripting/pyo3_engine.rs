@@ -43,7 +43,6 @@ use pyo3::prelude::*;
 #[cfg(feature = "scripting_python")]
 use pyo3::types::PyModule;
 
-
 /// PyO3-based Python scripting engine
 ///
 /// This engine wraps a Python interpreter and provides the `ScriptEngine`
@@ -138,7 +137,11 @@ impl PyO3Engine {
         // If we can't convert, return an error
         Err(ScriptError::TypeConversionError {
             expected: "String, i64, f64, or bool".to_string(),
-            found: obj.get_type().name().map(|s| s.to_string()).unwrap_or_else(|_| "unknown".to_string()),
+            found: obj
+                .get_type()
+                .name()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|_| "unknown".to_string()),
         })
     }
 }
@@ -155,12 +158,8 @@ impl ScriptEngine for PyO3Engine {
         tokio::task::spawn_blocking(move || {
             Python::with_gil(|py| {
                 // Create a new module for this script execution
-                let module = PyModule::from_code_bound(
-                    py,
-                    &script,
-                    "script.py",
-                    "script",
-                ).map_err(Self::convert_py_error)?;
+                let module = PyModule::from_code_bound(py, &script, "script.py", "script")
+                    .map_err(Self::convert_py_error)?;
 
                 // Get the module's dict to access variables
                 let module_dict = module.dict();
@@ -168,7 +167,8 @@ impl ScriptEngine for PyO3Engine {
                 // Inject global variables
                 let globals_lock = globals.lock().unwrap();
                 for (name, value) in globals_lock.iter() {
-                    module_dict.set_item(name, value.bind(py))
+                    module_dict
+                        .set_item(name, value.bind(py))
                         .map_err(Self::convert_py_error)?;
                 }
                 drop(globals_lock);
@@ -176,7 +176,8 @@ impl ScriptEngine for PyO3Engine {
                 // Inject registered functions
                 let functions_lock = functions.lock().unwrap();
                 for (name, func) in functions_lock.iter() {
-                    module_dict.set_item(name, func.bind(py))
+                    module_dict
+                        .set_item(name, func.bind(py))
                         .map_err(Self::convert_py_error)?;
                 }
                 drop(functions_lock);
@@ -243,10 +244,7 @@ impl ScriptEngine for PyO3Engine {
             } else {
                 Err(ScriptError::BackendError {
                     backend: "PyO3".to_string(),
-                    message: format!(
-                        "Function '{}' must be a Py<PyAny> for PyO3 engine",
-                        name
-                    ),
+                    message: format!("Function '{}' must be a Py<PyAny> for PyO3 engine", name),
                 })
             }
         })
@@ -254,9 +252,8 @@ impl ScriptEngine for PyO3Engine {
 
     fn set_global(&mut self, name: &str, value: ScriptValue) -> Result<(), ScriptError> {
         Python::with_gil(|py| {
-            let py_value = Self::script_value_to_py(value, py)
-                .map_err(Self::convert_py_error)?;
-            
+            let py_value = Self::script_value_to_py(value, py).map_err(Self::convert_py_error)?;
+
             let mut globals = self.globals.lock().unwrap();
             globals.insert(name.to_string(), py_value);
             Ok(())
@@ -266,11 +263,9 @@ impl ScriptEngine for PyO3Engine {
     fn get_global(&self, name: &str) -> Result<ScriptValue, ScriptError> {
         Python::with_gil(|_py| {
             let globals = self.globals.lock().unwrap();
-            
+
             if let Some(py_value) = globals.get(name) {
-                Python::with_gil(|py| {
-                    Self::py_to_script_value(&py_value.bind(py))
-                })
+                Python::with_gil(|py| Self::py_to_script_value(&py_value.bind(py)))
             } else {
                 Err(ScriptError::VariableNotFound {
                     name: name.to_string(),
@@ -282,7 +277,7 @@ impl ScriptEngine for PyO3Engine {
     fn clear_globals(&mut self) {
         let mut globals = self.globals.lock().unwrap();
         globals.clear();
-        
+
         let mut functions = self.functions.lock().unwrap();
         functions.clear();
     }
@@ -320,16 +315,16 @@ mod tests {
     #[tokio::test]
     async fn test_pyo3_execute_simple_script() {
         let mut engine = PyO3Engine::new().unwrap();
-        
+
         let script = r#"
 x = 10
 y = 20
 result = x + y
 "#;
-        
+
         let exec_result = engine.execute_script(script).await;
         assert!(exec_result.is_ok());
-        
+
         let result = engine.get_global("result").unwrap();
         let value: i64 = result.downcast().unwrap();
         assert_eq!(value, 30);
@@ -338,12 +333,14 @@ result = x + y
     #[tokio::test]
     async fn test_pyo3_global_variables() {
         let mut engine = PyO3Engine::new().unwrap();
-        
-        engine.set_global("test_var", ScriptValue::new(42_i64)).unwrap();
-        
+
+        engine
+            .set_global("test_var", ScriptValue::new(42_i64))
+            .unwrap();
+
         let script = "result = test_var * 2";
         engine.execute_script(script).await.unwrap();
-        
+
         let result = engine.get_global("result").unwrap();
         let value: i64 = result.downcast().unwrap();
         assert_eq!(value, 84);
@@ -358,10 +355,12 @@ result = x + y
     #[tokio::test]
     async fn test_pyo3_clear_globals() {
         let mut engine = PyO3Engine::new().unwrap();
-        
-        engine.set_global("test", ScriptValue::new(123_i64)).unwrap();
+
+        engine
+            .set_global("test", ScriptValue::new(123_i64))
+            .unwrap();
         assert!(engine.get_global("test").is_ok());
-        
+
         engine.clear_globals();
         assert!(engine.get_global("test").is_err());
     }
@@ -369,10 +368,10 @@ result = x + y
     #[tokio::test]
     async fn test_pyo3_validate_script() {
         let engine = PyO3Engine::new().unwrap();
-        
+
         // Valid script
         assert!(engine.validate_script("x = 1 + 2").await.is_ok());
-        
+
         // Invalid script
         assert!(engine.validate_script("x = 1 +").await.is_err());
     }

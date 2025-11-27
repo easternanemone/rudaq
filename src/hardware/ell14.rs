@@ -269,6 +269,55 @@ impl Ell14Driver {
         Ok(())
     }
 
+    /// Check if response contains an error status (GS with non-zero code)
+    ///
+    /// ELLx devices return "GS{XX}" on error where XX is the error code:
+    /// - 00: No error (success)
+    /// - 01: Communication timeout
+    /// - 02: Mechanical timeout
+    /// - 03: Command error
+    /// - 04: Value out of range
+    /// - 05-0D: Various hardware errors
+    fn check_error_response(&self, response: &str) -> Result<()> {
+        if let Some(idx) = response.find("GS") {
+            let status_str = response[idx + 2..].trim();
+            if !status_str.is_empty() {
+                let hex_part = if status_str.len() >= 2 {
+                    &status_str[..2]
+                } else {
+                    status_str
+                };
+
+                if let Ok(status_code) = u8::from_str_radix(hex_part, 16) {
+                    if status_code != 0 {
+                        let error_msg = match status_code {
+                            0x01 => "Communication timeout",
+                            0x02 => "Mechanical timeout",
+                            0x03 => "Command error",
+                            0x04 => "Value out of range",
+                            0x05 => "Module isolated",
+                            0x06 => "Module out of isolation",
+                            0x07 => "Initialization error",
+                            0x08 => "Thermal error",
+                            0x09 => "Busy",
+                            0x0A => "Sensor error",
+                            0x0B => "Motor error",
+                            0x0C => "Out of range",
+                            0x0D => "Over current error",
+                            _ => "Unknown error",
+                        };
+                        return Err(anyhow!(
+                            "ELL14 error (code 0x{:02X}): {}",
+                            status_code,
+                            error_msg
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Parse position from hex string response
     ///
     /// Format: {Address}PO{Hex}
@@ -361,8 +410,12 @@ impl Ell14Driver {
         let hex_pulses = format!("{:08X}", pulses);
         let cmd = format!("sj{}", hex_pulses);
 
-        // sj command returns a GJ response confirming the new value
-        let _ = self.transaction(&cmd).await;
+        // sj command returns a GJ response or GS00 (success status)
+        let resp = self.transaction(&cmd).await?;
+
+        // Check for error status (GS with non-zero code)
+        self.check_error_response(&resp)?;
+
         Ok(())
     }
 
@@ -636,7 +689,12 @@ impl Ell14Driver {
         let hex_pulses = format!("{:08X}", pulses as u32);
         let cmd = format!("so{}", hex_pulses);
 
-        let _ = self.transaction(&cmd).await;
+        // so command returns HO/GO response or GS00 (success status)
+        let resp = self.transaction(&cmd).await?;
+
+        // Check for error status (GS with non-zero code)
+        self.check_error_response(&resp)?;
+
         Ok(())
     }
 
@@ -685,7 +743,12 @@ impl Ell14Driver {
         let velocity = percent.clamp(60, 100);
         let cmd = format!("sv{:02X}", velocity);
 
-        let _ = self.transaction(&cmd).await;
+        // sv command returns GV response or GS00 (success status)
+        let resp = self.transaction(&cmd).await?;
+
+        // Check for error status (GS with non-zero code)
+        self.check_error_response(&resp)?;
+
         Ok(())
     }
 
@@ -730,7 +793,11 @@ impl Ell14Driver {
         }
 
         let cmd = format!("ca{}", new_address);
-        let _ = self.transaction(&cmd).await;
+        // Note: After this call, further communication requires using the new address
+        let resp = self.transaction(&cmd).await?;
+
+        // Check for error status (GS with non-zero code)
+        self.check_error_response(&resp)?;
 
         Ok(())
     }
@@ -852,6 +919,11 @@ impl Movable for Ell14Driver {
             // Poll at 50ms intervals
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
+    }
+
+    async fn stop(&self) -> Result<()> {
+        // ELL14 supports immediate stop via 'st' command
+        self.send_command("st").await
     }
 }
 

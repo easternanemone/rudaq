@@ -119,12 +119,17 @@ impl RingBuffer {
         let total_size = HEADER_SIZE + capacity_bytes;
 
         // Create or open the backing file
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
+        let mut opts = OpenOptions::new();
+        opts.read(true).write(true).create(true);
+
+        // Only truncate when creating a brand-new buffer; preserve existing data otherwise.
+        if !path.exists() {
+            opts.truncate(true);
+        }
+
+        let file = opts
             .open(path)
-            .with_context(|| format!("Failed to create ring buffer file: {:?}", path))?;
+            .with_context(|| format!("Failed to create/open ring buffer file: {:?}", path))?;
 
         // Set file size
         file.set_len(total_size as u64)

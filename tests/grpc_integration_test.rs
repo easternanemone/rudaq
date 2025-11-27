@@ -280,6 +280,7 @@ mod scan_integration_tests {
     };
     use rust_daq::grpc::scan_service::ScanServiceImpl;
     use rust_daq::hardware::registry::{DeviceConfig, DeviceRegistry, DriverType};
+    use serial_test::serial;
     use std::sync::Arc;
     use tokio::sync::RwLock;
     use tokio_stream::StreamExt;
@@ -316,6 +317,7 @@ mod scan_integration_tests {
 
     /// Test: Create scan validates configuration
     #[tokio::test]
+    #[serial]
     async fn test_create_scan() {
         let registry = create_scan_registry().await;
         let service = ScanServiceImpl::new(Arc::new(RwLock::new(registry)));
@@ -347,6 +349,7 @@ mod scan_integration_tests {
 
     /// Test: Create scan fails with invalid device
     #[tokio::test]
+    #[serial]
     async fn test_create_scan_invalid_device() {
         let registry = create_scan_registry().await;
         let service = ScanServiceImpl::new(Arc::new(RwLock::new(registry)));
@@ -374,6 +377,7 @@ mod scan_integration_tests {
 
     /// Test: Start scan and verify progress stream receives updates (bd-fxzu test #1)
     #[tokio::test]
+    #[serial]
     async fn test_scan_progress_stream_reaches_client() {
         let registry = create_scan_registry().await;
         let service = ScanServiceImpl::new(Arc::new(RwLock::new(registry)));
@@ -473,6 +477,7 @@ mod scan_integration_tests {
 
     /// Test: Get scan status during and after execution
     #[tokio::test]
+    #[serial]
     async fn test_get_scan_status() {
         let registry = create_scan_registry().await;
         let service = ScanServiceImpl::new(Arc::new(RwLock::new(registry)));

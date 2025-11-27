@@ -2,11 +2,25 @@
 
 ## Summary
 
-**Status**: ✅ **SUCCESSFUL** - Newport 1830-C fully integrated and operational  
-**Date**: 2025-10-31  
-**Port**: `/dev/ttyS0` (Native RS-232)  
-**Baud Rate**: 9600, 8N1  
+**Status**: ✅ **SUCCESSFUL** - Newport 1830-C fully integrated and operational
+**Date**: 2025-11-26 (Updated)
+**Port**: `/dev/ttyS0` (Native RS-232)
+**Baud Rate**: 9600, 8N1
 **Flow Control**: **NONE** (no RTS/CTS required)
+
+## Recent Updates (2025-11-26)
+
+**Discovered additional working commands:**
+- `W?` - Query wavelength (returns 4-digit nm, e.g., `0800` for 800nm)
+- `Wxxxx` - Set wavelength (e.g., `W0800` for 800nm)
+- `R?` - Query range setting (returns 1-8)
+- `U?` - Query units setting (returns 0=W, 1=dBm, 2=dB)
+
+**Driver updates:**
+- Added `WavelengthTunable` trait implementation
+- Added `query_wavelength()`, `set_wavelength_nm()` methods
+- Added `query_range()`, `query_units()` methods
+- Fixed `send_config_command()` to clear buffer after commands
 
 ## ✅ Successful Integration
 
@@ -30,6 +44,10 @@ polling_rate_hz = 2.0
 - `D?` - Data Query (power reading) - **Primary command**
 - `A0` / `A1` / `A?` - Attenuator off/on/query
 - `F1` / `F2` / `F3` / `F?` - Filter Slow/Medium/Fast/query
+- `W?` - Wavelength query (returns 4-digit nm, e.g., `0800`)
+- `Wxxxx` - Wavelength set (e.g., `W0800` for 800nm)
+- `R?` - Range query (returns 1-8)
+- `U?` - Units query (returns 0=W, 1=dBm, 2=dB)
 - `B0` / `B1` / `B?` - Beep off/on/query
 - `G0` / `G1` / `G?` - Hold/Go/query
 - `CS` - Clear Status Byte Register
@@ -92,10 +110,12 @@ echo -ne "*IDN?\r\n" > /dev/ttyUSB1
 - ❌ Used SCPI: `PM:Power?`, `PM:Lambda?`, `PM:Units?`
 - ✅ Correct: `D?`, `A?`, `F?` (simple single-letter commands)
 
-### 2. Wrong Assumptions (FIXED)
-- ❌ Assumed wavelength/units were configurable via commands
-- ✅ **Newport 1830-C does NOT support wavelength or units commands**
-- These parameters are set on the physical meter, not via software
+### 2. Wrong Assumptions (CORRECTED 2025-11-26)
+- ❌ Previously assumed wavelength/units weren't configurable via commands
+- ✅ **Newport 1830-C DOES support wavelength commands** (W? and Wxxxx)
+- `W?` returns 4-digit wavelength (e.g., "0800" for 800nm)
+- `Wxxxx` sets wavelength (e.g., "W0800" for 800nm)
+- Units (U?) is query-only - must be set on physical meter
 
 ### 3. Wrong Response Handling (FIXED)
 - ❌ Expected responses from `A0`, `A1`, `F1`, `F2`, `F3`
@@ -160,12 +180,14 @@ Based on `/dev/serial/by-id/` and hardware testing:
 - [x] ESP300 flow control requirements verified
 
 ### Remaining Tasks
-- [ ] Test MaiTai laser with hardware flow control
+- [ ] Test MaiTai laser with hardware flow control (blocked on keyswitch - needs REMOTE mode)
 - [ ] Test Elliptec rotators with hardware flow control
 - [ ] Verify all instruments connect simultaneously
 - [ ] Document power reading stability over time
 - [ ] Test attenuator and filter parameter changes during operation
-- [ ] Create operator guide with Newport command reference
+- [x] Create operator guide with Newport command reference (done 2025-11-26)
+- [x] Add wavelength get/set commands (done 2025-11-26)
+- [x] Add range/units query commands (done 2025-11-26)
 
 ## Operator Notes
 
@@ -176,6 +198,21 @@ Based on `/dev/serial/by-id/` and hardware testing:
 # Current power reading
 D?
 # Returns: "1.23E-6" (1.23 microwatts)
+```
+
+**Wavelength Control (NEW 2025-11-26):**
+```bash
+W?      # Query current wavelength
+        # Returns: "0800" (800nm)
+W0800   # Set wavelength to 800nm
+W1064   # Set wavelength to 1064nm
+W0532   # Set wavelength to 532nm
+```
+
+**Range and Units Query:**
+```bash
+R?      # Query range setting (returns 1-8)
+U?      # Query units setting (returns 0=W, 1=dBm, 2=dB)
 ```
 
 **Attenuator Control:**

@@ -4,15 +4,16 @@
 //!
 //! Protocol Overview:
 //! - Format: Simple ASCII commands (NOT SCPI)
-//! - Baud: 19200, 8N1, no flow control
+//! - Baud: 9600, 8N1, no flow control (verified with hardware)
 //! - Terminator: LF (\n)
-//! - Commands: A0/A1 (attenuator), F1/F2/F3 (filter)
-//! - Query: D? (power measurement)
+//! - Commands: A0/A1 (attenuator), F1/F2/F3 (filter), Wxxxx (wavelength)
+//! - Queries: D? (power), W? (wavelength), R? (range), U? (units)
+//! - Response format: Scientific notation (e.g., "+.11E-9" for 0.11 nW)
 //!
 //! # Important Notes
 //!
 //! - Newport 1830-C uses SIMPLE single-letter commands, NOT SCPI
-//! - Does NOT support wavelength or units configuration via commands
+//! - Supports wavelength configuration: W? queries, Wxxxx sets (e.g., W0800 for 800nm)
 //! - Does NOT require hardware flow control (unlike ESP300)
 //! - Responses use scientific notation (e.g., "5E-9")
 //!
@@ -30,6 +31,11 @@
 //!     meter.set_attenuator(false).await?;  // 0=off, 1=on
 //!     meter.set_filter(2).await?;  // 1=Slow, 2=Medium, 3=Fast
 //!
+//!     // Set wavelength for accurate power measurement
+//!     meter.set_wavelength(800.0).await?;  // 800nm
+//!     let wavelength = meter.get_wavelength().await?;
+//!     println!("Wavelength: {} nm", wavelength);
+//!
 //!     // Read power
 //!     let power_watts = meter.read().await?;
 //!     println!("Power: {:.3e} W", power_watts);
@@ -38,7 +44,7 @@
 //! }
 //! ```
 
-use crate::hardware::capabilities::Readable;
+use crate::hardware::capabilities::{Readable, WavelengthTunable};
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use std::time::Duration;
@@ -66,14 +72,18 @@ impl Newport1830CDriver {
     /// # Errors
     /// Returns error if serial port cannot be opened
     pub fn new(port_path: &str) -> Result<Self> {
-        // Configure serial settings: 19200 baud, 8N1, no flow control
-        let port = tokio_serial::new(port_path, 19200)
+        // Configure serial settings: 9600 baud, 8N1, no flow control
+        // Note: 9600 baud verified with actual hardware (not 19200 as in some docs)
+        let port = tokio_serial::new(port_path, 9600)
             .data_bits(tokio_serial::DataBits::Eight)
             .parity(tokio_serial::Parity::None)
             .stop_bits(tokio_serial::StopBits::One)
             .flow_control(tokio_serial::FlowControl::None)
             .open_native_async()
-            .context(format!("Failed to open Newport 1830-C serial port: {}", port_path))?;
+            .context(format!(
+                "Failed to open Newport 1830-C serial port: {}",
+                port_path
+            ))?;
 
         Ok(Self {
             port: Mutex::new(BufReader::new(port)),
@@ -117,6 +127,79 @@ impl Newport1830CDriver {
     /// Clear status (zero power reading)
     pub async fn clear_status(&self) -> Result<()> {
         self.send_config_command("CS").await
+    }
+
+    /// Query current wavelength setting
+    ///
+    /// # Returns
+    /// Wavelength in nanometers
+    ///
+    /// # Response Format
+    /// Returns 4-digit nm value (e.g., "0780" for 780nm)
+    pub async fn query_wavelength(&self) -> Result<f64> {
+        let response = self.query("W?").await?;
+        self.parse_wavelength_response(&response)
+    }
+
+    /// Set wavelength for accurate power measurement
+    ///
+    /// # Arguments
+    /// * `wavelength_nm` - Wavelength in nanometers (300-1100 nm typical range)
+    ///
+    /// # Command Format
+    /// Sends `Wxxxx` where xxxx is the 4-digit wavelength (e.g., W0800 for 800nm)
+    pub async fn set_wavelength_nm(&self, wavelength_nm: f64) -> Result<()> {
+        let nm = wavelength_nm.round() as u16;
+        if !(300..=1100).contains(&nm) {
+            return Err(anyhow!(
+                "Wavelength {} nm out of range (300-1100 nm)",
+                nm
+            ));
+        }
+
+        // Format as 4-digit zero-padded wavelength
+        self.send_config_command(&format!("W{:04}", nm)).await
+    }
+
+    /// Query range setting
+    ///
+    /// # Returns
+    /// Range value (1-8 typically)
+    pub async fn query_range(&self) -> Result<u8> {
+        let response = self.query("R?").await?;
+        response
+            .trim()
+            .parse::<u8>()
+            .with_context(|| format!("Failed to parse range response: '{}'", response))
+    }
+
+    /// Query units setting
+    ///
+    /// # Returns
+    /// Units value (0=W, 1=dBm, 2=dB)
+    pub async fn query_units(&self) -> Result<u8> {
+        let response = self.query("U?").await?;
+        response
+            .trim()
+            .parse::<u8>()
+            .with_context(|| format!("Failed to parse units response: '{}'", response))
+    }
+
+    /// Parse wavelength response
+    ///
+    /// Handles 4-digit nm format (e.g., "0780" for 780nm)
+    fn parse_wavelength_response(&self, response: &str) -> Result<f64> {
+        let trimmed = response.trim();
+
+        if trimmed.is_empty() {
+            return Err(anyhow!("Empty wavelength response"));
+        }
+
+        // Parse as integer then convert to float
+        trimmed
+            .parse::<u16>()
+            .map(|nm| nm as f64)
+            .with_context(|| format!("Failed to parse wavelength response: '{}'", trimmed))
     }
 
     /// Parse power measurement response
@@ -165,9 +248,10 @@ impl Newport1830CDriver {
         Ok(response.trim().to_string())
     }
 
-    /// Send configuration command without expecting response
+    /// Send configuration command and clear any response/echo
     ///
-    /// Newport 1830-C doesn't respond to configuration commands like A0, A1, F1, F2, F3
+    /// Newport 1830-C may echo commands or send acknowledgments.
+    /// We must clear the buffer to prevent garbage in subsequent query responses.
     async fn send_config_command(&self, command: &str) -> Result<()> {
         let mut port = self.port.lock().await;
 
@@ -177,8 +261,21 @@ impl Newport1830CDriver {
             .await
             .context("Newport 1830-C write failed")?;
 
-        // Small delay to allow meter to process command
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // Allow meter to process command
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Read and discard any response/echo to clear the buffer
+        // This is critical to prevent stale data mixing with query responses
+        let mut discard = String::new();
+        match tokio::time::timeout(Duration::from_millis(100), port.read_line(&mut discard)).await {
+            Ok(Ok(_)) => {
+                log::debug!("Newport config '{}' response: {}", command, discard.trim());
+            }
+            Ok(Err(_)) | Err(_) => {
+                // No response or timeout - that's OK for config commands
+            }
+        }
+
         Ok(())
     }
 }
@@ -187,6 +284,22 @@ impl Newport1830CDriver {
 impl Readable for Newport1830CDriver {
     async fn read(&self) -> Result<f64> {
         self.query_power().await
+    }
+}
+
+#[async_trait]
+impl WavelengthTunable for Newport1830CDriver {
+    async fn set_wavelength(&self, wavelength_nm: f64) -> Result<()> {
+        self.set_wavelength_nm(wavelength_nm).await
+    }
+
+    async fn get_wavelength(&self) -> Result<f64> {
+        self.query_wavelength().await
+    }
+
+    fn wavelength_range(&self) -> (f64, f64) {
+        // Newport 1830-C typical wavelength range for silicon detector
+        (300.0, 1100.0)
     }
 }
 
@@ -210,6 +323,63 @@ mod tests {
             let parsed: Result<f64, _> = input.parse();
             assert!(parsed.is_ok(), "Failed to parse: {}", input);
             assert_eq!(parsed.unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn test_parse_wavelength_response() {
+        // Test parsing 4-digit wavelength format
+        let test_cases = vec![
+            ("0780", 780.0),
+            ("0800", 800.0),
+            ("1064", 1064.0),
+            ("0300", 300.0),
+            (" 0800 \n", 800.0),
+        ];
+
+        for (input, expected) in test_cases {
+            let parsed: Result<u16, _> = input.trim().parse();
+            assert!(parsed.is_ok(), "Failed to parse wavelength: {}", input);
+            assert_eq!(parsed.unwrap() as f64, expected);
+        }
+    }
+
+    #[test]
+    fn test_wavelength_range_validation() {
+        // Test wavelength range bounds (300-1100 nm)
+        let valid = vec![300, 800, 1064, 1100];
+        let invalid = vec![299, 1101, 0, 2000];
+
+        for nm in valid {
+            assert!(
+                (300..=1100).contains(&nm),
+                "{} should be valid wavelength",
+                nm
+            );
+        }
+
+        for nm in invalid {
+            assert!(
+                !(300..=1100).contains(&nm),
+                "{} should be invalid wavelength",
+                nm
+            );
+        }
+    }
+
+    #[test]
+    fn test_wavelength_command_format() {
+        // Test the 4-digit format command generation
+        let test_cases = vec![
+            (800u16, "W0800"),
+            (780u16, "W0780"),
+            (1064u16, "W1064"),
+            (300u16, "W0300"),
+        ];
+
+        for (nm, expected_cmd) in test_cases {
+            let cmd = format!("W{:04}", nm);
+            assert_eq!(cmd, expected_cmd, "Wrong format for {} nm", nm);
         }
     }
 

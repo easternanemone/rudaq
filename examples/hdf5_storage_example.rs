@@ -12,13 +12,12 @@
 //! cargo run --example hdf5_storage_example --features v4,storage_hdf5
 //! ```
 
-use std::path::PathBuf;
-
 // This example is feature-gated to compile with v4 enabled
 #[cfg(feature = "v4")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use rust_daq::actors::{Flush, GetStats, HDF5Storage, SetInstrumentMetadata, SetMetadata};
     use rust_daq::config_v4::StorageConfig;
+    use std::path::PathBuf;
 
     println!("=== HDF5 Storage Actor Example ===\n");
 

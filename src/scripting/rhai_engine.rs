@@ -140,7 +140,13 @@ impl RhaiEngine {
         // Safety: Limit operations to prevent infinite loops
         engine.on_progress(move |count| {
             if count > max_operations {
-                Some(format!("Safety limit exceeded: maximum {} operations", max_operations).into())
+                Some(
+                    format!(
+                        "Safety limit exceeded: maximum {} operations",
+                        max_operations
+                    )
+                    .into(),
+                )
             } else {
                 None
             }
@@ -465,9 +471,7 @@ mod tests {
     async fn test_rhai_get_global() {
         let mut engine = RhaiEngine::new().unwrap();
 
-        engine
-            .set_global("foo", ScriptValue::new(123_i64))
-            .unwrap();
+        engine.set_global("foo", ScriptValue::new(123_i64)).unwrap();
 
         let value = engine.get_global("foo").unwrap();
         let number: i64 = value.downcast().unwrap();
@@ -518,7 +522,11 @@ mod tests {
         "#;
 
         let result = engine.execute_script(script).await;
-        assert!(result.is_err(), "Expected safety limit error, got: {:?}", result);
+        assert!(
+            result.is_err(),
+            "Expected safety limit error, got: {:?}",
+            result
+        );
 
         if let Err(e) = result {
             let err_msg = e.to_string();
@@ -527,7 +535,7 @@ mod tests {
                     || err_msg.contains("10000")
                     || err_msg.contains("10,000")
                     || err_msg.contains("progress")
-                    || err_msg.contains("terminated"),  // Rhai's safety callback message
+                    || err_msg.contains("terminated"), // Rhai's safety callback message
                 "Error message should mention safety limit, progress, or terminated, got: {}",
                 err_msg
             );
