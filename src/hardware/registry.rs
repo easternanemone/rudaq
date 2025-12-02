@@ -636,6 +636,8 @@ impl DeviceRegistry {
                     shutter_control: None,
                     #[cfg(feature = "instrument_spectra_physics")]
                     emission_control: None,
+                    #[cfg(feature = "instrument_spectra_physics")]
+                    wavelength_tunable: None,
                     metadata: DeviceMetadata {
                         measurement_units: Some("W".to_string()),
                         ..Default::default()
@@ -690,6 +692,8 @@ impl DeviceRegistry {
                     shutter_control: None,
                     #[cfg(feature = "instrument_spectra_physics")]
                     emission_control: None,
+                    #[cfg(feature = "instrument_spectra_physics")]
+                    wavelength_tunable: None,
                     metadata: DeviceMetadata {
                         frame_width: Some(width),
                         frame_height: Some(height),
@@ -739,6 +743,8 @@ impl DeviceRegistry {
                     shutter_control: None,
                     #[cfg(feature = "instrument_spectra_physics")]
                     emission_control: None,
+                    #[cfg(feature = "instrument_spectra_physics")]
+                    wavelength_tunable: None,
                     metadata: DeviceMetadata {
                         position_units: Some("degrees".to_string()),
                         min_position: Some(0.0),
@@ -765,6 +771,8 @@ impl DeviceRegistry {
                     shutter_control: None,
                     #[cfg(feature = "instrument_spectra_physics")]
                     emission_control: None,
+                    #[cfg(feature = "instrument_spectra_physics")]
+                    wavelength_tunable: None,
                     metadata: DeviceMetadata {
                         measurement_units: Some("W".to_string()),
                         ..Default::default()
@@ -786,7 +794,9 @@ impl DeviceRegistry {
                     #[cfg(feature = "instrument_spectra_physics")]
                     shutter_control: Some(driver.clone()),
                     #[cfg(feature = "instrument_spectra_physics")]
-                    emission_control: Some(driver),
+                    emission_control: Some(driver.clone()),
+                    #[cfg(feature = "instrument_spectra_physics")]
+                    wavelength_tunable: Some(driver),
                     metadata: DeviceMetadata {
                         measurement_units: Some("W".to_string()),
                         ..Default::default()
@@ -809,6 +819,8 @@ impl DeviceRegistry {
                     shutter_control: None,
                     #[cfg(feature = "instrument_spectra_physics")]
                     emission_control: None,
+                    #[cfg(feature = "instrument_spectra_physics")]
+                    wavelength_tunable: None,
                     metadata: DeviceMetadata {
                         position_units: Some("mm".to_string()),
                         min_position: Some(-25.0), // Typical ESP300 stage range
@@ -959,6 +971,8 @@ impl DeviceRegistry {
             shutter_control: None,
             #[cfg(feature = "instrument_spectra_physics")]
             emission_control: None,
+            #[cfg(feature = "instrument_spectra_physics")]
+            wavelength_tunable: None,
             metadata,
         })
     }
