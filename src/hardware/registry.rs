@@ -611,6 +611,8 @@ impl DeviceRegistry {
                     shutter_control: None,
                     #[cfg(feature = "instrument_spectra_physics")]
                     emission_control: None,
+                    #[cfg(feature = "instrument_spectra_physics")]
+                    wavelength_tunable: None,
                     metadata: DeviceMetadata {
                         position_units: Some("mm".to_string()),
                         min_position: Some(-100.0),
@@ -656,6 +658,8 @@ impl DeviceRegistry {
                     shutter_control: None,
                     #[cfg(feature = "instrument_spectra_physics")]
                     emission_control: None,
+                    #[cfg(feature = "instrument_spectra_physics")]
+                    wavelength_tunable: None,
                     metadata: DeviceMetadata {
                         frame_width: Some(width),
                         frame_height: Some(height),
