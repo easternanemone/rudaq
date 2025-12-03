@@ -2,8 +2,8 @@ pub mod hardware_service;
 pub mod module_service;
 pub mod plugin_service;
 pub mod preset_service;
+pub mod run_engine_service;
 pub mod scan_service;
-pub mod storage_service;
 /// gRPC server for remote DAQ control (Phase 3)
 ///
 /// This module provides a gRPC server that exposes the DAQ system for remote control.
@@ -30,6 +30,7 @@ pub mod storage_service;
 /// }
 /// ```
 pub mod server;
+pub mod storage_service;
 
 /// Protocol Buffer definitions for the DAQ Control Service
 #[allow(missing_docs)] // Auto-generated protobuf code
@@ -50,6 +51,7 @@ pub use hardware_service::HardwareServiceImpl;
 pub use module_service::ModuleServiceImpl;
 pub use plugin_service::PluginServiceImpl;
 pub use preset_service::{default_preset_storage_path, PresetServiceImpl};
+pub use run_engine_service::RunEngineServiceImpl;
 pub use scan_service::ScanServiceImpl;
 pub use server::{start_server, start_server_with_hardware, DaqServer};
 pub use storage_service::StorageServiceImpl;
@@ -66,21 +68,53 @@ pub use proto::{
 pub use proto::hardware_service_client::HardwareServiceClient;
 pub use proto::hardware_service_server::{HardwareService, HardwareServiceServer};
 pub use proto::{
-    DeviceInfo, DeviceMetadata, DeviceStateRequest, DeviceStateResponse, DeviceStateSubscribeRequest,
-    DeviceStateUpdate, ListDevicesRequest, ListDevicesResponse, MoveRequest, MoveResponse,
-    PositionUpdate, ReadValueRequest, ReadValueResponse, StopMotionRequest, StopMotionResponse,
-    StreamValuesRequest, ValueUpdate,
-    // Parameter control types (bd-lxwp)
-    SetParameterRequest, SetParameterResponse, GetParameterRequest, ParameterValue,
-    // Frame streaming types (bd-p6vz)
-    StartStreamRequest, StartStreamResponse, StopStreamRequest, StopStreamResponse,
-    StreamFramesRequest, FrameData,
+    DeviceInfo,
+    DeviceMetadata,
+    DeviceStateRequest,
+    DeviceStateResponse,
+    DeviceStateSubscribeRequest,
+    DeviceStateUpdate,
+    FrameData,
+    GetEmissionRequest,
+    GetEmissionResponse,
+    GetExposureRequest,
+    GetExposureResponse,
+    GetParameterRequest,
+    GetShutterRequest,
+    GetShutterResponse,
+    GetWavelengthRequest,
+    GetWavelengthResponse,
+    ListDevicesRequest,
+    ListDevicesResponse,
+    MoveRequest,
+    MoveResponse,
+    ParameterValue,
+    PositionUpdate,
+    ReadValueRequest,
+    ReadValueResponse,
+    SetEmissionRequest,
+    SetEmissionResponse,
     // Exposure control types (bd-tm0b)
-    SetExposureRequest, SetExposureResponse, GetExposureRequest, GetExposureResponse,
+    SetExposureRequest,
+    SetExposureResponse,
+    // Parameter control types (bd-lxwp)
+    SetParameterRequest,
+    SetParameterResponse,
     // Laser control types (bd-pwjo)
-    SetShutterRequest, SetShutterResponse, GetShutterRequest, GetShutterResponse,
-    SetWavelengthRequest, SetWavelengthResponse, GetWavelengthRequest, GetWavelengthResponse,
-    SetEmissionRequest, SetEmissionResponse, GetEmissionRequest, GetEmissionResponse,
+    SetShutterRequest,
+    SetShutterResponse,
+    SetWavelengthRequest,
+    SetWavelengthResponse,
+    // Frame streaming types (bd-p6vz)
+    StartStreamRequest,
+    StartStreamResponse,
+    StopMotionRequest,
+    StopMotionResponse,
+    StopStreamRequest,
+    StopStreamResponse,
+    StreamFramesRequest,
+    StreamValuesRequest,
+    ValueUpdate,
 };
 
 // Re-export ScanService types (bd-4le6)
@@ -106,74 +140,156 @@ pub use proto::{
 pub use proto::module_service_client::ModuleServiceClient;
 pub use proto::module_service_server::{ModuleService, ModuleServiceServer};
 pub use proto::{
-    // Module type discovery
-    ListModuleTypesRequest, ListModuleTypesResponse, ModuleTypeSummary,
-    GetModuleTypeInfoRequest, ModuleTypeInfo, ModuleRole, ModuleParameter,
-    // Module lifecycle
-    CreateModuleRequest, CreateModuleResponse, DeleteModuleRequest, DeleteModuleResponse,
-    ListModulesRequest, ListModulesResponse, GetModuleStatusRequest, ModuleStatus, ModuleState,
-    // Module configuration
-    ConfigureModuleRequest, ConfigureModuleResponse, GetModuleConfigRequest, ModuleConfig,
     // Device assignment
-    AssignDeviceRequest, AssignDeviceResponse, UnassignDeviceRequest, UnassignDeviceResponse,
-    ListAssignmentsRequest, ListAssignmentsResponse, DeviceAssignment,
+    AssignDeviceRequest,
+    AssignDeviceResponse,
+    // Module configuration
+    ConfigureModuleRequest,
+    ConfigureModuleResponse,
+    // Module lifecycle
+    CreateModuleRequest,
+    CreateModuleResponse,
+    DeleteModuleRequest,
+    DeleteModuleResponse,
+    DeviceAssignment,
+    GetModuleConfigRequest,
+    GetModuleStatusRequest,
+    GetModuleTypeInfoRequest,
+    ListAssignmentsRequest,
+    ListAssignmentsResponse,
+    // Module type discovery
+    ListModuleTypesRequest,
+    ListModuleTypesResponse,
+    ListModulesRequest,
+    ListModulesResponse,
+    ModuleConfig,
+    ModuleDataPoint,
+    ModuleEvent,
+    ModuleEventSeverity,
+    ModuleParameter,
+    ModuleRole,
+    ModuleState,
+    ModuleStatus,
+    ModuleTypeInfo,
+    ModuleTypeSummary,
+    PauseModuleRequest,
+    PauseModuleResponse,
+    ResumeModuleRequest,
+    ResumeModuleResponse,
     // Module execution control
-    StartModuleRequest, StartModuleResponse, PauseModuleRequest, PauseModuleResponse,
-    ResumeModuleRequest, ResumeModuleResponse, StopModuleRequest, StopModuleResponse,
+    StartModuleRequest,
+    StartModuleResponse,
+    StopModuleRequest,
+    StopModuleResponse,
+    StreamModuleDataRequest,
     // Module event streaming
-    StreamModuleEventsRequest, ModuleEvent, ModuleEventSeverity,
-    StreamModuleDataRequest, ModuleDataPoint,
+    StreamModuleEventsRequest,
+    UnassignDeviceRequest,
+    UnassignDeviceResponse,
 };
 
 // Re-export RunEngineService types (bd-niy4)
 pub use proto::run_engine_service_client::RunEngineServiceClient;
 pub use proto::run_engine_service_server::{RunEngineService, RunEngineServiceServer};
 pub use proto::{
+    AbortPlanRequest,
+    AbortPlanResponse,
+    DescriptorDocument,
+    Document,
+    DocumentType,
+    EngineState,
+    EngineStatus,
+    EventDocument,
+    GetEngineStatusRequest,
+    GetPlanTypeInfoRequest,
+    HaltEngineRequest,
+    HaltEngineResponse,
     // Plan type discovery
-    ListPlanTypesRequest, ListPlanTypesResponse, PlanTypeSummary,
-    GetPlanTypeInfoRequest, PlanTypeInfo, PlanParameter, PlanDeviceRole,
+    ListPlanTypesRequest,
+    ListPlanTypesResponse,
+    PauseEngineRequest,
+    PauseEngineResponse,
+    PlanDeviceRole,
+    PlanParameter,
+    PlanTypeInfo,
+    PlanTypeSummary,
     // Plan execution
-    QueuePlanRequest, QueuePlanResponse, StartEngineRequest, StartEngineResponse,
-    PauseEngineRequest, PauseEngineResponse, ResumeEngineRequest, ResumeEngineResponse,
-    AbortPlanRequest, AbortPlanResponse, HaltEngineRequest, HaltEngineResponse,
-    GetEngineStatusRequest, EngineStatus, EngineState,
+    QueuePlanRequest,
+    QueuePlanResponse,
+    ResumeEngineRequest,
+    ResumeEngineResponse,
+    StartDocument,
+    StartEngineRequest,
+    StartEngineResponse,
+    StopDocument,
     // Document streaming
-    StreamDocumentsRequest, Document, DocumentType,
-    StartDocument, DescriptorDocument, EventDocument, StopDocument,
+    StreamDocumentsRequest,
 };
 
 // Re-export StorageService types (bd-p6im)
 pub use proto::storage_service_client::StorageServiceClient;
 pub use proto::storage_service_server::{StorageService, StorageServiceServer};
 pub use proto::{
+    AcquisitionInfo,
+    AcquisitionSummary,
     // Storage configuration
-    ConfigureStorageRequest, ConfigureStorageResponse, GetStorageConfigRequest, StorageConfig,
-    Hdf5Config,
-    // Recording control
-    StartRecordingRequest, StartRecordingResponse, StopRecordingRequest, StopRecordingResponse,
-    GetRecordingStatusRequest, RecordingStatus, RecordingState,
-    // Acquisition management
-    ListAcquisitionsRequest, ListAcquisitionsResponse, AcquisitionSummary,
-    GetAcquisitionInfoRequest, AcquisitionInfo, DatasetInfo, Hdf5Structure,
-    DeleteAcquisitionRequest, DeleteAcquisitionResponse,
+    ConfigureStorageRequest,
+    ConfigureStorageResponse,
+    DatasetInfo,
+    DeleteAcquisitionRequest,
+    DeleteAcquisitionResponse,
     // Data export
-    FlushToStorageRequest, FlushToStorageResponse,
-    StreamRecordingProgressRequest, RecordingProgress,
+    FlushToStorageRequest,
+    FlushToStorageResponse,
+    GetAcquisitionInfoRequest,
+    GetRecordingStatusRequest,
+    GetStorageConfigRequest,
+    Hdf5Config,
+    Hdf5Structure,
+    // Acquisition management
+    ListAcquisitionsRequest,
+    ListAcquisitionsResponse,
+    RecordingProgress,
+    RecordingState,
+    RecordingStatus,
+    // Recording control
+    StartRecordingRequest,
+    StartRecordingResponse,
+    StopRecordingRequest,
+    StopRecordingResponse,
+    StorageConfig,
+    StreamRecordingProgressRequest,
 };
 
 // Re-export PluginService types (bd-22si.6.1)
 pub use proto::plugin_service_client::PluginServiceClient;
 pub use proto::plugin_service_server::{PluginService, PluginServiceServer};
 pub use proto::{
+    DestroyPluginInstanceRequest,
+    DestroyPluginInstanceResponse,
+    GetPluginInfoRequest,
+    GetPluginInstanceStatusRequest,
+    ListPluginInstancesRequest,
+    ListPluginInstancesResponse,
     // Plugin discovery
-    ListPluginsRequest, ListPluginsResponse, PluginSummary,
-    GetPluginInfoRequest, PluginInfo, PluginProtocol, PluginCapabilities,
-    PluginReadable, PluginMovable, PluginAxis, PluginSettable,
-    PluginSwitchable, PluginActionable, PluginLoggable, PluginScriptable,
+    ListPluginsRequest,
+    ListPluginsResponse,
+    PluginActionable,
+    PluginAxis,
+    PluginCapabilities,
+    PluginInfo,
+    PluginInstanceStatus,
+    PluginInstanceSummary,
+    PluginLoggable,
+    PluginMovable,
+    PluginProtocol,
+    PluginReadable,
+    PluginScriptable,
+    PluginSettable,
+    PluginSummary,
+    PluginSwitchable,
     PluginUiElement,
     // Plugin instance management
-    SpawnPluginRequest, SpawnPluginResponse,
-    ListPluginInstancesRequest, ListPluginInstancesResponse, PluginInstanceSummary,
-    GetPluginInstanceStatusRequest, PluginInstanceStatus,
-    DestroyPluginInstanceRequest, DestroyPluginInstanceResponse,
+    SpawnPluginRequest,
+    SpawnPluginResponse,
 };

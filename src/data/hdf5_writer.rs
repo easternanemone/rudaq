@@ -56,7 +56,10 @@ use super::ring_buffer::RingBuffer;
 /// }
 /// ```
 pub struct HDF5Writer {
-    #[expect(dead_code, reason = "output_path will be used when HDF5 writing is implemented")]
+    #[expect(
+        dead_code,
+        reason = "output_path will be used when HDF5 writing is implemented"
+    )]
     output_path: PathBuf,
     ring_buffer: Arc<RingBuffer>,
     flush_interval: Duration,
@@ -160,9 +163,8 @@ impl HDF5Writer {
             // Decode and write Protobuf ScanProgress messages
             // Returns bytes successfully processed to handle partial messages
             #[cfg(feature = "networking")]
-            let bytes_processed = {
-                Self::write_protobuf_to_hdf5_blocking(&batch_group, &snapshot)?
-            };
+            let bytes_processed =
+                { Self::write_protobuf_to_hdf5_blocking(&batch_group, &snapshot)? };
 
             #[cfg(not(feature = "networking"))]
             let bytes_processed = {
@@ -362,7 +364,7 @@ impl HDF5Writer {
                 .create(true)
                 .append(true)
                 .open(&fallback_path)?;
-            
+
             // Write length-prefixed message (allows decoding multiple messages)
             let len = snapshot_len as u32;
             file.write_all(&len.to_le_bytes())?;
@@ -374,7 +376,8 @@ impl HDF5Writer {
 
         // Advance tail to prevent buffer overflow
         self.ring_buffer.advance_tail(snapshot_len as u64);
-        self.last_read_tail.store(current_write_head, Ordering::Release);
+        self.last_read_tail
+            .store(current_write_head, Ordering::Release);
 
         Ok(())
     }
@@ -398,7 +401,10 @@ impl HDF5Writer {
     ///
     /// Returns error if HDF5 file operations fail
     #[cfg(feature = "storage_hdf5")]
-    pub async fn write_manifest(&self, manifest: &crate::experiment::document::ExperimentManifest) -> Result<()> {
+    pub async fn write_manifest(
+        &self,
+        manifest: &crate::experiment::document::ExperimentManifest,
+    ) -> Result<()> {
         // Clone manifest for move into blocking task
         let manifest = manifest.clone();
         let output_path = self.output_path.clone();
@@ -435,12 +441,16 @@ impl HDF5Writer {
             manifest_group
                 .new_attr::<hdf5::types::VarLenUnicode>()
                 .create("plan_type")?
-                .write_scalar(&hdf5::types::VarLenUnicode::from(manifest.plan_type.as_str()))?;
+                .write_scalar(&hdf5::types::VarLenUnicode::from(
+                    manifest.plan_type.as_str(),
+                ))?;
 
             manifest_group
                 .new_attr::<hdf5::types::VarLenUnicode>()
                 .create("plan_name")?
-                .write_scalar(&hdf5::types::VarLenUnicode::from(manifest.plan_name.as_str()))?;
+                .write_scalar(&hdf5::types::VarLenUnicode::from(
+                    manifest.plan_name.as_str(),
+                ))?;
 
             // Create parameters subgroup
             let params_group = if manifest_group.group("parameters").is_ok() {
@@ -504,7 +514,10 @@ impl HDF5Writer {
 
     /// No-op when storage_hdf5 feature is disabled
     #[cfg(not(feature = "storage_hdf5"))]
-    pub async fn write_manifest(&self, _manifest: &crate::experiment::document::ExperimentManifest) -> Result<()> {
+    pub async fn write_manifest(
+        &self,
+        _manifest: &crate::experiment::document::ExperimentManifest,
+    ) -> Result<()> {
         // Gracefully degrade when HDF5 not available
         Ok(())
     }
@@ -588,7 +601,10 @@ impl HDF5Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[expect(unused_imports, reason = "TempDir used conditionally based on test configuration")]
+    #[expect(
+        unused_imports,
+        reason = "TempDir used conditionally based on test configuration"
+    )]
     use tempfile::{NamedTempFile, TempDir};
 
     #[tokio::test]

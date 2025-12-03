@@ -79,9 +79,9 @@
 //! }
 //! ```
 
+use crate::observable::ParameterSet;
 use anyhow::Result;
 use async_trait::async_trait;
-use crate::observable::ParameterSet;
 
 /// Capability: Motion Control
 ///
@@ -295,7 +295,10 @@ pub trait FrameProducer: Send + Sync {
     /// # Returns
     /// - Some(receiver) if receiver is available
     /// - None if receiver was already taken or not supported by this device
-    #[deprecated(since = "0.2.0", note = "Use subscribe_frames() for multi-subscriber support")]
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use subscribe_frames() for multi-subscriber support"
+    )]
     async fn take_frame_receiver(
         &self,
     ) -> Option<tokio::sync::mpsc::Receiver<crate::hardware::Frame>> {

@@ -129,7 +129,10 @@ fn verify_mock_stage_export() {
 #[test]
 fn verify_mock_camera_export() {
     // Verify MockCamera is exported and implements FrameProducer + ExposureControl
-    fn _check_type_exists<T: rust_daq::hardware::FrameProducer + rust_daq::hardware::ExposureControl>() {}
+    fn _check_type_exists<
+        T: rust_daq::hardware::FrameProducer + rust_daq::hardware::ExposureControl,
+    >() {
+    }
     _check_type_exists::<rust_daq::hardware::mock::MockCamera>();
 }
 
@@ -427,23 +430,23 @@ fn verify_complete_public_api() {
     // If this test compiles, the basic public API structure is correct
 
     // Hardware capabilities
-    use rust_daq::hardware::{Movable, Readable, FrameProducer, ExposureControl, Triggerable};
+    use rust_daq::hardware::{ExposureControl, FrameProducer, Movable, Readable, Triggerable};
 
     // Data types
-    use rust_daq::hardware::{FrameRef, Frame, Roi};
+    use rust_daq::hardware::{Frame, FrameRef, Roi};
 
     // Mock hardware
-    use rust_daq::hardware::mock::{MockStage, MockCamera, MockPowerMeter};
+    use rust_daq::hardware::mock::{MockCamera, MockPowerMeter, MockStage};
 
     // Hardware registry
-    use rust_daq::hardware::registry::{DeviceId, Capability};
+    use rust_daq::hardware::registry::{Capability, DeviceId};
 
     // Data pipeline
-    use rust_daq::data::ring_buffer::RingBuffer;
     use rust_daq::data::hdf5_writer::HDF5Writer;
+    use rust_daq::data::ring_buffer::RingBuffer;
 
     // Scripting
-    use rust_daq::scripting::{RhaiEngine, StageHandle, CameraHandle};
+    use rust_daq::scripting::{CameraHandle, RhaiEngine, StageHandle};
 
     // Configuration
     use rust_daq::config_v4::V4Config;
@@ -452,9 +455,9 @@ fn verify_complete_public_api() {
     use rust_daq::error::DaqError;
 
     // Measurement types
-    use rust_daq::measurement::InstrumentMeasurement;
-    use rust_daq::measurement::power::PowerMeasure;
     use rust_daq::core::Measurement;
+    use rust_daq::measurement::power::PowerMeasure;
+    use rust_daq::measurement::InstrumentMeasurement;
 
     // If we get here, all critical exports are working
     fn _all_types_accessible() {}
@@ -471,23 +474,12 @@ fn verify_complete_grpc_api() {
 
     // Services
     use rust_daq::grpc::{
-        HardwareServiceImpl,
-        ScanServiceImpl,
-        StorageServiceImpl,
-        PresetServiceImpl,
-        ModuleServiceImpl,
-        PluginServiceImpl,
+        HardwareServiceImpl, ModuleServiceImpl, PluginServiceImpl, PresetServiceImpl,
+        ScanServiceImpl, StorageServiceImpl,
     };
 
     // Proto types (sample from each service)
-    use rust_daq::grpc::{
-        DeviceInfo,
-        ScanConfig,
-        StorageConfig,
-        Preset,
-        ModuleConfig,
-        PluginInfo,
-    };
+    use rust_daq::grpc::{DeviceInfo, ModuleConfig, PluginInfo, Preset, ScanConfig, StorageConfig};
 
     fn _all_grpc_types_accessible() {}
     _all_grpc_types_accessible();

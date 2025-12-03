@@ -28,10 +28,10 @@
 //! x_axis.move_abs(10.0).await?;
 //! ```
 
-pub mod schema;
 pub mod driver;
-pub mod registry;
 pub mod handles;
+pub mod registry;
+pub mod schema;
 
 #[cfg(feature = "plugins_hot_reload")]
 pub mod hot_reload;

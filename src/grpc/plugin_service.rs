@@ -5,11 +5,11 @@
 //! controls based on plugin YAML definitions.
 
 #[cfg(feature = "tokio_serial")]
+use crate::hardware::plugin::driver::GenericDriver;
+#[cfg(feature = "tokio_serial")]
 use crate::hardware::plugin::registry::PluginFactory;
 #[cfg(feature = "tokio_serial")]
 use crate::hardware::plugin::schema::{DriverType, UiElement};
-#[cfg(feature = "tokio_serial")]
-use crate::hardware::plugin::driver::GenericDriver;
 #[cfg(feature = "tokio_serial")]
 use crate::hardware::registry::{DeviceConfig, DeviceRegistry, DriverType as RegistryDriverType};
 
@@ -19,7 +19,7 @@ use crate::grpc::proto::{
     ListPluginInstancesRequest, ListPluginInstancesResponse, ListPluginsRequest,
     ListPluginsResponse, PluginActionable, PluginAxis, PluginCapabilities, PluginInfo,
     PluginInstanceStatus, PluginInstanceSummary, PluginLoggable, PluginMovable, PluginProtocol,
-    PluginReadable, PluginScriptable, PluginSettable, PluginSwitchable, PluginSummary,
+    PluginReadable, PluginScriptable, PluginSettable, PluginSummary, PluginSwitchable,
     PluginUiElement, SpawnPluginRequest, SpawnPluginResponse,
 };
 use std::collections::HashMap;
@@ -82,10 +82,7 @@ impl std::fmt::Debug for PluginServiceImpl {
 impl PluginServiceImpl {
     /// Create a new PluginService with the given plugin factory and device registry
     #[cfg(feature = "tokio_serial")]
-    pub fn new(
-        factory: Arc<RwLock<PluginFactory>>,
-        registry: Arc<RwLock<DeviceRegistry>>,
-    ) -> Self {
+    pub fn new(factory: Arc<RwLock<PluginFactory>>, registry: Arc<RwLock<DeviceRegistry>>) -> Self {
         Self {
             factory,
             registry,
@@ -243,9 +240,9 @@ impl PluginService for PluginServiceImpl {
             let plugin_id = request.into_inner().plugin_id;
             let factory = self.factory.read().await;
 
-            let config = factory.get_config(&plugin_id).ok_or_else(|| {
-                Status::not_found(format!("Plugin '{}' not found", plugin_id))
-            })?;
+            let config = factory
+                .get_config(&plugin_id)
+                .ok_or_else(|| Status::not_found(format!("Plugin '{}' not found", plugin_id)))?;
 
             let caps = &config.capabilities;
 
@@ -485,7 +482,7 @@ impl PluginService for PluginServiceImpl {
                 Err(e) => {
                     // Failed to spawn driver - create tracking entry with error
                     let error_message = format!("Failed to spawn plugin: {}", e);
-                    
+
                     let instance = PluginInstance {
                         instance_id: instance_id.clone(),
                         plugin_id: req.plugin_id.clone(),
@@ -615,7 +612,7 @@ impl PluginService for PluginServiceImpl {
                             req.instance_id,
                             disconnect_sequence.len()
                         );
-                        
+
                         match driver.execute_command_sequence(disconnect_sequence).await {
                             Ok(()) => {
                                 tracing::info!(

@@ -12,11 +12,7 @@ use tracing::error;
 ///
 /// Subscribes to device state updates from the daemon and routes updates
 /// to the UI via the UiAdapter. Stores the task handle in state for cleanup.
-pub async fn start_state_stream(
-    state: SharedState,
-    client: DaqClient,
-    ui: UiAdapter,
-) {
+pub async fn start_state_stream(state: SharedState, client: DaqClient, ui: UiAdapter) {
     match client
         .subscribe_device_state_with_reconnect(vec![], 5, true)
         .await

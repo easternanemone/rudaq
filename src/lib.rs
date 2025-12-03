@@ -51,18 +51,18 @@ pub mod tracing_v4; // V4 tracing infrastructure (bd-fxb7)
 pub mod validation;
 
 // Phase 1: Architectural redesign - New core abstractions
-pub mod parameter;
-pub mod observable; // Base reactive primitive (used by Parameter and Modules)
+pub mod observable;
+pub mod parameter; // Base reactive primitive (used by Parameter and Modules)
 
 // V2 modules REMOVED (bd-9si6) - all depend on deleted daq_core crate
 // pub mod adapters;
 // pub mod instruments_v2;
 
 // V5 Headless-First Architecture (bd-oq51)
-pub mod hardware; // Phase 1: Capability traits + Mock implementations
-pub mod scripting; // Phase 2: Rhai scripting engine
 pub mod experiment; // Phase 4: RunEngine experiment orchestration (bd-73yh)
-pub mod health; // System health monitoring for headless operation (bd-pauy)
+pub mod hardware; // Phase 1: Capability traits + Mock implementations
+pub mod health;
+pub mod scripting; // Phase 2: Rhai scripting engine // System health monitoring for headless operation (bd-pauy)
 
 // Measurement data types (shared between scripting and grpc modules)
 pub mod measurement_types;

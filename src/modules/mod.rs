@@ -43,8 +43,8 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 // Re-export for convenience
-pub use document::{DataKey, Document, StopReason};
 pub use crate::observable::{Observable, ObservableMetadata, ParameterSet};
+pub use document::{DataKey, Document, StopReason};
 pub use power_monitor::PowerMonitor;
 pub use run_engine::{RunConfig, RunEngine, RunReport};
 
@@ -487,9 +487,18 @@ impl std::fmt::Debug for ModuleRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ModuleRegistry")
             .field("device_registry", &"<Arc<RwLock<DeviceRegistry>>>")
-            .field("module_types", &format!("{} registered types", self.module_types.len()))
-            .field("type_info_cache", &self.type_info_cache.keys().collect::<Vec<_>>())
-            .field("instances", &format!("{} active instances", self.instances.len()))
+            .field(
+                "module_types",
+                &format!("{} registered types", self.module_types.len()),
+            )
+            .field(
+                "type_info_cache",
+                &self.type_info_cache.keys().collect::<Vec<_>>(),
+            )
+            .field(
+                "instances",
+                &format!("{} active instances", self.instances.len()),
+            )
             .finish()
     }
 }
@@ -520,8 +529,7 @@ impl ModuleRegistry {
         let info = M::type_info();
         let type_id = info.type_id.clone();
         self.type_info_cache.insert(type_id.clone(), info);
-        self.module_types
-            .insert(type_id, || Box::new(M::default()));
+        self.module_types.insert(type_id, || Box::new(M::default()));
     }
 
     /// List all registered module types
@@ -730,9 +738,9 @@ impl ModuleRegistry {
 
         instance.stop().await?;
 
-        let uptime = instance.start_time_ns.map_or(0, |start| {
-            current_time_ns().saturating_sub(start)
-        });
+        let uptime = instance
+            .start_time_ns
+            .map_or(0, |start| current_time_ns().saturating_sub(start));
 
         Ok((uptime, instance.events_emitted))
     }

@@ -4,37 +4,90 @@
 
 use anyhow::{anyhow, Result};
 use rust_daq::grpc::{
-    AxisConfig, CreateScanRequest, DeviceStateSubscribeRequest,
-    DeviceStateUpdate, HardwareServiceClient, ListDevicesRequest, MoveRequest, PauseScanRequest,
-    ReadValueRequest, ResumeScanRequest, ScanConfig, ScanProgress, ScanServiceClient,
-    ScanType, StartScanRequest, StopMotionRequest, StopScanRequest, StreamScanProgressRequest,
-    StreamValuesRequest, ValueUpdate,
-    // Parameter control (for settable devices)
-    SetParameterRequest, GetParameterRequest,
+    AbortPlanRequest,
+    AssignDeviceRequest,
+    AxisConfig,
+    ConfigureModuleRequest,
+    CreateModuleRequest,
+    CreateScanRequest,
+    DeletePresetRequest,
+    DeviceStateSubscribeRequest,
+    DeviceStateUpdate,
+    Document,
+    EngineStatus,
     // Frame streaming types (bd-p6vz)
-    FrameData, StartStreamRequest, StopStreamRequest, StreamFramesRequest,
-    // Exposure control types (bd-tm0b)
-    SetExposureRequest, GetExposureRequest,
-    // Laser control types (bd-pwjo)
-    SetShutterRequest, GetShutterRequest,
-    SetWavelengthRequest, GetWavelengthRequest,
-    SetEmissionRequest, GetEmissionRequest,
+    FrameData,
+    GetEmissionRequest,
+    GetEngineStatusRequest,
+    GetExposureRequest,
+    GetParameterRequest,
+    GetPlanTypeInfoRequest,
+    GetPluginInfoRequest,
+    GetPresetRequest,
+    GetShutterRequest,
+    GetWavelengthRequest,
+    HaltEngineRequest,
+    HardwareServiceClient,
+    ListDevicesRequest,
+    ListModuleTypesRequest,
+    ListModulesRequest,
+    ListPlanTypesRequest,
+    ListPluginInstancesRequest,
+    ListPluginsRequest,
+    ListPresetsRequest,
+    LoadPresetRequest,
     // Module service types (bd-xx7f)
-    ModuleServiceClient, ListModuleTypesRequest, ModuleTypeSummary,
-    CreateModuleRequest, AssignDeviceRequest, ConfigureModuleRequest,
-    StartModuleRequest, StopModuleRequest, PauseModuleRequest, ResumeModuleRequest,
-    ListModulesRequest, ModuleStatus as ProtoModuleStatus,
-    // Preset service types (bd-i1c5)
-    PresetServiceClient, ListPresetsRequest, PresetMetadata, Preset,
-    SavePresetRequest, LoadPresetRequest, DeletePresetRequest, GetPresetRequest,
-    // RunEngine service types (bd-niy4)
-    RunEngineServiceClient, ListPlanTypesRequest, PlanTypeSummary, PlanTypeInfo,
-    GetPlanTypeInfoRequest, QueuePlanRequest, StartEngineRequest, PauseEngineRequest,
-    ResumeEngineRequest, AbortPlanRequest, HaltEngineRequest, GetEngineStatusRequest,
-    EngineStatus, StreamDocumentsRequest, Document,
+    ModuleServiceClient,
+    ModuleStatus as ProtoModuleStatus,
+    ModuleTypeSummary,
+    MoveRequest,
+    PauseEngineRequest,
+    PauseModuleRequest,
+    PauseScanRequest,
+    PlanTypeInfo,
+    PlanTypeSummary,
+    PluginInfo,
+    PluginInstanceSummary,
     // Plugin service types (bd-tr9l)
-    PluginServiceClient, ListPluginsRequest, PluginSummary, GetPluginInfoRequest, PluginInfo,
-    ListPluginInstancesRequest, PluginInstanceSummary,
+    PluginServiceClient,
+    PluginSummary,
+    Preset,
+    PresetMetadata,
+    // Preset service types (bd-i1c5)
+    PresetServiceClient,
+    QueuePlanRequest,
+    ReadValueRequest,
+    ResumeEngineRequest,
+    ResumeModuleRequest,
+    ResumeScanRequest,
+    // RunEngine service types (bd-niy4)
+    RunEngineServiceClient,
+    SavePresetRequest,
+    ScanConfig,
+    ScanProgress,
+    ScanServiceClient,
+    ScanType,
+    SetEmissionRequest,
+    // Exposure control types (bd-tm0b)
+    SetExposureRequest,
+    // Parameter control (for settable devices)
+    SetParameterRequest,
+    // Laser control types (bd-pwjo)
+    SetShutterRequest,
+    SetWavelengthRequest,
+    StartEngineRequest,
+    StartModuleRequest,
+    StartScanRequest,
+    StartStreamRequest,
+    StopModuleRequest,
+    StopMotionRequest,
+    StopScanRequest,
+    StopStreamRequest,
+    StreamDocumentsRequest,
+    StreamFramesRequest,
+    StreamScanProgressRequest,
+    StreamValuesRequest,
+    ValueUpdate,
 };
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
@@ -52,8 +105,8 @@ pub struct DeviceInfo {
     pub is_triggerable: bool,
     pub is_frame_producer: bool,
     // Metadata from daemon (bd-pwjo)
-    pub position_units: Option<String>,  // For movable devices (e.g., "degrees", "mm")
-    pub reading_units: Option<String>,   // For readable devices (e.g., "W", "mW")
+    pub position_units: Option<String>, // For movable devices (e.g., "degrees", "mm")
+    pub reading_units: Option<String>,  // For readable devices (e.g., "W", "mW")
     pub min_position: Option<f64>,
     pub max_position: Option<f64>,
 }
@@ -94,7 +147,14 @@ impl DaqClient {
         let run_engine = RunEngineServiceClient::new(channel.clone());
         let plugin = PluginServiceClient::new(channel);
 
-        Ok(Self { hardware, scan, module, preset, run_engine, plugin })
+        Ok(Self {
+            hardware,
+            scan,
+            module,
+            preset,
+            run_engine,
+            plugin,
+        })
     }
 
     /// List all devices from the daemon
@@ -413,10 +473,15 @@ impl DaqClient {
             metadata: std::collections::HashMap::new(),
         };
 
-        debug!("CreateScan: {} from {} to {} ({} pts)", device_id, start, end, num_points);
+        debug!(
+            "CreateScan: {} from {} to {} ({} pts)",
+            device_id, start, end, num_points
+        );
 
         let response = client
-            .create_scan(CreateScanRequest { config: Some(config) })
+            .create_scan(CreateScanRequest {
+                config: Some(config),
+            })
             .await
             .map_err(|e| anyhow!("CreateScan RPC failed: {}", e))?;
 
@@ -629,7 +694,10 @@ impl DaqClient {
     ) -> Result<mpsc::Receiver<FrameData>> {
         let mut client = self.hardware.clone();
 
-        info!("StreamFrames: {} (include_pixel_data: {})", device_id, include_pixel_data);
+        info!(
+            "StreamFrames: {} (include_pixel_data: {})",
+            device_id, include_pixel_data
+        );
 
         let response = client
             .stream_frames(StreamFramesRequest {
@@ -640,7 +708,7 @@ impl DaqClient {
             .map_err(|e| anyhow!("StreamFrames RPC failed: {}", e))?;
 
         let mut stream = response.into_inner();
-        let (tx, rx) = mpsc::channel(32);  // Smaller buffer for frames (can be large)
+        let (tx, rx) = mpsc::channel(32); // Smaller buffer for frames (can be large)
 
         tokio::spawn(async move {
             while let Some(msg) = stream.next().await {
@@ -904,7 +972,10 @@ impl DaqClient {
     ) -> Result<bool> {
         let mut client = self.module.clone();
 
-        debug!("AssignDevice: module={}, role={}, device={}", module_id, role_id, device_id);
+        debug!(
+            "AssignDevice: module={}, role={}, device={}",
+            module_id, role_id, device_id
+        );
 
         let response = client
             .assign_device(AssignDeviceRequest {
@@ -1355,7 +1426,7 @@ impl DaqClient {
         let response = client
             .stream_documents(StreamDocumentsRequest {
                 run_uid: run_uid.map(|s| s.to_string()),
-                doc_types: vec![],  // Empty = all types
+                doc_types: vec![], // Empty = all types
             })
             .await
             .map_err(|e| anyhow!("StreamDocuments RPC failed: {}", e))?;

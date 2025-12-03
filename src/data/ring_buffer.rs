@@ -160,7 +160,10 @@ const _: () = assert!(
 /// safe for multiple writers. Reads remain lock-free.
 pub struct RingBuffer {
     /// Memory-mapped file backing the ring buffer
-    #[expect(dead_code, reason = "mmap must be kept alive to maintain memory mapping validity")]
+    #[expect(
+        dead_code,
+        reason = "mmap must be kept alive to maintain memory mapping validity"
+    )]
     mmap: MmapMut,
 
     /// Pointer to the header structure
@@ -242,7 +245,8 @@ impl RingBuffer {
             .with_context(|| format!("Failed to create/open ring buffer file: {:?}", path))?;
 
         // Validate existing file size or set for new file
-        let existing_size = file.metadata()
+        let existing_size = file
+            .metadata()
             .context("Failed to get file metadata")?
             .len();
 
@@ -367,7 +371,10 @@ impl RingBuffer {
     /// Multiple concurrent writers are safe - the internal lock serializes writes.
     pub fn write(&self, data: &[u8]) -> Result<()> {
         // Acquire write lock to serialize concurrent writes
-        let _guard = self.write_lock.lock().map_err(|_| anyhow!("Write lock poisoned"))?;
+        let _guard = self
+            .write_lock
+            .lock()
+            .map_err(|_| anyhow!("Write lock poisoned"))?;
 
         let len = data.len() as u64;
 
@@ -457,10 +464,7 @@ impl RingBuffer {
                 // Try to send without blocking
                 // If send fails, frame is dropped (backpressure handling)
                 if !tap.try_send_frame(data.to_vec()) {
-                    tracing::debug!(
-                        "Dropped frame for tap '{}' due to backpressure",
-                        tap.id
-                    );
+                    tracing::debug!("Dropped frame for tap '{}' due to backpressure", tap.id);
                 }
             }
         }
@@ -496,7 +500,10 @@ impl RingBuffer {
     /// # }
     /// ```
     pub fn register_tap(&self, id: String, nth_frame: usize) -> Result<mpsc::Receiver<Vec<u8>>> {
-        let mut taps = self.taps.write().map_err(|_| anyhow!("Tap lock poisoned"))?;
+        let mut taps = self
+            .taps
+            .write()
+            .map_err(|_| anyhow!("Tap lock poisoned"))?;
 
         // Check if tap with this ID already exists
         if taps.iter().any(|t| t.id == id) {
@@ -542,7 +549,10 @@ impl RingBuffer {
     /// # }
     /// ```
     pub fn unregister_tap(&self, id: &str) -> Result<bool> {
-        let mut taps = self.taps.write().map_err(|_| anyhow!("Tap lock poisoned"))?;
+        let mut taps = self
+            .taps
+            .write()
+            .map_err(|_| anyhow!("Tap lock poisoned"))?;
 
         let initial_len = taps.len();
         taps.retain(|t| t.id != id);
@@ -570,11 +580,7 @@ impl RingBuffer {
     pub fn list_taps(&self) -> Vec<(String, usize)> {
         self.taps
             .read()
-            .map(|taps| {
-                taps.iter()
-                    .map(|t| (t.id.clone(), t.nth_frame))
-                    .collect()
-            })
+            .map(|taps| taps.iter().map(|t| (t.id.clone(), t.nth_frame)).collect())
             .unwrap_or_default()
     }
 
@@ -1036,10 +1042,9 @@ mod tests {
         rb.write(test_data).unwrap();
 
         // Should receive the frame
-        let received = tokio::time::timeout(
-            std::time::Duration::from_millis(100),
-            rx.recv()
-        ).await.unwrap();
+        let received = tokio::time::timeout(std::time::Duration::from_millis(100), rx.recv())
+            .await
+            .unwrap();
 
         assert_eq!(received.as_ref(), Some(&test_data.to_vec()));
 
@@ -1066,10 +1071,9 @@ mod tests {
 
         // Should receive frames 0, 3, 6, 9 (4 frames total)
         let mut received_count = 0;
-        while let Ok(Some(_)) = tokio::time::timeout(
-            std::time::Duration::from_millis(50),
-            rx.recv()
-        ).await {
+        while let Ok(Some(_)) =
+            tokio::time::timeout(std::time::Duration::from_millis(50), rx.recv()).await
+        {
             received_count += 1;
         }
 
@@ -1123,24 +1127,21 @@ mod tests {
         let mut count2 = 0;
         let mut count3 = 0;
 
-        while let Ok(Some(_)) = tokio::time::timeout(
-            std::time::Duration::from_millis(10),
-            rx1.recv()
-        ).await {
+        while let Ok(Some(_)) =
+            tokio::time::timeout(std::time::Duration::from_millis(10), rx1.recv()).await
+        {
             count1 += 1;
         }
 
-        while let Ok(Some(_)) = tokio::time::timeout(
-            std::time::Duration::from_millis(10),
-            rx2.recv()
-        ).await {
+        while let Ok(Some(_)) =
+            tokio::time::timeout(std::time::Duration::from_millis(10), rx2.recv()).await
+        {
             count2 += 1;
         }
 
-        while let Ok(Some(_)) = tokio::time::timeout(
-            std::time::Duration::from_millis(10),
-            rx3.recv()
-        ).await {
+        while let Ok(Some(_)) =
+            tokio::time::timeout(std::time::Duration::from_millis(10), rx3.recv()).await
+        {
             count3 += 1;
         }
 

@@ -26,6 +26,9 @@ pip install rust-daq-client
 # With scan support (pandas, tqdm)
 pip install rust-daq-client[scan]
 
+# With Jupyter support (ipywidgets, notebook, matplotlib, plotly)
+pip install rust-daq-client[jupyter]
+
 # With dev dependencies
 pip install rust-daq-client[dev]
 
@@ -300,6 +303,30 @@ Run examples:
 # Ensure daemon is running
 python examples/layer2_demo.py
 ```
+
+## Jupyter Notebooks
+
+Interactive example notebooks are available in `notebooks/`:
+
+- `01_getting_started.ipynb` - Introduction to rust-daq in Jupyter
+- `02_interactive_control.ipynb` - Widgets and dashboards
+- `03_live_plotting.ipynb` - Real-time visualization
+- `04_advanced_scans.ipynb` - Complex experimental patterns
+
+**Install Jupyter support:**
+```bash
+pip install rust-daq-client[jupyter]
+```
+
+**Features:**
+- Rich HTML device representations
+- Interactive motor sliders
+- Live detector displays
+- Real-time plotting (matplotlib & plotly)
+- Multi-device dashboards
+- Progress bars with tqdm
+
+See [notebooks/README.md](notebooks/README.md) for details.
 
 ## Testing
 

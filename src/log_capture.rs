@@ -58,13 +58,13 @@ const MAX_LOG_ENTRIES: usize = 10000;
 pub struct LogEntry {
     /// When the log entry was created
     pub timestamp: DateTime<Local>,
-    
+
     /// Severity level (Error, Warn, Info, Debug, Trace)
     pub level: Level,
-    
+
     /// Source module or component that generated the log
     pub target: String,
-    
+
     /// Formatted log message
     pub message: String,
 }
@@ -129,7 +129,10 @@ pub struct LogBuffer(Arc<Mutex<VecDeque<LogEntry>>>);
 impl std::fmt::Debug for LogBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LogBuffer")
-            .field("entries", &format!("{} entries", self.0.lock().map(|b| b.len()).unwrap_or(0)))
+            .field(
+                "entries",
+                &format!("{} entries", self.0.lock().map(|b| b.len()).unwrap_or(0)),
+            )
             .finish()
     }
 }

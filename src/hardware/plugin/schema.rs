@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InstrumentConfig {
     pub metadata: InstrumentMetadata,
-    
+
     #[serde(default)]
     pub protocol: ProtocolConfig,
 
@@ -90,10 +90,18 @@ impl Default for ProtocolConfig {
     }
 }
 
-fn default_baud_rate() -> u32 { 9600 }
-fn default_termination() -> String { "\r\n".to_string() }
-fn default_command_delay_ms() -> u64 { 0 }
-fn default_timeout_ms() -> u64 { 1000 }
+fn default_baud_rate() -> u32 {
+    9600
+}
+fn default_termination() -> String {
+    "\r\n".to_string()
+}
+fn default_command_delay_ms() -> u64 {
+    0
+}
+fn default_timeout_ms() -> u64 {
+    1000
+}
 
 /// Defines a sequence of commands for `on_connect` or `on_disconnect`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -276,13 +284,13 @@ pub struct ActionableCapability {
 pub struct ScriptableCapability {
     /// Unique name for this script capability.
     pub name: String,
-    
+
     /// Human-readable description of what this script does.
     #[serde(default)]
     pub description: Option<String>,
-    
+
     /// Rhai script source code.
-    /// 
+    ///
     /// The script has access to a `driver` object with methods:
     /// - `driver.read(name)` - Read a named readable capability
     /// - `driver.set(name, value)` - Set a named settable capability
@@ -296,14 +304,16 @@ pub struct ScriptableCapability {
     /// - `sleep(seconds)` - Sleep for specified seconds
     /// - `print(msg)` - Print to log
     pub script: String,
-    
+
     /// Optional timeout in milliseconds for script execution.
     /// Defaults to 30000ms (30 seconds).
     #[serde(default = "default_script_timeout_ms")]
     pub timeout_ms: u64,
 }
 
-fn default_script_timeout_ms() -> u64 { 30_000 }
+fn default_script_timeout_ms() -> u64 {
+    30_000
+}
 
 /// LOGGABLE capability: For static metadata.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -365,8 +375,12 @@ pub struct MockFrameConfig {
     pub intensity: u16,
 }
 
-fn default_mock_pattern() -> String { "checkerboard".to_string() }
-fn default_mock_intensity() -> u16 { 1000 }
+fn default_mock_pattern() -> String {
+    "checkerboard".to_string()
+}
+fn default_mock_intensity() -> u16 {
+    1000
+}
 
 /// Mock data generation for simulation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -376,7 +390,9 @@ pub struct MockData {
     pub jitter: f64,
 }
 
-fn default_mock_jitter() -> f64 { 0.0 }
+fn default_mock_jitter() -> f64 {
+    0.0
+}
 
 /// UI Layout elements.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

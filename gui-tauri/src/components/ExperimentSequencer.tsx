@@ -1,11 +1,17 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { DragDropContext, DropResult } from 'react-beautiful-dnd';
+import { useQuery } from '@tanstack/react-query';
+import { invoke } from '@tauri-apps/api/tauri';
 import ActionPalette from './ActionPalette';
 import Timeline from './Timeline';
 import ParameterInspector from './ParameterInspector';
 import ScriptPreview from './ScriptPreview';
+import ExperimentValidation from './ExperimentValidation';
+import HardwareWatchdog from './HardwareWatchdog';
 import { ActionBlock, ActionTemplate, ACTION_TEMPLATES, ExperimentPlan } from '../types/experiment';
-import { Save, FolderOpen, Play } from 'lucide-react';
+import { DeviceInfo } from '../App';
+import { validateExperiment } from '../utils/experimentValidator';
+import { Save, FolderOpen, Play, CheckCircle, Shield, ChevronLeft, ChevronRight } from 'lucide-react';
 import { save, open } from '@tauri-apps/api/dialog';
 import { writeTextFile, readTextFile } from '@tauri-apps/api/fs';
 
@@ -13,6 +19,31 @@ function ExperimentSequencer() {
   const [actions, setActions] = useState<ActionBlock[]>([]);
   const [selectedBlock, setSelectedBlock] = useState<ActionBlock | null>(null);
   const [experimentName, setExperimentName] = useState('Untitled Experiment');
+  const [showValidation, setShowValidation] = useState(false);
+  const [showWatchdog, setShowWatchdog] = useState(false);
+
+  // Query devices for validation
+  const { data: devices = [] } = useQuery<DeviceInfo[]>({
+    queryKey: ['devices'],
+    queryFn: async () => {
+      return await invoke<DeviceInfo[]>('list_devices');
+    },
+    refetchInterval: 5000,
+  });
+
+  // Create experiment plan for validation
+  const experimentPlan: ExperimentPlan = useMemo(() => ({
+    name: experimentName,
+    description: '',
+    created: new Date().toISOString(),
+    modified: new Date().toISOString(),
+    actions,
+  }), [experimentName, actions]);
+
+  // Validate experiment whenever it changes
+  const validationResult = useMemo(() => {
+    return validateExperiment(experimentPlan, devices);
+  }, [experimentPlan, devices]);
 
   const createActionFromTemplate = (template: ActionTemplate): ActionBlock => {
     return {
@@ -211,6 +242,43 @@ function ExperimentSequencer() {
     setSelectedBlock(block);
   }, []);
 
+  const handleSelectIssue = useCallback((actionId: string) => {
+    const block = findBlockById(actions, actionId);
+    if (block) {
+      setSelectedBlock(block);
+      setShowValidation(false); // Close validation panel to show the block
+    }
+  }, [actions]);
+
+  const handleRunExperiment = async () => {
+    if (!validationResult.valid) {
+      alert('Cannot run experiment: validation errors present');
+      return;
+    }
+    
+    try {
+      // TODO: Implement actual experiment execution via Tauri command
+      console.log('Running experiment:', experimentPlan);
+      alert('Experiment execution not yet implemented');
+    } catch (error) {
+      console.error('Failed to run experiment:', error);
+      alert(`Failed to run experiment: ${error}`);
+    }
+  };
+
+  const handleDryRun = async () => {
+    try {
+      // TODO: Implement dry-run via Tauri command
+      console.log('Dry run:', experimentPlan);
+      alert('Dry-run not yet implemented');
+    } catch (error) {
+      console.error('Dry run failed:', error);
+      alert(`Dry run failed: ${error}`);
+    }
+  };
+
+  const allIssues = [...validationResult.errors, ...validationResult.warnings, ...validationResult.infos];
+
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
       <div className="h-full flex flex-col bg-slate-900">
@@ -226,8 +294,28 @@ function ExperimentSequencer() {
             <div className="text-xs text-slate-400">
               {actions.length} action{actions.length !== 1 ? 's' : ''}
             </div>
+            {/* Validation status indicator */}
+            <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded ${
+              validationResult.valid 
+                ? 'bg-green-900/20 text-green-400 border border-green-800'
+                : 'bg-red-900/20 text-red-400 border border-red-800'
+            }`}>
+              <CheckCircle size={12} />
+              {validationResult.valid ? 'Valid' : `${validationResult.errors.length} errors`}
+            </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowWatchdog(!showWatchdog)}
+              className={`px-3 py-1.5 border rounded text-white text-sm flex items-center gap-1.5 transition-colors ${
+                showWatchdog
+                  ? 'bg-blue-700 border-blue-600'
+                  : 'bg-slate-700 hover:bg-slate-600 border-slate-600'
+              }`}
+            >
+              <Shield size={14} />
+              Watchdog
+            </button>
             <button
               onClick={handleLoadPlan}
               className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded text-white text-sm flex items-center gap-1.5 transition-colors"
@@ -243,12 +331,17 @@ function ExperimentSequencer() {
               Save
             </button>
             <button
-              disabled
-              className="px-3 py-1.5 bg-green-700/50 border border-green-600/50 rounded text-white text-sm flex items-center gap-1.5 cursor-not-allowed opacity-50"
-              title="Experiment execution not yet implemented"
+              onClick={() => setShowValidation(!showValidation)}
+              className={`px-3 py-1.5 border rounded text-white text-sm flex items-center gap-1.5 transition-colors ${
+                showValidation
+                  ? 'bg-blue-700 border-blue-600'
+                  : validationResult.valid
+                    ? 'bg-green-700 hover:bg-green-600 border-green-600'
+                    : 'bg-red-700 hover:bg-red-600 border-red-600'
+              }`}
             >
-              <Play size={14} />
-              Run
+              <CheckCircle size={14} />
+              Validate
             </button>
           </div>
         </div>
@@ -267,16 +360,34 @@ function ExperimentSequencer() {
               selectedBlock={selectedBlock}
               onSelectBlock={handleSelectBlock}
               onDeleteBlock={handleDeleteBlock}
+              validationIssues={allIssues}
             />
           </div>
 
-          {/* Right: Parameter Inspector */}
+          {/* Right: Parameter Inspector or Validation */}
           <div className="w-80">
-            <ParameterInspector
-              block={selectedBlock}
-              onUpdateParams={handleUpdateParams}
-            />
+            {showValidation ? (
+              <ExperimentValidation
+                plan={experimentPlan}
+                devices={devices}
+                onRunExperiment={handleRunExperiment}
+                onDryRun={handleDryRun}
+                onSelectIssue={handleSelectIssue}
+              />
+            ) : (
+              <ParameterInspector
+                block={selectedBlock}
+                onUpdateParams={handleUpdateParams}
+              />
+            )}
           </div>
+
+          {/* Hardware Watchdog Sidebar (collapsible) */}
+          {showWatchdog && (
+            <div className="w-80 border-l border-slate-700">
+              <HardwareWatchdog devices={devices} />
+            </div>
+          )}
         </div>
 
         {/* Bottom: Script Preview */}

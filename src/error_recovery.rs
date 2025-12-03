@@ -34,7 +34,7 @@ pub struct RetryPolicy {
     /// Total attempts will be max_attempts (not including the initial try).
     /// Set to 0 to disable retries.
     pub max_attempts: u32,
-    
+
     /// The delay between retry attempts.
     ///
     /// Uses a constant backoff strategy. For exponential backoff,

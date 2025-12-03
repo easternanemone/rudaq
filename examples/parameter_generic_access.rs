@@ -3,8 +3,8 @@
 //! Demonstrates how gRPC services can access parameters generically
 //! without knowing their concrete types at compile time.
 
-use rust_daq::observable::{Observable, ParameterSet};
 use anyhow::Result;
+use rust_daq::observable::{Observable, ParameterSet};
 
 fn main() -> Result<()> {
     println!("=== Generic Parameter Access Example ===\n");
@@ -16,24 +16,18 @@ fn main() -> Result<()> {
         Observable::new("wavelength_nm", 800.0)
             .with_units("nm")
             .with_description("Laser wavelength")
-            .with_range(700.0, 1000.0)
+            .with_range(700.0, 1000.0),
     );
 
     params.register(
         Observable::new("power_mw", 100.0)
             .with_units("mW")
-            .with_description("Laser power")
+            .with_description("Laser power"),
     );
 
-    params.register(
-        Observable::new("shutter_open", false)
-            .with_description("Shutter state")
-    );
+    params.register(Observable::new("shutter_open", false).with_description("Shutter state"));
 
-    params.register(
-        Observable::new("mode", "auto".to_string())
-            .with_description("Operating mode")
-    );
+    params.register(Observable::new("mode", "auto".to_string()).with_description("Operating mode"));
 
     println!("Registered {} parameters\n", params.names().len());
 
@@ -43,12 +37,7 @@ fn main() -> Result<()> {
         let metadata = param.metadata();
         let units = metadata.units.as_deref().unwrap_or("none");
         let value = param.get_json()?;
-        println!(
-            "  {}: {} [{}]",
-            name,
-            value,
-            units
-        );
+        println!("  {}: {} [{}]", name, value, units);
     }
     println!();
 

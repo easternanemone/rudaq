@@ -15,7 +15,10 @@ pub static TOAST_ID_COUNTER: AtomicI32 = AtomicI32::new(1);
 pub type SharedState = Arc<Mutex<AppState>>;
 
 /// Per-device streaming state
-#[expect(dead_code, reason = "is_streaming used for future per-device stream management")]
+#[expect(
+    dead_code,
+    reason = "is_streaming used for future per-device stream management"
+)]
 pub struct DeviceStreamState {
     pub stream_handle: Option<tokio::task::JoinHandle<()>>,
     pub is_streaming: bool,

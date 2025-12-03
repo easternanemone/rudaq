@@ -81,7 +81,7 @@ pub struct PluginEntry {
 ///
 /// ```rust,ignore
 /// let mut factory = PluginFactory::new();
-/// 
+///
 /// // Add search paths (user overrides builtin)
 /// factory.add_search_path("~/.config/rust-daq/plugins/");
 /// factory.add_search_path("/usr/share/rust-daq/plugins/");
@@ -205,31 +205,37 @@ impl PluginFactory {
     }
 
     /// Loads a single plugin file with validation.
-    async fn load_single_plugin(&mut self, path: &Path, priority: u32) -> Result<(), PluginLoadError> {
+    async fn load_single_plugin(
+        &mut self,
+        path: &Path,
+        priority: u32,
+    ) -> Result<(), PluginLoadError> {
         // Read file
-        let content = tokio::fs::read_to_string(path).await.map_err(|e| {
-            PluginLoadError {
+        let content = tokio::fs::read_to_string(path)
+            .await
+            .map_err(|e| PluginLoadError {
                 file_path: path.to_path_buf(),
                 message: format!("Failed to read file: {}", e),
                 validation_errors: vec![],
-            }
-        })?;
+            })?;
 
         // Parse YAML
-        let config: InstrumentConfig = serde_yaml::from_str(&content).map_err(|e| {
-            PluginLoadError {
+        let config: InstrumentConfig =
+            serde_yaml::from_str(&content).map_err(|e| PluginLoadError {
                 file_path: path.to_path_buf(),
                 message: format!("Failed to parse YAML: {}", e),
                 validation_errors: vec![],
-            }
-        })?;
+            })?;
 
         // Validate configuration
         let validation_errors = validate_plugin_config(&config);
         if !validation_errors.is_empty() {
             return Err(PluginLoadError {
                 file_path: path.to_path_buf(),
-                message: format!("Validation failed with {} error(s)", validation_errors.len()),
+                message: format!(
+                    "Validation failed with {} error(s)",
+                    validation_errors.len()
+                ),
                 validation_errors,
             });
         }
@@ -256,7 +262,11 @@ impl PluginFactory {
             );
         }
 
-        tracing::info!("Loaded plugin: {} ({})", config.metadata.name, path.display());
+        tracing::info!(
+            "Loaded plugin: {} ({})",
+            config.metadata.name,
+            path.display()
+        );
         self.templates.insert(
             plugin_id,
             PluginEntry {
@@ -280,7 +290,10 @@ impl PluginFactory {
     /// - Returns error if duplicate plugin IDs are found
     pub async fn load_plugins(&mut self, path: &Path) -> Result<()> {
         if !path.is_dir() {
-            return Err(anyhow!("Plugin path '{}' is not a directory", path.display()));
+            return Err(anyhow!(
+                "Plugin path '{}' is not a directory",
+                path.display()
+            ));
         }
 
         let mut entries = tokio::fs::read_dir(path).await?;
@@ -290,8 +303,10 @@ impl PluginFactory {
                 if let Some(extension) = entry_path.extension() {
                     if extension == "yaml" || extension == "yml" {
                         let content = tokio::fs::read_to_string(&entry_path).await?;
-                        let config: InstrumentConfig = serde_yaml::from_str(&content)
-                            .map_err(|e| anyhow!("Failed to parse {}: {}", entry_path.display(), e))?;
+                        let config: InstrumentConfig =
+                            serde_yaml::from_str(&content).map_err(|e| {
+                                anyhow!("Failed to parse {}: {}", entry_path.display(), e)
+                            })?;
 
                         // Validate configuration
                         let validation_errors = validate_plugin_config(&config);
@@ -314,7 +329,11 @@ impl PluginFactory {
                                 entry_path.display()
                             ));
                         }
-                        tracing::info!("Loaded plugin: {} ({})", config.metadata.name, entry_path.display());
+                        tracing::info!(
+                            "Loaded plugin: {} ({})",
+                            config.metadata.name,
+                            entry_path.display()
+                        );
                         self.templates.insert(
                             config.metadata.id.clone(),
                             PluginEntry {
@@ -404,7 +423,11 @@ impl PluginFactory {
     }
 
     /// Spawns a serial driver with the given configuration and port path.
-    async fn spawn_serial_driver(&self, config: InstrumentConfig, port_path: &str) -> Result<GenericDriver> {
+    async fn spawn_serial_driver(
+        &self,
+        config: InstrumentConfig,
+        port_path: &str,
+    ) -> Result<GenericDriver> {
         let baud_rate = config.protocol.baud_rate;
         let timeout_ms = config.protocol.timeout_ms;
 
@@ -420,16 +443,28 @@ impl PluginFactory {
     /// Spawns a TCP driver with the given configuration and address.
     ///
     /// If address is empty, uses the tcp_host and tcp_port from the plugin config.
-    async fn spawn_tcp_driver(&self, config: InstrumentConfig, address: &str) -> Result<GenericDriver> {
+    async fn spawn_tcp_driver(
+        &self,
+        config: InstrumentConfig,
+        address: &str,
+    ) -> Result<GenericDriver> {
         let timeout_ms = config.protocol.timeout_ms;
 
         // Determine the address to connect to
         let connect_addr = if address.is_empty() {
             // Use configured defaults
-            let host = config.protocol.tcp_host.as_ref()
-                .ok_or_else(|| anyhow!("TCP plugin '{}' has no tcp_host configured and no address provided", config.metadata.id))?;
-            let port = config.protocol.tcp_port
-                .ok_or_else(|| anyhow!("TCP plugin '{}' has no tcp_port configured and no address provided", config.metadata.id))?;
+            let host = config.protocol.tcp_host.as_ref().ok_or_else(|| {
+                anyhow!(
+                    "TCP plugin '{}' has no tcp_host configured and no address provided",
+                    config.metadata.id
+                )
+            })?;
+            let port = config.protocol.tcp_port.ok_or_else(|| {
+                anyhow!(
+                    "TCP plugin '{}' has no tcp_port configured and no address provided",
+                    config.metadata.id
+                )
+            })?;
             format!("{}:{}", host, port)
         } else {
             address.to_string()
@@ -438,7 +473,7 @@ impl PluginFactory {
         // Connect with timeout
         let stream = tokio::time::timeout(
             Duration::from_millis(timeout_ms),
-            TcpStream::connect(&connect_addr)
+            TcpStream::connect(&connect_addr),
         )
         .await
         .map_err(|_| anyhow!("Timeout connecting to {}", connect_addr))?
@@ -456,7 +491,9 @@ impl PluginFactory {
 
     /// Returns the display name for a given plugin ID.
     pub fn plugin_display_name(&self, driver_id: &str) -> Option<&str> {
-        self.templates.get(driver_id).map(|e| e.config.metadata.name.as_str())
+        self.templates
+            .get(driver_id)
+            .map(|e| e.config.metadata.name.as_str())
     }
 
     /// Returns the full configuration for a given plugin ID.
@@ -500,7 +537,12 @@ impl PluginFactory {
     /// * `plugin_id` - The plugin's unique ID
     /// * `config` - The new configuration
     /// * `source_path` - Path to the source file
-    pub fn update_plugin(&mut self, plugin_id: String, config: InstrumentConfig, source_path: PathBuf) {
+    pub fn update_plugin(
+        &mut self,
+        plugin_id: String,
+        config: InstrumentConfig,
+        source_path: PathBuf,
+    ) {
         let priority = self
             .templates
             .get(&plugin_id)
@@ -942,7 +984,9 @@ mod tests {
             get_pattern: "{val}".to_string(),
         });
         let errors = validate_plugin_config(&config);
-        assert!(errors.iter().any(|e| e.message.contains("must be less than")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("must be less than")));
     }
 
     #[test]

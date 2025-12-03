@@ -57,9 +57,9 @@ impl MockStage {
         let position = Parameter::new("position", 0.0)
             .with_description("Stage position")
             .with_unit("mm");
-        
+
         params.register(position.inner().clone());
-        
+
         Self {
             position,
             speed_mm_per_sec: 10.0, // 10mm/sec
@@ -76,9 +76,9 @@ impl MockStage {
         let position = Parameter::new("position", initial_position)
             .with_description("Stage position")
             .with_unit("mm");
-        
+
         params.register(position.inner().clone());
-        
+
         Self {
             position,
             speed_mm_per_sec: 10.0, // 10mm/sec
@@ -95,9 +95,9 @@ impl MockStage {
         let position = Parameter::new("position", 0.0)
             .with_description("Stage position")
             .with_unit("mm");
-        
+
         params.register(position.inner().clone());
-        
+
         Self {
             position,
             speed_mm_per_sec,
@@ -194,17 +194,17 @@ impl MockCamera {
     /// * `height` - Frame height in pixels
     pub fn new(width: u32, height: u32) -> Self {
         let (frame_tx, _) = tokio::sync::broadcast::channel(16);
-        
+
         // Create exposure parameter with validation and metadata
         let mut params = ParameterSet::new();
         let exposure = Parameter::new("exposure_s", 0.033)
             .with_description("Camera exposure time")
             .with_unit("s")
             .with_range(0.001, 10.0); // 1ms to 10s range
-        
+
         // Register exposure parameter in the parameter set
         params.register(exposure.inner().clone());
-        
+
         Self {
             resolution: (width, height),
             frame_count: std::sync::atomic::AtomicU64::new(0),
@@ -264,7 +264,10 @@ impl Triggerable for MockCamera {
             anyhow::bail!("MockCamera: Cannot trigger - not armed");
         }
 
-        let count = self.frame_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        let count = self
+            .frame_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
         println!("MockCamera: Triggered frame #{}", count);
 
         // Simulate 30fps frame readout time
@@ -377,14 +380,15 @@ impl Stageable for MockCamera {
         } else {
             println!("MockCamera: Staging - preparing for acquisition");
         }
-        
+
         // Reset frame counter on stage
-        self.frame_count.store(0, std::sync::atomic::Ordering::SeqCst);
-        
+        self.frame_count
+            .store(0, std::sync::atomic::Ordering::SeqCst);
+
         // Arm the camera as part of staging
         *self.armed.write().await = true;
         *self.staged.write().await = true;
-        
+
         println!("MockCamera: Staged successfully");
         Ok(())
     }
@@ -395,19 +399,19 @@ impl Stageable for MockCamera {
             println!("MockCamera: Already unstaged");
             return Ok(());
         }
-        
+
         println!("MockCamera: Unstaging - cleaning up after acquisition");
-        
+
         // Stop streaming if active
         if *self.streaming.read().await {
             *self.streaming.write().await = false;
             println!("MockCamera: Stopped streaming during unstage");
         }
-        
+
         // Disarm the camera
         *self.armed.write().await = false;
         *self.staged.write().await = false;
-        
+
         println!("MockCamera: Unstaged successfully");
         Ok(())
     }
@@ -452,10 +456,10 @@ impl MockPowerMeter {
             .with_description("Base power reading for simulated measurements")
             .with_unit("W")
             .with_range(0.0, 10.0); // 0 to 10W range
-        
+
         // Register parameter in the parameter set
         params.register(power_param.inner().clone());
-        
+
         Self {
             base_power: power_param,
             params,
@@ -668,7 +672,7 @@ mod tests {
     #[tokio::test]
     async fn test_mock_camera_staging() {
         use crate::hardware::capabilities::Stageable;
-        
+
         let camera = MockCamera::new(1920, 1080);
 
         // Initially not staged
@@ -701,7 +705,7 @@ mod tests {
     #[tokio::test]
     async fn test_mock_camera_staging_stops_streaming() {
         use crate::hardware::capabilities::Stageable;
-        
+
         let camera = MockCamera::new(640, 480);
 
         // Stage and start streaming

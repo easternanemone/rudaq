@@ -74,9 +74,11 @@ use crate::observable::Observable;
 /// // New:
 /// Observable::new("x", 0.0).with_range(0.0, 100.0)
 /// ```
-#[derive(Clone, Serialize, Deserialize)]
-#[derive(Default)]
-#[deprecated(since = "0.5.0", note = "Use Observable::with_range() or with_validator() instead")]
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[deprecated(
+    since = "0.5.0",
+    note = "Use Observable::with_range() or with_validator() instead"
+)]
 pub enum Constraints<T> {
     /// No constraints - all values accepted.
     #[default]
@@ -149,7 +151,6 @@ impl<T: Debug> std::fmt::Debug for Constraints<T> {
     }
 }
 
-
 // =============================================================================
 // Parameter<T> - Hardware-connected Observable
 // =============================================================================
@@ -190,7 +191,8 @@ where
     ///
     /// When set, calling `set()` will write to hardware before updating
     /// the internal value. Function should return error if write fails.
-    hardware_writer: Option<Arc<dyn Fn(T) -> BoxFuture<'static, Result<(), DaqError>> + Send + Sync>>,
+    hardware_writer:
+        Option<Arc<dyn Fn(T) -> BoxFuture<'static, Result<(), DaqError>> + Send + Sync>>,
 
     /// Hardware read function (optional)
     ///
@@ -438,7 +440,7 @@ where
     /// Get parameter constraints (DEPRECATED: Observable uses validators)
     #[deprecated(since = "0.5.0", note = "Use Observable metadata instead")]
     pub fn constraints(&self) -> Constraints<T> {
-        Constraints::None  // Legacy compatibility
+        Constraints::None // Legacy compatibility
     }
 
     /// Get direct access to inner Observable (for advanced use)
@@ -453,14 +455,7 @@ where
 
 impl<T> ParameterBase for Parameter<T>
 where
-    T: Clone
-        + Send
-        + Sync
-        + PartialEq
-        + Debug
-        + Serialize
-        + for<'de> Deserialize<'de>
-        + 'static,
+    T: Clone + Send + Sync + PartialEq + Debug + Serialize + for<'de> Deserialize<'de> + 'static,
 {
     fn name(&self) -> &str {
         self.inner.name()
@@ -476,7 +471,7 @@ where
     }
 
     fn constraints_json(&self) -> serde_json::Value {
-        serde_json::Value::Null  // Observable uses validators, not serializable constraints
+        serde_json::Value::Null // Observable uses validators, not serializable constraints
     }
 }
 

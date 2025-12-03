@@ -473,7 +473,9 @@ impl Measurement {
             let timestamps: Vec<i64> = scalars
                 .iter()
                 .filter_map(|m| match m {
-                    Measurement::Scalar { timestamp, .. } => Some(timestamp.timestamp_nanos_opt().unwrap_or(0)),
+                    Measurement::Scalar { timestamp, .. } => {
+                        Some(timestamp.timestamp_nanos_opt().unwrap_or(0))
+                    }
                     _ => None,
                 })
                 .collect();
@@ -671,19 +673,15 @@ impl Measurement {
                         PixelBuffer::U16(data) => {
                             dtype_builder.append_value("U16");
                             // Convert u16 slice to bytes (little-endian)
-                            let bytes: Vec<u8> = data
-                                .iter()
-                                .flat_map(|&v| v.to_le_bytes())
-                                .collect();
+                            let bytes: Vec<u8> =
+                                data.iter().flat_map(|&v| v.to_le_bytes()).collect();
                             pixels_builder.append_value(&bytes);
                         }
                         PixelBuffer::F64(data) => {
                             dtype_builder.append_value("F64");
                             // Convert f64 slice to bytes (little-endian)
-                            let bytes: Vec<u8> = data
-                                .iter()
-                                .flat_map(|&v| v.to_le_bytes())
-                                .collect();
+                            let bytes: Vec<u8> =
+                                data.iter().flat_map(|&v| v.to_le_bytes()).collect();
                             pixels_builder.append_value(&bytes);
                         }
                     }

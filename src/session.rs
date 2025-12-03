@@ -62,10 +62,10 @@ use std::collections::VecDeque;
 pub struct Session {
     /// Set of instrument IDs that are currently active/running
     pub active_instruments: HashSet<String>,
-    
+
     /// Current data storage configuration
     pub storage_settings: StorageSettings,
-    
+
     /// GUI visualization state
     pub gui_state: GuiState,
 }

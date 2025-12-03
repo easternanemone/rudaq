@@ -110,9 +110,7 @@ async fn main() -> anyhow::Result<()> {
 
     println!("=== Summary ===");
     println!("Successfully registered devices: {}", registry.len());
-    println!(
-        "\nValidation prevents driver spawn failures by checking configurations early!"
-    );
+    println!("\nValidation prevents driver spawn failures by checking configurations early!");
 
     Ok(())
 }

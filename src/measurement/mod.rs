@@ -53,7 +53,7 @@ pub trait Measure: Send + Sync {
 
     /// Takes a single measurement and returns the result.
     async fn measure(&mut self) -> Result<Self::Data>;
-    
+
     /// Returns a channel receiver for continuous measurement streaming.
     async fn data_stream(&self) -> Result<mpsc::Receiver<std::sync::Arc<Self::Data>>>;
 }

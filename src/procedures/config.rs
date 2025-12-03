@@ -289,7 +289,9 @@ impl ProcedureConfig {
             .unwrap_or_else(|| std::path::PathBuf::from("config/procedures/groups"));
 
         for (group_name, variant) in &self.defaults {
-            let group_file = groups_dir.join(group_name).join(format!("{}.toml", variant));
+            let group_file = groups_dir
+                .join(group_name)
+                .join(format!("{}.toml", variant));
 
             if group_file.exists() {
                 let content = std::fs::read_to_string(&group_file).map_err(|e| {
@@ -374,7 +376,8 @@ impl ProcedureConfig {
             self.params.insert(path.to_string(), config_value.clone());
         } else if parts[0] == "params" && parts.len() == 2 {
             // params.name -> just store as name
-            self.params.insert(parts[1].to_string(), config_value.clone());
+            self.params
+                .insert(parts[1].to_string(), config_value.clone());
         } else if parts[0] == "roles" && parts.len() >= 2 {
             // roles.role_name.device_id
             if let ConfigValue::String(device_id) = &config_value {
@@ -447,10 +450,7 @@ impl ProcedureConfig {
                 }
             } else if param_def.default.is_none() {
                 // Required parameter without value
-                return Err(anyhow!(
-                    "Missing required parameter: {}",
-                    param_def.name
-                ));
+                return Err(anyhow!("Missing required parameter: {}", param_def.name));
             }
         }
 
@@ -551,8 +551,7 @@ mod tests {
 
     #[test]
     fn test_config_override() {
-        let mut config = ProcedureConfig::new("test")
-            .with_param("value", 10i32);
+        let mut config = ProcedureConfig::new("test").with_param("value", 10i32);
 
         config.apply_override("value", 20i32);
         assert_eq!(config.get_i64("value"), Some(20));

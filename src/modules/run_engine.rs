@@ -75,11 +75,7 @@ impl RunConfig {
     }
 
     /// Add metadata.
-    pub fn with_metadata(
-        mut self,
-        key: impl Into<String>,
-        value: impl serde::Serialize,
-    ) -> Self {
+    pub fn with_metadata(mut self, key: impl Into<String>, value: impl serde::Serialize) -> Self {
         self.metadata
             .insert(key.into(), serde_json::to_value(value).unwrap());
         self
@@ -284,9 +280,7 @@ impl RunEngine {
         let mut stop_reason = StopReason::Success;
 
         // Emit RunStart
-        let _ = doc_tx
-            .send(Document::run_start(run_uid, &scan_type))
-            .await;
+        let _ = doc_tx.send(Document::run_start(run_uid, &scan_type)).await;
 
         // Start all modules
         {
@@ -294,10 +288,8 @@ impl RunEngine {
             for module_id in staged.staged_ids() {
                 if let Err(e) = registry.start_module(module_id).await {
                     error!("Failed to start module {}: {}", module_id, e);
-                    stop_reason = StopReason::Fail(format!(
-                        "Module {} failed to start: {}",
-                        module_id, e
-                    ));
+                    stop_reason =
+                        StopReason::Fail(format!("Module {} failed to start: {}", module_id, e));
 
                     // Record failure
                     if let Some(instance) = registry.get_module(module_id) {

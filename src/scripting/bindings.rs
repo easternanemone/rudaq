@@ -126,65 +126,79 @@ pub fn register_hardware(engine: &mut Engine) {
     // =========================================================================
 
     // stage.move_abs(10.0) - Move to absolute position
-    engine.register_fn("move_abs", move |stage: &mut StageHandle, pos: f64| -> Result<Dynamic, Box<EvalAltResult>> {
-        block_in_place(|| Handle::current().block_on(stage.driver.move_abs(pos)))
-            .map_err(|e| {
-                Box::new(EvalAltResult::ErrorRuntime(
-                    format!("Stage move_abs failed: {}", e).into(),
-                    Position::NONE
-                ))
-            })?;
+    engine.register_fn(
+        "move_abs",
+        move |stage: &mut StageHandle, pos: f64| -> Result<Dynamic, Box<EvalAltResult>> {
+            block_in_place(|| Handle::current().block_on(stage.driver.move_abs(pos))).map_err(
+                |e| {
+                    Box::new(EvalAltResult::ErrorRuntime(
+                        format!("Stage move_abs failed: {}", e).into(),
+                        Position::NONE,
+                    ))
+                },
+            )?;
 
-        // Send measurement to broadcast channel if sender available
-        if let Some(ref tx) = stage.data_tx {
-            let measurement = Measurement::Scalar {
-                name: "stage_position".to_string(),
-                value: pos,
-                unit: "mm".to_string(),
-                timestamp: Utc::now(),
-            };
+            // Send measurement to broadcast channel if sender available
+            if let Some(ref tx) = stage.data_tx {
+                let measurement = Measurement::Scalar {
+                    name: "stage_position".to_string(),
+                    value: pos,
+                    unit: "mm".to_string(),
+                    timestamp: Utc::now(),
+                };
 
-            // Ignore errors if no receivers (non-critical)
-            let _ = tx.send(measurement);
-        }
-        
-        Ok(Dynamic::UNIT)
-    });
+                // Ignore errors if no receivers (non-critical)
+                let _ = tx.send(measurement);
+            }
+
+            Ok(Dynamic::UNIT)
+        },
+    );
 
     // stage.move_rel(5.0) - Move relative distance
-    engine.register_fn("move_rel", move |stage: &mut StageHandle, dist: f64| -> Result<Dynamic, Box<EvalAltResult>> {
-        block_in_place(|| Handle::current().block_on(stage.driver.move_rel(dist)))
-            .map_err(|e| {
-                Box::new(EvalAltResult::ErrorRuntime(
-                    format!("Stage move_rel failed: {}", e).into(),
-                    Position::NONE
-                ))
-            })?;
-        Ok(Dynamic::UNIT)
-    });
+    engine.register_fn(
+        "move_rel",
+        move |stage: &mut StageHandle, dist: f64| -> Result<Dynamic, Box<EvalAltResult>> {
+            block_in_place(|| Handle::current().block_on(stage.driver.move_rel(dist))).map_err(
+                |e| {
+                    Box::new(EvalAltResult::ErrorRuntime(
+                        format!("Stage move_rel failed: {}", e).into(),
+                        Position::NONE,
+                    ))
+                },
+            )?;
+            Ok(Dynamic::UNIT)
+        },
+    );
 
     // let pos = stage.position() - Get current position
-    engine.register_fn("position", move |stage: &mut StageHandle| -> Result<f64, Box<EvalAltResult>> {
-        block_in_place(|| Handle::current().block_on(stage.driver.position()))
-            .map_err(|e| {
+    engine.register_fn(
+        "position",
+        move |stage: &mut StageHandle| -> Result<f64, Box<EvalAltResult>> {
+            block_in_place(|| Handle::current().block_on(stage.driver.position())).map_err(|e| {
                 Box::new(EvalAltResult::ErrorRuntime(
                     format!("Stage position query failed: {}", e).into(),
-                    Position::NONE
+                    Position::NONE,
                 ))
             })
-    });
+        },
+    );
 
     // stage.wait_settled() - Wait for motion to complete
-    engine.register_fn("wait_settled", move |stage: &mut StageHandle| -> Result<Dynamic, Box<EvalAltResult>> {
-        block_in_place(|| Handle::current().block_on(stage.driver.wait_settled()))
-            .map_err(|e| {
-                Box::new(EvalAltResult::ErrorRuntime(
-                    format!("Stage wait_settled failed: {}", e).into(),
-                    Position::NONE
-                ))
-            })?;
-        Ok(Dynamic::UNIT)
-    });
+    engine.register_fn(
+        "wait_settled",
+        move |stage: &mut StageHandle| -> Result<Dynamic, Box<EvalAltResult>> {
+            block_in_place(|| Handle::current().block_on(stage.driver.wait_settled())).map_err(
+                |e| {
+                    Box::new(EvalAltResult::ErrorRuntime(
+                        format!("Stage wait_settled failed: {}", e).into(),
+                        Position::NONE,
+                    ))
+                },
+            )?;
+            Ok(Dynamic::UNIT)
+        },
+    );
 
     // =========================================================================
     // Camera Methods - Acquisition Control
@@ -194,13 +208,12 @@ pub fn register_hardware(engine: &mut Engine) {
     engine.register_fn(
         "arm",
         move |camera: &mut CameraHandle| -> Result<Dynamic, Box<EvalAltResult>> {
-            block_in_place(|| Handle::current().block_on(camera.driver.arm()))
-                .map_err(|e| {
-                    Box::new(EvalAltResult::ErrorRuntime(
-                        format!("Camera arm failed: {}", e).into(),
-                        Position::NONE
-                    ))
-                })?;
+            block_in_place(|| Handle::current().block_on(camera.driver.arm())).map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Camera arm failed: {}", e).into(),
+                    Position::NONE,
+                ))
+            })?;
             Ok(Dynamic::UNIT)
         },
     );
@@ -209,14 +222,15 @@ pub fn register_hardware(engine: &mut Engine) {
     engine.register_fn(
         "trigger",
         move |camera: &mut CameraHandle| -> Result<Dynamic, Box<EvalAltResult>> {
-            block_in_place(|| Handle::current().block_on(camera.driver.trigger()))
-                .map_err(|e| {
+            block_in_place(|| Handle::current().block_on(camera.driver.trigger())).map_err(
+                |e| {
                     Box::new(EvalAltResult::ErrorRuntime(
                         format!("Camera trigger failed: {}", e).into(),
-                        Position::NONE
+                        Position::NONE,
                     ))
-                })?;
-            
+                },
+            )?;
+
             // Send measurement to broadcast channel if sender available
             if let Some(ref tx) = camera.data_tx {
                 let measurement = Measurement::Scalar {
@@ -229,7 +243,7 @@ pub fn register_hardware(engine: &mut Engine) {
                 // Ignore errors if no receivers (non-critical)
                 let _ = tx.send(measurement);
             }
-            
+
             Ok(Dynamic::UNIT)
         },
     );
@@ -268,25 +282,31 @@ pub fn register_hardware(engine: &mut Engine) {
     });
 
     // create_mock_camera(width, height) - Create a mock camera for testing
-    engine.register_fn("create_mock_camera", |width: i64, height: i64| -> CameraHandle {
-        use crate::hardware::mock::MockCamera;
-        CameraHandle {
-            driver: Arc::new(MockCamera::new(width as u32, height as u32)),
-            data_tx: None,
-        }
-    });
+    engine.register_fn(
+        "create_mock_camera",
+        |width: i64, height: i64| -> CameraHandle {
+            use crate::hardware::mock::MockCamera;
+            CameraHandle {
+                driver: Arc::new(MockCamera::new(width as u32, height as u32)),
+                data_tx: None,
+            }
+        },
+    );
 
     // create_mock_power_meter(base_power) - Create a mock power meter for testing
     // Returns a StageHandle (using Readable trait exposed as stage for simplicity)
-    engine.register_fn("create_mock_power_meter", |_base_power: f64| -> StageHandle {
-        // Mock power meter uses MockStage for now (no dedicated mock)
-        // Real scripts should use actual Newport 1830-C
-        use crate::hardware::mock::MockStage;
-        StageHandle {
-            driver: Arc::new(MockStage::new()),
-            data_tx: None,
-        }
-    });
+    engine.register_fn(
+        "create_mock_power_meter",
+        |_base_power: f64| -> StageHandle {
+            // Mock power meter uses MockStage for now (no dedicated mock)
+            // Real scripts should use actual Newport 1830-C
+            use crate::hardware::mock::MockStage;
+            StageHandle {
+                driver: Arc::new(MockStage::new()),
+                data_tx: None,
+            }
+        },
+    );
 }
 
 // =============================================================================

@@ -278,7 +278,11 @@ impl SystemHealthMonitor {
     }
 
     /// Get errors for a specific module
-    pub async fn get_module_errors(&self, module_name: &str, limit: Option<usize>) -> Vec<HealthError> {
+    pub async fn get_module_errors(
+        &self,
+        module_name: &str,
+        limit: Option<usize>,
+    ) -> Vec<HealthError> {
         let state = self.state.read().await;
 
         let errors: Vec<_> = state
@@ -384,7 +388,12 @@ mod tests {
 
         // Report a warning
         monitor
-            .report_error("test_module", ErrorSeverity::Warning, "Warning message", Vec::<(&str, &str)>::new())
+            .report_error(
+                "test_module",
+                ErrorSeverity::Warning,
+                "Warning message",
+                Vec::<(&str, &str)>::new(),
+            )
             .await;
 
         let health = monitor.get_system_health().await;
@@ -397,7 +406,12 @@ mod tests {
 
         // Report a critical error
         monitor
-            .report_error("test_module", ErrorSeverity::Critical, "Critical error", Vec::<(&str, &str)>::new())
+            .report_error(
+                "test_module",
+                ErrorSeverity::Critical,
+                "Critical error",
+                Vec::<(&str, &str)>::new(),
+            )
             .await;
 
         let health = monitor.get_system_health().await;

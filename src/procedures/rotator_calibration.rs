@@ -201,11 +201,7 @@ impl RotatorCalibration {
     }
 
     /// Helper: move to position and wait for settle
-    async fn move_and_settle(
-        &self,
-        ctx: &ProcedureContext,
-        target: f64,
-    ) -> Result<f64> {
+    async fn move_and_settle(&self, ctx: &ProcedureContext, target: f64) -> Result<f64> {
         let device = ctx
             .get_movable("rotator")
             .await
@@ -229,7 +225,9 @@ impl RotatorCalibration {
             "Moving to reference position",
         );
 
-        let final_pos = self.move_and_settle(ctx, self.params.reference_position).await?;
+        let final_pos = self
+            .move_and_settle(ctx, self.params.reference_position)
+            .await?;
         let error = (final_pos - self.params.reference_position).abs();
 
         let success = error <= self.params.angle_tolerance_deg;
@@ -299,10 +297,13 @@ impl RotatorCalibration {
             // Still return success but log warning - backlash is informational
             StepResult::success("measure_backlash", 1, start.elapsed())
                 .with_data("backlash_deg", backlash)
-                .with_data("warning", format!(
-                    "Backlash {:.4} deg exceeds max {:.4} deg",
-                    backlash, self.params.max_backlash_deg
-                ))
+                .with_data(
+                    "warning",
+                    format!(
+                        "Backlash {:.4} deg exceeds max {:.4} deg",
+                        backlash, self.params.max_backlash_deg
+                    ),
+                )
         })
     }
 
@@ -456,7 +457,9 @@ impl Procedure for RotatorCalibration {
         ProcedureTypeInfo {
             type_id: "rotator_calibration".to_string(),
             name: "Rotator Calibration".to_string(),
-            description: "Calibrate rotary motion stage: home position, backlash, and repeatability".to_string(),
+            description:
+                "Calibrate rotary motion stage: home position, backlash, and repeatability"
+                    .to_string(),
             category: "calibration".to_string(),
             roles: vec![RoleRequirement {
                 role_id: "rotator".to_string(),
@@ -559,7 +562,8 @@ impl Procedure for RotatorCalibration {
         if ctx.get_movable("rotator").await.is_none() {
             return Err(anyhow!(
                 "Rotator device not available. Check role assignment: {}",
-                ctx.get_device_id("rotator").unwrap_or(&"<not assigned>".to_string())
+                ctx.get_device_id("rotator")
+                    .unwrap_or(&"<not assigned>".to_string())
             ));
         }
 
@@ -618,11 +622,17 @@ impl Procedure for RotatorCalibration {
             return Ok(ProcedureResult::failure(
                 "rotator_calibration",
                 &ctx.procedure_id,
-                step1.error.clone().unwrap_or_else(|| "Move to reference failed".to_string()),
+                step1
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "Move to reference failed".to_string()),
             )
             .with_step(step1));
         }
-        quality.add_pass("move_to_reference", "Successfully moved to reference position");
+        quality.add_pass(
+            "move_to_reference",
+            "Successfully moved to reference position",
+        );
         step_results.push(step1);
 
         // Check cancellation
@@ -670,17 +680,27 @@ impl Procedure for RotatorCalibration {
             self.state = ProcedureState::Failed;
             quality.add_fail(
                 "repeatability",
-                step3.error.clone().unwrap_or_else(|| "Repeatability test failed".to_string()),
+                step3
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "Repeatability test failed".to_string()),
             );
             return Ok(ProcedureResult::failure(
                 "rotator_calibration",
                 &ctx.procedure_id,
-                step3.error.clone().unwrap_or_else(|| "Repeatability test failed".to_string()),
+                step3
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "Repeatability test failed".to_string()),
             )
             .with_step(step3)
             .with_quality(quality));
         }
-        let repeatability = self.results.as_ref().map(|r| r.repeatability_mean).unwrap_or(0.0);
+        let repeatability = self
+            .results
+            .as_ref()
+            .map(|r| r.repeatability_mean)
+            .unwrap_or(0.0);
         quality.add_pass(
             "repeatability",
             format!("Repeatability {:.4} deg within limit", repeatability),

@@ -149,9 +149,11 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Run { script, config } => run_script_once(script, config).await,
-        Commands::Daemon { port, hardware_config, lab_hardware } => {
-            start_daemon(port, hardware_config, lab_hardware).await
-        }
+        Commands::Daemon {
+            port,
+            hardware_config,
+            lab_hardware,
+        } => start_daemon(port, hardware_config, lab_hardware).await,
         #[cfg(feature = "networking")]
         Commands::Client(cmd) => handle_client_command(cmd).await,
     }
@@ -204,7 +206,11 @@ async fn run_script_once(script_path: PathBuf, _config: Option<PathBuf>) -> Resu
     }
 }
 
-async fn start_daemon(port: u16, hardware_config: Option<PathBuf>, lab_hardware: bool) -> Result<()> {
+async fn start_daemon(
+    port: u16,
+    hardware_config: Option<PathBuf>,
+    lab_hardware: bool,
+) -> Result<()> {
     println!("🌐 Starting Headless DAQ Daemon");
     println!("   Architecture: V5 (Headless-First + Scriptable)");
     println!("   gRPC Port: {}", port);
@@ -272,7 +278,10 @@ async fn start_daemon(port: u16, hardware_config: Option<PathBuf>, lab_hardware:
         let device_count = registry.len();
         println!("   Registered {} device(s)", device_count);
         for info in registry.list_devices() {
-            println!("     - {}: {} ({:?})", info.id, info.name, info.capabilities);
+            println!(
+                "     - {}: {} ({:?})",
+                info.id, info.name, info.capabilities
+            );
         }
         println!();
 
@@ -332,16 +341,16 @@ async fn start_daemon(port: u16, hardware_config: Option<PathBuf>, lab_hardware:
     {
         // Silence unused variable warnings
         let _ = (hardware_config, lab_hardware);
-        
+
         println!("⚠️  Networking feature not enabled - daemon mode requires 'networking' feature");
         println!("   Rebuild with: cargo build --features networking");
         println!();
         println!("   Keeping daemon alive for data plane... Press Ctrl+C to stop");
-        
+
         tokio::signal::ctrl_c().await?;
-        
+
         println!("\n🛑 Shutdown signal received, cleaning up...");
-        
+
         #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
         if let Some((writer, handle)) = writer_handle {
             println!("   Flushing HDF5 writer...");
@@ -353,7 +362,7 @@ async fn start_daemon(port: u16, hardware_config: Option<PathBuf>, lab_hardware:
             handle.abort();
             println!("   ✓ HDF5 writer flushed and stopped");
         }
-        
+
         println!("👋 Daemon shutdown complete");
         Ok(())
     }

@@ -107,9 +107,9 @@ impl<T: Clone + Send + Sync + 'static> std::fmt::Debug for Observable<T> {
 impl<T: Clone + Send + Sync + 'static> Clone for Observable<T> {
     fn clone(&self) -> Self {
         Self {
-            sender: self.sender.clone(),  // Clones sender (shares same watch channel)
+            sender: self.sender.clone(), // Clones sender (shares same watch channel)
             metadata: self.metadata.clone(),
-            validator: self.validator.clone(),  // Arc clone (cheap pointer copy)
+            validator: self.validator.clone(), // Arc clone (cheap pointer copy)
         }
     }
 }
@@ -195,10 +195,7 @@ where
     /// - Validation fails
     pub fn set(&self, value: T) -> Result<()> {
         if self.metadata.read_only {
-            return Err(anyhow!(
-                "Parameter '{}' is read-only",
-                self.metadata.name
-            ));
+            return Err(anyhow!("Parameter '{}' is read-only", self.metadata.name));
         }
 
         if let Some(validator) = &self.validator {
@@ -246,8 +243,13 @@ where
     /// Get the current value as JSON
     pub fn get_json(&self) -> Result<serde_json::Value> {
         let value = self.get();
-        serde_json::to_value(&value)
-            .map_err(|e| anyhow!("Failed to serialize parameter '{}': {}", self.metadata.name, e))
+        serde_json::to_value(&value).map_err(|e| {
+            anyhow!(
+                "Failed to serialize parameter '{}': {}",
+                self.metadata.name,
+                e
+            )
+        })
     }
 
     /// Set the value from JSON
@@ -350,7 +352,10 @@ pub struct ParameterSet {
 impl std::fmt::Debug for ParameterSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ParameterSet")
-            .field("parameters", &format!("{} parameters", self.parameters.len()))
+            .field(
+                "parameters",
+                &format!("{} parameters", self.parameters.len()),
+            )
             .field("names", &self.names())
             .finish()
     }
@@ -383,7 +388,9 @@ impl ParameterSet {
 
     /// Get a parameter by name as a trait object (generic access).
     pub fn get(&self, name: &str) -> Option<&dyn ParameterBase> {
-        self.parameters.get(name).map(|p| p.as_ref() as &dyn ParameterBase)
+        self.parameters
+            .get(name)
+            .map(|p| p.as_ref() as &dyn ParameterBase)
     }
 
     /// Iterate over all parameters as trait objects.
@@ -497,11 +504,11 @@ mod tests {
         // Test trait methods
         assert_eq!(param.name(), "power");
         assert_eq!(param.metadata().units.as_deref(), Some("mW"));
-        
+
         // Get and set via JSON
         let json = param.get_json().unwrap();
         assert_eq!(json, serde_json::json!(50.0));
-        
+
         param.set_json(serde_json::json!(75.0)).unwrap();
         assert_eq!(obs.get(), 75.0); // Verify through concrete type
     }

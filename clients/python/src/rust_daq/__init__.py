@@ -7,6 +7,7 @@ The library provides three layers:
 - Layer 0: Auto-generated protobuf stubs (in .generated submodule)
 - Layer 1: AsyncClient - Async-first gRPC wrapper
 - Layer 2: High-level synchronous API (Device, Motor, Detector, scan)
+- Jupyter integration: Interactive widgets, live plotting (rust_daq.jupyter)
 
 Example usage (Layer 1 - Async):
 

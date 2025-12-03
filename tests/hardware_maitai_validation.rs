@@ -107,7 +107,10 @@ async fn test_connection_basic() {
         }
         Err(e) => {
             eprintln!("[SKIP] Could not connect to MaiTai: {}", e);
-            eprintln!("       Ensure laser controller is powered on and connected to {}", PORT);
+            eprintln!(
+                "       Ensure laser controller is powered on and connected to {}",
+                PORT
+            );
             // Don't fail - hardware may not be present
         }
     }
@@ -386,7 +389,10 @@ async fn test_shutter_cycle() {
     driver.open_shutter().await.expect("Failed to open shutter");
     sleep(Duration::from_millis(SHUTTER_SAFETY_DELAY_MS)).await;
 
-    let is_open = driver.is_shutter_open().await.expect("Could not query state");
+    let is_open = driver
+        .is_shutter_open()
+        .await
+        .expect("Could not query state");
     assert!(is_open, "Shutter should be open");
     eprintln!("[INFO] Shutter confirmed OPEN");
 
@@ -398,7 +404,10 @@ async fn test_shutter_cycle() {
         .expect("Failed to close shutter");
     sleep(Duration::from_millis(100)).await;
 
-    let is_open = driver.is_shutter_open().await.expect("Could not query state");
+    let is_open = driver
+        .is_shutter_open()
+        .await
+        .expect("Could not query state");
     assert!(!is_open, "Shutter should be closed");
     eprintln!("[PASS] Shutter cycle complete - confirmed CLOSED");
 }
@@ -650,7 +659,9 @@ async fn test_safety_shutter_on_drop() {
                 eprintln!("[WARN] Shutter remained open after driver drop");
                 eprintln!("       Hardware interlock should be used for safety");
                 // Close it now
-                ensure_shutter_closed(&driver).await.expect("Failed to close");
+                ensure_shutter_closed(&driver)
+                    .await
+                    .expect("Failed to close");
             } else {
                 eprintln!("[PASS] Shutter closed after driver drop");
             }
@@ -681,7 +692,10 @@ async fn test_trait_wavelength_tunable() {
 
     match wavelength_result {
         Ok(wavelength) => {
-            eprintln!("[PASS] WavelengthTunable::get_wavelength() returned {} nm", wavelength);
+            eprintln!(
+                "[PASS] WavelengthTunable::get_wavelength() returned {} nm",
+                wavelength
+            );
         }
         Err(e) => {
             eprintln!("[WARN] WavelengthTunable::get_wavelength() failed: {}", e);
@@ -690,7 +704,10 @@ async fn test_trait_wavelength_tunable() {
 
     // Check trait method for range
     let (min, max) = <MaiTaiDriver as WavelengthTunable>::wavelength_range(&driver);
-    eprintln!("[INFO] WavelengthTunable::wavelength_range() = ({}, {})", min, max);
+    eprintln!(
+        "[INFO] WavelengthTunable::wavelength_range() = ({}, {})",
+        min, max
+    );
 }
 
 /// Test: Use ShutterControl trait methods
@@ -774,7 +791,10 @@ async fn test_command_latency() {
     const ITERATIONS: usize = 10;
     let mut latencies = Vec::with_capacity(ITERATIONS);
 
-    eprintln!("[INFO] Measuring wavelength query latency ({} iterations)...", ITERATIONS);
+    eprintln!(
+        "[INFO] Measuring wavelength query latency ({} iterations)...",
+        ITERATIONS
+    );
 
     for _ in 0..ITERATIONS {
         let start = std::time::Instant::now();
@@ -816,7 +836,10 @@ async fn test_error_recovery() {
     // Verify normal operation still works
     match driver.get_wavelength().await {
         Ok(wavelength) => {
-            eprintln!("[PASS] Normal operation works after error: {} nm", wavelength);
+            eprintln!(
+                "[PASS] Normal operation works after error: {} nm",
+                wavelength
+            );
         }
         Err(e) => {
             eprintln!("[WARN] Operation failed after error: {}", e);

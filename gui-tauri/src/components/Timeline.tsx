@@ -1,12 +1,14 @@
 import { ActionBlock } from '../types/experiment';
 import { Droppable } from 'react-beautiful-dnd';
 import ActionBlockComponent from './ActionBlockComponent';
+import { ValidationIssue } from '../types/validation';
 
 interface TimelineProps {
   actions: ActionBlock[];
   selectedBlock: ActionBlock | null;
   onSelectBlock: (block: ActionBlock) => void;
   onDeleteBlock: (path: number[]) => void;
+  validationIssues?: ValidationIssue[];
 }
 
 function Timeline({
@@ -14,6 +16,7 @@ function Timeline({
   selectedBlock,
   onSelectBlock,
   onDeleteBlock,
+  validationIssues = [],
 }: TimelineProps) {
   return (
     <div className="h-full flex flex-col bg-slate-800">
@@ -57,6 +60,7 @@ function Timeline({
                     isSelected={selectedBlock?.id === block.id}
                     onSelect={onSelectBlock}
                     onDelete={onDeleteBlock}
+                    validationIssues={validationIssues}
                   />
                 ))}
               </div>

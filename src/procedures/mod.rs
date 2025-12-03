@@ -536,7 +536,9 @@ pub async fn execute_step_safely(
     if emergency_flag.is_triggered() {
         return Ok(StepOutcome::abort(format!(
             "Emergency stop active: {}",
-            emergency_flag.reason().unwrap_or_else(|| "unknown".to_string())
+            emergency_flag
+                .reason()
+                .unwrap_or_else(|| "unknown".to_string())
         )));
     }
 

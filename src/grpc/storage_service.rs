@@ -10,8 +10,8 @@ use crate::grpc::proto::{
     DeleteAcquisitionResponse, FlushToStorageRequest, FlushToStorageResponse,
     GetAcquisitionInfoRequest, GetRecordingStatusRequest, GetStorageConfigRequest, Hdf5Config,
     Hdf5Structure, ListAcquisitionsRequest, ListAcquisitionsResponse, RecordingProgress,
-    RecordingState, RecordingStatus, StartRecordingRequest, StartRecordingResponse, StorageConfig,
-    StopRecordingRequest, StopRecordingResponse, StreamRecordingProgressRequest,
+    RecordingState, RecordingStatus, StartRecordingRequest, StartRecordingResponse,
+    StopRecordingRequest, StopRecordingResponse, StorageConfig, StreamRecordingProgressRequest,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -129,10 +129,7 @@ impl StorageServiceImpl {
         pattern
             .replace("{name}", name)
             .replace("{timestamp}", &timestamp.to_string())
-            .replace(
-                "{date}",
-                &chrono::Utc::now().format("%Y-%m-%d").to_string(),
-            )
+            .replace("{date}", &chrono::Utc::now().format("%Y-%m-%d").to_string())
             .replace(
                 "{datetime}",
                 &chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string(),
@@ -162,7 +159,10 @@ impl StorageServiceImpl {
         if let Ok(entries) = std::fs::read_dir(&settings.output_directory) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().map_or(false, |ext| ext == "h5" || ext == "hdf5") {
+                if path
+                    .extension()
+                    .map_or(false, |ext| ext == "h5" || ext == "hdf5")
+                {
                     if let Ok(metadata) = std::fs::metadata(&path) {
                         let id = Uuid::new_v4().to_string();
                         let name = path
@@ -820,7 +820,11 @@ mod tests {
             scan_id: None,
             run_uid: None,
         });
-        let start_resp = service.start_recording(start_req).await.unwrap().into_inner();
+        let start_resp = service
+            .start_recording(start_req)
+            .await
+            .unwrap()
+            .into_inner();
 
         assert!(start_resp.success);
         assert!(!start_resp.recording_id.is_empty());

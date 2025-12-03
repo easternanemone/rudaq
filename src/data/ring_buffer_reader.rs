@@ -193,8 +193,8 @@ impl RingBufferReader {
     pub async fn read_typed<T: serde::de::DeserializeOwned>(&mut self) -> Result<Option<T>> {
         match self.read_frame().await {
             Some(data) => {
-                let value: T = serde_json::from_slice(&data)
-                    .context("Failed to deserialize frame data")?;
+                let value: T =
+                    serde_json::from_slice(&data).context("Failed to deserialize frame data")?;
                 Ok(Some(value))
             }
             None => Ok(None),

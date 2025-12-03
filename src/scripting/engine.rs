@@ -63,7 +63,10 @@ use crate::scripting::bindings;
 pub struct ScriptHost {
     /// Rhai engine instance
     engine: Engine,
-    #[expect(dead_code, reason = "Runtime handle kept alive to ensure tokio context")]
+    #[expect(
+        dead_code,
+        reason = "Runtime handle kept alive to ensure tokio context"
+    )]
     /// Tokio runtime handle (kept alive for async context)
     runtime: Handle,
 }

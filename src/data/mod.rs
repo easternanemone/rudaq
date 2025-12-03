@@ -58,4 +58,4 @@ pub mod ring_buffer_reader;
 
 // Re-export main types for convenience
 pub use ring_buffer::RingBuffer;
-pub use ring_buffer_reader::{RingBufferReader, ReaderStats};
+pub use ring_buffer_reader::{ReaderStats, RingBufferReader};

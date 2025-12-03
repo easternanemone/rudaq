@@ -1,7 +1,8 @@
 import { ActionBlock, ACTION_TEMPLATES } from '../types/experiment';
 import { Draggable, Droppable } from 'react-beautiful-dnd';
-import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Trash2, AlertCircle, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
+import { ValidationIssue } from '../types/validation';
 
 interface ActionBlockComponentProps {
   block: ActionBlock;
@@ -10,6 +11,7 @@ interface ActionBlockComponentProps {
   isSelected: boolean;
   onSelect: (block: ActionBlock) => void;
   onDelete: (path: number[]) => void;
+  validationIssues?: ValidationIssue[];
 }
 
 function ActionBlockComponent({
@@ -19,13 +21,27 @@ function ActionBlockComponent({
   isSelected,
   onSelect,
   onDelete,
+  validationIssues = [],
 }: ActionBlockComponentProps) {
   const [isExpanded, setIsExpanded] = useState(true);
   const template = ACTION_TEMPLATES.find((t) => t.type === block.type);
   const hasChildren = block.children && block.children.length > 0;
   const canHaveChildren = template?.canHaveChildren || false;
 
+  // Find validation issues for this block
+  const blockIssues = validationIssues.filter((issue) => issue.actionId === block.id);
+  const hasErrors = blockIssues.some((issue) => issue.severity === 'error');
+  const hasWarnings = blockIssues.some((issue) => issue.severity === 'warning');
+
   const getBlockColor = (type: string) => {
+    // Override with validation colors if there are issues
+    if (hasErrors) {
+      return 'border-red-500 bg-red-900/20';
+    }
+    if (hasWarnings) {
+      return 'border-yellow-500 bg-yellow-900/20';
+    }
+
     const colors: Record<string, string> = {
       move_absolute: 'border-green-500 bg-green-900/20',
       move_relative: 'border-green-400 bg-green-900/20',
@@ -96,10 +112,29 @@ function ActionBlockComponent({
                       {block.children!.length !== 1 ? 's' : ''})
                     </span>
                   )}
+                  {/* Validation badges */}
+                  {hasErrors && (
+                    <div className="flex items-center gap-1 text-xs text-red-400" title="Has errors">
+                      <AlertCircle size={14} />
+                      <span>{blockIssues.filter(i => i.severity === 'error').length}</span>
+                    </div>
+                  )}
+                  {hasWarnings && !hasErrors && (
+                    <div className="flex items-center gap-1 text-xs text-yellow-400" title="Has warnings">
+                      <AlertTriangle size={14} />
+                      <span>{blockIssues.filter(i => i.severity === 'warning').length}</span>
+                    </div>
+                  )}
                 </div>
                 <div className="text-xs text-slate-400 mt-0.5 truncate">
                   {formatParams(block.params)}
                 </div>
+                {/* Show first validation issue as tooltip */}
+                {blockIssues.length > 0 && (
+                  <div className="text-xs mt-1 text-red-300">
+                    {blockIssues[0].message}
+                  </div>
+                )}
               </div>
               <button
                 onClick={(e) => {
@@ -140,6 +175,7 @@ function ActionBlockComponent({
                         isSelected={isSelected && path[path.length - 1] === childIndex}
                         onSelect={onSelect}
                         onDelete={onDelete}
+                        validationIssues={validationIssues}
                       />
                     ))
                   ) : (

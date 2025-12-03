@@ -61,10 +61,10 @@ fn register_connect(ui: &MainWindow, adapter: UiAdapter, state: SharedState) {
                             selected: false,
                             // Metadata from daemon (bd-pwjo)
                             position_units: SharedString::from(
-                                d.position_units.as_deref().unwrap_or("mm")
+                                d.position_units.as_deref().unwrap_or("mm"),
                             ),
                             reading_units: SharedString::from(
-                                d.reading_units.as_deref().unwrap_or("W")
+                                d.reading_units.as_deref().unwrap_or("W"),
                             ),
                             min_position: d.min_position.unwrap_or(-100.0) as f32,
                             max_position: d.max_position.unwrap_or(100.0) as f32,
@@ -72,10 +72,8 @@ fn register_connect(ui: &MainWindow, adapter: UiAdapter, state: SharedState) {
                         .collect();
 
                     // Collect device IDs for module assignment dropdowns
-                    let device_ids: Vec<SharedString> = devices
-                        .iter()
-                        .map(|d| SharedString::from(&d.id))
-                        .collect();
+                    let device_ids: Vec<SharedString> =
+                        devices.iter().map(|d| SharedString::from(&d.id)).collect();
 
                     let device_count = slint_devices.len();
 
@@ -122,7 +120,7 @@ fn register_disconnect(ui: &MainWindow, adapter: UiAdapter, state: SharedState) 
 
 fn register_retry(ui: &MainWindow, adapter: UiAdapter) {
     let ui_weak = adapter.weak();
-    
+
     ui.on_retry_connection(move || {
         if let Some(ui) = ui_weak.upgrade() {
             let address = ui.get_server_address();

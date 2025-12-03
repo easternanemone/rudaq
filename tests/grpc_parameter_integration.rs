@@ -144,8 +144,8 @@ async fn test_parameter_change_notifications() -> Result<()> {
 #[tokio::test]
 #[cfg(feature = "tokio_serial")]
 async fn test_maitai_parameter_integration() -> Result<()> {
-    use rust_daq::hardware::maitai::MaiTaiDriver;
     use rust_daq::hardware::capabilities::Parameterized;
+    use rust_daq::hardware::maitai::MaiTaiDriver;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
@@ -155,12 +155,10 @@ async fn test_maitai_parameter_integration() -> Result<()> {
         use std::os::unix::io::AsRawFd;
 
         // Create pseudo-terminal pair
-        let (master, slave) = nix::pty::openpty(None, None)
-            .expect("Failed to create pty");
+        let (master, slave) = nix::pty::openpty(None, None).expect("Failed to create pty");
 
         // Get slave path
-        let slave_path = nix::unistd::ttyname(slave.as_raw_fd())
-            .expect("Failed to get slave path");
+        let slave_path = nix::unistd::ttyname(slave.as_raw_fd()).expect("Failed to get slave path");
         let slave_path_str = slave_path.to_str().unwrap();
 
         // Spawn background task to handle serial protocol
@@ -393,12 +391,9 @@ async fn test_concurrent_parameter_access_no_deadlock() -> Result<()> {
     });
 
     // Wait for both tasks to complete (with timeout to detect deadlock)
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        async move {
-            tokio::try_join!(read_task, write_task).map(|_| ())
-        }
-    )
+    let result = tokio::time::timeout(std::time::Duration::from_secs(30), async move {
+        tokio::try_join!(read_task, write_task).map(|_| ())
+    })
     .await;
 
     match result {

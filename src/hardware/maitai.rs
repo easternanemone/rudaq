@@ -39,7 +39,9 @@
 //! }
 //! ```
 
-use crate::hardware::capabilities::{EmissionControl, Parameterized, Readable, ShutterControl, WavelengthTunable};
+use crate::hardware::capabilities::{
+    EmissionControl, Parameterized, Readable, ShutterControl, WavelengthTunable,
+};
 use crate::observable::ParameterSet;
 use crate::parameter::Parameter;
 use anyhow::{anyhow, Context, Result};
@@ -113,20 +115,29 @@ impl MaiTaiDriver {
                             .await
                             .context("Failed to flush wavelength command")?;
                         tokio::time::sleep(Duration::from_millis(500)).await;
-                        
+
                         // Read and discard response (required for XON/XOFF flow control)
                         let mut response = String::new();
-                        match tokio::time::timeout(Duration::from_millis(500), p.read_line(&mut response)).await {
-                            Ok(Ok(_)) => log::debug!("MaiTai wavelength response: {}", response.trim()),
-                            Ok(Err(e)) => log::debug!("MaiTai wavelength read error (may be OK): {}", e),
+                        match tokio::time::timeout(
+                            Duration::from_millis(500),
+                            p.read_line(&mut response),
+                        )
+                        .await
+                        {
+                            Ok(Ok(_)) => {
+                                log::debug!("MaiTai wavelength response: {}", response.trim())
+                            }
+                            Ok(Err(e)) => {
+                                log::debug!("MaiTai wavelength read error (may be OK): {}", e)
+                            }
                             Err(_) => log::debug!("MaiTai wavelength no response (may be OK)"),
                         }
-                        
+
                         Ok(())
                     })
                 }
             });
-        
+
         // Register parameter
         params.register(wavelength.inner().clone());
 
@@ -188,20 +199,29 @@ impl MaiTaiDriver {
                             .await
                             .context("Failed to flush wavelength command")?;
                         tokio::time::sleep(Duration::from_millis(500)).await;
-                        
+
                         // Read and discard response (required for XON/XOFF flow control)
                         let mut response = String::new();
-                        match tokio::time::timeout(Duration::from_millis(500), p.read_line(&mut response)).await {
-                            Ok(Ok(_)) => log::debug!("MaiTai wavelength response: {}", response.trim()),
-                            Ok(Err(e)) => log::debug!("MaiTai wavelength read error (may be OK): {}", e),
+                        match tokio::time::timeout(
+                            Duration::from_millis(500),
+                            p.read_line(&mut response),
+                        )
+                        .await
+                        {
+                            Ok(Ok(_)) => {
+                                log::debug!("MaiTai wavelength response: {}", response.trim())
+                            }
+                            Ok(Err(e)) => {
+                                log::debug!("MaiTai wavelength read error (may be OK): {}", e)
+                            }
                             Err(_) => log::debug!("MaiTai wavelength no response (may be OK)"),
                         }
-                        
+
                         Ok(())
                     })
                 }
             });
-        
+
         // Register parameter
         params.register(wavelength.inner().clone());
 
@@ -320,8 +340,15 @@ impl MaiTaiDriver {
                 // Audit log: emission refusal for safety traceability
                 log::warn!(
                     "SAFETY: Emission enable refused - shutter_state={}, shutter_query_result={:?}",
-                    if shutter_open { "open/unknown" } else { "closed" },
-                    shutter_result.as_ref().map(|v| *v).map_err(|e| e.to_string())
+                    if shutter_open {
+                        "open/unknown"
+                    } else {
+                        "closed"
+                    },
+                    shutter_result
+                        .as_ref()
+                        .map(|v| *v)
+                        .map_err(|e| e.to_string())
                 );
                 return Err(anyhow!(
                     "Refusing to enable emission: shutter is open or state unknown. Close shutter first."
@@ -344,9 +371,7 @@ impl MaiTaiDriver {
     async fn query_power(&self) -> Result<f64> {
         let response = self.query("POWER?").await?;
         // Response format may include units - strip common suffixes (case-insensitive)
-        let clean = response
-            .trim()
-            .to_lowercase();
+        let clean = response.trim().to_lowercase();
         let clean = clean
             .trim_end_matches("mw")
             .trim_end_matches("w")
@@ -417,10 +442,18 @@ impl MaiTaiDriver {
         match tokio::time::timeout(Duration::from_millis(500), port.read_line(&mut response)).await
         {
             Ok(Ok(_)) => {
-                log::debug!("MaiTai set command '{}' response: {}", command, response.trim());
+                log::debug!(
+                    "MaiTai set command '{}' response: {}",
+                    command,
+                    response.trim()
+                );
             }
             Ok(Err(e)) => {
-                log::debug!("MaiTai set command '{}' read error (may be OK): {}", command, e);
+                log::debug!(
+                    "MaiTai set command '{}' read error (may be OK): {}",
+                    command,
+                    e
+                );
             }
             Err(_) => {
                 log::debug!("MaiTai set command '{}' no response (may be OK)", command);

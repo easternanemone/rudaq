@@ -15,6 +15,8 @@
 //! - **Without `modules` feature**: Stub mode with in-memory state only
 //! - **With `modules` feature**: Full integration with ModuleRegistry
 
+#[cfg(not(feature = "modules"))]
+use crate::grpc::proto::ModuleState;
 use crate::grpc::proto::{
     module_service_server::ModuleService, AssignDeviceRequest, AssignDeviceResponse,
     ConfigureModuleRequest, ConfigureModuleResponse, CreateModuleRequest, CreateModuleResponse,
@@ -27,8 +29,6 @@ use crate::grpc::proto::{
     StopModuleRequest, StopModuleResponse, StreamModuleDataRequest, StreamModuleEventsRequest,
     UnassignDeviceRequest, UnassignDeviceResponse,
 };
-#[cfg(not(feature = "modules"))]
-use crate::grpc::proto::ModuleState;
 use crate::hardware::registry::DeviceRegistry;
 #[cfg(feature = "modules")]
 use crate::modules::ModuleRegistry;
@@ -105,7 +105,10 @@ impl StubModuleInstance {
         }
     }
 
-    #[expect(clippy::unnecessary_to_owned, reason = "Required for iterator lifetime in filter chain")]
+    #[expect(
+        clippy::unnecessary_to_owned,
+        reason = "Required for iterator lifetime in filter chain"
+    )]
     fn get_role_status(&self) -> (u32, u32) {
         let required_roles = get_module_type_required_roles(&self.type_id);
         let filled = required_roles
@@ -345,7 +348,10 @@ fn get_static_module_type_info(type_id: &str) -> Option<ModuleTypeInfo> {
 /// - Event and data streaming
 pub struct ModuleServiceImpl {
     /// Device registry for hardware access
-    #[expect(dead_code, reason = "device_registry will be used for device assignment validation")]
+    #[expect(
+        dead_code,
+        reason = "device_registry will be used for device assignment validation"
+    )]
     device_registry: Arc<RwLock<DeviceRegistry>>,
 
     /// Stub module storage (used when modules feature is disabled)
@@ -527,9 +533,7 @@ impl ModuleService for ModuleServiceImpl {
             .map(|instance| {
                 let assignments = instance.get_assignments();
                 let type_info = registry.get_type_info(instance.type_id());
-                let required_total = type_info
-                    .map(|i| i.required_roles.len())
-                    .unwrap_or(0) as u32;
+                let required_total = type_info.map(|i| i.required_roles.len()).unwrap_or(0) as u32;
                 let required_filled = type_info
                     .map(|info| {
                         info.required_roles
@@ -548,9 +552,9 @@ impl ModuleService for ModuleServiceImpl {
                 });
 
                 // Check all devices are online
-                let all_devices_online = assignments.values().all(|device_id| {
-                    device_registry.get_device_info(device_id).is_some()
-                });
+                let all_devices_online = assignments
+                    .values()
+                    .all(|device_id| device_registry.get_device_info(device_id).is_some());
 
                 ModuleStatus {
                     module_id: instance.id.clone(),
@@ -591,9 +595,7 @@ impl ModuleService for ModuleServiceImpl {
 
         let assignments = instance.get_assignments();
         let type_info = registry.get_type_info(instance.type_id());
-        let required_total = type_info
-            .map(|i| i.required_roles.len())
-            .unwrap_or(0) as u32;
+        let required_total = type_info.map(|i| i.required_roles.len()).unwrap_or(0) as u32;
         let required_filled = type_info
             .map(|info| {
                 info.required_roles
@@ -647,9 +649,9 @@ impl ModuleService for ModuleServiceImpl {
 
         // Get current config if partial update
         let params = if req.partial {
-            let instance = registry.get_module(&req.module_id).ok_or_else(|| {
-                Status::not_found(format!("Module not found: {}", req.module_id))
-            })?;
+            let instance = registry
+                .get_module(&req.module_id)
+                .ok_or_else(|| Status::not_found(format!("Module not found: {}", req.module_id)))?;
             let mut current = instance.get_config();
             for (k, v) in req.parameters {
                 current.insert(k, v);
@@ -955,9 +957,9 @@ impl ModuleService for ModuleServiceImpl {
             .get_module_mut(&req.module_id)
             .ok_or_else(|| Status::not_found(format!("Module not found: {}", req.module_id)))?;
 
-        let data_rx = instance
-            .take_data_rx()
-            .ok_or_else(|| Status::resource_exhausted("Data stream already taken for this module"))?;
+        let data_rx = instance.take_data_rx().ok_or_else(|| {
+            Status::resource_exhausted("Data stream already taken for this module")
+        })?;
 
         let (tx, rx) = tokio::sync::mpsc::channel(100);
         let data_types = req.data_types;
@@ -1643,7 +1645,11 @@ mod tests {
             initial_config: HashMap::new(),
         });
 
-        let create_resp = service.create_module(create_req).await.unwrap().into_inner();
+        let create_resp = service
+            .create_module(create_req)
+            .await
+            .unwrap()
+            .into_inner();
         assert!(create_resp.success);
         assert!(!create_resp.module_id.is_empty());
 
@@ -1652,7 +1658,11 @@ mod tests {
             force: false,
         });
 
-        let delete_resp = service.delete_module(delete_req).await.unwrap().into_inner();
+        let delete_resp = service
+            .delete_module(delete_req)
+            .await
+            .unwrap()
+            .into_inner();
         assert!(delete_resp.success);
     }
 
@@ -1665,7 +1675,11 @@ mod tests {
             instance_name: "test".to_string(),
             initial_config: HashMap::new(),
         });
-        let create_resp = service.create_module(create_req).await.unwrap().into_inner();
+        let create_resp = service
+            .create_module(create_req)
+            .await
+            .unwrap()
+            .into_inner();
         let module_id = create_resp.module_id;
 
         let mut params = HashMap::new();
@@ -1718,7 +1732,11 @@ mod tests {
             instance_name: "test_logger".to_string(),
             initial_config,
         });
-        let create_resp = service.create_module(create_req).await.unwrap().into_inner();
+        let create_resp = service
+            .create_module(create_req)
+            .await
+            .unwrap()
+            .into_inner();
         let module_id = create_resp.module_id;
 
         let start_req = Request::new(StartModuleRequest {
@@ -1737,7 +1755,11 @@ mod tests {
         let resume_req = Request::new(ResumeModuleRequest {
             module_id: module_id.clone(),
         });
-        let resume_resp = service.resume_module(resume_req).await.unwrap().into_inner();
+        let resume_resp = service
+            .resume_module(resume_req)
+            .await
+            .unwrap()
+            .into_inner();
         assert!(resume_resp.success);
 
         let stop_req = Request::new(StopModuleRequest {

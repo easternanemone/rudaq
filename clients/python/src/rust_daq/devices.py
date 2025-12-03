@@ -48,7 +48,11 @@ try:
     from tqdm import tqdm
     HAS_TQDM = True
 except ImportError:
-    HAS_TQDM = False
+    try:
+        from tqdm.notebook import tqdm
+        HAS_TQDM = True
+    except ImportError:
+        HAS_TQDM = False
 
 import anyio
 from anyio.from_thread import start_blocking_portal

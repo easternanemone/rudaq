@@ -3,7 +3,7 @@
 //! This example demonstrates the SystemHealthMonitor service for headless operation.
 //! Run with: cargo run --example health_monitor_demo
 
-use rust_daq::health::{ErrorSeverity, SystemHealthMonitor, HealthMonitorConfig};
+use rust_daq::health::{ErrorSeverity, HealthMonitorConfig, SystemHealthMonitor};
 use std::time::Duration;
 
 #[tokio::main]
@@ -21,12 +21,18 @@ async fn main() {
     println!("1. Registering module heartbeats...");
     monitor.heartbeat("data_acquisition").await;
     monitor.heartbeat("camera_driver").await;
-    monitor.heartbeat_with_message("stage_controller", Some("Initialized".to_string())).await;
+    monitor
+        .heartbeat_with_message("stage_controller", Some("Initialized".to_string()))
+        .await;
 
     let modules = monitor.get_module_health().await;
     println!("   Registered {} modules", modules.len());
     for m in &modules {
-        println!("   - {}: {}", m.name, if m.is_healthy { "healthy" } else { "unhealthy" });
+        println!(
+            "   - {}: {}",
+            m.name,
+            if m.is_healthy { "healthy" } else { "unhealthy" }
+        );
     }
 
     // Check system health (should be healthy)
@@ -36,12 +42,14 @@ async fn main() {
 
     // Simulate a warning
     println!("\n3. Simulating warning from camera...");
-    monitor.report_error(
-        "camera_driver",
-        ErrorSeverity::Warning,
-        "Frame rate dropped to 15 fps",
-        vec![("target_fps", "30"), ("actual_fps", "15")],
-    ).await;
+    monitor
+        .report_error(
+            "camera_driver",
+            ErrorSeverity::Warning,
+            "Frame rate dropped to 15 fps",
+            vec![("target_fps", "30"), ("actual_fps", "15")],
+        )
+        .await;
 
     let health = monitor.get_system_health().await;
     println!("   System status: {:?}", health);
@@ -51,7 +59,10 @@ async fn main() {
     let errors = monitor.get_error_history(Some(10)).await;
     println!("   Found {} errors:", errors.len());
     for err in &errors {
-        println!("   - [{}] {}: {}", err.severity, err.module_name, err.message);
+        println!(
+            "   - [{}] {}: {}",
+            err.severity, err.module_name, err.message
+        );
         if !err.context.is_empty() {
             println!("     Context: {:?}", err.context);
         }
@@ -59,12 +70,14 @@ async fn main() {
 
     // Simulate a critical error
     println!("\n5. Simulating critical error from stage...");
-    monitor.report_error(
-        "stage_controller",
-        ErrorSeverity::Critical,
-        "Stage position readout failed",
-        vec![("device_id", "stage0"), ("last_position", "unknown")],
-    ).await;
+    monitor
+        .report_error(
+            "stage_controller",
+            ErrorSeverity::Critical,
+            "Stage position readout failed",
+            vec![("device_id", "stage0"), ("last_position", "unknown")],
+        )
+        .await;
 
     let health = monitor.get_system_health().await;
     println!("   System status: {:?}", health);

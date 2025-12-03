@@ -54,7 +54,9 @@ impl UiAdapter {
             ui.set_module_types(Rc::new(VecModel::<ModuleTypeInfo>::default()).into());
             ui.set_module_instances(Rc::new(VecModel::<ModuleInstance>::default()).into());
             ui.set_current_module_roles(Rc::new(VecModel::<ModuleRole>::default()).into());
-            ui.set_current_module_parameters(Rc::new(VecModel::<ModuleParameter>::default()).into());
+            ui.set_current_module_parameters(
+                Rc::new(VecModel::<ModuleParameter>::default()).into(),
+            );
             ui.set_current_module_events(Rc::new(VecModel::<ModuleEvent>::default()).into());
             ui.set_available_device_ids(Rc::new(VecModel::<SharedString>::default()).into());
 

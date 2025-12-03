@@ -57,12 +57,7 @@ where
 /// Show a toast notification via the UI
 ///
 /// Helper to reduce boilerplate when showing toasts from async handlers.
-pub fn show_toast(
-    ui_weak: &Weak<MainWindow>,
-    severity: &str,
-    title: &str,
-    message: &str,
-) {
+pub fn show_toast(ui_weak: &Weak<MainWindow>, severity: &str, title: &str, message: &str) {
     let severity = SharedString::from(severity);
     let title = SharedString::from(title);
     let message = SharedString::from(message);

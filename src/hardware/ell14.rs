@@ -305,7 +305,12 @@ impl Ell14Driver {
                 break;
             }
 
-            match tokio::time::timeout(remaining.min(Duration::from_millis(100)), port.read(&mut buf)).await {
+            match tokio::time::timeout(
+                remaining.min(Duration::from_millis(100)),
+                port.read(&mut buf),
+            )
+            .await
+            {
                 Ok(Ok(n)) if n > 0 => {
                     response_buf.extend_from_slice(&buf[..n]);
                     // Check if we have a complete response (responses end after data)
@@ -330,7 +335,9 @@ impl Ell14Driver {
             if !response_buf.is_empty() {
                 // Brief pause then try one more read
                 tokio::time::sleep(Duration::from_millis(30)).await;
-                if let Ok(Ok(n)) = tokio::time::timeout(Duration::from_millis(50), port.read(&mut buf)).await {
+                if let Ok(Ok(n)) =
+                    tokio::time::timeout(Duration::from_millis(50), port.read(&mut buf)).await
+                {
                     if n > 0 {
                         response_buf.extend_from_slice(&buf[..n]);
                     }
@@ -648,7 +655,11 @@ impl Ell14Driver {
             }
         }
 
-        Err(anyhow!("Failed to parse motor {} info: {}", motor_num, resp))
+        Err(anyhow!(
+            "Failed to parse motor {} info: {}",
+            motor_num,
+            resp
+        ))
     }
 
     // =========================================================================

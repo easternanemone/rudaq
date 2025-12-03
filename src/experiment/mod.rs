@@ -35,7 +35,7 @@ pub mod document;
 pub mod plans;
 pub mod run_engine;
 
+pub use document::ExperimentManifest;
 pub use document::{DataKey, DescriptorDoc, Document, EventDoc, StartDoc, StopDoc};
 pub use plans::{Plan, PlanCommand, PlanRegistry};
 pub use run_engine::{EngineState, RunEngine};
-pub use document::ExperimentManifest;

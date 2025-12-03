@@ -497,7 +497,8 @@ fn test_parse_wavelength_response_format() {
             response_str
         );
         assert_eq!(
-            parsed.unwrap() as f64, expected_nm,
+            parsed.unwrap() as f64,
+            expected_nm,
             "Wavelength mismatch for {}",
             response_str
         );
@@ -839,24 +840,36 @@ mod hardware_tests {
         let meter = Newport1830CDriver::new(&port_name).expect("Failed to open port");
 
         // Query initial wavelength
-        let initial_wavelength = meter.get_wavelength().await.expect("Failed to query wavelength");
+        let initial_wavelength = meter
+            .get_wavelength()
+            .await
+            .expect("Failed to query wavelength");
         println!("Initial wavelength: {} nm", initial_wavelength);
 
         // Set new wavelength to 800nm
-        meter.set_wavelength(800.0).await.expect("Failed to set wavelength");
+        meter
+            .set_wavelength(800.0)
+            .await
+            .expect("Failed to set wavelength");
         println!("Set wavelength to 800nm");
 
         // Small delay for meter to update
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Query to verify
-        let new_wavelength = meter.get_wavelength().await.expect("Failed to query wavelength");
+        let new_wavelength = meter
+            .get_wavelength()
+            .await
+            .expect("Failed to query wavelength");
         println!("Verified wavelength: {} nm", new_wavelength);
 
         assert_eq!(new_wavelength, 800.0, "Wavelength should be 800nm");
 
         // Restore original wavelength
-        meter.set_wavelength(initial_wavelength).await.expect("Failed to restore wavelength");
+        meter
+            .set_wavelength(initial_wavelength)
+            .await
+            .expect("Failed to restore wavelength");
         println!("Restored wavelength to {} nm", initial_wavelength);
     }
 
@@ -881,7 +894,11 @@ mod hardware_tests {
         // Query range
         let range = meter.query_range().await.expect("Failed to query range");
         println!("Range setting: {}", range);
-        assert!(range >= 1 && range <= 8, "Range should be 1-8, got {}", range);
+        assert!(
+            range >= 1 && range <= 8,
+            "Range should be 1-8, got {}",
+            range
+        );
 
         // Query units
         let units = meter.query_units().await.expect("Failed to query units");
@@ -920,16 +937,25 @@ mod hardware_tests {
         let initial = meter.get_wavelength().await.expect("Initial query failed");
 
         for target in test_wavelengths {
-            meter.set_wavelength(target).await.expect(&format!("Failed to set {}nm", target));
+            meter
+                .set_wavelength(target)
+                .await
+                .expect(&format!("Failed to set {}nm", target));
             tokio::time::sleep(Duration::from_millis(50)).await;
 
-            let actual = meter.get_wavelength().await.expect(&format!("Failed to get after setting {}nm", target));
+            let actual = meter
+                .get_wavelength()
+                .await
+                .expect(&format!("Failed to get after setting {}nm", target));
             println!("Set {} nm -> Read {} nm", target, actual);
             assert_eq!(actual, target, "Wavelength mismatch at {}nm", target);
         }
 
         // Restore
-        meter.set_wavelength(initial).await.expect("Failed to restore");
+        meter
+            .set_wavelength(initial)
+            .await
+            .expect("Failed to restore");
         println!("Restored to {} nm", initial);
     }
 }

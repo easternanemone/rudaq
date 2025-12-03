@@ -36,7 +36,10 @@ fn register_create_scan(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: Share
                 }
             };
 
-            info!("Creating scan: {} from {} to {} ({} pts)", device_id, start, end, num_points);
+            info!(
+                "Creating scan: {} from {} to {} ({} pts)",
+                device_id, start, end, num_points
+            );
 
             match client.create_scan(&device_id, start, end, num_points).await {
                 Ok((scan_id, total_points)) => {
@@ -74,103 +77,113 @@ fn register_start_scan(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: Shared
         let state = Arc::clone(&state);
         let ui_weak = ui_weak.clone();
 
-        spawn_with_state(ui_weak.clone(), state.clone(), move |state, ui_weak| async move {
-            let state_guard = state.lock().await;
-            let scan_id = match &state_guard.current_scan_id {
-                Some(id) => id.clone(),
-                None => {
-                    error!("No scan created to start");
-                    return;
-                }
-            };
-            let client = match &state_guard.client {
-                Some(c) => c.clone(),
-                None => return,
-            };
-            drop(state_guard);
+        spawn_with_state(
+            ui_weak.clone(),
+            state.clone(),
+            move |state, ui_weak| async move {
+                let state_guard = state.lock().await;
+                let scan_id = match &state_guard.current_scan_id {
+                    Some(id) => id.clone(),
+                    None => {
+                        error!("No scan created to start");
+                        return;
+                    }
+                };
+                let client = match &state_guard.client {
+                    Some(c) => c.clone(),
+                    None => return,
+                };
+                drop(state_guard);
 
-            info!("Starting scan: {}", scan_id);
+                info!("Starting scan: {}", scan_id);
 
-            // Set running state
-            let _ = ui_weak.upgrade_in_event_loop(|ui| {
-                ui.set_scan_running(true);
-            });
+                // Set running state
+                let _ = ui_weak.upgrade_in_event_loop(|ui| {
+                    ui.set_scan_running(true);
+                });
 
-            match client.start_scan(&scan_id).await {
-                Ok(_start_time) => {
-                    info!("Scan started: {}", scan_id);
+                match client.start_scan(&scan_id).await {
+                    Ok(_start_time) => {
+                        info!("Scan started: {}", scan_id);
 
-                    // Start progress streaming
-                    if let Ok(mut progress_rx) = client.stream_scan_progress(&scan_id, false).await {
-                        let ui_weak_stream = ui_weak.clone();
-                        let state_stream = state.clone();
+                        // Start progress streaming
+                        if let Ok(mut progress_rx) =
+                            client.stream_scan_progress(&scan_id, false).await
+                        {
+                            let ui_weak_stream = ui_weak.clone();
+                            let state_stream = state.clone();
 
-                        let handle = tokio::spawn(async move {
-                            while let Some(progress) = progress_rx.recv().await {
-                                let scan_id_clone = scan_id.clone();
-                                let state_str = match progress.state {
-                                    0 => "created",
-                                    1 => "running",
-                                    2 => "paused",
-                                    3 => "completed",
-                                    4 => "failed",
-                                    5 => "cancelled",
-                                    _ => "unknown",
-                                };
+                            let handle = tokio::spawn(async move {
+                                while let Some(progress) = progress_rx.recv().await {
+                                    let scan_id_clone = scan_id.clone();
+                                    let state_str = match progress.state {
+                                        0 => "created",
+                                        1 => "running",
+                                        2 => "paused",
+                                        3 => "completed",
+                                        4 => "failed",
+                                        5 => "cancelled",
+                                        _ => "unknown",
+                                    };
 
-                                let pct = if progress.total_points > 0 {
-                                    (progress.point_index as f32 / progress.total_points as f32) * 100.0
-                                } else {
-                                    0.0
-                                };
+                                    let pct = if progress.total_points > 0 {
+                                        (progress.point_index as f32 / progress.total_points as f32)
+                                            * 100.0
+                                    } else {
+                                        0.0
+                                    };
 
-                                let state_copy = state_str.to_string();
-                                let point = progress.point_index as i32;
-                                let total = progress.total_points as i32;
+                                    let state_copy = state_str.to_string();
+                                    let point = progress.point_index as i32;
+                                    let total = progress.total_points as i32;
 
-                                let _ = ui_weak_stream.upgrade_in_event_loop(move |ui| {
-                                    ui.set_scan_status(ScanStatus {
-                                        scan_id: SharedString::from(&scan_id_clone),
-                                        state: SharedString::from(&state_copy),
-                                        current_point: point,
-                                        total_points: total,
-                                        progress: pct,
+                                    let _ = ui_weak_stream.upgrade_in_event_loop(move |ui| {
+                                        ui.set_scan_status(ScanStatus {
+                                            scan_id: SharedString::from(&scan_id_clone),
+                                            state: SharedString::from(&state_copy),
+                                            current_point: point,
+                                            total_points: total,
+                                            progress: pct,
+                                        });
+
+                                        // Check if scan finished
+                                        if state_copy == "completed"
+                                            || state_copy == "failed"
+                                            || state_copy == "cancelled"
+                                        {
+                                            ui.set_scan_running(false);
+                                        }
                                     });
+                                }
 
-                                    // Check if scan finished
-                                    if state_copy == "completed" || state_copy == "failed" || state_copy == "cancelled" {
-                                        ui.set_scan_running(false);
-                                    }
+                                // Stream ended
+                                let mut guard = state_stream.lock().await;
+                                guard.scan_progress_handle = None;
+
+                                let _ = ui_weak_stream.upgrade_in_event_loop(|ui| {
+                                    ui.set_scan_running(false);
                                 });
-                            }
-
-                            // Stream ended
-                            let mut guard = state_stream.lock().await;
-                            guard.scan_progress_handle = None;
-
-                            let _ = ui_weak_stream.upgrade_in_event_loop(|ui| {
-                                ui.set_scan_running(false);
                             });
-                        });
 
-                        let mut guard = state.lock().await;
-                        guard.scan_progress_handle = Some(handle);
+                            let mut guard = state.lock().await;
+                            guard.scan_progress_handle = Some(handle);
+                        }
+                    }
+                    Err(e) => {
+                        error!("StartScan failed: {}", e);
+                        let error_msg = e.to_string();
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            ui.set_scan_running(false);
+                            ui.invoke_show_toast(
+                                SharedString::from("error"),
+                                SharedString::from("Start Scan Failed"),
+                                SharedString::from(error_msg),
+                            );
+                        });
                     }
                 }
-                Err(e) => {
-                    error!("StartScan failed: {}", e);
-                    let error_msg = e.to_string();
-                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                        ui.set_scan_running(false);
-                        ui.invoke_show_toast(
-                            SharedString::from("error"),
-                            SharedString::from("Start Scan Failed"),
-                            SharedString::from(error_msg),
-                        );
-                    });
-                }
-            }
-        });
+            },
+        );
     });
 }
 

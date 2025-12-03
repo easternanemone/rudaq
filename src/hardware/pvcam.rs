@@ -260,7 +260,7 @@ pub struct PvcamDriver {
 #[cfg(feature = "pvcam_hardware")]
 fn get_pvcam_error() -> String {
     // SAFETY: pl_error_code and pl_error_message are called to retrieve error information.
-    // err_msg buffer is properly allocated (256 bytes) and pl_error_message writes a 
+    // err_msg buffer is properly allocated (256 bytes) and pl_error_message writes a
     // null-terminated string. CStr::from_ptr is safe because PVCAM guarantees null-termination.
     unsafe {
         let err_code = pl_error_code();
@@ -338,11 +338,9 @@ impl PvcamDriver {
     #[cfg(feature = "pvcam_hardware")]
     async fn new_with_hardware_async(camera_name: String) -> Result<Self> {
         // Run all blocking PVCAM C-API calls in spawn_blocking to avoid blocking the async runtime
-        tokio::task::spawn_blocking(move || {
-            Self::new_with_hardware(&camera_name)
-        })
-        .await
-        .context("PVCAM initialization task panicked")?
+        tokio::task::spawn_blocking(move || Self::new_with_hardware(&camera_name))
+            .await
+            .context("PVCAM initialization task panicked")?
     }
 
     #[cfg(feature = "pvcam_hardware")]
@@ -612,8 +610,7 @@ impl PvcamDriver {
 
     #[cfg(feature = "pvcam_hardware")]
     async fn acquire_frame_hardware(&self) -> Result<Vec<u16>> {
-        let h = (*self.camera_handle.lock().await)
-            .ok_or_else(|| anyhow!("Camera not opened"))?;
+        let h = (*self.camera_handle.lock().await).ok_or_else(|| anyhow!("Camera not opened"))?;
 
         let exposure = self.exposure_ms.get();
         let roi = *self.roi.lock().await;
@@ -848,8 +845,8 @@ impl PvcamDriver {
 
         #[cfg(feature = "pvcam_hardware")]
         {
-            let h = (*self.camera_handle.lock().await)
-                .ok_or_else(|| anyhow!("Camera not opened"))?;
+            let h =
+                (*self.camera_handle.lock().await).ok_or_else(|| anyhow!("Camera not opened"))?;
 
             let is_armed = *self.armed.lock().await;
             if !is_armed {
@@ -920,7 +917,10 @@ impl PvcamDriver {
     /// Get the frame receiver for consuming streamed frames
     ///
     /// DEPRECATED: Use `subscribe_frames()` instead, which supports multiple subscribers.
-    #[deprecated(since = "0.2.0", note = "Use subscribe_frames() for multi-subscriber support")]
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use subscribe_frames() for multi-subscriber support"
+    )]
     pub async fn take_frame_receiver(&self) -> Option<tokio::sync::mpsc::Receiver<Frame>> {
         // No longer supported - use subscribe_frames() instead
         None
@@ -952,7 +952,13 @@ impl PvcamDriver {
         // SAFETY: h is a valid camera handle. pl_get_param with PARAM_TEMP retrieves temperature.
         // temp_raw pointer is valid and properly aligned for i16 writes.
         unsafe {
-            if pl_get_param(h, PARAM_TEMP, ATTR_CURRENT, &mut temp_raw as *mut _ as *mut _) == 0 {
+            if pl_get_param(
+                h,
+                PARAM_TEMP,
+                ATTR_CURRENT,
+                &mut temp_raw as *mut _ as *mut _,
+            ) == 0
+            {
                 return Err(anyhow!("Failed to get temperature: {}", get_pvcam_error()));
             }
         }
@@ -978,7 +984,9 @@ impl PvcamDriver {
             if pl_get_param(h, PARAM_CHIP_NAME, ATTR_CURRENT, buf.as_mut_ptr() as *mut _) == 0 {
                 return Err(anyhow!("Failed to get chip name: {}", get_pvcam_error()));
             }
-            let name = std::ffi::CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned();
+            let name = std::ffi::CStr::from_ptr(buf.as_ptr())
+                .to_string_lossy()
+                .into_owned();
             Ok(name)
         }
     }
@@ -997,7 +1005,13 @@ impl PvcamDriver {
         // SAFETY: h is a valid camera handle. pl_get_param with PARAM_BIT_DEPTH retrieves
         // the ADC bit depth. depth pointer is valid and properly aligned for i16 writes.
         unsafe {
-            if pl_get_param(h, PARAM_BIT_DEPTH, ATTR_CURRENT, &mut depth as *mut _ as *mut _) == 0 {
+            if pl_get_param(
+                h,
+                PARAM_BIT_DEPTH,
+                ATTR_CURRENT,
+                &mut depth as *mut _ as *mut _,
+            ) == 0
+            {
                 return Err(anyhow!("Failed to get bit depth: {}", get_pvcam_error()));
             }
         }
@@ -1018,7 +1032,13 @@ impl PvcamDriver {
         // SAFETY: h is a valid camera handle. pl_get_param with PARAM_READOUT_TIME retrieves
         // the frame readout time. time_us pointer is valid and properly aligned for f64 writes.
         unsafe {
-            if pl_get_param(h, PARAM_READOUT_TIME, ATTR_CURRENT, &mut time_us as *mut _ as *mut _) == 0 {
+            if pl_get_param(
+                h,
+                PARAM_READOUT_TIME,
+                ATTR_CURRENT,
+                &mut time_us as *mut _ as *mut _,
+            ) == 0
+            {
                 return Err(anyhow!("Failed to get readout time: {}", get_pvcam_error()));
             }
         }
@@ -1041,11 +1061,29 @@ impl PvcamDriver {
         // PARAM_PIX_PAR_SIZE retrieves pixel dimensions. Both pointers are valid and properly
         // aligned for uns16 writes.
         unsafe {
-            if pl_get_param(h, PARAM_PIX_SER_SIZE, ATTR_CURRENT, &mut pix_ser as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to get serial pixel size: {}", get_pvcam_error()));
+            if pl_get_param(
+                h,
+                PARAM_PIX_SER_SIZE,
+                ATTR_CURRENT,
+                &mut pix_ser as *mut _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get serial pixel size: {}",
+                    get_pvcam_error()
+                ));
             }
-            if pl_get_param(h, PARAM_PIX_PAR_SIZE, ATTR_CURRENT, &mut pix_par as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to get parallel pixel size: {}", get_pvcam_error()));
+            if pl_get_param(
+                h,
+                PARAM_PIX_PAR_SIZE,
+                ATTR_CURRENT,
+                &mut pix_par as *mut _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get parallel pixel size: {}",
+                    get_pvcam_error()
+                ));
             }
         }
         Ok((pix_ser as u32, pix_par as u32))
@@ -1069,7 +1107,9 @@ impl PvcamDriver {
             if pl_get_param(h, PARAM_GAIN_NAME, ATTR_CURRENT, buf.as_mut_ptr() as *mut _) == 0 {
                 return Err(anyhow!("Failed to get gain name: {}", get_pvcam_error()));
             }
-            let name = std::ffi::CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned();
+            let name = std::ffi::CStr::from_ptr(buf.as_ptr())
+                .to_string_lossy()
+                .into_owned();
             Ok(name)
         }
     }
@@ -1089,10 +1129,21 @@ impl PvcamDriver {
         // the chip name string. buf is properly allocated (256 bytes) and valid for writes.
         // CStr::from_ptr is safe because PVCAM guarantees null-terminated strings.
         unsafe {
-            if pl_get_param(h, PARAM_SPDTAB_NAME, ATTR_CURRENT, buf.as_mut_ptr() as *mut _) == 0 {
-                return Err(anyhow!("Failed to get speed table name: {}", get_pvcam_error()));
+            if pl_get_param(
+                h,
+                PARAM_SPDTAB_NAME,
+                ATTR_CURRENT,
+                buf.as_mut_ptr() as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get speed table name: {}",
+                    get_pvcam_error()
+                ));
             }
-            let name = std::ffi::CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned();
+            let name = std::ffi::CStr::from_ptr(buf.as_ptr())
+                .to_string_lossy()
+                .into_owned();
             Ok(name)
         }
     }
@@ -1111,7 +1162,13 @@ impl PvcamDriver {
         // SAFETY: h is a valid camera handle. pl_get_param with PARAM_GAIN_INDEX retrieves
         // the gain index. idx pointer is valid and properly aligned for i16 writes.
         unsafe {
-            if pl_get_param(h, PARAM_GAIN_INDEX, ATTR_CURRENT, &mut idx as *mut _ as *mut _) == 0 {
+            if pl_get_param(
+                h,
+                PARAM_GAIN_INDEX,
+                ATTR_CURRENT,
+                &mut idx as *mut _ as *mut _,
+            ) == 0
+            {
                 return Err(anyhow!("Failed to get gain index: {}", get_pvcam_error()));
             }
         }
@@ -1132,8 +1189,17 @@ impl PvcamDriver {
         // SAFETY: h is a valid camera handle. pl_get_param with PARAM_SPDTAB_INDEX retrieves
         // the speed table index. idx pointer is valid and properly aligned for i16 writes.
         unsafe {
-            if pl_get_param(h, PARAM_SPDTAB_INDEX, ATTR_CURRENT, &mut idx as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to get speed table index: {}", get_pvcam_error()));
+            if pl_get_param(
+                h,
+                PARAM_SPDTAB_INDEX,
+                ATTR_CURRENT,
+                &mut idx as *mut _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get speed table index: {}",
+                    get_pvcam_error()
+                ));
             }
         }
         Ok(idx as u16)
@@ -1151,14 +1217,23 @@ impl PvcamDriver {
     /// current gain/speed mode names.
     pub async fn get_camera_info(&self) -> Result<CameraInfo> {
         Ok(CameraInfo {
-            chip_name: self.get_chip_name().await.unwrap_or_else(|_| "Unknown".to_string()),
+            chip_name: self
+                .get_chip_name()
+                .await
+                .unwrap_or_else(|_| "Unknown".to_string()),
             temperature_c: self.get_temperature().await.unwrap_or(f64::NAN),
             bit_depth: self.get_bit_depth().await.unwrap_or(0),
             readout_time_us: self.get_readout_time_us().await.unwrap_or(0.0),
             pixel_size_nm: self.get_pixel_size_nm().await.unwrap_or((0, 0)),
             sensor_size: (self.sensor_width, self.sensor_height),
-            gain_name: self.get_gain_name().await.unwrap_or_else(|_| "Unknown".to_string()),
-            speed_name: self.get_speed_name().await.unwrap_or_else(|_| "Unknown".to_string()),
+            gain_name: self
+                .get_gain_name()
+                .await
+                .unwrap_or_else(|_| "Unknown".to_string()),
+            speed_name: self
+                .get_speed_name()
+                .await
+                .unwrap_or_else(|_| "Unknown".to_string()),
         })
     }
 
@@ -1181,8 +1256,17 @@ impl PvcamDriver {
         // SAFETY: h is a valid camera handle. pl_get_param with PARAM_GAIN_INDEX and ATTR_MAX
         // retrieves the maximum gain index. max_idx pointer is valid and properly aligned.
         unsafe {
-            if pl_get_param(h, PARAM_GAIN_INDEX, ATTR_MAX, &mut max_idx as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to get max gain index: {}", get_pvcam_error()));
+            if pl_get_param(
+                h,
+                PARAM_GAIN_INDEX,
+                ATTR_MAX,
+                &mut max_idx as *mut _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get max gain index: {}",
+                    get_pvcam_error()
+                ));
             }
         }
 
@@ -1191,7 +1275,12 @@ impl PvcamDriver {
         // SAFETY: h is valid. Retrieving current gain index to restore later. Ignoring return
         // value as this is a save operation - if it fails we'll just not restore the index.
         unsafe {
-            pl_get_param(h, PARAM_GAIN_INDEX, ATTR_CURRENT, &mut current_idx as *mut _ as *mut _);
+            pl_get_param(
+                h,
+                PARAM_GAIN_INDEX,
+                ATTR_CURRENT,
+                &mut current_idx as *mut _ as *mut _,
+            );
         }
 
         let mut modes = Vec::new();
@@ -1233,9 +1322,18 @@ impl PvcamDriver {
     #[cfg(not(feature = "pvcam_hardware"))]
     pub async fn list_gain_modes(&self) -> Result<Vec<GainMode>> {
         Ok(vec![
-            GainMode { index: 0, name: "HDR".to_string() },
-            GainMode { index: 1, name: "High Sensitivity".to_string() },
-            GainMode { index: 2, name: "Full Well".to_string() },
+            GainMode {
+                index: 0,
+                name: "HDR".to_string(),
+            },
+            GainMode {
+                index: 1,
+                name: "High Sensitivity".to_string(),
+            },
+            GainMode {
+                index: 2,
+                name: "Full Well".to_string(),
+            },
         ])
     }
 
@@ -1269,7 +1367,10 @@ impl PvcamDriver {
     /// Returns a GainMode struct with the current gain index and name.
     pub async fn get_gain(&self) -> Result<GainMode> {
         let index = self.get_gain_index().await?;
-        let name = self.get_gain_name().await.unwrap_or_else(|_| "Unknown".to_string());
+        let name = self
+            .get_gain_name()
+            .await
+            .unwrap_or_else(|_| "Unknown".to_string());
         Ok(GainMode { index, name })
     }
 
@@ -1288,8 +1389,17 @@ impl PvcamDriver {
         // SAFETY: h is a valid camera handle. pl_get_param with PARAM_SPDTAB_INDEX and ATTR_MAX
         // retrieves the maximum speed table index. max_idx pointer is valid and properly aligned.
         unsafe {
-            if pl_get_param(h, PARAM_SPDTAB_INDEX, ATTR_MAX, &mut max_idx as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to get max speed index: {}", get_pvcam_error()));
+            if pl_get_param(
+                h,
+                PARAM_SPDTAB_INDEX,
+                ATTR_MAX,
+                &mut max_idx as *mut _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get max speed index: {}",
+                    get_pvcam_error()
+                ));
             }
         }
 
@@ -1298,7 +1408,12 @@ impl PvcamDriver {
         // SAFETY: h is valid. Retrieving current speed index to restore later. Ignoring return
         // value as this is a save operation - if it fails we'll just not restore the index.
         unsafe {
-            pl_get_param(h, PARAM_SPDTAB_INDEX, ATTR_CURRENT, &mut current_idx as *mut _ as *mut _);
+            pl_get_param(
+                h,
+                PARAM_SPDTAB_INDEX,
+                ATTR_CURRENT,
+                &mut current_idx as *mut _ as *mut _,
+            );
         }
 
         let mut modes = Vec::new();
@@ -1315,14 +1430,26 @@ impl PvcamDriver {
 
                 // Try to read speed name (may not be available on all cameras)
                 let mut buf = vec![0i8; 256];
-                let name = if pl_get_param(h, PARAM_SPDTAB_NAME, ATTR_CURRENT, buf.as_mut_ptr() as *mut _) != 0 {
+                let name = if pl_get_param(
+                    h,
+                    PARAM_SPDTAB_NAME,
+                    ATTR_CURRENT,
+                    buf.as_mut_ptr() as *mut _,
+                ) != 0
+                {
                     std::ffi::CStr::from_ptr(buf.as_ptr())
                         .to_string_lossy()
                         .into_owned()
                 } else {
                     // Speed name not available, try to get pixel time instead
                     let mut pix_time: uns16 = 0;
-                    if pl_get_param(h, PARAM_PIX_TIME, ATTR_CURRENT, &mut pix_time as *mut _ as *mut _) != 0 {
+                    if pl_get_param(
+                        h,
+                        PARAM_PIX_TIME,
+                        ATTR_CURRENT,
+                        &mut pix_time as *mut _ as *mut _,
+                    ) != 0
+                    {
                         format!("{} ns/pixel", pix_time)
                     } else {
                         format!("Speed {}", idx)
@@ -1349,8 +1476,14 @@ impl PvcamDriver {
     #[cfg(not(feature = "pvcam_hardware"))]
     pub async fn list_speed_modes(&self) -> Result<Vec<SpeedMode>> {
         Ok(vec![
-            SpeedMode { index: 0, name: "100 MHz".to_string() },
-            SpeedMode { index: 1, name: "200 MHz".to_string() },
+            SpeedMode {
+                index: 0,
+                name: "100 MHz".to_string(),
+            },
+            SpeedMode {
+                index: 1,
+                name: "200 MHz".to_string(),
+            },
         ])
     }
 
@@ -1384,7 +1517,10 @@ impl PvcamDriver {
     /// Returns a SpeedMode struct with the current speed index and name.
     pub async fn get_speed(&self) -> Result<SpeedMode> {
         let index = self.get_speed_index().await?;
-        let name = self.get_speed_name().await.unwrap_or_else(|_| "Unknown".to_string());
+        let name = self
+            .get_speed_name()
+            .await
+            .unwrap_or_else(|_| "Unknown".to_string());
         Ok(SpeedMode { index, name })
     }
 
@@ -1404,8 +1540,17 @@ impl PvcamDriver {
         // SAFETY: h is a valid camera handle. pl_get_param with PARAM_TEMP_SETPOINT retrieves
         // the temperature setpoint. temp_raw pointer is valid and properly aligned for i16 writes.
         unsafe {
-            if pl_get_param(h, PARAM_TEMP_SETPOINT, ATTR_CURRENT, &mut temp_raw as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to get temperature setpoint: {}", get_pvcam_error()));
+            if pl_get_param(
+                h,
+                PARAM_TEMP_SETPOINT,
+                ATTR_CURRENT,
+                &mut temp_raw as *mut _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get temperature setpoint: {}",
+                    get_pvcam_error()
+                ));
             }
         }
         // PVCAM returns temperature in hundredths of degrees C
@@ -1433,7 +1578,10 @@ impl PvcamDriver {
         // temperature setpoint. temp_raw pointer is valid and contains a valid temperature value.
         unsafe {
             if pl_set_param(h, PARAM_TEMP_SETPOINT, &temp_raw as *const _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to set temperature setpoint: {}", get_pvcam_error()));
+                return Err(anyhow!(
+                    "Failed to set temperature setpoint: {}",
+                    get_pvcam_error()
+                ));
             }
         }
         Ok(())
@@ -1453,7 +1601,13 @@ impl PvcamDriver {
         // SAFETY: h is a valid camera handle. pl_get_param with PARAM_FAN_SPEED_SETPOINT retrieves
         // the fan speed setting. speed pointer is valid and properly aligned for i32 writes.
         unsafe {
-            if pl_get_param(h, PARAM_FAN_SPEED_SETPOINT, ATTR_CURRENT, &mut speed as *mut _ as *mut _) == 0 {
+            if pl_get_param(
+                h,
+                PARAM_FAN_SPEED_SETPOINT,
+                ATTR_CURRENT,
+                &mut speed as *mut _ as *mut _,
+            ) == 0
+            {
                 return Err(anyhow!("Failed to get fan speed: {}", get_pvcam_error()));
             }
         }
@@ -1479,7 +1633,12 @@ impl PvcamDriver {
         // SAFETY: h is a valid camera handle. pl_set_param with PARAM_FAN_SPEED_SETPOINT sets
         // the fan speed. speed_val pointer is valid and contains a valid FanSpeed enum value.
         unsafe {
-            if pl_set_param(h, PARAM_FAN_SPEED_SETPOINT, &speed_val as *const _ as *mut _) == 0 {
+            if pl_set_param(
+                h,
+                PARAM_FAN_SPEED_SETPOINT,
+                &speed_val as *const _ as *mut _,
+            ) == 0
+            {
                 return Err(anyhow!("Failed to set fan speed: {}", get_pvcam_error()));
             }
         }
@@ -1510,7 +1669,13 @@ impl PvcamDriver {
         // retrieves the number of post-processing features. count pointer is valid and aligned.
         // PP features may not be available on all cameras - we return empty vec if unavailable.
         unsafe {
-            if pl_get_param(h, PARAM_PP_INDEX, ATTR_COUNT, &mut count as *mut _ as *mut _) == 0 {
+            if pl_get_param(
+                h,
+                PARAM_PP_INDEX,
+                ATTR_COUNT,
+                &mut count as *mut _ as *mut _,
+            ) == 0
+            {
                 // PP features may not be available on all cameras
                 return Ok(Vec::new());
             }
@@ -1530,13 +1695,25 @@ impl PvcamDriver {
 
                 // Get feature ID
                 let mut feat_id: u16 = 0;
-                if pl_get_param(h, PARAM_PP_FEAT_ID, ATTR_CURRENT, &mut feat_id as *mut _ as *mut _) == 0 {
+                if pl_get_param(
+                    h,
+                    PARAM_PP_FEAT_ID,
+                    ATTR_CURRENT,
+                    &mut feat_id as *mut _ as *mut _,
+                ) == 0
+                {
                     continue;
                 }
 
                 // Get feature name
                 let mut name_buf = vec![0i8; 256];
-                if pl_get_param(h, PARAM_PP_FEAT_NAME, ATTR_CURRENT, name_buf.as_mut_ptr() as *mut _) == 0 {
+                if pl_get_param(
+                    h,
+                    PARAM_PP_FEAT_NAME,
+                    ATTR_CURRENT,
+                    name_buf.as_mut_ptr() as *mut _,
+                ) == 0
+                {
                     continue;
                 }
                 let name = std::ffi::CStr::from_ptr(name_buf.as_ptr())
@@ -1558,8 +1735,16 @@ impl PvcamDriver {
     pub async fn list_pp_features(&self) -> Result<Vec<PPFeature>> {
         // Mock: return some typical PP features
         Ok(vec![
-            PPFeature { index: 0, id: 1, name: "Defect Correction".to_string() },
-            PPFeature { index: 1, id: 2, name: "Background Subtraction".to_string() },
+            PPFeature {
+                index: 0,
+                id: 1,
+                name: "Defect Correction".to_string(),
+            },
+            PPFeature {
+                index: 1,
+                id: 2,
+                name: "Background Subtraction".to_string(),
+            },
         ])
     }
 
@@ -1582,12 +1767,22 @@ impl PvcamDriver {
         // CStr::from_ptr is safe because PVCAM guarantees null-terminated strings.
         unsafe {
             if pl_set_param(h, PARAM_PP_INDEX, &idx as *const _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to select PP feature {}: {}", feature_index, get_pvcam_error()));
+                return Err(anyhow!(
+                    "Failed to select PP feature {}: {}",
+                    feature_index,
+                    get_pvcam_error()
+                ));
             }
 
             // Get count of parameters for this feature
             let mut count: i16 = 0;
-            if pl_get_param(h, PARAM_PP_PARAM_INDEX, ATTR_COUNT, &mut count as *mut _ as *mut _) == 0 {
+            if pl_get_param(
+                h,
+                PARAM_PP_PARAM_INDEX,
+                ATTR_COUNT,
+                &mut count as *mut _ as *mut _,
+            ) == 0
+            {
                 return Ok(Vec::new()); // No parameters for this feature
             }
 
@@ -1600,13 +1795,25 @@ impl PvcamDriver {
 
                 // Get parameter ID
                 let mut param_id: u16 = 0;
-                if pl_get_param(h, PARAM_PP_PARAM_ID, ATTR_CURRENT, &mut param_id as *mut _ as *mut _) == 0 {
+                if pl_get_param(
+                    h,
+                    PARAM_PP_PARAM_ID,
+                    ATTR_CURRENT,
+                    &mut param_id as *mut _ as *mut _,
+                ) == 0
+                {
                     continue;
                 }
 
                 // Get parameter name
                 let mut name_buf = vec![0i8; 256];
-                if pl_get_param(h, PARAM_PP_PARAM_NAME, ATTR_CURRENT, name_buf.as_mut_ptr() as *mut _) == 0 {
+                if pl_get_param(
+                    h,
+                    PARAM_PP_PARAM_NAME,
+                    ATTR_CURRENT,
+                    name_buf.as_mut_ptr() as *mut _,
+                ) == 0
+                {
                     continue;
                 }
                 let name = std::ffi::CStr::from_ptr(name_buf.as_ptr())
@@ -1615,7 +1822,13 @@ impl PvcamDriver {
 
                 // Get current value
                 let mut value: u32 = 0;
-                if pl_get_param(h, PARAM_PP_PARAM, ATTR_CURRENT, &mut value as *mut _ as *mut _) == 0 {
+                if pl_get_param(
+                    h,
+                    PARAM_PP_PARAM,
+                    ATTR_CURRENT,
+                    &mut value as *mut _ as *mut _,
+                ) == 0
+                {
                     continue;
                 }
 
@@ -1635,8 +1848,18 @@ impl PvcamDriver {
     pub async fn get_pp_params(&self, _feature_index: u16) -> Result<Vec<PPParam>> {
         // Mock: return typical parameters
         Ok(vec![
-            PPParam { index: 0, id: 1, name: "Enabled".to_string(), value: 1 },
-            PPParam { index: 1, id: 2, name: "Threshold".to_string(), value: 100 },
+            PPParam {
+                index: 0,
+                id: 1,
+                name: "Enabled".to_string(),
+                value: 1,
+            },
+            PPParam {
+                index: 1,
+                id: 2,
+                name: "Threshold".to_string(),
+                value: 100,
+            },
         ])
     }
 
@@ -1658,18 +1881,35 @@ impl PvcamDriver {
         unsafe {
             // Select the PP feature
             if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to select PP feature {}: {}", feature_index, get_pvcam_error()));
+                return Err(anyhow!(
+                    "Failed to select PP feature {}: {}",
+                    feature_index,
+                    get_pvcam_error()
+                ));
             }
 
             // Select the parameter
             if pl_set_param(h, PARAM_PP_PARAM_INDEX, &par_idx as *const _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to select PP param {}: {}", param_index, get_pvcam_error()));
+                return Err(anyhow!(
+                    "Failed to select PP param {}: {}",
+                    param_index,
+                    get_pvcam_error()
+                ));
             }
 
             // Get the value
             let mut value: u32 = 0;
-            if pl_get_param(h, PARAM_PP_PARAM, ATTR_CURRENT, &mut value as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to get PP param value: {}", get_pvcam_error()));
+            if pl_get_param(
+                h,
+                PARAM_PP_PARAM,
+                ATTR_CURRENT,
+                &mut value as *mut _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get PP param value: {}",
+                    get_pvcam_error()
+                ));
             }
 
             Ok(value)
@@ -1688,7 +1928,12 @@ impl PvcamDriver {
     /// * `param_index` - Index of the parameter within the feature
     /// * `value` - New value to set
     #[cfg(feature = "pvcam_hardware")]
-    pub async fn set_pp_param(&self, feature_index: u16, param_index: u16, value: u32) -> Result<()> {
+    pub async fn set_pp_param(
+        &self,
+        feature_index: u16,
+        param_index: u16,
+        value: u32,
+    ) -> Result<()> {
         let guard = self.camera_handle.lock().await;
         let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
 
@@ -1700,17 +1945,28 @@ impl PvcamDriver {
         unsafe {
             // Select the PP feature
             if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to select PP feature {}: {}", feature_index, get_pvcam_error()));
+                return Err(anyhow!(
+                    "Failed to select PP feature {}: {}",
+                    feature_index,
+                    get_pvcam_error()
+                ));
             }
 
             // Select the parameter
             if pl_set_param(h, PARAM_PP_PARAM_INDEX, &par_idx as *const _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to select PP param {}: {}", param_index, get_pvcam_error()));
+                return Err(anyhow!(
+                    "Failed to select PP param {}: {}",
+                    param_index,
+                    get_pvcam_error()
+                ));
             }
 
             // Set the value
             if pl_set_param(h, PARAM_PP_PARAM, &value as *const _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to set PP param value: {}", get_pvcam_error()));
+                return Err(anyhow!(
+                    "Failed to set PP param value: {}",
+                    get_pvcam_error()
+                ));
             }
 
             Ok(())
@@ -1718,7 +1974,12 @@ impl PvcamDriver {
     }
 
     #[cfg(not(feature = "pvcam_hardware"))]
-    pub async fn set_pp_param(&self, _feature_index: u16, _param_index: u16, _value: u32) -> Result<()> {
+    pub async fn set_pp_param(
+        &self,
+        _feature_index: u16,
+        _param_index: u16,
+        _value: u32,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -1732,7 +1993,10 @@ impl PvcamDriver {
         // to their default values. This is a safe operation with no pointer arguments.
         unsafe {
             if pl_pp_reset(h) == 0 {
-                return Err(anyhow!("Failed to reset PP features: {}", get_pvcam_error()));
+                return Err(anyhow!(
+                    "Failed to reset PP features: {}",
+                    get_pvcam_error()
+                ));
             }
         }
         Ok(())
@@ -1761,7 +2025,13 @@ impl PvcamDriver {
         // and ATTR_AVAIL checks feature availability. available pointer is valid and aligned.
         unsafe {
             // Check if PARAM_SMART_STREAM_MODE_ENABLED is available
-            if pl_get_param(h, PARAM_SMART_STREAM_MODE_ENABLED, ATTR_AVAIL, &mut available as *mut _ as *mut _) == 0 {
+            if pl_get_param(
+                h,
+                PARAM_SMART_STREAM_MODE_ENABLED,
+                ATTR_AVAIL,
+                &mut available as *mut _ as *mut _,
+            ) == 0
+            {
                 return Ok(false);
             }
         }
@@ -1783,8 +2053,17 @@ impl PvcamDriver {
         // SAFETY: h is a valid camera handle. pl_get_param retrieves the Smart Streaming
         // enabled state. enabled pointer is valid and properly aligned for rs_bool writes.
         unsafe {
-            if pl_get_param(h, PARAM_SMART_STREAM_MODE_ENABLED, ATTR_CURRENT, &mut enabled as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to get Smart Streaming status: {}", get_pvcam_error()));
+            if pl_get_param(
+                h,
+                PARAM_SMART_STREAM_MODE_ENABLED,
+                ATTR_CURRENT,
+                &mut enabled as *mut _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get Smart Streaming status: {}",
+                    get_pvcam_error()
+                ));
             }
         }
         Ok(enabled != 0)
@@ -1807,8 +2086,16 @@ impl PvcamDriver {
         // SAFETY: h is a valid camera handle. pl_set_param enables Smart Streaming mode.
         // enabled pointer is valid and contains the enable value (1).
         unsafe {
-            if pl_set_param(h, PARAM_SMART_STREAM_MODE_ENABLED, &enabled as *const _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to enable Smart Streaming: {}", get_pvcam_error()));
+            if pl_set_param(
+                h,
+                PARAM_SMART_STREAM_MODE_ENABLED,
+                &enabled as *const _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to enable Smart Streaming: {}",
+                    get_pvcam_error()
+                ));
             }
         }
         Ok(())
@@ -1829,8 +2116,16 @@ impl PvcamDriver {
         // SAFETY: h is a valid camera handle. pl_set_param disables Smart Streaming mode.
         // enabled pointer is valid and contains the disable value (0).
         unsafe {
-            if pl_set_param(h, PARAM_SMART_STREAM_MODE_ENABLED, &enabled as *const _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to disable Smart Streaming: {}", get_pvcam_error()));
+            if pl_set_param(
+                h,
+                PARAM_SMART_STREAM_MODE_ENABLED,
+                &enabled as *const _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to disable Smart Streaming: {}",
+                    get_pvcam_error()
+                ));
             }
         }
         Ok(())
@@ -1851,8 +2146,17 @@ impl PvcamDriver {
         // SAFETY: pl_get_param retrieves PARAM_SMART_STREAM_MODE max value. Camera handle h is
         // valid from pl_cam_open. max_entries pointer is valid and properly aligned for writes.
         unsafe {
-            if pl_get_param(h, PARAM_SMART_STREAM_MODE, ATTR_MAX, &mut max_entries as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to get Smart Streaming max entries: {}", get_pvcam_error()));
+            if pl_get_param(
+                h,
+                PARAM_SMART_STREAM_MODE,
+                ATTR_MAX,
+                &mut max_entries as *mut _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get Smart Streaming max entries: {}",
+                    get_pvcam_error()
+                ));
             }
         }
         Ok(max_entries)
@@ -1887,7 +2191,10 @@ impl PvcamDriver {
             // Create smart_stream_type structure
             let mut ss_ptr: *mut smart_stream_type = std::ptr::null_mut();
             if pl_create_smart_stream_struct(&mut ss_ptr, exposures_ms.len() as u16) == 0 {
-                return Err(anyhow!("Failed to create Smart Stream struct: {}", get_pvcam_error()));
+                return Err(anyhow!(
+                    "Failed to create Smart Stream struct: {}",
+                    get_pvcam_error()
+                ));
             }
 
             // Fill in exposure values (convert ms to microseconds)
@@ -1904,7 +2211,10 @@ impl PvcamDriver {
             pl_release_smart_stream_struct(&mut ss_ptr);
 
             if result == 0 {
-                return Err(anyhow!("Failed to set Smart Stream exposures: {}", get_pvcam_error()));
+                return Err(anyhow!(
+                    "Failed to set Smart Stream exposures: {}",
+                    get_pvcam_error()
+                ));
             }
         }
         Ok(())
@@ -1928,8 +2238,17 @@ impl PvcamDriver {
             let mut ss_ptr: *mut smart_stream_type = std::ptr::null_mut();
 
             // Get current exposure params
-            if pl_get_param(h, PARAM_SMART_STREAM_EXP_PARAMS, ATTR_CURRENT, &mut ss_ptr as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to get Smart Stream exposures: {}", get_pvcam_error()));
+            if pl_get_param(
+                h,
+                PARAM_SMART_STREAM_EXP_PARAMS,
+                ATTR_CURRENT,
+                &mut ss_ptr as *mut _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get Smart Stream exposures: {}",
+                    get_pvcam_error()
+                ));
             }
 
             if ss_ptr.is_null() {
@@ -1960,7 +2279,13 @@ impl PvcamDriver {
         // avail pointer is valid and properly aligned for writes.
         unsafe {
             let mut avail: rs_bool = 0;
-            if pl_get_param(h, PARAM_CENTROIDS_ENABLED, ATTR_AVAIL, &mut avail as *mut _ as *mut _) == 0 {
+            if pl_get_param(
+                h,
+                PARAM_CENTROIDS_ENABLED,
+                ATTR_AVAIL,
+                &mut avail as *mut _ as *mut _,
+            ) == 0
+            {
                 // Parameter not supported
                 return Ok(false);
             }
@@ -1983,8 +2308,17 @@ impl PvcamDriver {
         // enabled pointer is valid and properly aligned for writes.
         unsafe {
             let mut enabled: rs_bool = 0;
-            if pl_get_param(h, PARAM_CENTROIDS_ENABLED, ATTR_CURRENT, &mut enabled as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to get centroids enabled state: {}", get_pvcam_error()));
+            if pl_get_param(
+                h,
+                PARAM_CENTROIDS_ENABLED,
+                ATTR_CURRENT,
+                &mut enabled as *mut _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get centroids enabled state: {}",
+                    get_pvcam_error()
+                ));
             }
             Ok(enabled != 0)
         }
@@ -2028,7 +2362,10 @@ impl PvcamDriver {
         unsafe {
             let mut enabled: rs_bool = 0;
             if pl_set_param(h, PARAM_CENTROIDS_ENABLED, &mut enabled as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to disable centroids: {}", get_pvcam_error()));
+                return Err(anyhow!(
+                    "Failed to disable centroids: {}",
+                    get_pvcam_error()
+                ));
             }
         }
         Ok(())
@@ -2049,8 +2386,17 @@ impl PvcamDriver {
         // mode pointer is valid and properly aligned for writes.
         unsafe {
             let mut mode: i32 = 0;
-            if pl_get_param(h, PARAM_CENTROIDS_MODE, ATTR_CURRENT, &mut mode as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to get centroids mode: {}", get_pvcam_error()));
+            if pl_get_param(
+                h,
+                PARAM_CENTROIDS_MODE,
+                ATTR_CURRENT,
+                &mut mode as *mut _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get centroids mode: {}",
+                    get_pvcam_error()
+                ));
             }
             Ok(CentroidsMode::from_pvcam(mode))
         }
@@ -2072,7 +2418,10 @@ impl PvcamDriver {
         unsafe {
             let mut mode_val: i32 = mode.to_pvcam();
             if pl_set_param(h, PARAM_CENTROIDS_MODE, &mut mode_val as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to set centroids mode: {}", get_pvcam_error()));
+                return Err(anyhow!(
+                    "Failed to set centroids mode: {}",
+                    get_pvcam_error()
+                ));
             }
         }
         Ok(())
@@ -2093,8 +2442,17 @@ impl PvcamDriver {
         // radius pointer is valid and properly aligned for writes.
         unsafe {
             let mut radius: uns16 = 0;
-            if pl_get_param(h, PARAM_CENTROIDS_RADIUS, ATTR_CURRENT, &mut radius as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to get centroids radius: {}", get_pvcam_error()));
+            if pl_get_param(
+                h,
+                PARAM_CENTROIDS_RADIUS,
+                ATTR_CURRENT,
+                &mut radius as *mut _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get centroids radius: {}",
+                    get_pvcam_error()
+                ));
             }
             Ok(radius)
         }
@@ -2116,7 +2474,10 @@ impl PvcamDriver {
         unsafe {
             let mut r: uns16 = radius;
             if pl_set_param(h, PARAM_CENTROIDS_RADIUS, &mut r as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to set centroids radius: {}", get_pvcam_error()));
+                return Err(anyhow!(
+                    "Failed to set centroids radius: {}",
+                    get_pvcam_error()
+                ));
             }
         }
         Ok(())
@@ -2137,8 +2498,17 @@ impl PvcamDriver {
         // count pointer is valid and properly aligned for writes.
         unsafe {
             let mut count: uns16 = 0;
-            if pl_get_param(h, PARAM_CENTROIDS_COUNT, ATTR_CURRENT, &mut count as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to get centroids count: {}", get_pvcam_error()));
+            if pl_get_param(
+                h,
+                PARAM_CENTROIDS_COUNT,
+                ATTR_CURRENT,
+                &mut count as *mut _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get centroids count: {}",
+                    get_pvcam_error()
+                ));
             }
             Ok(count)
         }
@@ -2160,7 +2530,10 @@ impl PvcamDriver {
         unsafe {
             let mut c: uns16 = count;
             if pl_set_param(h, PARAM_CENTROIDS_COUNT, &mut c as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to set centroids count: {}", get_pvcam_error()));
+                return Err(anyhow!(
+                    "Failed to set centroids count: {}",
+                    get_pvcam_error()
+                ));
             }
         }
         Ok(())
@@ -2181,8 +2554,17 @@ impl PvcamDriver {
         // thresh pointer is valid and properly aligned for writes.
         unsafe {
             let mut thresh: uns32 = 0;
-            if pl_get_param(h, PARAM_CENTROIDS_THRESHOLD, ATTR_CURRENT, &mut thresh as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to get centroids threshold: {}", get_pvcam_error()));
+            if pl_get_param(
+                h,
+                PARAM_CENTROIDS_THRESHOLD,
+                ATTR_CURRENT,
+                &mut thresh as *mut _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get centroids threshold: {}",
+                    get_pvcam_error()
+                ));
             }
             Ok(thresh)
         }
@@ -2204,7 +2586,10 @@ impl PvcamDriver {
         unsafe {
             let mut t: uns32 = threshold;
             if pl_set_param(h, PARAM_CENTROIDS_THRESHOLD, &mut t as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to set centroids threshold: {}", get_pvcam_error()));
+                return Err(anyhow!(
+                    "Failed to set centroids threshold: {}",
+                    get_pvcam_error()
+                ));
             }
         }
         Ok(())
@@ -2257,7 +2642,9 @@ impl PvcamDriver {
 
     /// Check if PrimeEnhance is currently enabled
     pub async fn is_prime_enhance_enabled(&self) -> Result<bool> {
-        let idx = self.find_prime_enhance_index().await?
+        let idx = self
+            .find_prime_enhance_index()
+            .await?
             .ok_or_else(|| anyhow!("PrimeEnhance not available on this camera"))?;
         // Parameter 0 is always ENABLED
         let value = self.get_pp_param(idx, 0).await?;
@@ -2266,21 +2653,27 @@ impl PvcamDriver {
 
     /// Enable PrimeEnhance noise reduction
     pub async fn enable_prime_enhance(&self) -> Result<()> {
-        let idx = self.find_prime_enhance_index().await?
+        let idx = self
+            .find_prime_enhance_index()
+            .await?
             .ok_or_else(|| anyhow!("PrimeEnhance not available on this camera"))?;
         self.set_pp_param(idx, 0, 1).await
     }
 
     /// Disable PrimeEnhance noise reduction
     pub async fn disable_prime_enhance(&self) -> Result<()> {
-        let idx = self.find_prime_enhance_index().await?
+        let idx = self
+            .find_prime_enhance_index()
+            .await?
             .ok_or_else(|| anyhow!("PrimeEnhance not available on this camera"))?;
         self.set_pp_param(idx, 0, 0).await
     }
 
     /// Get PrimeEnhance number of iterations
     pub async fn get_prime_enhance_iterations(&self) -> Result<u32> {
-        let idx = self.find_prime_enhance_index().await?
+        let idx = self
+            .find_prime_enhance_index()
+            .await?
             .ok_or_else(|| anyhow!("PrimeEnhance not available on this camera"))?;
         // Parameter 1 is NO OF ITERATIONS
         self.get_pp_param(idx, 1).await
@@ -2288,14 +2681,18 @@ impl PvcamDriver {
 
     /// Set PrimeEnhance number of iterations
     pub async fn set_prime_enhance_iterations(&self, iterations: u32) -> Result<()> {
-        let idx = self.find_prime_enhance_index().await?
+        let idx = self
+            .find_prime_enhance_index()
+            .await?
             .ok_or_else(|| anyhow!("PrimeEnhance not available on this camera"))?;
         self.set_pp_param(idx, 1, iterations).await
     }
 
     /// Get PrimeEnhance gain parameter
     pub async fn get_prime_enhance_gain(&self) -> Result<u32> {
-        let idx = self.find_prime_enhance_index().await?
+        let idx = self
+            .find_prime_enhance_index()
+            .await?
             .ok_or_else(|| anyhow!("PrimeEnhance not available on this camera"))?;
         // Parameter 2 is GAIN
         self.get_pp_param(idx, 2).await
@@ -2303,14 +2700,18 @@ impl PvcamDriver {
 
     /// Set PrimeEnhance gain parameter
     pub async fn set_prime_enhance_gain(&self, gain: u32) -> Result<()> {
-        let idx = self.find_prime_enhance_index().await?
+        let idx = self
+            .find_prime_enhance_index()
+            .await?
             .ok_or_else(|| anyhow!("PrimeEnhance not available on this camera"))?;
         self.set_pp_param(idx, 2, gain).await
     }
 
     /// Get PrimeEnhance offset parameter
     pub async fn get_prime_enhance_offset(&self) -> Result<u32> {
-        let idx = self.find_prime_enhance_index().await?
+        let idx = self
+            .find_prime_enhance_index()
+            .await?
             .ok_or_else(|| anyhow!("PrimeEnhance not available on this camera"))?;
         // Parameter 3 is OFFSET
         self.get_pp_param(idx, 3).await
@@ -2318,14 +2719,18 @@ impl PvcamDriver {
 
     /// Set PrimeEnhance offset parameter
     pub async fn set_prime_enhance_offset(&self, offset: u32) -> Result<()> {
-        let idx = self.find_prime_enhance_index().await?
+        let idx = self
+            .find_prime_enhance_index()
+            .await?
             .ok_or_else(|| anyhow!("PrimeEnhance not available on this camera"))?;
         self.set_pp_param(idx, 3, offset).await
     }
 
     /// Get PrimeEnhance lambda parameter (noise reduction strength)
     pub async fn get_prime_enhance_lambda(&self) -> Result<u32> {
-        let idx = self.find_prime_enhance_index().await?
+        let idx = self
+            .find_prime_enhance_index()
+            .await?
             .ok_or_else(|| anyhow!("PrimeEnhance not available on this camera"))?;
         // Parameter 4 is LAMBDA
         self.get_pp_param(idx, 4).await
@@ -2333,7 +2738,9 @@ impl PvcamDriver {
 
     /// Set PrimeEnhance lambda parameter (noise reduction strength)
     pub async fn set_prime_enhance_lambda(&self, lambda: u32) -> Result<()> {
-        let idx = self.find_prime_enhance_index().await?
+        let idx = self
+            .find_prime_enhance_index()
+            .await?
             .ok_or_else(|| anyhow!("PrimeEnhance not available on this camera"))?;
         self.set_pp_param(idx, 4, lambda).await
     }
@@ -2352,7 +2759,13 @@ impl PvcamDriver {
         // is valid. avail pointer is valid and properly aligned for writes.
         unsafe {
             let mut avail: rs_bool = 0;
-            if pl_get_param(h, PARAM_FRAME_ROTATE, ATTR_AVAIL, &mut avail as *mut _ as *mut _) == 0 {
+            if pl_get_param(
+                h,
+                PARAM_FRAME_ROTATE,
+                ATTR_AVAIL,
+                &mut avail as *mut _ as *mut _,
+            ) == 0
+            {
                 return Ok(false);
             }
             Ok(avail != 0)
@@ -2374,8 +2787,17 @@ impl PvcamDriver {
         // rotation pointer is valid and properly aligned for writes.
         unsafe {
             let mut rotation: i32 = 0;
-            if pl_get_param(h, PARAM_FRAME_ROTATE, ATTR_CURRENT, &mut rotation as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to get frame rotation: {}", get_pvcam_error()));
+            if pl_get_param(
+                h,
+                PARAM_FRAME_ROTATE,
+                ATTR_CURRENT,
+                &mut rotation as *mut _ as *mut _,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get frame rotation: {}",
+                    get_pvcam_error()
+                ));
             }
             // Convert enum value to degrees: 0=0, 1=90, 2=180, 3=270
             Ok((rotation * 90) as u16)
@@ -2407,7 +2829,10 @@ impl PvcamDriver {
         unsafe {
             let mut r = rotation;
             if pl_set_param(h, PARAM_FRAME_ROTATE, &mut r as *mut _ as *mut _) == 0 {
-                return Err(anyhow!("Failed to set frame rotation: {}", get_pvcam_error()));
+                return Err(anyhow!(
+                    "Failed to set frame rotation: {}",
+                    get_pvcam_error()
+                ));
             }
         }
         Ok(())
@@ -2428,7 +2853,13 @@ impl PvcamDriver {
         // is valid. avail pointer is valid and properly aligned for writes.
         unsafe {
             let mut avail: rs_bool = 0;
-            if pl_get_param(h, PARAM_FRAME_FLIP, ATTR_AVAIL, &mut avail as *mut _ as *mut _) == 0 {
+            if pl_get_param(
+                h,
+                PARAM_FRAME_FLIP,
+                ATTR_AVAIL,
+                &mut avail as *mut _ as *mut _,
+            ) == 0
+            {
                 return Ok(false);
             }
             Ok(avail != 0)
@@ -2450,7 +2881,13 @@ impl PvcamDriver {
         // flip pointer is valid and properly aligned for writes.
         unsafe {
             let mut flip: i32 = 0;
-            if pl_get_param(h, PARAM_FRAME_FLIP, ATTR_CURRENT, &mut flip as *mut _ as *mut _) == 0 {
+            if pl_get_param(
+                h,
+                PARAM_FRAME_FLIP,
+                ATTR_CURRENT,
+                &mut flip as *mut _ as *mut _,
+            ) == 0
+            {
                 return Err(anyhow!("Failed to get frame flip: {}", get_pvcam_error()));
             }
             Ok(flip as u16)
@@ -2833,7 +3270,10 @@ impl FrameProducer for PvcamDriver {
         (self.sensor_width, self.sensor_height)
     }
 
-    #[expect(deprecated, reason = "take_frame_receiver implements deprecated FrameProducer trait method")]
+    #[expect(
+        deprecated,
+        reason = "take_frame_receiver implements deprecated FrameProducer trait method"
+    )]
     async fn take_frame_receiver(&self) -> Option<tokio::sync::mpsc::Receiver<Frame>> {
         // Deprecated: use subscribe_frames() instead
         None
@@ -2911,8 +3351,8 @@ impl Triggerable for PvcamDriver {
     async fn arm(&self) -> Result<()> {
         #[cfg(feature = "pvcam_hardware")]
         {
-            let h = (*self.camera_handle.lock().await)
-                .ok_or_else(|| anyhow!("Camera not opened"))?;
+            let h =
+                (*self.camera_handle.lock().await).ok_or_else(|| anyhow!("Camera not opened"))?;
 
             let exposure = self.exposure_ms.get();
             let roi = *self.roi.lock().await;
@@ -2983,8 +3423,8 @@ impl Triggerable for PvcamDriver {
 
         #[cfg(feature = "pvcam_hardware")]
         {
-            let h = (*self.camera_handle.lock().await)
-                .ok_or_else(|| anyhow!("Camera not opened"))?;
+            let h =
+                (*self.camera_handle.lock().await).ok_or_else(|| anyhow!("Camera not opened"))?;
 
             let exposure = self.exposure_ms.get();
 

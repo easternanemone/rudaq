@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::{Duration};
+use std::time::Duration;
 
 // =============================================================================
 // ProcedureResult
@@ -249,8 +249,8 @@ impl QualityMetrics {
             self.overall_score = 1.0;
         } else {
             // Pass = 1.0, Warning = 0.5, Fail = 0.0
-            let score = (self.checks_passed as f64 + self.checks_warned as f64 * 0.5)
-                / total as f64;
+            let score =
+                (self.checks_passed as f64 + self.checks_warned as f64 * 0.5) / total as f64;
             self.overall_score = score;
         }
     }

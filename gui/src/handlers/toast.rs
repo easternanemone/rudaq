@@ -20,7 +20,10 @@ fn register_dismiss_toast(ui: &MainWindow, ui_weak: Weak<MainWindow>) {
 
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
             let toasts_model = ui.get_toasts();
-            if let Some(vec_model) = toasts_model.as_any().downcast_ref::<VecModel<ToastMessage>>() {
+            if let Some(vec_model) = toasts_model
+                .as_any()
+                .downcast_ref::<VecModel<ToastMessage>>()
+            {
                 for i in 0..vec_model.row_count() {
                     if let Some(toast) = vec_model.row_data(i) {
                         if toast.id == toast_id {
@@ -42,7 +45,10 @@ fn register_show_toast(ui: &MainWindow, ui_weak: Weak<MainWindow>) {
 
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
             let toasts_model = ui.get_toasts();
-            if let Some(vec_model) = toasts_model.as_any().downcast_ref::<VecModel<ToastMessage>>() {
+            if let Some(vec_model) = toasts_model
+                .as_any()
+                .downcast_ref::<VecModel<ToastMessage>>()
+            {
                 vec_model.push(ToastMessage {
                     id: toast_id,
                     severity: severity.clone(),
@@ -59,7 +65,9 @@ fn register_show_toast(ui: &MainWindow, ui_weak: Weak<MainWindow>) {
                     slint::Timer::single_shot(std::time::Duration::from_secs(5), move || {
                         let _ = ui_weak_dismiss.upgrade_in_event_loop(move |ui| {
                             let toasts = ui.get_toasts();
-                            if let Some(vm) = toasts.as_any().downcast_ref::<VecModel<ToastMessage>>() {
+                            if let Some(vm) =
+                                toasts.as_any().downcast_ref::<VecModel<ToastMessage>>()
+                            {
                                 for i in 0..vm.row_count() {
                                     if let Some(t) = vm.row_data(i) {
                                         if t.id == dismiss_id {

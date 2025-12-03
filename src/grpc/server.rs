@@ -1,10 +1,12 @@
 use crate::core::Measurement;
+use crate::grpc::proto::run_engine_service_server::RunEngineServiceServer;
 use crate::grpc::proto::{
     control_service_server::{ControlService, ControlServiceServer},
     DaemonInfoRequest, DaemonInfoResponse, ListExecutionsRequest, ListExecutionsResponse,
     ListScriptsRequest, ListScriptsResponse, ScriptInfo, ScriptStatus, StartRequest, StartResponse,
     StatusRequest, StopRequest, StopResponse, SystemStatus, UploadRequest, UploadResponse,
 };
+use crate::grpc::run_engine_service::RunEngineServiceImpl;
 use crate::scripting::ScriptHost;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -103,7 +105,7 @@ impl DaqServer {
                             break; // Channel closed, exit task
                         }
                     }
-                    
+
                     // Yield to allow other tasks to run
                     tokio::task::yield_now().await;
                 }
@@ -157,10 +159,37 @@ impl std::fmt::Debug for DaqServer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DaqServer")
             .field("script_host", &"<RwLock<ScriptHost>>")
-            .field("scripts", &format!("{} scripts", self.scripts.try_read().map(|s| s.len()).unwrap_or(0)))
-            .field("script_metadata", &format!("{} metadata entries", self.script_metadata.try_read().map(|m| m.len()).unwrap_or(0)))
-            .field("executions", &format!("{} executions", self.executions.try_read().map(|e| e.len()).unwrap_or(0)))
-            .field("running_tasks", &format!("{} running tasks", self.running_tasks.try_read().map(|t| t.len()).unwrap_or(0)))
+            .field(
+                "scripts",
+                &format!(
+                    "{} scripts",
+                    self.scripts.try_read().map(|s| s.len()).unwrap_or(0)
+                ),
+            )
+            .field(
+                "script_metadata",
+                &format!(
+                    "{} metadata entries",
+                    self.script_metadata
+                        .try_read()
+                        .map(|m| m.len())
+                        .unwrap_or(0)
+                ),
+            )
+            .field(
+                "executions",
+                &format!(
+                    "{} executions",
+                    self.executions.try_read().map(|e| e.len()).unwrap_or(0)
+                ),
+            )
+            .field(
+                "running_tasks",
+                &format!(
+                    "{} running tasks",
+                    self.running_tasks.try_read().map(|t| t.len()).unwrap_or(0)
+                ),
+            )
             .field("start_time", &self.start_time)
             .field("data_tx", &"<broadcast::Sender>")
             .finish()
@@ -285,7 +314,10 @@ impl ControlService for DaqServer {
             }
 
             // Remove from running_tasks now that we're done
-            running_tasks_clone.write().await.remove(&exec_id_for_cleanup);
+            running_tasks_clone
+                .write()
+                .await
+                .remove(&exec_id_for_cleanup);
         });
 
         // Store handle for potential cancellation
@@ -327,11 +359,7 @@ impl ControlService for DaqServer {
         }
 
         // Abort the running task
-        let handle = self
-            .running_tasks
-            .write()
-            .await
-            .remove(&req.execution_id);
+        let handle = self.running_tasks.write().await.remove(&req.execution_id);
 
         let msg = if let Some(handle) = handle {
             handle.abort();
@@ -530,7 +558,7 @@ impl ControlService for DaqServer {
                 if tx.send(Ok(proto_data_point)).await.is_err() {
                     break; // Client disconnected
                 }
-                
+
                 // Yield to allow other tasks to run
                 tokio::task::yield_now().await;
             }
@@ -638,11 +666,13 @@ impl ControlService for DaqServer {
 /// Start the DAQ gRPC server (script control only)
 pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
     let server = DaqServer::new();
+    let run_engine = RunEngineServiceImpl::new();
 
     println!("DAQ gRPC server listening on {}", addr);
 
     Server::builder()
         .add_service(ControlServiceServer::new(server))
+        .add_service(RunEngineServiceServer::new(run_engine))
         .serve(addr)
         .await?;
 
@@ -673,8 +703,8 @@ pub async fn start_server_with_hardware(
     addr: std::net::SocketAddr,
     registry: std::sync::Arc<tokio::sync::RwLock<crate::hardware::registry::DeviceRegistry>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::data::ring_buffer::RingBuffer;
     use crate::data::hdf5_writer::HDF5Writer;
+    use crate::data::ring_buffer::RingBuffer;
     use crate::grpc::hardware_service::HardwareServiceImpl;
     use crate::grpc::module_service::ModuleServiceImpl;
     use crate::grpc::plugin_service::PluginServiceImpl;
@@ -696,14 +726,17 @@ pub async fn start_server_with_hardware(
     } else {
         Path::new("/tmp/rust_daq_scan_data.buf")
     };
-    
+
     let ring_buffer = match RingBuffer::create(ring_buffer_path, 100) {
         Ok(rb) => {
             println!("  - RingBuffer: {} (100 MB)", ring_buffer_path.display());
             Some(std::sync::Arc::new(rb))
         }
         Err(e) => {
-            eprintln!("Warning: Failed to create ring buffer: {}. Scan data will not be persisted.", e);
+            eprintln!(
+                "Warning: Failed to create ring buffer: {}. Scan data will not be persisted.",
+                e
+            );
             None
         }
     };
@@ -716,10 +749,13 @@ pub async fn start_server_with_hardware(
         } else {
             Path::new("/tmp/rust_daq_scan_data.h5")
         };
-        
+
         match HDF5Writer::new(hdf5_output_path, rb.clone()) {
             Ok(writer) => {
-                println!("  - HDF5Writer: {} (1 Hz flush)", hdf5_output_path.display());
+                println!(
+                    "  - HDF5Writer: {} (1 Hz flush)",
+                    hdf5_output_path.display()
+                );
                 tokio::spawn(async move {
                     writer.run().await;
                 });
@@ -731,9 +767,10 @@ pub async fn start_server_with_hardware(
     }
 
     let control_server = DaqServer::new();
+    let run_engine_server = RunEngineServiceImpl::new();
     let hardware_server = HardwareServiceImpl::new(registry.clone());
     let module_server = ModuleServiceImpl::new(registry.clone());
-    
+
     // Create PluginService with shared factory and registry (bd-0451)
     #[cfg(feature = "tokio_serial")]
     let plugin_server = {
@@ -742,14 +779,14 @@ pub async fn start_server_with_hardware(
         drop(reg);
         PluginServiceImpl::new(factory, registry.clone())
     };
-    
+
     // Wire ScanService with optional data persistence
     let scan_server = if let Some(rb) = ring_buffer {
         ScanServiceImpl::new(registry.clone()).with_ring_buffer(rb)
     } else {
         ScanServiceImpl::new(registry.clone())
     };
-    
+
     let preset_server = PresetServiceImpl::new(registry, default_preset_storage_path());
     let storage_server = StorageServiceImpl::new();
 
@@ -766,6 +803,7 @@ pub async fn start_server_with_hardware(
     #[cfg(feature = "tokio_serial")]
     let server_builder = Server::builder()
         .add_service(ControlServiceServer::new(control_server))
+        .add_service(RunEngineServiceServer::new(run_engine_server.clone()))
         .add_service(HardwareServiceServer::new(hardware_server))
         .add_service(ModuleServiceServer::new(module_server))
         .add_service(PluginServiceServer::new(plugin_server))
@@ -776,6 +814,7 @@ pub async fn start_server_with_hardware(
     #[cfg(not(feature = "tokio_serial"))]
     let server_builder = Server::builder()
         .add_service(ControlServiceServer::new(control_server))
+        .add_service(RunEngineServiceServer::new(run_engine_server))
         .add_service(HardwareServiceServer::new(hardware_server))
         .add_service(ModuleServiceServer::new(module_server))
         .add_service(ScanServiceServer::new(scan_server))

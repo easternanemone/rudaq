@@ -46,7 +46,11 @@ async fn main() -> Result<()> {
         let mut count = 0;
         while let Some(frame) = rx_preview.recv().await {
             count += 1;
-            println!("  [PREVIEW] Received frame #{} ({} bytes)", count, frame.len());
+            println!(
+                "  [PREVIEW] Received frame #{} ({} bytes)",
+                count,
+                frame.len()
+            );
             if count >= 5 {
                 break;
             }
@@ -58,7 +62,11 @@ async fn main() -> Result<()> {
         let mut count = 0;
         while let Some(frame) = rx_thumbnail.recv().await {
             count += 1;
-            println!("  [THUMBNAIL] Received frame #{} ({} bytes)", count, frame.len());
+            println!(
+                "  [THUMBNAIL] Received frame #{} ({} bytes)",
+                count,
+                frame.len()
+            );
             if count >= 2 {
                 break;
             }
@@ -117,8 +125,14 @@ async fn main() -> Result<()> {
     println!("\nResults:");
     println!("========");
     println!("Total frames written: 100");
-    println!("Preview tap received: {} frames (expected ~10)", preview_count);
-    println!("Thumbnail tap received: {} frames (expected ~2)", thumbnail_count);
+    println!(
+        "Preview tap received: {} frames (expected ~10)",
+        preview_count
+    );
+    println!(
+        "Thumbnail tap received: {} frames (expected ~2)",
+        thumbnail_count
+    );
     println!(
         "Full-rate tap: {} received, {} dropped (backpressure handling)",
         full_count, full_dropped

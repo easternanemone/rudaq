@@ -5,28 +5,74 @@
 //! capability-based access to hardware devices.
 
 use crate::grpc::proto::{
-    hardware_service_server::HardwareService, ArmRequest, ArmResponse, DeviceCommandRequest,
-    DeviceCommandResponse, DeviceInfo, DeviceMetadata as ProtoDeviceMetadata,
-    DeviceStateRequest, DeviceStateResponse, DeviceStateSubscribeRequest, DeviceStateUpdate,
-    GetExposureRequest, GetExposureResponse, GetParameterRequest, ListDevicesRequest,
-    ListDevicesResponse, ListParametersRequest, ListParametersResponse, MoveRequest, MoveResponse,
-    ParameterChange, ParameterDescriptor, ParameterValue, PositionUpdate, ReadValueRequest,
-    ReadValueResponse, SetExposureRequest, SetExposureResponse, SetParameterRequest,
-    SetParameterResponse, StageDeviceRequest, StageDeviceResponse, StartStreamRequest,
-    StartStreamResponse, StopMotionRequest, StopMotionResponse, StopStreamRequest,
-    StopStreamResponse, StreamFramesRequest, StreamParameterChangesRequest, StreamPositionRequest,
-    StreamValuesRequest, TriggerRequest, TriggerResponse, UnstageDeviceRequest,
-    UnstageDeviceResponse, ValueUpdate, WaitSettledRequest, WaitSettledResponse,
+    hardware_service_server::HardwareService,
+    ArmRequest,
+    ArmResponse,
+    DeviceCommandRequest,
+    DeviceCommandResponse,
+    DeviceInfo,
+    DeviceMetadata as ProtoDeviceMetadata,
+    DeviceStateRequest,
+    DeviceStateResponse,
+    DeviceStateSubscribeRequest,
+    DeviceStateUpdate,
+    GetEmissionRequest,
+    GetEmissionResponse,
+    GetExposureRequest,
+    GetExposureResponse,
+    GetParameterRequest,
+    GetShutterRequest,
+    GetShutterResponse,
+    GetWavelengthRequest,
+    GetWavelengthResponse,
+    ListDevicesRequest,
+    ListDevicesResponse,
+    ListParametersRequest,
+    ListParametersResponse,
+    MoveRequest,
+    MoveResponse,
+    ParameterChange,
+    ParameterDescriptor,
+    ParameterValue,
+    PositionUpdate,
+    ReadValueRequest,
+    ReadValueResponse,
+    SetEmissionRequest,
+    SetEmissionResponse,
+    SetExposureRequest,
+    SetExposureResponse,
+    SetParameterRequest,
+    SetParameterResponse,
     // Laser control types (bd-pwjo)
-    SetShutterRequest, SetShutterResponse, GetShutterRequest, GetShutterResponse,
-    SetWavelengthRequest, SetWavelengthResponse, GetWavelengthRequest, GetWavelengthResponse,
-    SetEmissionRequest, SetEmissionResponse, GetEmissionRequest, GetEmissionResponse,
+    SetShutterRequest,
+    SetShutterResponse,
+    SetWavelengthRequest,
+    SetWavelengthResponse,
+    StageDeviceRequest,
+    StageDeviceResponse,
+    StartStreamRequest,
+    StartStreamResponse,
+    StopMotionRequest,
+    StopMotionResponse,
+    StopStreamRequest,
+    StopStreamResponse,
+    StreamFramesRequest,
+    StreamParameterChangesRequest,
+    StreamPositionRequest,
+    StreamValuesRequest,
+    TriggerRequest,
+    TriggerResponse,
+    UnstageDeviceRequest,
+    UnstageDeviceResponse,
+    ValueUpdate,
+    WaitSettledRequest,
+    WaitSettledResponse,
 };
 use crate::hardware::registry::{Capability, DeviceRegistry};
+use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use serde_json;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
 use tokio_stream::wrappers::ReceiverStream;
@@ -47,31 +93,31 @@ impl HardwareServiceImpl {
     pub fn new(registry: Arc<RwLock<DeviceRegistry>>) -> Self {
         // Create broadcast channel for parameter changes (capacity 256 in-flight messages)
         let (param_change_tx, _) = tokio::sync::broadcast::channel(256);
-        
+
         // Wire up automatic parameter change notifications (bd-zafg)
         //
         // This monitors all parameters from Parameterized devices and broadcasts changes
-        // to gRPC clients via StreamParameterChanges. When hardware drivers call 
+        // to gRPC clients via StreamParameterChanges. When hardware drivers call
         // Parameter.set(), those changes automatically propagate to GUI subscribers.
         let registry_clone = registry.clone();
         let tx_clone = param_change_tx.clone();
         tokio::spawn(async move {
             // Give registry time to fully initialize
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            
+
             let reg = registry_clone.read().await;
-            
+
             // Iterate all devices and spawn monitors for parameters
             for device_info in reg.list_devices() {
                 let device_id = device_info.id.clone();
-                
+
                 if let Some(param_set) = reg.get_parameters(&device_id) {
                     // Found a Parameterized device - monitor all its parameters
                     for param_name in param_set.names() {
                         let tx = tx_clone.clone();
                         let dev_id = device_id.clone();
                         let p_name = param_name.to_string();
-                        
+
                         // Try to downcast to Observable<f64> (most common parameter type)
                         if let Some(obs_f64) = param_set.get_typed::<f64>(param_name) {
                             let mut rx = obs_f64.subscribe();
@@ -96,8 +142,11 @@ impl HardwareServiceImpl {
                 }
             }
         });
-        
-        Self { registry, param_change_tx }
+
+        Self {
+            registry,
+            param_change_tx,
+        }
     }
 
     /// Create a new HardwareService with an existing parameter change broadcast sender
@@ -106,7 +155,10 @@ impl HardwareServiceImpl {
         registry: Arc<RwLock<DeviceRegistry>>,
         param_change_tx: tokio::sync::broadcast::Sender<ParameterChange>,
     ) -> Self {
-        Self { registry, param_change_tx }
+        Self {
+            registry,
+            param_change_tx,
+        }
     }
 
     /// Get a clone of the parameter change broadcast sender for external notification
@@ -247,7 +299,11 @@ impl HardwareService for HardwareServiceImpl {
         let device_ids: Vec<String> = {
             let registry = self.registry.read().await;
             if req.device_ids.is_empty() {
-                registry.list_devices().iter().map(|d| d.id.clone()).collect()
+                registry
+                    .list_devices()
+                    .iter()
+                    .map(|d| d.id.clone())
+                    .collect()
             } else {
                 // Validate all requested device IDs exist
                 for device_id in &req.device_ids {
@@ -302,9 +358,13 @@ impl HardwareService for HardwareServiceImpl {
                         Some(p) => p != &fields,
                     };
 
-                    let current_version = versions.get(device_id).cloned().unwrap_or(last_seen_version);
+                    let current_version = versions
+                        .get(device_id)
+                        .cloned()
+                        .unwrap_or(last_seen_version);
                     let next_version = current_version.saturating_add(1);
-                    let is_snapshot = (include_snapshot && first_tick) || (current_version < last_seen_version);
+                    let is_snapshot =
+                        (include_snapshot && first_tick) || (current_version < last_seen_version);
 
                     if is_snapshot || changed {
                         let update = DeviceStateUpdate {
@@ -871,7 +931,10 @@ impl HardwareService for HardwareServiceImpl {
             Err(e) => {
                 let err_msg = e.to_string();
                 // Check for out-of-range errors
-                if err_msg.contains("out of range") || err_msg.contains("bounds") || err_msg.contains("invalid") {
+                if err_msg.contains("out of range")
+                    || err_msg.contains("bounds")
+                    || err_msg.contains("invalid")
+                {
                     Err(Status::invalid_argument(format!(
                         "Invalid exposure value: {}",
                         req.exposure_ms
@@ -982,7 +1045,10 @@ impl HardwareService for HardwareServiceImpl {
 
             match shutter_ctrl.is_shutter_open().await {
                 Ok(is_open) => Ok(Response::new(GetShutterResponse { is_open })),
-                Err(e) => Err(Status::internal(format!("Failed to get shutter state: {}", e))),
+                Err(e) => Err(Status::internal(format!(
+                    "Failed to get shutter state: {}",
+                    e
+                ))),
             }
         }
 
@@ -1136,7 +1202,10 @@ impl HardwareService for HardwareServiceImpl {
 
             match emission_ctrl.is_emission_enabled().await {
                 Ok(is_enabled) => Ok(Response::new(GetEmissionResponse { is_enabled })),
-                Err(e) => Err(Status::internal(format!("Failed to get emission state: {}", e))),
+                Err(e) => Err(Status::internal(format!(
+                    "Failed to get emission state: {}",
+                    e
+                ))),
             }
         }
 
@@ -1185,7 +1254,7 @@ impl HardwareService for HardwareServiceImpl {
                 // Check for already streaming
                 if err_msg.to_lowercase().contains("already streaming") {
                     Err(Status::failed_precondition(
-                        "Device is already streaming; stop current stream first"
+                        "Device is already streaming; stop current stream first",
                     ))
                 } else {
                     let status = map_hardware_error_to_status(&err_msg);
@@ -1352,7 +1421,10 @@ impl HardwareService for HardwareServiceImpl {
             tracing::info!("Staged device '{}' successfully", req.device_id);
         } else {
             // No-op for devices that don't implement Stageable
-            tracing::debug!("Staged device '{}' (no Stageable impl, no-op)", req.device_id);
+            tracing::debug!(
+                "Staged device '{}' (no Stageable impl, no-op)",
+                req.device_id
+            );
         }
 
         Ok(Response::new(StageDeviceResponse {
@@ -1387,12 +1459,18 @@ impl HardwareService for HardwareServiceImpl {
         // If device implements Stageable, call unstage()
         if let Some(stageable) = registry.get_stageable(&req.device_id) {
             stageable.unstage().await.map_err(|e| {
-                Status::internal(format!("Failed to unstage device '{}': {}", req.device_id, e))
+                Status::internal(format!(
+                    "Failed to unstage device '{}': {}",
+                    req.device_id, e
+                ))
             })?;
             tracing::info!("Unstaged device '{}' successfully", req.device_id);
         } else {
             // No-op for devices that don't implement Stageable
-            tracing::debug!("Unstaged device '{}' (no Stageable impl, no-op)", req.device_id);
+            tracing::debug!(
+                "Unstaged device '{}' (no Stageable impl, no-op)",
+                req.device_id
+            );
         }
 
         Ok(Response::new(UnstageDeviceResponse {
@@ -1426,9 +1504,10 @@ impl HardwareService for HardwareServiceImpl {
             "open_shutter" => {
                 use crate::hardware::capabilities::ShutterControl;
                 if let Some(device) = registry.get_shutter_control(&req.device_id) {
-                    device.open_shutter().await.map_err(|e| {
-                        Status::internal(format!("Failed to open shutter: {}", e))
-                    })?;
+                    device
+                        .open_shutter()
+                        .await
+                        .map_err(|e| Status::internal(format!("Failed to open shutter: {}", e)))?;
                     Ok(Response::new(DeviceCommandResponse {
                         success: true,
                         error_message: String::new(),
@@ -1445,9 +1524,10 @@ impl HardwareService for HardwareServiceImpl {
             "close_shutter" => {
                 use crate::hardware::capabilities::ShutterControl;
                 if let Some(device) = registry.get_shutter_control(&req.device_id) {
-                    device.close_shutter().await.map_err(|e| {
-                        Status::internal(format!("Failed to close shutter: {}", e))
-                    })?;
+                    device
+                        .close_shutter()
+                        .await
+                        .map_err(|e| Status::internal(format!("Failed to close shutter: {}", e)))?;
                     Ok(Response::new(DeviceCommandResponse {
                         success: true,
                         error_message: String::new(),
@@ -1515,7 +1595,7 @@ impl HardwareService for HardwareServiceImpl {
     ) -> Result<Response<ListParametersResponse>, Status> {
         let req = request.into_inner();
         let registry = self.registry.read().await;
-        
+
         // Check if device exists
         if !registry.contains(&req.device_id) {
             return Err(Status::not_found(format!(
@@ -1523,7 +1603,7 @@ impl HardwareService for HardwareServiceImpl {
                 req.device_id
             )));
         }
-        
+
         // Get settable parameters for plugin devices
         #[cfg(feature = "tokio_serial")]
         let parameters = {
@@ -1556,10 +1636,10 @@ impl HardwareService for HardwareServiceImpl {
                 Vec::new()
             }
         };
-        
+
         #[cfg(not(feature = "tokio_serial"))]
         let parameters: Vec<ParameterDescriptor> = Vec::new();
-        
+
         Ok(Response::new(ListParametersResponse { parameters }))
     }
 
@@ -1568,25 +1648,25 @@ impl HardwareService for HardwareServiceImpl {
         request: Request<GetParameterRequest>,
     ) -> Result<Response<ParameterValue>, Status> {
         let req = request.into_inner();
-        
+
         // Try legacy Settable trait first (backwards compatibility)
         let registry = self.registry.read().await;
-        
+
         if let Some(settable) = registry.get_settable(&req.device_id) {
             drop(registry); // Release lock before async operations
-            
+
             // Get the parameter value
             let value = settable
                 .get_value(&req.parameter_name)
                 .await
                 .map_err(|e| Status::internal(format!("Failed to get parameter: {}", e)))?;
-            
+
             // Get timestamp
             let timestamp_ns = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_nanos() as u64)
                 .unwrap_or(0);
-            
+
             return Ok(Response::new(ParameterValue {
                 device_id: req.device_id,
                 name: req.parameter_name,
@@ -1595,17 +1675,18 @@ impl HardwareService for HardwareServiceImpl {
                 timestamp_ns,
             }));
         }
-        
+
         // New path - use Parameterized trait
         if let Some(params) = registry.get_parameters(&req.device_id) {
             if let Some(param) = params.get(&req.parameter_name) {
-                let value = param.get_json()
+                let value = param
+                    .get_json()
                     .map_err(|e| Status::internal(format!("Failed to get parameter: {}", e)))?;
                 let timestamp_ns = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .map(|d| d.as_nanos() as u64)
                     .unwrap_or(0);
-                
+
                 return Ok(Response::new(ParameterValue {
                     device_id: req.device_id,
                     name: req.parameter_name,
@@ -1615,7 +1696,7 @@ impl HardwareService for HardwareServiceImpl {
                 }));
             }
         }
-        
+
         // Neither Settable nor Parameterized - device not found
         Err(Status::not_found(format!(
             "Device '{}' does not support parameter '{}'",
@@ -1628,20 +1709,20 @@ impl HardwareService for HardwareServiceImpl {
         request: Request<SetParameterRequest>,
     ) -> Result<Response<SetParameterResponse>, Status> {
         let req = request.into_inner();
-        
+
         // Try legacy Settable trait first (backwards compatibility)
         let registry = self.registry.read().await;
-        
+
         if let Some(settable) = registry.get_settable(&req.device_id) {
             drop(registry); // Release lock before async operations
-            
+
             // Get old value before setting (for change notification)
             let old_value = settable
                 .get_value(&req.parameter_name)
                 .await
                 .map(|v| v.to_string())
                 .unwrap_or_default();
-            
+
             // Parse the value string to JSON
             let json_value: serde_json::Value = serde_json::from_str(&req.value)
                 .or_else(|_| {
@@ -1649,20 +1730,20 @@ impl HardwareService for HardwareServiceImpl {
                     Ok::<_, serde_json::Error>(serde_json::Value::String(req.value.clone()))
                 })
                 .map_err(|e| Status::invalid_argument(format!("Invalid value format: {}", e)))?;
-            
+
             // Set the parameter
             settable
                 .set_value(&req.parameter_name, json_value)
                 .await
                 .map_err(|e| Status::invalid_argument(format!("Failed to set parameter: {}", e)))?;
-            
+
             // Read back the actual value
             let actual_value = settable
                 .get_value(&req.parameter_name)
                 .await
                 .map(|v| v.to_string())
                 .unwrap_or_else(|_| req.value.clone());
-            
+
             // Broadcast parameter change notification (ignore send errors - no subscribers is ok)
             let _ = self.param_change_tx.send(ParameterChange {
                 device_id: req.device_id.clone(),
@@ -1673,39 +1754,41 @@ impl HardwareService for HardwareServiceImpl {
                 timestamp_ns: now_ns(),
                 source: "user".to_string(),
             });
-            
+
             return Ok(Response::new(SetParameterResponse {
                 success: true,
                 error_message: String::new(),
                 actual_value,
             }));
         }
-        
+
         // New path - use Parameterized trait
         if let Some(params) = registry.get_parameters(&req.device_id) {
             // Note: Cannot drop registry here as params borrows from it
-            
+
             if let Some(param) = params.get(&req.parameter_name) {
-                let old_value = param.get_json()
-                    .map(|v| v.to_string())
-                    .unwrap_or_default();
-                
+                let old_value = param.get_json().map(|v| v.to_string()).unwrap_or_default();
+
                 // Parse the value string to JSON
                 let json_value: serde_json::Value = serde_json::from_str(&req.value)
                     .or_else(|_| {
                         // Try as raw string if JSON parsing fails
                         Ok::<_, serde_json::Error>(serde_json::Value::String(req.value.clone()))
                     })
-                    .map_err(|e| Status::invalid_argument(format!("Invalid value format: {}", e)))?;
-                
+                    .map_err(|e| {
+                        Status::invalid_argument(format!("Invalid value format: {}", e))
+                    })?;
+
                 // Set the parameter (synchronous call, no await needed)
-                param.set_json(json_value)
-                    .map_err(|e| Status::invalid_argument(format!("Failed to set parameter: {}", e)))?;
-                
-                let actual_value = param.get_json()
+                param.set_json(json_value).map_err(|e| {
+                    Status::invalid_argument(format!("Failed to set parameter: {}", e))
+                })?;
+
+                let actual_value = param
+                    .get_json()
                     .map(|v| v.to_string())
                     .unwrap_or_else(|_| req.value.clone());
-                
+
                 // Broadcast parameter change notification
                 let _ = self.param_change_tx.send(ParameterChange {
                     device_id: req.device_id.clone(),
@@ -1716,7 +1799,7 @@ impl HardwareService for HardwareServiceImpl {
                     timestamp_ns: now_ns(),
                     source: "user".to_string(),
                 });
-                
+
                 return Ok(Response::new(SetParameterResponse {
                     success: true,
                     error_message: String::new(),
@@ -1724,7 +1807,7 @@ impl HardwareService for HardwareServiceImpl {
                 }));
             }
         }
-        
+
         // Neither Settable nor Parameterized - device not found
         Err(Status::not_found(format!(
             "Device '{}' does not support settable parameters",
@@ -1740,17 +1823,18 @@ impl HardwareService for HardwareServiceImpl {
         request: Request<StreamParameterChangesRequest>,
     ) -> Result<Response<Self::StreamParameterChangesStream>, Status> {
         let req = request.into_inner();
-        
+
         // Extract filter criteria
         let device_filter = req.device_id.clone();
-        let param_filter: std::collections::HashSet<String> = req.parameter_names.into_iter().collect();
-        
+        let param_filter: std::collections::HashSet<String> =
+            req.parameter_names.into_iter().collect();
+
         // Subscribe to parameter change broadcast
         let mut rx = self.param_change_tx.subscribe();
-        
+
         // Create mpsc channel for the gRPC stream
         let (tx, stream_rx) = tokio::sync::mpsc::channel(32);
-        
+
         // Spawn task to forward filtered changes to the stream
         tokio::spawn(async move {
             loop {
@@ -1762,12 +1846,12 @@ impl HardwareService for HardwareServiceImpl {
                                 continue;
                             }
                         }
-                        
+
                         // Apply parameter name filter if specified
                         if !param_filter.is_empty() && !param_filter.contains(&change.name) {
                             continue;
                         }
-                        
+
                         // Send to stream (exit if receiver dropped)
                         if tx.send(Ok(change)).await.is_err() {
                             break;
@@ -1783,7 +1867,7 @@ impl HardwareService for HardwareServiceImpl {
                 }
             }
         });
-        
+
         Ok(Response::new(ReceiverStream::new(stream_rx)))
     }
 }
@@ -1890,13 +1974,24 @@ fn map_hardware_error_to_status(error_msg: &str) -> Status {
 
     if err_lower.contains("not found") || err_lower.contains("no such device") {
         Status::not_found(error_msg.to_string())
-    } else if err_lower.contains("busy") || err_lower.contains("in use") || err_lower.contains("already")
-        || err_lower.contains("not armed") || err_lower.contains("not streaming") || err_lower.contains("streaming")
-        || err_lower.contains("precondition") {
+    } else if err_lower.contains("busy")
+        || err_lower.contains("in use")
+        || err_lower.contains("already")
+        || err_lower.contains("not armed")
+        || err_lower.contains("not streaming")
+        || err_lower.contains("streaming")
+        || err_lower.contains("precondition")
+    {
         Status::failed_precondition(error_msg.to_string())
-    } else if err_lower.contains("timeout") || err_lower.contains("communication") || err_lower.contains("connection") {
+    } else if err_lower.contains("timeout")
+        || err_lower.contains("communication")
+        || err_lower.contains("connection")
+    {
         Status::unavailable(error_msg.to_string())
-    } else if err_lower.contains("invalid") || err_lower.contains("out of range") || err_lower.contains("bounds") {
+    } else if err_lower.contains("invalid")
+        || err_lower.contains("out of range")
+        || err_lower.contains("bounds")
+    {
         Status::invalid_argument(error_msg.to_string())
     } else if err_lower.contains("not supported") || err_lower.contains("unsupported") {
         Status::unimplemented(error_msg.to_string())
@@ -2144,10 +2239,9 @@ mod tests {
         let mut stream = response.into_inner();
 
         // Receive at least one state update
-        let update = tokio::time::timeout(
-            std::time::Duration::from_secs(1),
-            stream.next()
-        ).await.expect("timeout waiting for state update");
+        let update = tokio::time::timeout(std::time::Duration::from_secs(1), stream.next())
+            .await
+            .expect("timeout waiting for state update");
 
         assert!(update.is_some());
         let state = update.unwrap().expect("stream item should be Ok");
@@ -2204,10 +2298,9 @@ mod tests {
         let mut stream = response.into_inner();
 
         // Receive at least one frame
-        let frame = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            stream.next()
-        ).await.expect("timeout waiting for frame");
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(2), stream.next())
+            .await
+            .expect("timeout waiting for frame");
 
         assert!(frame.is_some());
         let frame_data = frame.unwrap().expect("stream item should be Ok");
@@ -2252,7 +2345,7 @@ mod tests {
 
         let registry = create_mock_registry().await.unwrap();
         let service = HardwareServiceImpl::new(Arc::new(RwLock::new(registry)));
-        
+
         // Get the parameter change sender to simulate changes
         let param_sender = service.param_change_sender();
 
@@ -2270,18 +2363,17 @@ mod tests {
         let _ = param_sender.send(ParameterChange {
             device_id: "mock_stage".to_string(),
             name: "position".to_string(),
-            old_value: String::new(),  // Not available in listener callback
+            old_value: String::new(), // Not available in listener callback
             new_value: "10.5".to_string(),
-            units: String::new(),  // Could get from metadata if needed
+            units: String::new(), // Could get from metadata if needed
             timestamp_ns: now_ns(),
             source: "user".to_string(),
         });
 
         // Receive the change
-        let change = tokio::time::timeout(
-            std::time::Duration::from_secs(1),
-            stream.next()
-        ).await.expect("timeout waiting for parameter change");
+        let change = tokio::time::timeout(std::time::Duration::from_secs(1), stream.next())
+            .await
+            .expect("timeout waiting for parameter change");
 
         assert!(change.is_some());
         let change_data = change.unwrap().expect("stream item should be Ok");
@@ -2312,9 +2404,9 @@ mod tests {
         let _ = param_sender.send(ParameterChange {
             device_id: "mock_stage".to_string(),
             name: "position".to_string(),
-            old_value: String::new(),  // Not available in listener callback
+            old_value: String::new(), // Not available in listener callback
             new_value: "5.0".to_string(),
-            units: String::new(),  // Could get from metadata if needed
+            units: String::new(), // Could get from metadata if needed
             timestamp_ns: now_ns(),
             source: "user".to_string(),
         });
@@ -2323,18 +2415,17 @@ mod tests {
         let _ = param_sender.send(ParameterChange {
             device_id: "mock_camera".to_string(),
             name: "exposure".to_string(),
-            old_value: String::new(),  // Not available in listener callback
+            old_value: String::new(), // Not available in listener callback
             new_value: "0.5".to_string(),
-            units: String::new(),  // Could get from metadata if needed
+            units: String::new(), // Could get from metadata if needed
             timestamp_ns: now_ns(),
             source: "user".to_string(),
         });
 
         // Should receive only the camera change
-        let change = tokio::time::timeout(
-            std::time::Duration::from_secs(1),
-            stream.next()
-        ).await.expect("timeout waiting for parameter change");
+        let change = tokio::time::timeout(std::time::Duration::from_secs(1), stream.next())
+            .await
+            .expect("timeout waiting for parameter change");
 
         assert!(change.is_some());
         let change_data = change.unwrap().expect("stream item should be Ok");

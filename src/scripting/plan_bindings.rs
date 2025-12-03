@@ -113,8 +113,7 @@ pub fn register_plans(engine: &mut Engine) {
     engine.register_fn(
         "line_scan",
         |motor: &str, start: f64, end: f64, points: i64, detector: &str| -> PlanHandle {
-            let plan = LineScan::new(motor, start, end, points as usize)
-                .with_detector(detector);
+            let plan = LineScan::new(motor, start, end, points as usize).with_detector(detector);
             PlanHandle::new(plan)
         },
     );
@@ -122,7 +121,13 @@ pub fn register_plans(engine: &mut Engine) {
     // line_scan with settle time
     engine.register_fn(
         "line_scan_with_settle",
-        |motor: &str, start: f64, end: f64, points: i64, detector: &str, settle: f64| -> PlanHandle {
+        |motor: &str,
+         start: f64,
+         end: f64,
+         points: i64,
+         detector: &str,
+         settle: f64|
+         -> PlanHandle {
             let plan = LineScan::new(motor, start, end, points as usize)
                 .with_detector(detector)
                 .with_settle_time(settle);
@@ -146,8 +151,14 @@ pub fn register_plans(engine: &mut Engine) {
             // Note: GridScan takes (outer_axis, ..., inner_axis, ...)
             // x is typically the inner (fast) axis, y is the outer (slow) axis
             let plan = GridScan::new(
-                y_motor, y_start, y_end, y_points as usize,
-                x_motor, x_start, x_end, x_points as usize,
+                y_motor,
+                y_start,
+                y_end,
+                y_points as usize,
+                x_motor,
+                x_start,
+                x_end,
+                x_points as usize,
             )
             .with_detector(detector);
             PlanHandle::new(plan)
@@ -214,7 +225,8 @@ pub fn register_plans(engine: &mut Engine) {
                 ))
             })?;
 
-            let run_uid = block_in_place(|| Handle::current().block_on(re.engine.queue(boxed_plan)));
+            let run_uid =
+                block_in_place(|| Handle::current().block_on(re.engine.queue(boxed_plan)));
             Ok(run_uid)
         },
     );

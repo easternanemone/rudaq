@@ -17,8 +17,8 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use rust_daq::hardware::capabilities::{Movable, Readable};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration, Instant};
 
@@ -244,10 +244,7 @@ async fn test_rotate_and_measure() -> Result<()> {
 
         let power = meter_with_rotator.read().await?;
         measurements.push((angle, power));
-        println!(
-            "Measurement: {:.0}° → {:.6}W",
-            angle, power
-        );
+        println!("Measurement: {:.0}° → {:.6}W", angle, power);
     }
 
     // Verify measurements
@@ -414,10 +411,7 @@ async fn test_sequential_sweep() -> Result<()> {
     // Verify we have the expected number of data points
     assert_eq!(data_points.len(), 3 * 7); // 3 x positions, 7 angles each
 
-    println!(
-        "Passed: Collected {} data points",
-        data_points.len()
-    );
+    println!("Passed: Collected {} data points", data_points.len());
 
     Ok(())
 }
@@ -468,7 +462,10 @@ async fn test_find_maximum_power_angle() -> Result<()> {
         }
     }
 
-    println!("Maximum power: {:.6}W at angle {:.0}°", max_power, best_angle);
+    println!(
+        "Maximum power: {:.6}W at angle {:.0}°",
+        max_power, best_angle
+    );
 
     // Max power should be at 0 or 180 degrees (both give cos(0)^2 = 1)
     assert!(
@@ -552,10 +549,16 @@ async fn test_motion_settling_behavior() -> Result<()> {
 
     rotator.wait_settled().await?;
     let rotate_settle_time = rotate_start.elapsed();
-    println!("Rotator settled in {:.3}s", rotate_settle_time.as_secs_f64());
+    println!(
+        "Rotator settled in {:.3}s",
+        rotate_settle_time.as_secs_f64()
+    );
 
     // Verify settling times
-    assert!(stage_settle_time.as_millis() >= 1050, "Stage should take ~1s to move + 50ms settle");
+    assert!(
+        stage_settle_time.as_millis() >= 1050,
+        "Stage should take ~1s to move + 50ms settle"
+    );
     assert!(
         rotate_settle_time.as_millis() >= 1100,
         "Rotator should take ~1s to move + 100ms settle"

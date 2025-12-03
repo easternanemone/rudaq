@@ -111,16 +111,8 @@ impl Statistics {
         self.count += 1;
 
         // Update min/max (for the current window)
-        self.min = self
-            .values
-            .iter()
-            .copied()
-            .fold(f64::MAX, |a, b| a.min(b));
-        self.max = self
-            .values
-            .iter()
-            .copied()
-            .fold(f64::MIN, |a, b| a.max(b));
+        self.min = self.values.iter().copied().fold(f64::MAX, |a, b| a.min(b));
+        self.max = self.values.iter().copied().fold(f64::MIN, |a, b| a.max(b));
     }
 
     fn mean(&self) -> f64 {
@@ -201,7 +193,9 @@ impl Module for PowerMonitor {
         ModuleTypeInfo {
             type_id: "power_monitor".to_string(),
             display_name: "Power Monitor".to_string(),
-            description: "Monitors power readings with configurable threshold alerts and running statistics".to_string(),
+            description:
+                "Monitors power readings with configurable threshold alerts and running statistics"
+                    .to_string(),
             version: "1.0.0".to_string(),
             required_roles: vec![ModuleRole {
                 role_id: "power_meter".to_string(),

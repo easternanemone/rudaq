@@ -95,10 +95,7 @@ impl PluginWatcher {
     pub fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         self._watcher
             .watch(path.as_ref(), RecursiveMode::NonRecursive)?;
-        tracing::info!(
-            "Plugin hot-reload watching: {}",
-            path.as_ref().display()
-        );
+        tracing::info!("Plugin hot-reload watching: {}", path.as_ref().display());
         Ok(())
     }
 
@@ -203,11 +200,7 @@ impl PluginWatcher {
             factory.update_plugin(plugin_id.clone(), config, path.to_path_buf());
         }
 
-        tracing::info!(
-            "Hot-reloaded plugin: {} ({})",
-            plugin_name,
-            path.display()
-        );
+        tracing::info!("Hot-reloaded plugin: {} ({})", plugin_name, path.display());
 
         Ok(())
     }

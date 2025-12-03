@@ -112,7 +112,7 @@ pub trait PowerMeasure {
     /// # }
     /// # async fn example(mut meter: MyMeter) -> Result<()> {
     /// let power_w = meter.read_power().await?;
-    /// 
+    ///
     /// // Convert to milliwatts for display
     /// let power_mw = power_w * 1000.0;
     /// println!("Optical power: {:.3} mW", power_mw);

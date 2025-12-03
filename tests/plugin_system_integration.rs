@@ -7,15 +7,17 @@
 #[cfg(feature = "tokio_serial")]
 mod plugin_tests {
     use anyhow::Result;
-    use std::path::Path;
+    use rust_daq::hardware::capabilities::{
+        Actionable, Loggable, Movable, Readable, Settable, Switchable,
+    };
+    use rust_daq::hardware::plugin::handles::{
+        PluginActionableHandle, PluginAxisHandle, PluginLoggableHandle, PluginSensorHandle,
+        PluginSettableHandle, PluginSwitchableHandle,
+    };
     use rust_daq::hardware::plugin::registry::PluginFactory;
     #[allow(unused_imports)]
     use rust_daq::hardware::plugin::schema::InstrumentConfig;
-    use rust_daq::hardware::capabilities::{Movable, Readable, Settable, Switchable, Actionable, Loggable};
-    use rust_daq::hardware::plugin::handles::{
-        PluginAxisHandle, PluginSensorHandle, PluginSettableHandle,
-        PluginSwitchableHandle, PluginActionableHandle, PluginLoggableHandle,
-    };
+    use std::path::Path;
 
     #[tokio::test]
     async fn test_plugin_loading() -> Result<()> {
@@ -25,8 +27,11 @@ mod plugin_tests {
 
         // Verify test plugin is loaded
         let plugins = factory.available_plugins();
-        assert!(plugins.contains(&"test-device-mock".to_string()),
-            "Expected 'test-device-mock' in plugins: {:?}", plugins);
+        assert!(
+            plugins.contains(&"test-device-mock".to_string()),
+            "Expected 'test-device-mock' in plugins: {:?}",
+            plugins
+        );
 
         // Verify display name
         assert_eq!(
@@ -44,7 +49,8 @@ mod plugin_tests {
         factory.load_plugins(plugins_dir).await?;
 
         // Get and verify config
-        let config = factory.get_config("test-device-mock")
+        let config = factory
+            .get_config("test-device-mock")
             .expect("Config should exist for test-device-mock");
 
         // Verify metadata
@@ -64,21 +70,30 @@ mod plugin_tests {
         assert_eq!(config.capabilities.loggable.len(), 1);
 
         // Verify specific readable capability
-        let temp_cap = config.capabilities.readable.iter()
+        let temp_cap = config
+            .capabilities
+            .readable
+            .iter()
             .find(|c| c.name == "temperature")
             .expect("Should have temperature capability");
         assert_eq!(temp_cap.command, "TEMP?");
         assert_eq!(temp_cap.unit, Some("C".to_string()));
 
         // Verify settable capability
-        let setpoint = config.capabilities.settable.iter()
+        let setpoint = config
+            .capabilities
+            .settable
+            .iter()
             .find(|c| c.name == "setpoint_temp")
             .expect("Should have setpoint_temp capability");
         assert_eq!(setpoint.min, Some(10.0));
         assert_eq!(setpoint.max, Some(40.0));
 
         // Verify switchable capability
-        let heater = config.capabilities.switchable.iter()
+        let heater = config
+            .capabilities
+            .switchable
+            .iter()
             .find(|c| c.name == "heater")
             .expect("Should have heater capability");
         assert_eq!(heater.on_cmd, "HEAT ON");
@@ -161,7 +176,10 @@ protocol:
         let factory = PluginFactory::new();
         let result = factory.spawn("nonexistent-plugin", "/dev/null").await;
 
-        assert!(result.is_err(), "Should error when spawning nonexistent plugin");
+        assert!(
+            result.is_err(),
+            "Should error when spawning nonexistent plugin"
+        );
 
         Ok(())
     }
@@ -173,23 +191,35 @@ protocol:
         factory.load_plugins(plugins_dir).await?;
 
         // Get config to verify movable capability exists
-        let config = factory.get_config("test-device-mock")
+        let config = factory
+            .get_config("test-device-mock")
             .expect("Config should exist for test-device-mock");
 
         // Verify movable capability is parsed
-        assert!(config.capabilities.movable.is_some(), "Should have movable capability");
+        assert!(
+            config.capabilities.movable.is_some(),
+            "Should have movable capability"
+        );
         let movable = config.capabilities.movable.as_ref().unwrap();
         assert_eq!(movable.axes.len(), 2, "Should have 2 axes");
-        
+
         // Verify axis configurations
-        let x_axis = movable.axes.iter().find(|a| a.name == "x").expect("Should have x axis");
+        let x_axis = movable
+            .axes
+            .iter()
+            .find(|a| a.name == "x")
+            .expect("Should have x axis");
         assert_eq!(x_axis.unit, Some("mm".to_string()));
         assert_eq!(x_axis.min, Some(0.0));
         assert_eq!(x_axis.max, Some(100.0));
 
-        let y_axis = movable.axes.iter().find(|a| a.name == "y").expect("Should have y axis");
+        let y_axis = movable
+            .axes
+            .iter()
+            .find(|a| a.name == "y")
+            .expect("Should have y axis");
         assert_eq!(y_axis.unit, Some("mm".to_string()));
-        
+
         // Verify command templates
         assert_eq!(movable.set_cmd, "POS:{axis} {val}");
         assert_eq!(movable.get_cmd, "POS:{axis}?");
@@ -212,7 +242,7 @@ protocol:
 
         // Spawn driver in mock mode (no serial port needed)
         let driver = Arc::new(factory.spawn("test-device-mock", "/dev/null").await?);
-        
+
         // Create axis handles
         let x_axis = driver.axis_handle("x", true); // is_mocking = true
         let y_axis = driver.axis_handle("y", true);

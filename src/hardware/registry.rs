@@ -72,15 +72,15 @@
 //! }
 //! ```
 
+#[cfg(feature = "instrument_spectra_physics")]
+use crate::hardware::capabilities::{EmissionControl, ShutterControl, WavelengthTunable};
 use crate::hardware::capabilities::{
     ExposureControl, FrameProducer, Movable, Parameterized, Readable, Settable, Stageable,
     Triggerable,
 };
-use crate::observable::ParameterSet; // NEW: For parameter registry
-#[cfg(feature = "instrument_spectra_physics")]
-use crate::hardware::capabilities::{EmissionControl, ShutterControl, WavelengthTunable};
 #[cfg(feature = "tokio_serial")]
 use crate::hardware::plugin::driver::GenericDriver;
+use crate::observable::ParameterSet; // NEW: For parameter registry
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -106,32 +106,29 @@ pub fn validate_driver_config(driver: &DriverType) -> Result<()> {
         DriverType::Newport1830C { port } => {
             validate_serial_port(port, "Newport 1830-C")?;
         }
-        
+
         DriverType::MaiTai { port } => {
             validate_serial_port(port, "MaiTai Laser")?;
         }
-        
+
         DriverType::Ell14 { port, address } => {
             validate_serial_port(port, "ELL14 Rotation Mount")?;
             validate_ell14_address(address)?;
         }
-        
+
         DriverType::Esp300 { port, axis } => {
             validate_serial_port(port, "ESP300 Motion Controller")?;
             if *axis < 1 || *axis > 3 {
-                anyhow::bail!(
-                    "Invalid ESP300 axis: {}. Must be 1-3",
-                    axis
-                );
+                anyhow::bail!("Invalid ESP300 axis: {}. Must be 1-3", axis);
             }
         }
-        
+
         DriverType::Pvcam { camera_name } => {
             if camera_name.is_empty() {
                 anyhow::bail!("PVCAM camera name cannot be empty");
             }
         }
-        
+
         #[cfg(feature = "tokio_serial")]
         DriverType::Plugin { plugin_id, address } => {
             if plugin_id.is_empty() {
@@ -143,13 +140,13 @@ pub fn validate_driver_config(driver: &DriverType) -> Result<()> {
             // Address can be serial port or network address
             // Don't validate serial port here as it might be network
         }
-        
+
         // Mock devices don't need validation
-        DriverType::MockStage { .. } |
-        DriverType::MockPowerMeter { .. } |
-        DriverType::MockCamera => {}
+        DriverType::MockStage { .. }
+        | DriverType::MockPowerMeter { .. }
+        | DriverType::MockCamera => {}
     }
-    
+
     Ok(())
 }
 
@@ -159,7 +156,7 @@ pub fn validate_driver_config(driver: &DriverType) -> Result<()> {
 fn validate_serial_port(port: &str, device_name: &str) -> Result<()> {
     // Check if port path exists (basic check)
     let port_path = std::path::Path::new(port);
-    
+
     if !port_path.exists() {
         // Port doesn't exist - provide helpful diagnostics
         let available = match serialport::available_ports() {
@@ -178,7 +175,7 @@ fn validate_serial_port(port: &str, device_name: &str) -> Result<()> {
                 format!("Could not enumerate serial ports: {}", e)
             }
         };
-        
+
         anyhow::bail!(
             "Serial port '{}' does not exist for device '{}'.\n\n{}\n\n\
              Troubleshooting:\n\
@@ -192,7 +189,7 @@ fn validate_serial_port(port: &str, device_name: &str) -> Result<()> {
             available
         );
     }
-    
+
     Ok(())
 }
 
@@ -206,7 +203,7 @@ fn validate_ell14_address(address: &str) -> Result<()> {
             address
         );
     }
-    
+
     let addr_char = address.chars().next().unwrap();
     if !addr_char.is_ascii_hexdigit() {
         anyhow::bail!(
@@ -214,7 +211,7 @@ fn validate_ell14_address(address: &str) -> Result<()> {
             address
         );
     }
-    
+
     Ok(())
 }
 
@@ -455,7 +452,7 @@ struct RegisteredDevice {
     /// Stageable implementation (if supported) - Bluesky-style lifecycle (bd-7aq6)
     stageable: Option<Arc<dyn Stageable>>,
     /// Parameterized implementation (if supported) - parameter registry access
-    /// 
+    ///
     /// Enables generic code to enumerate and subscribe to device parameters.
     /// Populated during device registration if driver implements Parameterized trait.
     parameterized: Option<Arc<dyn Parameterized>>,
@@ -486,12 +483,13 @@ struct RegisteredDevice {
 pub struct DeviceRegistry {
     /// Registered devices by ID
     devices: HashMap<DeviceId, RegisteredDevice>,
-    
+
     /// Shared serial ports for ELL14 multidrop bus (interior mutability for async access)
     /// Key: port path (e.g., "/dev/ttyUSB0"), Value: shared Arc<Mutex<SerialStream>>
     #[cfg(feature = "instrument_thorlabs")]
-    ell14_shared_ports: RwLock<HashMap<String, std::sync::Arc<tokio::sync::Mutex<tokio_serial::SerialStream>>>>,
-    
+    ell14_shared_ports:
+        RwLock<HashMap<String, std::sync::Arc<tokio::sync::Mutex<tokio_serial::SerialStream>>>>,
+
     /// Plugin factory for loading YAML-defined drivers (tokio_serial feature only)
     #[cfg(feature = "tokio_serial")]
     plugin_factory: Arc<RwLock<crate::hardware::plugin::registry::PluginFactory>>,
@@ -505,13 +503,17 @@ impl DeviceRegistry {
             #[cfg(feature = "instrument_thorlabs")]
             ell14_shared_ports: RwLock::new(HashMap::new()),
             #[cfg(feature = "tokio_serial")]
-            plugin_factory: Arc::new(RwLock::new(crate::hardware::plugin::registry::PluginFactory::new())),
+            plugin_factory: Arc::new(RwLock::new(
+                crate::hardware::plugin::registry::PluginFactory::new(),
+            )),
         }
     }
 
     /// Create a new device registry with a pre-configured PluginFactory
     #[cfg(feature = "tokio_serial")]
-    pub fn with_plugin_factory(plugin_factory: Arc<RwLock<crate::hardware::plugin::registry::PluginFactory>>) -> Self {
+    pub fn with_plugin_factory(
+        plugin_factory: Arc<RwLock<crate::hardware::plugin::registry::PluginFactory>>,
+    ) -> Self {
         Self {
             devices: HashMap::new(),
             #[cfg(feature = "instrument_thorlabs")]
@@ -753,7 +755,7 @@ impl DeviceRegistry {
     async fn instantiate_device(&self, config: DeviceConfig) -> Result<RegisteredDevice> {
         // Clone driver before matching to avoid borrow issues
         let driver = config.driver.clone();
-        
+
         match driver {
             DriverType::MockStage { initial_position } => {
                 let driver = Arc::new(crate::hardware::mock::MockStage::with_position(
@@ -838,13 +840,14 @@ impl DeviceRegistry {
 
             #[cfg(feature = "tokio_serial")]
             DriverType::Plugin { plugin_id, address } => {
-                self.instantiate_plugin_device(config, &plugin_id, &address).await
+                self.instantiate_plugin_device(config, &plugin_id, &address)
+                    .await
             }
 
             #[cfg(feature = "instrument_photometrics")]
             DriverType::Pvcam { camera_name } => {
                 let driver = Arc::new(
-                    crate::hardware::pvcam::PvcamDriver::new_async(camera_name.clone()).await?
+                    crate::hardware::pvcam::PvcamDriver::new_async(camera_name.clone()).await?,
                 );
                 let (width, height) = driver.resolution();
                 Ok(RegisteredDevice {
@@ -873,9 +876,9 @@ impl DeviceRegistry {
             }
 
             #[cfg(not(feature = "instrument_photometrics"))]
-            DriverType::Pvcam { .. } => {
-                Err(anyhow!("PVCAM driver requires 'instrument_photometrics' feature"))
-            }
+            DriverType::Pvcam { .. } => Err(anyhow!(
+                "PVCAM driver requires 'instrument_photometrics' feature"
+            )),
 
             #[cfg(feature = "instrument_thorlabs")]
             DriverType::Ell14 { port, address } => {
@@ -887,7 +890,8 @@ impl DeviceRegistry {
                         existing.clone()
                     } else {
                         drop(read_guard); // Release read lock before acquiring write lock
-                        let new_port = crate::hardware::ell14::Ell14Driver::open_shared_port(&port)?;
+                        let new_port =
+                            crate::hardware::ell14::Ell14Driver::open_shared_port(&port)?;
                         let mut write_guard = self.ell14_shared_ports.write().await;
                         // Double-check in case another task created it
                         if let Some(existing) = write_guard.get(&port) {
@@ -898,8 +902,11 @@ impl DeviceRegistry {
                         }
                     }
                 };
-                
-                let driver = Arc::new(crate::hardware::ell14::Ell14Driver::with_shared_port(shared_port, &address));
+
+                let driver = Arc::new(crate::hardware::ell14::Ell14Driver::with_shared_port(
+                    shared_port,
+                    &address,
+                ));
                 Ok(RegisteredDevice {
                     config,
                     movable: Some(driver.clone()),
@@ -1033,16 +1040,16 @@ impl DeviceRegistry {
     /// Instantiate a plugin-based device
     #[cfg(feature = "tokio_serial")]
     async fn instantiate_plugin_device(
-        &self, 
-        config: DeviceConfig, 
-        plugin_id: &str, 
-        address: &str
+        &self,
+        config: DeviceConfig,
+        plugin_id: &str,
+        address: &str,
     ) -> Result<RegisteredDevice> {
         // Spawn the driver from the plugin factory
         let factory = self.plugin_factory.read().await;
         let driver = Arc::new(factory.spawn(plugin_id, address).await?);
         drop(factory); // Release lock before calling helper
-        
+
         // Create the registered device using the common helper
         self.create_registered_plugin(config, driver).await
     }
@@ -1107,31 +1114,31 @@ impl DeviceRegistry {
         };
 
         // Check for readable capability
-        let readable: Option<Arc<dyn Readable>> =
-            if !plugin_config.capabilities.readable.is_empty() {
-                // Extract metadata from first readable
-                if let Some(first_readable) = plugin_config.capabilities.readable.first() {
-                    metadata.measurement_units = first_readable.unit.clone();
-                }
+        let readable: Option<Arc<dyn Readable>> = if !plugin_config.capabilities.readable.is_empty()
+        {
+            // Extract metadata from first readable
+            if let Some(first_readable) = plugin_config.capabilities.readable.first() {
+                metadata.measurement_units = first_readable.unit.clone();
+            }
 
-                // Create readable handle for the first readable capability (convention)
-                let readable_name = plugin_config
-                    .capabilities
-                    .readable
-                    .first()
-                    .map(|r| r.name.as_str())
-                    .unwrap_or("reading");
+            // Create readable handle for the first readable capability (convention)
+            let readable_name = plugin_config
+                .capabilities
+                .readable
+                .first()
+                .map(|r| r.name.as_str())
+                .unwrap_or("reading");
 
-                Some(Arc::new(
-                    crate::hardware::plugin::handles::PluginSensorHandle::new(
-                        driver.clone(),
-                        readable_name.to_string(),
-                        false, // not mocking
-                    ),
-                ))
-            } else {
-                None
-            };
+            Some(Arc::new(
+                crate::hardware::plugin::handles::PluginSensorHandle::new(
+                    driver.clone(),
+                    readable_name.to_string(),
+                    false, // not mocking
+                ),
+            ))
+        } else {
+            None
+        };
 
         // Note: FrameProducer, Triggerable, and ExposureControl are not yet
         // supported by the plugin system, so we leave them as None
@@ -1224,7 +1231,7 @@ pub struct HardwareConfig {
     /// Convention: user paths before system paths
     #[serde(default)]
     pub plugin_paths: Vec<std::path::PathBuf>,
-    
+
     /// List of devices to register
     pub devices: Vec<DeviceConfig>,
 }
@@ -1234,8 +1241,7 @@ impl HardwareConfig {
     pub fn from_file(path: &std::path::Path) -> Result<Self> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| anyhow!("Failed to read hardware config file: {}", e))?;
-        toml::from_str(&content)
-            .map_err(|e| anyhow!("Failed to parse hardware config file: {}", e))
+        toml::from_str(&content).map_err(|e| anyhow!("Failed to parse hardware config file: {}", e))
     }
 }
 
@@ -1280,7 +1286,7 @@ pub async fn create_registry_from_config(config: &HardwareConfig) -> Result<Devi
             ));
         }
     }
-    
+
     if !validation_errors.is_empty() {
         anyhow::bail!(
             "Hardware configuration validation failed:\n  - {}",
@@ -1305,13 +1311,13 @@ pub async fn create_registry_from_config(config: &HardwareConfig) -> Result<Devi
             };
             factory.add_search_path(expanded);
         }
-        
+
         // Scan all paths and report errors
         let errors = factory.scan().await;
         for err in &errors {
             tracing::warn!("Plugin load warning: {}", err);
         }
-        
+
         // Log loaded plugins
         let plugins = factory.available_plugins();
         if !plugins.is_empty() {
@@ -1581,7 +1587,7 @@ mod tests {
 
         // Should have parameters from both mock devices
         assert!(!snapshot.is_empty(), "Snapshot should not be empty");
-        
+
         // Mock devices implement Parameterized, so they should have parameters
         assert!(
             snapshot.contains_key("mock_stage") || snapshot.contains_key("mock_power_meter"),
@@ -1590,10 +1596,17 @@ mod tests {
 
         // If a device is present, its parameters should be serializable JSON values
         for (device_id, params) in &snapshot {
-            assert!(!params.is_empty(), "Device {} should have parameters", device_id);
+            assert!(
+                !params.is_empty(),
+                "Device {} should have parameters",
+                device_id
+            );
             for (param_name, value) in params {
                 assert!(
-                    value.is_number() || value.is_string() || value.is_boolean() || value.is_object(),
+                    value.is_number()
+                        || value.is_string()
+                        || value.is_boolean()
+                        || value.is_object(),
                     "Parameter {}.{} should be a valid JSON value",
                     device_id,
                     param_name
@@ -1609,7 +1622,9 @@ mod tests {
         use tokio::sync::RwLock;
 
         // Create a plugin factory and registry
-        let factory = Arc::new(RwLock::new(crate::hardware::plugin::registry::PluginFactory::new()));
+        let factory = Arc::new(RwLock::new(
+            crate::hardware::plugin::registry::PluginFactory::new(),
+        ));
         let registry = DeviceRegistry::with_plugin_factory(factory.clone());
 
         // Note: This test verifies that the plugin infrastructure is wired up correctly.
@@ -1628,10 +1643,10 @@ mod tests {
         let driver = DriverType::Newport1830C {
             port: "/dev/nonexistent_serial_port_xyz123".to_string(),
         };
-        
+
         let result = validate_driver_config(&driver);
         assert!(result.is_err());
-        
+
         let err = result.unwrap_err();
         let err_msg = err.to_string();
         assert!(err_msg.contains("does not exist"));
@@ -1643,18 +1658,18 @@ mod tests {
         // Create a temporary file to act as a valid serial port for this test
         let temp_port = std::env::temp_dir().join("test_serial_port");
         std::fs::write(&temp_port, "").unwrap();
-        
+
         let driver = DriverType::Ell14 {
             port: temp_port.to_string_lossy().to_string(),
             address: "XYZ".to_string(), // Invalid address
         };
-        
+
         let result = validate_driver_config(&driver);
         assert!(result.is_err());
-        
+
         let err = result.unwrap_err();
         assert!(err.to_string().contains("single hex digit"));
-        
+
         // Clean up
         std::fs::remove_file(temp_port).ok();
     }
@@ -1663,18 +1678,18 @@ mod tests {
     async fn test_validate_driver_config_invalid_esp300_axis() {
         let temp_port = std::env::temp_dir().join("test_serial_port_esp");
         std::fs::write(&temp_port, "").unwrap();
-        
+
         let driver = DriverType::Esp300 {
             port: temp_port.to_string_lossy().to_string(),
             axis: 5, // Invalid axis (must be 1-3)
         };
-        
+
         let result = validate_driver_config(&driver);
         assert!(result.is_err());
-        
+
         let err = result.unwrap_err();
         assert!(err.to_string().contains("Must be 1-3"));
-        
+
         std::fs::remove_file(temp_port).ok();
     }
 
@@ -1683,7 +1698,7 @@ mod tests {
         let driver = DriverType::Pvcam {
             camera_name: "".to_string(),
         };
-        
+
         let result = validate_driver_config(&driver);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("cannot be empty"));
@@ -1694,31 +1709,32 @@ mod tests {
         // Mock devices should always pass validation
         assert!(validate_driver_config(&DriverType::MockStage {
             initial_position: 0.0
-        }).is_ok());
-        
-        assert!(validate_driver_config(&DriverType::MockPowerMeter {
-            reading: 1e-6
-        }).is_ok());
-        
+        })
+        .is_ok());
+
+        assert!(validate_driver_config(&DriverType::MockPowerMeter { reading: 1e-6 }).is_ok());
+
         assert!(validate_driver_config(&DriverType::MockCamera).is_ok());
     }
 
     #[tokio::test]
     async fn test_register_fails_on_invalid_config() {
         let mut registry = DeviceRegistry::new();
-        
-        let result = registry.register(DeviceConfig {
-            id: "invalid_device".into(),
-            name: "Invalid Device".into(),
-            driver: DriverType::Newport1830C {
-                port: "/dev/definitely_does_not_exist_xyz".into(),
-            },
-        }).await;
-        
+
+        let result = registry
+            .register(DeviceConfig {
+                id: "invalid_device".into(),
+                name: "Invalid Device".into(),
+                driver: DriverType::Newport1830C {
+                    port: "/dev/definitely_does_not_exist_xyz".into(),
+                },
+            })
+            .await;
+
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("Configuration validation failed"));
-        
+
         // Registry should remain empty
         assert_eq!(registry.len(), 0);
     }

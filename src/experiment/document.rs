@@ -181,7 +181,8 @@ impl DescriptorDoc {
     }
 
     pub fn with_config(mut self, key: &str, value: &str) -> Self {
-        self.configuration.insert(key.to_string(), value.to_string());
+        self.configuration
+            .insert(key.to_string(), value.to_string());
         self
     }
 }
@@ -418,7 +419,7 @@ impl ExperimentManifest {
             "software_version".to_string(),
             env!("CARGO_PKG_VERSION").to_string(),
         );
-        
+
         // Capture hostname if available
         if let Ok(hostname) = hostname::get() {
             if let Ok(hostname_str) = hostname.into_string() {
@@ -535,12 +536,8 @@ mod tests {
         parameters.insert("mock_stage".to_string(), stage_params);
 
         // Create manifest
-        let manifest = ExperimentManifest::new(
-            "test-run-123",
-            "grid_scan",
-            "Test Grid Scan",
-            parameters,
-        );
+        let manifest =
+            ExperimentManifest::new("test-run-123", "grid_scan", "Test Grid Scan", parameters);
 
         assert_eq!(manifest.run_uid, "test-run-123");
         assert_eq!(manifest.plan_type, "grid_scan");
@@ -548,7 +545,7 @@ mod tests {
         assert_eq!(manifest.parameters.len(), 2);
         assert!(manifest.parameters.contains_key("mock_camera"));
         assert!(manifest.parameters.contains_key("mock_stage"));
-        
+
         // Check camera parameters
         let camera = manifest.parameters.get("mock_camera").unwrap();
         assert_eq!(camera.get("exposure_ms"), Some(&serde_json::json!(100.0)));
@@ -563,14 +560,9 @@ mod tests {
         use std::collections::HashMap;
 
         let parameters = HashMap::new();
-        let manifest = ExperimentManifest::new(
-            "run-456",
-            "count",
-            "Simple Count",
-            parameters,
-        )
-        .add_metadata("operator", "Alice")
-        .add_system_info("test_key", "test_value");
+        let manifest = ExperimentManifest::new("run-456", "count", "Simple Count", parameters)
+            .add_metadata("operator", "Alice")
+            .add_system_info("test_key", "test_value");
 
         // Test JSON serialization
         let json = manifest.to_json().unwrap();

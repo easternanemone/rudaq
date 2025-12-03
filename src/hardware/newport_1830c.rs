@@ -156,10 +156,7 @@ impl Newport1830CDriver {
     pub async fn set_wavelength_nm(&self, wavelength_nm: f64) -> Result<()> {
         let nm = wavelength_nm.round() as u16;
         if !(300..=1100).contains(&nm) {
-            return Err(anyhow!(
-                "Wavelength {} nm out of range (300-1100 nm)",
-                nm
-            ));
+            return Err(anyhow!("Wavelength {} nm out of range (300-1100 nm)", nm));
         }
 
         // Format as 4-digit zero-padded wavelength

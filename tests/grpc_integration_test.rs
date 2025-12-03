@@ -460,10 +460,8 @@ mod scan_integration_tests {
         }
 
         // Verify we got updates from different points
-        let unique_points: std::collections::HashSet<_> = progress_updates
-            .iter()
-            .map(|p| p.point_index)
-            .collect();
+        let unique_points: std::collections::HashSet<_> =
+            progress_updates.iter().map(|p| p.point_index).collect();
         assert!(
             unique_points.len() > 1,
             "Should receive updates from multiple scan points"

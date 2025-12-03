@@ -65,7 +65,10 @@ fn create_test_vector(name: &str, values: Vec<f64>) -> Measurement {
 /// Create a spectrum measurement for testing
 fn create_test_spectrum(name: &str, n_bins: usize) -> Measurement {
     let frequencies: Vec<f64> = (0..n_bins).map(|i| i as f64 * 100.0).collect();
-    let amplitudes: Vec<f64> = frequencies.iter().map(|f| 1.0 / (1.0 + f / 1000.0)).collect();
+    let amplitudes: Vec<f64> = frequencies
+        .iter()
+        .map(|f| 1.0 / (1.0 + f / 1000.0))
+        .collect();
     Measurement::Spectrum {
         name: name.to_string(),
         frequencies,
@@ -149,7 +152,10 @@ mod hdf5_tests {
 
         // Verify file structure
         let file = hdf5::File::open(&hdf5_path).unwrap();
-        assert!(file.group("measurements").is_ok(), "measurements group should exist");
+        assert!(
+            file.group("measurements").is_ok(),
+            "measurements group should exist"
+        );
     }
 
     #[tokio::test]
@@ -231,8 +237,14 @@ mod hdf5_tests {
         let batch = measurements_group.group("batch_000000").unwrap();
 
         // Check for metadata attributes
-        assert!(batch.attr("ring_tail").is_ok(), "ring_tail attribute should exist");
-        assert!(batch.attr("timestamp_ns").is_ok(), "timestamp_ns attribute should exist");
+        assert!(
+            batch.attr("ring_tail").is_ok(),
+            "ring_tail attribute should exist"
+        );
+        assert!(
+            batch.attr("timestamp_ns").is_ok(),
+            "timestamp_ns attribute should exist"
+        );
     }
 
     #[tokio::test]
@@ -324,12 +336,8 @@ mod hdf5_tests {
         camera_params.insert("gain".to_string(), serde_json::json!(2));
         parameters.insert("camera1".to_string(), camera_params);
 
-        let manifest = ExperimentManifest::new(
-            "test-run-uid",
-            "test_plan",
-            "Test Plan",
-            parameters,
-        );
+        let manifest =
+            ExperimentManifest::new("test-run-uid", "test_plan", "Test Plan", parameters);
 
         // Write manifest to HDF5
         writer.write_manifest(&manifest).await.unwrap();
@@ -340,9 +348,12 @@ mod hdf5_tests {
         // Verify manifest structure using hdf5 crate
         use hdf5::File;
         let file = File::open(&hdf5_path).unwrap();
-        
+
         // Check manifest group exists
-        assert!(file.group("manifest").is_ok(), "Manifest group should exist");
+        assert!(
+            file.group("manifest").is_ok(),
+            "Manifest group should exist"
+        );
         let manifest_group = file.group("manifest").unwrap();
 
         // Check basic attributes
@@ -355,18 +366,27 @@ mod hdf5_tests {
         assert_eq!(plan_type.as_str(), "test_plan");
 
         // Check parameters subgroup
-        assert!(manifest_group.group("parameters").is_ok(), "Parameters group should exist");
+        assert!(
+            manifest_group.group("parameters").is_ok(),
+            "Parameters group should exist"
+        );
         let params_group = manifest_group.group("parameters").unwrap();
-        
+
         // Check stage1 parameters
-        assert!(params_group.group("stage1").is_ok(), "stage1 group should exist");
+        assert!(
+            params_group.group("stage1").is_ok(),
+            "stage1 group should exist"
+        );
         let stage1_group = params_group.group("stage1").unwrap();
         let position_attr = stage1_group.attr("position").unwrap();
         let position_json: hdf5::types::VarLenUnicode = position_attr.read_scalar().unwrap();
         assert!(position_json.as_str().contains("10.5"));
 
         // Check system info
-        assert!(manifest_group.group("system").is_ok(), "System group should exist");
+        assert!(
+            manifest_group.group("system").is_ok(),
+            "System group should exist"
+        );
         let system_group = manifest_group.group("system").unwrap();
         let version_attr = system_group.attr("software_version").unwrap();
         let version: hdf5::types::VarLenUnicode = version_attr.read_scalar().unwrap();
@@ -507,7 +527,8 @@ mod arrow_tests {
 
         // Check values
         use arrow::array::Float64Array;
-        let value_column = read_batch.column(1)
+        let value_column = read_batch
+            .column(1)
             .as_any()
             .downcast_ref::<Float64Array>()
             .unwrap();
@@ -629,7 +650,10 @@ mod ringbuffer_tests {
 
         // Verify buffer wrapped correctly
         let snapshot = ring.read_snapshot();
-        assert!(snapshot.len() as u64 <= capacity, "Snapshot should not exceed capacity");
+        assert!(
+            snapshot.len() as u64 <= capacity,
+            "Snapshot should not exceed capacity"
+        );
     }
 
     #[tokio::test]
@@ -789,7 +813,10 @@ mod ringbuffer_hdf5_integration {
         writer_task.await.unwrap();
 
         // Verify writes occurred
-        assert!(writer.batch_count() > 0, "Background writer should have written batches");
+        assert!(
+            writer.batch_count() > 0,
+            "Background writer should have written batches"
+        );
     }
 }
 
@@ -808,9 +835,7 @@ mod performance_tests {
         let iterations = 1000;
 
         for _ in 0..iterations {
-            let measurements = vec![
-                create_test_scalar("test", 42.0),
-            ];
+            let measurements = vec![create_test_scalar("test", 42.0)];
             let _batches = Measurement::into_arrow_batches(&measurements).unwrap();
         }
 

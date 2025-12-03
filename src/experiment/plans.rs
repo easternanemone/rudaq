@@ -38,26 +38,15 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub enum PlanCommand {
     /// Move a device to an absolute position
-    MoveTo {
-        device_id: String,
-        position: f64,
-    },
+    MoveTo { device_id: String, position: f64 },
     /// Read a value from a device
-    Read {
-        device_id: String,
-    },
+    Read { device_id: String },
     /// Trigger a device (e.g., start camera acquisition)
-    Trigger {
-        device_id: String,
-    },
+    Trigger { device_id: String },
     /// Wait for a duration in seconds
-    Wait {
-        seconds: f64,
-    },
+    Wait { seconds: f64 },
     /// Checkpoint - safe point for pause/resume
-    Checkpoint {
-        label: String,
-    },
+    Checkpoint { label: String },
     /// Emit an event document with collected data
     EmitEvent {
         stream: String,
@@ -145,7 +134,8 @@ impl LineScan {
     }
 
     pub fn with_detectors(mut self, detectors: &[&str]) -> Self {
-        self.detectors.extend(detectors.iter().map(|s| s.to_string()));
+        self.detectors
+            .extend(detectors.iter().map(|s| s.to_string()));
         self
     }
 
@@ -741,8 +731,7 @@ mod tests {
 
     #[test]
     fn test_grid_scan_points() {
-        let mut plan = GridScan::new("y", 0.0, 2.0, 3, "x", 0.0, 1.0, 2)
-            .with_detector("detector");
+        let mut plan = GridScan::new("y", 0.0, 2.0, 3, "x", 0.0, 1.0, 2).with_detector("detector");
 
         let mut event_count = 0;
         while let Some(cmd) = plan.next_command() {

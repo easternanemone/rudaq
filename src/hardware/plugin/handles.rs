@@ -39,7 +39,8 @@ use std::time::Duration;
 
 use super::driver::GenericDriver;
 use crate::hardware::capabilities::{
-    Actionable, ExposureControl, FrameProducer, Loggable, Movable, Readable, Settable, Switchable, Triggerable,
+    Actionable, ExposureControl, FrameProducer, Loggable, Movable, Readable, Settable, Switchable,
+    Triggerable,
 };
 
 /// Default timeout for motion settling operations.
@@ -146,7 +147,11 @@ impl PluginSensorHandle {
     /// * `driver` - Shared reference to the GenericDriver
     /// * `sensor_name` - Name of the readable capability (must match YAML config)
     /// * `is_mocking` - If true, returns mock data instead of communicating with hardware
-    pub fn new(driver: Arc<GenericDriver>, sensor_name: impl Into<String>, is_mocking: bool) -> Self {
+    pub fn new(
+        driver: Arc<GenericDriver>,
+        sensor_name: impl Into<String>,
+        is_mocking: bool,
+    ) -> Self {
         Self {
             driver,
             sensor_name: sensor_name.into(),
@@ -489,7 +494,9 @@ impl FrameProducer for PluginFrameProducerHandle {
     }
 
     async fn start_stream_finite(&self, frame_limit: Option<u32>) -> Result<()> {
-        self.driver.start_frame_stream_finite(frame_limit, self.is_mocking).await
+        self.driver
+            .start_frame_stream_finite(frame_limit, self.is_mocking)
+            .await
     }
 
     async fn stop_stream(&self) -> Result<()> {
@@ -607,7 +614,10 @@ impl GenericDriver {
     ///
     /// # Returns
     /// A `PluginExposureControlHandle` that implements `ExposureControl`.
-    pub fn exposure_control_handle(self: &Arc<Self>, is_mocking: bool) -> PluginExposureControlHandle {
+    pub fn exposure_control_handle(
+        self: &Arc<Self>,
+        is_mocking: bool,
+    ) -> PluginExposureControlHandle {
         PluginExposureControlHandle::new(self.clone(), is_mocking)
     }
 

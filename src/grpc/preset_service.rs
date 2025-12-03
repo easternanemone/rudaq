@@ -89,13 +89,11 @@ impl PresetServiceImpl {
         if !path.exists() {
             return Vec::new();
         }
-        
+
         match fs::read_to_string(&path) {
-            Ok(content) => {
-                serde_json::from_str::<Vec<ManifestEntry>>(&content)
-                    .map(|entries| entries.into_iter().map(|e| e.to_proto()).collect())
-                    .unwrap_or_default()
-            }
+            Ok(content) => serde_json::from_str::<Vec<ManifestEntry>>(&content)
+                .map(|entries| entries.into_iter().map(|e| e.to_proto()).collect())
+                .unwrap_or_default(),
             Err(_) => Vec::new(),
         }
     }
@@ -105,26 +103,26 @@ impl PresetServiceImpl {
         let entries: Vec<ManifestEntry> = presets.iter().map(ManifestEntry::from_proto).collect();
         let json = serde_json::to_string_pretty(&entries)
             .map_err(|e| Status::internal(format!("Failed to serialize manifest: {}", e)))?;
-        
+
         fs::write(self.manifest_path(), json)
             .map_err(|e| Status::internal(format!("Failed to write manifest: {}", e)))?;
-        
+
         Ok(())
     }
 
     /// Update manifest with a new or modified preset metadata
     fn update_manifest_entry(&self, meta: &PresetMetadata) -> Result<(), Status> {
         let mut presets = self.load_manifest();
-        
+
         // Remove existing entry if present
         presets.retain(|p| p.preset_id != meta.preset_id);
-        
+
         // Add new entry
         presets.push(meta.clone());
-        
+
         // Sort by updated_at (newest first)
         presets.sort_by(|a, b| b.updated_at_ns.cmp(&a.updated_at_ns));
-        
+
         self.save_manifest(&presets)
     }
 
@@ -311,7 +309,10 @@ impl PresetServiceImpl {
             if let Some(ext) = path.extension() {
                 if ext == "json"
                     && !path.to_string_lossy().contains(".backup")
-                    && path.file_name().map(|n| n != MANIFEST_FILENAME).unwrap_or(true)
+                    && path
+                        .file_name()
+                        .map(|n| n != MANIFEST_FILENAME)
+                        .unwrap_or(true)
                 {
                     if let Some(stem) = path.file_stem() {
                         let preset_id = stem.to_string_lossy().to_string();
@@ -451,7 +452,9 @@ impl PresetService for PresetServiceImpl {
         request: Request<SavePresetRequest>,
     ) -> Result<Response<SavePresetResponse>, Status> {
         let req = request.into_inner();
-        let preset = req.preset.ok_or_else(|| Status::invalid_argument("preset is required"))?;
+        let preset = req
+            .preset
+            .ok_or_else(|| Status::invalid_argument("preset is required"))?;
 
         let preset_id = preset
             .meta
@@ -663,10 +666,7 @@ mod tests {
             }),
             device_configs_json: {
                 let mut map = HashMap::new();
-                map.insert(
-                    "stage1".to_string(),
-                    r#"{"position": 10.5}"#.to_string(),
-                );
+                map.insert("stage1".to_string(), r#"{"position": 10.5}"#.to_string());
                 map
             },
             scan_template_json: String::new(),
@@ -703,8 +703,12 @@ mod tests {
         let service = PresetServiceImpl::new(registry, temp_dir.path().to_path_buf());
 
         // Save multiple presets
-        service.save_preset_to_disk(&create_test_preset("preset_a")).unwrap();
-        service.save_preset_to_disk(&create_test_preset("preset_b")).unwrap();
+        service
+            .save_preset_to_disk(&create_test_preset("preset_a"))
+            .unwrap();
+        service
+            .save_preset_to_disk(&create_test_preset("preset_b"))
+            .unwrap();
 
         let list = service.list_presets_from_disk().unwrap();
         assert_eq!(list.len(), 2);
@@ -716,7 +720,9 @@ mod tests {
         let registry = Arc::new(RwLock::new(DeviceRegistry::new()));
         let service = PresetServiceImpl::new(registry, temp_dir.path().to_path_buf());
 
-        service.save_preset_to_disk(&create_test_preset("to_delete")).unwrap();
+        service
+            .save_preset_to_disk(&create_test_preset("to_delete"))
+            .unwrap();
         assert!(service.load_preset_from_disk("to_delete").is_ok());
 
         service.delete_preset_from_disk("to_delete").unwrap();
@@ -727,8 +733,8 @@ mod tests {
     async fn test_backup_rotation() {
         let temp_dir = TempDir::new().unwrap();
         let registry = Arc::new(RwLock::new(DeviceRegistry::new()));
-        let service = PresetServiceImpl::new(registry, temp_dir.path().to_path_buf())
-            .with_max_backups(2);
+        let service =
+            PresetServiceImpl::new(registry, temp_dir.path().to_path_buf()).with_max_backups(2);
 
         // Save same preset multiple times
         let mut preset = create_test_preset("rotate_test");
@@ -753,7 +759,9 @@ mod tests {
         let registry = Arc::new(RwLock::new(DeviceRegistry::new()));
         let service = PresetServiceImpl::new(registry, temp_dir.path().to_path_buf());
 
-        service.save_preset_to_disk(&create_test_preset("integrity")).unwrap();
+        service
+            .save_preset_to_disk(&create_test_preset("integrity"))
+            .unwrap();
 
         // Corrupt the file
         let path = service.preset_path("integrity");

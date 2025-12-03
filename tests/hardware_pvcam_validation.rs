@@ -828,11 +828,7 @@ async fn test_hardware_get_bit_depth() {
     println!("ADC bit depth: {}", depth);
 
     // Prime BSI has 11-bit ADC native, can also be 12, 14, or 16 bit
-    assert!(
-        depth >= 8 && depth <= 16,
-        "Unexpected bit depth: {}",
-        depth
-    );
+    assert!(depth >= 8 && depth <= 16, "Unexpected bit depth: {}", depth);
 }
 
 /// Test 33: Get readout time
@@ -846,7 +842,11 @@ async fn test_hardware_get_readout_time() {
         .await
         .expect("Failed to get readout time");
 
-    println!("Readout time: {:.2} us ({:.2} ms)", time_us, time_us / 1000.0);
+    println!(
+        "Readout time: {:.2} us ({:.2} ms)",
+        time_us,
+        time_us / 1000.0
+    );
 
     // Should be positive and reasonable (< 1 second)
     assert!(
@@ -867,8 +867,13 @@ async fn test_hardware_get_pixel_size() {
         .await
         .expect("Failed to get pixel size");
 
-    println!("Pixel size: {} x {} nm ({:.2} x {:.2} um)",
-             pix_w, pix_h, pix_w as f64 / 1000.0, pix_h as f64 / 1000.0);
+    println!(
+        "Pixel size: {} x {} nm ({:.2} x {:.2} um)",
+        pix_w,
+        pix_h,
+        pix_w as f64 / 1000.0,
+        pix_h as f64 / 1000.0
+    );
 
     // Prime BSI has 6.5um pixels
     // Reasonable range: 1um - 100um (1000nm - 100000nm)
@@ -916,7 +921,10 @@ async fn test_hardware_get_speed_name() {
         }
         Err(e) => {
             // PARAM_SPDTAB_NAME not available on this camera - that's OK
-            println!("Speed name not available: {} (this is OK for some cameras)", e);
+            println!(
+                "Speed name not available: {} (this is OK for some cameras)",
+                e
+            );
         }
     }
 }
@@ -971,14 +979,28 @@ async fn test_hardware_get_camera_info() {
     println!("Temperature:    {:.2}°C", info.temperature_c);
     println!("Bit depth:      {}", info.bit_depth);
     println!("Readout time:   {:.2} us", info.readout_time_us);
-    println!("Pixel size:     {} x {} nm", info.pixel_size_nm.0, info.pixel_size_nm.1);
-    println!("Sensor size:    {} x {} pixels", info.sensor_size.0, info.sensor_size.1);
+    println!(
+        "Pixel size:     {} x {} nm",
+        info.pixel_size_nm.0, info.pixel_size_nm.1
+    );
+    println!(
+        "Sensor size:    {} x {} pixels",
+        info.sensor_size.0, info.sensor_size.1
+    );
     println!("Gain mode:      {}", info.gain_name);
     println!("Speed mode:     {}", info.speed_name);
 
     // Verify sensor size matches expected (Prime BSI = 2048x2048)
-    assert_eq!(info.sensor_size.0, expected_width(), "Unexpected sensor width");
-    assert_eq!(info.sensor_size.1, expected_height(), "Unexpected sensor height");
+    assert_eq!(
+        info.sensor_size.0,
+        expected_width(),
+        "Unexpected sensor width"
+    );
+    assert_eq!(
+        info.sensor_size.1,
+        expected_height(),
+        "Unexpected sensor height"
+    );
 }
 
 // =============================================================================
@@ -1002,7 +1024,10 @@ async fn test_hardware_list_gain_modes() {
     }
 
     // Verify we have at least one gain mode
-    assert!(!modes.is_empty(), "Camera should have at least one gain mode");
+    assert!(
+        !modes.is_empty(),
+        "Camera should have at least one gain mode"
+    );
 
     // Verify indices are sequential starting from 0
     for (i, mode) in modes.iter().enumerate() {
@@ -1030,7 +1055,10 @@ async fn test_hardware_list_speed_modes() {
     }
 
     // Verify we have at least one speed mode
-    assert!(!modes.is_empty(), "Camera should have at least one speed mode");
+    assert!(
+        !modes.is_empty(),
+        "Camera should have at least one speed mode"
+    );
 
     // Verify indices are sequential starting from 0
     for (i, mode) in modes.iter().enumerate() {
@@ -1052,7 +1080,10 @@ async fn test_hardware_get_gain() {
     println!("Current gain: Index {} - {}", gain.index, gain.name);
 
     // Verify gain index is within valid range
-    let modes = camera.list_gain_modes().await.expect("Failed to list gain modes");
+    let modes = camera
+        .list_gain_modes()
+        .await
+        .expect("Failed to list gain modes");
     assert!(
         (gain.index as usize) < modes.len(),
         "Current gain index should be within available modes"
@@ -1070,7 +1101,10 @@ async fn test_hardware_get_speed() {
     println!("Current speed: Index {} - {}", speed.index, speed.name);
 
     // Verify speed index is within valid range
-    let modes = camera.list_speed_modes().await.expect("Failed to list speed modes");
+    let modes = camera
+        .list_speed_modes()
+        .await
+        .expect("Failed to list speed modes");
     assert!(
         (speed.index as usize) < modes.len(),
         "Current speed index should be within available modes"
@@ -1084,11 +1118,17 @@ async fn test_hardware_set_gain_index() {
     let camera = PvcamDriver::new("PMCam").expect("Failed to open camera");
 
     // Get available gain modes
-    let modes = camera.list_gain_modes().await.expect("Failed to list gain modes");
+    let modes = camera
+        .list_gain_modes()
+        .await
+        .expect("Failed to list gain modes");
     assert!(!modes.is_empty(), "Need at least one gain mode to test");
 
     // Save original gain
-    let original_gain = camera.get_gain_index().await.expect("Failed to get original gain");
+    let original_gain = camera
+        .get_gain_index()
+        .await
+        .expect("Failed to get original gain");
 
     println!("Original gain index: {}", original_gain);
 
@@ -1099,11 +1139,11 @@ async fn test_hardware_set_gain_index() {
             .await
             .expect(&format!("Failed to set gain index {}", mode.index));
 
-        let current = camera.get_gain_index().await.expect("Failed to read back gain");
-        assert_eq!(
-            current, mode.index,
-            "Gain index should match after setting"
-        );
+        let current = camera
+            .get_gain_index()
+            .await
+            .expect("Failed to read back gain");
+        assert_eq!(current, mode.index, "Gain index should match after setting");
         println!("  Set gain {}: {} - OK", mode.index, mode.name);
     }
 
@@ -1122,11 +1162,17 @@ async fn test_hardware_set_speed_index() {
     let camera = PvcamDriver::new("PMCam").expect("Failed to open camera");
 
     // Get available speed modes
-    let modes = camera.list_speed_modes().await.expect("Failed to list speed modes");
+    let modes = camera
+        .list_speed_modes()
+        .await
+        .expect("Failed to list speed modes");
     assert!(!modes.is_empty(), "Need at least one speed mode to test");
 
     // Save original speed
-    let original_speed = camera.get_speed_index().await.expect("Failed to get original speed");
+    let original_speed = camera
+        .get_speed_index()
+        .await
+        .expect("Failed to get original speed");
 
     println!("Original speed index: {}", original_speed);
 
@@ -1137,7 +1183,10 @@ async fn test_hardware_set_speed_index() {
             .await
             .expect(&format!("Failed to set speed index {}", mode.index));
 
-        let current = camera.get_speed_index().await.expect("Failed to read back speed");
+        let current = camera
+            .get_speed_index()
+            .await
+            .expect("Failed to read back speed");
         assert_eq!(
             current, mode.index,
             "Speed index should match after setting"
@@ -1198,8 +1247,16 @@ async fn test_hardware_temperature_vs_setpoint() {
     println!("Difference:           {:.2}°C", (current - setpoint).abs());
 
     // Both should be in reasonable range
-    assert!(current >= -55.0 && current <= 50.0, "Current temp unreasonable: {}", current);
-    assert!(setpoint >= -55.0 && setpoint <= 30.0, "Setpoint unreasonable: {}", setpoint);
+    assert!(
+        current >= -55.0 && current <= 50.0,
+        "Current temp unreasonable: {}",
+        current
+    );
+    assert!(
+        setpoint >= -55.0 && setpoint <= 30.0,
+        "Setpoint unreasonable: {}",
+        setpoint
+    );
 }
 
 /// Test 48: Get fan speed
@@ -1236,7 +1293,10 @@ async fn test_hardware_set_fan_speed() {
     for speed in &speeds {
         match camera.set_fan_speed(*speed).await {
             Ok(()) => {
-                let readback = camera.get_fan_speed().await.expect("Failed to read fan speed");
+                let readback = camera
+                    .get_fan_speed()
+                    .await
+                    .expect("Failed to read fan speed");
                 println!("  Set {:?} -> Read back {:?}", speed, readback);
                 // Note: Some cameras may not support all fan speeds
                 // Just verify we can set and read without error
@@ -1339,15 +1399,20 @@ async fn test_hardware_get_set_pp_param() {
 
         // Test get/set on first parameter
         let param = &params[0];
-        println!("Testing feature '{}' param '{}' (current value: {})",
-            feat.name, param.name, param.value);
+        println!(
+            "Testing feature '{}' param '{}' (current value: {})",
+            feat.name, param.name, param.value
+        );
 
         let original = camera
             .get_pp_param(feat.index, param.index)
             .await
             .expect("Failed to get PP param");
 
-        assert_eq!(original, param.value, "get_pp_param should match get_pp_params");
+        assert_eq!(
+            original, param.value,
+            "get_pp_param should match get_pp_params"
+        );
 
         println!("  get_pp_param returned: {}", original);
         println!("  PP param get/set test passed");
@@ -1405,7 +1470,10 @@ async fn test_hardware_smart_streaming_max_entries() {
 
     match camera.get_smart_stream_max_entries().await {
         Ok(max_entries) => println!("Smart Streaming max entries: {}", max_entries),
-        Err(e) => println!("Could not get max entries (may need different query): {}", e),
+        Err(e) => println!(
+            "Could not get max entries (may need different query): {}",
+            e
+        ),
     }
 }
 
@@ -1487,7 +1555,10 @@ async fn test_hardware_smart_streaming_set_exposures() {
 
     match camera.set_smart_stream_exposures(&exposures_ms).await {
         Ok(()) => println!("Exposure sequence set successfully"),
-        Err(e) => println!("Failed to set exposures: {} (may require setup_exp first)", e),
+        Err(e) => println!(
+            "Failed to set exposures: {} (may require setup_exp first)",
+            e
+        ),
     }
 
     // Get exposure count
@@ -1742,25 +1813,64 @@ async fn test_hardware_prime_enhance() {
     println!("Initial PrimeEnhance enabled: {}", initial);
 
     // Get current parameters
-    let iterations = camera.get_prime_enhance_iterations().await.expect("Failed to get iterations");
-    let gain = camera.get_prime_enhance_gain().await.expect("Failed to get gain");
-    let offset = camera.get_prime_enhance_offset().await.expect("Failed to get offset");
-    let lambda = camera.get_prime_enhance_lambda().await.expect("Failed to get lambda");
-    println!("Current params: iterations={}, gain={}, offset={}, lambda={}", iterations, gain, offset, lambda);
+    let iterations = camera
+        .get_prime_enhance_iterations()
+        .await
+        .expect("Failed to get iterations");
+    let gain = camera
+        .get_prime_enhance_gain()
+        .await
+        .expect("Failed to get gain");
+    let offset = camera
+        .get_prime_enhance_offset()
+        .await
+        .expect("Failed to get offset");
+    let lambda = camera
+        .get_prime_enhance_lambda()
+        .await
+        .expect("Failed to get lambda");
+    println!(
+        "Current params: iterations={}, gain={}, offset={}, lambda={}",
+        iterations, gain, offset, lambda
+    );
 
     // Enable PrimeEnhance
-    camera.enable_prime_enhance().await.expect("Failed to enable");
-    assert!(camera.is_prime_enhance_enabled().await.expect("Failed to check"), "Should be enabled");
+    camera
+        .enable_prime_enhance()
+        .await
+        .expect("Failed to enable");
+    assert!(
+        camera
+            .is_prime_enhance_enabled()
+            .await
+            .expect("Failed to check"),
+        "Should be enabled"
+    );
     println!("Enabled PrimeEnhance");
 
     // Modify parameters
-    camera.set_prime_enhance_iterations(3).await.expect("Failed to set iterations");
-    let new_iterations = camera.get_prime_enhance_iterations().await.expect("Failed to get");
+    camera
+        .set_prime_enhance_iterations(3)
+        .await
+        .expect("Failed to set iterations");
+    let new_iterations = camera
+        .get_prime_enhance_iterations()
+        .await
+        .expect("Failed to get");
     println!("Set iterations to 3, got {}", new_iterations);
 
     // Disable PrimeEnhance
-    camera.disable_prime_enhance().await.expect("Failed to disable");
-    assert!(!camera.is_prime_enhance_enabled().await.expect("Failed to check"), "Should be disabled");
+    camera
+        .disable_prime_enhance()
+        .await
+        .expect("Failed to disable");
+    assert!(
+        !camera
+            .is_prime_enhance_enabled()
+            .await
+            .expect("Failed to check"),
+        "Should be disabled"
+    );
     println!("Disabled PrimeEnhance");
 }
 
@@ -1782,7 +1892,10 @@ async fn test_hardware_frame_processing() {
     println!("Frame rotation available: {}", rot_available);
 
     if rot_available {
-        let current_rot = camera.get_frame_rotation().await.expect("Failed to get rotation");
+        let current_rot = camera
+            .get_frame_rotation()
+            .await
+            .expect("Failed to get rotation");
         println!("Current rotation: {} degrees", current_rot);
 
         // Test setting rotation
@@ -1809,7 +1922,10 @@ async fn test_hardware_frame_processing() {
 
     if flip_available {
         let current_flip = camera.get_frame_flip().await.expect("Failed to get flip");
-        println!("Current flip mode: {} (0=none, 1=horiz, 2=vert, 3=both)", current_flip);
+        println!(
+            "Current flip mode: {} (0=none, 1=horiz, 2=vert, 3=both)",
+            current_flip
+        );
 
         // Test flip modes
         for mode in [0u16, 1, 2, 3] {

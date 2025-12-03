@@ -50,7 +50,7 @@ use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info, warn};
 
 use super::document::{
-    DataKey, DescriptorDoc, Document, EventDoc, ExperimentManifest, StartDoc, StopDoc, new_uid,
+    new_uid, DataKey, DescriptorDoc, Document, EventDoc, ExperimentManifest, StartDoc, StopDoc,
 };
 use super::plans::{Plan, PlanCommand};
 use crate::hardware::registry::DeviceRegistry;
@@ -281,16 +281,14 @@ impl RunEngine {
         // Create and emit DescriptorDoc for the primary stream
         let mut descriptor = DescriptorDoc::new(&run_uid, "primary");
         for det in plan.detectors() {
-            descriptor.data_keys.insert(
-                det.clone(),
-                DataKey::scalar(&det, ""),
-            );
+            descriptor
+                .data_keys
+                .insert(det.clone(), DataKey::scalar(&det, ""));
         }
         for mover in plan.movers() {
-            descriptor.data_keys.insert(
-                mover.clone(),
-                DataKey::scalar(&mover, ""),
-            );
+            descriptor
+                .data_keys
+                .insert(mover.clone(), DataKey::scalar(&mover, ""));
         }
         let descriptor_uid = descriptor.uid.clone();
         self.emit_document(Document::Descriptor(descriptor)).await;
@@ -394,7 +392,10 @@ impl RunEngine {
         debug!(?cmd, "Processing command");
 
         match cmd {
-            PlanCommand::MoveTo { device_id, position } => {
+            PlanCommand::MoveTo {
+                device_id,
+                position,
+            } => {
                 self.execute_move(&device_id, position).await?;
 
                 // Update current positions in context
@@ -437,11 +438,15 @@ impl RunEngine {
                 Ok(false)
             }
 
-            PlanCommand::EmitEvent { stream: _, mut data, positions } => {
+            PlanCommand::EmitEvent {
+                stream: _,
+                mut data,
+                positions,
+            } => {
                 let mut ctx_guard = self.run_context.lock().await;
-                let ctx = ctx_guard.as_mut().ok_or_else(|| {
-                    anyhow::anyhow!("No active run context")
-                })?;
+                let ctx = ctx_guard
+                    .as_mut()
+                    .ok_or_else(|| anyhow::anyhow!("No active run context"))?;
 
                 // Merge collected data
                 data.extend(ctx.collected_data.drain());
@@ -461,9 +466,14 @@ impl RunEngine {
                 Ok(true)
             }
 
-            PlanCommand::Set { device_id, parameter, value } => {
+            PlanCommand::Set {
+                device_id,
+                parameter,
+                value,
+            } => {
                 debug!(device = %device_id, param = %parameter, value = %value, "Setting parameter");
-                self.execute_set_parameter(&device_id, &parameter, &value).await?;
+                self.execute_set_parameter(&device_id, &parameter, &value)
+                    .await?;
                 Ok(false)
             }
         }
@@ -512,7 +522,12 @@ impl RunEngine {
     }
 
     /// Execute a set parameter command
-    async fn execute_set_parameter(&self, device_id: &str, parameter: &str, value: &str) -> anyhow::Result<()> {
+    async fn execute_set_parameter(
+        &self,
+        device_id: &str,
+        parameter: &str,
+        value: &str,
+    ) -> anyhow::Result<()> {
         debug!(device = %device_id, param = %parameter, value = %value, "Setting parameter");
 
         // Try legacy Settable trait first (backwards compatibility)
@@ -524,7 +539,7 @@ impl RunEngine {
                     Ok::<_, serde_json::Error>(serde_json::Value::String(value.to_string()))
                 })
                 .map_err(|e| anyhow::anyhow!("Invalid value format: {}", e))?;
-            
+
             settable.set_value(parameter, json_value).await?;
             return Ok(());
         }
@@ -539,17 +554,24 @@ impl RunEngine {
                         Ok::<_, serde_json::Error>(serde_json::Value::String(value.to_string()))
                     })
                     .map_err(|e| anyhow::anyhow!("Invalid value format: {}", e))?;
-                
+
                 // Set the parameter (synchronous call via ParameterBase trait)
                 param.set_json(json_value)?;
                 return Ok(());
             } else {
-                anyhow::bail!("Parameter '{}' not found on device '{}'", parameter, device_id);
+                anyhow::bail!(
+                    "Parameter '{}' not found on device '{}'",
+                    parameter,
+                    device_id
+                );
             }
         }
 
         // Neither Settable nor Parameterized - device not found
-        anyhow::bail!("Device '{}' not found or does not support parameter setting", device_id);
+        anyhow::bail!(
+            "Device '{}' not found or does not support parameter setting",
+            device_id
+        );
     }
 
     /// Emit a document to all subscribers

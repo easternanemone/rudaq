@@ -75,7 +75,10 @@ async fn pvcam_smoke_test() {
 
     // Step 2: Verify camera info
     println!("[2/5] Querying camera info...");
-    let info = camera.get_camera_info().await.expect("Failed to get camera info");
+    let info = camera
+        .get_camera_info()
+        .await
+        .expect("Failed to get camera info");
     println!("  Chip: {}", info.chip_name);
     println!("  Sensor: {}x{}", info.sensor_size.0, info.sensor_size.1);
 
@@ -85,8 +88,14 @@ async fn pvcam_smoke_test() {
 
     // Step 3: Set short exposure
     println!("[3/5] Setting exposure to 10ms...");
-    camera.set_exposure_ms(10.0).await.expect("Failed to set exposure");
-    let exposure = camera.get_exposure_ms().await.expect("Failed to query exposure");
+    camera
+        .set_exposure_ms(10.0)
+        .await
+        .expect("Failed to set exposure");
+    let exposure = camera
+        .get_exposure_ms()
+        .await
+        .expect("Failed to query exposure");
     println!("  Exposure: {} ms", exposure);
 
     // Allow some tolerance for camera rounding
@@ -101,7 +110,10 @@ async fn pvcam_smoke_test() {
     let start = std::time::Instant::now();
 
     // Start stream acquisition for single frame
-    camera.start_stream().await.expect("Failed to start acquisition");
+    camera
+        .start_stream()
+        .await
+        .expect("Failed to start acquisition");
 
     // Subscribe to frame broadcasts and wait for a frame
     let mut rx = camera.subscribe_frames();
@@ -128,7 +140,10 @@ async fn pvcam_smoke_test() {
 
     // Step 5: Stop and cleanup
     println!("[5/5] Stopping acquisition...");
-    camera.stop_stream().await.expect("Failed to stop acquisition");
+    camera
+        .stop_stream()
+        .await
+        .expect("Failed to stop acquisition");
 
     // Calculate simple statistics on frame data
     let sum: u64 = frame.buffer.iter().map(|&v| v as u64).sum();

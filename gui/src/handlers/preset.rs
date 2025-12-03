@@ -21,34 +21,38 @@ pub fn register(ui: &MainWindow, adapter: UiAdapter, state: SharedState) {
 
 fn register_list_presets(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: SharedState) {
     ui.on_list_presets(move || {
-        spawn_rpc(ui_weak.clone(), state.clone(), |client, ui_weak| async move {
-            info!("Listing presets");
+        spawn_rpc(
+            ui_weak.clone(),
+            state.clone(),
+            |client, ui_weak| async move {
+                info!("Listing presets");
 
-            match client.list_presets().await {
-                Ok(presets) => {
-                    let slint_presets: Vec<PresetInfo> = presets
-                        .into_iter()
-                        .map(|p| metadata_to_preset_info(&p))
-                        .collect();
+                match client.list_presets().await {
+                    Ok(presets) => {
+                        let slint_presets: Vec<PresetInfo> = presets
+                            .into_iter()
+                            .map(|p| metadata_to_preset_info(&p))
+                            .collect();
 
-                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                        let model = Rc::new(VecModel::from(slint_presets));
-                        ui.set_presets(model.into());
-                    });
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            let model = Rc::new(VecModel::from(slint_presets));
+                            ui.set_presets(model.into());
+                        });
+                    }
+                    Err(e) => {
+                        error!("ListPresets failed: {}", e);
+                        let error_msg = e.to_string();
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            ui.invoke_show_toast(
+                                SharedString::from("error"),
+                                SharedString::from("List Presets Failed"),
+                                SharedString::from(error_msg),
+                            );
+                        });
+                    }
                 }
-                Err(e) => {
-                    error!("ListPresets failed: {}", e);
-                    let error_msg = e.to_string();
-                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                        ui.invoke_show_toast(
-                            SharedString::from("error"),
-                            SharedString::from("List Presets Failed"),
-                            SharedString::from(error_msg),
-                        );
-                    });
-                }
-            }
-        });
+            },
+        );
     });
 }
 
@@ -57,51 +61,55 @@ fn register_save_preset(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: Share
         let name = name.to_string();
         let description = description.to_string();
 
-        spawn_rpc(ui_weak.clone(), state.clone(), move |client, ui_weak| async move {
-            info!("Saving preset: {}", name);
+        spawn_rpc(
+            ui_weak.clone(),
+            state.clone(),
+            move |client, ui_weak| async move {
+                info!("Saving preset: {}", name);
 
-            // Create preset with metadata
-            let preset = Preset {
-                meta: Some(PresetMetadata {
-                    preset_id: String::new(), // Server assigns ID
-                    name: name.clone(),
-                    description: description.clone(),
-                    author: "GUI User".to_string(),
-                    created_at_ns: 0,
-                    updated_at_ns: 0,
-                    schema_version: 1,
-                }),
-                device_configs_json: std::collections::HashMap::new(), // Server captures current state
-                scan_template_json: String::new(),
-            };
+                // Create preset with metadata
+                let preset = Preset {
+                    meta: Some(PresetMetadata {
+                        preset_id: String::new(), // Server assigns ID
+                        name: name.clone(),
+                        description: description.clone(),
+                        author: "GUI User".to_string(),
+                        created_at_ns: 0,
+                        updated_at_ns: 0,
+                        schema_version: 1,
+                    }),
+                    device_configs_json: std::collections::HashMap::new(), // Server captures current state
+                    scan_template_json: String::new(),
+                };
 
-            match client.save_preset(preset, false).await {
-                Ok(message) => {
-                    info!("Preset saved: {}", message);
-                    let name_clone = name.clone();
-                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                        ui.invoke_show_toast(
-                            SharedString::from("success"),
-                            SharedString::from("Preset Saved"),
-                            SharedString::from(&name_clone),
-                        );
-                        // Refresh the list
-                        ui.invoke_list_presets();
-                    });
+                match client.save_preset(preset, false).await {
+                    Ok(message) => {
+                        info!("Preset saved: {}", message);
+                        let name_clone = name.clone();
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            ui.invoke_show_toast(
+                                SharedString::from("success"),
+                                SharedString::from("Preset Saved"),
+                                SharedString::from(&name_clone),
+                            );
+                            // Refresh the list
+                            ui.invoke_list_presets();
+                        });
+                    }
+                    Err(e) => {
+                        error!("SavePreset failed: {}", e);
+                        let error_msg = e.to_string();
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            ui.invoke_show_toast(
+                                SharedString::from("error"),
+                                SharedString::from("Save Failed"),
+                                SharedString::from(error_msg),
+                            );
+                        });
+                    }
                 }
-                Err(e) => {
-                    error!("SavePreset failed: {}", e);
-                    let error_msg = e.to_string();
-                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                        ui.invoke_show_toast(
-                            SharedString::from("error"),
-                            SharedString::from("Save Failed"),
-                            SharedString::from(error_msg),
-                        );
-                    });
-                }
-            }
-        });
+            },
+        );
     });
 }
 
@@ -109,35 +117,39 @@ fn register_load_preset(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: Share
     ui.on_load_preset(move |preset_id| {
         let preset_id = preset_id.to_string();
 
-        spawn_rpc(ui_weak.clone(), state.clone(), move |client, ui_weak| async move {
-            info!("Loading preset: {}", preset_id);
+        spawn_rpc(
+            ui_weak.clone(),
+            state.clone(),
+            move |client, ui_weak| async move {
+                info!("Loading preset: {}", preset_id);
 
-            match client.load_preset(&preset_id).await {
-                Ok(message) => {
-                    info!("Preset loaded: {}", message);
-                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                        ui.invoke_show_toast(
-                            SharedString::from("success"),
-                            SharedString::from("Preset Loaded"),
-                            SharedString::from("Device configurations applied"),
-                        );
-                        // Refresh device states
-                        ui.invoke_refresh_devices();
-                    });
+                match client.load_preset(&preset_id).await {
+                    Ok(message) => {
+                        info!("Preset loaded: {}", message);
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            ui.invoke_show_toast(
+                                SharedString::from("success"),
+                                SharedString::from("Preset Loaded"),
+                                SharedString::from("Device configurations applied"),
+                            );
+                            // Refresh device states
+                            ui.invoke_refresh_devices();
+                        });
+                    }
+                    Err(e) => {
+                        error!("LoadPreset failed: {}", e);
+                        let error_msg = e.to_string();
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            ui.invoke_show_toast(
+                                SharedString::from("error"),
+                                SharedString::from("Load Failed"),
+                                SharedString::from(error_msg),
+                            );
+                        });
+                    }
                 }
-                Err(e) => {
-                    error!("LoadPreset failed: {}", e);
-                    let error_msg = e.to_string();
-                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                        ui.invoke_show_toast(
-                            SharedString::from("error"),
-                            SharedString::from("Load Failed"),
-                            SharedString::from(error_msg),
-                        );
-                    });
-                }
-            }
-        });
+            },
+        );
     });
 }
 
@@ -145,35 +157,39 @@ fn register_delete_preset(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: Sha
     ui.on_delete_preset(move |preset_id| {
         let preset_id = preset_id.to_string();
 
-        spawn_rpc(ui_weak.clone(), state.clone(), move |client, ui_weak| async move {
-            info!("Deleting preset: {}", preset_id);
+        spawn_rpc(
+            ui_weak.clone(),
+            state.clone(),
+            move |client, ui_weak| async move {
+                info!("Deleting preset: {}", preset_id);
 
-            match client.delete_preset(&preset_id).await {
-                Ok(message) => {
-                    info!("Preset deleted: {}", message);
-                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                        ui.invoke_show_toast(
-                            SharedString::from("info"),
-                            SharedString::from("Preset Deleted"),
-                            SharedString::from("Preset removed"),
-                        );
-                        // Refresh the list
-                        ui.invoke_list_presets();
-                    });
+                match client.delete_preset(&preset_id).await {
+                    Ok(message) => {
+                        info!("Preset deleted: {}", message);
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            ui.invoke_show_toast(
+                                SharedString::from("info"),
+                                SharedString::from("Preset Deleted"),
+                                SharedString::from("Preset removed"),
+                            );
+                            // Refresh the list
+                            ui.invoke_list_presets();
+                        });
+                    }
+                    Err(e) => {
+                        error!("DeletePreset failed: {}", e);
+                        let error_msg = e.to_string();
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            ui.invoke_show_toast(
+                                SharedString::from("error"),
+                                SharedString::from("Delete Failed"),
+                                SharedString::from(error_msg),
+                            );
+                        });
+                    }
                 }
-                Err(e) => {
-                    error!("DeletePreset failed: {}", e);
-                    let error_msg = e.to_string();
-                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                        ui.invoke_show_toast(
-                            SharedString::from("error"),
-                            SharedString::from("Delete Failed"),
-                            SharedString::from(error_msg),
-                        );
-                    });
-                }
-            }
-        });
+            },
+        );
     });
 }
 

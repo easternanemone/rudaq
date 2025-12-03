@@ -89,7 +89,8 @@ fn register_toggle_device(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: Sha
                     if let Some(mut d) = devices.row_data(i) {
                         if d.id.as_str() == device_id {
                             d.selected = selected;
-                            if let Some(vm) = devices.as_any().downcast_ref::<VecModel<DeviceInfo>>()
+                            if let Some(vm) =
+                                devices.as_any().downcast_ref::<VecModel<DeviceInfo>>()
                             {
                                 vm.set_row_data(i, d.clone());
                             }
@@ -145,7 +146,7 @@ fn rebuild_selected_panels(ui: &MainWindow, devices: &slint::ModelRc<DeviceInfo>
                     device_name: device.name.clone(),
                     power_reading: 0.0,
                     power_units: device.reading_units.clone(),
-                    wavelength_nm: 800.0,  // Default for MaiTai
+                    wavelength_nm: 800.0, // Default for MaiTai
                     min_wavelength_nm: 690.0,
                     max_wavelength_nm: 1040.0,
                     shutter_open: false,
@@ -194,28 +195,40 @@ fn register_move_absolute(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: Sha
         // Set moving state
         set_moving_state(&ui_weak, &device_id, true);
 
-        spawn_rpc(ui_weak.clone(), state.clone(), move |client, ui_weak| async move {
-            info!("Moving {} to {}", device_id_for_spawn, position);
+        spawn_rpc(
+            ui_weak.clone(),
+            state.clone(),
+            move |client, ui_weak| async move {
+                info!("Moving {} to {}", device_id_for_spawn, position);
 
-            match client.move_absolute(&device_id_for_spawn, position as f64).await {
-                Ok(final_pos) => {
-                    info!("Move complete, {} at {}", device_id_for_spawn, final_pos);
-                    update_movable_position(&ui_weak, &device_id_for_spawn, final_pos as f32, false);
-                }
-                Err(e) => {
-                    error!("Move failed: {}", e);
-                    set_moving_state(&ui_weak, &device_id_for_spawn, false);
-                    let error_msg = e.to_string();
-                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                        ui.invoke_show_toast(
-                            SharedString::from("error"),
-                            SharedString::from("Move Failed"),
-                            SharedString::from(error_msg),
+                match client
+                    .move_absolute(&device_id_for_spawn, position as f64)
+                    .await
+                {
+                    Ok(final_pos) => {
+                        info!("Move complete, {} at {}", device_id_for_spawn, final_pos);
+                        update_movable_position(
+                            &ui_weak,
+                            &device_id_for_spawn,
+                            final_pos as f32,
+                            false,
                         );
-                    });
+                    }
+                    Err(e) => {
+                        error!("Move failed: {}", e);
+                        set_moving_state(&ui_weak, &device_id_for_spawn, false);
+                        let error_msg = e.to_string();
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            ui.invoke_show_toast(
+                                SharedString::from("error"),
+                                SharedString::from("Move Failed"),
+                                SharedString::from(error_msg),
+                            );
+                        });
+                    }
                 }
-            }
-        });
+            },
+        );
 
         // Also set moving state immediately in the spawning context
         set_moving_state(&ui_weak_clone, &device_id, true);
@@ -226,21 +239,25 @@ fn register_move_relative(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: Sha
     ui.on_move_relative(move |device_id, delta| {
         let device_id = device_id.to_string();
 
-        spawn_rpc(ui_weak.clone(), state.clone(), move |client, ui_weak| async move {
-            info!("Moving {} relative by {}", device_id, delta);
+        spawn_rpc(
+            ui_weak.clone(),
+            state.clone(),
+            move |client, ui_weak| async move {
+                info!("Moving {} relative by {}", device_id, delta);
 
-            set_moving_state(&ui_weak, &device_id, true);
+                set_moving_state(&ui_weak, &device_id, true);
 
-            match client.move_relative(&device_id, delta as f64).await {
-                Ok(final_pos) => {
-                    update_movable_position(&ui_weak, &device_id, final_pos as f32, false);
+                match client.move_relative(&device_id, delta as f64).await {
+                    Ok(final_pos) => {
+                        update_movable_position(&ui_weak, &device_id, final_pos as f32, false);
+                    }
+                    Err(e) => {
+                        error!("Move failed: {}", e);
+                        set_moving_state(&ui_weak, &device_id, false);
+                    }
                 }
-                Err(e) => {
-                    error!("Move failed: {}", e);
-                    set_moving_state(&ui_weak, &device_id, false);
-                }
-            }
-        });
+            },
+        );
     });
 }
 
@@ -248,19 +265,23 @@ fn register_stop_motion(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: Share
     ui.on_stop_motion(move |device_id| {
         let device_id = device_id.to_string();
 
-        spawn_rpc(ui_weak.clone(), state.clone(), move |client, ui_weak| async move {
-            info!("Stopping {}", device_id);
+        spawn_rpc(
+            ui_weak.clone(),
+            state.clone(),
+            move |client, ui_weak| async move {
+                info!("Stopping {}", device_id);
 
-            match client.stop_motion(&device_id).await {
-                Ok(pos) => {
-                    info!("{} stopped at {}", device_id, pos);
-                    update_movable_position(&ui_weak, &device_id, pos as f32, false);
+                match client.stop_motion(&device_id).await {
+                    Ok(pos) => {
+                        info!("{} stopped at {}", device_id, pos);
+                        update_movable_position(&ui_weak, &device_id, pos as f32, false);
+                    }
+                    Err(e) => {
+                        error!("Stop failed: {}", e);
+                    }
                 }
-                Err(e) => {
-                    error!("Stop failed: {}", e);
-                }
-            }
-        });
+            },
+        );
     });
 }
 
@@ -268,26 +289,30 @@ fn register_home_device(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: Share
     ui.on_home_device(move |device_id| {
         let device_id = device_id.to_string();
 
-        spawn_rpc(ui_weak.clone(), state.clone(), move |client, ui_weak| async move {
-            info!("Homing {}", device_id);
+        spawn_rpc(
+            ui_weak.clone(),
+            state.clone(),
+            move |client, ui_weak| async move {
+                info!("Homing {}", device_id);
 
-            match client.move_absolute(&device_id, 0.0).await {
-                Ok(final_pos) => {
-                    update_movable_position(&ui_weak, &device_id, final_pos as f32, false);
+                match client.move_absolute(&device_id, 0.0).await {
+                    Ok(final_pos) => {
+                        update_movable_position(&ui_weak, &device_id, final_pos as f32, false);
+                    }
+                    Err(e) => {
+                        error!("Home failed: {}", e);
+                        let error_msg = e.to_string();
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            ui.invoke_show_toast(
+                                SharedString::from("error"),
+                                SharedString::from("Home Failed"),
+                                SharedString::from(error_msg),
+                            );
+                        });
+                    }
                 }
-                Err(e) => {
-                    error!("Home failed: {}", e);
-                    let error_msg = e.to_string();
-                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                        ui.invoke_show_toast(
-                            SharedString::from("error"),
-                            SharedString::from("Home Failed"),
-                            SharedString::from(error_msg),
-                        );
-                    });
-                }
-            }
-        });
+            },
+        );
     });
 }
 
@@ -328,7 +353,10 @@ fn set_moving_state(ui_weak: &Weak<MainWindow>, device_id: &str, is_moving: bool
             if let Some(mut m) = movables.row_data(i) {
                 if m.device_id.as_str() == device_id {
                     m.is_moving = is_moving;
-                    if let Some(vm) = movables.as_any().downcast_ref::<VecModel<SelectedMovable>>() {
+                    if let Some(vm) = movables
+                        .as_any()
+                        .downcast_ref::<VecModel<SelectedMovable>>()
+                    {
                         vm.set_row_data(i, m);
                     }
                     break;
@@ -338,7 +366,12 @@ fn set_moving_state(ui_weak: &Weak<MainWindow>, device_id: &str, is_moving: bool
     });
 }
 
-fn update_movable_position(ui_weak: &Weak<MainWindow>, device_id: &str, position: f32, is_moving: bool) {
+fn update_movable_position(
+    ui_weak: &Weak<MainWindow>,
+    device_id: &str,
+    position: f32,
+    is_moving: bool,
+) {
     let device_id = device_id.to_string();
     let _ = ui_weak.upgrade_in_event_loop(move |ui| {
         let movables = ui.get_selected_movables();
@@ -347,7 +380,10 @@ fn update_movable_position(ui_weak: &Weak<MainWindow>, device_id: &str, position
                 if m.device_id.as_str() == device_id {
                     m.position = position;
                     m.is_moving = is_moving;
-                    if let Some(vm) = movables.as_any().downcast_ref::<VecModel<SelectedMovable>>() {
+                    if let Some(vm) = movables
+                        .as_any()
+                        .downcast_ref::<VecModel<SelectedMovable>>()
+                    {
                         vm.set_row_data(i, m);
                     }
                     break;
@@ -365,7 +401,10 @@ fn set_streaming_state(ui_weak: &Weak<MainWindow>, device_id: &str, streaming: b
             if let Some(mut r) = readables.row_data(i) {
                 if r.device_id.as_str() == device_id {
                     r.streaming = streaming;
-                    if let Some(vm) = readables.as_any().downcast_ref::<VecModel<SelectedReadable>>() {
+                    if let Some(vm) = readables
+                        .as_any()
+                        .downcast_ref::<VecModel<SelectedReadable>>()
+                    {
                         vm.set_row_data(i, r);
                     }
                     break;
@@ -383,27 +422,39 @@ fn register_laser_shutter(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: Sha
     ui.on_set_laser_shutter(move |device_id, open| {
         let device_id = device_id.to_string();
 
-        spawn_rpc(ui_weak.clone(), state.clone(), move |client, ui_weak| async move {
-            info!("Setting shutter {} to {}", device_id, if open { "open" } else { "closed" });
+        spawn_rpc(
+            ui_weak.clone(),
+            state.clone(),
+            move |client, ui_weak| async move {
+                info!(
+                    "Setting shutter {} to {}",
+                    device_id,
+                    if open { "open" } else { "closed" }
+                );
 
-            match client.set_shutter(&device_id, open).await {
-                Ok(is_open) => {
-                    info!("Shutter {} now {}", device_id, if is_open { "open" } else { "closed" });
-                    update_laser_shutter(&ui_weak, &device_id, is_open);
-                }
-                Err(e) => {
-                    error!("SetShutter failed: {}", e);
-                    let error_msg = e.to_string();
-                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                        ui.invoke_show_toast(
-                            SharedString::from("error"),
-                            SharedString::from("Shutter Control Failed"),
-                            SharedString::from(error_msg),
+                match client.set_shutter(&device_id, open).await {
+                    Ok(is_open) => {
+                        info!(
+                            "Shutter {} now {}",
+                            device_id,
+                            if is_open { "open" } else { "closed" }
                         );
-                    });
+                        update_laser_shutter(&ui_weak, &device_id, is_open);
+                    }
+                    Err(e) => {
+                        error!("SetShutter failed: {}", e);
+                        let error_msg = e.to_string();
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            ui.invoke_show_toast(
+                                SharedString::from("error"),
+                                SharedString::from("Shutter Control Failed"),
+                                SharedString::from(error_msg),
+                            );
+                        });
+                    }
                 }
-            }
-        });
+            },
+        );
     });
 }
 
@@ -411,27 +462,34 @@ fn register_laser_wavelength(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: 
     ui.on_set_laser_wavelength(move |device_id, wavelength_nm| {
         let device_id = device_id.to_string();
 
-        spawn_rpc(ui_weak.clone(), state.clone(), move |client, ui_weak| async move {
-            info!("Setting wavelength {} to {} nm", device_id, wavelength_nm);
+        spawn_rpc(
+            ui_weak.clone(),
+            state.clone(),
+            move |client, ui_weak| async move {
+                info!("Setting wavelength {} to {} nm", device_id, wavelength_nm);
 
-            match client.set_wavelength(&device_id, wavelength_nm as f64).await {
-                Ok(actual_wl) => {
-                    info!("Wavelength {} now {} nm", device_id, actual_wl);
-                    update_laser_wavelength(&ui_weak, &device_id, actual_wl as f32);
+                match client
+                    .set_wavelength(&device_id, wavelength_nm as f64)
+                    .await
+                {
+                    Ok(actual_wl) => {
+                        info!("Wavelength {} now {} nm", device_id, actual_wl);
+                        update_laser_wavelength(&ui_weak, &device_id, actual_wl as f32);
+                    }
+                    Err(e) => {
+                        error!("SetWavelength failed: {}", e);
+                        let error_msg = e.to_string();
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            ui.invoke_show_toast(
+                                SharedString::from("error"),
+                                SharedString::from("Wavelength Control Failed"),
+                                SharedString::from(error_msg),
+                            );
+                        });
+                    }
                 }
-                Err(e) => {
-                    error!("SetWavelength failed: {}", e);
-                    let error_msg = e.to_string();
-                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                        ui.invoke_show_toast(
-                            SharedString::from("error"),
-                            SharedString::from("Wavelength Control Failed"),
-                            SharedString::from(error_msg),
-                        );
-                    });
-                }
-            }
-        });
+            },
+        );
     });
 }
 
@@ -439,27 +497,39 @@ fn register_laser_emission(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: Sh
     ui.on_set_laser_emission(move |device_id, enabled| {
         let device_id = device_id.to_string();
 
-        spawn_rpc(ui_weak.clone(), state.clone(), move |client, ui_weak| async move {
-            info!("Setting emission {} to {}", device_id, if enabled { "ON" } else { "OFF" });
+        spawn_rpc(
+            ui_weak.clone(),
+            state.clone(),
+            move |client, ui_weak| async move {
+                info!(
+                    "Setting emission {} to {}",
+                    device_id,
+                    if enabled { "ON" } else { "OFF" }
+                );
 
-            match client.set_emission(&device_id, enabled).await {
-                Ok(is_enabled) => {
-                    info!("Emission {} now {}", device_id, if is_enabled { "ON" } else { "OFF" });
-                    update_laser_emission(&ui_weak, &device_id, is_enabled);
-                }
-                Err(e) => {
-                    error!("SetEmission failed: {}", e);
-                    let error_msg = e.to_string();
-                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                        ui.invoke_show_toast(
-                            SharedString::from("error"),
-                            SharedString::from("Emission Control Failed"),
-                            SharedString::from(error_msg),
+                match client.set_emission(&device_id, enabled).await {
+                    Ok(is_enabled) => {
+                        info!(
+                            "Emission {} now {}",
+                            device_id,
+                            if is_enabled { "ON" } else { "OFF" }
                         );
-                    });
+                        update_laser_emission(&ui_weak, &device_id, is_enabled);
+                    }
+                    Err(e) => {
+                        error!("SetEmission failed: {}", e);
+                        let error_msg = e.to_string();
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            ui.invoke_show_toast(
+                                SharedString::from("error"),
+                                SharedString::from("Emission Control Failed"),
+                                SharedString::from(error_msg),
+                            );
+                        });
+                    }
                 }
-            }
-        });
+            },
+        );
     });
 }
 

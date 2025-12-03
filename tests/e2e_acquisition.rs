@@ -145,7 +145,10 @@ impl Triggerable for FailableCamera {
 // =============================================================================
 
 #[derive(Debug, Clone)]
-#[expect(dead_code, reason = "AcquisitionResult fields used for validation in end-to-end tests")]
+#[expect(
+    dead_code,
+    reason = "AcquisitionResult fields used for validation in end-to-end tests"
+)]
 struct AcquisitionResult {
     position: f64,
     power: f64,
@@ -283,14 +286,8 @@ async fn test_coordinated_multi_instrument() {
         let actual1 = stage1.position().await.unwrap();
         let actual2 = stage2.position().await.unwrap();
 
-        assert!(
-            (actual1 - pos1).abs() < 0.001,
-            "Stage1 position mismatch"
-        );
-        assert!(
-            (actual2 - pos2).abs() < 0.001,
-            "Stage2 position mismatch"
-        );
+        assert!((actual1 - pos1).abs() < 0.001, "Stage1 position mismatch");
+        assert!((actual2 - pos2).abs() < 0.001, "Stage2 position mismatch");
 
         // Read power and trigger camera
         let power = power_meter.read().await.unwrap();

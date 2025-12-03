@@ -81,8 +81,7 @@ async fn test_rotator_info_responses() {
             }
 
             let command = format!("{}in", addr);
-            port.write_all(command.as_bytes())
-                .expect("Failed to write");
+            port.write_all(command.as_bytes()).expect("Failed to write");
             std::thread::sleep(Duration::from_millis(200));
 
             // Read with accumulation - RS-485 responses may arrive in chunks
@@ -115,7 +114,11 @@ async fn test_rotator_info_responses() {
             }
         }
 
-        assert!(success, "Failed to get valid INFO response from rotator {} after 3 attempts", addr);
+        assert!(
+            success,
+            "Failed to get valid INFO response from rotator {} after 3 attempts",
+            addr
+        );
     }
 }
 
@@ -131,7 +134,10 @@ async fn test_absolute_movement_single_rotator() {
     let driver = Ell14Driver::new(PORT, "2").expect("Failed to create driver");
 
     // Get initial position
-    let initial = driver.position().await.expect("Failed to get initial position");
+    let initial = driver
+        .position()
+        .await
+        .expect("Failed to get initial position");
     println!("Initial position: {:.2}°", initial);
 
     // Move to 45 degrees
@@ -143,10 +149,16 @@ async fn test_absolute_movement_single_rotator() {
         .expect("Failed to send move command");
 
     // Wait for movement to complete
-    driver.wait_settled().await.expect("Failed to wait for settle");
+    driver
+        .wait_settled()
+        .await
+        .expect("Failed to wait for settle");
 
     // Verify position
-    let final_pos = driver.position().await.expect("Failed to get final position");
+    let final_pos = driver
+        .position()
+        .await
+        .expect("Failed to get final position");
     println!("Final position: {:.2}°", final_pos);
 
     let error = (final_pos - target).abs();
@@ -172,7 +184,10 @@ async fn test_relative_movement() {
     let driver = Ell14Driver::new(PORT, "3").expect("Failed to create driver");
 
     // Get initial position
-    let initial = driver.position().await.expect("Failed to get initial position");
+    let initial = driver
+        .position()
+        .await
+        .expect("Failed to get initial position");
     println!("Initial position: {:.2}°", initial);
 
     // Move relative +10 degrees
@@ -182,7 +197,10 @@ async fn test_relative_movement() {
         .move_rel(delta)
         .await
         .expect("Failed to send relative move");
-    driver.wait_settled().await.expect("Failed to wait for settle");
+    driver
+        .wait_settled()
+        .await
+        .expect("Failed to wait for settle");
 
     let pos_after_forward = driver.position().await.expect("Failed to get position");
     println!("Position after +10°: {:.2}°", pos_after_forward);
@@ -193,9 +211,15 @@ async fn test_relative_movement() {
         .move_rel(-delta)
         .await
         .expect("Failed to send relative move");
-    driver.wait_settled().await.expect("Failed to wait for settle");
+    driver
+        .wait_settled()
+        .await
+        .expect("Failed to wait for settle");
 
-    let final_pos = driver.position().await.expect("Failed to get final position");
+    let final_pos = driver
+        .position()
+        .await
+        .expect("Failed to get final position");
     println!("Final position: {:.2}°", final_pos);
 
     // Should be back at initial
@@ -214,7 +238,10 @@ async fn test_home_command() {
     let driver = Ell14Driver::new(PORT, "8").expect("Failed to create driver");
 
     // Get initial position
-    let initial = driver.position().await.expect("Failed to get initial position");
+    let initial = driver
+        .position()
+        .await
+        .expect("Failed to get initial position");
     println!("Initial position: {:.2}°", initial);
 
     // Home the device
@@ -222,7 +249,10 @@ async fn test_home_command() {
     driver.home().await.expect("Failed to home");
 
     // Get position after homing
-    let home_pos = driver.position().await.expect("Failed to get home position");
+    let home_pos = driver
+        .position()
+        .await
+        .expect("Failed to get home position");
     println!("Position after home: {:.2}°", home_pos);
 
     // Home position should be near 0 (mechanical zero)
@@ -335,7 +365,11 @@ async fn test_move_all_devices_sequentially() {
         println!("Rotator {} now at {:.2}°", addr, pos);
 
         let error = (pos - target).abs();
-        assert!(error < POSITION_TOLERANCE_DEG, "Position error: {:.2}°", error);
+        assert!(
+            error < POSITION_TOLERANCE_DEG,
+            "Position error: {:.2}°",
+            error
+        );
     }
 
     // Return to initial positions
@@ -362,7 +396,10 @@ async fn test_position_repeatability() {
     let mut positions = Vec::new();
 
     // Get initial position
-    let initial = driver.position().await.expect("Failed to get initial position");
+    let initial = driver
+        .position()
+        .await
+        .expect("Failed to get initial position");
 
     for i in 1..=num_trials {
         // Move to target
@@ -380,7 +417,8 @@ async fn test_position_repeatability() {
 
     // Calculate statistics
     let mean: f64 = positions.iter().sum::<f64>() / num_trials as f64;
-    let variance: f64 = positions.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / num_trials as f64;
+    let variance: f64 =
+        positions.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / num_trials as f64;
     let std_dev = variance.sqrt();
 
     println!("\nRepeatability Results:");
@@ -410,7 +448,10 @@ async fn test_full_rotation_accuracy() {
     println!("\n=== Test: Full Rotation Accuracy ===");
 
     let driver = Ell14Driver::new(PORT, "3").expect("Failed to create driver");
-    let initial = driver.position().await.expect("Failed to get initial position");
+    let initial = driver
+        .position()
+        .await
+        .expect("Failed to get initial position");
 
     // Test positions around full rotation
     let test_positions = [0.0, 90.0, 180.0, 270.0, 360.0];
@@ -422,7 +463,10 @@ async fn test_full_rotation_accuracy() {
         let actual = driver.position().await.expect("Failed to get position");
         let error = (actual - target).abs();
 
-        println!("Target: {:.0}° → Actual: {:.2}° (error: {:.2}°)", target, actual, error);
+        println!(
+            "Target: {:.0}° → Actual: {:.2}° (error: {:.2}°)",
+            target, actual, error
+        );
 
         assert!(
             error < POSITION_TOLERANCE_DEG,
@@ -466,7 +510,10 @@ async fn test_rapid_position_queries() {
     }
 
     let success_rate = (success_count as f64 / num_queries as f64) * 100.0;
-    println!("\nSuccess rate: {:.1}% ({}/{})", success_rate, success_count, num_queries);
+    println!(
+        "\nSuccess rate: {:.1}% ({}/{})",
+        success_rate, success_count, num_queries
+    );
 
     assert!(
         success_rate >= 95.0,
@@ -501,7 +548,10 @@ async fn test_bus_contention_resilience() {
         }
     }
 
-    assert!(all_success, "Some queries failed during bus contention test");
+    assert!(
+        all_success,
+        "Some queries failed during bus contention test"
+    );
 }
 
 // =============================================================================
@@ -562,7 +612,10 @@ async fn test_jog_step_get_set() {
 
     // Verify it was set
     sleep(Duration::from_millis(100)).await;
-    let read_back = driver.get_jog_step().await.expect("Failed to read back jog step");
+    let read_back = driver
+        .get_jog_step()
+        .await
+        .expect("Failed to read back jog step");
     println!("Read back jog step: {:.3}°", read_back);
 
     let error = (read_back - new_jog_step).abs();
@@ -707,7 +760,10 @@ async fn test_home_offset_get() {
             );
         }
         Err(e) => {
-            println!("Get home offset failed (may need different response parsing): {}", e);
+            println!(
+                "Get home offset failed (may need different response parsing): {}",
+                e
+            );
         }
     }
 }
@@ -722,7 +778,10 @@ async fn test_motor_info() {
     match driver.get_motor1_info().await {
         Ok(info) => {
             println!("Motor 1 info:");
-            println!("  Loop state: {}", if info.loop_state { "ON" } else { "OFF" });
+            println!(
+                "  Loop state: {}",
+                if info.loop_state { "ON" } else { "OFF" }
+            );
             println!("  Motor on: {}", if info.motor_on { "YES" } else { "NO" });
             println!("  Frequency: {} Hz", info.frequency);
             println!("  Forward period: {}", info.forward_period);
@@ -739,7 +798,10 @@ async fn test_motor_info() {
     match driver.get_motor2_info().await {
         Ok(info) => {
             println!("Motor 2 info:");
-            println!("  Loop state: {}", if info.loop_state { "ON" } else { "OFF" });
+            println!(
+                "  Loop state: {}",
+                if info.loop_state { "ON" } else { "OFF" }
+            );
             println!("  Motor on: {}", if info.motor_on { "YES" } else { "NO" });
             println!("  Frequency: {} Hz", info.frequency);
             println!("  Forward period: {}", info.forward_period);
@@ -767,7 +829,10 @@ async fn test_motor_frequency_search() {
     let start = std::time::Instant::now();
     match driver.search_frequency_motor1().await {
         Ok(_) => {
-            println!("Motor 1 frequency search completed in {:.1}s", start.elapsed().as_secs_f64());
+            println!(
+                "Motor 1 frequency search completed in {:.1}s",
+                start.elapsed().as_secs_f64()
+            );
         }
         Err(e) => {
             println!("Motor 1 frequency search failed: {}", e);
@@ -781,7 +846,10 @@ async fn test_motor_frequency_search() {
     let start = std::time::Instant::now();
     match driver.search_frequency_motor2().await {
         Ok(_) => {
-            println!("Motor 2 frequency search completed in {:.1}s", start.elapsed().as_secs_f64());
+            println!(
+                "Motor 2 frequency search completed in {:.1}s",
+                start.elapsed().as_secs_f64()
+            );
         }
         Err(e) => {
             println!("Motor 2 frequency search failed: {}", e);
@@ -825,7 +893,10 @@ async fn test_relative_movement_cumulative() {
     let driver = Ell14Driver::new(PORT, "2").expect("Failed to create driver");
 
     // Get initial position
-    let initial = driver.position().await.expect("Failed to get initial position");
+    let initial = driver
+        .position()
+        .await
+        .expect("Failed to get initial position");
     println!("Initial position: {:.2}°", initial);
 
     // Perform multiple cumulative relative moves
@@ -834,7 +905,12 @@ async fn test_relative_movement_cumulative() {
 
     for (i, delta) in moves.iter().enumerate() {
         expected_pos += delta;
-        println!("Move {}: relative {:.1}° (expected: {:.2}°)", i + 1, delta, expected_pos);
+        println!(
+            "Move {}: relative {:.1}° (expected: {:.2}°)",
+            i + 1,
+            delta,
+            expected_pos
+        );
 
         driver.move_rel(*delta).await.expect("Failed to move");
         driver.wait_settled().await.expect("Failed to settle");
@@ -852,9 +928,15 @@ async fn test_relative_movement_cumulative() {
     }
 
     // Final position should be back near initial
-    let final_pos = driver.position().await.expect("Failed to get final position");
+    let final_pos = driver
+        .position()
+        .await
+        .expect("Failed to get final position");
     let total_error = (final_pos - initial).abs();
-    println!("\nFinal position: {:.2}° (total error from start: {:.2}°)", final_pos, total_error);
+    println!(
+        "\nFinal position: {:.2}° (total error from start: {:.2}°)",
+        final_pos, total_error
+    );
     assert!(
         total_error < POSITION_TOLERANCE_DEG * 2.0,
         "Total cumulative error too large: {:.2}°",
@@ -885,7 +967,10 @@ async fn test_relative_movement_large_angles() {
     for (delta, description) in test_moves {
         current_expected += delta;
 
-        println!("Moving {} (expected: {:.2}°)...", description, current_expected);
+        println!(
+            "Moving {} (expected: {:.2}°)...",
+            description, current_expected
+        );
         driver.move_rel(delta).await.expect("Failed to move");
         driver.wait_settled().await.expect("Failed to settle");
 
@@ -967,7 +1052,9 @@ async fn test_position_accuracy_multiple_targets() {
     let initial = driver.position().await.expect("Failed to get position");
 
     // Test positions at 30° intervals
-    let test_positions = [0.0, 30.0, 60.0, 90.0, 120.0, 150.0, 180.0, 210.0, 240.0, 270.0, 300.0, 330.0];
+    let test_positions = [
+        0.0, 30.0, 60.0, 90.0, 120.0, 150.0, 180.0, 210.0, 240.0, 270.0, 300.0, 330.0,
+    ];
     let mut max_error = 0.0f64;
     let mut total_error = 0.0f64;
 
@@ -1011,7 +1098,10 @@ async fn test_repeatability_extended() {
     let num_trials = 10;
     let mut positions = Vec::new();
 
-    println!("Moving to {:.0}° repeatedly ({} trials):", target, num_trials);
+    println!(
+        "Moving to {:.0}° repeatedly ({} trials):",
+        target, num_trials
+    );
     for i in 1..=num_trials {
         // Move away first (to 0°)
         driver.move_abs(0.0).await.expect("Failed to move");
@@ -1028,11 +1118,8 @@ async fn test_repeatability_extended() {
 
     // Calculate statistics
     let mean: f64 = positions.iter().sum::<f64>() / num_trials as f64;
-    let variance: f64 = positions
-        .iter()
-        .map(|p| (p - mean).powi(2))
-        .sum::<f64>()
-        / num_trials as f64;
+    let variance: f64 =
+        positions.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / num_trials as f64;
     let std_dev = variance.sqrt();
     let min_pos = positions.iter().cloned().fold(f64::INFINITY, f64::min);
     let max_pos = positions.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
@@ -1075,11 +1162,17 @@ async fn test_mechanical_backlash() {
     let mut forward_positions = Vec::new();
     let mut backward_positions = Vec::new();
 
-    println!("Measuring backlash approaching {:.0}° from both directions:", target);
+    println!(
+        "Measuring backlash approaching {:.0}° from both directions:",
+        target
+    );
 
     for i in 1..=num_trials {
         // Approach from below (forward direction)
-        driver.move_abs(target - 30.0).await.expect("Failed to move");
+        driver
+            .move_abs(target - 30.0)
+            .await
+            .expect("Failed to move");
         driver.wait_settled().await.expect("Failed to settle");
         driver.move_abs(target).await.expect("Failed to move");
         driver.wait_settled().await.expect("Failed to settle");
@@ -1087,15 +1180,23 @@ async fn test_mechanical_backlash() {
         forward_positions.push(forward_pos);
 
         // Approach from above (backward direction)
-        driver.move_abs(target + 30.0).await.expect("Failed to move");
+        driver
+            .move_abs(target + 30.0)
+            .await
+            .expect("Failed to move");
         driver.wait_settled().await.expect("Failed to settle");
         driver.move_abs(target).await.expect("Failed to move");
         driver.wait_settled().await.expect("Failed to settle");
         let backward_pos = driver.position().await.expect("Failed to get position");
         backward_positions.push(backward_pos);
 
-        println!("  Trial {}: forward={:.4}°, backward={:.4}°, diff={:.4}°",
-                 i, forward_pos, backward_pos, (forward_pos - backward_pos).abs());
+        println!(
+            "  Trial {}: forward={:.4}°, backward={:.4}°, diff={:.4}°",
+            i,
+            forward_pos,
+            backward_pos,
+            (forward_pos - backward_pos).abs()
+        );
     }
 
     let forward_mean: f64 = forward_positions.iter().sum::<f64>() / num_trials as f64;
@@ -1108,11 +1209,7 @@ async fn test_mechanical_backlash() {
     println!("  Measured backlash: {:.4}°", backlash);
 
     // Backlash should be small for ELL14
-    assert!(
-        backlash < 0.5,
-        "Backlash too large: {:.4}°",
-        backlash
-    );
+    assert!(backlash < 0.5, "Backlash too large: {:.4}°", backlash);
 
     // Return to initial
     driver.move_abs(initial).await.ok();
@@ -1134,12 +1231,18 @@ async fn test_simultaneous_movement_two_devices() {
     // Get initial positions
     let initial_2 = driver_2.position().await.expect("Failed to get position 2");
     let initial_3 = driver_3.position().await.expect("Failed to get position 3");
-    println!("Initial positions: Rot2={:.2}°, Rot3={:.2}°", initial_2, initial_3);
+    println!(
+        "Initial positions: Rot2={:.2}°, Rot3={:.2}°",
+        initial_2, initial_3
+    );
 
     // Define targets
     let target_2 = 60.0;
     let target_3 = 120.0;
-    println!("Commanding simultaneous moves: Rot2→{:.0}°, Rot3→{:.0}°", target_2, target_3);
+    println!(
+        "Commanding simultaneous moves: Rot2→{:.0}°, Rot3→{:.0}°",
+        target_2, target_3
+    );
 
     // Start both moves concurrently
     let start_time = std::time::Instant::now();
@@ -1147,8 +1250,14 @@ async fn test_simultaneous_movement_two_devices() {
     // Send commands to both devices (they will execute in parallel on the RS-485 bus)
     // Note: The drivers share the serial port, so commands are serialized at the port level,
     // but the devices execute their moves simultaneously
-    driver_2.move_abs(target_2).await.expect("Failed to start move 2");
-    driver_3.move_abs(target_3).await.expect("Failed to start move 3");
+    driver_2
+        .move_abs(target_2)
+        .await
+        .expect("Failed to start move 2");
+    driver_3
+        .move_abs(target_3)
+        .await
+        .expect("Failed to start move 3");
 
     // Wait for both to settle (check periodically)
     let mut settled_2 = false;
@@ -1226,7 +1335,10 @@ async fn test_simultaneous_movement_all_three() {
     sleep(Duration::from_millis(50)).await;
     let initial_8 = driver_8.position().await.expect("Failed to get position 8");
 
-    println!("Initial positions: Rot2={:.2}°, Rot3={:.2}°, Rot8={:.2}°", initial_2, initial_3, initial_8);
+    println!(
+        "Initial positions: Rot2={:.2}°, Rot3={:.2}°, Rot8={:.2}°",
+        initial_2, initial_3, initial_8
+    );
 
     // Define targets (all moving to different positions)
     let targets = [(45.0, "2"), (90.0, "3"), (135.0, "8")];
@@ -1235,15 +1347,33 @@ async fn test_simultaneous_movement_all_three() {
     let start_time = std::time::Instant::now();
 
     // Send commands to all three devices
-    driver_2.move_abs(targets[0].0).await.expect("Failed to start move 2");
-    driver_3.move_abs(targets[1].0).await.expect("Failed to start move 3");
-    driver_8.move_abs(targets[2].0).await.expect("Failed to start move 8");
+    driver_2
+        .move_abs(targets[0].0)
+        .await
+        .expect("Failed to start move 2");
+    driver_3
+        .move_abs(targets[1].0)
+        .await
+        .expect("Failed to start move 3");
+    driver_8
+        .move_abs(targets[2].0)
+        .await
+        .expect("Failed to start move 8");
 
     // Wait for all to settle
     sleep(Duration::from_millis(500)).await;
-    driver_2.wait_settled().await.expect("Rot2 failed to settle");
-    driver_3.wait_settled().await.expect("Rot3 failed to settle");
-    driver_8.wait_settled().await.expect("Rot8 failed to settle");
+    driver_2
+        .wait_settled()
+        .await
+        .expect("Rot2 failed to settle");
+    driver_3
+        .wait_settled()
+        .await
+        .expect("Rot3 failed to settle");
+    driver_8
+        .wait_settled()
+        .await
+        .expect("Rot8 failed to settle");
 
     let elapsed = start_time.elapsed();
     println!("All three devices settled in {:.2}s", elapsed.as_secs_f64());
@@ -1294,7 +1424,10 @@ async fn test_concurrent_position_queries() {
     let mut success_count = 0;
     let mut query_times = Vec::new();
 
-    println!("Performing {} rounds of rapid alternating queries...", num_rounds);
+    println!(
+        "Performing {} rounds of rapid alternating queries...",
+        num_rounds
+    );
 
     for _round in 1..=num_rounds {
         let round_start = std::time::Instant::now();
@@ -1313,7 +1446,8 @@ async fn test_concurrent_position_queries() {
 
     let total_queries = num_rounds * ADDRESSES.len();
     let success_rate = (success_count as f64 / total_queries as f64) * 100.0;
-    let avg_round_time = query_times.iter().map(|d| d.as_millis()).sum::<u128>() / num_rounds as u128;
+    let avg_round_time =
+        query_times.iter().map(|d| d.as_millis()).sum::<u128>() / num_rounds as u128;
 
     println!("\nConcurrent Query Results:");
     println!("  Total queries: {}", total_queries);
@@ -1405,7 +1539,10 @@ async fn test_position_updates_during_movement() {
     );
 
     // Final position should be near target
-    let final_pos = driver.position().await.expect("Failed to get final position");
+    let final_pos = driver
+        .position()
+        .await
+        .expect("Failed to get final position");
     let error = (final_pos - target).abs();
     println!("  Final position error: {:.2}°", error);
 
@@ -1474,7 +1611,10 @@ async fn test_continuous_position_monitoring() {
     println!("\nMonitoring Summary:");
     println!("  Total samples: {}", all_positions.len());
     println!("  Dropped samples: {}", dropped_samples);
-    println!("  Drop rate: {:.1}%", (dropped_samples as f64 / (all_positions.len() + dropped_samples) as f64) * 100.0);
+    println!(
+        "  Drop rate: {:.1}%",
+        (dropped_samples as f64 / (all_positions.len() + dropped_samples) as f64) * 100.0
+    );
 
     // Should have very few dropped samples
     assert!(
@@ -1529,7 +1669,10 @@ async fn test_position_smoothness() {
 
     println!("\nSmoothness Analysis:");
     println!("  Samples: {}", positions.len());
-    println!("  Velocity range: {:.1} to {:.1} °/s", min_velocity, max_velocity);
+    println!(
+        "  Velocity range: {:.1} to {:.1} °/s",
+        min_velocity, max_velocity
+    );
     println!("  Average velocity: {:.1} °/s", avg_velocity);
 
     // Check for sudden jumps (acceleration spikes)
@@ -1575,7 +1718,11 @@ async fn test_continuous_polling_all_devices() {
     let mut successful_queries = 0;
     let mut positions_by_device: Vec<Vec<f64>> = vec![Vec::new(); ADDRESSES.len()];
 
-    println!("Polling all {} devices at 10 Hz for {} seconds...", ADDRESSES.len(), poll_duration.as_secs());
+    println!(
+        "Polling all {} devices at 10 Hz for {} seconds...",
+        ADDRESSES.len(),
+        poll_duration.as_secs()
+    );
 
     while start_time.elapsed() < poll_duration {
         for (i, driver) in drivers.iter().enumerate() {
@@ -1595,24 +1742,40 @@ async fn test_continuous_polling_all_devices() {
 
     // Analyze results
     let success_rate = (successful_queries as f64 / total_queries as f64) * 100.0;
-    let expected_samples_per_device = (poll_duration.as_secs_f64() / poll_interval.as_secs_f64()) as usize;
+    let expected_samples_per_device =
+        (poll_duration.as_secs_f64() / poll_interval.as_secs_f64()) as usize;
 
     println!("\nPolling Results:");
     println!("  Duration: {} seconds", poll_duration.as_secs());
     println!("  Total queries: {}", total_queries);
-    println!("  Successful: {} ({:.1}%)", successful_queries, success_rate);
-    println!("  Expected samples/device: ~{}", expected_samples_per_device);
+    println!(
+        "  Successful: {} ({:.1}%)",
+        successful_queries, success_rate
+    );
+    println!(
+        "  Expected samples/device: ~{}",
+        expected_samples_per_device
+    );
 
     for (i, addr) in ADDRESSES.iter().enumerate() {
         let samples = positions_by_device[i].len();
         let position_range = if !positions_by_device[i].is_empty() {
-            let min = positions_by_device[i].iter().cloned().fold(f64::INFINITY, f64::min);
-            let max = positions_by_device[i].iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let min = positions_by_device[i]
+                .iter()
+                .cloned()
+                .fold(f64::INFINITY, f64::min);
+            let max = positions_by_device[i]
+                .iter()
+                .cloned()
+                .fold(f64::NEG_INFINITY, f64::max);
             format!("{:.2}° - {:.2}°", min, max)
         } else {
             "N/A".to_string()
         };
-        println!("  Device {}: {} samples, range: {}", addr, samples, position_range);
+        println!(
+            "  Device {}: {} samples, range: {}",
+            addr, samples, position_range
+        );
     }
 
     // Verify high success rate
@@ -1647,16 +1810,15 @@ async fn test_data_broadcast_simulation() {
     let start_time = std::time::Instant::now();
     let mut sequence = 0u64;
 
-    println!("Simulating position data broadcast for {} seconds...", test_duration.as_secs());
+    println!(
+        "Simulating position data broadcast for {} seconds...",
+        test_duration.as_secs()
+    );
 
     while start_time.elapsed() < test_duration {
         if let Ok(position) = driver.position().await {
             // Simulate broadcast data packet
-            let data_packet = (
-                sequence,
-                start_time.elapsed().as_millis() as u64,
-                position,
-            );
+            let data_packet = (sequence, start_time.elapsed().as_millis() as u64, position);
             broadcast_data.push(data_packet);
             sequence += 1;
         }
@@ -1737,7 +1899,10 @@ async fn run_stability_test(duration: Duration) {
     let start_time = std::time::Instant::now();
     let mut last_report = start_time;
 
-    println!("Running stability test for {} seconds...", duration.as_secs());
+    println!(
+        "Running stability test for {} seconds...",
+        duration.as_secs()
+    );
     println!("Polling {} devices at 2 Hz", ADDRESSES.len());
 
     while start_time.elapsed() < duration {
@@ -1767,7 +1932,12 @@ async fn run_stability_test(duration: Duration) {
             let success_rate = (successful_queries as f64 / total_queries.max(1) as f64) * 100.0;
             println!(
                 "[{:4}s] Queries: {}, Success: {:.1}%, Timeouts: {}, Parse: {}, Connection: {}",
-                elapsed, total_queries, success_rate, timeout_errors, parse_errors, connection_errors
+                elapsed,
+                total_queries,
+                success_rate,
+                timeout_errors,
+                parse_errors,
+                connection_errors
             );
             last_report = std::time::Instant::now();
         }
@@ -1796,7 +1966,8 @@ async fn run_stability_test(duration: Duration) {
         if positions_by_device[i].len() >= 2 {
             let samples = &positions_by_device[i];
             let mean: f64 = samples.iter().sum::<f64>() / samples.len() as f64;
-            let variance: f64 = samples.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / samples.len() as f64;
+            let variance: f64 =
+                samples.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / samples.len() as f64;
             let std_dev = variance.sqrt();
             let min = samples.iter().cloned().fold(f64::INFINITY, f64::min);
             let max = samples.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
@@ -1811,7 +1982,11 @@ async fn run_stability_test(duration: Duration) {
                 max
             );
         } else {
-            println!("  Device {}: Insufficient data ({} samples)", addr, positions_by_device[i].len());
+            println!(
+                "  Device {}: Insufficient data ({} samples)",
+                addr,
+                positions_by_device[i].len()
+            );
         }
     }
 
@@ -1827,7 +2002,8 @@ async fn run_stability_test(duration: Duration) {
         if positions_by_device[i].len() >= 10 {
             let samples = &positions_by_device[i];
             let mean: f64 = samples.iter().sum::<f64>() / samples.len() as f64;
-            let variance: f64 = samples.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / samples.len() as f64;
+            let variance: f64 =
+                samples.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / samples.len() as f64;
             let std_dev = variance.sqrt();
 
             // Position should be stable when stationary (std dev < 0.5 degrees)
@@ -1882,7 +2058,10 @@ async fn test_movement_speed_and_settling_time() {
 
         println!(
             "  {:.0}° move: {:.2}s total, {:.1}°/s avg speed, error: {:.3}°",
-            distance, total_time.as_secs_f64(), speed, error
+            distance,
+            total_time.as_secs_f64(),
+            speed,
+            error
         );
 
         results.push((distance, total_time.as_secs_f64(), speed));
@@ -1913,7 +2092,10 @@ async fn test_command_latency() {
     let num_queries = 50;
     let mut latencies = Vec::new();
 
-    println!("Measuring position query latency ({} queries)...", num_queries);
+    println!(
+        "Measuring position query latency ({} queries)...",
+        num_queries
+    );
 
     for _ in 0..num_queries {
         let start = std::time::Instant::now();
@@ -1960,7 +2142,10 @@ async fn test_throughput() {
     let mut query_count = 0;
     let mut success_count = 0;
 
-    println!("Measuring throughput for {} seconds...", test_duration.as_secs());
+    println!(
+        "Measuring throughput for {} seconds...",
+        test_duration.as_secs()
+    );
 
     while start_time.elapsed() < test_duration {
         query_count += 1;
@@ -2012,7 +2197,10 @@ async fn test_graceful_disconnect() {
 
     // Verify we can still communicate after all the creates/drops
     let driver = Ell14Driver::new(PORT, "2").expect("Failed to create final driver");
-    let final_pos = driver.position().await.expect("Failed to get final position");
+    let final_pos = driver
+        .position()
+        .await
+        .expect("Failed to get final position");
     println!("\nFinal verification: {:.2}°", final_pos);
     println!("Graceful disconnect test PASSED");
 }

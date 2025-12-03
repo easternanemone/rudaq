@@ -247,7 +247,10 @@ fn register_refresh_plugins(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: S
                 let plugin_info = match client.get_plugin_info(&instance.plugin_id).await {
                     Ok(info) => info,
                     Err(e) => {
-                        warn!("Failed to get plugin info for {}: {}", instance.plugin_id, e);
+                        warn!(
+                            "Failed to get plugin info for {}: {}",
+                            instance.plugin_id, e
+                        );
                         continue;
                     }
                 };
@@ -405,33 +408,35 @@ fn register_slider_changed(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: Sh
             // For settable parameters, use set_parameter
             let result = if target == "position" {
                 // This is a movable device slider
-                client.move_absolute(&device_id, value as f64).await
+                client
+                    .move_absolute(&device_id, value as f64)
+                    .await
                     .map(|pos| pos.to_string())
             } else {
                 // This is a settable parameter slider
-                client.set_parameter(&device_id, &target, &value.to_string()).await
+                client
+                    .set_parameter(&device_id, &target, &value.to_string())
+                    .await
             };
 
-            let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                match result {
-                    Ok(actual_value) => {
-                        ui.invoke_show_toast(
-                            SharedString::from("success"),
-                            SharedString::from("Value Set"),
-                            SharedString::from(format!(
-                                "{}.{} = {}",
-                                device_id, target, actual_value
-                            )),
-                        );
-                    }
-                    Err(e) => {
-                        error!("Failed to set slider value: {}", e);
-                        ui.invoke_show_toast(
-                            SharedString::from("error"),
-                            SharedString::from("Slider Error"),
-                            SharedString::from(format!("Failed to set {}.{}: {}", device_id, target, e)),
-                        );
-                    }
+            let _ = ui_weak.upgrade_in_event_loop(move |ui| match result {
+                Ok(actual_value) => {
+                    ui.invoke_show_toast(
+                        SharedString::from("success"),
+                        SharedString::from("Value Set"),
+                        SharedString::from(format!("{}.{} = {}", device_id, target, actual_value)),
+                    );
+                }
+                Err(e) => {
+                    error!("Failed to set slider value: {}", e);
+                    ui.invoke_show_toast(
+                        SharedString::from("error"),
+                        SharedString::from("Slider Error"),
+                        SharedString::from(format!(
+                            "Failed to set {}.{}: {}",
+                            device_id, target, e
+                        )),
+                    );
                 }
             });
         });
@@ -466,30 +471,33 @@ fn register_readout_refresh(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: S
             // or GetParameter for parameter readouts
             let result = if source == "position" || source == "reading" {
                 // This is a readable device (Readable trait)
-                client.read_value(&device_id).await
+                client
+                    .read_value(&device_id)
+                    .await
                     .map(|(value, units)| format!("{} {}", value, units))
             } else {
                 // This is a parameter readout
                 client.get_parameter(&device_id, &source).await
             };
 
-            let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                match result {
-                    Ok(value) => {
-                        ui.invoke_show_toast(
-                            SharedString::from("info"),
-                            SharedString::from("Readout Refreshed"),
-                            SharedString::from(format!("{}.{} = {}", device_id, source, value)),
-                        );
-                    }
-                    Err(e) => {
-                        error!("Failed to read value: {}", e);
-                        ui.invoke_show_toast(
-                            SharedString::from("error"),
-                            SharedString::from("Read Error"),
-                            SharedString::from(format!("Failed to read {}.{}: {}", device_id, source, e)),
-                        );
-                    }
+            let _ = ui_weak.upgrade_in_event_loop(move |ui| match result {
+                Ok(value) => {
+                    ui.invoke_show_toast(
+                        SharedString::from("info"),
+                        SharedString::from("Readout Refreshed"),
+                        SharedString::from(format!("{}.{} = {}", device_id, source, value)),
+                    );
+                }
+                Err(e) => {
+                    error!("Failed to read value: {}", e);
+                    ui.invoke_show_toast(
+                        SharedString::from("error"),
+                        SharedString::from("Read Error"),
+                        SharedString::from(format!(
+                            "Failed to read {}.{}: {}",
+                            device_id, source, e
+                        )),
+                    );
                 }
             });
         });
@@ -525,26 +533,24 @@ fn register_toggle_changed(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: Sh
             let value = if is_on { "true" } else { "false" };
             let result = client.set_parameter(&device_id, &target, value).await;
 
-            let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                match result {
-                    Ok(actual_value) => {
-                        ui.invoke_show_toast(
-                            SharedString::from("success"),
-                            SharedString::from("Toggle Changed"),
-                            SharedString::from(format!(
-                                "{}.{} = {}",
-                                device_id, target, actual_value
-                            )),
-                        );
-                    }
-                    Err(e) => {
-                        error!("Failed to set toggle: {}", e);
-                        ui.invoke_show_toast(
-                            SharedString::from("error"),
-                            SharedString::from("Toggle Error"),
-                            SharedString::from(format!("Failed to set {}.{}: {}", device_id, target, e)),
-                        );
-                    }
+            let _ = ui_weak.upgrade_in_event_loop(move |ui| match result {
+                Ok(actual_value) => {
+                    ui.invoke_show_toast(
+                        SharedString::from("success"),
+                        SharedString::from("Toggle Changed"),
+                        SharedString::from(format!("{}.{} = {}", device_id, target, actual_value)),
+                    );
+                }
+                Err(e) => {
+                    error!("Failed to set toggle: {}", e);
+                    ui.invoke_show_toast(
+                        SharedString::from("error"),
+                        SharedString::from("Toggle Error"),
+                        SharedString::from(format!(
+                            "Failed to set {}.{}: {}",
+                            device_id, target, e
+                        )),
+                    );
                 }
             });
         });
@@ -581,7 +587,9 @@ fn register_action_triggered(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: 
             let result = match action.as_str() {
                 "home" => {
                     // For movable devices, home typically means move to position 0
-                    client.move_absolute(&device_id, 0.0).await
+                    client
+                        .move_absolute(&device_id, 0.0)
+                        .await
                         .map(|_| "Homed".to_string())
                 }
                 _ => {
@@ -591,23 +599,24 @@ fn register_action_triggered(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: 
                 }
             };
 
-            let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                match result {
-                    Ok(msg) => {
-                        ui.invoke_show_toast(
-                            SharedString::from("success"),
-                            SharedString::from("Action Executed"),
-                            SharedString::from(format!("{}.{}() - {}", device_id, action, msg)),
-                        );
-                    }
-                    Err(e) => {
-                        error!("Failed to execute action: {}", e);
-                        ui.invoke_show_toast(
-                            SharedString::from("error"),
-                            SharedString::from("Action Error"),
-                            SharedString::from(format!("Failed to execute {}.{}(): {}", device_id, action, e)),
-                        );
-                    }
+            let _ = ui_weak.upgrade_in_event_loop(move |ui| match result {
+                Ok(msg) => {
+                    ui.invoke_show_toast(
+                        SharedString::from("success"),
+                        SharedString::from("Action Executed"),
+                        SharedString::from(format!("{}.{}() - {}", device_id, action, msg)),
+                    );
+                }
+                Err(e) => {
+                    error!("Failed to execute action: {}", e);
+                    ui.invoke_show_toast(
+                        SharedString::from("error"),
+                        SharedString::from("Action Error"),
+                        SharedString::from(format!(
+                            "Failed to execute {}.{}(): {}",
+                            device_id, action, e
+                        )),
+                    );
                 }
             });
         });
@@ -643,26 +652,24 @@ fn register_dropdown_changed(ui: &MainWindow, ui_weak: Weak<MainWindow>, state: 
             // Dropdowns typically set enum or string parameters
             let result = client.set_parameter(&device_id, &target, &value).await;
 
-            let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                match result {
-                    Ok(actual_value) => {
-                        ui.invoke_show_toast(
-                            SharedString::from("success"),
-                            SharedString::from("Selection Changed"),
-                            SharedString::from(format!(
-                                "{}.{} = {}",
-                                device_id, target, actual_value
-                            )),
-                        );
-                    }
-                    Err(e) => {
-                        error!("Failed to set dropdown value: {}", e);
-                        ui.invoke_show_toast(
-                            SharedString::from("error"),
-                            SharedString::from("Dropdown Error"),
-                            SharedString::from(format!("Failed to set {}.{}: {}", device_id, target, e)),
-                        );
-                    }
+            let _ = ui_weak.upgrade_in_event_loop(move |ui| match result {
+                Ok(actual_value) => {
+                    ui.invoke_show_toast(
+                        SharedString::from("success"),
+                        SharedString::from("Selection Changed"),
+                        SharedString::from(format!("{}.{} = {}", device_id, target, actual_value)),
+                    );
+                }
+                Err(e) => {
+                    error!("Failed to set dropdown value: {}", e);
+                    ui.invoke_show_toast(
+                        SharedString::from("error"),
+                        SharedString::from("Dropdown Error"),
+                        SharedString::from(format!(
+                            "Failed to set {}.{}: {}",
+                            device_id, target, e
+                        )),
+                    );
                 }
             });
         });

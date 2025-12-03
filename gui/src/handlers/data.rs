@@ -8,7 +8,8 @@
 
 use crate::state::SharedState;
 use crate::ui::{
-    AcquisitionInfo, MainWindow, SharedString, StorageFormat, StorageStatus, UiAdapter, VecModel, Weak,
+    AcquisitionInfo, MainWindow, SharedString, StorageFormat, StorageStatus, UiAdapter, VecModel,
+    Weak,
 };
 use std::rc::Rc;
 use tracing::{info, warn};
@@ -120,7 +121,10 @@ fn register_configure_storage(ui: &MainWindow, ui_weak: Weak<MainWindow>) {
         let format_id = format_id.to_string();
         let output_dir = output_dir.to_string();
 
-        info!("Configuring storage: format={}, dir={}", format_id, output_dir);
+        info!(
+            "Configuring storage: format={}, dir={}",
+            format_id, output_dir
+        );
 
         // Stub: In the future, this would configure the backend storage
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {

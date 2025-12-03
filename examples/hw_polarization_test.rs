@@ -8,7 +8,9 @@
 //! a shared-port RS-485 driver is implemented.
 
 use anyhow::Result;
-use rust_daq::hardware::capabilities::{EmissionControl, Movable, Readable, ShutterControl, WavelengthTunable};
+use rust_daq::hardware::capabilities::{
+    EmissionControl, Movable, Readable, ShutterControl, WavelengthTunable,
+};
 use rust_daq::hardware::ell14::Ell14Driver;
 use rust_daq::hardware::maitai::MaiTaiDriver;
 use rust_daq::hardware::newport_1830c::Newport1830CDriver;
@@ -72,20 +74,18 @@ async fn main() -> Result<()> {
     println!("[2/6] Testing Newport 1830-C power meter...");
 
     let power_meter_ok = match Newport1830CDriver::new(NEWPORT_PORT) {
-        Ok(pm) => {
-            match pm.read().await {
-                Ok(power) => {
-                    println!("  Power reading: {:.3e} W", power);
-                    println!("  [OK] Newport power meter responding\n");
-                    true
-                }
-                Err(e) => {
-                    println!("  [WARN] Read failed: {}", e);
-                    println!("  Power meter may not be configured\n");
-                    false
-                }
+        Ok(pm) => match pm.read().await {
+            Ok(power) => {
+                println!("  Power reading: {:.3e} W", power);
+                println!("  [OK] Newport power meter responding\n");
+                true
             }
-        }
+            Err(e) => {
+                println!("  [WARN] Read failed: {}", e);
+                println!("  Power meter may not be configured\n");
+                false
+            }
+        },
         Err(e) => {
             println!("  [SKIP] Could not open power meter: {}", e);
             println!("  Continuing without power meter...\n");
@@ -151,7 +151,14 @@ async fn main() -> Result<()> {
         sleep(Duration::from_millis(500)).await;
 
         let is_open = laser.is_shutter_open().await?;
-        println!("  Shutter state: {}", if is_open { "OPEN (ERROR!)" } else { "CLOSED (OK)" });
+        println!(
+            "  Shutter state: {}",
+            if is_open {
+                "OPEN (ERROR!)"
+            } else {
+                "CLOSED (OK)"
+            }
+        );
 
         if is_open {
             println!("  [FAIL] Could not verify shutter closed!");
@@ -192,11 +199,11 @@ async fn main() -> Result<()> {
         if let Some(ref laser) = laser {
             println!("  >>> ENABLING LASER EMISSION <<<");
             println!("  WARNING: Class 4 laser will be activated");
-            sleep(Duration::from_secs(3)).await;  // Safety delay
+            sleep(Duration::from_secs(3)).await; // Safety delay
 
             laser.enable_emission().await?;
             println!("  Emission enabled, waiting for stabilization...");
-            sleep(Duration::from_secs(5)).await;  // Laser warm-up
+            sleep(Duration::from_secs(5)).await; // Laser warm-up
         }
 
         // Open shutter for measurements
@@ -218,12 +225,10 @@ async fn main() -> Result<()> {
 
             // Read power (need to recreate driver each time due to port sharing)
             let power = match Newport1830CDriver::new(NEWPORT_PORT) {
-                Ok(pm) => {
-                    match pm.read().await {
-                        Ok(p) => format!("{:.3e}", p),
-                        Err(_) => "ERR".to_string(),
-                    }
-                }
+                Ok(pm) => match pm.read().await {
+                    Ok(p) => format!("{:.3e}", p),
+                    Err(_) => "ERR".to_string(),
+                },
                 Err(_) => "N/A".to_string(),
             };
 
