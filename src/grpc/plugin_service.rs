@@ -602,7 +602,46 @@ impl PluginService for PluginServiceImpl {
         let req = request.into_inner();
         let mut instances = self.instances.write().await;
 
+        #[cfg_attr(not(feature = "tokio_serial"), allow(unused_variables))]
         if let Some(instance) = instances.remove(&req.instance_id) {
+            // Execute on_disconnect sequence if requested
+            #[cfg(feature = "tokio_serial")]
+            if req.run_disconnect_sequence {
+                if let Some(driver) = &instance.driver {
+                    let disconnect_sequence = &driver.config.on_disconnect;
+                    if !disconnect_sequence.is_empty() {
+                        tracing::info!(
+                            "Executing on_disconnect sequence for instance '{}' ({} commands)",
+                            req.instance_id,
+                            disconnect_sequence.len()
+                        );
+                        
+                        match driver.execute_command_sequence(disconnect_sequence).await {
+                            Ok(()) => {
+                                tracing::info!(
+                                    "Successfully executed on_disconnect sequence for instance '{}'",
+                                    req.instance_id
+                                );
+                            }
+                            Err(e) => {
+                                // Log the error but don't fail the destroy operation
+                                tracing::warn!(
+                                    "Error executing on_disconnect sequence for instance '{}': {}. \
+                                     Continuing with instance destruction.",
+                                    req.instance_id,
+                                    e
+                                );
+                            }
+                        }
+                    } else {
+                        tracing::debug!(
+                            "No on_disconnect commands defined for instance '{}'",
+                            req.instance_id
+                        );
+                    }
+                }
+            }
+
             // Also unregister from the DeviceRegistry
             #[cfg(feature = "tokio_serial")]
             {
@@ -616,7 +655,6 @@ impl PluginService for PluginServiceImpl {
                 }
             }
 
-            // TODO: If run_disconnect_sequence is true, execute on_disconnect commands
             Ok(Response::new(DestroyPluginInstanceResponse {
                 success: true,
                 error_message: String::new(),

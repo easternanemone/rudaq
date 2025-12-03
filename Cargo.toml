@@ -123,6 +123,7 @@ uuid = { version = "1.10", features = ["v4", "serde"] }
 similar = "2.3"
 sha2 = "0.10"
 dirs = "5.0"
+hostname = "0.4" # For experiment manifest system info (bd-ej44)
 once_cell = { version = "1.21.3", features = ["std"] }
 notify = { version = "7", optional = true } # File watching for hot-reload
 

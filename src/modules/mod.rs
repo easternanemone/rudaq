@@ -628,7 +628,44 @@ impl ModuleRegistry {
             .get_mut(module_id)
             .ok_or_else(|| anyhow!("Module not found: {}", module_id))?;
 
-        // TODO: Validate role exists for this module type
+        // Validate role exists for this module type
+        let type_id = instance.type_id();
+        let type_info = self
+            .type_info_cache
+            .get(type_id)
+            .ok_or_else(|| anyhow!("Module type info not found: {}", type_id))?;
+
+        // Check if role exists in required or optional roles
+        let role_exists = type_info
+            .required_roles
+            .iter()
+            .chain(type_info.optional_roles.iter())
+            .any(|role| role.role_id == role_id);
+
+        if !role_exists {
+            // Build helpful error message listing valid roles
+            let mut valid_roles = Vec::new();
+            for role in &type_info.required_roles {
+                valid_roles.push(format!("{} (required)", role.role_id));
+            }
+            for role in &type_info.optional_roles {
+                valid_roles.push(format!("{} (optional)", role.role_id));
+            }
+
+            let valid_roles_str = if valid_roles.is_empty() {
+                "none".to_string()
+            } else {
+                valid_roles.join(", ")
+            };
+
+            return Err(anyhow!(
+                "Invalid role '{}' for module type '{}'. Valid roles: {}",
+                role_id,
+                type_id,
+                valid_roles_str
+            ));
+        }
+
         instance.assign_device(role_id.to_string(), device_id.to_string());
         info!(
             "Assigned device {} to role {} in module {}",

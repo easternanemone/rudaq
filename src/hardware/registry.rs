@@ -1012,6 +1012,56 @@ impl DeviceRegistry {
             metadata,
         })
     }
+
+    /// Snapshot all parameters from all devices with Parameterized trait (bd-ej44)
+    ///
+    /// Returns a nested map: device_id -> parameter_name -> JSON value
+    /// This is used for experiment manifests to capture complete hardware state.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let snapshot = registry.snapshot_all_parameters();
+    /// // Returns:
+    /// // {
+    /// //   "mock_camera": {
+    /// //     "exposure_ms": 100.0,
+    /// //     "gain": 1.5
+    /// //   },
+    /// //   "mock_stage": {
+    /// //     "position": 0.0
+    /// //   }
+    /// // }
+    /// ```
+    pub fn snapshot_all_parameters(&self) -> HashMap<String, HashMap<String, serde_json::Value>> {
+        let mut snapshot = HashMap::new();
+
+        for (device_id, device) in &self.devices {
+            if let Some(parameterized) = &device.parameterized {
+                let params = parameterized.parameters();
+                let mut device_params = HashMap::new();
+
+                for (name, param) in params.iter() {
+                    // Get JSON value for each parameter
+                    if let Ok(value) = param.get_json() {
+                        device_params.insert(name.to_string(), value);
+                    } else {
+                        // If serialization fails, store error marker
+                        device_params.insert(
+                            name.to_string(),
+                            serde_json::json!({"error": "serialization_failed"}),
+                        );
+                    }
+                }
+
+                if !device_params.is_empty() {
+                    snapshot.insert(device_id.clone(), device_params);
+                }
+            }
+        }
+
+        snapshot
+    }
 }
 
 impl Default for DeviceRegistry {
@@ -1357,6 +1407,36 @@ mod tests {
             "Reading {} not close to 1e-6",
             reading
         );
+    }
+
+    #[tokio::test]
+    async fn test_snapshot_all_parameters() {
+        let registry = create_mock_registry().await.unwrap();
+
+        // Snapshot all parameters
+        let snapshot = registry.snapshot_all_parameters();
+
+        // Should have parameters from both mock devices
+        assert!(!snapshot.is_empty(), "Snapshot should not be empty");
+        
+        // Mock devices implement Parameterized, so they should have parameters
+        assert!(
+            snapshot.contains_key("mock_stage") || snapshot.contains_key("mock_power_meter"),
+            "Snapshot should contain at least one device"
+        );
+
+        // If a device is present, its parameters should be serializable JSON values
+        for (device_id, params) in &snapshot {
+            assert!(!params.is_empty(), "Device {} should have parameters", device_id);
+            for (param_name, value) in params {
+                assert!(
+                    value.is_number() || value.is_string() || value.is_boolean() || value.is_object(),
+                    "Parameter {}.{} should be a valid JSON value",
+                    device_id,
+                    param_name
+                );
+            }
+        }
     }
 
     #[cfg(feature = "tokio_serial")]

@@ -875,7 +875,7 @@ enum ScanState {
   SCAN_CREATED = 1;      // Config validated, ready to start
   SCAN_RUNNING = 2;      // Actively executing
   SCAN_PAUSED = 3;       // Paused at safe point
-  SCAN_COMPLETED = 4;    // All points acquired
+  SCAN_COMPLETED = 4;     // All points acquired
   SCAN_STOPPED = 5;      // Stopped by user
   SCAN_ERROR = 6;        // Error during execution
 }
@@ -2220,4 +2220,108 @@ message DestroyPluginInstanceRequest {
 message DestroyPluginInstanceResponse {
   bool success = 1;
   string error_message = 2;
+}
+
+// ==========================================================================
+// HEALTH MONITORING SERVICE (bd-pauy)
+// System health monitoring for headless operation
+// ==========================================================================
+
+service HealthService {
+  // Get overall system health status
+  rpc GetSystemHealth(GetSystemHealthRequest) returns (GetSystemHealthResponse);
+  
+  // Get detailed health status for all modules
+  rpc GetModuleHealth(GetModuleHealthRequest) returns (GetModuleHealthResponse);
+  
+  // Get recent error history
+  rpc GetErrorHistory(GetErrorHistoryRequest) returns (GetErrorHistoryResponse);
+  
+  // Stream health updates in real-time
+  rpc StreamHealthUpdates(StreamHealthUpdatesRequest) returns (stream HealthUpdate);
+}
+
+// Request for system health
+message GetSystemHealthRequest {}
+
+// Response with overall system health
+message GetSystemHealthResponse {
+  SystemHealthStatus status = 1;
+  uint32 total_modules = 2;
+  uint32 healthy_modules = 3;
+  uint32 unhealthy_modules = 4;
+  uint32 total_errors = 5;
+  uint32 critical_errors = 6;
+  uint64 timestamp_ns = 7;
+}
+
+// Overall system health status
+enum SystemHealthStatus {
+  SYSTEM_HEALTH_UNKNOWN = 0;
+  SYSTEM_HEALTH_HEALTHY = 1;
+  SYSTEM_HEALTH_DEGRADED = 2;
+  SYSTEM_HEALTH_CRITICAL = 3;
+}
+
+// Request for module health details
+message GetModuleHealthRequest {}
+
+// Response with per-module health status
+message GetModuleHealthResponse {
+  repeated ModuleHealthStatus modules = 1;
+  uint64 timestamp_ns = 2;
+}
+
+// Health status for a single module
+message ModuleHealthStatus {
+  string name = 1;
+  bool is_healthy = 2;
+  uint64 last_heartbeat_ns = 3;
+  uint64 seconds_since_heartbeat = 4;
+  optional string status_message = 5;
+}
+
+// Request for error history
+message GetErrorHistoryRequest {
+  optional uint32 limit = 1;           // Max errors to return (default: 100)
+  optional string module_name = 2;     // Filter by module name
+  optional ErrorSeverityLevel min_severity = 3;  // Filter by severity
+}
+
+// Response with error history
+message GetErrorHistoryResponse {
+  repeated HealthErrorRecord errors = 1;
+  uint32 total_error_count = 2;
+  uint64 timestamp_ns = 3;
+}
+
+// A single health error record
+message HealthErrorRecord {
+  string module_name = 1;
+  ErrorSeverityLevel severity = 2;
+  string message = 3;
+  uint64 timestamp_ns = 4;
+  map<string, string> context = 5;
+}
+
+// Error severity levels
+enum ErrorSeverityLevel {
+  ERROR_SEVERITY_UNKNOWN = 0;
+  ERROR_SEVERITY_INFO = 1;
+  ERROR_SEVERITY_WARNING = 2;
+  ERROR_SEVERITY_ERROR = 3;
+  ERROR_SEVERITY_CRITICAL = 4;
+}
+
+// Request to stream health updates
+message StreamHealthUpdatesRequest {
+  uint32 update_interval_ms = 1;  // How often to send updates (default: 5000ms)
+}
+
+// Real-time health update
+message HealthUpdate {
+  SystemHealthStatus system_status = 1;
+  repeated ModuleHealthStatus modules = 2;
+  optional HealthErrorRecord latest_error = 3;
+  uint64 timestamp_ns = 4;
 }

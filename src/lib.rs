@@ -62,6 +62,7 @@ pub mod observable; // Base reactive primitive (used by Parameter and Modules)
 pub mod hardware; // Phase 1: Capability traits + Mock implementations
 pub mod scripting; // Phase 2: Rhai scripting engine
 pub mod experiment; // Phase 4: RunEngine experiment orchestration (bd-73yh)
+pub mod health; // System health monitoring for headless operation (bd-pauy)
 
 // Measurement data types (shared between scripting and grpc modules)
 pub mod measurement_types;

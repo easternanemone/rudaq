@@ -50,7 +50,7 @@ use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info, warn};
 
 use super::document::{
-    DataKey, DescriptorDoc, Document, EventDoc, StartDoc, StopDoc, new_uid,
+    DataKey, DescriptorDoc, Document, EventDoc, ExperimentManifest, StartDoc, StopDoc, new_uid,
 };
 use super::plans::{Plan, PlanCommand};
 use crate::hardware::registry::DeviceRegistry;
@@ -254,7 +254,28 @@ impl RunEngine {
         start_doc.hints = plan.movers();
 
         let run_uid = start_doc.uid.clone();
-        self.emit_document(Document::Start(start_doc)).await;
+        self.emit_document(Document::Start(start_doc.clone())).await;
+
+        // Capture experiment manifest - snapshot all hardware parameters (bd-ej44)
+        let parameter_snapshot = self.device_registry.snapshot_all_parameters();
+        let manifest = ExperimentManifest::new(
+            &run_uid,
+            &start_doc.plan_type,
+            &start_doc.plan_name,
+            parameter_snapshot,
+        )
+        .with_metadata(start_doc.metadata.clone());
+
+        // Log manifest creation
+        info!(
+            run_uid = %run_uid,
+            num_devices = %manifest.parameters.len(),
+            "Captured experiment manifest with hardware parameters"
+        );
+
+        // TODO(bd-ej44): Wire manifest to HDF5Writer when storage_hdf5 feature is enabled
+        // For now, manifest is created but not yet persisted to HDF5
+        // Future work: Add manifest to HDF5 root attributes or dedicated group
 
         // Create and emit DescriptorDoc for the primary stream
         let mut descriptor = DescriptorDoc::new(&run_uid, "primary");
@@ -441,7 +462,7 @@ impl RunEngine {
 
             PlanCommand::Set { device_id, parameter, value } => {
                 debug!(device = %device_id, param = %parameter, value = %value, "Setting parameter");
-                // TODO: Implement device parameter setting via registry
+                self.execute_set_parameter(&device_id, &parameter, &value).await?;
                 Ok(false)
             }
         }
@@ -487,6 +508,47 @@ impl RunEngine {
         }
 
         Ok(())
+    }
+
+    /// Execute a set parameter command
+    async fn execute_set_parameter(&self, device_id: &str, parameter: &str, value: &str) -> anyhow::Result<()> {
+        debug!(device = %device_id, param = %parameter, value = %value, "Setting parameter");
+
+        // Try legacy Settable trait first (backwards compatibility)
+        if let Some(settable) = self.device_registry.get_settable(device_id) {
+            // Parse the value string to JSON
+            let json_value: serde_json::Value = serde_json::from_str(value)
+                .or_else(|_| {
+                    // Try as raw string if JSON parsing fails
+                    Ok::<_, serde_json::Error>(serde_json::Value::String(value.to_string()))
+                })
+                .map_err(|e| anyhow::anyhow!("Invalid value format: {}", e))?;
+            
+            settable.set_value(parameter, json_value).await?;
+            return Ok(());
+        }
+
+        // New path - use Parameterized trait and Parameter<T> system
+        if let Some(params) = self.device_registry.get_parameters(device_id) {
+            if let Some(param) = params.get(parameter) {
+                // Parse the value string to JSON
+                let json_value: serde_json::Value = serde_json::from_str(value)
+                    .or_else(|_| {
+                        // Try as raw string if JSON parsing fails
+                        Ok::<_, serde_json::Error>(serde_json::Value::String(value.to_string()))
+                    })
+                    .map_err(|e| anyhow::anyhow!("Invalid value format: {}", e))?;
+                
+                // Set the parameter (synchronous call via ParameterBase trait)
+                param.set_json(json_value)?;
+                return Ok(());
+            } else {
+                anyhow::bail!("Parameter '{}' not found on device '{}'", parameter, device_id);
+            }
+        }
+
+        // Neither Settable nor Parameterized - device not found
+        anyhow::bail!("Device '{}' not found or does not support parameter setting", device_id);
     }
 
     /// Emit a document to all subscribers

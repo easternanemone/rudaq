@@ -9,6 +9,7 @@
 //! - Cross-language compatibility with #[repr(C)] layout
 //! - Apache Arrow IPC format support for structured data
 //! - Designed for 10k+ writes/sec throughput
+//! - Live data tapping for remote visualization without disrupting HDF5 writing
 //!
 //! # Architecture
 //!
@@ -17,55 +18,28 @@
 //! from the `read_tail` position. When the write head reaches capacity, it wraps back
 //! to the beginning (circular behavior).
 //!
+//! ## Data Tapping
+//!
+//! The ring buffer supports "tap consumers" that receive every Nth frame for live
+//! visualization without blocking the primary HDF5 writer. Taps use async channels
+//! with backpressure handling - if a tap consumer is slow, frames are dropped rather
+//! than blocking the writer.
+//!
 //! # Thread Safety
 //!
 //! - **Writes**: Serialized via internal mutex. Multiple writers are safe but sequential.
 //! - **Reads**: Lock-free using atomic loads with Acquire ordering.
 //! - **Concurrent read/write**: Safe via seqlock pattern with epoch counter validation.
-//!
-//! # Memory Layout
-//! ```text
-//! [128-byte header] [variable-size data region]
-//!
-//! Header (cache-line aligned):
-//!   magic: u64              (0xDA_DA_DA_DA_00_00_00_01)
-//!   capacity_bytes: u64     (size of data region)
-//!   write_head: AtomicU64   (current write offset)
-//!   read_tail: AtomicU64    (oldest valid data offset)
-//!   schema_len: u32         (Arrow schema length)
-//!   padding: [u8; 116]      (cache line alignment)
-//! ```
-//!
-//! # Example
-//!
-//! ```no_run
-//! use std::path::Path;
-//! use rust_daq::data::ring_buffer::RingBuffer;
-//!
-//! # fn main() -> anyhow::Result<()> {
-//! // Create a 100 MB ring buffer
-//! let rb = RingBuffer::create(Path::new("/tmp/my_ring.buf"), 100)?;
-//!
-//! // Write data
-//! rb.write(b"Hello, world!")?;
-//!
-//! // Read snapshot
-//! let data = rb.read_snapshot();
-//! assert_eq!(&data, b"Hello, world!");
-//!
-//! // Mark data as consumed
-//! rb.advance_tail(data.len() as u64);
-//! # Ok(())
-//! # }
-//! ```
+//! - **Taps**: Non-blocking send with automatic frame dropping on backpressure.
 
 use anyhow::{anyhow, Context, Result};
 use memmap2::{MmapMut, MmapOptions};
 use std::fs::OpenOptions;
 use std::path::Path;
 use std::sync::atomic::{fence, AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
+use tokio::sync::mpsc;
 
 #[cfg(feature = "storage_arrow")]
 use arrow::record_batch::RecordBatch;
@@ -75,6 +49,53 @@ const MAGIC: u64 = 0xDA_DA_DA_DA_00_00_00_01;
 
 /// Size of the ring buffer header in bytes (128 bytes = 2 cache lines on most systems)
 const HEADER_SIZE: usize = 128;
+
+/// Default channel capacity for tap consumers (number of frames buffered)
+const DEFAULT_TAP_CHANNEL_SIZE: usize = 16;
+
+/// A tap consumer that receives every Nth frame from the ring buffer.
+///
+/// Tap consumers are used for live data visualization without disrupting
+/// the primary HDF5 writer. If a tap consumer can't keep up with the data
+/// rate, frames are dropped rather than blocking the writer.
+pub struct TapConsumer {
+    /// Unique identifier for this tap
+    pub id: String,
+
+    /// Deliver every nth frame (1 = every frame, 10 = every 10th frame)
+    pub nth_frame: usize,
+
+    /// Current frame count for this tap (internal counter)
+    frame_count: AtomicU64,
+
+    /// Async channel sender for delivering frames
+    /// Uses try_send to avoid blocking on backpressure
+    sender: mpsc::Sender<Vec<u8>>,
+}
+
+impl TapConsumer {
+    /// Create a new tap consumer
+    fn new(id: String, nth_frame: usize, sender: mpsc::Sender<Vec<u8>>) -> Self {
+        Self {
+            id,
+            nth_frame: nth_frame.max(1), // Ensure at least 1
+            frame_count: AtomicU64::new(0),
+            sender,
+        }
+    }
+
+    /// Check if this frame should be delivered based on nth_frame setting
+    fn should_deliver(&self) -> bool {
+        let count = self.frame_count.fetch_add(1, Ordering::Relaxed);
+        count % self.nth_frame as u64 == 0
+    }
+
+    /// Attempt to send a frame without blocking
+    /// Returns true if sent successfully, false if dropped due to backpressure
+    fn try_send_frame(&self, data: Vec<u8>) -> bool {
+        self.sender.try_send(data).is_ok()
+    }
+}
 
 /// Ring buffer header with cache-line alignment.
 ///
@@ -155,14 +176,20 @@ pub struct RingBuffer {
 
     /// Write lock to serialize concurrent writes and prevent data races
     write_lock: Mutex<()>,
+
+    /// List of tap consumers for live data streaming
+    /// Protected by RwLock for concurrent registration/unregistration
+    taps: Arc<RwLock<Vec<Arc<TapConsumer>>>>,
 }
 
 impl std::fmt::Debug for RingBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let tap_count = self.taps.read().map(|t| t.len()).unwrap_or(0);
         f.debug_struct("RingBuffer")
             .field("capacity", &self.capacity)
             .field("write_head", &self.write_head())
             .field("read_tail", &self.read_tail())
+            .field("tap_count", &tap_count)
             .field("data_ptr", &format!("{:p}", self.data_ptr))
             .field("header", &format!("{:p}", self.header))
             .finish()
@@ -267,6 +294,7 @@ impl RingBuffer {
             data_ptr,
             capacity: capacity_bytes as u64,
             write_lock: Mutex::new(()),
+            taps: Arc::new(RwLock::new(Vec::new())),
         })
     }
 
@@ -314,6 +342,7 @@ impl RingBuffer {
             data_ptr,
             capacity,
             write_lock: Mutex::new(()),
+            taps: Arc::new(RwLock::new(Vec::new())),
         })
     }
 
@@ -321,6 +350,9 @@ impl RingBuffer {
     ///
     /// This operation uses an internal lock to serialize concurrent writes.
     /// Reads remain lock-free via atomic operations.
+    ///
+    /// After writing, all registered tap consumers are notified. Taps that
+    /// can't keep up will have frames dropped (non-blocking send).
     ///
     /// # Arguments
     /// * `data` - Byte slice to write
@@ -392,7 +424,158 @@ impl RingBuffer {
             (*self.header).write_epoch.fetch_add(1, Ordering::Release);
         }
 
+        // Notify tap consumers (non-blocking)
+        // We do this AFTER the write is complete to avoid data races
+        self.notify_taps(data);
+
         Ok(())
+    }
+
+    /// Notify all tap consumers about a new frame.
+    ///
+    /// This method is called after each write. It checks each tap to see if
+    /// the frame should be delivered based on the nth_frame setting, and attempts
+    /// a non-blocking send. If the send fails (channel full), the frame is dropped
+    /// for that tap, ensuring the writer never blocks.
+    ///
+    /// # Arguments
+    /// * `data` - The frame data to send to taps
+    fn notify_taps(&self, data: &[u8]) {
+        // Fast path: if no taps, return immediately
+        let taps = match self.taps.read() {
+            Ok(taps) => taps,
+            Err(_) => return, // RwLock poisoned, skip notification
+        };
+
+        if taps.is_empty() {
+            return;
+        }
+
+        // Check each tap and deliver if needed
+        for tap in taps.iter() {
+            if tap.should_deliver() {
+                // Try to send without blocking
+                // If send fails, frame is dropped (backpressure handling)
+                if !tap.try_send_frame(data.to_vec()) {
+                    tracing::debug!(
+                        "Dropped frame for tap '{}' due to backpressure",
+                        tap.id
+                    );
+                }
+            }
+        }
+    }
+
+    /// Register a new tap consumer to receive every Nth frame.
+    ///
+    /// # Arguments
+    /// * `id` - Unique identifier for this tap
+    /// * `nth_frame` - Deliver every nth frame (1 = every frame, 10 = every 10th)
+    ///
+    /// # Returns
+    /// A receiver that will receive frame data, or an error if tap already exists
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use std::path::Path;
+    /// # use rust_daq::data::ring_buffer::RingBuffer;
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let rb = RingBuffer::create(Path::new("/tmp/test.buf"), 10)?;
+    ///
+    /// // Register a tap to receive every 10th frame
+    /// let mut rx = rb.register_tap("preview".to_string(), 10)?;
+    ///
+    /// // Receive frames in a separate task
+    /// tokio::spawn(async move {
+    ///     while let Some(frame) = rx.recv().await {
+    ///         // Process frame for live preview
+    ///         println!("Received frame: {} bytes", frame.len());
+    ///     }
+    /// });
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn register_tap(&self, id: String, nth_frame: usize) -> Result<mpsc::Receiver<Vec<u8>>> {
+        let mut taps = self.taps.write().map_err(|_| anyhow!("Tap lock poisoned"))?;
+
+        // Check if tap with this ID already exists
+        if taps.iter().any(|t| t.id == id) {
+            return Err(anyhow!("Tap with ID '{}' already exists", id));
+        }
+
+        // Create channel for this tap
+        let (tx, rx) = mpsc::channel(DEFAULT_TAP_CHANNEL_SIZE);
+
+        // Create and register tap consumer
+        let tap = Arc::new(TapConsumer::new(id.clone(), nth_frame, tx));
+        taps.push(tap);
+
+        tracing::info!(
+            "Registered tap '{}' (every {}th frame, channel size: {})",
+            id,
+            nth_frame,
+            DEFAULT_TAP_CHANNEL_SIZE
+        );
+
+        Ok(rx)
+    }
+
+    /// Unregister a tap consumer.
+    ///
+    /// # Arguments
+    /// * `id` - The tap ID to remove
+    ///
+    /// # Returns
+    /// Ok(true) if tap was found and removed, Ok(false) if tap didn't exist
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use std::path::Path;
+    /// # use rust_daq::data::ring_buffer::RingBuffer;
+    /// # fn example() -> anyhow::Result<()> {
+    /// let rb = RingBuffer::create(Path::new("/tmp/test.buf"), 10)?;
+    /// let _rx = rb.register_tap("preview".to_string(), 10)?;
+    ///
+    /// // Later, when preview is no longer needed
+    /// rb.unregister_tap("preview")?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn unregister_tap(&self, id: &str) -> Result<bool> {
+        let mut taps = self.taps.write().map_err(|_| anyhow!("Tap lock poisoned"))?;
+
+        let initial_len = taps.len();
+        taps.retain(|t| t.id != id);
+        let removed = taps.len() < initial_len;
+
+        if removed {
+            tracing::info!("Unregistered tap '{}'", id);
+        }
+
+        Ok(removed)
+    }
+
+    /// Get the number of currently registered taps.
+    ///
+    /// # Returns
+    /// Number of active tap consumers
+    pub fn tap_count(&self) -> usize {
+        self.taps.read().map(|t| t.len()).unwrap_or(0)
+    }
+
+    /// Get information about all registered taps.
+    ///
+    /// # Returns
+    /// Vector of (tap_id, nth_frame) tuples
+    pub fn list_taps(&self) -> Vec<(String, usize)> {
+        self.taps
+            .read()
+            .map(|taps| {
+                taps.iter()
+                    .map(|t| (t.id.clone(), t.nth_frame))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Read a snapshot of current data in the ring buffer.
@@ -832,5 +1015,168 @@ mod tests {
             "Performance too low: {} ops/sec",
             ops_per_sec
         );
+    }
+
+    #[tokio::test]
+    async fn test_tap_registration() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("test_ring.buf");
+
+        let rb = RingBuffer::create(&path, 10).unwrap();
+
+        // Register a tap
+        let mut rx = rb.register_tap("test_tap".to_string(), 1).unwrap();
+
+        // Verify tap is registered
+        assert_eq!(rb.tap_count(), 1);
+        assert_eq!(rb.list_taps(), vec![("test_tap".to_string(), 1)]);
+
+        // Write data
+        let test_data = b"test frame";
+        rb.write(test_data).unwrap();
+
+        // Should receive the frame
+        let received = tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            rx.recv()
+        ).await.unwrap();
+
+        assert_eq!(received.as_ref(), Some(&test_data.to_vec()));
+
+        // Unregister tap
+        assert!(rb.unregister_tap("test_tap").unwrap());
+        assert_eq!(rb.tap_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_tap_nth_frame() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("test_ring.buf");
+
+        let rb = RingBuffer::create(&path, 10).unwrap();
+
+        // Register tap to receive every 3rd frame
+        let mut rx = rb.register_tap("test_tap".to_string(), 3).unwrap();
+
+        // Write 10 frames
+        for i in 0..10 {
+            let data = format!("frame_{}", i);
+            rb.write(data.as_bytes()).unwrap();
+        }
+
+        // Should receive frames 0, 3, 6, 9 (4 frames total)
+        let mut received_count = 0;
+        while let Ok(Some(_)) = tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            rx.recv()
+        ).await {
+            received_count += 1;
+        }
+
+        assert_eq!(received_count, 4);
+    }
+
+    #[tokio::test]
+    async fn test_tap_backpressure() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("test_ring.buf");
+
+        let rb = RingBuffer::create(&path, 10).unwrap();
+
+        // Register tap but don't consume from it
+        let _rx = rb.register_tap("slow_tap".to_string(), 1).unwrap();
+
+        // Write more frames than the channel can hold
+        // Channel size is DEFAULT_TAP_CHANNEL_SIZE (16)
+        for i in 0..50 {
+            let data = format!("frame_{:03}", i);
+            rb.write(data.as_bytes()).unwrap();
+        }
+
+        // Write should complete without blocking (frames dropped)
+        // If this test completes, backpressure handling is working
+        assert_eq!(rb.tap_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_multiple_taps() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("test_ring.buf");
+
+        let rb = RingBuffer::create(&path, 10).unwrap();
+
+        // Register multiple taps with different rates
+        let mut rx1 = rb.register_tap("tap1".to_string(), 1).unwrap();
+        let mut rx2 = rb.register_tap("tap2".to_string(), 2).unwrap();
+        let mut rx3 = rb.register_tap("tap3".to_string(), 5).unwrap();
+
+        assert_eq!(rb.tap_count(), 3);
+
+        // Write 10 frames
+        for i in 0..10 {
+            let data = format!("frame_{}", i);
+            rb.write(data.as_bytes()).unwrap();
+        }
+
+        // Count received frames for each tap
+        let mut count1 = 0;
+        let mut count2 = 0;
+        let mut count3 = 0;
+
+        while let Ok(Some(_)) = tokio::time::timeout(
+            std::time::Duration::from_millis(10),
+            rx1.recv()
+        ).await {
+            count1 += 1;
+        }
+
+        while let Ok(Some(_)) = tokio::time::timeout(
+            std::time::Duration::from_millis(10),
+            rx2.recv()
+        ).await {
+            count2 += 1;
+        }
+
+        while let Ok(Some(_)) = tokio::time::timeout(
+            std::time::Duration::from_millis(10),
+            rx3.recv()
+        ).await {
+            count3 += 1;
+        }
+
+        // Tap1 gets every frame (10)
+        assert_eq!(count1, 10);
+        // Tap2 gets every 2nd frame (5)
+        assert_eq!(count2, 5);
+        // Tap3 gets every 5th frame (2)
+        assert_eq!(count3, 2);
+    }
+
+    #[test]
+    fn test_tap_duplicate_id() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("test_ring.buf");
+
+        let rb = RingBuffer::create(&path, 10).unwrap();
+
+        // Register first tap
+        let _rx1 = rb.register_tap("tap1".to_string(), 1).unwrap();
+
+        // Try to register with same ID
+        let result = rb.register_tap("tap1".to_string(), 2);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_unregister_nonexistent_tap() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("test_ring.buf");
+
+        let rb = RingBuffer::create(&path, 10).unwrap();
+
+        // Try to unregister tap that doesn't exist
+        let result = rb.unregister_tap("nonexistent");
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
     }
 }
