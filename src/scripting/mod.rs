@@ -86,8 +86,9 @@ pub mod pyo3_engine;
 pub mod rhai_engine;
 pub mod script_engine;
 
-// Legacy Rhai-specific (V4 compatibility)
+// V5 hardware bindings for Rhai scripts
 pub mod bindings;
+// Legacy ScriptHost wrapper (V4 compatibility - used by DaqServer, migrate to RhaiEngine)
 pub mod engine;
 
 // Plan bindings for experiment orchestration (bd-73yh.4)
@@ -99,8 +100,9 @@ pub use pyo3_engine::PyO3Engine;
 pub use rhai_engine::RhaiEngine;
 pub use script_engine::{ScriptEngine, ScriptError, ScriptValue};
 
-// Re-export legacy types (V4)
+// Re-export V5 hardware bindings
 pub use bindings::{register_hardware, CameraHandle, StageHandle};
+// Re-export legacy ScriptHost (V4 - TODO: migrate DaqServer to RhaiEngine)
 pub use engine::ScriptHost;
 
 // Re-export plan bindings (bd-73yh.4)

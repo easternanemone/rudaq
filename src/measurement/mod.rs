@@ -16,7 +16,6 @@
 //! # Key Components
 //!
 //! - [`DataDistributor`] - Non-blocking broadcast system for measurements
-//! - [`Measure`] - Legacy trait for instrument measurements (deprecated)
 //! - [`PowerMeasure`] - Trait for power meter readings
 //!
 //! # Example
@@ -42,21 +41,6 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, Mutex};
-
-/// **DEPRECATED**: Stub trait for backward compatibility with V1 code.
-/// This trait was removed in Phase 3. V1 Instrument trait and modules are deprecated.
-/// New code should use V2/V3 architecture with `daq_core::Measurement` enum.
-#[async_trait]
-pub trait Measure: Send + Sync {
-    /// The data type produced by this measurement source.
-    type Data: Send + Sync + Clone;
-
-    /// Takes a single measurement and returns the result.
-    async fn measure(&mut self) -> Result<Self::Data>;
-
-    /// Returns a channel receiver for continuous measurement streaming.
-    async fn data_stream(&self) -> Result<mpsc::Receiver<std::sync::Arc<Self::Data>>>;
-}
 
 /// Fan-out data distributor for efficient multi-consumer broadcasting without backpressure.
 ///
@@ -491,14 +475,8 @@ impl<T: Clone> DataDistributor<T> {
     }
 }
 
-/// Legacy data point structures for V1/V2 compatibility.
-pub mod datapoint;
-/// Instrument measurement types and conversion utilities.
-pub mod instrument_measurement;
 /// Power measurement types with unit support.
 pub mod power;
-
-pub use instrument_measurement::InstrumentMeasurement;
 
 #[cfg(test)]
 mod tests {

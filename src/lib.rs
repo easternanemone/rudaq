@@ -35,8 +35,6 @@
 //!   All V5 drivers MUST implement Parameterized trait to expose parameters for
 //!   gRPC control, presets, and experiment metadata. See docs/architecture/ADR_005_REACTIVE_PARAMETERS.md
 
-// pub mod app; // REMOVED: Depends on app_actor (bd-9si6)
-// pub mod app_actor; // REMOVED: V2 actor pattern deleted (bd-9si6)
 pub mod config;
 pub mod core;
 pub mod data; // Re-enabled for ring buffer implementation (Phase 4J: bd-q2we)
@@ -46,35 +44,13 @@ pub mod log_capture;
 pub mod measurement;
 pub mod metadata;
 pub mod session;
-// REMOVED: V4 tracing infrastructure (bd-ou6y.3)
-// pub mod tracing_v4;
 pub mod validation;
 
 // Phase 1: Architectural redesign - New core abstractions
 pub mod observable;
 pub mod parameter; // Base reactive primitive (used by Parameter and Modules)
 
-// V2 modules REMOVED (bd-9si6) - all depend on deleted daq_core crate
-// pub mod adapters;
-// pub mod instruments_v2;
-
 // V5 Headless-First Architecture (bd-oq51)
 pub mod experiment; // Phase 4: RunEngine experiment orchestration (bd-73yh)
 pub mod hardware; // Phase 1: Capability traits + Mock implementations
 pub mod health;
-pub mod scripting; // Phase 2: Rhai scripting engine // System health monitoring for headless operation (bd-pauy)
-
-// Measurement data types (shared between scripting and grpc modules)
-pub mod measurement_types;
-
-// Phase 3: gRPC remote control server (bd-8gsx)
-#[cfg(feature = "networking")]
-pub mod grpc;
-
-// Phase 3B: Module system for reusable experiment components (bd-c0ai)
-#[cfg(feature = "modules")]
-pub mod modules;
-
-// Procedure framework for calibration and automation (bd-r0iq)
-#[cfg(feature = "modules")]
-pub mod procedures;

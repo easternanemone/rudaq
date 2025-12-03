@@ -105,3 +105,6 @@ hive-mind-prompt-*.txt
 .codemachine/template.json
 proto/__pycache__/
 zen_generated.code
+
+.gemini/
+gha-creds-*.json
