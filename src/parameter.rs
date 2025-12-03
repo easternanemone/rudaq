@@ -16,6 +16,7 @@
 //!
 //! ```rust,ignore
 //! use rust_daq::parameter::Parameter;
+//! use futures::future::BoxFuture;
 //!
 //! // Create parameter with constraints
 //! let mut exposure = Parameter::new("exposure_ms")
@@ -24,11 +25,12 @@
 //!     .with_unit("ms")
 //!     .build();
 //!
-//! // Connect to hardware
-//! exposure.connect_to_hardware(
-//!     |val| camera.set_exposure(val),  // Write function
-//!     || camera.get_exposure(),         // Read function
-//! );
+//! // Connect to async hardware
+//! exposure.connect_to_hardware_write(|val| {
+//!     Box::pin(async move {
+//!         camera.set_exposure(val).await
+//!     })
+//! });
 //!
 //! // Set value (validates, writes to hardware, notifies subscribers)
 //! exposure.set(250.0).await?;
@@ -44,6 +46,7 @@
 //! ```
 
 use anyhow::Result;
+use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -187,13 +190,13 @@ where
     ///
     /// When set, calling `set()` will write to hardware before updating
     /// the internal value. Function should return error if write fails.
-    hardware_writer: Option<Arc<dyn Fn(T) -> Result<()> + Send + Sync>>,
+    hardware_writer: Option<Arc<dyn Fn(T) -> BoxFuture<'static, Result<(), DaqError>> + Send + Sync>>,
 
     /// Hardware read function (optional)
     ///
     /// When set, calling `read_from_hardware()` will fetch the current
     /// hardware value and update the internal value.
-    hardware_reader: Option<Arc<dyn Fn() -> Result<T> + Send + Sync>>,
+    hardware_reader: Option<Arc<dyn Fn() -> BoxFuture<'static, Result<T, DaqError>> + Send + Sync>>,
 
     /// Change listeners (called after value changes)
     ///
@@ -285,7 +288,7 @@ where
     /// ```
     pub fn connect_to_hardware_write(
         &mut self,
-        writer: impl Fn(T) -> Result<()> + Send + Sync + 'static,
+        writer: impl Fn(T) -> BoxFuture<'static, Result<(), DaqError>> + Send + Sync + 'static,
     ) {
         self.hardware_writer = Some(Arc::new(writer));
     }
@@ -304,7 +307,7 @@ where
     /// ```
     pub fn connect_to_hardware_read(
         &mut self,
-        reader: impl Fn() -> Result<T> + Send + Sync + 'static,
+        reader: impl Fn() -> BoxFuture<'static, Result<T, DaqError>> + Send + Sync + 'static,
     ) {
         self.hardware_reader = Some(Arc::new(reader));
     }
@@ -312,8 +315,8 @@ where
     /// Connect both hardware read and write functions
     pub fn connect_to_hardware(
         &mut self,
-        writer: impl Fn(T) -> Result<()> + Send + Sync + 'static,
-        reader: impl Fn() -> Result<T> + Send + Sync + 'static,
+        writer: impl Fn(T) -> BoxFuture<'static, Result<(), DaqError>> + Send + Sync + 'static,
+        reader: impl Fn() -> BoxFuture<'static, Result<T, DaqError>> + Send + Sync + 'static,
     ) {
         self.connect_to_hardware_write(writer);
         self.connect_to_hardware_read(reader);
@@ -353,7 +356,7 @@ where
     pub async fn set(&self, value: T) -> Result<()> {
         // Step 1: Write to hardware if connected (BEFORE Observable update)
         if let Some(writer) = &self.hardware_writer {
-            writer(value.clone())?;
+            writer(value.clone()).await?;
         }
 
         // Step 2: Update Observable (validates and notifies subscribers)
@@ -378,7 +381,7 @@ where
             .as_ref()
             .ok_or_else(|| DaqError::ParameterNoHardwareReader)?;
 
-        let value = reader()?;
+        let value = reader().await?;
 
         // Update Observable without validation (hardware is source of truth)
         self.inner.set_unchecked(value.clone());
@@ -648,7 +651,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parameter_basic() {
-        let mut param = Parameter::new("test", 42.0);
+        let param = Parameter::new("test", 42.0);
         assert_eq!(param.get(), 42.0);
 
         param.set(100.0).await.unwrap();
@@ -657,7 +660,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parameter_range_validation() {
-        let mut param = Parameter::new("test", 50.0).with_range(0.0, 100.0);
+        let param = Parameter::new("test", 50.0).with_range(0.0, 100.0);
 
         assert!(param.set(50.0).await.is_ok());
         assert!(param.set(150.0).await.is_err()); // Out of range
@@ -666,7 +669,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parameter_choices() {
-        let mut param = Parameter::new("mode", "auto".to_string())
+        let param = Parameter::new("mode", "auto".to_string())
             .with_choices(vec!["auto".to_string(), "manual".to_string()]);
 
         assert!(param.set("manual".to_string()).await.is_ok());
@@ -675,7 +678,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parameter_read_only() {
-        let mut param = Parameter::new("readonly", 42.0).read_only();
+        let param = Parameter::new("readonly", 42.0).read_only();
 
         assert!(param.set(100.0).await.is_err());
         assert_eq!(param.get(), 42.0); // Unchanged
@@ -690,8 +693,11 @@ mod tests {
 
         let mut param = Parameter::new("exposure", 100.0);
         param.connect_to_hardware_write(move |val| {
-            hw_val_clone.store(val as u64, Ordering::SeqCst);
-            Ok(())
+            let hw = hw_val_clone.clone();
+            Box::pin(async move {
+                hw.store(val as u64, Ordering::SeqCst);
+                Ok(())
+            })
         });
 
         param.set(250.0).await.unwrap();
@@ -700,7 +706,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parameter_subscription() {
-        let mut param = Parameter::new("test", 0.0);
+        let param = Parameter::new("test", 0.0);
         let mut rx = param.subscribe();
 
         // Initial value
@@ -719,7 +725,7 @@ mod tests {
         let listener_called = Arc::new(AtomicU64::new(0));
         let lc_clone = listener_called.clone();
 
-        let mut param = Parameter::new("test", 0.0);
+        let param = Parameter::new("test", 0.0);
         param
             .add_change_listener(move |_val| {
                 lc_clone.fetch_add(1, Ordering::SeqCst);

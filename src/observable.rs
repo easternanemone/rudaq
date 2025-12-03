@@ -10,6 +10,7 @@
 //! - Optional validation constraints (min/max/custom)
 //! - Metadata (name, units, description)
 //! - Serialization support for snapshots
+//! - Generic parameter access via ParameterBase trait
 //!
 //! # Example
 //!
@@ -32,9 +33,47 @@
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use std::any::Any;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::watch;
+
+// =============================================================================
+// ParameterBase Trait - Generic Parameter Access
+// =============================================================================
+
+/// Base trait for all parameters, providing type-erased access to common operations.
+///
+/// This enables generic parameter access (e.g., from gRPC endpoints) without
+/// knowing the concrete parameter type at compile time.
+pub trait ParameterBase: Send + Sync {
+    /// Get the parameter name
+    fn name(&self) -> &str;
+
+    /// Get the current value as JSON
+    fn get_json(&self) -> Result<serde_json::Value>;
+
+    /// Set the value from JSON
+    fn set_json(&self, value: serde_json::Value) -> Result<()>;
+
+    /// Get the parameter metadata
+    fn metadata(&self) -> &ObservableMetadata;
+
+    /// Check if there are any active subscribers
+    fn has_subscribers(&self) -> bool;
+
+    /// Get the number of active subscribers
+    fn subscriber_count(&self) -> usize;
+}
+
+/// Combines ParameterBase with Any for downcasting when concrete type is needed.
+///
+/// This allows generic parameter access while still enabling type-specific
+/// operations when the concrete type is known.
+pub trait ParameterAny: ParameterBase {
+    /// Get a reference to this parameter as `&dyn Any` for downcasting
+    fn as_any(&self) -> &dyn Any;
+}
 
 // =============================================================================
 // Observable<T>
@@ -200,6 +239,71 @@ where
     }
 }
 
+impl<T> Observable<T>
+where
+    T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+{
+    /// Get the current value as JSON
+    pub fn get_json(&self) -> Result<serde_json::Value> {
+        let value = self.get();
+        serde_json::to_value(&value)
+            .map_err(|e| anyhow!("Failed to serialize parameter '{}': {}", self.metadata.name, e))
+    }
+
+    /// Set the value from JSON
+    pub fn set_json(&self, json_value: serde_json::Value) -> Result<()> {
+        let value: T = serde_json::from_value(json_value).map_err(|e| {
+            anyhow!(
+                "Failed to deserialize parameter '{}': {}. Expected type: {}",
+                self.metadata.name,
+                e,
+                std::any::type_name::<T>()
+            )
+        })?;
+        self.set(value)
+    }
+}
+
+// Implement ParameterBase for Observable<T> where T supports JSON serialization
+impl<T> ParameterBase for Observable<T>
+where
+    T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+{
+    fn name(&self) -> &str {
+        &self.metadata.name
+    }
+
+    fn get_json(&self) -> Result<serde_json::Value> {
+        Observable::get_json(self)
+    }
+
+    fn set_json(&self, value: serde_json::Value) -> Result<()> {
+        Observable::set_json(self, value)
+    }
+
+    fn metadata(&self) -> &ObservableMetadata {
+        &self.metadata
+    }
+
+    fn has_subscribers(&self) -> bool {
+        self.sender.receiver_count() > 0
+    }
+
+    fn subscriber_count(&self) -> usize {
+        self.sender.receiver_count()
+    }
+}
+
+// Implement ParameterAny for Observable<T>
+impl<T> ParameterAny for Observable<T>
+where
+    T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 // =============================================================================
 // Numeric Observable Extensions
 // =============================================================================
@@ -235,10 +339,12 @@ where
 /// A collection of observable parameters for a module.
 ///
 /// Provides snapshot and restore functionality for parameter state.
+/// Stores parameters as trait objects, enabling generic access without
+/// knowing concrete types.
 #[derive(Default)]
 pub struct ParameterSet {
-    /// Named parameters (type-erased for heterogeneous storage)
-    parameters: std::collections::HashMap<String, Box<dyn std::any::Any + Send + Sync>>,
+    /// Named parameters (stored as trait objects for generic access)
+    parameters: std::collections::HashMap<String, Box<dyn ParameterAny>>,
 }
 
 impl std::fmt::Debug for ParameterSet {
@@ -259,20 +365,40 @@ impl ParameterSet {
     /// Register an observable parameter.
     pub fn register<T>(&mut self, observable: Observable<T>)
     where
-        T: Clone + Send + Sync + 'static,
+        T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     {
         let name = observable.metadata.name.clone();
         self.parameters.insert(name, Box::new(observable));
     }
 
-    /// Get a parameter by name.
-    pub fn get<T>(&self, name: &str) -> Option<&Observable<T>>
+    /// Get a parameter by name with specific type (requires downcasting).
+    pub fn get_typed<T>(&self, name: &str) -> Option<&Observable<T>>
     where
-        T: Clone + Send + Sync + 'static,
+        T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     {
         self.parameters
             .get(name)
-            .and_then(|p| p.downcast_ref::<Observable<T>>())
+            .and_then(|p| p.as_any().downcast_ref::<Observable<T>>())
+    }
+
+    /// Get a parameter by name as a trait object (generic access).
+    pub fn get(&self, name: &str) -> Option<&dyn ParameterBase> {
+        self.parameters.get(name).map(|p| p.as_ref() as &dyn ParameterBase)
+    }
+
+    /// Iterate over all parameters as trait objects.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &dyn ParameterBase)> {
+        self.parameters
+            .iter()
+            .map(|(name, param)| (name.as_str(), param.as_ref() as &dyn ParameterBase))
+    }
+
+    /// Get all parameters as a vector of trait objects.
+    pub fn parameters(&self) -> Vec<&dyn ParameterBase> {
+        self.parameters
+            .values()
+            .map(|p| p.as_ref() as &dyn ParameterBase)
+            .collect()
     }
 
     /// List all parameter names.
@@ -341,14 +467,100 @@ mod tests {
     }
 
     #[test]
+    fn test_observable_json_serialization() {
+        let obs = Observable::new("threshold", 100.0).with_units("mW");
+
+        // Get as JSON
+        let json = obs.get_json().unwrap();
+        assert_eq!(json, serde_json::json!(100.0));
+
+        // Set from JSON
+        obs.set_json(serde_json::json!(150.0)).unwrap();
+        assert_eq!(obs.get(), 150.0);
+    }
+
+    #[test]
+    fn test_observable_json_type_mismatch() {
+        let obs = Observable::new("threshold", 100.0);
+
+        // Try to set with wrong type
+        let result = obs.set_json(serde_json::json!("not a number"));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("deserialize"));
+    }
+
+    #[test]
+    fn test_parameter_base_trait() {
+        let obs = Observable::new("power", 50.0).with_units("mW");
+        let param: &dyn ParameterBase = &obs;
+
+        // Test trait methods
+        assert_eq!(param.name(), "power");
+        assert_eq!(param.metadata().units.as_deref(), Some("mW"));
+        
+        // Get and set via JSON
+        let json = param.get_json().unwrap();
+        assert_eq!(json, serde_json::json!(50.0));
+        
+        param.set_json(serde_json::json!(75.0)).unwrap();
+        assert_eq!(obs.get(), 75.0); // Verify through concrete type
+    }
+
+    #[test]
     fn test_parameter_set() {
         let mut params = ParameterSet::new();
 
         params.register(Observable::new("threshold", 100.0).with_units("mW"));
         params.register(Observable::new("enabled", true));
 
-        assert!(params.get::<f64>("threshold").is_some());
-        assert!(params.get::<bool>("enabled").is_some());
-        assert!(params.get::<i32>("missing").is_none());
+        // Test typed access
+        assert!(params.get_typed::<f64>("threshold").is_some());
+        assert!(params.get_typed::<bool>("enabled").is_some());
+        assert!(params.get_typed::<i32>("missing").is_none());
+    }
+
+    #[test]
+    fn test_parameter_set_generic_access() {
+        let mut params = ParameterSet::new();
+
+        params.register(Observable::new("wavelength", 850.0).with_units("nm"));
+        params.register(Observable::new("power", 50.0).with_units("mW"));
+        params.register(Observable::new("enabled", true));
+
+        // Test generic access
+        let param = params.get("wavelength").unwrap();
+        assert_eq!(param.name(), "wavelength");
+        assert_eq!(param.metadata().units.as_deref(), Some("nm"));
+
+        // Test iteration
+        let names: Vec<&str> = params.iter().map(|(name, _)| name).collect();
+        assert_eq!(names.len(), 3);
+        assert!(names.contains(&"wavelength"));
+        assert!(names.contains(&"power"));
+        assert!(names.contains(&"enabled"));
+
+        // Test parameters() method
+        let all_params = params.parameters();
+        assert_eq!(all_params.len(), 3);
+    }
+
+    #[test]
+    fn test_parameter_set_json_operations() {
+        let mut params = ParameterSet::new();
+
+        params.register(Observable::new("wavelength", 800.0).with_units("nm"));
+        params.register(Observable::new("power", 100.0).with_units("mW"));
+
+        // Get parameter generically and modify via JSON
+        if let Some(param) = params.get("wavelength") {
+            let current = param.get_json().unwrap();
+            assert_eq!(current, serde_json::json!(800.0));
+
+            param.set_json(serde_json::json!(850.0)).unwrap();
+        }
+
+        // Verify change through typed access
+        let wavelength_param = params.get_typed::<f64>("wavelength").unwrap();
+        assert_eq!(wavelength_param.get(), 850.0);
     }
 }
