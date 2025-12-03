@@ -47,6 +47,56 @@ impl HardwareServiceImpl {
     pub fn new(registry: Arc<RwLock<DeviceRegistry>>) -> Self {
         // Create broadcast channel for parameter changes (capacity 256 in-flight messages)
         let (param_change_tx, _) = tokio::sync::broadcast::channel(256);
+        
+        // Wire up automatic parameter change notifications (bd-zafg)
+        //
+        // This monitors all parameters from Parameterized devices and broadcasts changes
+        // to gRPC clients via StreamParameterChanges. When hardware drivers call 
+        // Parameter.set(), those changes automatically propagate to GUI subscribers.
+        let registry_clone = registry.clone();
+        let tx_clone = param_change_tx.clone();
+        tokio::spawn(async move {
+            // Give registry time to fully initialize
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            
+            let reg = registry_clone.read().await;
+            
+            // Iterate all devices and spawn monitors for parameters
+            for device_info in reg.list_devices() {
+                let device_id = device_info.id.clone();
+                
+                if let Some(param_set) = reg.get_parameters(&device_id) {
+                    // Found a Parameterized device - monitor all its parameters
+                    for param_name in param_set.names() {
+                        let tx = tx_clone.clone();
+                        let dev_id = device_id.clone();
+                        let p_name = param_name.to_string();
+                        
+                        // Try to downcast to Observable<f64> (most common parameter type)
+                        if let Some(obs_f64) = param_set.get_typed::<f64>(param_name) {
+                            let mut rx = obs_f64.subscribe();
+                            tokio::spawn(async move {
+                                while rx.changed().await.is_ok() {
+                                    let value = *rx.borrow();
+                                    let change = ParameterChange {
+                                        device_id: dev_id.clone(),
+                                        name: p_name.clone(),
+                                        old_value: String::new(),
+                                        new_value: value.to_string(),
+                                        units: String::new(),
+                                        timestamp_ns: now_ns(),
+                                        source: "hardware".to_string(),
+                                    };
+                                    let _ = tx.send(change);
+                                }
+                            });
+                        }
+                        // TODO(bd-zafg): Add downcasts for other common types (bool, String, etc.)
+                    }
+                }
+            }
+        });
+        
         Self { registry, param_change_tx }
     }
 
@@ -2220,9 +2270,9 @@ mod tests {
         let _ = param_sender.send(ParameterChange {
             device_id: "mock_stage".to_string(),
             name: "position".to_string(),
-            old_value: "0.0".to_string(),
+            old_value: String::new(),  // Not available in listener callback
             new_value: "10.5".to_string(),
-            units: "mm".to_string(),
+            units: String::new(),  // Could get from metadata if needed
             timestamp_ns: now_ns(),
             source: "user".to_string(),
         });
@@ -2262,9 +2312,9 @@ mod tests {
         let _ = param_sender.send(ParameterChange {
             device_id: "mock_stage".to_string(),
             name: "position".to_string(),
-            old_value: "0.0".to_string(),
+            old_value: String::new(),  // Not available in listener callback
             new_value: "5.0".to_string(),
-            units: "mm".to_string(),
+            units: String::new(),  // Could get from metadata if needed
             timestamp_ns: now_ns(),
             source: "user".to_string(),
         });
@@ -2273,9 +2323,9 @@ mod tests {
         let _ = param_sender.send(ParameterChange {
             device_id: "mock_camera".to_string(),
             name: "exposure".to_string(),
-            old_value: "0.1".to_string(),
+            old_value: String::new(),  // Not available in listener callback
             new_value: "0.5".to_string(),
-            units: "s".to_string(),
+            units: String::new(),  // Could get from metadata if needed
             timestamp_ns: now_ns(),
             source: "user".to_string(),
         });
