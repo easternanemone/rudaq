@@ -73,8 +73,9 @@
 //! ```
 
 use crate::hardware::capabilities::{
-    ExposureControl, FrameProducer, Movable, Readable, Settable, Triggerable,
+    ExposureControl, FrameProducer, Movable, Readable, Settable, Stageable, Triggerable,
 };
+use crate::observable::ParameterSet; // NEW: For parameter registry
 #[cfg(feature = "instrument_spectra_physics")]
 use crate::hardware::capabilities::{EmissionControl, ShutterControl, WavelengthTunable};
 #[cfg(feature = "tokio_serial")]
@@ -116,6 +117,8 @@ pub enum Capability {
     WavelengthTunable,
     /// Has emission on/off control (lasers) - bd-pwjo
     EmissionControl,
+    /// Can be staged/unstaged for acquisition sequences (Bluesky pattern) - bd-7aq6
+    Stageable,
 }
 
 // =============================================================================
@@ -318,6 +321,13 @@ struct RegisteredDevice {
     exposure_control: Option<Arc<dyn ExposureControl>>,
     /// Settable implementation (if supported) - observable parameters
     settable: Option<Arc<dyn Settable>>,
+    /// Stageable implementation (if supported) - Bluesky-style lifecycle (bd-7aq6)
+    stageable: Option<Arc<dyn Stageable>>,
+    /// Parameter registry (if device implements Parameterized)
+    /// 
+    /// Enables generic code to enumerate and subscribe to device parameters.
+    /// Populated during device registration if driver implements Parameterized trait.
+    parameters: Option<ParameterSet>,
     /// ShutterControl implementation (if supported) - laser shutter
     #[cfg(feature = "instrument_spectra_physics")]
     shutter_control: Option<Arc<dyn ShutterControl>>,
@@ -531,22 +541,49 @@ impl DeviceRegistry {
             .and_then(|d| d.exposure_control.clone())
     }
 
-    /// Get a device as ShutterControl (if it supports this capability)
+    /// Get Stageable capability for a device
+    pub fn get_stageable(&self, device_id: &str) -> Option<Arc<dyn Stageable>> {
+        self.devices
+            .get(device_id)
+            .and_then(|d| d.stageable.clone())
+    }
+
+    /// Get parameter registry for a device (bd-9clg)
+    ///
+    /// Enables generic code (gRPC, presets, HDF5 writers) to enumerate and subscribe
+    /// to device parameters. Returns None if device doesn't implement Parameterized.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// if let Some(params) = registry.get_parameters("mock_camera") {
+    ///     for name in params.names() {
+    ///         println!("Parameter: {}", name);
+    ///     }
+    /// }
+    /// ```
+    pub fn get_parameters(&self, device_id: &str) -> Option<&ParameterSet> {
+        self.devices
+            .get(device_id)
+            .and_then(|d| d.parameters.as_ref())
+    }
+
     #[cfg(feature = "instrument_spectra_physics")]
+    /// Get a device as ShutterControl (if it supports this capability)
     pub fn get_shutter_control(&self, id: &str) -> Option<Arc<dyn ShutterControl>> {
         self.devices.get(id).and_then(|d| d.shutter_control.clone())
     }
 
-    /// Get a device as EmissionControl (if it supports this capability)
     #[cfg(feature = "instrument_spectra_physics")]
+    /// Get a device as EmissionControl (if it supports this capability)
     pub fn get_emission_control(&self, id: &str) -> Option<Arc<dyn EmissionControl>> {
         self.devices
             .get(id)
             .and_then(|d| d.emission_control.clone())
     }
 
-    /// Get a device as WavelengthTunable (if it supports this capability) - bd-pwjo
     #[cfg(feature = "instrument_spectra_physics")]
+    /// Get a device as WavelengthTunable (if it supports this capability) - bd-pwjo
     pub fn get_wavelength_tunable(&self, id: &str) -> Option<Arc<dyn WavelengthTunable>> {
         self.devices
             .get(id)
@@ -556,24 +593,6 @@ impl DeviceRegistry {
     /// Get a device as Settable (if it supports this capability)
     pub fn get_settable(&self, id: &str) -> Option<Arc<dyn Settable>> {
         self.devices.get(id).and_then(|d| d.settable.clone())
-    }
-
-    /// Get settable parameter descriptors for a device (plugin devices only)
-    ///
-    /// Returns a vector of (name, unit, dtype, min, max, enum_values, has_get_cmd) tuples
-    /// for each settable parameter on the device.
-    #[cfg(feature = "tokio_serial")]
-    pub async fn get_settable_parameters(&self, device_id: &str) -> Option<Vec<crate::hardware::plugin::schema::SettableCapability>> {
-        let device = self.devices.get(device_id)?;
-        
-        // Check if this is a plugin device
-        if let DriverType::Plugin { plugin_id, .. } = &device.config.driver {
-            let factory = self.plugin_factory.read().await;
-            let config = factory.get_config(plugin_id)?;
-            Some(config.capabilities.settable.clone())
-        } else {
-            None
-        }
     }
 
     /// Get all devices that support a specific capability
@@ -607,6 +626,8 @@ impl DeviceRegistry {
                     frame_producer: None,
                     exposure_control: None,
                     settable: None,
+                    stageable: None,
+                    parameters: None, // TODO: Populate from Parameterized trait (bd-dili)
                     #[cfg(feature = "instrument_spectra_physics")]
                     shutter_control: None,
                     #[cfg(feature = "instrument_spectra_physics")]
@@ -632,6 +653,8 @@ impl DeviceRegistry {
                     frame_producer: None,
                     exposure_control: None,
                     settable: None,
+                    stageable: None,
+                    parameters: None, // TODO: Populate from Parameterized trait (bd-dili)
                     #[cfg(feature = "instrument_spectra_physics")]
                     shutter_control: None,
                     #[cfg(feature = "instrument_spectra_physics")]
@@ -656,6 +679,8 @@ impl DeviceRegistry {
                     frame_producer: Some(driver.clone()),
                     exposure_control: Some(driver.clone()),
                     settable: None,
+                    stageable: Some(driver.clone()),
+                    parameters: None, // TODO: Populate from Parameterized trait (bd-dili)
                     #[cfg(feature = "instrument_spectra_physics")]
                     shutter_control: None,
                     #[cfg(feature = "instrument_spectra_physics")]
@@ -688,6 +713,8 @@ impl DeviceRegistry {
                     frame_producer: Some(driver.clone()),
                     exposure_control: Some(driver.clone()),
                     settable: None,
+                    stageable: None,
+                    parameters: None, // TODO: Populate from Parameterized trait (bd-dili)
                     #[cfg(feature = "instrument_spectra_physics")]
                     shutter_control: None,
                     #[cfg(feature = "instrument_spectra_physics")]
@@ -739,6 +766,8 @@ impl DeviceRegistry {
                     frame_producer: None,
                     exposure_control: None,
                     settable: None,
+                    stageable: None,
+                    parameters: None, // TODO: Populate from Parameterized trait (bd-dili)
                     #[cfg(feature = "instrument_spectra_physics")]
                     shutter_control: None,
                     #[cfg(feature = "instrument_spectra_physics")]
@@ -767,6 +796,8 @@ impl DeviceRegistry {
                     frame_producer: None,
                     exposure_control: None,
                     settable: None,
+                    stageable: None,
+                    parameters: None, // TODO: Populate from Parameterized trait (bd-dili)
                     #[cfg(feature = "instrument_spectra_physics")]
                     shutter_control: None,
                     #[cfg(feature = "instrument_spectra_physics")]
@@ -791,6 +822,8 @@ impl DeviceRegistry {
                     frame_producer: None,
                     exposure_control: None,
                     settable: None,
+                    stageable: None,
+                    parameters: None, // TODO: Populate from Parameterized trait (bd-dili)
                     #[cfg(feature = "instrument_spectra_physics")]
                     shutter_control: Some(driver.clone()),
                     #[cfg(feature = "instrument_spectra_physics")]
@@ -815,6 +848,8 @@ impl DeviceRegistry {
                     frame_producer: None,
                     exposure_control: None,
                     settable: None,
+                    stageable: None,
+                    parameters: None, // TODO: Populate from Parameterized trait (bd-dili)
                     #[cfg(feature = "instrument_spectra_physics")]
                     shutter_control: None,
                     #[cfg(feature = "instrument_spectra_physics")]
@@ -967,6 +1002,8 @@ impl DeviceRegistry {
             frame_producer: None,
             exposure_control: None,
             settable: None,
+            stageable: None,
+            parameters: None, // TODO: Populate from Parameterized trait (bd-dili)
             #[cfg(feature = "instrument_spectra_physics")]
             shutter_control: None,
             #[cfg(feature = "instrument_spectra_physics")]

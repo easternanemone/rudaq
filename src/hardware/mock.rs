@@ -20,9 +20,11 @@ use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 
 use crate::hardware::capabilities::{
-    ExposureControl, FrameProducer, Movable, Readable, Triggerable,
+    ExposureControl, FrameProducer, Movable, Parameterized, Readable, Stageable, Triggerable,
 };
 use crate::hardware::Frame;
+use crate::observable::ParameterSet;
+use crate::parameter::Parameter;
 
 // =============================================================================
 // MockStage - Simulated Motion Stage
@@ -43,16 +45,25 @@ use crate::hardware::Frame;
 /// assert_eq!(stage.position().await?, 10.0);
 /// ```
 pub struct MockStage {
-    position: Arc<RwLock<f64>>,
+    position: Parameter<f64>,
     speed_mm_per_sec: f64,
+    params: ParameterSet,
 }
 
 impl MockStage {
     /// Create new mock stage at position 0.0mm
     pub fn new() -> Self {
+        let mut params = ParameterSet::new();
+        let position = Parameter::new("position", 0.0)
+            .with_description("Stage position")
+            .with_unit("mm");
+        
+        params.register(position.inner().clone());
+        
         Self {
-            position: Arc::new(RwLock::new(0.0)),
+            position,
             speed_mm_per_sec: 10.0, // 10mm/sec
+            params,
         }
     }
 
@@ -61,9 +72,17 @@ impl MockStage {
     /// # Arguments
     /// * `initial_position` - Starting position in mm
     pub fn with_position(initial_position: f64) -> Self {
+        let mut params = ParameterSet::new();
+        let position = Parameter::new("position", initial_position)
+            .with_description("Stage position")
+            .with_unit("mm");
+        
+        params.register(position.inner().clone());
+        
         Self {
-            position: Arc::new(RwLock::new(initial_position)),
+            position,
             speed_mm_per_sec: 10.0, // 10mm/sec
+            params,
         }
     }
 
@@ -72,9 +91,17 @@ impl MockStage {
     /// # Arguments
     /// * `speed_mm_per_sec` - Motion speed in mm/sec
     pub fn with_speed(speed_mm_per_sec: f64) -> Self {
+        let mut params = ParameterSet::new();
+        let position = Parameter::new("position", 0.0)
+            .with_description("Stage position")
+            .with_unit("mm");
+        
+        params.register(position.inner().clone());
+        
         Self {
-            position: Arc::new(RwLock::new(0.0)),
+            position,
             speed_mm_per_sec,
+            params,
         }
     }
 }
@@ -85,10 +112,16 @@ impl Default for MockStage {
     }
 }
 
+impl Parameterized for MockStage {
+    fn parameters(&self) -> &ParameterSet {
+        &self.params
+    }
+}
+
 #[async_trait]
 impl Movable for MockStage {
     async fn move_abs(&self, target: f64) -> Result<()> {
-        let current = *self.position.read().await;
+        let current = self.position.get();
         let distance = (target - current).abs();
         let delay_ms = (distance / self.speed_mm_per_sec * 1000.0) as u64;
 
@@ -100,18 +133,18 @@ impl Movable for MockStage {
         // CRITICAL: Use tokio::time::sleep, NOT std::thread::sleep
         sleep(Duration::from_millis(delay_ms)).await;
 
-        *self.position.write().await = target;
+        self.position.set(target).await?;
         println!("MockStage: Reached {:.2}mm", target);
         Ok(())
     }
 
     async fn move_rel(&self, distance: f64) -> Result<()> {
-        let current = *self.position.read().await;
+        let current = self.position.get();
         self.move_abs(current + distance).await
     }
 
     async fn position(&self) -> Result<f64> {
-        Ok(*self.position.read().await)
+        Ok(self.position.get())
     }
 
     async fn wait_settled(&self) -> Result<()> {
@@ -137,7 +170,7 @@ impl Movable for MockStage {
 /// # Example
 ///
 /// ```rust,ignore
-/// let camera = MockCamera::new(640, 480);
+/// let (camera, params) = MockCamera::new(640, 480);
 /// camera.arm().await?;
 /// camera.trigger().await?;
 /// ```
@@ -146,7 +179,9 @@ pub struct MockCamera {
     frame_count: std::sync::atomic::AtomicU64,
     armed: Arc<RwLock<bool>>,
     streaming: Arc<RwLock<bool>>,
-    exposure_s: Arc<RwLock<f64>>,
+    staged: Arc<RwLock<bool>>,
+    exposure_s: Parameter<f64>,
+    params: ParameterSet,
     /// Broadcast channel for frame streaming
     frame_tx: tokio::sync::broadcast::Sender<Arc<Frame>>,
 }
@@ -159,12 +194,25 @@ impl MockCamera {
     /// * `height` - Frame height in pixels
     pub fn new(width: u32, height: u32) -> Self {
         let (frame_tx, _) = tokio::sync::broadcast::channel(16);
+        
+        // Create exposure parameter with validation and metadata
+        let mut params = ParameterSet::new();
+        let exposure = Parameter::new("exposure_s", 0.033)
+            .with_description("Camera exposure time")
+            .with_unit("s")
+            .with_range(0.001, 10.0); // 1ms to 10s range
+        
+        // Register exposure parameter in the parameter set
+        params.register(exposure.inner().clone());
+        
         Self {
             resolution: (width, height),
             frame_count: std::sync::atomic::AtomicU64::new(0),
             armed: Arc::new(RwLock::new(false)),
             streaming: Arc::new(RwLock::new(false)),
-            exposure_s: Arc::new(RwLock::new(0.033)),
+            staged: Arc::new(RwLock::new(false)),
+            exposure_s: exposure,
+            params,
             frame_tx,
         }
     }
@@ -182,6 +230,12 @@ impl MockCamera {
     /// Check if camera is streaming
     pub async fn is_streaming(&self) -> bool {
         *self.streaming.read().await
+    }
+}
+
+impl Parameterized for MockCamera {
+    fn parameters(&self) -> &ParameterSet {
+        &self.params
     }
 }
 
@@ -231,12 +285,12 @@ impl ExposureControl for MockCamera {
         if seconds <= 0.0 {
             return Err(anyhow!("MockCamera: Exposure must be positive"));
         }
-        *self.exposure_s.write().await = seconds;
+        self.exposure_s.set(seconds).await?;
         Ok(())
     }
 
     async fn get_exposure(&self) -> Result<f64> {
-        Ok(*self.exposure_s.read().await)
+        Ok(self.exposure_s.get())
     }
 }
 
@@ -311,6 +365,55 @@ impl FrameProducer for MockCamera {
 
     async fn subscribe_frames(&self) -> Option<tokio::sync::broadcast::Receiver<Arc<Frame>>> {
         Some(self.frame_tx.subscribe())
+    }
+}
+
+#[async_trait]
+impl Stageable for MockCamera {
+    async fn stage(&self) -> Result<()> {
+        let already_staged = *self.staged.read().await;
+        if already_staged {
+            println!("MockCamera: Already staged (re-staging)");
+        } else {
+            println!("MockCamera: Staging - preparing for acquisition");
+        }
+        
+        // Reset frame counter on stage
+        self.frame_count.store(0, std::sync::atomic::Ordering::SeqCst);
+        
+        // Arm the camera as part of staging
+        *self.armed.write().await = true;
+        *self.staged.write().await = true;
+        
+        println!("MockCamera: Staged successfully");
+        Ok(())
+    }
+
+    async fn unstage(&self) -> Result<()> {
+        let was_staged = *self.staged.read().await;
+        if !was_staged {
+            println!("MockCamera: Already unstaged");
+            return Ok(());
+        }
+        
+        println!("MockCamera: Unstaging - cleaning up after acquisition");
+        
+        // Stop streaming if active
+        if *self.streaming.read().await {
+            *self.streaming.write().await = false;
+            println!("MockCamera: Stopped streaming during unstage");
+        }
+        
+        // Disarm the camera
+        *self.armed.write().await = false;
+        *self.staged.write().await = false;
+        
+        println!("MockCamera: Unstaged successfully");
+        Ok(())
+    }
+
+    async fn is_staged(&self) -> Result<bool> {
+        Ok(*self.staged.read().await)
     }
 }
 
@@ -542,5 +645,54 @@ mod tests {
     async fn test_mock_power_meter_default() {
         let meter = MockPowerMeter::default();
         assert_eq!(meter.get_base_power().await, 1.0);
+    }
+
+    #[tokio::test]
+    async fn test_mock_camera_staging() {
+        use crate::hardware::capabilities::Stageable;
+        
+        let camera = MockCamera::new(1920, 1080);
+
+        // Initially not staged
+        assert!(!camera.is_staged().await.unwrap());
+        assert!(!camera.is_armed().await);
+
+        // Stage the camera
+        camera.stage().await.unwrap();
+        assert!(camera.is_staged().await.unwrap());
+        assert!(camera.is_armed().await); // staging arms the camera
+
+        // Trigger should work after staging (since staging arms)
+        camera.trigger().await.unwrap();
+        assert_eq!(camera.get_frame_count(), 1);
+
+        // Re-staging should reset frame count
+        camera.stage().await.unwrap();
+        assert_eq!(camera.get_frame_count(), 0);
+
+        // Unstage the camera
+        camera.unstage().await.unwrap();
+        assert!(!camera.is_staged().await.unwrap());
+        assert!(!camera.is_armed().await);
+
+        // Trigger should fail after unstaging
+        let result = camera.trigger().await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_mock_camera_staging_stops_streaming() {
+        use crate::hardware::capabilities::Stageable;
+        
+        let camera = MockCamera::new(640, 480);
+
+        // Stage and start streaming
+        camera.stage().await.unwrap();
+        camera.start_stream().await.unwrap();
+        assert!(camera.is_streaming().await);
+
+        // Unstaging should stop streaming
+        camera.unstage().await.unwrap();
+        assert!(!camera.is_streaming().await);
     }
 }

@@ -28,8 +28,10 @@
 //! }
 //! ```
 
-use crate::hardware::capabilities::{ExposureControl, FrameProducer, Triggerable};
+use crate::hardware::capabilities::{ExposureControl, FrameProducer, Parameterized, Triggerable};
 use crate::hardware::{Frame, Roi};
+use crate::observable::ParameterSet;
+use crate::parameter::Parameter;
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -216,7 +218,7 @@ pub struct PvcamDriver {
     #[cfg(feature = "pvcam_hardware")]
     camera_handle: Arc<Mutex<Option<i16>>>,
     /// Current exposure time in milliseconds
-    exposure_ms: Arc<Mutex<f64>>,
+    exposure_ms: Parameter<f64>,
     /// Current ROI setting
     roi: Arc<Mutex<Roi>>,
     /// Binning factors (x, y)
@@ -246,6 +248,8 @@ pub struct PvcamDriver {
     /// Trigger frame buffer - holds the frame during triggered acquisition
     #[cfg(feature = "pvcam_hardware")]
     trigger_frame: Arc<Mutex<Option<Vec<u16>>>>,
+    /// Parameter registry for observable parameters
+    params: ParameterSet,
 }
 
 // =============================================================================
@@ -416,10 +420,19 @@ impl PvcamDriver {
         // Create broadcast channel for streaming frames (supports multiple subscribers)
         let (frame_tx, _) = tokio::sync::broadcast::channel(16);
 
+        // Create exposure parameter with validation and metadata
+        let mut params = ParameterSet::new();
+        let exposure_ms = Parameter::new("exposure_ms", 100.0)
+            .with_description("Camera exposure time")
+            .with_unit("ms")
+            .with_range(0.1, 60000.0); // 0.1ms to 60s range
+
+        params.register(exposure_ms.inner().clone());
+
         Ok(Self {
             camera_name: camera_name.to_string(),
             camera_handle: Arc::new(Mutex::new(Some(camera_handle))),
-            exposure_ms: Arc::new(Mutex::new(100.0)),
+            exposure_ms,
             roi: Arc::new(Mutex::new(Roi {
                 x: 0,
                 y: 0,
@@ -438,6 +451,7 @@ impl PvcamDriver {
             poll_handle: Arc::new(Mutex::new(None)),
             circ_buffer: Arc::new(Mutex::new(None)),
             trigger_frame: Arc::new(Mutex::new(None)),
+            params,
         })
     }
 
@@ -456,9 +470,18 @@ impl PvcamDriver {
         // Create broadcast channel for streaming frames (supports multiple subscribers)
         let (frame_tx, _) = tokio::sync::broadcast::channel(16);
 
+        // Create exposure parameter with validation and metadata
+        let mut params = ParameterSet::new();
+        let exposure_ms = Parameter::new("exposure_ms", 100.0)
+            .with_description("Camera exposure time")
+            .with_unit("ms")
+            .with_range(0.1, 60000.0); // 0.1ms to 60s range
+
+        params.register(exposure_ms.inner().clone());
+
         Ok(Self {
             camera_name: camera_name.to_string(),
-            exposure_ms: Arc::new(Mutex::new(100.0)),
+            exposure_ms,
             roi: Arc::new(Mutex::new(Roi {
                 x: 0,
                 y: 0,
@@ -473,6 +496,7 @@ impl PvcamDriver {
             streaming: Arc::new(AtomicBool::new(false)),
             frame_count: Arc::new(AtomicU64::new(0)),
             frame_tx,
+            params,
         })
     }
 
@@ -545,7 +569,7 @@ impl PvcamDriver {
         let h = (*self.camera_handle.lock().await)
             .ok_or_else(|| anyhow!("Camera not opened"))?;
 
-        let exposure = *self.exposure_ms.lock().await;
+        let exposure = self.exposure_ms.get();
         let roi = *self.roi.lock().await;
         let (x_bin, y_bin) = *self.binning.lock().await;
 
@@ -649,7 +673,7 @@ impl PvcamDriver {
 
     #[cfg(not(feature = "pvcam_hardware"))]
     async fn acquire_frame_mock(&self) -> Result<Vec<u16>> {
-        let exposure = *self.exposure_ms.lock().await;
+        let exposure = self.exposure_ms.get();
         let roi = *self.roi.lock().await;
 
         // Simulate exposure delay
@@ -2598,7 +2622,7 @@ impl FrameProducer for PvcamDriver {
             // Get current settings
             let roi = *self.roi.lock().await;
             let (x_bin, y_bin) = *self.binning.lock().await;
-            let exp_ms = *self.exposure_ms.lock().await as uns32;
+            let exp_ms = self.exposure_ms.get() as uns32;
 
             // Setup region
             // SAFETY: mem::zeroed creates a zero-initialized rgn_type structure which is valid
@@ -2687,7 +2711,7 @@ impl FrameProducer for PvcamDriver {
             let frame_tx = self.frame_tx.clone();
             let frame_count = self.frame_count.clone();
             let roi = *self.roi.lock().await;
-            let exposure_ms = *self.exposure_ms.lock().await;
+            let exposure_ms = self.exposure_ms.get();
             let (x_bin, y_bin) = *self.binning.lock().await;
 
             tokio::spawn(async move {
@@ -2799,12 +2823,18 @@ impl ExposureControl for PvcamDriver {
             // Store for use during acquisition
         }
 
-        *self.exposure_ms.lock().await = exposure_ms;
+        self.exposure_ms.set(exposure_ms).await?;
         Ok(())
     }
 
     async fn get_exposure(&self) -> Result<f64> {
-        Ok(*self.exposure_ms.lock().await / 1000.0) // Convert ms to seconds
+        Ok(self.exposure_ms.get() / 1000.0) // Convert ms to seconds
+    }
+}
+
+impl Parameterized for PvcamDriver {
+    fn parameters(&self) -> &ParameterSet {
+        &self.params
     }
 }
 
@@ -2838,7 +2868,7 @@ impl Triggerable for PvcamDriver {
             let h = (*self.camera_handle.lock().await)
                 .ok_or_else(|| anyhow!("Camera not opened"))?;
 
-            let exposure = *self.exposure_ms.lock().await;
+            let exposure = self.exposure_ms.get();
             let roi = *self.roi.lock().await;
             let (x_bin, y_bin) = *self.binning.lock().await;
 
@@ -2910,7 +2940,7 @@ impl Triggerable for PvcamDriver {
             let h = (*self.camera_handle.lock().await)
                 .ok_or_else(|| anyhow!("Camera not opened"))?;
 
-            let exposure = *self.exposure_ms.lock().await;
+            let exposure = self.exposure_ms.get();
 
             // Wait for acquisition to complete
             let mut status: i16 = 0;
@@ -2979,7 +3009,7 @@ impl Triggerable for PvcamDriver {
         #[cfg(not(feature = "pvcam_hardware"))]
         {
             // Mock: just simulate the acquisition time
-            let exposure = *self.exposure_ms.lock().await;
+            let exposure = self.exposure_ms.get();
             tokio::time::sleep(Duration::from_millis(exposure as u64)).await;
         }
 

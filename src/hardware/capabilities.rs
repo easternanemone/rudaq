@@ -81,6 +81,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
+use crate::observable::ParameterSet;
 
 /// Capability: Motion Control
 ///
@@ -505,6 +506,66 @@ pub trait EmissionControl: Send + Sync {
     }
 }
 
+/// Capability: Device Staging (Bluesky-style lifecycle)
+///
+/// Devices that require preparation before acquisition sequences and cleanup after.
+/// This follows the Bluesky/ophyd device lifecycle pattern.
+///
+/// # Contract
+/// - `stage()` prepares device for acquisition (e.g., configure buffers, enable triggers)
+/// - `unstage()` cleans up after acquisition (e.g., release resources, reset state)
+/// - Staging/unstaging may be nested (count references internally if needed)
+///
+/// # Usage Pattern
+/// ```rust,ignore
+/// // Before scan
+/// device.stage().await?;
+///
+/// // Perform acquisition
+/// for position in scan_positions {
+///     stage.move_abs(position).await?;
+///     camera.trigger().await?;
+/// }
+///
+/// // After scan
+/// device.unstage().await?;
+/// ```
+#[async_trait]
+pub trait Stageable: Send + Sync {
+    /// Prepare device for acquisition sequence
+    ///
+    /// Called before a scan or acquisition sequence begins.
+    /// May configure hardware buffers, enable triggers, or set parameters.
+    ///
+    /// # Returns
+    /// - Ok(()) if staging successful
+    /// - Err if device cannot be staged or is in error state
+    async fn stage(&self) -> Result<()>;
+
+    /// Clean up after acquisition sequence
+    ///
+    /// Called after a scan or acquisition sequence completes.
+    /// Should release resources, disable triggers, and reset state.
+    ///
+    /// # Returns
+    /// - Ok(()) if unstaging successful
+    /// - Err if device cannot be unstaged or is in error state
+    async fn unstage(&self) -> Result<()>;
+
+    /// Query staging state
+    ///
+    /// # Returns
+    /// - Ok(true) if device is currently staged
+    /// - Ok(false) if device is not staged
+    /// - Err if state cannot be determined or not supported
+    ///
+    /// # Default Implementation
+    /// Returns an error indicating state query is not supported.
+    async fn is_staged(&self) -> Result<bool> {
+        anyhow::bail!("Staged state query not supported by this device")
+    }
+}
+
 /// Capability: Settable (Configurable Parameters)
 ///
 /// Devices that have parameters which can be set and optionally queried.
@@ -602,6 +663,41 @@ pub trait Loggable: Send + Sync {
     async fn get_log_value(&self, name: &str) -> Result<String>;
 }
 
+/// Capability: Parameter Registry Access
+///
+/// Devices that expose their parameters for introspection and control.
+///
+/// This trait enables generic code (gRPC, presets, HDF5 writers) to:
+/// - List all parameters of a device
+/// - Subscribe to parameter changes
+/// - Snapshot device state for reproducibility
+///
+/// # Contract
+/// - `parameters()` returns a reference to the device's parameter registry
+/// - The ParameterSet should contain all mutable device parameters
+/// - Parameters must use Parameter<T> for hardware-backed state
+///
+/// # Example
+///
+/// ```rust,ignore
+/// impl Parameterized for MockCamera {
+///     fn parameters(&self) -> &ParameterSet {
+///         &self.params
+///     }
+/// }
+///
+/// // Generic code can now enumerate parameters
+/// fn list_all_parameters<D: Parameterized>(device: &D) {
+///     for name in device.parameters().names() {
+///         println!("Parameter: {}", name);
+///     }
+/// }
+/// ```
+pub trait Parameterized: Send + Sync {
+    /// Get device's parameter registry
+    fn parameters(&self) -> &ParameterSet;
+}
+
 // =============================================================================
 // Trait Composition Examples (Documentation)
 // =============================================================================
@@ -632,21 +728,7 @@ pub trait Loggable: Send + Sync {
 // Combined Traits (for trait objects)
 // =============================================================================
 
-/// Combined trait for cameras that support both triggering and frame production
-///
-/// This trait exists solely to enable trait objects. Implement the individual
-/// traits (Triggerable, FrameProducer) and get this automatically via blanket impl.
-///
-/// # Usage
-/// ```rust,ignore
-/// // In function signatures
-/// fn use_camera(camera: Arc<dyn Camera>) { /* ... */ }
-///
-/// // Blanket impl means you just implement the individual traits
-/// impl Triggerable for MyCamera { /* ... */ }
-/// impl FrameProducer for MyCamera { /* ... */ }
-/// // Camera is automatically implemented!
-/// ```
+/// Composite trait for cameras (convenience)
 pub trait Camera: Triggerable + FrameProducer {}
 
 /// Blanket implementation - any type implementing both traits gets Camera for free

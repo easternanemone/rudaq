@@ -6,6 +6,12 @@
 //! - Hardware devices (via callbacks)
 //! - Storage (via change listeners)
 //!
+//! # Architecture
+//!
+//! Parameter<T> **composes** Observable<T> to avoid code duplication:
+//! - Observable<T> handles: watch channels, subscriptions, validation, metadata
+//! - Parameter<T> adds: hardware write/read callbacks, change listeners
+//!
 //! # Example
 //!
 //! ```rust,ignore
@@ -45,24 +51,29 @@ use tokio::sync::{watch, RwLock};
 
 use crate::core::ParameterBase;
 use crate::error::DaqError;
+use crate::observable::Observable;
 
 // =============================================================================
-// Constraints
+// Constraints - DEPRECATED: Use Observable validators instead
 // =============================================================================
 
 /// Parameter constraints for validation
 ///
-/// Defines validation rules applied when setting parameter values.
-/// Constraints are checked before hardware writes to prevent invalid
-/// values from reaching devices.
+/// **DEPRECATED**: This enum is kept for backwards compatibility but new code
+/// should use `Observable::with_range()` or `Observable::with_validator()` directly.
 ///
-/// # Serialization
+/// # Migration
 ///
-/// All variants except `Custom` are serializable to JSON for storage
-/// and network transmission. Custom validators are marked `#[serde(skip)]`
-/// and will serialize as `None`.
+/// ```rust,ignore
+/// // Old:
+/// Parameter::new("x", 0.0).with_range(0.0, 100.0)
+///
+/// // New:
+/// Observable::new("x", 0.0).with_range(0.0, 100.0)
+/// ```
 #[derive(Clone, Serialize, Deserialize)]
 #[derive(Default)]
+#[deprecated(since = "0.5.0", note = "Use Observable::with_range() or with_validator() instead")]
 pub enum Constraints<T> {
     /// No constraints - all values accepted.
     #[default]
@@ -137,16 +148,25 @@ impl<T: Debug> std::fmt::Debug for Constraints<T> {
 
 
 // =============================================================================
-// Parameter<T>
+// Parameter<T> - Hardware-connected Observable
 // =============================================================================
 
-/// Typed parameter with automatic synchronization
+/// Typed parameter with automatic hardware synchronization
 ///
-/// Provides declarative parameter management inspired by ScopeFoundry's
-/// LoggedQuantity. Parameters automatically synchronize between:
-/// - GUI (via watch channels)
-/// - Hardware (via read/write callbacks)
-/// - Storage (via change listeners)
+/// Composes `Observable<T>` with hardware callbacks. When you call `set()`:
+/// 1. Writes to hardware (via hardware_writer callback)
+/// 2. Updates internal value and notifies subscribers (via Observable)
+/// 3. Calls change listeners (for storage, logging, etc.)
+///
+/// # Architecture
+///
+/// ```text
+/// Parameter<T>
+///   ├─ inner: Observable<T>        (subscriptions, validation, metadata)
+///   ├─ hardware_writer: Option<F>  (writes to device)
+///   ├─ hardware_reader: Option<F>  (reads from device)
+///   └─ change_listeners: Vec<F>    (side effects: storage, logging)
+/// ```
 ///
 /// # Type Requirements
 ///
@@ -154,24 +174,14 @@ impl<T: Debug> std::fmt::Debug for Constraints<T> {
 /// - Clone: For distributing values to subscribers
 /// - Send + Sync: For thread-safe access
 /// - PartialEq: For change detection
-/// - PartialOrd: For range validation
 /// - Debug: For logging and error messages
+/// - 'static: Required for tokio::sync::watch
 pub struct Parameter<T>
 where
-    T: Clone + Send + Sync + PartialEq + PartialOrd + Debug,
+    T: Clone + Send + Sync + PartialEq + Debug + 'static,
 {
-    /// Parameter name (unique identifier)
-    name: String,
-
-    /// Parameter description (for GUI tooltips)
-    description: Option<String>,
-
-    /// Unit of measurement (e.g., "ms", "mW", "nm")
-    unit: Option<String>,
-
-    /// Current value (observable via watch channel)
-    value_rx: watch::Receiver<T>,
-    value_tx: watch::Sender<T>,
+    /// Base reactive primitive (handles watch channels, validation, metadata)
+    inner: Observable<T>,
 
     /// Hardware write function (optional)
     ///
@@ -185,50 +195,39 @@ where
     /// hardware value and update the internal value.
     hardware_reader: Option<Arc<dyn Fn() -> Result<T> + Send + Sync>>,
 
-    /// Validation constraints
-    constraints: Constraints<T>,
-
     /// Change listeners (called after value changes)
     ///
     /// Useful for side effects like updating dependent parameters or
-    /// logging changes to storage.
+    /// logging changes to storage. These are called AFTER Observable
+    /// has notified all subscribers.
     change_listeners: Arc<RwLock<Vec<Arc<dyn Fn(&T) + Send + Sync>>>>,
-
-    /// Read-only flag (prevents set() from modifying value)
-    read_only: bool,
 }
 
 impl<T> Parameter<T>
 where
-    T: Clone + Send + Sync + PartialEq + PartialOrd + Debug + 'static,
+    T: Clone + Send + Sync + PartialEq + Debug + 'static,
 {
     /// Create new parameter with initial value
     pub fn new(name: impl Into<String>, initial: T) -> Self {
-        let (value_tx, value_rx) = watch::channel(initial);
+        let inner = Observable::new(name, initial);
 
         Self {
-            name: name.into(),
-            description: None,
-            unit: None,
-            value_rx,
-            value_tx,
+            inner,
             hardware_writer: None,
             hardware_reader: None,
-            constraints: Constraints::None,
             change_listeners: Arc::new(RwLock::new(Vec::new())),
-            read_only: false,
         }
     }
 
     /// Set parameter description
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
-        self.description = Some(description.into());
+        self.inner = self.inner.with_description(description);
         self
     }
 
     /// Set parameter unit
     pub fn with_unit(mut self, unit: impl Into<String>) -> Self {
-        self.unit = Some(unit.into());
+        self.inner = self.inner.with_units(unit);
         self
     }
 
@@ -237,13 +236,23 @@ where
     where
         T: PartialOrd,
     {
-        self.constraints = Constraints::Range { min, max };
+        self.inner = self.inner.with_range(min, max);
         self
     }
 
     /// Set discrete choice constraints
-    pub fn with_choices(mut self, choices: Vec<T>) -> Self {
-        self.constraints = Constraints::Choices(choices);
+    pub fn with_choices(mut self, choices: Vec<T>) -> Self
+    where
+        T: PartialEq,
+    {
+        let choices_clone = choices.clone();
+        self.inner = self.inner.with_validator(move |value| {
+            if choices_clone.iter().any(|c| c == value) {
+                Ok(())
+            } else {
+                Err(DaqError::ParameterInvalidChoice.into())
+            }
+        });
         self
     }
 
@@ -252,13 +261,13 @@ where
         mut self,
         validator: impl Fn(&T) -> Result<()> + Send + Sync + 'static,
     ) -> Self {
-        self.constraints = Constraints::Custom(Arc::new(validator));
+        self.inner = self.inner.with_validator(validator);
         self
     }
 
     /// Make parameter read-only
     pub fn read_only(mut self) -> Self {
-        self.read_only = true;
+        self.inner = self.inner.read_only();
         self
     }
 
@@ -327,40 +336,30 @@ where
         listeners.push(Arc::new(listener));
     }
 
-    /// Get current value
+    /// Get current value (delegates to Observable)
     pub fn get(&self) -> T {
-        self.value_rx.borrow().clone()
+        self.inner.get()
     }
 
     /// Set value (validates, writes to hardware if connected, notifies subscribers)
     ///
     /// This is the main method for changing parameter values. It:
-    /// 1. Validates against constraints
+    /// 1. Validates against constraints (via Observable)
     /// 2. Writes to hardware (if connected)
-    /// 3. Updates internal value
-    /// 4. Notifies all subscribers via watch channel
-    /// 5. Calls change listeners
+    /// 3. Updates internal value and notifies subscribers (via Observable)
+    /// 4. Calls change listeners
     ///
     /// Returns error if validation fails or hardware write fails.
-    pub async fn set(&mut self, value: T) -> Result<()> {
-        if self.read_only {
-            return Err(DaqError::ParameterReadOnly.into());
-        }
-
-        // Validate against constraints
-        self.constraints.validate(&value)?;
-
-        // Write to hardware if connected
+    pub async fn set(&self, value: T) -> Result<()> {
+        // Step 1: Write to hardware if connected (BEFORE Observable update)
         if let Some(writer) = &self.hardware_writer {
             writer(value.clone())?;
         }
 
-        // Update internal value (notifies subscribers)
-        self.value_tx
-            .send(value.clone())
-            .map_err(|_| DaqError::ParameterNoSubscribers)?;
+        // Step 2: Update Observable (validates and notifies subscribers)
+        self.inner.set(value.clone())?;
 
-        // Call change listeners
+        // Step 3: Call change listeners (AFTER Observable update)
         let listeners = self.change_listeners.read().await;
         for listener in listeners.iter() {
             listener(&value);
@@ -373,7 +372,7 @@ where
     ///
     /// Only works if hardware reader is connected. Does NOT validate
     /// (assumes hardware value is valid).
-    pub async fn read_from_hardware(&mut self) -> Result<()> {
+    pub async fn read_from_hardware(&self) -> Result<()> {
         let reader = self
             .hardware_reader
             .as_ref()
@@ -381,10 +380,8 @@ where
 
         let value = reader()?;
 
-        // Update internal value without validation
-        self.value_tx
-            .send(value.clone())
-            .map_err(|_| DaqError::ParameterNoSubscribers)?;
+        // Update Observable without validation (hardware is source of truth)
+        self.inner.set_unchecked(value.clone());
 
         // Call change listeners
         let listeners = self.change_listeners.read().await;
@@ -395,7 +392,7 @@ where
         Ok(())
     }
 
-    /// Subscribe to value changes (for GUI widgets)
+    /// Subscribe to value changes (delegates to Observable)
     ///
     /// Returns a watch receiver that notifies whenever the value changes.
     /// Multiple subscribers can observe independently.
@@ -412,44 +409,38 @@ where
     /// });
     /// ```
     pub fn subscribe(&self) -> watch::Receiver<T> {
-        self.value_rx.clone()
+        self.inner.subscribe()
     }
 
-    /// Get parameter metadata
+    /// Get parameter metadata (delegates to Observable)
     pub fn name(&self) -> &str {
-        &self.name
+        self.inner.name()
     }
 
-    /// Get parameter description.
-    ///
-    /// Returns the human-readable description set via `with_description()`.
-    /// Used for GUI tooltips and API documentation.
+    /// Get parameter description (delegates to Observable)
     pub fn description(&self) -> Option<&str> {
-        self.description.as_deref()
+        self.inner.metadata().description.as_deref()
     }
 
-    /// Get parameter unit of measurement.
-    ///
-    /// Returns the unit string (e.g., "ms", "mW", "nm") set via `with_unit()`.
-    /// Used for GUI labels and formatted output.
+    /// Get parameter unit of measurement (delegates to Observable)
     pub fn unit(&self) -> Option<&str> {
-        self.unit.as_deref()
+        self.inner.metadata().units.as_deref()
     }
 
-    /// Check if parameter is read-only.
-    ///
-    /// Returns `true` if the parameter was created with `.read_only()`.
-    /// Read-only parameters reject `set()` calls with [`DaqError::ParameterReadOnly`].
+    /// Check if parameter is read-only (delegates to Observable)
     pub fn is_read_only(&self) -> bool {
-        self.read_only
+        self.inner.metadata().read_only
     }
 
-    /// Get parameter constraints.
-    ///
-    /// Returns a reference to the validation constraints used by `set()`.
-    /// Use this to display valid ranges or choices in GUI widgets.
-    pub fn constraints(&self) -> &Constraints<T> {
-        &self.constraints
+    /// Get parameter constraints (DEPRECATED: Observable uses validators)
+    #[deprecated(since = "0.5.0", note = "Use Observable metadata instead")]
+    pub fn constraints(&self) -> Constraints<T> {
+        Constraints::None  // Legacy compatibility
+    }
+
+    /// Get direct access to inner Observable (for advanced use)
+    pub fn inner(&self) -> &Observable<T> {
+        &self.inner
     }
 }
 
@@ -463,14 +454,13 @@ where
         + Send
         + Sync
         + PartialEq
-        + PartialOrd
         + Debug
         + Serialize
         + for<'de> Deserialize<'de>
         + 'static,
 {
     fn name(&self) -> &str {
-        &self.name
+        self.inner.name()
     }
 
     fn value_json(&self) -> serde_json::Value {
@@ -483,7 +473,7 @@ where
     }
 
     fn constraints_json(&self) -> serde_json::Value {
-        serde_json::to_value(&self.constraints).unwrap_or(serde_json::Value::Null)
+        serde_json::Value::Null  // Observable uses validators, not serializable constraints
     }
 }
 
@@ -508,19 +498,21 @@ where
 /// ```
 pub struct ParameterBuilder<T>
 where
-    T: Clone + Send + Sync + PartialEq + PartialOrd + Debug,
+    T: Clone + Send + Sync + PartialEq + Debug + 'static,
 {
     name: String,
     initial: T,
     description: Option<String>,
     unit: Option<String>,
-    constraints: Constraints<T>,
+    min: Option<T>,
+    max: Option<T>,
+    choices: Option<Vec<T>>,
     read_only: bool,
 }
 
 impl<T> ParameterBuilder<T>
 where
-    T: Clone + Send + Sync + PartialEq + PartialOrd + Debug + 'static,
+    T: Clone + Send + Sync + PartialEq + Debug + 'static,
 {
     /// Create a new parameter builder.
     ///
@@ -540,7 +532,9 @@ where
             initial,
             description: None,
             unit: None,
-            constraints: Constraints::None,
+            min: None,
+            max: None,
+            choices: None,
             read_only: false,
         }
     }
@@ -576,7 +570,8 @@ where
     where
         T: PartialOrd,
     {
-        self.constraints = Constraints::Range { min, max };
+        self.min = Some(min);
+        self.max = Some(max);
         self
     }
 
@@ -589,7 +584,7 @@ where
     ///
     /// * `choices` - List of valid parameter values
     pub fn choices(mut self, choices: Vec<T>) -> Self {
-        self.constraints = Constraints::Choices(choices);
+        self.choices = Some(choices);
         self
     }
 
@@ -602,7 +597,12 @@ where
         self.read_only = true;
         self
     }
+}
 
+impl<T> ParameterBuilder<T>
+where
+    T: Clone + Send + Sync + PartialEq + PartialOrd + Debug + 'static,
+{
     /// Build the parameter.
     ///
     /// Constructs the final `Parameter<T>` instance from the builder
@@ -612,20 +612,27 @@ where
     ///
     /// Configured parameter ready for use
     pub fn build(self) -> Parameter<T> {
-        let param = Parameter::new(self.name, self.initial);
+        let mut param = Parameter::new(self.name, self.initial);
 
-        let mut param = match self.description {
-            Some(desc) => param.with_description(desc),
-            None => param,
-        };
+        if let Some(desc) = self.description {
+            param = param.with_description(desc);
+        }
 
-        param = match self.unit {
-            Some(unit) => param.with_unit(unit),
-            None => param,
-        };
+        if let Some(unit) = self.unit {
+            param = param.with_unit(unit);
+        }
 
-        param.constraints = self.constraints;
-        param.read_only = self.read_only;
+        if let (Some(min), Some(max)) = (self.min, self.max) {
+            param = param.with_range(min, max);
+        }
+
+        if let Some(choices) = self.choices {
+            param = param.with_choices(choices);
+        }
+
+        if self.read_only {
+            param = param.read_only();
+        }
 
         param
     }

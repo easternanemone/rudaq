@@ -25,7 +25,6 @@
 //! ```
 
 pub mod document;
-pub mod observable;
 pub mod power_monitor;
 pub mod run_engine;
 
@@ -45,7 +44,7 @@ use uuid::Uuid;
 
 // Re-export for convenience
 pub use document::{DataKey, Document, StopReason};
-pub use observable::{Observable, ObservableMetadata, ParameterSet};
+pub use crate::observable::{Observable, ObservableMetadata, ParameterSet};
 pub use power_monitor::PowerMonitor;
 pub use run_engine::{RunConfig, RunEngine, RunReport};
 

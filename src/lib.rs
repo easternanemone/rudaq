@@ -50,6 +50,7 @@ pub mod validation;
 
 // Phase 1: Architectural redesign - New core abstractions
 pub mod parameter;
+pub mod observable; // Base reactive primitive (used by Parameter and Modules)
 
 // V2 modules REMOVED (bd-9si6) - all depend on deleted daq_core crate
 // pub mod adapters;
