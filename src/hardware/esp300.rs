@@ -31,7 +31,8 @@
 //! }
 //! ```
 
-use crate::hardware::capabilities::Movable;
+use crate::hardware::capabilities::{Movable, Parameterized};
+use crate::observable::ParameterSet;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use std::time::Duration;
@@ -51,6 +52,8 @@ pub struct Esp300Driver {
     axis: u8,
     /// Command timeout duration
     timeout: Duration,
+    /// Parameter registry
+    params: ParameterSet,
 }
 
 impl Esp300Driver {
@@ -85,6 +88,7 @@ impl Esp300Driver {
             port: Mutex::new(BufReader::new(port)),
             axis,
             timeout: Duration::from_secs(5),
+            params: ParameterSet::new(),
         })
     }
 
@@ -123,6 +127,7 @@ impl Esp300Driver {
             port: Mutex::new(BufReader::new(port)),
             axis,
             timeout: Duration::from_secs(5),
+            params: ParameterSet::new(),
         })
     }
 
@@ -216,6 +221,12 @@ impl Esp300Driver {
         let response = self.query(&format!("{}MD?", self.axis)).await?;
         // Response is 0 if stationary, 1 if moving
         Ok(response.trim() != "0")
+    }
+}
+
+impl Parameterized for Esp300Driver {
+    fn parameters(&self) -> &ParameterSet {
+        &self.params
     }
 }
 

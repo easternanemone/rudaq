@@ -44,12 +44,14 @@
 //! }
 //! ```
 
-use crate::hardware::capabilities::{Readable, WavelengthTunable};
+use crate::hardware::capabilities::{Parameterized, Readable, WavelengthTunable};
+use crate::observable::ParameterSet;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
+use tokio::task::spawn_blocking;
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 
 /// Driver for Newport 1830-C optical power meter
@@ -61,6 +63,8 @@ pub struct Newport1830CDriver {
     port: Mutex<BufReader<SerialStream>>,
     /// Command timeout duration
     timeout: Duration,
+    /// Parameter registry
+    params: ParameterSet,
 }
 
 impl Newport1830CDriver {
@@ -88,6 +92,7 @@ impl Newport1830CDriver {
         Ok(Self {
             port: Mutex::new(BufReader::new(port)),
             timeout: Duration::from_millis(500),
+            params: ParameterSet::new(),
         })
     }
 
@@ -277,6 +282,12 @@ impl Newport1830CDriver {
         }
 
         Ok(())
+    }
+}
+
+impl Parameterized for Newport1830CDriver {
+    fn parameters(&self) -> &ParameterSet {
+        &self.params
     }
 }
 

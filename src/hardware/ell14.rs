@@ -88,14 +88,16 @@
 //! }
 //! ```
 
-use crate::hardware::capabilities::Movable;
-use anyhow::{anyhow, Context, Result};
+use crate::hardware::capabilities::{Movable, Parameterized};
+use crate::observable::ParameterSet;
+use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tokio::task::spawn_blocking;
+use tokio::time::sleep;
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 
 /// Device information returned by the `in` command
@@ -153,6 +155,8 @@ pub struct Ell14Driver {
     /// Calibration factor: Pulses per Degree
     /// Default: 398.22 (143360 pulses / 360 degrees for ELL14)
     pulses_per_degree: f64,
+    /// Parameter registry
+    params: ParameterSet,
 }
 
 impl Ell14Driver {
@@ -174,6 +178,7 @@ impl Ell14Driver {
             port: Arc::new(Mutex::new(port)),
             address: address.to_string(),
             pulses_per_degree: 398.2222, // 143360 pulses / 360 degrees
+            params: ParameterSet::new(),
         })
     }
 
@@ -205,6 +210,7 @@ impl Ell14Driver {
             port: shared_port,
             address: address.to_string(),
             pulses_per_degree: 398.2222,
+            params: ParameterSet::new(),
         }
     }
 
@@ -243,6 +249,7 @@ impl Ell14Driver {
             port: Arc::new(Mutex::new(port)),
             address,
             pulses_per_degree: 398.2222, // 143360 pulses / 360 degrees
+            params: ParameterSet::new(),
         })
     }
 
@@ -902,6 +909,12 @@ impl Ell14Driver {
     /// Get the current pulses per degree calibration
     pub fn get_pulses_per_degree(&self) -> f64 {
         self.pulses_per_degree
+    }
+}
+
+impl Parameterized for Ell14Driver {
+    fn parameters(&self) -> &ParameterSet {
+        &self.params
     }
 }
 
