@@ -26,6 +26,7 @@ use crate::hardware::registry::{Capability, DeviceRegistry};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use serde_json;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
 use tokio_stream::wrappers::ReceiverStream;
@@ -1518,38 +1519,58 @@ impl HardwareService for HardwareServiceImpl {
     ) -> Result<Response<ParameterValue>, Status> {
         let req = request.into_inner();
         
-        // Get settable interface from registry
-        let settable = {
-            let registry = self.registry.read().await;
-            registry.get_settable(&req.device_id)
-        };
+        // Try legacy Settable trait first (backwards compatibility)
+        let registry = self.registry.read().await;
         
-        let settable = settable.ok_or_else(|| {
-            Status::not_found(format!(
-                "Device '{}' does not support settable parameters",
-                req.device_id
-            ))
-        })?;
+        if let Some(settable) = registry.get_settable(&req.device_id) {
+            drop(registry); // Release lock before async operations
+            
+            // Get the parameter value
+            let value = settable
+                .get_value(&req.parameter_name)
+                .await
+                .map_err(|e| Status::internal(format!("Failed to get parameter: {}", e)))?;
+            
+            // Get timestamp
+            let timestamp_ns = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0);
+            
+            return Ok(Response::new(ParameterValue {
+                device_id: req.device_id,
+                name: req.parameter_name,
+                value: value.to_string(),
+                units: String::new(), // Would need parameter metadata
+                timestamp_ns,
+            }));
+        }
         
-        // Get the parameter value
-        let value = settable
-            .get_value(&req.parameter_name)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to get parameter: {}", e)))?;
+        // New path - use Parameterized trait
+        if let Some(params) = registry.get_parameters(&req.device_id) {
+            if let Some(param) = params.get(&req.parameter_name) {
+                let value = param.get_json()
+                    .map_err(|e| Status::internal(format!("Failed to get parameter: {}", e)))?;
+                let timestamp_ns = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0);
+                
+                return Ok(Response::new(ParameterValue {
+                    device_id: req.device_id,
+                    name: req.parameter_name,
+                    value: value.to_string(),
+                    units: String::new(), // Could extract from metadata
+                    timestamp_ns,
+                }));
+            }
+        }
         
-        // Get timestamp
-        let timestamp_ns = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
-        
-        Ok(Response::new(ParameterValue {
-            device_id: req.device_id,
-            name: req.parameter_name,
-            value: value.to_string(),
-            units: String::new(), // Would need parameter metadata
-            timestamp_ns,
-        }))
+        // Neither Settable nor Parameterized - device not found
+        Err(Status::not_found(format!(
+            "Device '{}' does not support parameter '{}'",
+            req.device_id, req.parameter_name
+        )))
     }
 
     async fn set_parameter(
@@ -1558,63 +1579,107 @@ impl HardwareService for HardwareServiceImpl {
     ) -> Result<Response<SetParameterResponse>, Status> {
         let req = request.into_inner();
         
-        // Get settable interface from registry
-        let settable = {
-            let registry = self.registry.read().await;
-            registry.get_settable(&req.device_id)
-        };
+        // Try legacy Settable trait first (backwards compatibility)
+        let registry = self.registry.read().await;
         
-        let settable = settable.ok_or_else(|| {
-            Status::not_found(format!(
-                "Device '{}' does not support settable parameters",
-                req.device_id
-            ))
-        })?;
+        if let Some(settable) = registry.get_settable(&req.device_id) {
+            drop(registry); // Release lock before async operations
+            
+            // Get old value before setting (for change notification)
+            let old_value = settable
+                .get_value(&req.parameter_name)
+                .await
+                .map(|v| v.to_string())
+                .unwrap_or_default();
+            
+            // Parse the value string to JSON
+            let json_value: serde_json::Value = serde_json::from_str(&req.value)
+                .or_else(|_| {
+                    // Try as raw string if JSON parsing fails
+                    Ok::<_, serde_json::Error>(serde_json::Value::String(req.value.clone()))
+                })
+                .map_err(|e| Status::invalid_argument(format!("Invalid value format: {}", e)))?;
+            
+            // Set the parameter
+            settable
+                .set_value(&req.parameter_name, json_value)
+                .await
+                .map_err(|e| Status::invalid_argument(format!("Failed to set parameter: {}", e)))?;
+            
+            // Read back the actual value
+            let actual_value = settable
+                .get_value(&req.parameter_name)
+                .await
+                .map(|v| v.to_string())
+                .unwrap_or_else(|_| req.value.clone());
+            
+            // Broadcast parameter change notification (ignore send errors - no subscribers is ok)
+            let _ = self.param_change_tx.send(ParameterChange {
+                device_id: req.device_id.clone(),
+                name: req.parameter_name.clone(),
+                old_value,
+                new_value: actual_value.clone(),
+                units: String::new(), // Would need parameter metadata for units
+                timestamp_ns: now_ns(),
+                source: "user".to_string(),
+            });
+            
+            return Ok(Response::new(SetParameterResponse {
+                success: true,
+                error_message: String::new(),
+                actual_value,
+            }));
+        }
         
-        // Get old value before setting (for change notification)
-        let old_value = settable
-            .get_value(&req.parameter_name)
-            .await
-            .map(|v| v.to_string())
-            .unwrap_or_default();
+        // New path - use Parameterized trait
+        if let Some(params) = registry.get_parameters(&req.device_id) {
+            // Note: Cannot drop registry here as params borrows from it
+            
+            if let Some(param) = params.get(&req.parameter_name) {
+                let old_value = param.get_json()
+                    .map(|v| v.to_string())
+                    .unwrap_or_default();
+                
+                // Parse the value string to JSON
+                let json_value: serde_json::Value = serde_json::from_str(&req.value)
+                    .or_else(|_| {
+                        // Try as raw string if JSON parsing fails
+                        Ok::<_, serde_json::Error>(serde_json::Value::String(req.value.clone()))
+                    })
+                    .map_err(|e| Status::invalid_argument(format!("Invalid value format: {}", e)))?;
+                
+                // Set the parameter (synchronous call, no await needed)
+                param.set_json(json_value)
+                    .map_err(|e| Status::invalid_argument(format!("Failed to set parameter: {}", e)))?;
+                
+                let actual_value = param.get_json()
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|_| req.value.clone());
+                
+                // Broadcast parameter change notification
+                let _ = self.param_change_tx.send(ParameterChange {
+                    device_id: req.device_id.clone(),
+                    name: req.parameter_name.clone(),
+                    old_value,
+                    new_value: actual_value.clone(),
+                    units: String::new(), // Could get from metadata
+                    timestamp_ns: now_ns(),
+                    source: "user".to_string(),
+                });
+                
+                return Ok(Response::new(SetParameterResponse {
+                    success: true,
+                    error_message: String::new(),
+                    actual_value,
+                }));
+            }
+        }
         
-        // Parse the value string to JSON
-        let json_value: serde_json::Value = serde_json::from_str(&req.value)
-            .or_else(|_| {
-                // Try as raw string if JSON parsing fails
-                Ok::<_, serde_json::Error>(serde_json::Value::String(req.value.clone()))
-            })
-            .map_err(|e| Status::invalid_argument(format!("Invalid value format: {}", e)))?;
-        
-        // Set the parameter
-        settable
-            .set_value(&req.parameter_name, json_value)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to set parameter: {}", e)))?;
-        
-        // Read back the actual value
-        let actual_value = settable
-            .get_value(&req.parameter_name)
-            .await
-            .map(|v| v.to_string())
-            .unwrap_or_else(|_| req.value.clone());
-        
-        // Broadcast parameter change notification (ignore send errors - no subscribers is ok)
-        let _ = self.param_change_tx.send(ParameterChange {
-            device_id: req.device_id.clone(),
-            name: req.parameter_name.clone(),
-            old_value,
-            new_value: actual_value.clone(),
-            units: String::new(), // Would need parameter metadata for units
-            timestamp_ns: now_ns(),
-            source: "user".to_string(),
-        });
-        
-        Ok(Response::new(SetParameterResponse {
-            success: true,
-            error_message: String::new(),
-            actual_value,
-        }))
+        // Neither Settable nor Parameterized - device not found
+        Err(Status::not_found(format!(
+            "Device '{}' does not support settable parameters",
+            req.device_id
+        )))
     }
 
     type StreamParameterChangesStream =
@@ -2149,7 +2214,6 @@ mod tests {
         let response = service.stream_parameter_changes(request).await.unwrap();
         let mut stream = response.into_inner();
 
-        // Give the stream task time to start
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
         // Send a parameter change

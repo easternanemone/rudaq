@@ -464,6 +464,7 @@ impl MockPowerMeter {
 
     /// Set the base power reading
     pub async fn set_base_power(&self, power: f64) -> Result<()> {
+        // Just delegate to parameter - no hardware for mock
         self.base_power.set(power).await
     }
 

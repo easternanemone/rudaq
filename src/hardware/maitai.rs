@@ -44,6 +44,8 @@ use crate::observable::ParameterSet;
 use crate::parameter::Parameter;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
+use futures::future::BoxFuture;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
@@ -87,18 +89,49 @@ impl MaiTaiDriver {
             .open_native_async()
             .context(format!("Failed to open MaiTai serial port: {}", port_path))?;
 
-        // Create wavelength parameter with metadata
+        let port_mutex = Arc::new(Mutex::new(BufReader::new(port)));
+
+        // Create wavelength parameter with metadata and hardware callback
         let mut params = ParameterSet::new();
         let wavelength = Parameter::new("wavelength_nm", 800.0)
             .with_description("Tunable laser wavelength")
             .with_unit("nm")
-            .with_range(690.0, 1040.0); // MaiTai tuning range
+            .with_range(690.0, 1040.0) // MaiTai tuning range
+            .connect_to_hardware_write({
+                let port = port_mutex.clone();
+                move |wavelength: f64| -> BoxFuture<'static, Result<()>> {
+                    let port = port.clone();
+                    Box::pin(async move {
+                        let mut p = port.lock().await;
+                        let cmd = format!("WAVELENGTH:{}\r\n", wavelength);
+                        p.get_mut()
+                            .write_all(cmd.as_bytes())
+                            .await
+                            .context("Failed to write wavelength command")?;
+                        p.get_mut()
+                            .flush()
+                            .await
+                            .context("Failed to flush wavelength command")?;
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        
+                        // Read and discard response (required for XON/XOFF flow control)
+                        let mut response = String::new();
+                        match tokio::time::timeout(Duration::from_millis(500), p.read_line(&mut response)).await {
+                            Ok(Ok(_)) => log::debug!("MaiTai wavelength response: {}", response.trim()),
+                            Ok(Err(e)) => log::debug!("MaiTai wavelength read error (may be OK): {}", e),
+                            Err(_) => log::debug!("MaiTai wavelength no response (may be OK)"),
+                        }
+                        
+                        Ok(())
+                    })
+                }
+            });
         
         // Register parameter
         params.register(wavelength.inner().clone());
 
         Ok(Self {
-            port: Mutex::new(BufReader::new(port)),
+            port: port_mutex,
             timeout: Duration::from_secs(5),
             wavelength_nm: wavelength,
             params,
@@ -131,18 +164,49 @@ impl MaiTaiDriver {
         .await
         .context("spawn_blocking for MaiTai port opening failed")??;
 
-        // Create wavelength parameter with metadata
+        let port_mutex = Arc::new(Mutex::new(BufReader::new(port)));
+
+        // Create wavelength parameter with metadata and hardware callback
         let mut params = ParameterSet::new();
         let wavelength = Parameter::new("wavelength_nm", 800.0)
             .with_description("Tunable laser wavelength")
             .with_unit("nm")
-            .with_range(690.0, 1040.0); // MaiTai tuning range
+            .with_range(690.0, 1040.0) // MaiTai tuning range
+            .connect_to_hardware_write({
+                let port = port_mutex.clone();
+                move |wavelength: f64| -> BoxFuture<'static, Result<()>> {
+                    let port = port.clone();
+                    Box::pin(async move {
+                        let mut p = port.lock().await;
+                        let cmd = format!("WAVELENGTH:{}\r\n", wavelength);
+                        p.get_mut()
+                            .write_all(cmd.as_bytes())
+                            .await
+                            .context("Failed to write wavelength command")?;
+                        p.get_mut()
+                            .flush()
+                            .await
+                            .context("Failed to flush wavelength command")?;
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        
+                        // Read and discard response (required for XON/XOFF flow control)
+                        let mut response = String::new();
+                        match tokio::time::timeout(Duration::from_millis(500), p.read_line(&mut response)).await {
+                            Ok(Ok(_)) => log::debug!("MaiTai wavelength response: {}", response.trim()),
+                            Ok(Err(e)) => log::debug!("MaiTai wavelength read error (may be OK): {}", e),
+                            Err(_) => log::debug!("MaiTai wavelength no response (may be OK)"),
+                        }
+                        
+                        Ok(())
+                    })
+                }
+            });
         
         // Register parameter
         params.register(wavelength.inner().clone());
 
         Ok(Self {
-            port: Mutex::new(BufReader::new(port)),
+            port: port_mutex,
             timeout: Duration::from_secs(5),
             wavelength_nm: wavelength,
             params,
@@ -383,13 +447,13 @@ impl Readable for MaiTaiDriver {
 #[async_trait]
 impl WavelengthTunable for MaiTaiDriver {
     async fn set_wavelength(&self, wavelength_nm: f64) -> Result<()> {
-        // Delegate to existing method
-        MaiTaiDriver::set_wavelength(self, wavelength_nm).await
+        // Just delegate to parameter - callback handles hardware
+        self.wavelength_nm.set(wavelength_nm).await
     }
 
     async fn get_wavelength(&self) -> Result<f64> {
-        // Delegate to existing method
-        MaiTaiDriver::wavelength(self).await
+        // Query hardware for actual wavelength
+        self.wavelength().await
     }
 
     fn wavelength_range(&self) -> (f64, f64) {
