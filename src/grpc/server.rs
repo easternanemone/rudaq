@@ -9,9 +9,10 @@ use crate::grpc::proto::{
 use crate::grpc::run_engine_service::RunEngineServiceImpl;
 use crate::scripting::ScriptHost;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio::task::JoinHandle;
 use tonic::{transport::Server, Request, Response, Status};
 use uuid::Uuid;
@@ -84,26 +85,53 @@ impl DaqServer {
 
         // Spawn background task to write data to RingBuffer if provided
         if let Some(rb) = ring_buffer.clone() {
-            tokio::spawn(async move {
-                loop {
-                    match data_rx.recv().await {
-                        Ok(data_point) => {
-                            // Serialize DataPoint to JSON bytes for RingBuffer
-                            if let Ok(json_bytes) = serde_json::to_vec(&data_point) {
-                                if let Err(e) = rb.write(&json_bytes) {
-                                    eprintln!("Failed to write to ring buffer: {}", e);
+            let (rb_tx, mut rb_rx) = mpsc::channel(512);
+            let drop_counter = Arc::new(AtomicU64::new(0));
+
+            // Forward broadcast stream into bounded channel with drop metrics
+            tokio::spawn({
+                let drop_counter = drop_counter.clone();
+                async move {
+                    let rb_tx = rb_tx;
+                    loop {
+                        match data_rx.recv().await {
+                            Ok(data_point) => {
+                                if let Err(err) = rb_tx.try_send(data_point) {
+                                    if matches!(err, mpsc::error::TrySendError::Full(_)) {
+                                        let dropped =
+                                            drop_counter.fetch_add(1, Ordering::Relaxed) + 1;
+                                        if dropped % 100 == 0 {
+                                            tracing::warn!(
+                                                dropped = dropped,
+                                                "Dropped {} measurements while ring buffer writer was saturated",
+                                                dropped
+                                            );
+                                        }
+                                    }
                                 }
                             }
+                            Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                                tracing::warn!(
+                                    skipped = skipped,
+                                    "Measurement stream lagged, skipped {} messages",
+                                    skipped
+                                );
+                            }
+                            Err(broadcast::error::RecvError::Closed) => break,
                         }
-                        Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                            eprintln!(
-                                "Warning: Ring buffer writer lagged, skipped {} messages",
-                                skipped
-                            );
+                    }
+                }
+            });
+
+            tokio::spawn(async move {
+                while let Some(measurement) = rb_rx.recv().await {
+                    match encode_measurement_frame(&measurement) {
+                        Ok(frame) => {
+                            if let Err(e) = rb.write(&frame) {
+                                tracing::error!(error = %e, "Failed to write measurement to ring buffer");
+                            }
                         }
-                        Err(broadcast::error::RecvError::Closed) => {
-                            break; // Channel closed, exit task
-                        }
+                        Err(e) => tracing::error!(error = %e, "Failed to encode measurement frame"),
                     }
 
                     // Yield to allow other tasks to run
@@ -153,6 +181,15 @@ impl DaqServer {
     pub fn data_sender(&self) -> Arc<broadcast::Sender<Measurement>> {
         Arc::clone(&self.data_tx)
     }
+}
+
+#[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
+fn encode_measurement_frame(measurement: &Measurement) -> Result<Vec<u8>, bincode::Error> {
+    let payload = bincode::serialize(measurement)?;
+    let mut frame = Vec::with_capacity(4 + payload.len());
+    frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    frame.extend_from_slice(&payload);
+    Ok(frame)
 }
 
 impl std::fmt::Debug for DaqServer {

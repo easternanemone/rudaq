@@ -71,6 +71,7 @@ prse = "1.2.1" # For friendly response parsing
 strfmt = "0.2.5" # For command string formatting
 config = { version = "0.14.0", features = ["toml"] }
 toml = "0.8.12"
+bincode = "1.3"
 flatbuffers = "24.3.25"
 # V4 configuration system
 figment = { version = "0.10", features = ["toml", "env"] }
@@ -200,6 +201,11 @@ plugins_hot_reload = ["dep:notify"]
 [[bin]]
 name = "rust_daq"
 path = "src/main.rs"
+
+[[bin]]
+name = "rust_daq_gui_egui"
+path = "src/gui_main.rs"
+required-features = ["networking"]
 
 [[bin]]
 name = "discovery"

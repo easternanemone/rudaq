@@ -2,14 +2,12 @@
 
 A high-performance, headless-first data acquisition (DAQ) system written in Rust, designed for scientific and industrial applications.
 
-![GUI Screenshot](docs/images/gui-screenshot.png)
-
 ## Features
 
 - **Headless-First Architecture**: Core daemon runs independently of any UI
 - **Capability-Based Hardware Abstraction**: Composable traits for motion, sensing, triggering, and camera control
 - **YAML Plugin System**: Define new instruments without writing code
-- **Tauri GUI**: Modern, cross-platform desktop interface (React + Tauri) connecting via gRPC
+- **egui Desktop GUI**: Native Rust/egui control panel (`rust_daq_gui_egui`) that connects to the daemon via gRPC
 - **High-Performance Data Pipeline**: Memory-mapped ring buffers with Arrow IPC and HDF5 persistence
 - **Script-Driven Automation**: Rhai scripting for experiment control
 - **Remote Control**: Full gRPC API for network-transparent operation
@@ -18,7 +16,7 @@ A high-performance, headless-first data acquisition (DAQ) system written in Rust
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      GUI (Tauri + React)                        │
+│                     GUI (egui / eframe)                         │
 │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐   │
 │  │  Move   │ │ Camera  │ │  Scan   │ │ Modules │ │  Data   │   │
 │  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘   │
@@ -27,7 +25,7 @@ A high-performance, headless-first data acquisition (DAQ) system written in Rust
         └──────────┴─────────┴─────────┴───────────┘
                              │ gRPC
 ┌────────────────────────────┴────────────────────────────────────┐
-│                        DAQ Daemon                                │
+│                         DAQ Daemon                              │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
 │  │   Hardware   │  │    Plugin    │  │   Storage    │           │
 │  │   Registry   │  │   Factory    │  │   Service    │           │
@@ -41,7 +39,7 @@ A high-performance, headless-first data acquisition (DAQ) system written in Rust
         │
         ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│                         Hardware                                  │
+│                           Hardware                               │
 │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐    │
 │  │ ELL14   │ │ ESP300  │ │ MaiTai  │ │ PVCAM   │ │ Plugin  │    │
 │  │(Thorlab)│ │(Newport)│ │ (Laser) │ │(Camera) │ │ Drivers │    │
@@ -60,21 +58,21 @@ cargo build
 # Build with all features (all storage backends and hardware drivers)
 cargo build --all-features
 
-# Build the Tauri GUI (in gui-tauri directory)
-cd gui-tauri && npm install && npm run tauri build
+# Build the egui desktop GUI (requires networking feature)
+cargo build --features networking --bin rust_daq_gui_egui
 ```
 
 ### Run
 
 ```bash
-# Start the daemon
-cargo run -- daemon --port 50051
+# Start the daemon (with networking)
+cargo run --features networking -- daemon --port 50051
 
 # Run a Rhai script
 cargo run -- run examples/simple_scan.rhai
 
-# Launch the Tauri GUI (in gui-tauri directory)
-cd gui-tauri && npm run tauri dev
+# Launch the egui GUI (connects to daemon over gRPC)
+cargo run --features networking --bin rust_daq_gui_egui
 ```
 
 ### Test
@@ -173,18 +171,13 @@ writer.start_background_flush(Duration::from_secs(1));
 | `PluginService` | Dynamic plugin loading and spawning |
 | `RunEngineService` | Plan queue execution (experimental) |
 
-## GUI Panels
+## GUI Options
 
-The Tauri-based GUI provides:
+- **egui desktop GUI (recommended)**  
+  The `rust_daq_gui_egui` binary is a native Rust/egui application that connects to the headless daemon over gRPC. It runs on macOS, Linux, and Windows without requiring Node.js or the Tauri toolchain.
 
-- **Move Panel**: Control movable devices with position display
-- **Viewer Panel**: Real-time value monitoring
-- **Camera Panel**: Frame preview and exposure control
-- **Scan Panel**: Configure and execute multi-axis scans
-- **Modules Panel**: Create, configure, and monitor modules
-- **Presets Panel**: Save and load hardware configurations
-- **Experiments Panel**: Queue and execute plans
-- **Data Panel**: Recording status and export
+- **Tauri + React GUI (legacy / optional)**  
+  The `gui-tauri/` project provides a richer web‑style UI built with React and Tauri. It is still usable but no longer the primary focus. See `gui-tauri/README.md` if you specifically need a Tauri shell.
 
 ## Documentation
 

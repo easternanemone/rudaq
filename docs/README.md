@@ -16,6 +16,7 @@ Practical how-to guides for users and developers.
 - **For Users**:
   - [CLI Guide](./guides/cli_guide.md): How to use the command-line interface.
   - [Client Examples](./guides/client_examples.md): Usage examples for the CLI and clients.
+  - [egui GUI Quickstart](./guides/egui_gui_quickstart.md): How to run and extend the native egui desktop GUI.
   - [Scripting Guide](./guides/scripting/README.md): How to write Rhai scripts for experiments.
 - **For Developers**:
   - [Driver Development](./guides/driver_development.md): Implementing new hardware drivers.

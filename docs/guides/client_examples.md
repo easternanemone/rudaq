@@ -238,6 +238,20 @@ print("✅ Stage movement OK");
 print("Calibration complete!");
 ```
 
+## Choosing a client (CLI vs GUI vs Python)
+
+`rust-daq` exposes a gRPC API, so you can choose the client style that best matches your workflow.
+
+| Client            | Best For                                 | Stack                            | How to Run (examples)                                                                 |
+|-------------------|------------------------------------------|----------------------------------|---------------------------------------------------------------------------------------|
+| **CLI (`rust-daq`)** | Automation, CI, scripting, headless use | Rust binary + gRPC client        | `cargo run --features networking -- client upload …`, `client start`, `client stream` |
+| **egui GUI**     | Interactive lab use on macOS/Linux/Win   | Native Rust, `eframe` + `egui`   | `cargo run --features networking -- daemon …` + `cargo run --features networking --bin rust_daq_gui_egui` |
+| **Tauri GUI**    | Rich web‑style desktop UI (legacy/optional) | React + TypeScript + Tauri      | See `gui-tauri/README.md` (`npm install`, `npm run tauri dev`)                        |
+| **Python client**| Analysis notebooks & Python ecosystems   | `clients/python` gRPC wrapper    | See `clients/python/docs` and `clients/python/examples/*.py`                         |
+
+For day‑to‑day interactive control on a single workstation, the **egui GUI** is recommended.  
+For automated runs and integration into pipelines, the **CLI** and **Python** clients are usually a better fit.
+
 ## Error Handling
 
 ### Connection Errors

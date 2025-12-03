@@ -20,8 +20,8 @@
 //!   and data processors.
 //! - **`error`**: Defines the custom `DaqError` enum for centralized error handling across the
 //!   application.
-//! - **`gui`**: Implements the native graphical user interface using `eframe` and `egui`. It contains
-//!   all the UI components, panels, and docking logic.
+//! - **egui Desktop GUI**: The primary GUI is implemented as a separate binary (`rust_daq_gui_egui`)
+//!   that uses `eframe` + `egui` and connects to the daemon over gRPC. It lives in `src/gui_main.rs`.
 //! - **`instrument`**: Contains the concrete implementations of the `Instrument` trait for various
 //!   hardware devices (e.g., mock instruments, VISA-based devices, cameras).
 //! - **`log_capture`**: Provides a custom `log::Log` implementation to capture log messages for

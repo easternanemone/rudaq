@@ -59,6 +59,7 @@ hive-mind-prompt-*.txt
 # Session data and temporary outputs
 data_output/
 *.csv
+coverage_report/
 
 # Temporary analysis files
 *_PLAN.md

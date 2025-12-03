@@ -1,6 +1,7 @@
-# rust-daq GUI (Tauri + React)
+# rust-daq GUI (Tauri + React) – Legacy / Optional
 
-A modern desktop GUI for rust-daq built with Tauri and React, providing real-time hardware control and monitoring.
+> **Status:** The primary GUI for rust-daq is now the native `egui` / `eframe` desktop client (`rust_daq_gui_egui`).  
+> This Tauri + React project remains available for users who prefer a web‑style UI or want to experiment with Tauri, but it is no longer required for normal operation and may lag behind the egui client in features.
 
 ## Features
 

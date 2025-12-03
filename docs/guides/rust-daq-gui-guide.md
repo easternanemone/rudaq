@@ -1,26 +1,38 @@
-# GUI Development Guide (V4 Architecture): egui-based Scientific Interface
+# GUI Development Guide: egui-based Scientific Interface (V5, Headless-First)
 
 ## Overview
 
-This guide covers developing the graphical user interface for the Rust DAQ application using `egui`, a modern immediate-mode GUI framework. In the V4 architecture, the GUI interacts with the core application through the Kameo actor system, receiving data as `apache/arrow-rs` `RecordBatch`es and sending commands to instrument actors.
+This guide covers developing the graphical user interface for the Rust DAQ application using `egui`, a modern immediate‑mode GUI framework.  
+In the current V5 **headless‑first** architecture:
+
+- The **core DAQ** runs as a standalone daemon (`rust_daq` bin).
+- The daemon exposes control and data over **gRPC** (`ControlService`, `HardwareService`, `ScanService`, etc.).
+- The primary GUI is a native `egui` / `eframe` desktop binary: **`rust_daq_gui_egui`**.
+- The GUI talks to the daemon purely as a **gRPC client** – no direct actor wiring or in‑process coupling.
 
 ## 1. Core GUI Architecture
 
 ### Main Window Structure
-The main window will hold the `eframe::App` implementation and manage the overall UI state and panel interactions. It will communicate with the `InstrumentManager` actor to receive data and send commands.
+
+The main window holds the `eframe::App` implementation and manages the overall UI state and panel interactions.  
+Instead of talking to an in‑process `InstrumentManager` actor, it talks to the **remote daemon** via gRPC clients from `rust_daq::grpc`.
 
 ```rust
 use eframe::egui;
-use kameo::ActorRef;
-use crate::core::messages::{GuiCommand, GuiData}; // Define these messages
-use crate::core::InstrumentManagerActor; // Reference to the InstrumentManager actor
+use rust_daq::grpc::{
+    HardwareServiceClient,
+    ListDevicesRequest,
+    ReadValueRequest,
+    DeviceInfo,
+};
+use tonic::transport::Channel;
 
 pub struct MainWindow {
-    instrument_manager: ActorRef<InstrumentManagerActor>,
+    hardware: HardwareServiceClient<Channel>,
     ui_state: UiState,
     panels: GuiPanels,
-    // Channel to receive data from the InstrumentManager
-    data_receiver: tokio::sync::mpsc::Receiver<GuiData>,
+    // Optional channels to receive streamed data from daemon
+    // measurement_rx: tokio::sync::mpsc::Receiver<DataPoint>,
 }
 
 #[derive(Default)]
@@ -45,12 +57,12 @@ impl eframe::App for MainWindow {
         self.setup_style(ctx);
         self.create_menu_bar(ctx, frame);
         self.create_main_panels(ctx);
-        
-        // Process incoming data from the InstrumentManager
-        while let Ok(data) = self.data_receiver.try_recv() {
-            self.panels.plot_panel.add_data(data.record_batch);
-            // Update other panels as needed
-        }
+
+        // Process incoming data from daemon streams here (if configured).
+        // For example:
+        // while let Ok(data_point) = self.measurement_rx.try_recv() {
+        //     self.panels.plot_panel.add_scalar(data_point);
+        // }
 
         // Request repaint for real-time updates
         ctx.request_repaint();
