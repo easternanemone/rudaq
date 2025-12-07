@@ -27,6 +27,17 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! # Safety Overview
+//!
+//! All `unsafe` blocks in this module call into the PVCAM C API. The following
+//! invariants are upheld:
+//! - PVCAM is initialized via `pl_pvcam_init` before any other SDK call.
+//! - Camera handles are validated (non-null) after `pl_cam_open` before use.
+//! - Buffers passed across the FFI boundary are allocated with correct lengths
+//!   and alignment, and zero-initialized where required.
+//! - C strings are constructed with `CString` to guarantee null-termination.
+//! - All hardware-only code is guarded by the `pvcam_hardware` feature flag.
 
 use crate::hardware::capabilities::{ExposureControl, FrameProducer, Parameterized, Triggerable};
 use crate::hardware::{Frame, Roi};
@@ -34,7 +45,7 @@ use crate::observable::ParameterSet;
 use crate::parameter::Parameter;
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -212,7 +223,7 @@ pub struct CentroidsConfig {
 /// Implements FrameProducer, ExposureControl, and Triggerable capability traits.
 /// Uses PVCAM SDK for hardware communication when `pvcam_hardware` feature is enabled.
 pub struct PvcamDriver {
-    /// Camera name (e.g., "PrimeBSI", "Prime95B")
+    /// Camera name (e.g., "PrimeBSI", "PMCam")
     camera_name: String,
     /// Camera handle from PVCAM SDK (only with hardware feature)
     #[cfg(feature = "pvcam_hardware")]
@@ -220,21 +231,31 @@ pub struct PvcamDriver {
     /// Current exposure time in milliseconds
     exposure_ms: Parameter<f64>,
     /// Current ROI setting
-    roi: Arc<Mutex<Roi>>,
+    roi: Parameter<Roi>,
     /// Binning factors (x, y)
-    binning: Arc<Mutex<(u16, u16)>>,
+    binning: Parameter<(u16, u16)>,
     /// Frame buffer (for mock mode or temporary storage)
     frame_buffer: Arc<Mutex<Vec<u16>>>,
     /// Sensor dimensions
     sensor_width: u32,
     sensor_height: u32,
     /// Whether the camera is armed for triggering
-    armed: Arc<Mutex<bool>>,
+    armed: Parameter<bool>,
     /// Whether PVCAM SDK is initialized
     #[cfg(feature = "pvcam_hardware")]
     sdk_initialized: Arc<Mutex<bool>>,
     /// Whether continuous streaming is active
-    streaming: Arc<AtomicBool>,
+    streaming: Parameter<bool>,
+    /// Current sensor temperature in Celsius (read-only, updated on query)
+    temperature: Parameter<f64>,
+    /// Temperature setpoint in Celsius
+    temperature_setpoint: Parameter<f64>,
+    /// Fan speed setting
+    fan_speed: Parameter<String>,
+    /// Current gain mode index
+    gain_index: Parameter<u16>,
+    /// Current speed/readout mode index
+    speed_index: Parameter<u16>,
     /// Frame counter for streaming
     frame_count: Arc<AtomicU64>,
     /// Broadcast sender for streaming frames (supports multiple subscribers)
@@ -471,25 +492,81 @@ impl PvcamDriver {
             .with_unit("ms")
             .with_range(0.1, 60000.0); // 0.1ms to 60s range
 
-        params.register(exposure_ms.inner().clone());
+        params.register(exposure_ms.clone());
+
+        let roi_param = Parameter::new(
+            "roi",
+            Roi {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            },
+        )
+        .with_description("Region of interest");
+        params.register(roi_param.clone());
+
+        let binning_param = Parameter::new("binning", (1u16, 1u16))
+            .with_description("Binning factors (x, y)");
+        params.register(binning_param.clone());
+
+        let armed_param = Parameter::new("armed", false)
+            .with_description("Camera armed for trigger");
+        params.register(armed_param.clone());
+
+        let streaming_param = Parameter::new("streaming", false)
+            .with_description("Continuous streaming active");
+        params.register(streaming_param.clone());
+
+        // Temperature parameters
+        let temperature_param = Parameter::new("temperature", 0.0)
+            .with_description("Current sensor temperature (read-only)")
+            .with_unit("°C");
+        params.register(temperature_param.clone());
+
+        let temperature_setpoint_param = Parameter::new("temperature_setpoint", -10.0)
+            .with_description("Temperature setpoint")
+            .with_unit("°C")
+            .with_range(-25.0, 25.0);
+        params.register(temperature_setpoint_param.clone());
+
+        // Fan speed parameter (High, Medium, Low, Off)
+        let fan_speed_param = Parameter::new("fan_speed", "High".to_string())
+            .with_description("Fan speed setting")
+            .with_choices(vec![
+                "High".to_string(),
+                "Medium".to_string(),
+                "Low".to_string(),
+                "Off".to_string(),
+            ]);
+        params.register(fan_speed_param.clone());
+
+        // Gain and speed index parameters
+        let gain_index_param = Parameter::new("gain_index", 0u16)
+            .with_description("Current gain mode index");
+        params.register(gain_index_param.clone());
+
+        let speed_index_param = Parameter::new("speed_index", 0u16)
+            .with_description("Current speed/readout mode index");
+        params.register(speed_index_param.clone());
 
         Ok(Self {
             camera_name: camera_name.to_string(),
             camera_handle: Arc::new(Mutex::new(Some(camera_handle))),
             exposure_ms,
-            roi: Arc::new(Mutex::new(Roi {
-                x: 0,
-                y: 0,
-                width,
-                height,
-            })),
-            binning: Arc::new(Mutex::new((1, 1))),
+            roi: roi_param,
+            binning: binning_param,
             frame_buffer: Arc::new(Mutex::new(vec![0u16; (width * height) as usize])),
             sensor_width: width,
             sensor_height: height,
-            armed: Arc::new(Mutex::new(false)),
+            armed: armed_param,
             sdk_initialized: Arc::new(Mutex::new(true)),
-            streaming: Arc::new(AtomicBool::new(false)),
+            streaming: streaming_param,
+            temperature: temperature_param,
+            temperature_setpoint: temperature_setpoint_param,
+            fan_speed: fan_speed_param,
+            gain_index: gain_index_param,
+            speed_index: speed_index_param,
             frame_count: Arc::new(AtomicU64::new(0)),
             frame_tx,
             poll_handle: Arc::new(Mutex::new(None)),
@@ -521,23 +598,79 @@ impl PvcamDriver {
             .with_unit("ms")
             .with_range(0.1, 60000.0); // 0.1ms to 60s range
 
-        params.register(exposure_ms.inner().clone());
+        params.register(exposure_ms.clone());
 
-        Ok(Self {
-            camera_name: camera_name.to_string(),
-            exposure_ms,
-            roi: Arc::new(Mutex::new(Roi {
+        let roi_param = Parameter::new(
+            "roi",
+            Roi {
                 x: 0,
                 y: 0,
                 width,
                 height,
-            })),
-            binning: Arc::new(Mutex::new((1, 1))),
+            },
+        )
+        .with_description("Region of interest");
+        params.register(roi_param.clone());
+
+        let binning_param = Parameter::new("binning", (1u16, 1u16))
+            .with_description("Binning factors (x, y)");
+        params.register(binning_param.clone());
+
+        let armed_param = Parameter::new("armed", false)
+            .with_description("Camera armed for trigger");
+        params.register(armed_param.clone());
+
+        let streaming_param = Parameter::new("streaming", false)
+            .with_description("Continuous streaming active");
+        params.register(streaming_param.clone());
+
+        // Temperature parameters
+        let temperature_param = Parameter::new("temperature", 0.0)
+            .with_description("Current sensor temperature (read-only)")
+            .with_unit("°C");
+        params.register(temperature_param.clone());
+
+        let temperature_setpoint_param = Parameter::new("temperature_setpoint", -10.0)
+            .with_description("Temperature setpoint")
+            .with_unit("°C")
+            .with_range(-25.0, 25.0);
+        params.register(temperature_setpoint_param.clone());
+
+        // Fan speed parameter (High, Medium, Low, Off)
+        let fan_speed_param = Parameter::new("fan_speed", "High".to_string())
+            .with_description("Fan speed setting")
+            .with_choices(vec![
+                "High".to_string(),
+                "Medium".to_string(),
+                "Low".to_string(),
+                "Off".to_string(),
+            ]);
+        params.register(fan_speed_param.clone());
+
+        // Gain and speed index parameters
+        let gain_index_param = Parameter::new("gain_index", 0u16)
+            .with_description("Current gain mode index");
+        params.register(gain_index_param.clone());
+
+        let speed_index_param = Parameter::new("speed_index", 0u16)
+            .with_description("Current speed/readout mode index");
+        params.register(speed_index_param.clone());
+
+        Ok(Self {
+            camera_name: camera_name.to_string(),
+            exposure_ms,
+            roi: roi_param,
+            binning: binning_param,
             frame_buffer: Arc::new(Mutex::new(vec![0u16; (width * height) as usize])),
             sensor_width: width,
             sensor_height: height,
-            armed: Arc::new(Mutex::new(false)),
-            streaming: Arc::new(AtomicBool::new(false)),
+            armed: armed_param,
+            streaming: streaming_param,
+            temperature: temperature_param,
+            temperature_setpoint: temperature_setpoint_param,
+            fan_speed: fan_speed_param,
+            gain_index: gain_index_param,
+            speed_index: speed_index_param,
             frame_count: Arc::new(AtomicU64::new(0)),
             frame_tx,
             params,
@@ -561,13 +694,13 @@ impl PvcamDriver {
             // calling pl_exp_setup_seq. See acquire_frame_hardware() for implementation.
         }
 
-        *self.binning.lock().await = (x_bin, y_bin);
+        self.binning.set((x_bin, y_bin)).await?;
         Ok(())
     }
 
     /// Get current binning
     pub async fn binning(&self) -> (u16, u16) {
-        *self.binning.lock().await
+        self.binning.get()
     }
 
     /// Set Region of Interest
@@ -583,13 +716,13 @@ impl PvcamDriver {
             // Store for use during acquisition setup
         }
 
-        *self.roi.lock().await = roi;
+        self.roi.set(roi).await?;
         Ok(())
     }
 
     /// Get current ROI
     pub async fn roi(&self) -> Roi {
-        *self.roi.lock().await
+        self.roi.get()
     }
 
     /// Acquire a single frame (internal implementation)
@@ -613,8 +746,8 @@ impl PvcamDriver {
         let h = (*self.camera_handle.lock().await).ok_or_else(|| anyhow!("Camera not opened"))?;
 
         let exposure = self.exposure_ms.get();
-        let roi = *self.roi.lock().await;
-        let (x_bin, y_bin) = *self.binning.lock().await;
+        let roi = self.roi.get();
+        let (x_bin, y_bin) = self.binning.get();
 
         // Setup region for acquisition
         // SAFETY: zeroed() creates a zero-initialized rgn_type struct. This is safe because
@@ -717,7 +850,7 @@ impl PvcamDriver {
     #[cfg(not(feature = "pvcam_hardware"))]
     async fn acquire_frame_mock(&self) -> Result<Vec<u16>> {
         let exposure = self.exposure_ms.get();
-        let roi = *self.roi.lock().await;
+        let roi = self.roi.get();
 
         // Simulate exposure delay
         tokio::time::sleep(Duration::from_millis(exposure as u64)).await;
@@ -762,7 +895,7 @@ impl PvcamDriver {
     pub async fn acquire_frame(&self) -> Result<Frame> {
         let buffer = self.acquire_frame_internal().await?;
         let roi = self.roi().await;
-        let (x_bin, y_bin) = *self.binning.lock().await;
+        let (x_bin, y_bin) = self.binning.get();
 
         // Calculate actual frame dimensions (binned)
         // ROI coordinates are in unbinned pixels, but the frame size is binned
@@ -812,7 +945,7 @@ impl PvcamDriver {
             }
         }
 
-        *self.armed.lock().await = false;
+        self.armed.set(false).await?;
         Ok(())
     }
 
@@ -848,7 +981,7 @@ impl PvcamDriver {
             let h =
                 (*self.camera_handle.lock().await).ok_or_else(|| anyhow!("Camera not opened"))?;
 
-            let is_armed = *self.armed.lock().await;
+            let is_armed = self.armed.get();
             if !is_armed {
                 return Err(anyhow!("Camera must be armed before waiting for trigger"));
             }
@@ -898,7 +1031,7 @@ impl PvcamDriver {
             if result.is_ok() {
                 self.frame_count.fetch_add(1, Ordering::SeqCst);
             }
-            *self.armed.lock().await = false;
+            self.armed.set(false).await?;
 
             return result;
         }
@@ -928,7 +1061,7 @@ impl PvcamDriver {
 
     /// Check if streaming is active
     pub fn is_streaming(&self) -> bool {
-        self.streaming.load(Ordering::SeqCst)
+        self.streaming.get()
     }
 
     /// Get current frame count
@@ -963,12 +1096,17 @@ impl PvcamDriver {
             }
         }
         // PVCAM returns temperature in hundredths of degrees C
-        Ok(temp_raw as f64 / 100.0)
+        let temp_c = temp_raw as f64 / 100.0;
+        // Sync with parameter for gRPC visibility
+        let _ = self.temperature.set(temp_c).await;
+        Ok(temp_c)
     }
 
     #[cfg(not(feature = "pvcam_hardware"))]
     pub async fn get_temperature(&self) -> Result<f64> {
-        Ok(-40.0) // Mock: typical cooled sensor temperature
+        let temp = -40.0; // Mock: typical cooled sensor temperature
+        let _ = self.temperature.set(temp).await;
+        Ok(temp)
     }
 
     /// Get the camera chip/sensor name
@@ -1172,12 +1310,14 @@ impl PvcamDriver {
                 return Err(anyhow!("Failed to get gain index: {}", get_pvcam_error()));
             }
         }
-        Ok(idx as u16)
+        let idx_u16 = idx as u16;
+        let _ = self.gain_index.set(idx_u16).await;
+        Ok(idx_u16)
     }
 
     #[cfg(not(feature = "pvcam_hardware"))]
     pub async fn get_gain_index(&self) -> Result<u16> {
-        Ok(0)
+        Ok(self.gain_index.get())
     }
 
     /// Get the current speed table index
@@ -1202,12 +1342,14 @@ impl PvcamDriver {
                 ));
             }
         }
-        Ok(idx as u16)
+        let idx_u16 = idx as u16;
+        let _ = self.speed_index.set(idx_u16).await;
+        Ok(idx_u16)
     }
 
     #[cfg(not(feature = "pvcam_hardware"))]
     pub async fn get_speed_index(&self) -> Result<u16> {
-        Ok(0)
+        Ok(self.speed_index.get())
     }
 
     /// Get comprehensive camera information
@@ -1287,8 +1429,8 @@ impl PvcamDriver {
         for idx in 0..=max_idx {
             // Set gain index temporarily to read its name
             // SAFETY: h is valid. pl_set_param and pl_get_param operate on the camera handle.
-            // idx_i16 pointer is valid. buf is properly allocated (256 bytes) for string output.
-            // CStr::from_ptr is safe because PVCAM guarantees null-terminated strings.
+            // idx_i16 pointer is valid. buf is properly allocated (256 bytes). CStr::from_ptr
+            // is safe because PVCAM guarantees null-terminated strings.
             unsafe {
                 let idx_i16 = idx as i16;
                 if pl_set_param(h, PARAM_GAIN_INDEX, &idx_i16 as *const _ as *mut _) == 0 {
@@ -1354,11 +1496,13 @@ impl PvcamDriver {
                 return Err(anyhow!("Failed to set gain index: {}", get_pvcam_error()));
             }
         }
+        let _ = self.gain_index.set(index).await;
         Ok(())
     }
 
     #[cfg(not(feature = "pvcam_hardware"))]
-    pub async fn set_gain_index(&self, _index: u16) -> Result<()> {
+    pub async fn set_gain_index(&self, index: u16) -> Result<()> {
+        let _ = self.gain_index.set(index).await;
         Ok(())
     }
 
@@ -1504,11 +1648,13 @@ impl PvcamDriver {
                 return Err(anyhow!("Failed to set speed index: {}", get_pvcam_error()));
             }
         }
+        let _ = self.speed_index.set(index).await;
         Ok(())
     }
 
     #[cfg(not(feature = "pvcam_hardware"))]
-    pub async fn set_speed_index(&self, _index: u16) -> Result<()> {
+    pub async fn set_speed_index(&self, index: u16) -> Result<()> {
+        let _ = self.speed_index.set(index).await;
         Ok(())
     }
 
@@ -1554,12 +1700,15 @@ impl PvcamDriver {
             }
         }
         // PVCAM returns temperature in hundredths of degrees C
-        Ok(temp_raw as f64 / 100.0)
+        let temp_c = temp_raw as f64 / 100.0;
+        let _ = self.temperature_setpoint.set(temp_c).await;
+        Ok(temp_c)
     }
 
     #[cfg(not(feature = "pvcam_hardware"))]
     pub async fn get_temperature_setpoint(&self) -> Result<f64> {
-        Ok(-40.0) // Mock: typical cooled sensor setpoint
+        let temp = self.temperature_setpoint.get();
+        Ok(temp)
     }
 
     /// Set the temperature setpoint in degrees Celsius
@@ -1584,11 +1733,14 @@ impl PvcamDriver {
                 ));
             }
         }
+        // Sync parameter
+        let _ = self.temperature_setpoint.set(celsius).await;
         Ok(())
     }
 
     #[cfg(not(feature = "pvcam_hardware"))]
-    pub async fn set_temperature_setpoint(&self, _celsius: f64) -> Result<()> {
+    pub async fn set_temperature_setpoint(&self, celsius: f64) -> Result<()> {
+        let _ = self.temperature_setpoint.set(celsius).await;
         Ok(())
     }
 
@@ -1611,12 +1763,29 @@ impl PvcamDriver {
                 return Err(anyhow!("Failed to get fan speed: {}", get_pvcam_error()));
             }
         }
-        Ok(FanSpeed::from_pvcam(speed))
+        let fan_speed = FanSpeed::from_pvcam(speed);
+        // Sync parameter
+        let speed_str = match fan_speed {
+            FanSpeed::High => "High",
+            FanSpeed::Medium => "Medium",
+            FanSpeed::Low => "Low",
+            FanSpeed::Off => "Off",
+        };
+        let _ = self.fan_speed.set(speed_str.to_string()).await;
+        Ok(fan_speed)
     }
 
     #[cfg(not(feature = "pvcam_hardware"))]
     pub async fn get_fan_speed(&self) -> Result<FanSpeed> {
-        Ok(FanSpeed::High) // Mock: default to high
+        let speed_str = self.fan_speed.get();
+        let fan_speed = match speed_str.as_str() {
+            "High" => FanSpeed::High,
+            "Medium" => FanSpeed::Medium,
+            "Low" => FanSpeed::Low,
+            "Off" => FanSpeed::Off,
+            _ => FanSpeed::High,
+        };
+        Ok(fan_speed)
     }
 
     /// Set the fan speed
@@ -1642,11 +1811,26 @@ impl PvcamDriver {
                 return Err(anyhow!("Failed to set fan speed: {}", get_pvcam_error()));
             }
         }
+        // Sync parameter
+        let speed_str = match speed {
+            FanSpeed::High => "High",
+            FanSpeed::Medium => "Medium",
+            FanSpeed::Low => "Low",
+            FanSpeed::Off => "Off",
+        };
+        let _ = self.fan_speed.set(speed_str.to_string()).await;
         Ok(())
     }
 
     #[cfg(not(feature = "pvcam_hardware"))]
-    pub async fn set_fan_speed(&self, _speed: FanSpeed) -> Result<()> {
+    pub async fn set_fan_speed(&self, speed: FanSpeed) -> Result<()> {
+        let speed_str = match speed {
+            FanSpeed::High => "High",
+            FanSpeed::Medium => "Medium",
+            FanSpeed::Low => "Low",
+            FanSpeed::Off => "Off",
+        };
+        let _ = self.fan_speed.set(speed_str.to_string()).await;
         Ok(())
     }
 
@@ -1762,8 +1946,8 @@ impl PvcamDriver {
         // Select the PP feature
         let idx = feature_index as i16;
         // SAFETY: h is a valid camera handle. All pl_set_param and pl_get_param calls operate
-        // on the camera handle with valid parameter pointers. idx, param_idx, param_id, and value
-        // pointers are all valid and properly aligned. name_buf is allocated (256 bytes).
+        // on the camera handle with valid parameter pointers. idx_i16, param_idx, param_id, and value
+        // pointers are all valid and properly aligned. name_buf is properly allocated (256 bytes).
         // CStr::from_ptr is safe because PVCAM guarantees null-terminated strings.
         unsafe {
             if pl_set_param(h, PARAM_PP_INDEX, &idx as *const _ as *mut _) == 0 {
@@ -1879,7 +2063,6 @@ impl PvcamDriver {
         // SAFETY: h is a valid camera handle. pl_set_param selects the PP feature and parameter.
         // pl_get_param retrieves the parameter value. All pointers are valid and properly aligned.
         unsafe {
-            // Select the PP feature
             if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
                 return Err(anyhow!(
                     "Failed to select PP feature {}: {}",
@@ -2022,7 +2205,7 @@ impl PvcamDriver {
 
         let mut available: rs_bool = 0;
         // SAFETY: h is a valid camera handle. pl_get_param with PARAM_SMART_STREAM_MODE_ENABLED
-        // and ATTR_AVAIL checks feature availability. available pointer is valid and aligned.
+        // and ATTR_AVAIL checks feature availability. available pointer is valid and properly aligned.
         unsafe {
             // Check if PARAM_SMART_STREAM_MODE_ENABLED is available
             if pl_get_param(
@@ -2143,12 +2326,13 @@ impl PvcamDriver {
         let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
 
         let mut max_entries: u16 = 0;
-        // SAFETY: pl_get_param retrieves PARAM_SMART_STREAM_MODE max value. Camera handle h is
-        // valid from pl_cam_open. max_entries pointer is valid and properly aligned for writes.
+        // SAFETY: h is a valid camera handle. pl_get_param with PARAM_SMART_STREAM_MODE_ENABLED
+        // and ATTR_MAX checks feature availability. max_entries pointer is valid and properly aligned.
         unsafe {
+            // Check if PARAM_SMART_STREAM_MODE_ENABLED is available
             if pl_get_param(
                 h,
-                PARAM_SMART_STREAM_MODE,
+                PARAM_SMART_STREAM_MODE_ENABLED,
                 ATTR_MAX,
                 &mut max_entries as *mut _ as *mut _,
             ) == 0
@@ -2231,8 +2415,8 @@ impl PvcamDriver {
         let guard = self.camera_handle.lock().await;
         let h = guard.ok_or_else(|| anyhow!("Camera not open"))?;
 
-        // SAFETY: pl_get_param retrieves smart_stream_type pointer. Camera handle h is valid.
-        // ss_ptr is checked for null before dereferencing. Reading (*ss_ptr).entries is safe
+        // SAFETY: pl_get_param retrieves smart_stream_type pointer. Camera handle h is valid and
+        // properly aligned. The pointer is checked for null before dereferencing. Reading (*ss_ptr).entries is safe
         // as PVCAM maintains the structure validity.
         unsafe {
             let mut ss_ptr: *mut smart_stream_type = std::ptr::null_mut();
@@ -2946,7 +3130,7 @@ impl PvcamDriver {
     #[cfg(feature = "pvcam_hardware")]
     fn poll_loop_hardware(
         hcam: i16,
-        streaming: Arc<AtomicBool>,
+        streaming: Parameter<bool>,
         frame_tx: tokio::sync::broadcast::Sender<std::sync::Arc<Frame>>,
         frame_count: Arc<AtomicU64>,
         frame_pixels: usize,
@@ -2959,7 +3143,7 @@ impl PvcamDriver {
         let mut no_frame_count: u32 = 0;
         const MAX_NO_FRAME_ITERATIONS: u32 = 5000; // ~5 seconds at 1ms sleep
 
-        while streaming.load(Ordering::SeqCst) {
+        while streaming.get() {
             // SAFETY: Poll loop handles continuous acquisition with valid camera handle hcam.
             // All status pointers are valid and properly aligned. pl_exp_get_oldest_frame returns
             // a frame pointer that is checked for null before dereferencing. Frame data is copied
@@ -3039,7 +3223,7 @@ impl PvcamDriver {
 impl Drop for PvcamDriver {
     fn drop(&mut self) {
         // Signal streaming to stop first
-        self.streaming.store(false, Ordering::SeqCst);
+        let _ = self.streaming.inner().set(false);
 
         #[cfg(feature = "pvcam_hardware")]
         {
@@ -3090,9 +3274,11 @@ impl Drop for PvcamDriver {
 impl FrameProducer for PvcamDriver {
     async fn start_stream(&self) -> Result<()> {
         // Check if already streaming
-        if self.streaming.swap(true, Ordering::SeqCst) {
+        if self.streaming.get() {
             bail!("Already streaming");
         }
+
+        self.streaming.set(true).await?;
 
         // Reset frame counter
         self.frame_count.store(0, Ordering::SeqCst);
@@ -3103,8 +3289,8 @@ impl FrameProducer for PvcamDriver {
             let h = handle_guard.ok_or_else(|| anyhow!("Camera not open"))?;
 
             // Get current settings
-            let roi = *self.roi.lock().await;
-            let (x_bin, y_bin) = *self.binning.lock().await;
+            let roi = self.roi.get();
+            let (x_bin, y_bin) = self.binning.get();
             let exp_ms = self.exposure_ms.get() as uns32;
 
             // Setup region
@@ -3136,7 +3322,7 @@ impl FrameProducer for PvcamDriver {
                     CIRC_NO_OVERWRITE,
                 ) == 0
                 {
-                    self.streaming.store(false, Ordering::SeqCst);
+                    let _ = self.streaming.set(false).await;
                     return Err(anyhow!("Failed to setup continuous acquisition"));
                 }
             }
@@ -3157,7 +3343,7 @@ impl FrameProducer for PvcamDriver {
             // is stored in self.circ_buffer to keep it alive for the duration of acquisition.
             unsafe {
                 if pl_exp_start_cont(h, circ_ptr as *mut _, circ_size_bytes) == 0 {
-                    self.streaming.store(false, Ordering::SeqCst);
+                    let _ = self.streaming.set(false).await;
                     return Err(anyhow!("Failed to start continuous acquisition"));
                 }
             }
@@ -3193,9 +3379,9 @@ impl FrameProducer for PvcamDriver {
             let streaming = self.streaming.clone();
             let frame_tx = self.frame_tx.clone();
             let frame_count = self.frame_count.clone();
-            let roi = *self.roi.lock().await;
+            let roi = self.roi.get();
             let exposure_ms = self.exposure_ms.get();
-            let (x_bin, y_bin) = *self.binning.lock().await;
+            let (x_bin, y_bin) = self.binning.get();
 
             tokio::spawn(async move {
                 // Calculate binned dimensions (same as acquire_frame)
@@ -3203,11 +3389,11 @@ impl FrameProducer for PvcamDriver {
                 let binned_height = roi.height / y_bin as u32;
                 let frame_size = (binned_width * binned_height) as usize;
 
-                while streaming.load(Ordering::SeqCst) {
+                while streaming.get() {
                     // Simulate exposure time
                     tokio::time::sleep(Duration::from_millis(exposure_ms as u64)).await;
 
-                    if !streaming.load(Ordering::SeqCst) {
+                    if !streaming.get() {
                         break;
                     }
 
@@ -3237,10 +3423,11 @@ impl FrameProducer for PvcamDriver {
 
     async fn stop_stream(&self) -> Result<()> {
         // Signal streaming to stop
-        if !self.streaming.swap(false, Ordering::SeqCst) {
-            // Wasn't streaming
+        if !self.streaming.get() {
             return Ok(());
         }
+
+        self.streaming.set(false).await?;
 
         #[cfg(feature = "pvcam_hardware")]
         {
@@ -3286,7 +3473,7 @@ impl FrameProducer for PvcamDriver {
     }
 
     async fn is_streaming(&self) -> Result<bool> {
-        Ok(self.streaming.load(Ordering::SeqCst))
+        Ok(self.streaming.get())
     }
 
     fn frame_count(&self) -> u64 {
@@ -3355,8 +3542,8 @@ impl Triggerable for PvcamDriver {
                 (*self.camera_handle.lock().await).ok_or_else(|| anyhow!("Camera not opened"))?;
 
             let exposure = self.exposure_ms.get();
-            let roi = *self.roi.lock().await;
-            let (x_bin, y_bin) = *self.binning.lock().await;
+            let roi = self.roi.get();
+            let (x_bin, y_bin) = self.binning.get();
 
             // Setup region for acquisition
             // SAFETY: mem::zeroed creates a zero-initialized rgn_type structure which is valid
@@ -3411,12 +3598,12 @@ impl Triggerable for PvcamDriver {
             *self.trigger_frame.lock().await = Some(frame);
         }
 
-        *self.armed.lock().await = true;
+        self.armed.set(true).await?;
         Ok(())
     }
 
     async fn trigger(&self) -> Result<()> {
-        let is_armed = *self.armed.lock().await;
+        let is_armed = self.armed.get();
         if !is_armed {
             return Err(anyhow!("Camera must be armed before triggering"));
         }
@@ -3445,7 +3632,7 @@ impl Triggerable for PvcamDriver {
                         if let Some(mut frame) = self.trigger_frame.lock().await.take() {
                             pl_exp_finish_seq(h, frame.as_mut_ptr() as *mut _, 0);
                         }
-                        *self.armed.lock().await = false;
+                        self.armed.set(false).await?;
                         return Err(anyhow!("Failed to check acquisition status"));
                     }
                 }
@@ -3462,7 +3649,7 @@ impl Triggerable for PvcamDriver {
                             pl_exp_finish_seq(h, frame.as_mut_ptr() as *mut _, 0);
                         }
                     }
-                    *self.armed.lock().await = false;
+                    self.armed.set(false).await?;
                     return Err(anyhow!("Acquisition failed"));
                 }
 
@@ -3474,7 +3661,7 @@ impl Triggerable for PvcamDriver {
                             pl_exp_finish_seq(h, frame.as_mut_ptr() as *mut _, 0);
                         }
                     }
-                    *self.armed.lock().await = false;
+                    self.armed.set(false).await?;
                     return Err(anyhow!("Trigger timeout"));
                 }
 
@@ -3501,13 +3688,13 @@ impl Triggerable for PvcamDriver {
 
         // Increment frame count and disarm
         self.frame_count.fetch_add(1, Ordering::SeqCst);
-        *self.armed.lock().await = false;
+        self.armed.set(false).await?;
 
         Ok(())
     }
 
     async fn is_armed(&self) -> Result<bool> {
-        Ok(*self.armed.lock().await)
+        Ok(self.armed.get())
     }
 }
 
@@ -3555,11 +3742,11 @@ mod tests {
         let camera = PvcamDriver::new("PrimeBSI").unwrap();
 
         // Camera should not be armed initially
-        assert!(!*camera.armed.lock().await);
+        assert!(!camera.armed.get());
 
         // Arm the camera
         camera.arm().await.unwrap();
-        assert!(*camera.armed.lock().await);
+        assert!(camera.armed.get());
     }
 
     #[tokio::test]
@@ -3707,5 +3894,95 @@ mod tests {
 
         // Stop streaming
         camera.stop_stream().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_mock_camera_parameters() {
+        let camera = PvcamDriver::new("TestCam").unwrap();
+
+        // Check defaults
+        assert_eq!(camera.get_exposure_ms().await.unwrap(), 100.0);
+        assert_eq!(camera.binning().await, (1, 1));
+
+        let roi = camera.roi().await;
+        assert_eq!(roi.x, 0);
+        assert_eq!(roi.y, 0);
+        // Default width/height depends on camera name, TestCam -> 2048x2048
+        assert_eq!(roi.width, 2048);
+        assert_eq!(roi.height, 2048);
+    }
+
+    #[tokio::test]
+    async fn test_parameter_range_validation() {
+        let camera = PvcamDriver::new("TestCam").unwrap();
+
+        // Valid range
+        assert!(camera.set_exposure_ms(0.1).await.is_ok());
+        assert!(camera.set_exposure_ms(60000.0).await.is_ok());
+
+        // Invalid range
+        assert!(camera.set_exposure_ms(0.05).await.is_err()); // < 0.1
+        assert!(camera.set_exposure_ms(60001.0).await.is_err()); // > 60000
+    }
+
+    #[tokio::test]
+    async fn test_roi_validation() {
+        let camera = PvcamDriver::new("TestCam").unwrap(); // 2048x2048
+
+        // Valid ROI
+        let valid_roi = Roi {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 100,
+        };
+        assert!(camera.set_roi(valid_roi).await.is_ok());
+
+        // Invalid ROI (exceeds sensor)
+        let invalid_roi = Roi {
+            x: 2000,
+            y: 2000,
+            width: 100,
+            height: 100,
+        };
+        assert!(camera.set_roi(invalid_roi).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_state_transitions_explicit() {
+        let camera = PvcamDriver::new("TestCam").unwrap();
+
+        // Initial state
+        assert!(!camera.is_armed().await.unwrap());
+
+        // Arm
+        camera.arm().await.unwrap();
+        assert!(camera.is_armed().await.unwrap());
+
+        // Trigger
+        camera.trigger().await.unwrap();
+        // Triggering disarms automatically in this driver
+        assert!(!camera.is_armed().await.unwrap());
+
+        // Re-arm
+        camera.arm().await.unwrap();
+        assert!(camera.is_armed().await.unwrap());
+
+        // Manual disarm
+        camera.disarm().await.unwrap();
+        assert!(!camera.is_armed().await.unwrap());
+    }
+
+    #[tokio::test]
+    #[cfg(not(feature = "pvcam_hardware"))]
+    async fn test_mock_frame_pattern() {
+        let camera = PvcamDriver::new("TestCam").unwrap();
+        camera.set_exposure(0.01).await.unwrap();
+        let frame = camera.acquire_frame_mock().await.unwrap();
+
+        // At (x=10, y=10), value should be (10+10)%4096 = 20
+        let width = 2048;
+        let idx = 10 * width + 10;
+        assert_eq!(frame[idx as usize], 20);
     }
 }
