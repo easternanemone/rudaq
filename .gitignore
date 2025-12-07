@@ -110,3 +110,14 @@ zen_generated.code
 gha-creds-*.json
 .brv/
 .docker-data/ # Docker volume data
+
+# Local development backups and config
+.claude.DANGEROUS.backup/
+.claude*.backup*/
+CLAUDE.md.backup-*
+.envrc
+.gemini-clipboard/
+cocoindex_flows/
+docker-compose.yml
+docs/HYBRID_SEARCH_SETUP.md
+docs/MORPH_*.md
