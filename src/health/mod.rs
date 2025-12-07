@@ -4,6 +4,7 @@
 //! preventing silent failures in background tasks.
 
 pub mod monitor;
+pub mod sys_monitor;
 
 #[cfg(feature = "networking")]
 pub mod grpc_service;

@@ -4,14 +4,16 @@ Modern Python client library for controlling the rust-daq headless daemon via gR
 
 ## Overview
 
-The `rust-daq-client` library provides three API layers:
+The `rust-daq-client` library provides four API layers:
 
 - **Layer 0**: Auto-generated protobuf stubs (`.generated` submodule)
 - **Layer 1**: `AsyncClient` - Robust async-first gRPC wrapper
 - **Layer 2**: High-level synchronous API - Ophyd/Bluesky-style device abstractions
+- **Layer 3**: Async streaming - Context-managed frame/parameter streams
 
 **Choose your API based on your needs:**
 - Use **Layer 2** for interactive use, scripts, and Jupyter notebooks (recommended)
+- Use **Layer 3** for real-time streaming applications (cameras, live monitoring)
 - Use **Layer 1** for async applications and maximum control
 - Use **Layer 0** only if you need raw protobuf access
 
@@ -110,6 +112,30 @@ async def main():
         print(f"Position: {position}")
 
 anyio.run(main)
+```
+
+### Layer 3: Async Streaming API
+
+For real-time data streaming with context managers:
+
+```python
+import asyncio
+from rust_daq import AsyncClient, FrameStream, ParameterSubscription
+
+async def main():
+    async with AsyncClient() as client:
+        # Stream camera frames with automatic cleanup
+        async with FrameStream(client, "camera_0", max_frames=100) as stream:
+            async for frame in stream:
+                arr = frame.to_numpy()  # Convert to numpy array
+                print(f"Frame {frame.frame_number}: mean={arr.mean():.1f}")
+
+        # Subscribe to parameter changes
+        async with ParameterSubscription(client, "laser") as sub:
+            async for change in sub:
+                print(f"{change.name}: {change.old_value} -> {change.new_value}")
+
+asyncio.run(main)
 ```
 
 ## Layer 2 API Reference
@@ -275,6 +301,106 @@ Full async API documentation is available in the docstrings. Key methods:
 **Streaming:**
 - `async for update in client.stream_device_state(device_ids, max_rate_hz):`
 
+## Layer 3 API Reference
+
+### Streaming Classes
+
+#### `FrameStream(client, device_id, include_pixel_data, max_frames, on_frame)`
+
+Async context manager for streaming camera frames.
+
+```python
+async with FrameStream(client, "camera_0", max_frames=100) as stream:
+    async for frame in stream:
+        arr = frame.to_numpy()
+        print(f"Frame {frame.frame_number}: shape={arr.shape}")
+    print(f"Total: {stream.frame_count} frames")
+```
+
+**Parameters:**
+- `client` (AsyncClient): Connected client instance
+- `device_id` (str): Camera device ID
+- `include_pixel_data` (bool): Include raw pixel bytes. Default: True
+- `max_frames` (int, optional): Stop after N frames. Default: None (unlimited)
+- `on_frame` (callable, optional): Callback for each frame
+
+**Properties:**
+- `frame_count` (int): Number of frames received
+- `is_active` (bool): Whether stream is active
+
+#### `Frame`
+
+Camera frame dataclass with numpy conversion.
+
+**Attributes:**
+- `device_id` (str): Camera device ID
+- `frame_number` (int): Sequential frame number
+- `width` (int): Frame width in pixels
+- `height` (int): Frame height in pixels
+- `timestamp_ns` (int): Capture timestamp (nanoseconds)
+- `pixel_data` (bytes | None): Raw pixel bytes
+- `pixel_format` (str): Format string ("u8", "u16_le", "f32_le")
+
+**Methods:**
+- `to_numpy()`: Convert to numpy array with shape (height, width)
+
+#### `ParameterSubscription(client, device_id, parameter_names, on_change)`
+
+Async context manager for monitoring parameter changes.
+
+```python
+async with ParameterSubscription(client, device_id="laser") as sub:
+    async for change in sub:
+        print(f"{change.name}: {change.old_value} -> {change.new_value}")
+        if sub.change_count >= 10:
+            break
+```
+
+**Parameters:**
+- `client` (AsyncClient): Connected client instance
+- `device_id` (str, optional): Filter by device ID. Default: None (all devices)
+- `parameter_names` (list[str], optional): Filter by parameter names
+- `on_change` (callable, optional): Callback for each change
+
+**Properties:**
+- `change_count` (int): Number of changes received
+- `is_active` (bool): Whether subscription is active
+
+#### `ParameterChange`
+
+Parameter change event dataclass.
+
+**Attributes:**
+- `device_id` (str): Device ID
+- `name` (str): Parameter name
+- `old_value` (str): Previous value
+- `new_value` (str): New value
+- `units` (str): Parameter units
+
+**Methods:**
+- `old_as_float()`: Parse old_value as float
+- `new_as_float()`: Parse new_value as float
+
+#### `DeviceStateStream(client, device_ids, max_rate_hz, include_snapshot)`
+
+Async context manager for streaming device state updates.
+
+```python
+async with DeviceStateStream(client, max_rate_hz=10) as stream:
+    async for update in stream:
+        print(f"{update['device_id']}: {update['fields']}")
+```
+
+**Parameters:**
+- `client` (AsyncClient): Connected client instance
+- `device_ids` (list[str], optional): Filter by device IDs. Default: None (all)
+- `max_rate_hz` (int): Maximum update rate. Default: 10
+- `include_snapshot` (bool): Include full snapshot as first message. Default: True
+
+**Properties:**
+- `update_count` (int): Number of updates received
+- `is_active` (bool): Whether stream is active
+
 ## Starting the Daemon
 
 Before using the client, start the rust-daq daemon:
@@ -294,8 +420,11 @@ cargo run --features "networking,all_hardware" -- daemon --port 50051
 
 See the `examples/` directory:
 
+- `01_basic_client.py` - Layer 1 async client basics
+- `02_device_control.py` - Device control patterns
+- `09_ring_buffer_tap.py` - Zero-copy mmap ring buffer access
+- `10_async_streaming.py` - Layer 3 async streaming demo
 - `layer2_demo.py` - Layer 2 synchronous API demo
-- `layer1_demo.py` - Layer 1 async API demo (if exists)
 
 Run examples:
 
@@ -421,11 +550,14 @@ mypy src/
 
 ## Architecture
 
-The client uses a 3-layer architecture:
+The client uses a 4-layer architecture:
 
 ```
 ┌─────────────────────────────────────────┐
-│  Layer 2: High-Level Sync API          │
+│  Layer 3: Async Streaming               │
+│  (FrameStream, ParameterSubscription)   │
+├─────────────────────────────────────────┤
+│  Layer 2: High-Level Sync API           │
 │  (Motor, Detector, scan)                │
 ├─────────────────────────────────────────┤
 │  Layer 1: AsyncClient                   │
@@ -442,6 +574,8 @@ The client uses a 3-layer architecture:
 ```
 
 **Layer 2** uses `anyio.from_thread.start_blocking_portal()` to provide a synchronous wrapper around Layer 1's async API.
+
+**Layer 3** provides async context managers that wrap Layer 1's streaming methods for clean resource management.
 
 ## Troubleshooting
 

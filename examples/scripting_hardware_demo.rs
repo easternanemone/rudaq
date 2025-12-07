@@ -8,9 +8,8 @@
 
 use rust_daq::hardware::capabilities::{FrameProducer, Movable};
 use rust_daq::hardware::mock::{MockCamera, MockStage};
-use rust_daq::scripting::{CameraHandle, ScriptHost, StageHandle};
+use rust_daq::scripting::{CameraHandle, RhaiEngine, ScriptEngine, ScriptValue, StageHandle};
 use std::sync::Arc;
-use tokio::runtime::Handle;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
@@ -20,25 +19,29 @@ async fn main() {
     let stage = Arc::new(MockStage::new());
     let camera = Arc::new(MockCamera::new(1920, 1080));
 
-    // Create script host with hardware bindings
-    let mut host = ScriptHost::with_hardware(Handle::current());
+    // Create engine with hardware bindings
+    let mut engine = RhaiEngine::with_hardware().expect("Failed to create engine");
 
     // Create handles for script access
-    let mut scope = rhai::Scope::new();
-    scope.push(
-        "stage",
-        StageHandle {
-            driver: stage.clone(),
-            data_tx: None,
-        },
-    );
-    scope.push(
-        "camera",
-        CameraHandle {
-            driver: camera.clone(),
-            data_tx: None,
-        },
-    );
+    engine
+        .set_global(
+            "stage",
+            ScriptValue::new(StageHandle {
+                driver: stage.clone(),
+                data_tx: None,
+            }),
+        )
+        .expect("Failed to set stage");
+
+    engine
+        .set_global(
+            "camera",
+            ScriptValue::new(CameraHandle {
+                driver: camera.clone(),
+                data_tx: None,
+            }),
+        )
+        .expect("Failed to set camera");
 
     // Load and execute the demo script
     let script = include_str!("scripting_demo.rhai");
@@ -46,10 +49,15 @@ async fn main() {
     println!("Executing Rhai script...\n");
     println!("--- Script Output ---");
 
-    match host.engine_mut().eval_with_scope::<f64>(&mut scope, script) {
+    match engine.execute_script(script).await {
         Ok(result) => {
             println!("--- End Script Output ---\n");
-            println!("Script returned: {}", result);
+            // Try to downcast to f64 if possible, or just print debug
+            if let Some(val) = result.downcast_ref::<f64>() {
+                println!("Script returned: {}", val);
+            } else {
+                println!("Script returned: {:?}", result);
+            }
         }
         Err(e) => {
             eprintln!("Script error: {}", e);

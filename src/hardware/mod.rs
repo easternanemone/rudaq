@@ -52,10 +52,11 @@
 //!
 //! See `tests/hardware_serial_tests.rs` for comprehensive integration tests.
 
-pub mod adapter;
 pub mod capabilities;
 pub mod mock;
 pub mod registry;
+#[cfg(feature = "tokio_serial")]
+pub mod resource_pool;
 
 // Plugin system for YAML-defined instrument drivers
 #[cfg(feature = "tokio_serial")]

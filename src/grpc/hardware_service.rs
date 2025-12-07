@@ -69,6 +69,8 @@ use crate::grpc::proto::{
     WaitSettledResponse,
 };
 use crate::hardware::registry::{Capability, DeviceRegistry};
+use crate::observable::Observable;
+use crate::parameter::Parameter;
 use anyhow::Error as AnyError;
 use serde_json;
 use std::collections::HashMap;
@@ -138,26 +140,36 @@ impl HardwareServiceImpl {
                         let dev_id = device_id.clone();
                         let p_name = param_name.to_string();
 
-                        // Try to downcast to Observable<f64> (most common parameter type)
-                        if let Some(obs_f64) = param_set.get_typed::<f64>(param_name) {
-                            let mut rx = obs_f64.subscribe();
-                            tokio::spawn(async move {
-                                while rx.changed().await.is_ok() {
-                                    let value = *rx.borrow();
-                                    let change = ParameterChange {
-                                        device_id: dev_id.clone(),
-                                        name: p_name.clone(),
-                                        old_value: String::new(),
-                                        new_value: value.to_string(),
-                                        units: String::new(),
-                                        timestamp_ns: now_ns(),
-                                        source: "hardware".to_string(),
-                                    };
-                                    let _ = tx.send(change);
-                                }
-                            });
+                        // Prefer Parameter<T> to preserve hardware callbacks; fallback to Observable<T>
+
+                        // f64
+                        if let Some(p) = param_set.get_typed::<Parameter<f64>>(param_name) {
+                            monitor_parameter(p.subscribe(), tx, dev_id, p_name);
+                        } else if let Some(p) = param_set.get_typed::<Observable<f64>>(param_name) {
+                            monitor_parameter(p.subscribe(), tx, dev_id, p_name);
                         }
-                        // TODO(bd-zafg): Add downcasts for other common types (bool, String, etc.)
+                        // bool
+                        else if let Some(p) = param_set.get_typed::<Parameter<bool>>(param_name) {
+                            monitor_parameter(p.subscribe(), tx, dev_id, p_name);
+                        } else if let Some(p) = param_set.get_typed::<Observable<bool>>(param_name)
+                        {
+                            monitor_parameter(p.subscribe(), tx, dev_id, p_name);
+                        }
+                        // String
+                        else if let Some(p) = param_set.get_typed::<Parameter<String>>(param_name)
+                        {
+                            monitor_parameter(p.subscribe(), tx, dev_id, p_name);
+                        } else if let Some(p) =
+                            param_set.get_typed::<Observable<String>>(param_name)
+                        {
+                            monitor_parameter(p.subscribe(), tx, dev_id, p_name);
+                        }
+                        // i64
+                        else if let Some(p) = param_set.get_typed::<Parameter<i64>>(param_name) {
+                            monitor_parameter(p.subscribe(), tx, dev_id, p_name);
+                        } else if let Some(p) = param_set.get_typed::<Observable<i64>>(param_name) {
+                            monitor_parameter(p.subscribe(), tx, dev_id, p_name);
+                        }
                     }
                 }
             }
@@ -1587,41 +1599,72 @@ impl HardwareService for HardwareServiceImpl {
             )));
         }
 
-        // Get settable parameters for plugin devices
-        #[cfg(feature = "tokio_serial")]
-        let parameters = {
-            if let Some(settables) = registry.get_settable_parameters(&req.device_id).await {
-                settables
-                    .into_iter()
-                    .map(|s| {
-                        let dtype = match s.value_type {
-                            crate::hardware::plugin::schema::ValueType::Float => "float",
-                            crate::hardware::plugin::schema::ValueType::Int => "int",
-                            crate::hardware::plugin::schema::ValueType::String => "string",
-                            crate::hardware::plugin::schema::ValueType::Enum => "enum",
-                            crate::hardware::plugin::schema::ValueType::Bool => "bool",
-                        };
-                        ParameterDescriptor {
-                            device_id: req.device_id.clone(),
-                            name: s.name,
-                            description: String::new(), // Not in schema
-                            dtype: dtype.to_string(),
-                            units: s.unit.unwrap_or_default(),
-                            readable: s.get_cmd.is_some(),
-                            writable: true, // Always has set_cmd
-                            min_value: s.min,
-                            max_value: s.max,
-                            enum_values: s.options,
-                        }
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            }
-        };
+        let mut parameters = Vec::new();
 
-        #[cfg(not(feature = "tokio_serial"))]
-        let parameters: Vec<ParameterDescriptor> = Vec::new();
+        // 1. Get V5 parameters from Parameterized devices
+        if let Some(param_set) = registry.get_parameters(&req.device_id) {
+            for param_name in param_set.names() {
+                if let Some(param) = param_set.get(&param_name) {
+                    let metadata = param.metadata();
+
+                    // Infer dtype from current value
+                    // This is a best-effort inference since we can't introspect the generic type directly
+                    let dtype = match param.get_json() {
+                        Ok(json) => match json {
+                            serde_json::Value::Bool(_) => "bool",
+                            serde_json::Value::Number(n) if n.is_i64() || n.is_u64() => "int",
+                            serde_json::Value::Number(_) => "float",
+                            serde_json::Value::String(_) => "string",
+                            serde_json::Value::Array(_) => "array",
+                            serde_json::Value::Object(_) => "object",
+                            serde_json::Value::Null => "unknown",
+                        },
+                        Err(_) => "unknown",
+                    };
+
+                    parameters.push(ParameterDescriptor {
+                        device_id: req.device_id.clone(),
+                        name: metadata.name.clone(),
+                        description: metadata.description.clone().unwrap_or_default(),
+                        dtype: dtype.to_string(),
+                        units: metadata.units.clone().unwrap_or_default(),
+                        readable: true,
+                        writable: !metadata.read_only,
+                        min_value: None, // Not yet introspectable from V5 Parameter
+                        max_value: None, // Not yet introspectable from V5 Parameter
+                        enum_values: Vec::new(), // Not yet introspectable from V5 Parameter
+                    });
+                }
+            }
+        }
+
+        // 2. Get settable parameters for plugin devices (V4/Plugin pattern)
+        #[cfg(feature = "tokio_serial")]
+        if let Some(settables) = registry.get_settable_parameters(&req.device_id).await {
+            let plugin_params = settables.into_iter().map(|s| {
+                let dtype = match s.value_type {
+                    crate::hardware::plugin::schema::ValueType::Float => "float",
+                    crate::hardware::plugin::schema::ValueType::Int => "int",
+                    crate::hardware::plugin::schema::ValueType::String => "string",
+                    crate::hardware::plugin::schema::ValueType::Enum => "enum",
+                    crate::hardware::plugin::schema::ValueType::Bool => "bool",
+                };
+                ParameterDescriptor {
+                    device_id: req.device_id.clone(),
+                    name: s.name,
+                    description: String::new(), // Not in schema
+                    dtype: dtype.to_string(),
+                    units: s.unit.unwrap_or_default(),
+                    readable: s.get_cmd.is_some(),
+                    writable: true, // Always has set_cmd
+                    min_value: s.min,
+                    max_value: s.max,
+                    enum_values: s.options,
+                }
+            });
+
+            parameters.extend(plugin_params);
+        }
 
         Ok(Response::new(ListParametersResponse { parameters }))
     }
@@ -1941,6 +1984,29 @@ fn now_ns() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos() as u64
+}
+
+fn monitor_parameter<T: std::fmt::Display + Clone + Send + Sync + 'static>(
+    mut rx: tokio::sync::watch::Receiver<T>,
+    tx: tokio::sync::broadcast::Sender<ParameterChange>,
+    device_id: String,
+    name: String,
+) {
+    tokio::spawn(async move {
+        while rx.changed().await.is_ok() {
+            let value = rx.borrow().clone();
+            let change = ParameterChange {
+                device_id: device_id.clone(),
+                name: name.clone(),
+                old_value: String::new(),
+                new_value: value.to_string(),
+                units: String::new(),
+                timestamp_ns: now_ns(),
+                source: "hardware".to_string(),
+            };
+            let _ = tx.send(change);
+        }
+    });
 }
 
 /// Map hardware errors to canonical gRPC Status codes
@@ -2414,5 +2480,29 @@ mod tests {
         let change_data = change.unwrap().expect("stream item should be Ok");
         assert_eq!(change_data.device_id, "mock_camera");
         assert_eq!(change_data.name, "exposure");
+    }
+
+    #[tokio::test]
+    async fn test_list_parameters_v5() {
+        let registry = create_mock_registry().await.unwrap();
+        let service = HardwareServiceImpl::new(Arc::new(RwLock::new(registry)));
+
+        // List parameters for mock_stage
+        let request = Request::new(ListParametersRequest {
+            device_id: "mock_stage".to_string(),
+        });
+        let response = service.list_parameters(request).await.unwrap();
+        let parameters = response.into_inner().parameters;
+
+        // Verify "position" parameter is present
+        let position_param = parameters.iter().find(|p| p.name == "position");
+        assert!(position_param.is_some(), "position parameter not found");
+
+        let p = position_param.unwrap();
+        assert_eq!(p.device_id, "mock_stage");
+        assert_eq!(p.dtype, "float"); // inferred from f64
+        assert!(p.writable);
+        assert!(p.readable);
+        // units might differ based on mock implementation details
     }
 }

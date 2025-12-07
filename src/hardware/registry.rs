@@ -103,19 +103,23 @@ use tokio::sync::RwLock;
 /// Returns Ok(()) if configuration is valid, or an error with helpful diagnostics.
 pub fn validate_driver_config(driver: &DriverType) -> Result<()> {
     match driver {
+        #[cfg(feature = "instrument_serial")]
         DriverType::Newport1830C { port } => {
             validate_serial_port(port, "Newport 1830-C")?;
         }
 
+        #[cfg(feature = "instrument_serial")]
         DriverType::MaiTai { port } => {
             validate_serial_port(port, "MaiTai Laser")?;
         }
 
+        #[cfg(feature = "instrument_serial")]
         DriverType::Ell14 { port, address } => {
             validate_serial_port(port, "ELL14 Rotation Mount")?;
             validate_ell14_address(address)?;
         }
 
+        #[cfg(feature = "instrument_serial")]
         DriverType::Esp300 { port, axis } => {
             validate_serial_port(port, "ESP300 Motion Controller")?;
             if *axis < 1 || *axis > 3 {
@@ -153,6 +157,7 @@ pub fn validate_driver_config(driver: &DriverType) -> Result<()> {
 /// Validate that a serial port exists and is accessible
 ///
 /// Provides helpful error messages listing available ports if the requested port is not found.
+#[cfg(feature = "instrument_serial")]
 fn validate_serial_port(port: &str, device_name: &str) -> Result<()> {
     // Check if port path exists (basic check)
     let port_path = std::path::Path::new(port);
@@ -190,6 +195,14 @@ fn validate_serial_port(port: &str, device_name: &str) -> Result<()> {
         );
     }
 
+    Ok(())
+}
+
+/// Stub validator when serial support is disabled.
+#[cfg(not(feature = "instrument_serial"))]
+fn validate_serial_port(_port: &str, _device_name: &str) -> Result<()> {
+    // Serial devices are not available without the instrument_serial feature enabled.
+    // Validation is a no-op so builds without serialport dependency succeed.
     Ok(())
 }
 
@@ -260,18 +273,21 @@ pub enum Capability {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum DriverType {
     /// Newport 1830-C Optical Power Meter
+    #[cfg(feature = "instrument_serial")]
     Newport1830C {
         /// Serial port path (e.g., "/dev/ttyS0")
         port: String,
     },
 
     /// Spectra-Physics MaiTai Ti:Sapphire Laser
+    #[cfg(feature = "instrument_serial")]
     MaiTai {
         /// Serial port path (e.g., "/dev/ttyUSB5")
         port: String,
     },
 
     /// Thorlabs Elliptec ELL14 Rotation Mount
+    #[cfg(feature = "instrument_serial")]
     Ell14 {
         /// Serial port path (e.g., "/dev/ttyUSB0")
         port: String,
@@ -280,6 +296,7 @@ pub enum DriverType {
     },
 
     /// Newport ESP300 Multi-Axis Motion Controller
+    #[cfg(feature = "instrument_serial")]
     Esp300 {
         /// Serial port path (e.g., "/dev/ttyUSB1")
         port: String,
@@ -322,9 +339,13 @@ impl DriverType {
     /// Get the capabilities this driver type provides
     pub fn capabilities(&self) -> Vec<Capability> {
         match self {
+            #[cfg(feature = "instrument_serial")]
             DriverType::Newport1830C { .. } => vec![Capability::Readable],
+            #[cfg(feature = "instrument_serial")]
             DriverType::MaiTai { .. } => vec![Capability::Readable],
+            #[cfg(feature = "instrument_serial")]
             DriverType::Ell14 { .. } => vec![Capability::Movable],
+            #[cfg(feature = "instrument_serial")]
             DriverType::Esp300 { .. } => vec![Capability::Movable],
             DriverType::MockStage { .. } => vec![Capability::Movable],
             DriverType::MockPowerMeter { .. } => vec![Capability::Readable],
@@ -351,9 +372,13 @@ impl DriverType {
     /// Get human-readable driver type name
     pub fn driver_name(&self) -> &'static str {
         match self {
+            #[cfg(feature = "instrument_serial")]
             DriverType::Newport1830C { .. } => "newport_1830c",
+            #[cfg(feature = "instrument_serial")]
             DriverType::MaiTai { .. } => "maitai",
+            #[cfg(feature = "instrument_serial")]
             DriverType::Ell14 { .. } => "ell14",
+            #[cfg(feature = "instrument_serial")]
             DriverType::Esp300 { .. } => "esp300",
             DriverType::MockStage { .. } => "mock_stage",
             DriverType::MockPowerMeter { .. } => "mock_power_meter",
@@ -487,8 +512,7 @@ pub struct DeviceRegistry {
     /// Shared serial ports for ELL14 multidrop bus (interior mutability for async access)
     /// Key: port path (e.g., "/dev/ttyUSB0"), Value: shared Arc<Mutex<SerialStream>>
     #[cfg(feature = "instrument_thorlabs")]
-    ell14_shared_ports:
-        RwLock<HashMap<String, std::sync::Arc<tokio::sync::Mutex<tokio_serial::SerialStream>>>>,
+    ell14_shared_ports: RwLock<HashMap<String, crate::hardware::ell14::SharedPort>>,
 
     /// Plugin factory for loading YAML-defined drivers (tokio_serial feature only)
     #[cfg(feature = "tokio_serial")]
@@ -1015,22 +1039,25 @@ impl DeviceRegistry {
             }
 
             // Handle disabled features
-            #[cfg(not(feature = "instrument_thorlabs"))]
+            #[cfg(all(not(feature = "instrument_thorlabs"), feature = "instrument_serial"))]
             DriverType::Ell14 { .. } => Err(anyhow!(
                 "ELL14 driver requires 'instrument_thorlabs' feature"
             )),
 
-            #[cfg(not(feature = "instrument_newport_power_meter"))]
+            #[cfg(all(
+                not(feature = "instrument_newport_power_meter"),
+                feature = "instrument_serial"
+            ))]
             DriverType::Newport1830C { .. } => Err(anyhow!(
                 "Newport 1830-C driver requires 'instrument_newport_power_meter' feature"
             )),
 
-            #[cfg(not(feature = "instrument_spectra_physics"))]
+            #[cfg(all(not(feature = "instrument_spectra_physics"), feature = "instrument_serial"))]
             DriverType::MaiTai { .. } => Err(anyhow!(
                 "MaiTai driver requires 'instrument_spectra_physics' feature"
             )),
 
-            #[cfg(not(feature = "instrument_newport"))]
+            #[cfg(all(not(feature = "instrument_newport"), feature = "instrument_serial"))]
             DriverType::Esp300 { .. } => Err(anyhow!(
                 "ESP300 driver requires 'instrument_newport' feature"
             )),
@@ -1356,6 +1383,7 @@ pub async fn create_registry_from_file(path: &std::path::Path) -> Result<DeviceR
 /// - MaiTai Laser on /dev/ttyUSB5
 /// - ELL14 Rotators on /dev/ttyUSB0 (addresses 2, 3, 8)
 /// - ESP300 on /dev/ttyUSB1 (if available)
+#[cfg(feature = "instrument_serial")]
 pub async fn create_lab_registry() -> Result<DeviceRegistry> {
     let mut registry = DeviceRegistry::new();
 
@@ -1424,6 +1452,11 @@ pub async fn create_lab_registry() -> Result<DeviceRegistry> {
     }
 
     Ok(registry)
+}
+
+#[cfg(not(feature = "instrument_serial"))]
+pub async fn create_lab_registry() -> Result<DeviceRegistry> {
+    Ok(DeviceRegistry::new())
 }
 
 /// Create a DeviceRegistry with mock devices for testing

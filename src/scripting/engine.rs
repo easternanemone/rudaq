@@ -60,6 +60,10 @@ use crate::scripting::bindings;
 /// # Safety Limits
 ///
 /// This host enforces a 10,000 operation limit to prevent infinite loops.
+#[deprecated(
+    since = "0.5.0",
+    note = "Use RhaiEngine instead. See docs/guides/scripting/migration_v4_to_v5.md"
+)]
 pub struct ScriptHost {
     /// Rhai engine instance
     engine: Engine,

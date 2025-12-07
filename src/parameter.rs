@@ -19,11 +19,9 @@
 //! use futures::future::BoxFuture;
 //!
 //! // Create parameter with constraints
-//! let mut exposure = Parameter::new("exposure_ms")
-//!     .with_initial(100.0)
+//! let mut exposure = Parameter::new("exposure_ms", 100.0)
 //!     .with_range(1.0, 10000.0)
-//!     .with_unit("ms")
-//!     .build();
+//!     .with_unit("ms");
 //!
 //! // Connect to async hardware
 //! exposure.connect_to_hardware_write(|val| {
@@ -48,108 +46,14 @@
 use anyhow::Result;
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
+use std::any::Any;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::{watch, RwLock};
 
-use crate::core::ParameterBase;
+use crate::core::ParameterBase as CoreParameterBase;
 use crate::error::DaqError;
-use crate::observable::Observable;
-
-// =============================================================================
-// Constraints - DEPRECATED: Use Observable validators instead
-// =============================================================================
-
-/// Parameter constraints for validation
-///
-/// **DEPRECATED**: This enum is kept for backwards compatibility but new code
-/// should use `Observable::with_range()` or `Observable::with_validator()` directly.
-///
-/// # Migration
-///
-/// ```rust,ignore
-/// // Old:
-/// Parameter::new("x", 0.0).with_range(0.0, 100.0)
-///
-/// // New:
-/// Observable::new("x", 0.0).with_range(0.0, 100.0)
-/// ```
-#[derive(Clone, Serialize, Deserialize, Default)]
-#[deprecated(
-    since = "0.5.0",
-    note = "Use Observable::with_range() or with_validator() instead"
-)]
-pub enum Constraints<T> {
-    /// No constraints - all values accepted.
-    #[default]
-    None,
-
-    /// Numeric range constraint (inclusive bounds).
-    ///
-    /// Values must satisfy: `min <= value <= max`.
-    /// Commonly used for exposure times, positions, power levels.
-    Range {
-        /// Minimum allowed value (inclusive).
-        min: T,
-        /// Maximum allowed value (inclusive).
-        max: T,
-    },
-
-    /// Discrete choice constraint.
-    ///
-    /// Value must match one of the provided choices exactly.
-    /// Useful for enumerated settings like trigger modes or filters.
-    Choices(Vec<T>),
-
-    /// Custom validation function (not serializable).
-    ///
-    /// Provides arbitrary validation logic. Cannot be serialized,
-    /// so this variant is skipped during JSON encoding.
-    #[serde(skip)]
-    Custom(Arc<dyn Fn(&T) -> Result<()> + Send + Sync>),
-}
-
-impl<T: PartialOrd + Clone + Debug> Constraints<T> {
-    /// Validate value against constraints
-    pub fn validate(&self, value: &T) -> Result<()> {
-        match self {
-            Constraints::None => Ok(()),
-
-            Constraints::Range { min, max } => {
-                if value < min || value > max {
-                    Err(DaqError::ParameterInvalidChoice.into())
-                } else {
-                    Ok(())
-                }
-            }
-
-            Constraints::Choices(choices) => {
-                if choices.iter().any(|c| c == value) {
-                    Ok(())
-                } else {
-                    Err(DaqError::ParameterInvalidChoice.into())
-                }
-            }
-
-            Constraints::Custom(validator) => validator(value),
-        }
-    }
-}
-
-impl<T: Debug> std::fmt::Debug for Constraints<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Constraints::None => write!(f, "None"),
-            Constraints::Range { min, max } => f
-                .debug_struct("Range")
-                .field("min", min)
-                .field("max", max)
-                .finish(),
-            Constraints::Choices(choices) => f.debug_tuple("Choices").field(choices).finish(),
-            Constraints::Custom(_) => write!(f, "Custom(<function>)"),
-        }
-    }
-}
+use crate::observable::{Observable, ParameterAny, ParameterBase as ObservableParameterBase};
 
 // =============================================================================
 // Parameter<T> - Hardware-connected Observable
@@ -180,6 +84,7 @@ impl<T: Debug> std::fmt::Debug for Constraints<T> {
 /// - PartialEq: For change detection
 /// - Debug: For logging and error messages
 /// - 'static: Required for tokio::sync::watch
+#[derive(Clone)]
 pub struct Parameter<T>
 where
     T: Clone + Send + Sync + PartialEq + Debug + 'static,
@@ -437,12 +342,6 @@ where
         self.inner.metadata().read_only
     }
 
-    /// Get parameter constraints (DEPRECATED: Observable uses validators)
-    #[deprecated(since = "0.5.0", note = "Use Observable metadata instead")]
-    pub fn constraints(&self) -> Constraints<T> {
-        Constraints::None // Legacy compatibility
-    }
-
     /// Get direct access to inner Observable (for advanced use)
     pub fn inner(&self) -> &Observable<T> {
         &self.inner
@@ -453,7 +352,7 @@ where
 // ParameterBase Implementation (for dynamic collections)
 // =============================================================================
 
-impl<T> ParameterBase for Parameter<T>
+impl<T> CoreParameterBase for Parameter<T>
 where
     T: Clone + Send + Sync + PartialEq + Debug + Serialize + for<'de> Deserialize<'de> + 'static,
 {
@@ -472,6 +371,73 @@ where
 
     fn constraints_json(&self) -> serde_json::Value {
         serde_json::Value::Null // Observable uses validators, not serializable constraints
+    }
+}
+
+impl<T> ParameterAny for Parameter<T>
+where
+    T: Clone + Send + Sync + PartialEq + Debug + Serialize + for<'de> Deserialize<'de> + 'static,
+{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn type_name(&self) -> &'static str {
+        std::any::type_name::<T>()
+    }
+
+    fn value_as_f64(&self) -> Option<f64> {
+        self.as_any()
+            .downcast_ref::<Parameter<f64>>()
+            .map(|p| p.get())
+    }
+
+    fn value_as_bool(&self) -> Option<bool> {
+        self.as_any()
+            .downcast_ref::<Parameter<bool>>()
+            .map(|p| p.get())
+    }
+
+    fn value_as_string(&self) -> Option<String> {
+        self.as_any()
+            .downcast_ref::<Parameter<String>>()
+            .map(|p| p.get())
+    }
+
+    fn value_as_i64(&self) -> Option<i64> {
+        self.as_any()
+            .downcast_ref::<Parameter<i64>>()
+            .map(|p| p.get())
+    }
+}
+
+impl<T> ObservableParameterBase for Parameter<T>
+where
+    T: Clone + Send + Sync + PartialEq + Debug + Serialize + for<'de> Deserialize<'de> + 'static,
+{
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn get_json(&self) -> Result<serde_json::Value> {
+        self.inner.get_json()
+    }
+
+    fn set_json(&self, value: serde_json::Value) -> Result<()> {
+        let typed_value: T = serde_json::from_value(value)?;
+        futures::executor::block_on(self.set(typed_value))
+    }
+
+    fn metadata(&self) -> &crate::observable::ObservableMetadata {
+        self.inner.metadata()
+    }
+
+    fn has_subscribers(&self) -> bool {
+        self.inner.has_subscribers()
+    }
+
+    fn subscriber_count(&self) -> usize {
+        self.inner.subscriber_count()
     }
 }
 

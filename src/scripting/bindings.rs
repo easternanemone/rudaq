@@ -12,9 +12,10 @@
 //!
 //! # Async→Sync Bridge
 //!
-//! Uses `tokio::task::block_in_place()` to safely execute async hardware operations
-//! from synchronous Rhai scripts. This allows scripts to call `stage.move_abs(10.0)`
-//! without dealing with async/await.
+//! Uses a guarded `block_in_place` helper that only runs on Tokio's multi-thread
+//! scheduler (current-thread would deadlock). This allows scripts to call
+//! `stage.move_abs(10.0)` without dealing with async/await while keeping runtime
+//! safety explicit.
 //!
 //! # Example Usage
 //!
@@ -37,12 +38,49 @@
 use chrono::Utc;
 use rhai::{Dynamic, Engine, EvalAltResult, Position};
 use std::sync::Arc;
-use tokio::runtime::Handle;
+use std::time::Duration;
+use tokio::runtime::{Handle, RuntimeFlavor};
 use tokio::sync::broadcast;
 use tokio::task::block_in_place;
 
 use crate::core::Measurement;
 use crate::hardware::capabilities::{Camera, Movable};
+
+// Helper to execute async hardware calls from synchronous Rhai functions without
+// risking deadlock on a current-thread runtime. Returns a Rhai-compatible error
+// with a clear message when the runtime flavor is unsupported.
+fn run_blocking<Fut, T, E>(label: &str, fut: Fut) -> Result<T, Box<EvalAltResult>>
+where
+    Fut: std::future::Future<Output = Result<T, E>> + Send,
+    T: Send,
+    E: std::fmt::Display,
+{
+    let handle = Handle::try_current().map_err(|e| {
+        Box::new(EvalAltResult::ErrorRuntime(
+            format!("{}: missing Tokio runtime ({})", label, e).into(),
+            Position::NONE,
+        ))
+    })?;
+
+    if handle.runtime_flavor() == RuntimeFlavor::CurrentThread {
+        return Err(Box::new(EvalAltResult::ErrorRuntime(
+            format!(
+                "{}: Tokio current-thread runtime cannot run blocking hardware calls. \
+                 Use the multi-thread runtime (#[tokio::main(flavor = \"multi_thread\")]).",
+                label
+            )
+            .into(),
+            Position::NONE,
+        )));
+    }
+
+    block_in_place(|| handle.block_on(fut)).map_err(|e| {
+        Box::new(EvalAltResult::ErrorRuntime(
+            format!("{}: {}", label, e).into(),
+            Position::NONE,
+        ))
+    })
+}
 
 // =============================================================================
 // Handle Types - Rhai-Compatible Wrappers
@@ -129,14 +167,7 @@ pub fn register_hardware(engine: &mut Engine) {
     engine.register_fn(
         "move_abs",
         move |stage: &mut StageHandle, pos: f64| -> Result<Dynamic, Box<EvalAltResult>> {
-            block_in_place(|| Handle::current().block_on(stage.driver.move_abs(pos))).map_err(
-                |e| {
-                    Box::new(EvalAltResult::ErrorRuntime(
-                        format!("Stage move_abs failed: {}", e).into(),
-                        Position::NONE,
-                    ))
-                },
-            )?;
+            run_blocking("Stage move_abs", stage.driver.move_abs(pos))?;
 
             // Send measurement to broadcast channel if sender available
             if let Some(ref tx) = stage.data_tx {
@@ -159,14 +190,7 @@ pub fn register_hardware(engine: &mut Engine) {
     engine.register_fn(
         "move_rel",
         move |stage: &mut StageHandle, dist: f64| -> Result<Dynamic, Box<EvalAltResult>> {
-            block_in_place(|| Handle::current().block_on(stage.driver.move_rel(dist))).map_err(
-                |e| {
-                    Box::new(EvalAltResult::ErrorRuntime(
-                        format!("Stage move_rel failed: {}", e).into(),
-                        Position::NONE,
-                    ))
-                },
-            )?;
+            run_blocking("Stage move_rel", stage.driver.move_rel(dist))?;
             Ok(Dynamic::UNIT)
         },
     );
@@ -175,12 +199,7 @@ pub fn register_hardware(engine: &mut Engine) {
     engine.register_fn(
         "position",
         move |stage: &mut StageHandle| -> Result<f64, Box<EvalAltResult>> {
-            block_in_place(|| Handle::current().block_on(stage.driver.position())).map_err(|e| {
-                Box::new(EvalAltResult::ErrorRuntime(
-                    format!("Stage position query failed: {}", e).into(),
-                    Position::NONE,
-                ))
-            })
+            run_blocking("Stage position", stage.driver.position())
         },
     );
 
@@ -188,14 +207,7 @@ pub fn register_hardware(engine: &mut Engine) {
     engine.register_fn(
         "wait_settled",
         move |stage: &mut StageHandle| -> Result<Dynamic, Box<EvalAltResult>> {
-            block_in_place(|| Handle::current().block_on(stage.driver.wait_settled())).map_err(
-                |e| {
-                    Box::new(EvalAltResult::ErrorRuntime(
-                        format!("Stage wait_settled failed: {}", e).into(),
-                        Position::NONE,
-                    ))
-                },
-            )?;
+            run_blocking("Stage wait_settled", stage.driver.wait_settled())?;
             Ok(Dynamic::UNIT)
         },
     );
@@ -208,12 +220,7 @@ pub fn register_hardware(engine: &mut Engine) {
     engine.register_fn(
         "arm",
         move |camera: &mut CameraHandle| -> Result<Dynamic, Box<EvalAltResult>> {
-            block_in_place(|| Handle::current().block_on(camera.driver.arm())).map_err(|e| {
-                Box::new(EvalAltResult::ErrorRuntime(
-                    format!("Camera arm failed: {}", e).into(),
-                    Position::NONE,
-                ))
-            })?;
+            run_blocking("Camera arm", camera.driver.arm())?;
             Ok(Dynamic::UNIT)
         },
     );
@@ -222,14 +229,7 @@ pub fn register_hardware(engine: &mut Engine) {
     engine.register_fn(
         "trigger",
         move |camera: &mut CameraHandle| -> Result<Dynamic, Box<EvalAltResult>> {
-            block_in_place(|| Handle::current().block_on(camera.driver.trigger())).map_err(
-                |e| {
-                    Box::new(EvalAltResult::ErrorRuntime(
-                        format!("Camera trigger failed: {}", e).into(),
-                        Position::NONE,
-                    ))
-                },
-            )?;
+            run_blocking("Camera trigger", camera.driver.trigger())?;
 
             // Send measurement to broadcast channel if sender available
             if let Some(ref tx) = camera.data_tx {
@@ -261,11 +261,20 @@ pub fn register_hardware(engine: &mut Engine) {
     // Utility Functions
     // =========================================================================
 
-    // sleep(0.5) - Sleep for seconds (uses std::thread::sleep, safe in Rhai context)
+    // sleep(0.5) - Async-aware sleep using Tokio (avoids blocking the runtime)
     engine.register_fn("sleep", |seconds: f64| {
-        use std::thread;
-        use std::time::Duration;
-        thread::sleep(Duration::from_secs_f64(seconds));
+        if let Ok(handle) = Handle::try_current() {
+            if handle.runtime_flavor() == RuntimeFlavor::CurrentThread {
+                // Avoid deadlock: fall back to std::thread::sleep on current-thread runtime
+                std::thread::sleep(Duration::from_secs_f64(seconds));
+                return;
+            }
+
+            let _ = block_in_place(|| handle.block_on(tokio::time::sleep(Duration::from_secs_f64(seconds))));
+        } else {
+            // No runtime available; use blocking sleep as a safe fallback
+            std::thread::sleep(Duration::from_secs_f64(seconds));
+        }
     });
 
     // =========================================================================
@@ -405,13 +414,20 @@ mod tests {
         assert_eq!(result, 1920);
     }
 
-    #[test]
-    fn test_sleep_function() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_sleep_function() {
         let mut engine = Engine::new();
         register_hardware(&mut engine);
 
         let start = std::time::Instant::now();
+        // We need to run this in a spawn_blocking or similar if calling from async test directly,
+        // but rhai_fn is registered with block_in_place.
+        // However, calling engine.eval from async context is tricky if the fn calls block_in_place.
+        // Actually, block_in_place works inside a multithreaded runtime.
+
+        // Note: engine.eval is synchronous.
         engine.eval::<()>("sleep(0.1)").unwrap();
+
         let elapsed = start.elapsed();
 
         // Should sleep for ~100ms (allow some tolerance)

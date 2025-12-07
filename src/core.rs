@@ -52,6 +52,7 @@ use tokio::task::JoinHandle;
 /// * `value` - Measured value (all measurements normalized to f64)
 /// * `unit` - Physical unit (SI notation recommended)
 /// * `metadata` - Optional instrument-specific metadata (JSON)
+#[deprecated(since = "0.5.0", note = "Use Measurement enum instead")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DataPoint {
     /// UTC timestamp with nanosecond precision

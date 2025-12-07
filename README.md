@@ -181,10 +181,38 @@ writer.start_background_flush(Duration::from_secs(1));
 
 ## Documentation
 
+### Guides & References
+
 - [Architecture Overview](./docs/architecture/)
 - [CLI Guide](./docs/guides/cli_guide.md)
 - [PVCAM Operator Guide](./docs/instruments/PVCAM_OPERATOR_GUIDE.md)
 - [Morph Integration](./docs/MORPH_INTEGRATION.md)
+- [Hybrid Search Setup](./docs/HYBRID_SEARCH_SETUP.md)
+
+### Documentation Search (CocoIndex)
+
+The repository includes **semantic search** over all documentation using CocoIndex. Search 55 indexed markdown files by natural language queries to quickly find architecture decisions, design patterns, and implementation guides.
+
+**Quick Search:**
+```bash
+# Search documentation (auto-detects best search mode)
+python scripts/search_hybrid.py --query "V5 parameter reactive system"
+
+# Direct Python search
+python -c "from cocoindex_flows.comprehensive_docs_index import search_docs; \
+    print(search_docs('async hardware callbacks'))"
+```
+
+**Indexed Content:**
+- Architecture decisions (ADRs)
+- Implementation guides (driver development, scripting)
+- Hardware protocols (MaiTai, PVCAM, Elliptec)
+- API references (gRPC, Python client)
+- Project management (issue tracking, deployment)
+
+**Categories:** architecture, guides, reference, instruments, getting_started, tools, examples
+
+See [CLAUDE.md](./CLAUDE.md#documentation-search--knowledge-base) for detailed usage.
 
 ## Project Status
 

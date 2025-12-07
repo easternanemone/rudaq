@@ -31,17 +31,26 @@
 //! }
 //! ```
 
+use crate::error::DaqError;
 use crate::error_recovery::RetryPolicy;
 use crate::hardware::capabilities::{Movable, Parameterized};
 use crate::observable::ParameterSet;
+use crate::parameter::Parameter;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
+use futures::future::BoxFuture;
 use std::future::Future;
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
 use tokio::task::spawn_blocking;
-use tokio_serial::{SerialPortBuilderExt, SerialStream};
+use tokio_serial::SerialPortBuilderExt;
+
+pub trait SerialPortIO: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> SerialPortIO for T {}
+type DynSerial = Box<dyn SerialPortIO>;
+type SharedPort = Arc<Mutex<BufReader<DynSerial>>>;
 
 /// Driver for Newport ESP300 Universal Motion Controller
 ///
@@ -49,11 +58,13 @@ use tokio_serial::{SerialPortBuilderExt, SerialStream};
 /// a separate driver instance.
 pub struct Esp300Driver {
     /// Serial port protected by Mutex for exclusive access
-    port: Mutex<BufReader<SerialStream>>,
+    port: SharedPort,
     /// Axis number (1-3)
     axis: u8,
     /// Command timeout duration
     timeout: Duration,
+    /// Stage position parameter (mm)
+    position_mm: Parameter<f64>,
     /// Parameter registry
     params: ParameterSet,
 }
@@ -116,12 +127,10 @@ impl Esp300Driver {
             .open_native_async()
             .context(format!("Failed to open ESP300 serial port: {}", port_path))?;
 
-        Ok(Self {
-            port: Mutex::new(BufReader::new(port)),
+        Ok(Self::build(
+            Arc::new(Mutex::new(BufReader::new(Box::new(port)))),
             axis,
-            timeout: Duration::from_secs(5),
-            params: ParameterSet::new(),
-        })
+        ))
     }
 
     /// Create a new ESP300 driver instance asynchronously
@@ -155,12 +164,53 @@ impl Esp300Driver {
         .await
         .context("spawn_blocking for ESP300 port opening failed")??;
 
-        Ok(Self {
-            port: Mutex::new(BufReader::new(port)),
+        Ok(Self::build(
+            Arc::new(Mutex::new(BufReader::new(Box::new(port)))),
+            axis,
+        ))
+    }
+
+    fn build(port: SharedPort, axis: u8) -> Self {
+        let mut params = ParameterSet::new();
+
+        let mut position = Parameter::new("position", 0.0)
+            .with_description("Stage position")
+            .with_unit("mm");
+
+        position.connect_to_hardware_write({
+            let port = port.clone();
+            move |position: f64| -> BoxFuture<'static, Result<(), DaqError>> {
+                let port = port.clone();
+                Box::pin(async move {
+                    let mut port = port.lock().await;
+                    let cmd = format!("{}PA{:.6}\r\n", axis, position);
+                    port.get_mut()
+                        .write_all(cmd.as_bytes())
+                        .await
+                        .context("ESP300 position write failed")
+                        .map_err(|e| DaqError::Instrument(e.to_string()))?;
+
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+
+                    Ok(())
+                })
+            }
+        });
+
+        params.register(position.clone());
+
+        Self {
+            port,
             axis,
             timeout: Duration::from_secs(5),
-            params: ParameterSet::new(),
-        })
+            position_mm: position,
+            params,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_test_port(port: SharedPort, axis: u8) -> Self {
+        Self::build(port, axis)
     }
 
     /// Set velocity for this axis
@@ -283,9 +333,7 @@ impl Parameterized for Esp300Driver {
 #[async_trait]
 impl Movable for Esp300Driver {
     async fn move_abs(&self, position: f64) -> Result<()> {
-        // PA command: Position Absolute
-        self.send_command(&format!("{}PA{:.6}", self.axis, position))
-            .await
+        self.position_mm.set(position).await
     }
 
     async fn move_rel(&self, distance: f64) -> Result<()> {
@@ -297,10 +345,14 @@ impl Movable for Esp300Driver {
     async fn position(&self) -> Result<f64> {
         // TP command: Tell Position
         let response = self.query(&format!("{}TP?", self.axis)).await?;
-        response
+        let pos = response
             .trim()
             .parse::<f64>()
-            .context("Failed to parse position")
+            .context("Failed to parse position")?;
+
+        let _ = self.position_mm.inner().set(pos);
+
+        Ok(pos)
     }
 
     async fn wait_settled(&self) -> Result<()> {
@@ -331,6 +383,7 @@ impl Movable for Esp300Driver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::AsyncReadExt;
 
     #[test]
     fn test_axis_validation() {
@@ -348,5 +401,23 @@ mod tests {
         // Invalid axes should fail validation before port opening
         assert!(Esp300Driver::new("/dev/null", 0).is_err());
         assert!(Esp300Driver::new("/dev/null", 4).is_err());
+    }
+
+    #[tokio::test]
+    async fn move_abs_uses_parameter_and_writes_command() -> Result<()> {
+        let (mut host, device) = tokio::io::duplex(64);
+        let port: SharedPort = Arc::new(Mutex::new(BufReader::new(Box::new(device))));
+
+        let driver = Esp300Driver::with_test_port(port, 1);
+
+        driver.move_abs(12.5).await?;
+
+        let mut buf = vec![0u8; 64];
+        let n = host.read(&mut buf).await?;
+        let sent = String::from_utf8_lossy(&buf[..n]);
+
+        assert!(sent.contains("1PA12.500000\r\n"));
+
+        Ok(())
     }
 }

@@ -29,6 +29,17 @@ async function main() {
     process.exit(1);
   }
 
+  // Get GitHub token from gh CLI for HTTPS authentication
+  let ghToken: string;
+  try {
+    ghToken = execSync('gh auth token', { encoding: 'utf-8' }).trim();
+    console.log('✓ Retrieved GitHub token from gh CLI\n');
+  } catch (error) {
+    console.error('Error: Could not get GitHub token from gh CLI');
+    console.error('Please run: gh auth login');
+    process.exit(1);
+  }
+
   console.log('🚀 Setting up Morph Repo Storage for rust-daq...\n');
 
   const morph = new MorphClient({ apiKey });
@@ -60,9 +71,14 @@ async function main() {
 
     // Stage and push to trigger indexing
     console.log('3. Pushing to Morph for indexing...');
+    console.log('   (Pushing to GitHub origin with HTTPS authentication)\n');
     await morph.git.push({
       dir: REPO_DIR,
       branch,
+      onAuth: () => ({ 
+        username: 'x-access-token',
+        password: ghToken 
+      }),
     });
     console.log('   ✓ Push complete, indexing started\n');
 

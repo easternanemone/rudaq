@@ -631,3 +631,121 @@ class AsyncClient:
 
         except grpc.RpcError as e:
             raise translate_grpc_error(e, "Device state streaming failed")
+
+    # =========================================================================
+    # Hardware Service Methods - Frame Streaming
+    # =========================================================================
+
+    async def stream_frames(
+        self,
+        device_id: str,
+        include_pixel_data: bool = True,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """
+        Stream camera frames in real-time.
+
+        Args:
+            device_id: Camera device ID
+            include_pixel_data: Whether to include raw pixel bytes (can be large)
+
+        Yields:
+            Dictionary with frame data:
+                - device_id: Camera device ID
+                - frame_number: Sequential frame number
+                - width: Frame width in pixels
+                - height: Frame height in pixels
+                - timestamp_ns: Frame timestamp in nanoseconds
+                - pixel_data: Raw pixel bytes (if include_pixel_data=True)
+                - pixel_format: Pixel format string (e.g., "u16_le", "u8")
+
+        Raises:
+            CommunicationError: If streaming fails
+            DeviceError: If device not found or not a camera
+
+        Example:
+            async with AsyncClient() as client:
+                async for frame in client.stream_frames("camera_0"):
+                    print(f"Frame {frame['frame_number']}: {frame['width']}x{frame['height']}")
+        """
+        from .generated import daq_pb2
+
+        self._ensure_connected()
+
+        try:
+            request = daq_pb2.StreamFramesRequest(
+                device_id=device_id,
+                include_pixel_data=include_pixel_data,
+            )
+
+            async for frame in self._hardware_stub.StreamFrames(
+                request, timeout=None  # No timeout for streaming
+            ):
+                yield {
+                    "device_id": frame.device_id,
+                    "frame_number": frame.frame_number,
+                    "width": frame.width,
+                    "height": frame.height,
+                    "timestamp_ns": frame.timestamp_ns,
+                    "pixel_data": frame.pixel_data if include_pixel_data else None,
+                    "pixel_format": frame.pixel_format,
+                }
+
+        except grpc.RpcError as e:
+            raise translate_grpc_error(e, f"Frame streaming failed for {device_id}")
+
+    # =========================================================================
+    # Hardware Service Methods - Parameter Change Streaming
+    # =========================================================================
+
+    async def stream_parameter_changes(
+        self,
+        device_id: Optional[str] = None,
+        parameter_names: Optional[List[str]] = None,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """
+        Stream parameter changes in real-time.
+
+        Args:
+            device_id: Filter by device ID (None = all devices)
+            parameter_names: Filter by parameter names (None = all parameters)
+
+        Yields:
+            Dictionary with parameter change:
+                - device_id: Device ID
+                - name: Parameter name
+                - old_value: Previous value (as string)
+                - new_value: New value (as string)
+                - units: Parameter units
+
+        Raises:
+            CommunicationError: If streaming fails
+
+        Example:
+            async with AsyncClient() as client:
+                async for change in client.stream_parameter_changes("laser"):
+                    print(f"{change['name']}: {change['old_value']} -> {change['new_value']}")
+        """
+        from .generated import daq_pb2
+
+        self._ensure_connected()
+
+        try:
+            request = daq_pb2.StreamParameterChangesRequest()
+            if device_id:
+                request.device_id = device_id
+            if parameter_names:
+                request.parameter_names.extend(parameter_names)
+
+            async for change in self._hardware_stub.StreamParameterChanges(
+                request, timeout=None  # No timeout for streaming
+            ):
+                yield {
+                    "device_id": change.device_id,
+                    "name": change.name,
+                    "old_value": change.old_value,
+                    "new_value": change.new_value,
+                    "units": change.units,
+                }
+
+        except grpc.RpcError as e:
+            raise translate_grpc_error(e, "Parameter change streaming failed")

@@ -1,4 +1,5 @@
 pub mod hardware_service;
+pub mod health_service;
 pub mod module_service;
 pub mod plugin_service;
 pub mod preset_service;
@@ -45,9 +46,14 @@ pub mod proto {
     //! - Request/Response message types for all RPC methods
 
     tonic::include_proto!("daq");
+
+    pub mod health {
+        tonic::include_proto!("grpc.health.v1");
+    }
 }
 
 pub use hardware_service::HardwareServiceImpl;
+pub use health_service::HealthServiceImpl;
 pub use module_service::ModuleServiceImpl;
 pub use plugin_service::PluginServiceImpl;
 pub use preset_service::{default_preset_storage_path, PresetServiceImpl};

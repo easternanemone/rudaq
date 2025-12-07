@@ -50,7 +50,8 @@ async function main() {
 
   console.log(`📤 Pushing to Morph...`);
   console.log(`   Branch: ${branch}`);
-  console.log(`   Commit: ${commitHash} - ${commitMsg}\n`);
+  console.log(`   Commit: ${commitHash} - ${commitMsg}`);
+  console.log(`   (Morph handles Azure DevOps authentication automatically)\n`);
 
   const morph = new MorphClient({ apiKey });
 

@@ -11,11 +11,11 @@
 //! cargo run --features networking --bin rust_daq_gui_egui
 //! ```
 
-#![cfg(feature = "networking")]
+#![cfg(all(feature = "networking", feature = "gui_egui"))]
 
-use eframe::{egui, epi};
+use eframe::{egui, App, Frame};
 use rust_daq::grpc::{
-    HardwareServiceClient, ListDevicesRequest, ReadValueRequest, DeviceInfo as ProtoDeviceInfo,
+    DeviceInfo as ProtoDeviceInfo, HardwareServiceClient, ListDevicesRequest, ReadValueRequest,
 };
 use std::time::Instant;
 use tonic::transport::Channel;
@@ -81,18 +81,13 @@ impl DaqGuiApp {
         Ok(())
     }
 
-    async fn read_once_async(
-        &mut self,
-        device_index: usize,
-    ) -> anyhow::Result<()> {
+    async fn read_once_async(&mut self, device_index: usize) -> anyhow::Result<()> {
         if device_index >= self.devices.len() {
             return Ok(());
         }
         let device_id = self.devices[device_index].id.clone();
         let mut client = self.make_client().await?;
-        let response = client
-            .read_value(ReadValueRequest { device_id })
-            .await?;
+        let response = client.read_value(ReadValueRequest { device_id }).await?;
         let body = response.into_inner();
 
         if device_index < self.devices.len() {
@@ -111,12 +106,12 @@ impl DaqGuiApp {
     }
 }
 
-impl epi::App for DaqGuiApp {
+impl App for DaqGuiApp {
     fn name(&self) -> &str {
         "rust-daq egui GUI"
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut epi::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.heading("rust-daq egui GUI");
             ui.horizontal(|ui| {
@@ -129,8 +124,7 @@ impl epi::App for DaqGuiApp {
                         if let Err(e) = clone.refresh_devices_async().await {
                             clone.status_line = format!("Refresh failed: {e}");
                         } else {
-                            clone.status_line =
-                                format!("Loaded {} devices", clone.devices.len());
+                            clone.status_line = format!("Loaded {} devices", clone.devices.len());
                         }
                         ctx.request_repaint();
                     });
@@ -146,40 +140,38 @@ impl epi::App for DaqGuiApp {
             }
 
             egui::ScrollArea::vertical().show(ui, |ui| {
-                egui::Grid::new("device_grid")
-                    .striped(true)
-                    .show(ui, |ui| {
-                        ui.heading("ID");
-                        ui.heading("Name");
-                        ui.heading("Driver");
-                        ui.heading("Last value");
-                        ui.heading("");
-                        ui.end_row();
+                egui::Grid::new("device_grid").striped(true).show(ui, |ui| {
+                    ui.heading("ID");
+                    ui.heading("Name");
+                    ui.heading("Driver");
+                    ui.heading("Last value");
+                    ui.heading("");
+                    ui.end_row();
 
-                        for (idx, row) in self.devices.iter_mut().enumerate() {
-                            ui.label(&row.id);
-                            ui.label(&row.name);
-                            ui.label(&row.driver_type);
+                    for (idx, row) in self.devices.iter_mut().enumerate() {
+                        ui.label(&row.id);
+                        ui.label(&row.name);
+                        ui.label(&row.driver_type);
 
-                            if let Some(v) = row.last_value {
-                                ui.label(format!("{v:.4} {}", row.last_units));
-                            } else if let Some(err) = &row.error {
-                                ui.colored_label(egui::Color32::RED, err);
-                            } else {
-                                ui.label("-");
-                            }
-
-                            if ui.button("Read").clicked() {
-                                let mut clone = self.clone_for_task();
-                                egui::Context::spawn(ctx.clone(), async move {
-                                    let _ = clone.read_once_async(idx).await;
-                                    ctx.request_repaint();
-                                });
-                            }
-
-                            ui.end_row();
+                        if let Some(v) = row.last_value {
+                            ui.label(format!("{v:.4} {}", row.last_units));
+                        } else if let Some(err) = &row.error {
+                            ui.colored_label(egui::Color32::RED, err);
+                        } else {
+                            ui.label("-");
                         }
-                    });
+
+                        if ui.button("Read").clicked() {
+                            let mut clone = self.clone_for_task();
+                            egui::Context::spawn(ctx.clone(), async move {
+                                let _ = clone.read_once_async(idx).await;
+                                ctx.request_repaint();
+                            });
+                        }
+
+                        ui.end_row();
+                    }
+                });
             });
         });
     }
@@ -207,5 +199,3 @@ pub fn main() -> eframe::Result<()> {
         Box::new(|_cc| Box::new(DaqGuiApp::new())),
     )
 }
-
-

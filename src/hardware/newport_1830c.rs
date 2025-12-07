@@ -44,15 +44,24 @@
 //! }
 //! ```
 
+use crate::error::DaqError;
 use crate::hardware::capabilities::{Parameterized, Readable, WavelengthTunable};
 use crate::observable::ParameterSet;
+use crate::parameter::Parameter;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
+use futures::future::BoxFuture;
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
 use tokio::task::spawn_blocking;
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
+
+pub trait SerialPortIO: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> SerialPortIO for T {}
+type DynSerial = Box<dyn SerialPortIO>;
+type SharedPort = Arc<Mutex<BufReader<DynSerial>>>;
 
 /// Driver for Newport 1830-C optical power meter
 ///
@@ -60,9 +69,11 @@ use tokio_serial::{SerialPortBuilderExt, SerialStream};
 /// Uses Newport's simple ASCII protocol (not SCPI).
 pub struct Newport1830CDriver {
     /// Serial port protected by Mutex for exclusive access
-    port: Mutex<BufReader<SerialStream>>,
+    port: SharedPort,
     /// Command timeout duration
     timeout: Duration,
+    /// Wavelength parameter (nm)
+    wavelength_nm: Parameter<f64>,
     /// Parameter registry
     params: ParameterSet,
 }
@@ -89,11 +100,51 @@ impl Newport1830CDriver {
                 port_path
             ))?;
 
-        Ok(Self {
-            port: Mutex::new(BufReader::new(port)),
+        Ok(Self::build(Arc::new(Mutex::new(BufReader::new(Box::new(
+            port,
+        ))))))
+    }
+
+    fn build(port: SharedPort) -> Self {
+        let mut params = ParameterSet::new();
+        let mut wavelength_nm = Parameter::new("wavelength_nm", 800.0)
+            .with_description("Detector calibration wavelength")
+            .with_unit("nm")
+            .with_range(300.0, 1100.0);
+
+        wavelength_nm.connect_to_hardware_write({
+            let port = port.clone();
+            move |wavelength: f64| -> BoxFuture<'static, Result<(), DaqError>> {
+                let port = port.clone();
+                Box::pin(async move {
+                    let nm = wavelength.round() as u16;
+                    let cmd = format!("W{:04}\n", nm);
+                    let mut guard = port.lock().await;
+                    guard
+                        .get_mut()
+                        .write_all(cmd.as_bytes())
+                        .await
+                        .context("Failed to write wavelength command")
+                        .map_err(|e| DaqError::Instrument(e.to_string()))?;
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    Ok(())
+                })
+            }
+        });
+
+        params.register(wavelength_nm.clone());
+
+        Self {
+            port,
             timeout: Duration::from_millis(500),
-            params: ParameterSet::new(),
-        })
+            wavelength_nm,
+            params,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_test_port(port: SharedPort) -> Self {
+        Self::build(port)
     }
 
     /// Set attenuator state
@@ -154,13 +205,7 @@ impl Newport1830CDriver {
     /// # Command Format
     /// Sends `Wxxxx` where xxxx is the 4-digit wavelength (e.g., W0800 for 800nm)
     pub async fn set_wavelength_nm(&self, wavelength_nm: f64) -> Result<()> {
-        let nm = wavelength_nm.round() as u16;
-        if !(300..=1100).contains(&nm) {
-            return Err(anyhow!("Wavelength {} nm out of range (300-1100 nm)", nm));
-        }
-
-        // Format as 4-digit zero-padded wavelength
-        self.send_config_command(&format!("W{:04}", nm)).await
+        self.wavelength_nm.set(wavelength_nm).await
     }
 
     /// Query range setting
@@ -314,6 +359,7 @@ impl WavelengthTunable for Newport1830CDriver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::AsyncReadExt;
 
     #[test]
     fn test_parse_power_response() {
@@ -405,5 +451,23 @@ mod tests {
                 error_response
             );
         }
+    }
+
+    #[tokio::test]
+    async fn wavelength_parameter_writes_command() -> Result<()> {
+        let (mut host, device) = tokio::io::duplex(32);
+        let port: SharedPort = Arc::new(Mutex::new(BufReader::new(Box::new(device))));
+
+        let driver = Newport1830CDriver::with_test_port(port);
+
+        driver.set_wavelength_nm(800.0).await?;
+
+        let mut buf = vec![0u8; 16];
+        let n = host.read(&mut buf).await?;
+        let sent = String::from_utf8_lossy(&buf[..n]);
+
+        assert!(sent.contains("W0800"));
+
+        Ok(())
     }
 }

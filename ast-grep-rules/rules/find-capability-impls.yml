@@ -1,0 +1,38 @@
+# Find implementations of hardware capability traits
+# Useful for discovering which hardware supports which capabilities
+
+id: find-capability-implementations
+language: Rust
+severity: info
+message: Hardware capability implementation
+note: |
+  This finds all implementations of capability traits (Movable, Readable, etc.)
+  Useful for AI agents to discover hardware capabilities.
+
+rule:
+  pattern: |
+    impl $TRAIT for $TYPE {
+      $$$
+    }
+
+constraints:
+  TRAIT:
+    any:
+      - pattern: Movable
+      - pattern: Readable
+      - pattern: FrameProducer
+      - pattern: ExposureControl
+      - pattern: Triggerable
+      - pattern: Parameterized
+
+labels:
+  - label: capability trait
+    source: $TRAIT
+  - label: hardware type
+    source: $TYPE
+
+files:
+  - 'src/hardware/**/*.rs'
+ignores:
+  - '**/*test*.rs'
+  - '**/mock_*.rs'

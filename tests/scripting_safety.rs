@@ -1,18 +1,18 @@
-use rust_daq::scripting::ScriptHost;
-use tokio::runtime::Handle;
+use rust_daq::scripting::{RhaiEngine, ScriptEngine};
 
 #[tokio::test]
 async fn test_simple_script() {
-    let host = ScriptHost::new(Handle::current());
-    let result = host.run_script("5 + 5").unwrap();
-    assert_eq!(result.as_int().unwrap(), 10);
+    let mut engine = RhaiEngine::new().unwrap();
+    let result = engine.execute_script("5 + 5").await.unwrap();
+    // ScriptValue downcast to i64
+    assert_eq!(result.downcast::<i64>().unwrap(), 10);
 }
 
 #[tokio::test]
 async fn test_safety_limit() {
-    let host = ScriptHost::new(Handle::current());
+    let mut engine = RhaiEngine::new().unwrap();
     let infinite_loop = "loop { }";
-    let result = host.run_script(infinite_loop);
+    let result = engine.execute_script(infinite_loop).await;
 
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
@@ -22,11 +22,11 @@ async fn test_safety_limit() {
 
 #[tokio::test]
 async fn test_script_validation() {
-    let host = ScriptHost::new(Handle::current());
+    let engine = RhaiEngine::new().unwrap();
 
     // Valid script
-    assert!(host.validate_script("let x = 10;").is_ok());
+    assert!(engine.validate_script("let x = 10;").await.is_ok());
 
     // Invalid syntax
-    assert!(host.validate_script("let x = ;").is_err());
+    assert!(engine.validate_script("let x = ;").await.is_err());
 }

@@ -583,7 +583,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_with_hardware_constructor() {
         use crate::hardware::mock::MockStage;
         use crate::scripting::{ScriptEngine, ScriptValue, StageHandle};

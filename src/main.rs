@@ -211,10 +211,23 @@ async fn start_daemon(
     hardware_config: Option<PathBuf>,
     lab_hardware: bool,
 ) -> Result<()> {
+    use rust_daq::health::sys_monitor::SystemMetricsCollector;
+    use rust_daq::health::{HealthMonitorConfig, SystemHealthMonitor};
+
     println!("🌐 Starting Headless DAQ Daemon");
     println!("   Architecture: V5 (Headless-First + Scriptable)");
     println!("   gRPC Port: {}", port);
     println!();
+
+    // Phase 5: Health Monitoring (bd-3ti1)
+    println!("❤️  Initializing health monitoring...");
+    let health_monitor = Arc::new(SystemHealthMonitor::new(HealthMonitorConfig::default()));
+
+    // Start system metrics collection
+    let metrics_collector = SystemMetricsCollector::new(health_monitor.clone());
+    tokio::spawn(async move {
+        metrics_collector.run().await;
+    });
 
     // Phase 4: Data Plane - Ring Buffer + HDF5 Writer (optional)
     #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
@@ -287,6 +300,23 @@ async fn start_daemon(
 
         let registry = Arc::new(RwLock::new(registry));
 
+        // Start registry monitoring
+        let mon_registry = registry.clone();
+        let mon_health = health_monitor.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+            loop {
+                interval.tick().await;
+                let count = mon_registry.read().await.len();
+                mon_health
+                    .heartbeat_with_message(
+                        "hardware_registry",
+                        Some(format!("Managing {} devices", count)),
+                    )
+                    .await;
+            }
+        });
+
         println!("✅ gRPC server ready");
         println!("   Listening on: {}", addr);
         println!("   Features:");
@@ -295,6 +325,7 @@ async fn start_daemon(
         println!("     - Module system (ModuleService)");
         println!("     - Coordinated scans (ScanService)");
         println!("     - Preset save/load (PresetService)");
+        println!("     - System Health Monitoring (HealthService)");
         println!();
         println!("📡 Daemon running - Press Ctrl+C to stop");
         println!();
@@ -309,7 +340,7 @@ async fn start_daemon(
 
         // Race server against shutdown signal
         tokio::select! {
-            result = start_server_with_hardware(addr, registry) => {
+            result = start_server_with_hardware(addr, registry, health_monitor) => {
                 if let Err(e) = result {
                     eprintln!("❌ gRPC server error: {}", e);
                 }

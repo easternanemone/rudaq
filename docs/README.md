@@ -53,7 +53,11 @@ Practical how-to guides for users and developers.
 
 ### 📖 [Reference](./reference/)
 Technical reference material.
-- [Instruments](./reference/instruments/): Manuals, findings, and protocol details for specific hardware.
+- **API Documentation**:
+  - [gRPC API Reference](./reference/grpc_api.md): Complete gRPC service and message documentation.
+  - [Python Client API](./reference/python/rust_daq.html): Auto-generated Python API docs (pdoc).
+- **Instruments**:
+  - [Instruments](./reference/instruments/): Manuals, findings, and protocol details for specific hardware.
   - [PVCAM Validation Checklist](./reference/instruments/PVCAM_VALIDATION_CHECKLIST.md): Prime BSI camera testing.
   - [PVCAM Hardware Validation](./reference/instruments/PVCAM_HARDWARE_VALIDATION.md): SDK installation and validation.
   - [PVCAM Operator Guide](./reference/instruments/PVCAM_OPERATOR_GUIDE.md): Operating the Prime BSI camera.

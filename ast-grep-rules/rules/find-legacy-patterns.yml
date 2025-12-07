@@ -1,0 +1,52 @@
+# Find legacy V1/V2/V3/V4 code patterns
+# Supports the cleanup epic bd-ou6y
+
+id: find-legacy-patterns
+language: Rust
+severity: info
+message: Legacy code pattern detected
+note: |
+  This code uses patterns from V1/V2/V3/V4 that should be migrated to V5.
+
+  Related epic: bd-ou6y (V4 refactoring)
+
+  V1 patterns: DataPoint, Measure trait
+  V2 patterns: Adapters
+  V3 patterns: InstrumentConfigV3 naming
+  V4 patterns: ScriptHost, Kameo actors
+
+rule:
+  any:
+    # V1 patterns
+    - pattern: DataPoint
+    - pattern: |
+        impl Measure for $TYPE {
+          $$$
+        }
+
+    # V3 naming debt
+    - pattern: InstrumentConfigV3
+
+    # V4 patterns
+    - pattern: ScriptHost
+    - pattern: |
+        use kameo::$$$;
+
+    # Versioned file references
+    - has:
+        regex: '_v[1-4]'
+
+labels:
+  - label: legacy pattern
+    source: $$$
+
+files:
+  - 'src/**/*.rs'
+ignores:
+  - '**/archive/**'
+  - '**/*test*.rs'
+
+metadata:
+  category: technical-debt
+  tags: [legacy, migration, v5]
+  related_issues: [bd-ou6y]

@@ -5,7 +5,7 @@
 //!
 //! # Features
 //! - Lock-free operations using atomic instructions
-//! - Zero-copy data access via memory mapping
+//! - Zero-copy data access via memory mapping (single-process writer/reader model)
 //! - Cross-language compatibility with #[repr(C)] layout
 //! - Apache Arrow IPC format support for structured data
 //! - Designed for 10k+ writes/sec throughput
@@ -30,16 +30,20 @@
 //! - **Writes**: Serialized via internal mutex. Multiple writers are safe but sequential.
 //! - **Reads**: Lock-free using atomic loads with Acquire ordering.
 //! - **Concurrent read/write**: Safe via seqlock pattern with epoch counter validation.
+//! - **Process model**: Designed for a single process; cross-process synchronization is
+//!   not provided because the tap registry and mutexes are process-local.
 //! - **Taps**: Non-blocking send with automatic frame dropping on backpressure.
 
 use anyhow::{anyhow, Context, Result};
 use memmap2::{MmapMut, MmapOptions};
 use std::fs::OpenOptions;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{fence, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::sync::mpsc;
+
+use crate::data::tap_registry::TapRegistry;
 
 #[cfg(feature = "storage_arrow")]
 use arrow::record_batch::RecordBatch;
@@ -49,53 +53,6 @@ const MAGIC: u64 = 0xDA_DA_DA_DA_00_00_00_01;
 
 /// Size of the ring buffer header in bytes (128 bytes = 2 cache lines on most systems)
 const HEADER_SIZE: usize = 128;
-
-/// Default channel capacity for tap consumers (number of frames buffered)
-const DEFAULT_TAP_CHANNEL_SIZE: usize = 16;
-
-/// A tap consumer that receives every Nth frame from the ring buffer.
-///
-/// Tap consumers are used for live data visualization without disrupting
-/// the primary HDF5 writer. If a tap consumer can't keep up with the data
-/// rate, frames are dropped rather than blocking the writer.
-pub struct TapConsumer {
-    /// Unique identifier for this tap
-    pub id: String,
-
-    /// Deliver every nth frame (1 = every frame, 10 = every 10th frame)
-    pub nth_frame: usize,
-
-    /// Current frame count for this tap (internal counter)
-    frame_count: AtomicU64,
-
-    /// Async channel sender for delivering frames
-    /// Uses try_send to avoid blocking on backpressure
-    sender: mpsc::Sender<Vec<u8>>,
-}
-
-impl TapConsumer {
-    /// Create a new tap consumer
-    fn new(id: String, nth_frame: usize, sender: mpsc::Sender<Vec<u8>>) -> Self {
-        Self {
-            id,
-            nth_frame: nth_frame.max(1), // Ensure at least 1
-            frame_count: AtomicU64::new(0),
-            sender,
-        }
-    }
-
-    /// Check if this frame should be delivered based on nth_frame setting
-    fn should_deliver(&self) -> bool {
-        let count = self.frame_count.fetch_add(1, Ordering::Relaxed);
-        count % self.nth_frame as u64 == 0
-    }
-
-    /// Attempt to send a frame without blocking
-    /// Returns true if sent successfully, false if dropped due to backpressure
-    fn try_send_frame(&self, data: Vec<u8>) -> bool {
-        self.sender.try_send(data).is_ok()
-    }
-}
 
 /// Ring buffer header with cache-line alignment.
 ///
@@ -109,8 +66,10 @@ impl TapConsumer {
 /// - read_tail: AtomicU64 (8 bytes)
 /// - write_epoch: AtomicU64 (8 bytes)
 /// - schema_len: u32 (4 bytes)
-/// - _padding: [u8; 84] (84 bytes)
-/// Total: 8 + 8 + 8 + 8 + 8 + 4 + 84 = 128 bytes
+/// - _reserved: u32 (4 bytes) - alignment padding
+/// - stream_id: AtomicU64 (8 bytes) - incremented on buffer re-init for cross-process readers
+/// - _padding: [u8; 72] (72 bytes)
+/// Total: 8 + 8 + 8 + 8 + 8 + 4 + 4 + 8 + 72 = 128 bytes
 #[repr(C)]
 struct RingBufferHeader {
     /// Magic number for validation (0xDADADADA00000001)
@@ -135,9 +94,19 @@ struct RingBufferHeader {
     /// Length of the Arrow schema JSON (if using Arrow format)
     schema_len: u32,
 
+    /// Reserved for alignment
+    _reserved: u32,
+
+    /// Stream identifier for cross-process readers.
+    ///
+    /// Incremented each time the buffer is re-initialized. Cross-process
+    /// readers (Python/Julia via mmap) can detect buffer re-creation by
+    /// comparing this value to their cached version.
+    stream_id: AtomicU64,
+
     /// Padding to align header to 128 bytes (cache line boundary)
-    /// Calculation: 128 - (8 + 8 + 8 + 8 + 8 + 4) = 128 - 44 = 84 bytes
-    _padding: [u8; 84],
+    /// Calculation: 128 - (8 + 8 + 8 + 8 + 8 + 4 + 4 + 8) = 128 - 56 = 72 bytes
+    _padding: [u8; 72],
 }
 
 // Static assertion to ensure header size matches HEADER_SIZE constant
@@ -159,6 +128,9 @@ const _: () = assert!(
 /// The buffer uses an internal write lock to serialize concurrent writes, making it
 /// safe for multiple writers. Reads remain lock-free.
 pub struct RingBuffer {
+    /// Filesystem path to the backing file
+    path: PathBuf,
+
     /// Memory-mapped file backing the ring buffer
     #[expect(
         dead_code,
@@ -180,14 +152,13 @@ pub struct RingBuffer {
     /// Write lock to serialize concurrent writes and prevent data races
     write_lock: Mutex<()>,
 
-    /// List of tap consumers for live data streaming
-    /// Protected by RwLock for concurrent registration/unregistration
-    taps: Arc<RwLock<Vec<Arc<TapConsumer>>>>,
+    /// Registry for live data taps
+    taps: Arc<TapRegistry>,
 }
 
 impl std::fmt::Debug for RingBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let tap_count = self.taps.read().map(|t| t.len()).unwrap_or(0);
+        let tap_count = self.taps.count();
         f.debug_struct("RingBuffer")
             .field("capacity", &self.capacity)
             .field("write_head", &self.write_head())
@@ -199,13 +170,14 @@ impl std::fmt::Debug for RingBuffer {
     }
 }
 
-// SAFETY: RingBuffer uses atomic operations for synchronization and can be safely
-// sent between threads. The raw pointers are only accessed with proper atomic ordering.
+// SAFETY: RingBuffer owns its mmap and only exposes raw pointers internally. All
+// pointer dereferences are guarded by bounds checks and atomic ordering, so the
+// type can be safely sent to other threads.
 unsafe impl Send for RingBuffer {}
 
-// SAFETY: Write operations are serialized via write_lock. Read operations use atomic
-// instructions with Acquire ordering to see all previous writes. The combination
-// makes concurrent access safe.
+// SAFETY: Concurrent readers use Acquire ordering, and writers serialize through
+// `write_lock` and publish with Release ordering. These invariants make shared
+// access across threads safe.
 unsafe impl Sync for RingBuffer {}
 
 impl RingBuffer {
@@ -271,8 +243,10 @@ impl RingBuffer {
                 .map_mut(&file)
                 .context("Failed to create memory mapping")?
         };
+        debug_assert!(mmap.len() >= total_size, "mmap shorter than requested size");
 
         // Initialize header
+        debug_assert!(mmap.len() >= HEADER_SIZE, "mmap shorter than header");
         // SAFETY: mmap is at least HEADER_SIZE bytes (total_size includes HEADER_SIZE)
         let header = mmap.as_mut_ptr() as *mut RingBufferHeader;
         unsafe {
@@ -283,22 +257,33 @@ impl RingBuffer {
             (*header).read_tail = AtomicU64::new(0);
             (*header).write_epoch = AtomicU64::new(0);
             (*header).schema_len = 0;
+            (*header)._reserved = 0;
+
+            // Generate stream_id from timestamp for cross-process reader detection.
+            // Using system time ensures uniqueness across buffer re-creations.
+            let stream_id = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(1);
+            (*header).stream_id = AtomicU64::new(stream_id);
 
             // Zero out padding for deterministic behavior
             (*header)._padding.fill(0);
         }
 
         // Calculate data region pointer
+        debug_assert!(HEADER_SIZE <= mmap.len());
         // SAFETY: mmap is total_size bytes, so offset HEADER_SIZE is within bounds
         let data_ptr = unsafe { mmap.as_mut_ptr().add(HEADER_SIZE) };
 
         Ok(Self {
+            path: path.to_path_buf(),
             mmap,
             header,
             data_ptr,
             capacity: capacity_bytes as u64,
             write_lock: Mutex::new(()),
-            taps: Arc::new(RwLock::new(Vec::new())),
+            taps: Arc::new(TapRegistry::new()),
         })
     }
 
@@ -323,6 +308,7 @@ impl RingBuffer {
                 .map_mut(&file)
                 .context("Failed to map ring buffer file")?
         };
+        debug_assert!(mmap.len() >= HEADER_SIZE, "existing ring buffer too small");
 
         // Validate header
         // SAFETY: File was created with create(), header is valid
@@ -337,16 +323,19 @@ impl RingBuffer {
             ));
         }
 
+        debug_assert!(HEADER_SIZE <= mmap.len());
+        debug_assert!(capacity as usize <= mmap.len().saturating_sub(HEADER_SIZE));
         // SAFETY: mmap size validated, offset HEADER_SIZE is within bounds
         let data_ptr = unsafe { mmap.as_mut_ptr().add(HEADER_SIZE) };
 
         Ok(Self {
+            path: path.to_path_buf(),
             mmap,
             header,
             data_ptr,
             capacity,
             write_lock: Mutex::new(()),
-            taps: Arc::new(RwLock::new(Vec::new())),
+            taps: Arc::new(TapRegistry::new()),
         })
     }
 
@@ -389,6 +378,9 @@ impl RingBuffer {
         // SAFETY: header is valid for the lifetime of self, and data_ptr points to a
         // valid mmap region of size self.capacity bytes
         unsafe {
+            debug_assert!(HEADER_SIZE + self.capacity as usize <= self.mmap.len());
+            debug_assert!(data.len() <= self.capacity as usize);
+
             // Increment epoch BEFORE write (odd = write in progress)
             // Use AcqRel to prevent the memcpy from floating up before this increment
             (*self.header).write_epoch.fetch_add(1, Ordering::AcqRel);
@@ -398,6 +390,7 @@ impl RingBuffer {
 
             // Calculate circular offset
             let write_offset = (head % self.capacity) as usize;
+            debug_assert!(write_offset < self.capacity as usize);
 
             // Handle wrap-around: if data doesn't fit before end, split the write
             if write_offset + data.len() > self.capacity as usize {
@@ -440,34 +433,12 @@ impl RingBuffer {
 
     /// Notify all tap consumers about a new frame.
     ///
-    /// This method is called after each write. It checks each tap to see if
-    /// the frame should be delivered based on the nth_frame setting, and attempts
-    /// a non-blocking send. If the send fails (channel full), the frame is dropped
-    /// for that tap, ensuring the writer never blocks.
+    /// This method delegates to the TapRegistry to handle notification.
     ///
     /// # Arguments
     /// * `data` - The frame data to send to taps
     fn notify_taps(&self, data: &[u8]) {
-        // Fast path: if no taps, return immediately
-        let taps = match self.taps.read() {
-            Ok(taps) => taps,
-            Err(_) => return, // RwLock poisoned, skip notification
-        };
-
-        if taps.is_empty() {
-            return;
-        }
-
-        // Check each tap and deliver if needed
-        for tap in taps.iter() {
-            if tap.should_deliver() {
-                // Try to send without blocking
-                // If send fails, frame is dropped (backpressure handling)
-                if !tap.try_send_frame(data.to_vec()) {
-                    tracing::debug!("Dropped frame for tap '{}' due to backpressure", tap.id);
-                }
-            }
-        }
+        self.taps.notify_all(data);
     }
 
     /// Register a new tap consumer to receive every Nth frame.
@@ -500,29 +471,9 @@ impl RingBuffer {
     /// # }
     /// ```
     pub fn register_tap(&self, id: String, nth_frame: usize) -> Result<mpsc::Receiver<Vec<u8>>> {
-        let mut taps = self
-            .taps
-            .write()
-            .map_err(|_| anyhow!("Tap lock poisoned"))?;
+        let rx = self.taps.register(id.clone(), nth_frame)?;
 
-        // Check if tap with this ID already exists
-        if taps.iter().any(|t| t.id == id) {
-            return Err(anyhow!("Tap with ID '{}' already exists", id));
-        }
-
-        // Create channel for this tap
-        let (tx, rx) = mpsc::channel(DEFAULT_TAP_CHANNEL_SIZE);
-
-        // Create and register tap consumer
-        let tap = Arc::new(TapConsumer::new(id.clone(), nth_frame, tx));
-        taps.push(tap);
-
-        tracing::info!(
-            "Registered tap '{}' (every {}th frame, channel size: {})",
-            id,
-            nth_frame,
-            DEFAULT_TAP_CHANNEL_SIZE
-        );
+        tracing::info!("Registered tap '{}' (every {}th frame)", id, nth_frame);
 
         Ok(rx)
     }
@@ -549,14 +500,7 @@ impl RingBuffer {
     /// # }
     /// ```
     pub fn unregister_tap(&self, id: &str) -> Result<bool> {
-        let mut taps = self
-            .taps
-            .write()
-            .map_err(|_| anyhow!("Tap lock poisoned"))?;
-
-        let initial_len = taps.len();
-        taps.retain(|t| t.id != id);
-        let removed = taps.len() < initial_len;
+        let removed = self.taps.unregister(id)?;
 
         if removed {
             tracing::info!("Unregistered tap '{}'", id);
@@ -570,7 +514,7 @@ impl RingBuffer {
     /// # Returns
     /// Number of active tap consumers
     pub fn tap_count(&self) -> usize {
-        self.taps.read().map(|t| t.len()).unwrap_or(0)
+        self.taps.count()
     }
 
     /// Get information about all registered taps.
@@ -578,10 +522,7 @@ impl RingBuffer {
     /// # Returns
     /// Vector of (tap_id, nth_frame) tuples
     pub fn list_taps(&self) -> Vec<(String, usize)> {
-        self.taps
-            .read()
-            .map(|taps| taps.iter().map(|t| (t.id.clone(), t.nth_frame)).collect())
-            .unwrap_or_default()
+        self.taps.list()
     }
 
     /// Read a snapshot of current data in the ring buffer.
@@ -615,6 +556,8 @@ impl RingBuffer {
 
             // SAFETY: header is valid for the lifetime of self
             unsafe {
+                debug_assert!(HEADER_SIZE + self.capacity as usize <= self.mmap.len());
+
                 // Load epoch BEFORE read (must be even = no write in progress)
                 let epoch_before = (*self.header).write_epoch.load(Ordering::Acquire);
 
@@ -634,15 +577,19 @@ impl RingBuffer {
                 let head = (*self.header).write_head.load(Ordering::Acquire);
                 let tail = (*self.header).read_tail.load(Ordering::Acquire);
 
-                // Calculate available data (capped at capacity to handle wrap-around)
-                let available = (head.saturating_sub(tail)).min(self.capacity);
+                // Calculate effective tail: if head is too far ahead, we must skip overwritten data
+                // This ensures we always read valid data in the correct logical order
+                let effective_tail = std::cmp::max(tail, head.saturating_sub(self.capacity));
+
+                // Calculate available data based on effective tail
+                let available = head.saturating_sub(effective_tail);
 
                 if available == 0 {
                     return Vec::new();
                 }
 
-                // Calculate read offset (circular)
-                let read_offset = (tail % self.capacity) as usize;
+                // Calculate read offset (circular) based on EFFECTIVE tail
+                let read_offset = (effective_tail % self.capacity) as usize;
 
                 let mut buffer = vec![0u8; available as usize];
 
@@ -738,6 +685,70 @@ impl RingBuffer {
     /// ```
     pub fn capacity(&self) -> u64 {
         self.capacity
+    }
+
+    /// Get the filesystem path to the backing file.
+    ///
+    /// This path is needed for cross-process readers (Python/Julia) to mmap
+    /// the same file and access the ring buffer data directly.
+    ///
+    /// # Returns
+    ///
+    /// The path to the memory-mapped backing file.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Get the stream identifier for cross-process reader synchronization.
+    ///
+    /// The stream ID is a unique value generated when the buffer is created,
+    /// based on system timestamp. Cross-process readers (Python/Julia via mmap)
+    /// should cache this value and periodically check if it has changed to
+    /// detect buffer re-initialization.
+    ///
+    /// # Returns
+    ///
+    /// A unique 64-bit identifier for this buffer instance.
+    ///
+    /// # Thread Safety
+    ///
+    /// Uses atomic load with Acquire ordering. Safe to call concurrently.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use std::path::Path;
+    /// # use rust_daq::data::ring_buffer::RingBuffer;
+    /// # fn main() -> anyhow::Result<()> {
+    /// let rb = RingBuffer::create(Path::new("/tmp/test.buf"), 100)?;
+    /// let stream_id = rb.stream_id();
+    /// // Python reader can compare this to detect buffer recreation
+    /// assert!(stream_id > 0);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn stream_id(&self) -> u64 {
+        // SAFETY: header is valid for the lifetime of self
+        unsafe { (*self.header).stream_id.load(Ordering::Acquire) }
+    }
+
+    /// Get the magic number for buffer validation.
+    ///
+    /// Returns the constant 0xDADADADA00000001. Cross-process readers should
+    /// verify this value to ensure they're reading a valid ring buffer.
+    pub fn magic(&self) -> u64 {
+        // SAFETY: header is valid for the lifetime of self
+        unsafe { (*self.header).magic }
+    }
+
+    /// Get the write epoch for seqlock synchronization.
+    ///
+    /// The write epoch is incremented before and after each write. Readers
+    /// should check this before and after reading - if it changed (or is
+    /// odd during read), the read may have seen partial data.
+    pub fn write_epoch(&self) -> u64 {
+        // SAFETY: header is valid for the lifetime of self
+        unsafe { (*self.header).write_epoch.load(Ordering::Acquire) }
     }
 
     /// Get the current write head position (monotonically increasing).
@@ -852,9 +863,18 @@ impl RingBuffer {
 
 #[cfg(feature = "storage_arrow")]
 impl RingBuffer {
-    /// Write an Arrow RecordBatch in IPC format.
+    /// Write an Arrow RecordBatch in IPC format with length prefix.
     ///
-    /// This serializes the batch to Arrow IPC format and writes it to the ring buffer.
+    /// This serializes the batch to Arrow IPC format and writes it to the ring buffer
+    /// with a 4-byte little-endian length prefix. This enables cross-process readers
+    /// (Python/Julia via mmap) to easily determine record boundaries.
+    ///
+    /// Wire format:
+    /// ```text
+    /// +----------------+------------------+
+    /// | length (4 LE)  | Arrow IPC data   |
+    /// +----------------+------------------+
+    /// ```
     ///
     /// # Arguments
     /// * `batch` - The Arrow RecordBatch to write
@@ -863,7 +883,6 @@ impl RingBuffer {
     /// Ok(()) on success, Err on serialization or write failure
     pub fn write_arrow_batch(&self, batch: &RecordBatch) -> Result<()> {
         use arrow::ipc::writer::FileWriter;
-        use std::io::Cursor;
 
         let mut buffer = Vec::new();
         let mut writer = FileWriter::try_new(&mut buffer, &batch.schema())
@@ -872,7 +891,13 @@ impl RingBuffer {
         writer.write(batch).context("Failed to write Arrow batch")?;
         writer.finish().context("Failed to finish Arrow writer")?;
 
-        self.write(&buffer)
+        // Prepend 4-byte little-endian length for cross-process readers
+        let len = buffer.len() as u32;
+        let mut framed = Vec::with_capacity(4 + buffer.len());
+        framed.extend_from_slice(&len.to_le_bytes());
+        framed.extend_from_slice(&buffer);
+
+        self.write(&framed)
             .context("Failed to write Arrow IPC data to ring buffer")
     }
 }
@@ -882,6 +907,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::thread;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn test_create_ring_buffer() {
@@ -950,6 +976,30 @@ mod tests {
     }
 
     #[test]
+    fn test_wrap_preserves_latest_bytes() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("wrap_latest.buf");
+
+        let rb = RingBuffer::create(&path, 1).unwrap(); // 1 MB
+        let capacity = rb.capacity() as usize;
+
+        let first = vec![0x11u8; capacity - 16];
+        let second = vec![0x22u8; 32]; // pushes past capacity to force wrap
+
+        rb.write(&first).unwrap();
+        rb.write(&second).unwrap();
+
+        let snapshot = rb.read_snapshot();
+        assert_eq!(snapshot.len(), capacity);
+
+        let mut combined = first;
+        combined.extend_from_slice(&second);
+        let expected_tail = combined[combined.len() - capacity..].to_vec();
+
+        assert_eq!(snapshot, expected_tail);
+    }
+
+    #[test]
     fn test_concurrent_write_read() {
         let temp_dir = tempfile::tempdir().unwrap();
         let path = temp_dir.path().join("test_ring.buf");
@@ -980,6 +1030,24 @@ mod tests {
 
         writer.join().unwrap();
         reader.join().unwrap();
+    }
+
+    #[test]
+    fn test_read_snapshot_times_out_on_stuck_epoch() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("stuck_epoch.buf");
+
+        let rb = RingBuffer::create(&path, 1).unwrap();
+
+        // Simulate a writer crash that left the epoch odd
+        unsafe { (*rb.header).write_epoch.store(1, Ordering::Release) };
+
+        let start = Instant::now();
+        let snapshot = rb.read_snapshot();
+        let elapsed = start.elapsed();
+
+        assert!(snapshot.is_empty());
+        assert!(elapsed < Duration::from_millis(200));
     }
 
     #[test]

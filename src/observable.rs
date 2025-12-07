@@ -73,6 +73,21 @@ pub trait ParameterBase: Send + Sync {
 pub trait ParameterAny: ParameterBase {
     /// Get a reference to this parameter as `&dyn Any` for downcasting
     fn as_any(&self) -> &dyn Any;
+
+    /// Get the type name of the parameter value (e.g., "f64", "bool", "String")
+    fn type_name(&self) -> &'static str;
+
+    /// Attempt to get the value as f64 (returns None if not f64 type)
+    fn value_as_f64(&self) -> Option<f64>;
+
+    /// Attempt to get the value as bool (returns None if not bool type)
+    fn value_as_bool(&self) -> Option<bool>;
+
+    /// Attempt to get the value as String (returns None if not String type)
+    fn value_as_string(&self) -> Option<String>;
+
+    /// Attempt to get the value as i64 (returns None if not i64 type)
+    fn value_as_i64(&self) -> Option<i64>;
 }
 
 // =============================================================================
@@ -304,6 +319,26 @@ where
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn type_name(&self) -> &'static str {
+        std::any::type_name::<T>()
+    }
+
+    fn value_as_f64(&self) -> Option<f64> {
+        None // Observable doesn't support type-specific access
+    }
+
+    fn value_as_bool(&self) -> Option<bool> {
+        None // Observable doesn't support type-specific access
+    }
+
+    fn value_as_string(&self) -> Option<String> {
+        None // Observable doesn't support type-specific access
+    }
+
+    fn value_as_i64(&self) -> Option<i64> {
+        None // Observable doesn't support type-specific access
+    }
 }
 
 // =============================================================================
@@ -367,23 +402,23 @@ impl ParameterSet {
         Self::default()
     }
 
-    /// Register an observable parameter.
-    pub fn register<T>(&mut self, observable: Observable<T>)
+    /// Register any parameter-like object that implements `ParameterAny`.
+    pub fn register<P>(&mut self, parameter: P)
     where
-        T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+        P: ParameterAny + 'static,
     {
-        let name = observable.metadata.name.clone();
-        self.parameters.insert(name, Box::new(observable));
+        let name = parameter.name().to_string();
+        self.parameters.insert(name, Box::new(parameter));
     }
 
-    /// Get a parameter by name with specific type (requires downcasting).
-    pub fn get_typed<T>(&self, name: &str) -> Option<&Observable<T>>
+    /// Get a parameter by name with specific concrete type (requires downcasting).
+    pub fn get_typed<P>(&self, name: &str) -> Option<&P>
     where
-        T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+        P: ParameterAny + 'static,
     {
         self.parameters
             .get(name)
-            .and_then(|p| p.as_any().downcast_ref::<Observable<T>>())
+            .and_then(|p| p.as_any().downcast_ref::<P>())
     }
 
     /// Get a parameter by name as a trait object (generic access).
@@ -521,9 +556,9 @@ mod tests {
         params.register(Observable::new("enabled", true));
 
         // Test typed access
-        assert!(params.get_typed::<f64>("threshold").is_some());
-        assert!(params.get_typed::<bool>("enabled").is_some());
-        assert!(params.get_typed::<i32>("missing").is_none());
+        assert!(params.get_typed::<Observable<f64>>("threshold").is_some());
+        assert!(params.get_typed::<Observable<bool>>("enabled").is_some());
+        assert!(params.get_typed::<Observable<i32>>("missing").is_none());
     }
 
     #[test]
@@ -567,7 +602,25 @@ mod tests {
         }
 
         // Verify change through typed access
-        let wavelength_param = params.get_typed::<f64>("wavelength").unwrap();
+        let wavelength_param = params.get_typed::<Observable<f64>>("wavelength").unwrap();
         assert_eq!(wavelength_param.get(), 850.0);
+    }
+
+    #[tokio::test]
+    async fn test_parameter_set_with_parameter() {
+        use crate::parameter::Parameter;
+
+        let mut params = ParameterSet::new();
+        let param = Parameter::new("exposure", 10.0);
+
+        params.register(param.clone());
+
+        let registered = params
+            .get_typed::<Parameter<f64>>("exposure")
+            .expect("parameter registered");
+
+        // Changing through the registry copy updates the original (shared watch channel)
+        registered.set(25.0).await.unwrap();
+        assert_eq!(param.get(), 25.0);
     }
 }

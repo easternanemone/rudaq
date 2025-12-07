@@ -102,8 +102,8 @@ pub use script_engine::{ScriptEngine, ScriptError, ScriptValue};
 
 // Re-export V5 hardware bindings
 pub use bindings::{register_hardware, CameraHandle, StageHandle};
-// Re-export legacy ScriptHost (V4 - TODO: migrate DaqServer to RhaiEngine)
-pub use engine::ScriptHost;
+
+// Legacy ScriptHost is intentionally not re-exported to avoid V4 dependency leakage.
 
 // Re-export plan bindings (bd-73yh.4)
 pub use plan_bindings::{register_plans, PlanHandle, RunEngineHandle};

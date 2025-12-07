@@ -5,6 +5,24 @@ All notable changes to Rust DAQ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2025-12-06
+
+### V5 Transition Complete
+
+The V5 architectural transition is now complete. This release finalizes the cleanup of legacy code and stabilizes the new architecture.
+
+### Changed
+- **Removed**: `src/hardware/adapter.rs` (legacy V1/V2 adapter trait)
+- **Deprecated**: `DataPoint` struct in `src/core.rs` (use `Measurement` enum instead)
+- **Deprecated**: `ScriptHost` in `src/scripting/engine.rs` (use `RhaiEngine` instead)
+- **Refactored**: Examples and tests to use `RhaiEngine`
+- **Documentation**: Comprehensive updates to reflect V5 completion
+
+### Fixed
+- Resolved split-brain architecture issues in parameter system
+- Unified hardware driver state management
+- Fixed module compilation issues in gRPC services
+
 ## [Unreleased] - V5 Architectural Transition
 
 ### Changed - V5 Architectural Transition (2025-11-20)

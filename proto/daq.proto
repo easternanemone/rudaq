@@ -1167,7 +1167,7 @@ message ModuleStatus {
   // Assignment status
   uint32 required_roles_filled = 10;
   uint32 required_roles_total = 11;
-  bool ready_to_start = 12;        // All requirements met?
+  bool ready_to_start = 12;        // Is module now ready to start?
 
   // Runtime info (when running)
   uint64 start_time_ns = 20;
@@ -1694,6 +1694,15 @@ service StorageService {
 
   // Stream recording progress updates
   rpc StreamRecordingProgress(StreamRecordingProgressRequest) returns (stream RecordingProgress);
+
+  // ==========================================================================
+  // Ring Buffer Tap (Cross-Process Access)
+  // ==========================================================================
+  
+  // Get information for cross-process ring buffer access via mmap.
+  // Python/Julia clients can use this to discover the buffer location and
+  // parameters needed to safely read data without gRPC overhead.
+  rpc GetRingBufferTapInfo(GetRingBufferTapInfoRequest) returns (RingBufferTapInfo);
 }
 
 // --------------------------------------------------------------------------
@@ -1951,6 +1960,53 @@ message RecordingProgress {
 
   // Estimated time remaining (if deterministic)
   optional uint64 estimated_remaining_ns = 30;
+}
+
+// --------------------------------------------------------------------------
+// Ring Buffer Tap Messages (bd-vms4.2)
+// --------------------------------------------------------------------------
+
+// Request for ring buffer tap information
+message GetRingBufferTapInfoRequest {
+  // Optional: specific buffer name (empty = default/primary buffer)
+  string buffer_name = 1;
+}
+
+// Information for cross-process ring buffer access via mmap.
+// Contains all parameters needed for Python/Julia to safely read the buffer.
+message RingBufferTapInfo {
+  // Filesystem path to the memory-mapped buffer file
+  // (e.g., "/dev/shm/rust_daq_ring.buf" or "/tmp/rust_daq_ring.buf")
+  string file_path = 1;
+
+  // Total size of the file in bytes (header + data region)
+  uint64 total_size_bytes = 2;
+
+  // Size of the data region in bytes (excluding header)
+  uint64 capacity_bytes = 3;
+
+  // Header size in bytes (fixed at 128 bytes, but included for forward compat)
+  uint32 header_size = 4;
+
+  // Current stream ID for detecting buffer re-initialization.
+  // If this value changes, readers should re-open the buffer.
+  uint64 stream_id = 5;
+
+  // Magic number for validation (0xDADADADA00000001)
+  uint64 magic = 6;
+
+  // Current write head position (total bytes written, monotonically increasing)
+  uint64 write_head = 10;
+
+  // Current read tail position (oldest unconsumed data)
+  uint64 read_tail = 11;
+
+  // Current write epoch (for seqlock synchronization)
+  uint64 write_epoch = 12;
+
+  // Data format information
+  string data_format = 20;           // "arrow_ipc", "raw", etc.
+  optional string arrow_schema_json = 21;  // Arrow schema if applicable
 }
 
 // =============================================================================

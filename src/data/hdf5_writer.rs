@@ -15,6 +15,7 @@ use std::sync::Arc;
 use tokio::time::{interval, Duration};
 
 use super::ring_buffer::RingBuffer;
+use crate::observable::ParameterSet;
 
 /// Background HDF5 writer that persists ring buffer data
 ///
@@ -110,6 +111,83 @@ impl HDF5Writer {
         self.flush_interval = interval;
     }
 
+    /// Inject a snapshot of all parameters into the HDF5 file as attributes.
+    ///
+    /// Parameters are serialized to JSON and stored under a `parameters` group,
+    /// one attribute per parameter name. Existing attributes are overwritten.
+    #[cfg(feature = "storage_hdf5")]
+    pub async fn inject_parameters(&self, params: &ParameterSet) -> Result<()> {
+        // Capture snapshot outside blocking section
+        let snapshot: Vec<(
+            String,
+            serde_json::Value,
+            Option<String>,
+            Option<String>,
+            bool,
+        )> = params
+            .iter()
+            .map(|(name, param)| {
+                let value = param.get_json()?;
+                let meta = param.metadata();
+                Ok((
+                    name.to_string(),
+                    value,
+                    meta.description.clone(),
+                    meta.units.clone(),
+                    meta.read_only,
+                ))
+            })
+            .collect::<Result<_>>()?;
+
+        let output_path = self.output_path.clone();
+
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            use hdf5::types::VarLenUnicode;
+            use hdf5::File;
+
+            let file = if output_path.exists() {
+                File::open_rw(&output_path)?
+            } else {
+                File::create(&output_path)?
+            };
+
+            let params_group = if file.group("parameters").is_ok() {
+                file.group("parameters")?
+            } else {
+                file.create_group("parameters")?
+            };
+
+            for (name, value, description, units, read_only) in snapshot.iter() {
+                let record = serde_json::json!({
+                    "name": name,
+                    "value": value,
+                    "description": description,
+                    "units": units,
+                    "read_only": read_only,
+                });
+
+                let json_str = serde_json::to_string(&record)?;
+
+                // Overwrite existing attribute if present
+                if params_group.attr_exists(name) {
+                    params_group
+                        .attr(name)?
+                        .write_scalar(&VarLenUnicode::from(json_str.as_str()))?;
+                } else {
+                    params_group
+                        .new_attr::<VarLenUnicode>()
+                        .create(name)?
+                        .write_scalar(&VarLenUnicode::from(json_str.as_str()))?;
+                }
+            }
+
+            Ok(())
+        })
+        .await??;
+
+        Ok(())
+    }
+
     async fn run_loop(&self) {
         let mut ticker = interval(self.flush_interval);
         loop {
@@ -126,7 +204,7 @@ impl HDF5Writer {
     /// and writes structured datasets to HDF5.
     /// Non-blocking if no new data is available.
     #[cfg(feature = "storage_hdf5")]
-    async fn flush_to_disk(&self) -> Result<usize> {
+    pub(crate) async fn flush_to_disk(&self) -> Result<usize> {
         // Check if there's new data by comparing write_head to our last read position
         let current_write_head = self.ring_buffer.write_head();
         let last_processed = self.last_read_tail.load(Ordering::Acquire);
@@ -344,7 +422,7 @@ impl HDF5Writer {
     /// Fallback implementation when HDF5 feature is disabled
     /// Writes scan data as CSV for basic persistence
     #[cfg(not(feature = "storage_hdf5"))]
-    async fn flush_to_disk(&self) -> Result<usize> {
+    pub(crate) async fn flush_to_disk(&self) -> Result<usize> {
         // Check if there's new data
         let current_write_head = self.ring_buffer.write_head();
         let last_processed = self.last_read_tail.load(Ordering::Acquire);

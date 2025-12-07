@@ -7,7 +7,8 @@ use crate::grpc::proto::{
     StatusRequest, StopRequest, StopResponse, SystemStatus, UploadRequest, UploadResponse,
 };
 use crate::grpc::run_engine_service::RunEngineServiceImpl;
-use crate::scripting::ScriptHost;
+use crate::scripting::script_engine::ScriptEngine;
+use crate::scripting::RhaiEngine;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -44,7 +45,7 @@ struct ExecutionState {
 
 /// DAQ gRPC server implementation
 pub struct DaqServer {
-    script_host: Arc<RwLock<ScriptHost>>,
+    script_engine: Arc<RwLock<RhaiEngine>>,
     scripts: Arc<RwLock<HashMap<String, String>>>,
     script_metadata: Arc<RwLock<HashMap<String, ScriptMetadata>>>,
     executions: Arc<RwLock<HashMap<String, ExecutionState>>>,
@@ -141,9 +142,10 @@ impl DaqServer {
         }
 
         Self {
-            script_host: Arc::new(RwLock::new(ScriptHost::with_hardware(
-                tokio::runtime::Handle::current(),
-            ))),
+            script_engine: Arc::new(RwLock::new(
+                RhaiEngine::with_hardware()
+                    .expect("failed to initialize RhaiEngine with hardware bindings"),
+            )),
             scripts: Arc::new(RwLock::new(HashMap::new())),
             script_metadata: Arc::new(RwLock::new(HashMap::new())),
             executions: Arc::new(RwLock::new(HashMap::new())),
@@ -162,9 +164,10 @@ impl DaqServer {
         let data_tx = Arc::new(data_tx);
 
         Self {
-            script_host: Arc::new(RwLock::new(ScriptHost::with_hardware(
-                tokio::runtime::Handle::current(),
-            ))),
+            script_engine: Arc::new(RwLock::new(
+                RhaiEngine::with_hardware()
+                    .expect("failed to initialize RhaiEngine with hardware bindings"),
+            )),
             scripts: Arc::new(RwLock::new(HashMap::new())),
             script_metadata: Arc::new(RwLock::new(HashMap::new())),
             executions: Arc::new(RwLock::new(HashMap::new())),
@@ -195,7 +198,7 @@ fn encode_measurement_frame(measurement: &Measurement) -> Result<Vec<u8>, bincod
 impl std::fmt::Debug for DaqServer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DaqServer")
-            .field("script_host", &"<RwLock<ScriptHost>>")
+            .field("script_engine", &"<RwLock<RhaiEngine>>")
             .field(
                 "scripts",
                 &format!(
@@ -256,8 +259,8 @@ impl ControlService for DaqServer {
         let script_id = Uuid::new_v4().to_string();
 
         // Validate script syntax
-        let host = self.script_host.read().await;
-        if let Err(e) = host.validate_script(&req.script_content) {
+        let engine = self.script_engine.read().await;
+        if let Err(e) = engine.validate_script(&req.script_content).await {
             return Ok(Response::new(UploadResponse {
                 script_id: String::new(),
                 success: false,
@@ -324,15 +327,15 @@ impl ControlService for DaqServer {
 
         // Execute script in background (non-blocking)
         let script_clone = script.clone();
-        let host_clone = self.script_host.clone();
+        let engine_clone = self.script_engine.clone();
         let executions_clone = self.executions.clone();
         let exec_id_clone = execution_id.clone();
         let running_tasks_clone = self.running_tasks.clone();
         let exec_id_for_cleanup = execution_id.clone();
 
         let handle = tokio::spawn(async move {
-            let host = host_clone.read().await;
-            let result = host.run_script(&script_clone);
+            let mut engine = engine_clone.write().await;
+            let result = engine.execute_script(&script_clone).await;
 
             // Update execution state with result
             let mut executions = executions_clone.write().await;
@@ -702,13 +705,23 @@ impl ControlService for DaqServer {
 
 /// Start the DAQ gRPC server (script control only)
 pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::grpc::health_service::HealthServiceImpl;
+    use crate::grpc::proto::health::health_check_response::ServingStatus;
+    use crate::grpc::proto::health::health_server::HealthServer;
+
     let server = DaqServer::new();
     let run_engine = RunEngineServiceImpl::new();
+    let health_service = HealthServiceImpl::new();
+
+    health_service.set_serving_status("", ServingStatus::Serving);
+    health_service.set_serving_status("daq.ControlService", ServingStatus::Serving);
+    health_service.set_serving_status("daq.RunEngineService", ServingStatus::Serving);
 
     println!("DAQ gRPC server listening on {}", addr);
 
     Server::builder()
         .add_service(ControlServiceServer::new(server))
+        .add_service(HealthServer::new(health_service))
         .add_service(RunEngineServiceServer::new(run_engine))
         .serve(addr)
         .await?;
@@ -739,6 +752,7 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
 pub async fn start_server_with_hardware(
     addr: std::net::SocketAddr,
     registry: std::sync::Arc<tokio::sync::RwLock<crate::hardware::registry::DeviceRegistry>>,
+    health_monitor: std::sync::Arc<crate::health::SystemHealthMonitor>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::data::hdf5_writer::HDF5Writer;
     use crate::data::ring_buffer::RingBuffer;
@@ -747,6 +761,9 @@ pub async fn start_server_with_hardware(
     use crate::grpc::plugin_service::PluginServiceImpl;
     use crate::grpc::preset_service::{default_preset_storage_path, PresetServiceImpl};
     use crate::grpc::proto::hardware_service_server::HardwareServiceServer;
+    use crate::grpc::proto::health::health_check_response::ServingStatus;
+    use crate::grpc::proto::health::health_server::HealthServer;
+    use crate::grpc::proto::health_service_server::HealthServiceServer; // Custom HealthService
     use crate::grpc::proto::module_service_server::ModuleServiceServer;
     use crate::grpc::proto::plugin_service_server::PluginServiceServer;
     use crate::grpc::proto::preset_service_server::PresetServiceServer;
@@ -827,9 +844,29 @@ pub async fn start_server_with_hardware(
     let preset_server = PresetServiceImpl::new(registry, default_preset_storage_path());
     let storage_server = StorageServiceImpl::new(ring_buffer.clone());
 
+    // Standard gRPC Health Check (grpc.health.v1)
+    let standard_health_service = crate::grpc::health_service::HealthServiceImpl::new();
+
+    // Custom System Health Monitoring (daq.HealthService)
+    let custom_health_service = crate::health::grpc_service::HealthServiceImpl::new(health_monitor);
+
+    // Register serving status for all services
+    standard_health_service.set_serving_status("", ServingStatus::Serving);
+    standard_health_service.set_serving_status("daq.ControlService", ServingStatus::Serving);
+    standard_health_service.set_serving_status("daq.HardwareService", ServingStatus::Serving);
+    standard_health_service.set_serving_status("daq.ModuleService", ServingStatus::Serving);
+    standard_health_service.set_serving_status("daq.ScanService", ServingStatus::Serving);
+    standard_health_service.set_serving_status("daq.PresetService", ServingStatus::Serving);
+    standard_health_service.set_serving_status("daq.StorageService", ServingStatus::Serving);
+    standard_health_service.set_serving_status("daq.RunEngineService", ServingStatus::Serving);
+    standard_health_service.set_serving_status("daq.HealthService", ServingStatus::Serving); // Register custom service too
+    #[cfg(feature = "tokio_serial")]
+    standard_health_service.set_serving_status("daq.PluginService", ServingStatus::Serving);
+
     println!("DAQ gRPC server (with hardware) listening on {}", addr);
     println!("  - ControlService: script management");
     println!("  - HardwareService: direct device control");
+    println!("  - HealthService: system health monitoring (bd-ergo)");
     println!("  - ModuleService: experiment modules (bd-c0ai)");
     #[cfg(feature = "tokio_serial")]
     println!("  - PluginService: YAML-defined instrument plugins (bd-0451)");
@@ -840,6 +877,8 @@ pub async fn start_server_with_hardware(
     #[cfg(feature = "tokio_serial")]
     let server_builder = Server::builder()
         .add_service(ControlServiceServer::new(control_server))
+        .add_service(HealthServer::new(standard_health_service))
+        .add_service(HealthServiceServer::new(custom_health_service))
         .add_service(RunEngineServiceServer::new(run_engine_server.clone()))
         .add_service(HardwareServiceServer::new(hardware_server))
         .add_service(ModuleServiceServer::new(module_server))
@@ -851,6 +890,8 @@ pub async fn start_server_with_hardware(
     #[cfg(not(feature = "tokio_serial"))]
     let server_builder = Server::builder()
         .add_service(ControlServiceServer::new(control_server))
+        .add_service(HealthServer::new(standard_health_service))
+        .add_service(HealthServiceServer::new(custom_health_service))
         .add_service(RunEngineServiceServer::new(run_engine_server))
         .add_service(HardwareServiceServer::new(hardware_server))
         .add_service(ModuleServiceServer::new(module_server))

@@ -88,19 +88,26 @@
 //! }
 //! ```
 
+use crate::error::DaqError;
 use crate::error_recovery::RetryPolicy;
 use crate::hardware::capabilities::{Movable, Parameterized};
 use crate::observable::ParameterSet;
+use crate::parameter::Parameter;
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
+use futures::future::BoxFuture;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tokio::task::spawn_blocking;
-use tokio::time::sleep;
-use tokio_serial::{SerialPortBuilderExt, SerialStream};
+use tokio_serial::SerialPortBuilderExt;
+
+pub trait SerialPortIO: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> SerialPortIO for T {}
+pub type DynSerial = Box<dyn SerialPortIO>;
+pub type SharedPort = Arc<Mutex<DynSerial>>;
 
 /// Device information returned by the `in` command
 #[derive(Debug, Clone)]
@@ -151,12 +158,14 @@ pub struct MotorInfo {
 /// different addresses (2, 3, 8, etc.) share `/dev/ttyUSB0`.
 pub struct Ell14Driver {
     /// Serial port protected by Arc<Mutex> for shared access across multiple drivers
-    port: Arc<Mutex<SerialStream>>,
+    port: SharedPort,
     /// Device address (0-9, A-F)
     address: String,
     /// Calibration factor: Pulses per Degree
     /// Default: 398.22 (143360 pulses / 360 degrees for ELL14)
     pulses_per_degree: f64,
+    /// Rotation position parameter (degrees)
+    position_deg: Parameter<f64>,
     /// Parameter registry
     params: ParameterSet,
 }
@@ -206,12 +215,11 @@ impl Ell14Driver {
     /// use [`open_shared_port`] + [`with_shared_port`] instead.
     pub fn new(port_path: &str, address: &str) -> Result<Self> {
         let port = Self::open_port(port_path)?;
-        Ok(Self {
-            port: Arc::new(Mutex::new(port)),
-            address: address.to_string(),
-            pulses_per_degree: 398.2222, // 143360 pulses / 360 degrees
-            params: ParameterSet::new(),
-        })
+        Ok(Self::build(
+            Arc::new(Mutex::new(port)),
+            address.to_string(),
+            398.2222,
+        ))
     }
 
     /// Open a serial port that can be shared across multiple ELL14 drivers
@@ -224,7 +232,7 @@ impl Ell14Driver {
     /// let rotator_3 = Ell14Driver::with_shared_port(shared.clone(), "3");
     /// let rotator_8 = Ell14Driver::with_shared_port(shared.clone(), "8");
     /// ```
-    pub fn open_shared_port(port_path: &str) -> Result<Arc<Mutex<SerialStream>>> {
+    pub fn open_shared_port(port_path: &str) -> Result<SharedPort> {
         let port = Self::open_port(port_path)?;
         Ok(Arc::new(Mutex::new(port)))
     }
@@ -235,26 +243,23 @@ impl Ell14Driver {
     /// multiple devices share the same physical serial port.
     ///
     /// # Arguments
-    /// * `shared_port` - Arc<Mutex<SerialStream>> from [`open_shared_port`]
+    /// * `shared_port` - Shared serial port from [`open_shared_port`]
     /// * `address` - Device address on the bus (0-9, A-F)
-    pub fn with_shared_port(shared_port: Arc<Mutex<SerialStream>>, address: &str) -> Self {
-        Self {
-            port: shared_port,
-            address: address.to_string(),
-            pulses_per_degree: 398.2222,
-            params: ParameterSet::new(),
-        }
+    pub fn with_shared_port(shared_port: SharedPort, address: &str) -> Self {
+        Self::build(shared_port, address.to_string(), 398.2222)
     }
 
     /// Internal helper to open a serial port with ELL14 settings
-    fn open_port(port_path: &str) -> Result<SerialStream> {
-        tokio_serial::new(port_path, 9600)
+    fn open_port(port_path: &str) -> Result<DynSerial> {
+        let port = tokio_serial::new(port_path, 9600)
             .data_bits(tokio_serial::DataBits::Eight)
             .parity(tokio_serial::Parity::None)
             .stop_bits(tokio_serial::StopBits::One)
             .flow_control(tokio_serial::FlowControl::None)
             .open_native_async()
-            .context(format!("Failed to open ELL14 serial port: {}", port_path))
+            .context(format!("Failed to open ELL14 serial port: {}", port_path))?;
+
+        Ok(Box::new(port))
     }
 
     /// Create a new ELL14 driver instance asynchronously
@@ -277,12 +282,7 @@ impl Ell14Driver {
             .await
             .context("spawn_blocking for ELL14 port opening failed")??;
 
-        Ok(Self {
-            port: Arc::new(Mutex::new(port)),
-            address,
-            pulses_per_degree: 398.2222, // 143360 pulses / 360 degrees
-            params: ParameterSet::new(),
-        })
+        Ok(Self::build(Arc::new(Mutex::new(port)), address, 398.2222))
     }
 
     /// Create with custom calibration factor
@@ -296,9 +296,60 @@ impl Ell14Driver {
         address: &str,
         pulses_per_degree: f64,
     ) -> Result<Self> {
-        let mut driver = Self::new(port_path, address)?;
-        driver.pulses_per_degree = pulses_per_degree;
-        Ok(driver)
+        let port = Self::open_port(port_path)?;
+        Ok(Self::build(
+            Arc::new(Mutex::new(port)),
+            address.to_string(),
+            pulses_per_degree,
+        ))
+    }
+
+    fn build(port: SharedPort, address: String, pulses_per_degree: f64) -> Self {
+        let mut params = ParameterSet::new();
+        let address_clone = address.clone();
+
+        let mut position = Parameter::new("position", 0.0)
+            .with_description("Rotation position")
+            .with_unit("°");
+
+        position.connect_to_hardware_write({
+            let port = port.clone();
+            let address = address_clone.clone();
+            move |position_deg: f64| -> BoxFuture<'static, Result<(), DaqError>> {
+                let port = port.clone();
+                let address = address.clone();
+                Box::pin(async move {
+                    let pulses = (position_deg * pulses_per_degree) as i32;
+                    let hex_pulses = format!("{:08X}", pulses as u32);
+                    let payload = format!("{}ma{}", address, hex_pulses);
+
+                    let mut port = port.lock().await;
+                    port.write_all(payload.as_bytes())
+                        .await
+                        .context("ELL14 position write failed")
+                        .map_err(|e| DaqError::Instrument(e.to_string()))?;
+
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+
+                    Ok(())
+                })
+            }
+        });
+
+        params.register(position.clone());
+
+        Self {
+            port,
+            address,
+            pulses_per_degree,
+            position_deg: position,
+            params,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_test_port(port: SharedPort, address: &str, pulses_per_degree: f64) -> Self {
+        Self::build(port, address.to_string(), pulses_per_degree)
     }
 
     /// Send home command to find mechanical zero
@@ -982,22 +1033,7 @@ impl Parameterized for Ell14Driver {
 #[async_trait]
 impl Movable for Ell14Driver {
     async fn move_abs(&self, position_deg: f64) -> Result<()> {
-        // Convert degrees to pulses (handle negative positions properly)
-        let pulses = (position_deg * self.pulses_per_degree) as i32;
-
-        // Format as 8-digit hex (uppercase, zero-padded)
-        // For negative values, the u32 cast gives two's complement representation
-        let hex_pulses = format!("{:08X}", pulses as u32);
-
-        // Command: ma (Move Absolute)
-        // Format: "0ma00002000" for device 0, position 0x00002000
-        let cmd = format!("ma{}", hex_pulses);
-
-        // Move commands may return a response after motion starts or completes
-        // We try to get a response but don't fail if none comes - use wait_settled for confirmation
-        let _ = self.send_command(&cmd).await;
-
-        Ok(())
+        self.position_deg.set(position_deg).await
     }
 
     async fn move_rel(&self, distance_deg: f64) -> Result<()> {
@@ -1014,7 +1050,12 @@ impl Movable for Ell14Driver {
     async fn position(&self) -> Result<f64> {
         // Command: gp (Get Position)
         let resp = self.transaction("gp").await?;
-        self.parse_position_response(&resp)
+        let pos = self.parse_position_response(&resp)?;
+
+        // Update cached parameter without re-writing to hardware
+        let _ = self.position_deg.inner().set(pos);
+
+        Ok(pos)
     }
 
     async fn wait_settled(&self) -> Result<()> {
@@ -1096,6 +1137,25 @@ impl Movable for Ell14Driver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::AsyncReadExt;
+
+    #[tokio::test]
+    async fn move_abs_uses_parameter_and_writes_command() -> Result<()> {
+        let (mut host, device) = tokio::io::duplex(64);
+        let port: SharedPort = Arc::new(Mutex::new(Box::new(device)));
+
+        let driver = Ell14Driver::with_test_port(port, "0", 398.2222);
+
+        driver.move_abs(45.0).await?;
+
+        let mut buf = vec![0u8; 32];
+        let n = host.read(&mut buf).await?;
+        let sent = String::from_utf8_lossy(&buf[..n]).to_string();
+
+        assert!(sent.starts_with("0ma00004600"));
+
+        Ok(())
+    }
 
     /// Test helper: parse position response without needing a real driver
     fn parse_position(response: &str, pulses_per_degree: f64) -> Result<f64> {

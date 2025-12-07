@@ -1,0 +1,33 @@
+# Find Parameter<T> reactive pattern usage
+# Ensures hardware parameters use proper reactive callbacks
+
+id: find-parameter-reactive
+language: Rust
+severity: info
+message: Hardware parameter with reactive pattern
+note: |
+  V5 drivers should use Parameter<T> with async hardware callbacks
+  for observable state management.
+
+  Related issues: bd-s5ou (async callbacks), bd-hlr7 (driver wiring)
+
+rule:
+  pattern: |
+    $NAME: Parameter<$TYPE>
+
+files:
+  - 'src/hardware/**/*.rs'
+ignores:
+  - '**/mock_*.rs'
+  - '**/*test*.rs'
+
+labels:
+  - label: parameter field
+    source: $NAME
+  - label: parameter type
+    source: $TYPE
+
+metadata:
+  category: architecture
+  tags: [reactive, parameter, observable, v5]
+  related_issues: [bd-s5ou, bd-hlr7]

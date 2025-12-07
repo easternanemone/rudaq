@@ -184,7 +184,7 @@ fn verify_mock_serial_export() {
 fn verify_ell14_export() {
     // Verify Ell14 driver is exported
     fn _check_type_exists<T>() {}
-    _check_type_exists::<rust_daq::hardware::ell14::Ell14>();
+    _check_type_exists::<rust_daq::hardware::ell14::Ell14Driver>();
 }
 
 #[cfg(feature = "instrument_newport")]
@@ -192,7 +192,7 @@ fn verify_ell14_export() {
 fn verify_esp300_export() {
     // Verify Esp300 driver is exported
     fn _check_type_exists<T>() {}
-    _check_type_exists::<rust_daq::hardware::esp300::Esp300>();
+    _check_type_exists::<rust_daq::hardware::esp300::Esp300Driver>();
 }
 
 #[cfg(feature = "instrument_photometrics")]
@@ -200,7 +200,7 @@ fn verify_esp300_export() {
 fn verify_pvcam_export() {
     // Verify PVCAM camera is exported
     fn _check_type_exists<T>() {}
-    _check_type_exists::<rust_daq::hardware::pvcam::PvcamCamera>();
+    _check_type_exists::<rust_daq::hardware::pvcam::PvcamDriver>();
 }
 
 #[cfg(feature = "instrument_spectra_physics")]
@@ -208,7 +208,7 @@ fn verify_pvcam_export() {
 fn verify_maitai_export() {
     // Verify MaiTai laser is exported
     fn _check_type_exists<T>() {}
-    _check_type_exists::<rust_daq::hardware::maitai::MaiTai>();
+    _check_type_exists::<rust_daq::hardware::maitai::MaiTaiDriver>();
 }
 
 #[cfg(feature = "instrument_newport_power_meter")]
@@ -216,7 +216,7 @@ fn verify_maitai_export() {
 fn verify_newport_1830c_export() {
     // Verify Newport 1830-C power meter is exported
     fn _check_type_exists<T>() {}
-    _check_type_exists::<rust_daq::hardware::newport_1830c::Newport1830C>();
+    _check_type_exists::<rust_daq::hardware::newport_1830c::Newport1830CDriver>();
 }
 
 // =============================================================================
@@ -342,13 +342,6 @@ fn verify_module_registry_export() {
 // Configuration System
 // =============================================================================
 
-#[test]
-fn verify_config_v4_export() {
-    // Verify V4 config system is exported
-    fn _check_type_exists<T>() {}
-    _check_type_exists::<rust_daq::config_v4::V4Config>();
-}
-
 // =============================================================================
 // Error Types
 // =============================================================================
@@ -363,13 +356,6 @@ fn verify_daq_error_export() {
 // =============================================================================
 // Measurement Types
 // =============================================================================
-
-#[test]
-fn verify_instrument_measurement_export() {
-    // Verify InstrumentMeasurement is exported
-    fn _check_type_exists<T>() {}
-    _check_type_exists::<rust_daq::measurement::InstrumentMeasurement>();
-}
 
 #[test]
 fn verify_power_export() {
@@ -448,17 +434,12 @@ fn verify_complete_public_api() {
     // Scripting
     use rust_daq::scripting::{CameraHandle, RhaiEngine, StageHandle};
 
-    // Configuration
-    use rust_daq::config_v4::V4Config;
-
     // Error handling
     use rust_daq::error::DaqError;
 
     // Measurement types
     use rust_daq::core::Measurement;
     use rust_daq::measurement::power::PowerMeasure;
-    use rust_daq::measurement::InstrumentMeasurement;
-
     // If we get here, all critical exports are working
     fn _all_types_accessible() {}
     _all_types_accessible();

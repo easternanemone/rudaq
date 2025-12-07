@@ -533,18 +533,6 @@ impl ScanServiceImpl {
             scan.error_message = Some(error);
         }
     }
-}
-
-#[tonic::async_trait]
-impl ScanService for ScanServiceImpl {
-    async fn create_scan(
-        &self,
-        request: Request<CreateScanRequest>,
-    ) -> Result<Response<CreateScanResponse>, Status> {
-        let req = request.into_inner();
-        self.with_request_deadline("CreateScan", self.create_scan_inner(req))
-            .await
-    }
 
     async fn create_scan_inner(
         &self,
@@ -580,15 +568,6 @@ impl ScanService for ScanServiceImpl {
             error_message: String::new(),
             total_points,
         }))
-    }
-
-    async fn start_scan(
-        &self,
-        request: Request<StartScanRequest>,
-    ) -> Result<Response<StartScanResponse>, Status> {
-        let req = request.into_inner();
-        self.with_request_deadline("StartScan", self.start_scan_inner(req))
-            .await
     }
 
     async fn start_scan_inner(
@@ -654,15 +633,6 @@ impl ScanService for ScanServiceImpl {
         }))
     }
 
-    async fn pause_scan(
-        &self,
-        request: Request<PauseScanRequest>,
-    ) -> Result<Response<PauseScanResponse>, Status> {
-        let req = request.into_inner();
-        self.with_request_deadline("PauseScan", self.pause_scan_inner(req))
-            .await
-    }
-
     async fn pause_scan_inner(
         &self,
         req: PauseScanRequest,
@@ -686,15 +656,6 @@ impl ScanService for ScanServiceImpl {
         }))
     }
 
-    async fn resume_scan(
-        &self,
-        request: Request<ResumeScanRequest>,
-    ) -> Result<Response<ResumeScanResponse>, Status> {
-        let req = request.into_inner();
-        self.with_request_deadline("ResumeScan", self.resume_scan_inner(req))
-            .await
-    }
-
     async fn resume_scan_inner(
         &self,
         req: ResumeScanRequest,
@@ -716,15 +677,6 @@ impl ScanService for ScanServiceImpl {
             success: true,
             error_message: String::new(),
         }))
-    }
-
-    async fn stop_scan(
-        &self,
-        request: Request<StopScanRequest>,
-    ) -> Result<Response<StopScanResponse>, Status> {
-        let req = request.into_inner();
-        self.with_request_deadline("StopScan", self.stop_scan_inner(req))
-            .await
     }
 
     async fn stop_scan_inner(
@@ -769,6 +721,54 @@ impl ScanService for ScanServiceImpl {
             points_completed: current_point,
             error_message: String::new(),
         }))
+    }
+}
+
+#[tonic::async_trait]
+impl ScanService for ScanServiceImpl {
+    async fn create_scan(
+        &self,
+        request: Request<CreateScanRequest>,
+    ) -> Result<Response<CreateScanResponse>, Status> {
+        let req = request.into_inner();
+        self.with_request_deadline("CreateScan", self.create_scan_inner(req))
+            .await
+    }
+
+    async fn start_scan(
+        &self,
+        request: Request<StartScanRequest>,
+    ) -> Result<Response<StartScanResponse>, Status> {
+        let req = request.into_inner();
+        self.with_request_deadline("StartScan", self.start_scan_inner(req))
+            .await
+    }
+
+    async fn pause_scan(
+        &self,
+        request: Request<PauseScanRequest>,
+    ) -> Result<Response<PauseScanResponse>, Status> {
+        let req = request.into_inner();
+        self.with_request_deadline("PauseScan", self.pause_scan_inner(req))
+            .await
+    }
+
+    async fn resume_scan(
+        &self,
+        request: Request<ResumeScanRequest>,
+    ) -> Result<Response<ResumeScanResponse>, Status> {
+        let req = request.into_inner();
+        self.with_request_deadline("ResumeScan", self.resume_scan_inner(req))
+            .await
+    }
+
+    async fn stop_scan(
+        &self,
+        request: Request<StopScanRequest>,
+    ) -> Result<Response<StopScanResponse>, Status> {
+        let req = request.into_inner();
+        self.with_request_deadline("StopScan", self.stop_scan_inner(req))
+            .await
     }
 
     async fn get_scan_status(

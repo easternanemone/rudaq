@@ -1,16 +1,9 @@
 {
   "permissions": {
-    "additionalDirectories": [
-      "/Users/briansquires/code/rust-daq-worktrees/",
-      "/Users/briansquires/jules-mcp"
-    ],
     "allow": [
-      "Bash(bd onboard:*)"
-    ]
-  },
-  "disabledMcpjsonServers": [
-    "claude-flow@alpha",
-    "flow-nexus",
-    "agentic-payments"
-  ]
+      "Bash(find:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
 }

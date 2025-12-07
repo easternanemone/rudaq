@@ -86,11 +86,11 @@ fn main() -> Result<()> {
     // Scenario 5: Still support typed access when type is known
     println!("--- Typed Access (backwards compatible) ---");
 
-    if let Some(wavelength) = params.get_typed::<f64>("wavelength_nm") {
+    if let Some(wavelength) = params.get_typed::<Observable<f64>>("wavelength_nm") {
         println!("  Typed access to wavelength: {} nm", wavelength.get());
     }
 
-    if let Some(mode) = params.get_typed::<String>("mode") {
+    if let Some(mode) = params.get_typed::<Observable<String>>("mode") {
         println!("  Typed access to mode: {}", mode.get());
     }
 

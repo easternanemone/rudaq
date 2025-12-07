@@ -201,7 +201,7 @@ impl HealthService for HealthServiceImpl {
     async fn stream_health_updates(
         &self,
         request: Request<StreamHealthUpdatesRequest>,
-    ) -> Result<Response<Self::StreamHealthUpdatesStream>, Status> {
+    ) -> Result<Response<<Self as HealthService>::StreamHealthUpdatesStream>, Status> {
         let req = request.into_inner();
         let update_interval = if req.update_interval_ms > 0 {
             Duration::from_millis(req.update_interval_ms as u64)

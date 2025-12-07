@@ -506,16 +506,16 @@ impl PvcamDriver {
         .with_description("Region of interest");
         params.register(roi_param.clone());
 
-        let binning_param = Parameter::new("binning", (1u16, 1u16))
-            .with_description("Binning factors (x, y)");
+        let binning_param =
+            Parameter::new("binning", (1u16, 1u16)).with_description("Binning factors (x, y)");
         params.register(binning_param.clone());
 
-        let armed_param = Parameter::new("armed", false)
-            .with_description("Camera armed for trigger");
+        let armed_param =
+            Parameter::new("armed", false).with_description("Camera armed for trigger");
         params.register(armed_param.clone());
 
-        let streaming_param = Parameter::new("streaming", false)
-            .with_description("Continuous streaming active");
+        let streaming_param =
+            Parameter::new("streaming", false).with_description("Continuous streaming active");
         params.register(streaming_param.clone());
 
         // Temperature parameters
@@ -542,8 +542,8 @@ impl PvcamDriver {
         params.register(fan_speed_param.clone());
 
         // Gain and speed index parameters
-        let gain_index_param = Parameter::new("gain_index", 0u16)
-            .with_description("Current gain mode index");
+        let gain_index_param =
+            Parameter::new("gain_index", 0u16).with_description("Current gain mode index");
         params.register(gain_index_param.clone());
 
         let speed_index_param = Parameter::new("speed_index", 0u16)
@@ -612,16 +612,16 @@ impl PvcamDriver {
         .with_description("Region of interest");
         params.register(roi_param.clone());
 
-        let binning_param = Parameter::new("binning", (1u16, 1u16))
-            .with_description("Binning factors (x, y)");
+        let binning_param =
+            Parameter::new("binning", (1u16, 1u16)).with_description("Binning factors (x, y)");
         params.register(binning_param.clone());
 
-        let armed_param = Parameter::new("armed", false)
-            .with_description("Camera armed for trigger");
+        let armed_param =
+            Parameter::new("armed", false).with_description("Camera armed for trigger");
         params.register(armed_param.clone());
 
-        let streaming_param = Parameter::new("streaming", false)
-            .with_description("Continuous streaming active");
+        let streaming_param =
+            Parameter::new("streaming", false).with_description("Continuous streaming active");
         params.register(streaming_param.clone());
 
         // Temperature parameters
@@ -648,8 +648,8 @@ impl PvcamDriver {
         params.register(fan_speed_param.clone());
 
         // Gain and speed index parameters
-        let gain_index_param = Parameter::new("gain_index", 0u16)
-            .with_description("Current gain mode index");
+        let gain_index_param =
+            Parameter::new("gain_index", 0u16).with_description("Current gain mode index");
         params.register(gain_index_param.clone());
 
         let speed_index_param = Parameter::new("speed_index", 0u16)

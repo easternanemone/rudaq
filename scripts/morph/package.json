@@ -8,7 +8,11 @@
     "search": "npx tsx search.ts",
     "embed": "npx tsx embed.ts",
     "rerank": "npx tsx rerank.ts",
-    "push": "npx tsx push-and-index.ts"
+    "push": "npx tsx push-and-index.ts",
+    "push:no-wait": "npx tsx push-and-index.ts -- --no-wait",
+    "git:push": "npx tsx push-and-index.ts",
+    "git:wait-embeddings": "npx tsx wait-embeddings.ts",
+    "test:all": "npm run search -- 'async hardware callbacks' && npm run embed -- --file ../../src/hardware/maitai.rs"
   },
   "dependencies": {
     "@morphllm/morphsdk": "^0.2.44",

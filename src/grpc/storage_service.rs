@@ -10,16 +10,18 @@ use crate::grpc::proto::{
     storage_service_server::StorageService, AcquisitionInfo, AcquisitionSummary,
     ConfigureStorageRequest, ConfigureStorageResponse, DeleteAcquisitionRequest,
     DeleteAcquisitionResponse, FlushToStorageRequest, FlushToStorageResponse,
-    GetAcquisitionInfoRequest, GetRecordingStatusRequest, GetStorageConfigRequest, Hdf5Config,
-    Hdf5Structure, ListAcquisitionsRequest, ListAcquisitionsResponse, RecordingProgress,
-    RecordingState, RecordingStatus, StartRecordingRequest, StartRecordingResponse,
-    StopRecordingRequest, StopRecordingResponse, StorageConfig, StreamRecordingProgressRequest,
+    GetAcquisitionInfoRequest, GetRecordingStatusRequest, GetRingBufferTapInfoRequest,
+    GetStorageConfigRequest, Hdf5Config, Hdf5Structure, ListAcquisitionsRequest,
+    ListAcquisitionsResponse, RecordingProgress, RecordingState, RecordingStatus,
+    RingBufferTapInfo, StartRecordingRequest, StartRecordingResponse, StopRecordingRequest,
+    StopRecordingResponse, StorageConfig, StreamRecordingProgressRequest,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::fs;
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tonic::{Request, Response, Status};
@@ -132,12 +134,12 @@ impl StorageServiceImpl {
     }
 
     /// Get disk space info for a directory
-    fn get_disk_space(path: &Path) -> (u64, u64) {
+    async fn get_disk_space(path: &Path) -> (u64, u64) {
         // Try to get disk space using sys-info or fall back to defaults
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
-            if let Ok(metadata) = std::fs::metadata(path) {
+            if let Ok(metadata) = tokio::fs::metadata(path).await {
                 // This is a rough estimate - actual implementation would use statvfs
                 let _ = metadata.dev();
             }
@@ -151,53 +153,46 @@ impl StorageServiceImpl {
         let mut records = HashMap::new();
         let settings = self.settings.read().await;
 
-        if self.ring_buffer.is_none() {
-            return Ok(Response::new(StartRecordingResponse {
-                success: false,
-                error_message: "Ring buffer not initialized; storage pipeline unavailable"
-                    .to_string(),
-                recording_id: String::new(),
-                output_path: String::new(),
-            }));
-        }
+        let mut entries = match fs::read_dir(&settings.output_directory).await {
+            Ok(dir) => dir,
+            Err(_) => return records,
+        };
 
-        if let Ok(entries) = std::fs::read_dir(&settings.output_directory) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path
-                    .extension()
-                    .map_or(false, |ext| ext == "h5" || ext == "hdf5")
-                {
-                    if let Ok(metadata) = std::fs::metadata(&path) {
-                        let id = Uuid::new_v4().to_string();
-                        let name = path
-                            .file_stem()
-                            .map(|s| s.to_string_lossy().to_string())
-                            .unwrap_or_default();
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            if path
+                .extension()
+                .map_or(false, |ext| ext == "h5" || ext == "hdf5")
+            {
+                if let Ok(metadata) = fs::metadata(&path).await {
+                    let id = Uuid::new_v4().to_string();
+                    let name = path
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default();
 
-                        let created_at_ns = metadata
-                            .created()
-                            .ok()
-                            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                            .map(|d| d.as_nanos() as u64)
-                            .unwrap_or(0);
+                    let created_at_ns = metadata
+                        .created()
+                        .ok()
+                        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                        .map(|d| d.as_nanos() as u64)
+                        .unwrap_or(0);
 
-                        records.insert(
-                            id.clone(),
-                            AcquisitionRecord {
-                                id,
-                                name,
-                                file_path: path,
-                                created_at_ns,
-                                duration_ns: 0, // Unknown for scanned files
-                                sample_count: 0,
-                                file_size_bytes: metadata.len(),
-                                metadata: HashMap::new(),
-                                scan_id: None,
-                                run_uid: None,
-                            },
-                        );
-                    }
+                    records.insert(
+                        id.clone(),
+                        AcquisitionRecord {
+                            id,
+                            name,
+                            file_path: path.clone(),
+                            created_at_ns,
+                            duration_ns: 0, // Unknown for scanned files
+                            sample_count: 0,
+                            file_size_bytes: metadata.len(),
+                            metadata: HashMap::new(),
+                            scan_id: None,
+                            run_uid: None,
+                        },
+                    );
                 }
             }
         }
@@ -218,7 +213,7 @@ impl StorageService for StorageServiceImpl {
         // Validate output directory
         let output_dir = PathBuf::from(&req.output_directory);
         if !output_dir.exists() {
-            if let Err(e) = std::fs::create_dir_all(&output_dir) {
+            if let Err(e) = fs::create_dir_all(&output_dir).await {
                 return Ok(Response::new(ConfigureStorageResponse {
                     success: false,
                     error_message: format!("Failed to create output directory: {}", e),
@@ -227,8 +222,8 @@ impl StorageService for StorageServiceImpl {
             }
         }
 
-        let resolved_path = output_dir
-            .canonicalize()
+        let resolved_path = fs::canonicalize(&output_dir)
+            .await
             .unwrap_or(output_dir.clone())
             .to_string_lossy()
             .to_string();
@@ -274,7 +269,7 @@ impl StorageService for StorageServiceImpl {
         _request: Request<GetStorageConfigRequest>,
     ) -> Result<Response<StorageConfig>, Status> {
         let settings = self.settings.read().await;
-        let (available, used) = Self::get_disk_space(&settings.output_directory);
+        let (available, used) = Self::get_disk_space(&settings.output_directory).await;
 
         Ok(Response::new(StorageConfig {
             output_directory: settings.output_directory.to_string_lossy().to_string(),
@@ -465,7 +460,8 @@ impl StorageService for StorageServiceImpl {
         }
 
         // Get file size
-        let file_size = std::fs::metadata(&session.output_path)
+        let file_size = fs::metadata(&session.output_path)
+            .await
             .map(|m| m.len())
             .unwrap_or(0);
 
@@ -704,7 +700,7 @@ impl StorageService for StorageServiceImpl {
         let bytes_freed = record.file_size_bytes;
 
         // Delete the file
-        if let Err(e) = std::fs::remove_file(&record.file_path) {
+        if let Err(e) = fs::remove_file(&record.file_path).await {
             // Re-insert record since delete failed
             acquisitions.insert(req.acquisition_id, record);
             return Ok(Response::new(DeleteAcquisitionResponse {
@@ -853,6 +849,38 @@ impl StorageService for StorageServiceImpl {
         Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
             rx,
         )))
+    }
+
+    /// Get information for cross-process ring buffer access via mmap.
+    async fn get_ring_buffer_tap_info(
+        &self,
+        _request: Request<GetRingBufferTapInfoRequest>,
+    ) -> Result<Response<RingBufferTapInfo>, Status> {
+        // Get ring buffer or return error
+        let ring_buffer = self.ring_buffer.as_ref().ok_or_else(|| {
+            Status::unavailable("Ring buffer not configured")
+        })?;
+
+        // Get file size from metadata
+        let path = ring_buffer.path();
+        let total_size_bytes = tokio::fs::metadata(path)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        Ok(Response::new(RingBufferTapInfo {
+            file_path: path.to_string_lossy().to_string(),
+            total_size_bytes,
+            capacity_bytes: ring_buffer.capacity(),
+            header_size: 128, // HEADER_SIZE constant
+            stream_id: ring_buffer.stream_id(),
+            magic: ring_buffer.magic(),
+            write_head: ring_buffer.write_head(),
+            read_tail: ring_buffer.read_tail(),
+            write_epoch: ring_buffer.write_epoch(),
+            data_format: "arrow_ipc".to_string(),
+            arrow_schema_json: None, // TODO: Populate from buffer if available
+        }))
     }
 }
 

@@ -102,7 +102,7 @@ futures = "0.3.30"
 # gRPC & Protobuf (for remote control API)
 tonic = "0.10"
 prost = "0.12"
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Instrument Communication
 serialport = { version = "4.3.0", optional = true }
@@ -126,6 +126,7 @@ dirs = "5.0"
 hostname = "0.4" # For experiment manifest system info (bd-ej44)
 once_cell = { version = "1.21.3", features = ["std"] }
 notify = { version = "7", optional = true } # File watching for hot-reload
+sysinfo = "0.37.2"
 
 [build-dependencies]
 flatbuffers = "24.3.25"
@@ -137,13 +138,17 @@ tempfile = "3.10.1"
 serial_test = "3.1.1"
 tokio-test = "0.4"
 tracing-test = "0.2"
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 
 [features]
 # NOTE: Phase 1 (bd-61) migrated to actor-based state management
 # For rollback instructions, see ROLLBACK_ACTOR.md
 default = ["storage_csv", "instrument_serial"]
-full = ["storage_csv", "storage_hdf5", "storage_arrow", "storage_matlab", "storage_netcdf", "instrument_serial", "modules", "networking", "all_hardware"]
+full = ["storage_csv", "storage_arrow", "storage_matlab", "storage_netcdf", "instrument_serial", "modules", "networking", "all_hardware"]
+
+# NOTE: storage_hdf5 requires a native HDF5 installation (e.g., libhdf5-dev). It is
+# intentionally omitted from the "full" feature set to keep CI and users without HDF5
+# toolchains working. Enable explicitly with `--features storage_hdf5` when available.
 
 # Storage backends
 storage_csv = ["dep:csv"]
@@ -178,6 +183,7 @@ all_hardware = [
 
 # Phase 2 (bd-63): Networking layer with FlatBuffers protocol
 networking = []
+gui_egui = []
 
 # Phase 3B (bd-c0ai): Module system with runtime instrument assignment
 # Requires networking for gRPC proto types used in module context
@@ -205,7 +211,7 @@ path = "src/main.rs"
 [[bin]]
 name = "rust_daq_gui_egui"
 path = "src/gui_main.rs"
-required-features = ["networking"]
+required-features = ["networking", "gui_egui"]
 
 [[bin]]
 name = "discovery"
@@ -234,3 +240,7 @@ required-features = ["networking"]
 name = "hw_polarization_test"
 path = "examples/hw_polarization_test.rs"
 required-features = ["instrument_thorlabs", "instrument_spectra_physics", "instrument_newport_power_meter"]
+
+[[bench]]
+name = "parameter_bench"
+harness = false

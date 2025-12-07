@@ -39,6 +39,7 @@
 //! }
 //! ```
 
+use crate::error::DaqError;
 use crate::hardware::capabilities::{
     EmissionControl, Parameterized, Readable, ShutterControl, WavelengthTunable,
 };
@@ -60,7 +61,7 @@ use tokio_serial::{SerialPortBuilderExt, SerialStream};
 /// Uses MaiTai's ASCII protocol for hardware communication.
 pub struct MaiTaiDriver {
     /// Serial port protected by Mutex for exclusive access
-    port: Mutex<BufReader<SerialStream>>,
+    port: Arc<Mutex<BufReader<SerialStream>>>,
     /// Command timeout duration
     timeout: Duration,
     /// Current wavelength setting (cached for reference)
@@ -95,51 +96,54 @@ impl MaiTaiDriver {
 
         // Create wavelength parameter with metadata and hardware callback
         let mut params = ParameterSet::new();
-        let wavelength = Parameter::new("wavelength_nm", 800.0)
+        let mut wavelength = Parameter::new("wavelength_nm", 800.0)
             .with_description("Tunable laser wavelength")
             .with_unit("nm")
-            .with_range(690.0, 1040.0) // MaiTai tuning range
-            .connect_to_hardware_write({
-                let port = port_mutex.clone();
-                move |wavelength: f64| -> BoxFuture<'static, Result<()>> {
-                    let port = port.clone();
-                    Box::pin(async move {
-                        let mut p = port.lock().await;
-                        let cmd = format!("WAVELENGTH:{}\r\n", wavelength);
-                        p.get_mut()
-                            .write_all(cmd.as_bytes())
-                            .await
-                            .context("Failed to write wavelength command")?;
-                        p.get_mut()
-                            .flush()
-                            .await
-                            .context("Failed to flush wavelength command")?;
-                        tokio::time::sleep(Duration::from_millis(500)).await;
+            .with_range(690.0, 1040.0); // MaiTai tuning range
 
-                        // Read and discard response (required for XON/XOFF flow control)
-                        let mut response = String::new();
-                        match tokio::time::timeout(
-                            Duration::from_millis(500),
-                            p.read_line(&mut response),
-                        )
+        wavelength.connect_to_hardware_write({
+            let port = port_mutex.clone();
+            move |wavelength: f64| -> BoxFuture<'static, Result<(), DaqError>> {
+                let port = port.clone();
+                Box::pin(async move {
+                    let mut p = port.lock().await;
+                    let cmd = format!("WAVELENGTH:{}\r\n", wavelength);
+                    p.get_mut()
+                        .write_all(cmd.as_bytes())
                         .await
-                        {
-                            Ok(Ok(_)) => {
-                                log::debug!("MaiTai wavelength response: {}", response.trim())
-                            }
-                            Ok(Err(e)) => {
-                                log::debug!("MaiTai wavelength read error (may be OK): {}", e)
-                            }
-                            Err(_) => log::debug!("MaiTai wavelength no response (may be OK)"),
-                        }
+                        .context("Failed to write wavelength command")
+                        .map_err(|e| DaqError::Instrument(e.to_string()))?;
+                    p.get_mut()
+                        .flush()
+                        .await
+                        .context("Failed to flush wavelength command")
+                        .map_err(|e| DaqError::Instrument(e.to_string()))?;
+                    tokio::time::sleep(Duration::from_millis(500)).await;
 
-                        Ok(())
-                    })
-                }
-            });
+                    // Read and discard response (required for XON/XOFF flow control)
+                    let mut response = String::new();
+                    match tokio::time::timeout(
+                        Duration::from_millis(500),
+                        p.read_line(&mut response),
+                    )
+                    .await
+                    {
+                        Ok(Ok(_)) => {
+                            log::debug!("MaiTai wavelength response: {}", response.trim())
+                        }
+                        Ok(Err(e)) => {
+                            log::debug!("MaiTai wavelength read error (may be OK): {}", e)
+                        }
+                        Err(_) => log::debug!("MaiTai wavelength no response (may be OK)"),
+                    }
+
+                    Ok(())
+                })
+            }
+        });
 
         // Register parameter
-        params.register(wavelength.inner().clone());
+        params.register(wavelength.clone());
 
         Ok(Self {
             port: port_mutex,
@@ -179,51 +183,54 @@ impl MaiTaiDriver {
 
         // Create wavelength parameter with metadata and hardware callback
         let mut params = ParameterSet::new();
-        let wavelength = Parameter::new("wavelength_nm", 800.0)
+        let mut wavelength = Parameter::new("wavelength_nm", 800.0)
             .with_description("Tunable laser wavelength")
             .with_unit("nm")
-            .with_range(690.0, 1040.0) // MaiTai tuning range
-            .connect_to_hardware_write({
-                let port = port_mutex.clone();
-                move |wavelength: f64| -> BoxFuture<'static, Result<()>> {
-                    let port = port.clone();
-                    Box::pin(async move {
-                        let mut p = port.lock().await;
-                        let cmd = format!("WAVELENGTH:{}\r\n", wavelength);
-                        p.get_mut()
-                            .write_all(cmd.as_bytes())
-                            .await
-                            .context("Failed to write wavelength command")?;
-                        p.get_mut()
-                            .flush()
-                            .await
-                            .context("Failed to flush wavelength command")?;
-                        tokio::time::sleep(Duration::from_millis(500)).await;
+            .with_range(690.0, 1040.0); // MaiTai tuning range
 
-                        // Read and discard response (required for XON/XOFF flow control)
-                        let mut response = String::new();
-                        match tokio::time::timeout(
-                            Duration::from_millis(500),
-                            p.read_line(&mut response),
-                        )
+        wavelength.connect_to_hardware_write({
+            let port = port_mutex.clone();
+            move |wavelength: f64| -> BoxFuture<'static, Result<(), DaqError>> {
+                let port = port.clone();
+                Box::pin(async move {
+                    let mut p = port.lock().await;
+                    let cmd = format!("WAVELENGTH:{}\r\n", wavelength);
+                    p.get_mut()
+                        .write_all(cmd.as_bytes())
                         .await
-                        {
-                            Ok(Ok(_)) => {
-                                log::debug!("MaiTai wavelength response: {}", response.trim())
-                            }
-                            Ok(Err(e)) => {
-                                log::debug!("MaiTai wavelength read error (may be OK): {}", e)
-                            }
-                            Err(_) => log::debug!("MaiTai wavelength no response (may be OK)"),
-                        }
+                        .context("Failed to write wavelength command")
+                        .map_err(|e| DaqError::Instrument(e.to_string()))?;
+                    p.get_mut()
+                        .flush()
+                        .await
+                        .context("Failed to flush wavelength command")
+                        .map_err(|e| DaqError::Instrument(e.to_string()))?;
+                    tokio::time::sleep(Duration::from_millis(500)).await;
 
-                        Ok(())
-                    })
-                }
-            });
+                    // Read and discard response (required for XON/XOFF flow control)
+                    let mut response = String::new();
+                    match tokio::time::timeout(
+                        Duration::from_millis(500),
+                        p.read_line(&mut response),
+                    )
+                    .await
+                    {
+                        Ok(Ok(_)) => {
+                            log::debug!("MaiTai wavelength response: {}", response.trim())
+                        }
+                        Ok(Err(e)) => {
+                            log::debug!("MaiTai wavelength read error (may be OK): {}", e)
+                        }
+                        Err(_) => log::debug!("MaiTai wavelength no response (may be OK)"),
+                    }
+
+                    Ok(())
+                })
+            }
+        });
 
         // Register parameter
-        params.register(wavelength.inner().clone());
+        params.register(wavelength.clone());
 
         Ok(Self {
             port: port_mutex,
@@ -241,23 +248,7 @@ impl MaiTaiDriver {
     /// # Errors
     /// Returns error if wavelength is out of range or command fails
     pub async fn set_wavelength(&self, wavelength_nm: f64) -> Result<()> {
-        if !(690.0..=1040.0).contains(&wavelength_nm) {
-            return Err(anyhow!(
-                "Wavelength {} nm out of range (690-1040 nm)",
-                wavelength_nm
-            ));
-        }
-
-        self.send_command(&format!("WAVELENGTH:{}", wavelength_nm))
-            .await?;
-
-        // Update cached value
-        self.wavelength_nm.set(wavelength_nm).await?;
-
-        // Allow time for wavelength tuning (hardware can take several seconds)
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        Ok(())
+        self.wavelength_nm.set(wavelength_nm).await
     }
 
     /// Get current wavelength setting

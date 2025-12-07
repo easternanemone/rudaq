@@ -1,0 +1,68 @@
+# Common utility patterns for rust-daq codebase
+
+id: common-utils
+language: Rust
+utils:
+  # Hardware capability traits
+  is-capability-trait:
+    any:
+      - pattern: Movable
+      - pattern: Readable
+      - pattern: FrameProducer
+      - pattern: ExposureControl
+      - pattern: Triggerable
+      - pattern: Parameterized
+
+  # Async hardware methods
+  is-async-hardware-method:
+    all:
+      - kind: function_item
+      - has:
+          pattern: async
+      - any:
+          - has:
+              pattern: move_abs
+          - has:
+              pattern: get_position
+          - has:
+              pattern: arm
+          - has:
+              pattern: trigger
+          - has:
+              pattern: capture
+
+  # Hardware driver structs
+  is-hardware-driver:
+    all:
+      - kind: struct_item
+      - any:
+          - pattern: pub struct $NAME { $$$port: Mutex<$PORT>, $$$ }
+          - pattern: pub struct $NAME { $$$serial: Arc<$SERIAL>, $$$ }
+
+  # Parameter usage (reactive pattern)
+  is-parameter-field:
+    pattern: $NAME: Parameter<$TYPE>
+
+  # Unsafe FFI blocks
+  is-unsafe-ffi:
+    all:
+      - pattern: unsafe { $$$ }
+      - inside:
+          any:
+            - pattern: extern "C"
+            - pattern: impl $TRAIT for $TYPE
+              has:
+                pattern: unsafe
+
+  # Legacy code patterns
+  is-legacy-code:
+    any:
+      - pattern: DataPoint  # V1
+      - pattern: Measure    # V1 trait
+      - pattern: ScriptHost # V4
+      - has:
+          regex: '_v[1-4]'  # Versioned files
+
+  # BD issue references
+  has-issue-reference:
+    regex: 'bd-[a-z0-9]{4}'

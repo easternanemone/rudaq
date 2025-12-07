@@ -52,5 +52,8 @@ pub mod parameter; // Base reactive primitive (used by Parameter and Modules)
 
 // V5 Headless-First Architecture (bd-oq51)
 pub mod experiment; // Phase 4: RunEngine experiment orchestration (bd-73yh)
+#[cfg(feature = "networking")]
+pub mod grpc; // Re-enabled (bd-gmwv): gRPC services compile with networking feature
 pub mod hardware; // Phase 1: Capability traits + Mock implementations
 pub mod health;
+pub mod scripting;

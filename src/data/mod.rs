@@ -56,6 +56,9 @@ pub mod ring_buffer;
 /// visualization and remote monitoring.
 pub mod ring_buffer_reader;
 
+/// Live data tap registry and backpressure handling
+pub mod tap_registry;
+
 // Re-export main types for convenience
 pub use ring_buffer::RingBuffer;
 pub use ring_buffer_reader::{ReaderStats, RingBufferReader};

@@ -1,0 +1,40 @@
+# Find unsafe FFI code in hardware drivers
+# Critical for identifying code that needs safety documentation
+
+id: find-unsafe-hardware
+language: Rust
+severity: warning
+message: Unsafe FFI code in hardware driver
+note: |
+  Unsafe blocks in hardware drivers (especially PVCAM) need:
+  1. Safety comments explaining invariants
+  2. Proper error handling
+  3. Documentation of C API contracts
+
+  Related issue: bd-e2k9 (PVCAM safety audit)
+
+rule:
+  all:
+    - pattern: unsafe { $$$ }
+    - inside:
+        kind: impl_item
+        has:
+          any:
+            - pattern: Camera
+            - pattern: FrameProducer
+            - pattern: Movable
+            - pattern: Readable
+
+labels:
+  - label: unsafe block
+    source: unsafe { $$$ }
+
+files:
+  - 'src/hardware/**/*.rs'
+ignores:
+  - '**/mock_*.rs'
+
+metadata:
+  category: safety
+  tags: [unsafe, ffi, hardware, audit]
+  related_issues: [bd-e2k9]
