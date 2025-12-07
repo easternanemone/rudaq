@@ -4,6 +4,37 @@
 
 This guide covers operation of Photometrics cameras (Prime BSI, Prime 95B) through the rust-daq PVCAM driver.
 
+## V5 Reactive Parameter System
+
+The PVCAM driver uses the V5 `Parameter<T>` reactive system, making all camera state observable and controllable via gRPC.
+
+### Observable Parameters
+
+All camera settings are exposed as parameters accessible via `ListParameters`/`GetParameter`/`SetParameter` gRPC methods:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `exposure_ms` | `f64` | Exposure time (0.1-60000 ms) |
+| `roi` | `Roi` | Region of interest |
+| `binning` | `(u16, u16)` | Binning factors (x, y) |
+| `armed` | `bool` | Trigger armed state |
+| `streaming` | `bool` | Continuous streaming active |
+| `temperature` | `f64` | Current sensor temperature (read-only) |
+| `temperature_setpoint` | `f64` | Target cooling temperature (-25 to 25°C) |
+| `fan_speed` | `String` | Fan speed (High/Medium/Low/Off) |
+| `gain_index` | `u16` | Current gain mode index (0-3) |
+| `speed_index` | `u16` | Current speed/readout mode index (0-1) |
+
+### Real-time Updates
+
+When hardware methods like `set_gain_index()` or `get_temperature()` are called, the corresponding parameter is automatically updated. Remote GUI clients subscribed to parameters receive real-time notifications of state changes.
+
+```rust
+// Hardware change propagates to parameter automatically
+camera.set_gain_index(2).await?;  // Updates gain_index parameter
+let temp = camera.get_temperature().await?;  // Updates temperature parameter
+```
+
 ## Supported Cameras
 
 | Camera | Sensor Size | Pixel Size | ADC | Typical Use |

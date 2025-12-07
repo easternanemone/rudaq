@@ -2,11 +2,20 @@
 
 ## Summary
 
-- **Date:** 2025-10-31
+- **Date:** 2025-12-07
 - **Tester:** Remote agent via tailnet
-- **SDK Installed:** Photometrics PVCAM 3.10.0.3 (`/opt/pvcam`)
+- **SDK Installed:** Photometrics PVCAM 3.10.2.5 (`/opt/pvcam`)
 - **Camera:** PRIME-BSI (`pvcamUSB_0`, SN A19G204008)
-- **Rust driver state:** `RealPvcamSdk` still uses mock paths; hardware acquisition via Rust is not yet wired.
+- **Rust driver state:** V5 `PvcamDriver` with reactive `Parameter<T>` system; 61 hardware tests passing.
+
+## V5 Architecture Integration
+
+The PVCAM driver has been fully migrated to the V5 architecture:
+
+- **Parameter<T> System**: All camera state (exposure, ROI, binning, temperature, fan_speed, gain_index, speed_index) exposed as observable parameters
+- **Async Hardware Callbacks**: Hardware get/set methods sync with parameters via `BoxFuture<'static, Result<()>>`
+- **gRPC Accessibility**: Parameters available via `ListParameters`/`GetParameter`/`SetParameter` RPCs
+- **Capability Traits**: Implements `FrameProducer`, `ExposureControl`, `Triggerable`, `Parameterized`
 
 ## Steps Performed
 
@@ -34,15 +43,17 @@
 
 ## Next Steps
 
-- Implement real FFI in `src/instruments_v2/pvcam_sdk.rs` under `--features pvcam_hardware`.
-- Allow configuration (`sdk_mode = "real"`) to switch driver paths.
-- Add Rust smoke test and expand operator documentation once FFI is live.
+- [x] ~~Implement real FFI in `src/instruments_v2/pvcam_sdk.rs`~~ - **DONE**: V5 driver at `src/hardware/pvcam.rs`
+- [x] ~~Allow configuration (`sdk_mode = "real"`) to switch driver paths~~ - **DONE**: Feature-gated with `pvcam_hardware`
+- [x] ~~Add Rust smoke test~~ - **DONE**: 61 hardware tests passing
+- [ ] Test continuous streaming performance over extended periods
+- [ ] Measure actual frame rates in production configuration
 
 ## Important Notes
 
-- Enabling hardware mode now requires `sdk_mode = "real"` in the `[[instruments_v3]]` entry and compiling with `--features pvcam_hardware`. Without the feature flag the driver returns `FeatureDisabled` errors.
-- The V3 factory path (`PVCAMCameraV3::from_config`) populates exposure, ROI, binning, gain, and trigger defaults from configuration so the real driver must validate those inputs via `pl_get_param` before applying them.
-- Create a follow-up smoke test (see bd-81 / hw-10) once FFI is wired so regressions in real mode are caught alongside CLI validation.
+- Enabling hardware mode requires compiling with `--features pvcam_hardware`. The driver uses the V5 `Parameter<T>` reactive system with async hardware callbacks.
+- The `PvcamDriver::new_with_hardware()` constructor populates exposure, ROI, binning, gain, and temperature parameters from the connected camera.
+- Environment variables required: `PVCAM_SDK_DIR`, `LD_LIBRARY_PATH`, `LIBRARY_PATH` (see Environment Setup below).
 
 ## Automated Smoke Test
 

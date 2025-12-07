@@ -1,9 +1,11 @@
 # Headless-First & Scriptable Architecture - Complete Specification
 
-**Status**: ACTIVE IMPLEMENTATION (Supersedes V1/V2/V3/V4 Fragmentation)
-**Date**: 2025-11-18
+**Status**: ✅ V5 COMPLETE (V1/V2/V3/V4 Removed)
+**Date**: 2025-11-18 (Original), 2025-12-07 (Updated)
 **Master Epic**: bd-oq51
-**Deprecated**: bd-kal8 (Great Flattening - replaced by this concrete specification)
+
+> **Note**: This document describes the completed V5 architecture. All phases have been
+> implemented. V1/V2/V3/V4 code has been removed from the codebase.
 
 ## Executive Summary
 

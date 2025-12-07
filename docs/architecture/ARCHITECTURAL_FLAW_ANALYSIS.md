@@ -1,5 +1,11 @@
 # Architectural Flaw Analysis: The Three Competing Cores
 
+> **⚠️ HISTORICAL REFERENCE - RESOLVED (2025-12-07)**
+>
+> This document describes architectural issues that existed in rust-daq prior to the V5 unification.
+> The V5 "headless-first" architecture has been completed and all V1/V2/V3/V4 code has been removed.
+> This document is retained for historical reference only.
+
 ## Summary of Findings
 
 The rust-daq project suffers from a mission-critical architectural flaw: it contains three separate, competing, and incompatible core architectures (V1, V2, and V3) that all coexist within the same codebase. This 'architectural schism' is the root cause of numerous other problems.

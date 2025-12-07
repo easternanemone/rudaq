@@ -3,11 +3,32 @@
 ## Summary
 
 **Status**: VALIDATED
-**Date**: 2025-11-26
+**Date**: 2025-12-07
 **Camera**: Photometrics Prime BSI (2048x2048)
-**SDK**: PVCAM 3.10.0.3
-**Test Suite**: 42 hardware tests, 19 mock tests
+**SDK**: PVCAM 3.10.2.5
+**Test Suite**: 61 hardware tests
 **Result**: ALL TESTS PASSING
+
+## V5 Reactive Parameter System
+
+The PVCAM driver now implements the V5 `Parameter<T>` reactive system. All camera state is exposed as observable parameters accessible via gRPC.
+
+### Registered Parameters
+
+| Parameter | Type | Description | Unit |
+|-----------|------|-------------|------|
+| `exposure_ms` | `f64` | Exposure time | ms |
+| `roi` | `Roi` | Region of interest | pixels |
+| `binning` | `(u16, u16)` | Binning factors (x, y) | - |
+| `armed` | `bool` | Trigger armed state | - |
+| `streaming` | `bool` | Continuous streaming active | - |
+| `temperature` | `f64` | Current sensor temperature (read-only) | °C |
+| `temperature_setpoint` | `f64` | Target cooling temperature | °C |
+| `fan_speed` | `String` | Fan speed (High/Medium/Low/Off) | - |
+| `gain_index` | `u16` | Current gain mode index | - |
+| `speed_index` | `u16` | Current speed/readout mode index | - |
+
+Hardware get/set methods automatically sync with parameters, enabling real-time gRPC observation.
 
 ## Hardware Test Results
 

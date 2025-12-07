@@ -66,23 +66,27 @@ The rust-daq V5 architecture includes a powerful scripting engine based on [Rhai
 
 ## Key Components
 
-### 1. ScriptHost (`src/scripting/engine.rs`)
-- **Purpose**: Manages Rhai engine lifecycle and execution
+### 1. RhaiEngine (`src/scripting/rhai_engine.rs`)
+- **Purpose**: V5 scripting backend implementing `ScriptEngine` trait
 - **Safety**: Enforces 10,000 operation limit to prevent infinite loops
 - **Methods**:
-  - `new(runtime: Handle)` - Create basic script host
-  - `with_hardware(runtime: Handle)` - Create with hardware bindings
-  - `run_script(&self, script: &str)` - Execute Rhai script
-  - `validate_script(&self, script: &str)` - Check syntax without running
+  - `new()` - Create engine with defaults
+  - `with_hardware()` - Create with hardware bindings
+  - `execute_script(&self, script: &str)` - Async execution
+  - `validate_script(&self, script: &str)` - Check syntax
 
-### 2. Hardware Bindings (`src/scripting/bindings.rs`)
+### 2. ScriptHost (`src/scripting/engine.rs`) - DEPRECATED
+- **Status**: Legacy V4 wrapper, maintained for backward compatibility.
+- **Migration**: Use `RhaiEngine` for all new code.
+
+### 3. Hardware Bindings (`src/scripting/bindings.rs`)
 - **Purpose**: Bridges synchronous Rhai to async Rust hardware
 - **Pattern**: Uses `tokio::task::block_in_place()` for sync→async conversion
 - **Registered Types**:
   - `StageHandle` - Wraps `Arc<dyn Movable>`
   - `CameraHandle` - Wraps `Arc<dyn Camera>`
 
-### 3. CLI Integration (`src/main.rs`)
+### 4. CLI Integration (`src/main.rs`)
 ```bash
 # Run script once (for testing)
 rust-daq run experiment.rhai
@@ -99,6 +103,7 @@ rust-daq daemon --port 50051
 ### Operation Limit
 Scripts are limited to **10,000 operations** (configurable):
 ```rust
+// RhaiEngine implementation
 engine.on_progress(|count| {
     if count > 10000 {
         Some("Safety limit exceeded".into())

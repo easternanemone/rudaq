@@ -1,27 +1,27 @@
 # V5 Architecture - Headless-First & Capability-Based Design
 
-**Last Updated**: 2025-11-20
-**Status**: ✅ FULLY IMPLEMENTED - All V1-V4 code removed
-**Architecture Coordinator**: Jules-19
+**Last Updated**: 2025-12-06
+**Status**: ✅ FULLY IMPLEMENTED
+**Architecture Coordinator**: Gemini
 
-> **TRANSITION COMPLETE**: As of 2025-11-20, all legacy V1-V4 architectures have been deleted (~295KB).
-> The codebase is now exclusively V5 with zero architectural debt. See [V5_TRANSITION_COMPLETE.md](./V5_TRANSITION_COMPLETE.md)
-> for detailed removal report and verification results.
+> **TRANSITION COMPLETE**: As of 2025-12-06, the V5 transition is effectively complete.
+> Legacy V1-V4 code has been removed. ScriptHost is deprecated in favor of RhaiEngine.
+> Remaining work focuses on documentation consolidation and final API polishing.
 
 ## Executive Summary
 
 The rust-daq V5 architecture represents a complete paradigm shift from monolithic desktop applications to a headless-first, capability-based distributed system. The architecture successfully eliminates the "Quintuple-Core Schism" (V1/V2/V3/V4 fragmentation) through aggressive cleanup and standardization on atomic capability traits.
 
-### Key Achievements (As of 2025-11-20)
+### Key Achievements (As of 2025-12-06)
 
-- ✅ **COMPLETE**: V1/V2/V3/V4 legacy code eliminated (~295KB deleted)
+- ✅ **COMPLETE**: V1/V2/V3/V4 legacy code eliminated
 - ✅ **COMPLETE**: Unified capability trait system operational (`src/hardware/capabilities.rs`)
-- ✅ **COMPLETE**: Zero-warning builds (commit 0429d0f1)
-- ✅ **COMPLETE**: 13 V5 hardware drivers in `src/hardware/`
-- 🔄 **IN PROGRESS**: gRPC remote control (Phase 3, bd-8gsx)
-- 🔄 **IN PROGRESS**: Rhai scripting engine (blocked by bd-hqy6)
-- 🔄 **IN PROGRESS**: High-performance ring buffer (Phase 4J, bd-q2we)
+- ✅ **COMPLETE**: V5 hardware drivers in `src/hardware/` (7 driver types: Mock, ELL14, ESP300, PVCAM, MaiTai, Newport1830C, capabilities)
+- ✅ **COMPLETE**: gRPC remote control (Phase 3)
+- ✅ **COMPLETE**: Rhai scripting engine (`RhaiEngine` in `src/scripting/rhai_engine.rs`)
 - ✅ **COMPLETE**: HDF5 storage layer (`src/data/hdf5_writer.rs`)
+- ✅ **COMPLETE**: ScriptHost deprecated (use RhaiEngine directly)
+- 🔄 **IN PROGRESS**: Documentation consolidation and final cleanup
 
 ## Architectural Principles
 
@@ -110,8 +110,8 @@ where
 │  └──────────────┘           │                    ▲          │
 │         ▲                   ▼                    │          │
 │  ┌──────────────┐    ┌──────────────┐           │          │
-│  │ Rhai Engine  │    │ HDF5 Writer  │           │          │
-│  │ ScriptHost   │    │ (Background) │           │          │
+│  │ RhaiEngine   │    │ HDF5 Writer  │           │          │
+│  │ (Primary)    │    │ (Background) │           │          │
 │  │ Safety: 10k  │    │ Arrow→HDF5   │           │          │
 │  │ op limit     │    │ Translation  │           │          │
 │  └──────────────┘    └──────────────┘           │          │
@@ -143,7 +143,10 @@ where
 
 **Philosophy**: Experiment logic should be modifiable without recompiling Rust.
 
-**Rhai Integration** (`src/scripting/engine.rs`):
+**Rhai Integration** (`src/scripting/rhai_engine.rs`):
+
+> **Note**: `ScriptHost` in `src/scripting/engine.rs` is **DEPRECATED**.
+> Use `RhaiEngine` directly for all new code.
 
 ```rust
 // Scientists write .rhai files, upload via gRPC
@@ -279,9 +282,9 @@ impl Movable for Esp300Driver {
 **Directory**: `src/scripting/`
 
 **Components**:
-- `engine.rs` - ScriptHost wrapper around Rhai
+- `rhai_engine.rs` - Primary Rhai scripting engine (use this)
+- `engine.rs` - ScriptHost wrapper (**DEPRECATED** - legacy V4 compatibility layer)
 - `bindings.rs` - Hardware bindings (async→sync bridge)
-- `rhai_engine.rs` - Rhai-specific implementation details
 
 **Safety Constraints**:
 - Max operations: 10,000 per script
@@ -655,5 +658,5 @@ The V5 architecture represents a complete transformation from fragmented legacy 
 ---
 
 **Document Owner**: Jules-19 (Architecture Coordinator)
-**Last Review**: 2025-11-20
+**Last Review**: 2025-12-06
 **Next Review**: After Phase 5 completion
