@@ -1,0 +1,785 @@
+warning: unused imports: `mpsc` and `oneshot`
+  --> crates/daq-core/src/core.rs:35:30
+   |
+35 | use tokio::sync::{broadcast, mpsc, oneshot};
+   |                              ^^^^  ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: use of deprecated struct `core::DataPoint`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:754:12
+    |
+754 |     Scalar(DataPoint),
+    |            ^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated struct `core::DataPoint`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:754:12
+    |
+754 |     Scalar(DataPoint),
+    |            ^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::timestamp`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:765:33
+    |
+765 |             Data::Scalar(dp) => dp.timestamp,
+    |                                 ^^^^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::channel`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:774:34
+    |
+774 |             Data::Scalar(dp) => &dp.channel,
+    |                                  ^^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::unit`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:783:34
+    |
+783 |             Data::Scalar(dp) => &dp.unit,
+    |                                  ^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::metadata`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:792:33
+    |
+792 |             Data::Scalar(dp) => dp.metadata.as_ref(),
+    |                                 ^^^^^^^^^^^
+
+warning: `daq-core` (lib) generated 7 warnings (run `cargo fix --lib -p daq-core` to apply 1 suggestion)
+    Checking rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq)
+error[E0252]: the name `JsCast` is defined multiple times
+  --> crates/rust-daq/src/lib.rs:92:5
+   |
+90 | use wasm_bindgen::JsCast;
+   |     -------------------- previous import of the trait `JsCast` here
+91 | #[cfg(target_arch = "wasm32")]
+92 | use wasm_bindgen::JsCast;
+   |     ^^^^^^^^^^^^^^^^^^^^ `JsCast` reimported here
+   |
+   = note: `JsCast` must be defined only once in the type namespace of this module
+
+error[E0433]: failed to resolve: could not find `hardware` in the crate root
+  --> crates/rust-daq/src/experiment/run_engine.rs:56:12
+   |
+56 | use crate::hardware::registry::DeviceRegistry;
+   |            ^^^^^^^^ could not find `hardware` in the crate root
+   |
+note: found an item that was configured out
+  --> crates/rust-daq/src/lib.rs:62:9
+   |
+62 | pub mod hardware;
+   |         ^^^^^^^^
+note: the item is gated here
+  --> crates/rust-daq/src/lib.rs:61:1
+   |
+61 | #[cfg(not(target_arch = "wasm32"))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0432]: unresolved imports `crate::grpc::DeviceInfo`, `crate::grpc::DeviceStateSubscribeRequest`, `crate::grpc::HardwareServiceClient`, `crate::grpc::ListDevicesRequest`, `crate::grpc::ListParametersRequest`, `crate::grpc::MoveRequest`, `crate::grpc::ReadValueRequest`, `crate::grpc::SetParameterRequest`, `crate::grpc::ParameterDescriptor`
+  --> crates/rust-daq/src/gui/backend.rs:21:5
+   |
+21 |     DeviceInfo as ProtoDeviceInfo, DeviceStateSubscribeRequest, HardwareServiceClient,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^ no `HardwareServiceClient` in `grpc`
+   |     |                              |
+   |     |                              no `DeviceStateSubscribeRequest` in `grpc`
+   |     no `DeviceInfo` in `grpc`
+22 |     ListDevicesRequest, ListParametersRequest, MoveRequest, ReadValueRequest, SetParameterRequest,
+   |     ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^ no `SetParameterRequest` in `grpc`
+   |     |                   |                      |            |
+   |     |                   |                      |            no `ReadValueRequest` in `grpc`
+   |     |                   |                      no `MoveRequest` in `grpc`
+   |     |                   no `ListParametersRequest` in `grpc`
+   |     no `ListDevicesRequest` in `grpc`
+23 |     ParameterDescriptor as ProtoParameterDescriptor,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `ParameterDescriptor` in `grpc`
+   |
+   = help: consider importing one of these structs instead:
+           crate::grpc::daq::DeviceInfo
+           crate::gui::DeviceInfo
+   = help: consider importing this struct instead:
+           crate::grpc::daq::DeviceStateSubscribeRequest
+   = help: consider importing this struct instead:
+           crate::grpc::daq::hardware_service_client::HardwareServiceClient
+   = help: consider importing this struct instead:
+           crate::grpc::daq::ListDevicesRequest
+   = help: consider importing this struct instead:
+           crate::grpc::daq::ListParametersRequest
+   = help: consider importing this struct instead:
+           crate::grpc::daq::MoveRequest
+   = help: consider importing this struct instead:
+           crate::grpc::daq::ReadValueRequest
+   = help: consider importing this struct instead:
+           crate::grpc::daq::SetParameterRequest
+   = help: consider importing one of these structs instead:
+           crate::grpc::daq::ParameterDescriptor
+           crate::gui::ParameterDescriptor
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:3589:38
+     |
+3589 |     impl ControlServiceClient<tonic::transport::Channel> {
+     |                                      ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:3593:31
+     |
+3593 |             D: TryInto<tonic::transport::Endpoint>,
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:3591:64
+     |
+3591 |         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+     |                                                                ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:3596:31
+     |
+3596 |             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:3898:39
+     |
+3898 |     impl HardwareServiceClient<tonic::transport::Channel> {
+     |                                       ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:3902:31
+     |
+3902 |             D: TryInto<tonic::transport::Endpoint>,
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:3900:64
+     |
+3900 |         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+     |                                                                ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:3905:31
+     |
+3905 |             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:4738:37
+     |
+4738 |     impl PresetServiceClient<tonic::transport::Channel> {
+     |                                     ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:4742:31
+     |
+4742 |             D: TryInto<tonic::transport::Endpoint>,
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:4740:64
+     |
+4740 |         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+     |                                                                ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:4745:31
+     |
+4745 |             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:4947:35
+     |
+4947 |     impl ScanServiceClient<tonic::transport::Channel> {
+     |                                   ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:4951:31
+     |
+4951 |             D: TryInto<tonic::transport::Endpoint>,
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:4949:64
+     |
+4949 |         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+     |                                                                ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:4954:31
+     |
+4954 |             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:5233:37
+     |
+5233 |     impl ModuleServiceClient<tonic::transport::Channel> {
+     |                                     ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:5237:31
+     |
+5237 |             D: TryInto<tonic::transport::Endpoint>,
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:5235:64
+     |
+5235 |         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+     |                                                                ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:5240:31
+     |
+5240 |             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:5753:40
+     |
+5753 |     impl RunEngineServiceClient<tonic::transport::Channel> {
+     |                                        ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:5757:31
+     |
+5757 |             D: TryInto<tonic::transport::Endpoint>,
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:5755:64
+     |
+5755 |         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+     |                                                                ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:5760:31
+     |
+5760 |             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:6094:38
+     |
+6094 |     impl StorageServiceClient<tonic::transport::Channel> {
+     |                                      ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:6098:31
+     |
+6098 |             D: TryInto<tonic::transport::Endpoint>,
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:6096:64
+     |
+6096 |         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+     |                                                                ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:6101:31
+     |
+6101 |             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:6468:37
+     |
+6468 |     impl PluginServiceClient<tonic::transport::Channel> {
+     |                                     ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:6472:31
+     |
+6472 |             D: TryInto<tonic::transport::Endpoint>,
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:6470:64
+     |
+6470 |         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+     |                                                                ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:6475:31
+     |
+6475 |             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:6708:37
+     |
+6708 |     impl HealthServiceClient<tonic::transport::Channel> {
+     |                                     ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:6712:31
+     |
+6712 |             D: TryInto<tonic::transport::Endpoint>,
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:6710:64
+     |
+6710 |         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+     |                                                                ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `transport` in `tonic`
+    --> /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:6715:31
+     |
+6715 |             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+     |                               ^^^^^^^^^ could not find `transport` in `tonic`
+     |
+note: found an item that was configured out
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:106:9
+     |
+106  | pub mod transport;
+     |         ^^^^^^^^^
+note: the item is gated behind the `transport` feature
+    --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tonic-0.10.2/src/lib.rs:104:7
+     |
+104  | #[cfg(feature = "transport")]
+     |       ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `DaqGui` in `app`
+   --> crates/rust-daq/src/lib.rs:113:46
+    |
+113 |             Box::new(|cc| Box::new(gui::app::DaqGui::new(cc))),
+    |                                              ^^^^^^ could not find `DaqGui` in `app`
+
+error[E0433]: failed to resolve: could not find `borrow` in `core`
+  --> crates/rust-daq/src/lib.rs:95:1
+   |
+95 | #[wasm_bindgen]
+   | ^^^^^^^^^^^^^^^ could not find `borrow` in `core`
+   |
+   = note: this error originates in the attribute macro `wasm_bindgen` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider importing this module
+   |
+40 + use std::borrow;
+   |
+
+warning: unused import: `async_trait::async_trait`
+  --> crates/rust-daq/src/measurement/mod.rs:41:5
+   |
+41 | use async_trait::async_trait;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `wasm_bindgen::JsCast`
+  --> crates/rust-daq/src/lib.rs:92:5
+   |
+92 | use wasm_bindgen::JsCast;
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `addr`
+   --> crates/rust-daq/src/gui/backend.rs:171:13
+    |
+171 |         let addr = if address.starts_with("http") {
+    |             ^^^^ help: if this is intentional, prefix it with an underscore: `_addr`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `task`
+   --> crates/rust-daq/src/gui/backend.rs:608:21
+    |
+608 |         if let Some(task) = self.state_stream_task.take() {
+    |                     ^^^^ help: if this is intentional, prefix it with an underscore: `_task`
+
+warning: use of deprecated method `eframe::egui::Slider::<'a>::clamp_to_range`: Use `slider.clamping(…) instead
+   --> crates/rust-daq/src/gui/widgets.rs:131:18
+    |
+131 |                 .clamp_to_range(true),
+    |                  ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+Some errors have detailed explanations: E0252, E0432, E0433.
+For more information about an error, try `rustc --explain E0252`.
+warning: `rust_daq` (lib) generated 5 warnings
+error: could not compile `rust_daq` (lib) due to 41 previous errors; 5 warnings emitted

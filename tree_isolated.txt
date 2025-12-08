@@ -1,0 +1,632 @@
+rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq)
+├── anyhow v1.0.100
+├── async-trait v0.1.89 (proc-macro)
+│   ├── proc-macro2 v1.0.103
+│   │   └── unicode-ident v1.0.22
+│   ├── quote v1.0.42
+│   │   └── proc-macro2 v1.0.103 (*)
+│   └── syn v2.0.111
+│       ├── proc-macro2 v1.0.103 (*)
+│       ├── quote v1.0.42 (*)
+│       └── unicode-ident v1.0.22
+├── bincode v1.3.3
+│   └── serde v1.0.228
+│       ├── serde_core v1.0.228
+│       └── serde_derive v1.0.228 (proc-macro)
+│           ├── proc-macro2 v1.0.103 (*)
+│           ├── quote v1.0.42 (*)
+│           └── syn v2.0.111 (*)
+├── biquad v0.4.2
+│   └── libm v0.1.4
+├── bytes v1.11.0
+├── chrono v0.4.42
+│   ├── js-sys v0.3.83
+│   │   ├── once_cell v1.21.3
+│   │   │   └── portable-atomic v1.11.1
+│   │   └── wasm-bindgen v0.2.106
+│   │       ├── cfg-if v1.0.4
+│   │       ├── once_cell v1.21.3 (*)
+│   │       ├── wasm-bindgen-macro v0.2.106 (proc-macro)
+│   │       │   ├── quote v1.0.42 (*)
+│   │       │   └── wasm-bindgen-macro-support v0.2.106
+│   │       │       ├── bumpalo v3.19.0
+│   │       │       ├── proc-macro2 v1.0.103 (*)
+│   │       │       ├── quote v1.0.42 (*)
+│   │       │       ├── syn v2.0.111 (*)
+│   │       │       └── wasm-bindgen-shared v0.2.106
+│   │       │           └── unicode-ident v1.0.22
+│   │       └── wasm-bindgen-shared v0.2.106
+│   │           └── unicode-ident v1.0.22
+│   │       [build-dependencies]
+│   │       └── rustversion v1.0.22 (proc-macro)
+│   ├── num-traits v0.2.19
+│   │   [build-dependencies]
+│   │   └── autocfg v1.5.0
+│   ├── serde v1.0.228 (*)
+│   └── wasm-bindgen v0.2.106 (*)
+├── config v0.14.1
+│   ├── async-trait v0.1.89 (proc-macro) (*)
+│   ├── convert_case v0.6.0
+│   │   └── unicode-segmentation v1.12.0
+│   ├── json5 v0.4.1
+│   │   ├── pest v2.8.4
+│   │   │   ├── memchr v2.7.6
+│   │   │   └── ucd-trie v0.1.7
+│   │   ├── pest_derive v2.8.4 (proc-macro)
+│   │   │   ├── pest v2.8.4
+│   │   │   │   ├── memchr v2.7.6
+│   │   │   │   └── ucd-trie v0.1.7
+│   │   │   └── pest_generator v2.8.4
+│   │   │       ├── pest v2.8.4 (*)
+│   │   │       ├── pest_meta v2.8.4
+│   │   │       │   └── pest v2.8.4 (*)
+│   │   │       │   [build-dependencies]
+│   │   │       │   └── sha2 v0.10.9
+│   │   │       │       ├── cfg-if v1.0.4
+│   │   │       │       ├── cpufeatures v0.2.17
+│   │   │       │       │   └── libc v0.2.178
+│   │   │       │       └── digest v0.10.7
+│   │   │       │           ├── block-buffer v0.10.4
+│   │   │       │           │   └── generic-array v0.14.7
+│   │   │       │           │       └── typenum v1.19.0
+│   │   │       │           │       [build-dependencies]
+│   │   │       │           │       └── version_check v0.9.5
+│   │   │       │           └── crypto-common v0.1.7
+│   │   │       │               ├── generic-array v0.14.7 (*)
+│   │   │       │               └── typenum v1.19.0
+│   │   │       ├── proc-macro2 v1.0.103 (*)
+│   │   │       ├── quote v1.0.42 (*)
+│   │   │       └── syn v2.0.111 (*)
+│   │   └── serde v1.0.228 (*)
+│   ├── nom v7.1.3
+│   │   ├── memchr v2.7.6
+│   │   └── minimal-lexical v0.2.1
+│   ├── pathdiff v0.2.3
+│   ├── ron v0.8.1
+│   │   ├── base64 v0.21.7
+│   │   ├── bitflags v2.10.0
+│   │   │   └── serde_core v1.0.228
+│   │   ├── serde v1.0.228 (*)
+│   │   └── serde_derive v1.0.228 (proc-macro) (*)
+│   ├── rust-ini v0.20.0
+│   │   ├── cfg-if v1.0.4
+│   │   └── ordered-multimap v0.7.3
+│   │       ├── dlv-list v0.5.2
+│   │       │   └── const-random v0.1.18
+│   │       │       └── const-random-macro v0.1.16 (proc-macro)
+│   │       │           ├── getrandom v0.2.16
+│   │       │           │   ├── cfg-if v1.0.4
+│   │       │           │   └── libc v0.2.178
+│   │       │           ├── once_cell v1.21.3
+│   │       │           └── tiny-keccak v2.0.2
+│   │       │               └── crunchy v0.2.4
+│   │       └── hashbrown v0.14.5
+│   │           ├── ahash v0.8.12
+│   │           │   ├── cfg-if v1.0.4
+│   │           │   ├── const-random v0.1.18 (*)
+│   │           │   ├── getrandom v0.3.4
+│   │           │   │   ├── cfg-if v1.0.4
+│   │           │   │   └── wasm-bindgen v0.2.106 (*)
+│   │           │   ├── once_cell v1.21.3 (*)
+│   │           │   ├── serde v1.0.228 (*)
+│   │           │   └── zerocopy v0.8.31
+│   │           │   [build-dependencies]
+│   │           │   └── version_check v0.9.5
+│   │           └── allocator-api2 v0.2.21
+│   ├── serde v1.0.228 (*)
+│   ├── serde_json v1.0.145
+│   │   ├── itoa v1.0.15
+│   │   ├── memchr v2.7.6
+│   │   ├── ryu v1.0.20
+│   │   └── serde_core v1.0.228
+│   ├── toml v0.8.23
+│   │   ├── serde v1.0.228 (*)
+│   │   ├── serde_spanned v0.6.9
+│   │   │   └── serde v1.0.228 (*)
+│   │   ├── toml_datetime v0.6.11
+│   │   │   └── serde v1.0.228 (*)
+│   │   └── toml_edit v0.22.27
+│   │       ├── indexmap v2.12.1
+│   │       │   ├── equivalent v1.0.2
+│   │       │   └── hashbrown v0.16.1
+│   │       ├── serde v1.0.228 (*)
+│   │       ├── serde_spanned v0.6.9 (*)
+│   │       ├── toml_datetime v0.6.11 (*)
+│   │       ├── toml_write v0.1.2
+│   │       └── winnow v0.7.14
+│   └── yaml-rust2 v0.8.1
+│       ├── arraydeque v0.5.1
+│       ├── encoding_rs v0.8.35
+│       │   └── cfg-if v1.0.4
+│       └── hashlink v0.8.4
+│           └── hashbrown v0.14.5 (*)
+├── console_error_panic_hook v0.1.7
+│   ├── cfg-if v1.0.4
+│   └── wasm-bindgen v0.2.106 (*)
+├── daq-core v0.1.0 (/Users/briansquires/code/rust-daq/crates/daq-core)
+│   ├── anyhow v1.0.100
+│   ├── async-trait v0.1.89 (proc-macro) (*)
+│   ├── chrono v0.4.42 (*)
+│   ├── config v0.14.1 (*)
+│   ├── futures v0.3.31
+│   │   ├── futures-channel v0.3.31
+│   │   │   ├── futures-core v0.3.31
+│   │   │   └── futures-sink v0.3.31
+│   │   ├── futures-core v0.3.31
+│   │   ├── futures-executor v0.3.31
+│   │   │   ├── futures-core v0.3.31
+│   │   │   ├── futures-task v0.3.31
+│   │   │   └── futures-util v0.3.31
+│   │   │       ├── futures-channel v0.3.31 (*)
+│   │   │       ├── futures-core v0.3.31
+│   │   │       ├── futures-io v0.3.31
+│   │   │       ├── futures-macro v0.3.31 (proc-macro)
+│   │   │       │   ├── proc-macro2 v1.0.103 (*)
+│   │   │       │   ├── quote v1.0.42 (*)
+│   │   │       │   └── syn v2.0.111 (*)
+│   │   │       ├── futures-sink v0.3.31
+│   │   │       ├── futures-task v0.3.31
+│   │   │       ├── memchr v2.7.6
+│   │   │       ├── pin-project-lite v0.2.16
+│   │   │       ├── pin-utils v0.1.0
+│   │   │       └── slab v0.4.11
+│   │   ├── futures-io v0.3.31
+│   │   ├── futures-sink v0.3.31
+│   │   ├── futures-task v0.3.31
+│   │   └── futures-util v0.3.31 (*)
+│   ├── log v0.4.29
+│   ├── serde v1.0.228 (*)
+│   ├── serde_json v1.0.145 (*)
+│   ├── thiserror v1.0.69
+│   │   └── thiserror-impl v1.0.69 (proc-macro)
+│   │       ├── proc-macro2 v1.0.103 (*)
+│   │       ├── quote v1.0.42 (*)
+│   │       └── syn v2.0.111 (*)
+│   ├── tokio v1.48.0
+│   │   ├── bytes v1.11.0
+│   │   ├── mio v1.1.1
+│   │   ├── parking_lot v0.12.5
+│   │   │   ├── lock_api v0.4.14
+│   │   │   │   └── scopeguard v1.2.0
+│   │   │   └── parking_lot_core v0.9.12
+│   │   │       ├── cfg-if v1.0.4
+│   │   │       └── smallvec v1.15.1
+│   │   ├── pin-project-lite v0.2.16
+│   │   └── tokio-macros v2.6.0 (proc-macro)
+│   │       ├── proc-macro2 v1.0.103 (*)
+│   │       ├── quote v1.0.42 (*)
+│   │       └── syn v2.0.111 (*)
+│   ├── tracing v0.1.43
+│   │   ├── pin-project-lite v0.2.16
+│   │   ├── tracing-attributes v0.1.31 (proc-macro)
+│   │   │   ├── proc-macro2 v1.0.103 (*)
+│   │   │   ├── quote v1.0.42 (*)
+│   │   │   └── syn v2.0.111 (*)
+│   │   └── tracing-core v0.1.35
+│   │       └── once_cell v1.21.3 (*)
+│   └── uuid v1.19.0
+│       └── serde_core v1.0.228
+├── dirs v5.0.1
+│   └── dirs-sys v0.4.1
+│       └── option-ext v0.2.0
+├── eframe v0.33.2
+│   ├── ahash v0.8.12 (*)
+│   ├── bytemuck v1.24.0
+│   │   └── bytemuck_derive v1.10.2 (proc-macro)
+│   │       ├── proc-macro2 v1.0.103 (*)
+│   │       ├── quote v1.0.42 (*)
+│   │       └── syn v2.0.111 (*)
+│   ├── document-features v0.2.12 (proc-macro)
+│   │   └── litrs v1.0.0
+│   ├── egui v0.33.2
+│   │   ├── accesskit v0.21.1
+│   │   │   ├── enumn v0.1.14 (proc-macro)
+│   │   │   │   ├── proc-macro2 v1.0.103 (*)
+│   │   │   │   ├── quote v1.0.42 (*)
+│   │   │   │   └── syn v2.0.111 (*)
+│   │   │   └── serde v1.0.228 (*)
+│   │   ├── ahash v0.8.12 (*)
+│   │   ├── bitflags v2.10.0 (*)
+│   │   ├── emath v0.33.2
+│   │   │   ├── bytemuck v1.24.0 (*)
+│   │   │   └── serde v1.0.228 (*)
+│   │   ├── epaint v0.33.2
+│   │   │   ├── ab_glyph v0.2.32
+│   │   │   │   ├── ab_glyph_rasterizer v0.1.10
+│   │   │   │   └── owned_ttf_parser v0.25.1
+│   │   │   │       └── ttf-parser v0.25.1
+│   │   │   ├── ahash v0.8.12 (*)
+│   │   │   ├── bytemuck v1.24.0 (*)
+│   │   │   ├── ecolor v0.33.2
+│   │   │   │   ├── bytemuck v1.24.0 (*)
+│   │   │   │   ├── emath v0.33.2 (*)
+│   │   │   │   └── serde v1.0.228 (*)
+│   │   │   ├── emath v0.33.2 (*)
+│   │   │   ├── epaint_default_fonts v0.33.2
+│   │   │   ├── log v0.4.29
+│   │   │   ├── nohash-hasher v0.2.0
+│   │   │   ├── parking_lot v0.12.5 (*)
+│   │   │   ├── profiling v1.0.17
+│   │   │   └── serde v1.0.228 (*)
+│   │   ├── log v0.4.29
+│   │   ├── nohash-hasher v0.2.0
+│   │   ├── profiling v1.0.17
+│   │   ├── ron v0.11.0
+│   │   │   ├── base64 v0.22.1
+│   │   │   ├── bitflags v2.10.0 (*)
+│   │   │   ├── serde v1.0.228 (*)
+│   │   │   ├── serde_derive v1.0.228 (proc-macro) (*)
+│   │   │   └── unicode-ident v1.0.22
+│   │   ├── serde v1.0.228 (*)
+│   │   ├── smallvec v1.15.1
+│   │   └── unicode-segmentation v1.12.0
+│   ├── egui_glow v0.33.2
+│   │   ├── bytemuck v1.24.0 (*)
+│   │   ├── egui v0.33.2 (*)
+│   │   ├── glow v0.16.0
+│   │   │   ├── js-sys v0.3.83 (*)
+│   │   │   ├── slotmap v1.1.1
+│   │   │   │   [build-dependencies]
+│   │   │   │   └── version_check v0.9.5
+│   │   │   ├── wasm-bindgen v0.2.106 (*)
+│   │   │   └── web-sys v0.3.83
+│   │   │       ├── js-sys v0.3.83 (*)
+│   │   │       └── wasm-bindgen v0.2.106 (*)
+│   │   ├── log v0.4.29
+│   │   ├── memoffset v0.9.1
+│   │   │   [build-dependencies]
+│   │   │   └── autocfg v1.5.0
+│   │   ├── profiling v1.0.17
+│   │   ├── wasm-bindgen v0.2.106 (*)
+│   │   └── web-sys v0.3.83 (*)
+│   ├── glow v0.16.0 (*)
+│   ├── image v0.25.9
+│   │   ├── bytemuck v1.24.0 (*)
+│   │   ├── byteorder-lite v0.1.0
+│   │   ├── moxcms v0.7.10
+│   │   │   ├── num-traits v0.2.19 (*)
+│   │   │   └── pxfm v0.1.27
+│   │   │       └── num-traits v0.2.19 (*)
+│   │   ├── num-traits v0.2.19 (*)
+│   │   └── png v0.18.0
+│   │       ├── bitflags v2.10.0 (*)
+│   │       ├── crc32fast v1.5.0
+│   │       │   └── cfg-if v1.0.4
+│   │       ├── fdeflate v0.3.7
+│   │       │   └── simd-adler32 v0.3.7
+│   │       ├── flate2 v1.1.5
+│   │       │   ├── crc32fast v1.5.0 (*)
+│   │       │   └── miniz_oxide v0.8.9
+│   │       │       ├── adler2 v2.0.1
+│   │       │       └── simd-adler32 v0.3.7
+│   │       └── miniz_oxide v0.8.9 (*)
+│   ├── js-sys v0.3.83 (*)
+│   ├── log v0.4.29
+│   ├── parking_lot v0.12.5 (*)
+│   ├── percent-encoding v2.3.2
+│   ├── profiling v1.0.17
+│   ├── raw-window-handle v0.6.2
+│   ├── ron v0.11.0 (*)
+│   ├── serde v1.0.228 (*)
+│   ├── static_assertions v1.1.0
+│   ├── wasm-bindgen v0.2.106 (*)
+│   ├── wasm-bindgen-futures v0.4.56
+│   │   ├── cfg-if v1.0.4
+│   │   ├── js-sys v0.3.83 (*)
+│   │   ├── once_cell v1.21.3 (*)
+│   │   └── wasm-bindgen v0.2.106 (*)
+│   ├── web-sys v0.3.83 (*)
+│   └── web-time v1.1.0
+│       ├── js-sys v0.3.83 (*)
+│       └── wasm-bindgen v0.2.106 (*)
+├── egui v0.33.2 (*)
+├── egui_dock v0.14.0
+│   ├── duplicate v2.0.1 (proc-macro)
+│   │   ├── heck v0.5.0
+│   │   ├── proc-macro2 v1.0.103 (*)
+│   │   └── proc-macro2-diagnostics v0.10.1
+│   │       ├── proc-macro2 v1.0.103 (*)
+│   │       ├── quote v1.0.42 (*)
+│   │       ├── syn v2.0.111 (*)
+│   │       └── yansi v1.0.1
+│   │       [build-dependencies]
+│   │       └── version_check v0.9.5
+│   ├── egui v0.29.1
+│   │   ├── ahash v0.8.12 (*)
+│   │   ├── emath v0.29.1
+│   │   ├── epaint v0.29.1
+│   │   │   ├── ab_glyph v0.2.32 (*)
+│   │   │   ├── ahash v0.8.12 (*)
+│   │   │   ├── ecolor v0.29.1
+│   │   │   │   └── emath v0.29.1
+│   │   │   ├── emath v0.29.1
+│   │   │   ├── nohash-hasher v0.2.0
+│   │   │   └── parking_lot v0.12.5 (*)
+│   │   └── nohash-hasher v0.2.0
+│   └── paste v1.0.15 (proc-macro)
+├── egui_extras v0.33.2
+│   ├── ahash v0.8.12 (*)
+│   ├── egui v0.33.2 (*)
+│   ├── enum-map v2.7.3
+│   │   └── enum-map-derive v0.17.0 (proc-macro)
+│   │       ├── proc-macro2 v1.0.103 (*)
+│   │       ├── quote v1.0.42 (*)
+│   │       └── syn v2.0.111 (*)
+│   ├── log v0.4.29
+│   ├── mime_guess2 v2.3.1
+│   │   ├── mime v0.3.17
+│   │   └── unicase v2.8.1
+│   │   [build-dependencies]
+│   │   ├── phf v0.11.3
+│   │   │   └── phf_shared v0.11.3
+│   │   │       ├── siphasher v1.0.1
+│   │   │       └── unicase v2.8.1
+│   │   ├── phf_shared v0.11.3 (*)
+│   │   └── unicase v2.8.1
+│   └── profiling v1.0.17
+├── egui_plot v0.33.0
+│   ├── ahash v0.8.12 (*)
+│   ├── egui v0.32.3
+│   │   ├── ahash v0.8.12 (*)
+│   │   ├── bitflags v2.10.0 (*)
+│   │   ├── emath v0.32.3
+│   │   ├── epaint v0.32.3
+│   │   │   ├── ab_glyph v0.2.32 (*)
+│   │   │   ├── ahash v0.8.12 (*)
+│   │   │   ├── ecolor v0.32.3
+│   │   │   │   └── emath v0.32.3
+│   │   │   ├── emath v0.32.3
+│   │   │   ├── nohash-hasher v0.2.0
+│   │   │   ├── parking_lot v0.12.5 (*)
+│   │   │   └── profiling v1.0.17
+│   │   ├── nohash-hasher v0.2.0
+│   │   ├── profiling v1.0.17
+│   │   ├── smallvec v1.15.1
+│   │   └── unicode-segmentation v1.12.0
+│   └── emath v0.32.3
+├── env_logger v0.11.8
+│   ├── anstream v0.6.21
+│   │   ├── anstyle v1.0.13
+│   │   ├── anstyle-parse v0.2.7
+│   │   │   └── utf8parse v0.2.2
+│   │   ├── anstyle-query v1.1.5
+│   │   ├── colorchoice v1.0.4
+│   │   ├── is_terminal_polyfill v1.70.2
+│   │   └── utf8parse v0.2.2
+│   ├── anstyle v1.0.13
+│   ├── env_filter v0.1.4
+│   │   ├── log v0.4.29
+│   │   └── regex v1.12.2
+│   │       ├── aho-corasick v1.1.4
+│   │       │   └── memchr v2.7.6
+│   │       ├── memchr v2.7.6
+│   │       ├── regex-automata v0.4.13
+│   │       │   ├── aho-corasick v1.1.4 (*)
+│   │       │   ├── memchr v2.7.6
+│   │       │   └── regex-syntax v0.8.8
+│   │       └── regex-syntax v0.8.8
+│   ├── jiff v0.2.16
+│   └── log v0.4.29
+├── figment v0.10.19
+│   ├── atomic v0.6.1
+│   │   └── bytemuck v1.24.0 (*)
+│   ├── pear v0.2.9
+│   │   ├── inlinable_string v0.1.15
+│   │   ├── pear_codegen v0.2.9 (proc-macro)
+│   │   │   ├── proc-macro2 v1.0.103 (*)
+│   │   │   ├── proc-macro2-diagnostics v0.10.1 (*)
+│   │   │   ├── quote v1.0.42 (*)
+│   │   │   └── syn v2.0.111 (*)
+│   │   └── yansi v1.0.1
+│   ├── serde v1.0.228 (*)
+│   ├── toml v0.8.23 (*)
+│   └── uncased v0.9.10
+│       [build-dependencies]
+│       └── version_check v0.9.5
+│   [build-dependencies]
+│   └── version_check v0.9.5
+├── flatbuffers v24.12.23
+│   └── bitflags v1.3.2
+│   [build-dependencies]
+│   └── rustc_version v0.4.1
+│       └── semver v1.0.27
+├── futures v0.3.31 (*)
+├── getrandom v0.2.16
+│   ├── cfg-if v1.0.4
+│   ├── js-sys v0.3.83 (*)
+│   └── wasm-bindgen v0.2.106 (*)
+├── getrandom v0.3.4 (*)
+├── gloo-timers v0.3.0
+│   ├── futures-channel v0.3.31 (*)
+│   ├── futures-core v0.3.31
+│   ├── js-sys v0.3.83 (*)
+│   └── wasm-bindgen v0.2.106 (*)
+├── hostname v0.4.2
+│   └── cfg-if v1.0.4
+├── humantime-serde v1.1.1
+│   ├── humantime v2.3.0
+│   └── serde v1.0.228 (*)
+├── log v0.4.29
+├── memmap2 v0.9.9
+├── multi_log v0.1.2
+│   └── log v0.4.29
+├── num-complex v0.4.6
+│   └── num-traits v0.2.19 (*)
+├── once_cell v1.21.3 (*)
+├── opener v0.7.2
+├── prse v1.2.1
+│   ├── memchr v2.7.6
+│   └── prse-derive v1.1.2 (proc-macro)
+│       ├── itertools v0.12.1
+│       │   └── either v1.15.0
+│       ├── proc-macro2 v1.0.103 (*)
+│       ├── quote v1.0.42 (*)
+│       └── syn v2.0.111 (*)
+├── rand v0.8.5
+│   ├── rand_chacha v0.3.1
+│   │   ├── ppv-lite86 v0.2.21
+│   │   │   └── zerocopy v0.8.31
+│   │   └── rand_core v0.6.4
+│   │       └── getrandom v0.2.16 (*)
+│   └── rand_core v0.6.4 (*)
+├── regex v1.12.2 (*)
+├── rhai v1.23.6
+│   ├── ahash v0.8.12 (*)
+│   ├── bitflags v2.10.0 (*)
+│   ├── instant v0.1.13
+│   │   └── cfg-if v1.0.4
+│   ├── num-traits v0.2.19 (*)
+│   ├── once_cell v1.21.3 (*)
+│   ├── rhai_codegen v3.1.0 (proc-macro)
+│   │   ├── proc-macro2 v1.0.103 (*)
+│   │   ├── quote v1.0.42 (*)
+│   │   └── syn v2.0.111 (*)
+│   ├── smallvec v1.15.1
+│   ├── smartstring v1.0.1
+│   │   └── static_assertions v1.1.0
+│   │   [build-dependencies]
+│   │   ├── autocfg v1.5.0
+│   │   └── version_check v0.9.5
+│   └── thin-vec v0.2.14
+├── ringbuf v0.3.3
+│   └── crossbeam-utils v0.8.21
+├── rustfft v6.4.1
+│   ├── num-complex v0.4.6 (*)
+│   ├── num-integer v0.1.46
+│   │   └── num-traits v0.2.19 (*)
+│   ├── num-traits v0.2.19 (*)
+│   ├── primal-check v0.3.4
+│   │   └── num-integer v0.1.46 (*)
+│   ├── strength_reduce v0.2.4
+│   └── transpose v0.2.3
+│       ├── num-integer v0.1.46 (*)
+│       └── strength_reduce v0.2.4
+├── serde v1.0.228 (*)
+├── serde_json v1.0.145 (*)
+├── serde_yaml v0.9.34+deprecated
+│   ├── indexmap v2.12.1 (*)
+│   ├── itoa v1.0.15
+│   ├── ryu v1.0.20
+│   ├── serde v1.0.228 (*)
+│   └── unsafe-libyaml v0.2.11
+├── sha2 v0.10.9
+│   ├── cfg-if v1.0.4
+│   └── digest v0.10.7
+│       ├── block-buffer v0.10.4
+│       │   └── generic-array v0.14.7
+│       │       └── typenum v1.19.0
+│       │       [build-dependencies]
+│       │       └── version_check v0.9.5
+│       └── crypto-common v0.1.7
+│           ├── generic-array v0.14.7 (*)
+│           └── typenum v1.19.0
+├── similar v2.7.0
+├── strfmt v0.2.5
+├── sysinfo v0.37.2
+│   └── memchr v2.7.6
+├── thiserror v1.0.69 (*)
+├── tokio v1.48.0 (*)
+├── tokio-stream v0.1.17
+│   ├── futures-core v0.3.31
+│   ├── pin-project-lite v0.2.16
+│   ├── tokio v1.48.0 (*)
+│   └── tokio-util v0.7.17
+│       ├── bytes v1.11.0
+│       ├── futures-core v0.3.31
+│       ├── futures-sink v0.3.31
+│       ├── pin-project-lite v0.2.16
+│       └── tokio v1.48.0 (*)
+├── toml v0.8.23 (*)
+├── tracing v0.1.43 (*)
+├── tracing-subscriber v0.3.22
+│   ├── matchers v0.2.0
+│   │   └── regex-automata v0.4.13 (*)
+│   ├── nu-ansi-term v0.50.3
+│   ├── once_cell v1.21.3 (*)
+│   ├── regex-automata v0.4.13 (*)
+│   ├── serde v1.0.228 (*)
+│   ├── serde_json v1.0.145 (*)
+│   ├── sharded-slab v0.1.7
+│   │   └── lazy_static v1.5.0
+│   ├── smallvec v1.15.1
+│   ├── thread_local v1.1.9
+│   │   └── cfg-if v1.0.4
+│   ├── tracing v0.1.43 (*)
+│   ├── tracing-core v0.1.35 (*)
+│   ├── tracing-log v0.2.0
+│   │   ├── log v0.4.29
+│   │   ├── once_cell v1.21.3 (*)
+│   │   └── tracing-core v0.1.35 (*)
+│   └── tracing-serde v0.2.0
+│       ├── serde v1.0.228 (*)
+│       └── tracing-core v0.1.35 (*)
+├── tracing-wasm v0.2.1
+│   ├── tracing v0.1.43 (*)
+│   ├── tracing-subscriber v0.3.22 (*)
+│   └── wasm-bindgen v0.2.106 (*)
+├── uuid v1.19.0 (*)
+├── wasm-bindgen v0.2.106 (*)
+└── wasm-bindgen-futures v0.4.56 (*)
+[build-dependencies]
+├── flatbuffers v24.12.23
+│   └── bitflags v1.3.2
+│   [build-dependencies]
+│   └── rustc_version v0.4.1 (*)
+├── flatc-rust v0.2.0
+│   └── log v0.4.29
+└── tonic-build v0.10.2
+    ├── prettyplease v0.2.37
+    │   ├── proc-macro2 v1.0.103 (*)
+    │   └── syn v2.0.111 (*)
+    ├── proc-macro2 v1.0.103 (*)
+    ├── prost-build v0.12.6
+    │   ├── bytes v1.11.0
+    │   ├── heck v0.5.0
+    │   ├── itertools v0.12.1 (*)
+    │   ├── log v0.4.29
+    │   ├── multimap v0.10.1
+    │   ├── once_cell v1.21.3
+    │   ├── petgraph v0.6.5
+    │   │   ├── fixedbitset v0.4.2
+    │   │   └── indexmap v2.12.1
+    │   │       ├── equivalent v1.0.2
+    │   │       └── hashbrown v0.16.1
+    │   ├── prettyplease v0.2.37 (*)
+    │   ├── prost v0.12.6
+    │   │   ├── bytes v1.11.0
+    │   │   └── prost-derive v0.12.6 (proc-macro)
+    │   │       ├── anyhow v1.0.100
+    │   │       ├── itertools v0.12.1 (*)
+    │   │       ├── proc-macro2 v1.0.103 (*)
+    │   │       ├── quote v1.0.42 (*)
+    │   │       └── syn v2.0.111 (*)
+    │   ├── prost-types v0.12.6
+    │   │   └── prost v0.12.6 (*)
+    │   ├── regex v1.12.2
+    │   │   ├── regex-automata v0.4.13
+    │   │   │   └── regex-syntax v0.8.8
+    │   │   └── regex-syntax v0.8.8
+    │   ├── syn v2.0.111 (*)
+    │   └── tempfile v3.23.0
+    │       ├── fastrand v2.3.0
+    │       ├── getrandom v0.3.4
+    │       │   ├── cfg-if v1.0.4
+    │       │   └── libc v0.2.178
+    │       ├── once_cell v1.21.3
+    │       └── rustix v1.1.2
+    │           ├── bitflags v2.10.0
+    │           ├── errno v0.3.14
+    │           │   └── libc v0.2.178
+    │           └── libc v0.2.178
+    ├── quote v1.0.42 (*)
+    └── syn v2.0.111 (*)
+[dev-dependencies]
+└── egui_kittest v0.33.2
+    ├── egui v0.33.2 (*)
+    └── kittest v0.3.0
+        ├── accesskit v0.21.1 (*)
+        ├── accesskit_consumer v0.30.1
+        │   ├── accesskit v0.21.1 (*)
+        │   └── hashbrown v0.15.5
+        │       └── foldhash v0.1.5
+        └── parking_lot v0.12.5 (*)

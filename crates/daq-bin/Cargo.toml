@@ -1,0 +1,19 @@
+[package]
+name = "daq-bin"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "rust_daq"
+path = "src/main.rs"
+
+[dependencies]
+rust_daq = { path = "../rust-daq", features = ["server", "all_hardware", "instrument_serial", "modules", "storage_csv"] }
+anyhow = "1.0"
+clap = { version = "4.5.4", features = ["derive"] }
+tokio = { version = "1.36", features = ["full"] }
+mimalloc = { version = "0.1", default-features = false }
+
+[features]
+default = ["networking"]
+networking = []

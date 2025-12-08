@@ -1,0 +1,686 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling serde_core v1.0.228
+    Checking bytemuck v1.24.0
+    Checking web-sys v0.3.83
+    Checking epaint_default_fonts v0.30.0
+    Checking tokio v1.48.0
+   Compiling rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq)
+    Checking csv-core v0.1.13
+    Checking atomic v0.6.1
+    Checking tokio-util v0.7.17
+    Checking tokio-stream v0.1.17
+    Checking tonic v0.11.0
+    Checking serde v1.0.228
+    Checking bitflags v2.10.0
+    Checking serde_json v1.0.145
+    Checking uuid v1.19.0
+    Checking csv v1.4.0
+    Checking ahash v0.8.12
+    Checking emath v0.30.0
+    Checking ron v0.8.1
+    Checking accesskit v0.17.1
+    Checking serde_spanned v0.6.9
+    Checking toml_datetime v0.6.11
+    Checking json5 v0.4.1
+    Checking tracing-serde v0.2.0
+    Checking chrono v0.4.42
+    Checking enum-map v2.7.3
+    Checking tracing-subscriber v0.3.22
+    Checking toml_edit v0.22.27
+    Checking hashbrown v0.14.5
+    Checking rhai v1.23.6
+    Checking bincode v1.3.3
+    Checking ecolor v0.30.0
+    Checking humantime-serde v1.1.1
+    Checking epaint v0.30.0
+    Checking serde_yaml v0.9.34+deprecated
+    Checking ordered-multimap v0.7.3
+    Checking hashlink v0.8.4
+    Checking rust-ini v0.20.0
+    Checking yaml-rust2 v0.8.1
+    Checking tracing-wasm v0.2.1
+    Checking toml v0.8.23
+    Checking config v0.14.1
+    Checking figment v0.10.19
+    Checking egui v0.30.0
+    Checking egui_plot v0.30.0
+    Checking egui_extras v0.30.0
+    Checking egui_dock v0.15.0
+    Checking glow v0.16.0
+    Checking wasm-timer v0.2.5
+    Checking wasm-streams v0.4.2
+    Checking daq-core v0.1.0 (/Users/briansquires/code/rust-daq/crates/daq-core)
+warning: unused imports: `mpsc` and `oneshot`
+  --> crates/daq-core/src/core.rs:35:30
+   |
+35 | use tokio::sync::{broadcast, mpsc, oneshot};
+   |                              ^^^^  ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: use of deprecated struct `core::DataPoint`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:754:12
+    |
+754 |     Scalar(DataPoint),
+    |            ^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated struct `core::DataPoint`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:754:12
+    |
+754 |     Scalar(DataPoint),
+    |            ^^^^^^^^^
+
+    Checking tonic-web-wasm-client v0.5.1
+    Checking egui_glow v0.30.0
+warning: use of deprecated field `core::DataPoint::timestamp`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:765:33
+    |
+765 |             Data::Scalar(dp) => dp.timestamp,
+    |                                 ^^^^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::channel`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:774:34
+    |
+774 |             Data::Scalar(dp) => &dp.channel,
+    |                                  ^^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::unit`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:783:34
+    |
+783 |             Data::Scalar(dp) => &dp.unit,
+    |                                  ^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::metadata`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:792:33
+    |
+792 |             Data::Scalar(dp) => dp.metadata.as_ref(),
+    |                                 ^^^^^^^^^^^
+
+    Checking eframe v0.30.0
+warning: `daq-core` (lib) generated 7 warnings (run `cargo fix --lib -p daq-core` to apply 1 suggestion)
+warning: unused import: `std::borrow`
+  --> crates/rust-daq/src/lib.rs:41:5
+   |
+41 | use std::borrow;
+   |     ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `async_trait::async_trait`
+  --> crates/rust-daq/src/measurement/mod.rs:41:5
+   |
+41 | use async_trait::async_trait;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::time::Duration`
+ --> crates/rust-daq/src/gui/app.rs:2:5
+  |
+2 | use std::time::Duration;
+  |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PlotPoint as EguiPlotPoint`
+ --> crates/rust-daq/src/gui/app.rs:9:40
+  |
+9 | use egui_plot::{Line, Plot, PlotImage, PlotPoint as EguiPlotPoint, PlotPoints};
+  |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `task`
+   --> crates/rust-daq/src/gui/backend.rs:612:21
+    |
+612 |         if let Some(task) = self.state_stream_task.take() {
+    |                     ^^^^ help: if this is intentional, prefix it with an underscore: `_task`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: use of deprecated method `eframe::egui::Slider::<'a>::clamp_to_range`: Use `slider.clamping(…) instead
+   --> crates/rust-daq/src/gui/widgets.rs:131:18
+    |
+131 |                 .clamp_to_range(true),
+    |                  ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: missing documentation for a module
+  --> crates/rust-daq/src/lib.rs:76:1
+   |
+76 | pub mod grpc {
+   | ^^^^^^^^^^^^
+   |
+   = note: requested on the command line with `-W missing-docs`
+
+warning: missing documentation for a function
+  --> crates/rust-daq/src/lib.rs:99:1
+   |
+99 | pub async fn start() -> Result<(), wasm_bindgen::JsValue> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a type alias
+  --> crates/rust-daq/src/config.rs:91:1
+   |
+91 | pub type InstrumentConfigV3 = InstrumentConfig;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a module
+  --> crates/rust-daq/src/gui/mod.rs:21:1
+   |
+21 | pub mod platform;
+   | ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a module
+  --> crates/rust-daq/src/gui/mod.rs:25:1
+   |
+25 | pub mod app;
+   | ^^^^^^^^^^^
+
+warning: missing documentation for a function
+   --> crates/rust-daq/src/gui/backend.rs:714:1
+    |
+714 | pub fn spawn_backend(handle: BackendHandle) {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/rust-daq/src/gui/platform.rs:37:5
+   |
+37 |     pub struct JoinHandle<T>(std::marker::PhantomData<T>);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a function
+  --> crates/rust-daq/src/gui/platform.rs:39:5
+   |
+39 | /     pub fn spawn<F>(future: F) -> JoinHandle<()>
+40 | |     where
+41 | |         F: Future<Output = ()> + 'static,
+   | |_________________________________________^
+
+warning: missing documentation for a function
+  --> crates/rust-daq/src/gui/platform.rs:47:5
+   |
+47 |     pub async fn sleep(duration: Duration) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a function
+  --> crates/rust-daq/src/gui/platform.rs:51:5
+   |
+51 |     pub fn interval(period: Duration) -> impl futures::Stream<Item = ()> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a constant
+  --> crates/rust-daq/src/gui/channels.rs:17:1
+   |
+17 | pub const PLOT_CHANNEL_CAPACITY: usize = 1024;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a constant
+  --> crates/rust-daq/src/gui/channels.rs:18:1
+   |
+18 | pub const FRAME_CHANNEL_CAPACITY: usize = 4;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a constant
+  --> crates/rust-daq/src/gui/channels.rs:19:1
+   |
+19 | pub const EVENT_CHANNEL_CAPACITY: usize = 64;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a constant
+  --> crates/rust-daq/src/gui/channels.rs:20:1
+   |
+20 | pub const COMMAND_CHANNEL_CAPACITY: usize = 32;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:16:5
+   |
+16 |     pub id: String,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:17:5
+   |
+17 |     pub name: String,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:18:5
+   |
+18 |     pub driver_type: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:19:5
+   |
+19 |     pub capabilities: Vec<String>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:20:5
+   |
+20 |     pub is_connected: bool,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:39:5
+   |
+39 |     pub devices: HashMap<String, DeviceState>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:40:5
+   |
+40 |     pub is_connected: bool,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:41:5
+   |
+41 |     pub last_error: Option<String>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/rust-daq/src/gui/types.rs:47:5
+   |
+47 |     Float,
+   |     ^^^^^
+
+warning: missing documentation for a variant
+  --> crates/rust-daq/src/gui/types.rs:48:5
+   |
+48 |     Int,
+   |     ^^^
+
+warning: missing documentation for a variant
+  --> crates/rust-daq/src/gui/types.rs:49:5
+   |
+49 |     Bool,
+   |     ^^^^
+
+warning: missing documentation for a variant
+  --> crates/rust-daq/src/gui/types.rs:50:5
+   |
+50 |     String,
+   |     ^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/rust-daq/src/gui/types.rs:51:5
+   |
+51 |     Enum,
+   |     ^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:75:5
+   |
+75 |     pub device_id: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:76:5
+   |
+76 |     pub name: String,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:77:5
+   |
+77 |     pub description: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:78:5
+   |
+78 |     pub dtype: ParameterType,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:79:5
+   |
+79 |     pub units: String,
+   |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:80:5
+   |
+80 |     pub readable: bool,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:81:5
+   |
+81 |     pub writable: bool,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:82:5
+   |
+82 |     pub min_value: Option<f64>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:83:5
+   |
+83 |     pub max_value: Option<f64>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:84:5
+   |
+84 |     pub enum_values: Vec<String>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:92:5
+   |
+92 |     pub device_id: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:93:5
+   |
+93 |     pub parameter_name: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:94:5
+   |
+94 |     pub timestamp_ms: f64,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:95:5
+   |
+95 |     pub value: f64,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/types.rs:96:5
+   |
+96 |     pub units: String,
+   |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/rust-daq/src/gui/types.rs:121:5
+    |
+121 |     Disconnected,
+    |     ^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/rust-daq/src/gui/types.rs:122:5
+    |
+122 |     Connecting,
+    |     ^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/rust-daq/src/gui/types.rs:123:5
+    |
+123 |     Connected,
+    |     ^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/rust-daq/src/gui/types.rs:124:5
+    |
+124 |     Reconnecting { attempt: u32 },
+    |     ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:124:20
+    |
+124 |     Reconnecting { attempt: u32 },
+    |                    ^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/rust-daq/src/gui/types.rs:125:5
+    |
+125 |     Failed { reason: String },
+    |     ^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:125:14
+    |
+125 |     Failed { reason: String },
+    |              ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:138:15
+    |
+138 |     Connect { address: String },
+    |               ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:144:23
+    |
+144 |     FetchParameters { device_id: String },
+    |                       ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:146:20
+    |
+146 |     MoveAbsolute { device_id: String, position: f64 },
+    |                    ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:146:39
+    |
+146 |     MoveAbsolute { device_id: String, position: f64 },
+    |                                       ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:148:20
+    |
+148 |     MoveRelative { device_id: String, distance: f64 },
+    |                    ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:148:39
+    |
+148 |     MoveRelative { device_id: String, distance: f64 },
+    |                                       ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:150:17
+    |
+150 |     ReadValue { device_id: String },
+    |                 ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:153:9
+    |
+153 |         device_id: String,
+    |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:154:9
+    |
+154 |         name: String,
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:155:9
+    |
+155 |         value: String,
+    |         ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:158:24
+    |
+158 |     StartStateStream { device_ids: Vec<String> },
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:169:24
+    |
+169 |     DevicesRefreshed { devices: Vec<DeviceInfo> },
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:172:9
+    |
+172 |         device_id: String,
+    |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:173:9
+    |
+173 |         parameters: Vec<ParameterDescriptor>,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:177:9
+    |
+177 |         device_id: String,
+    |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:178:9
+    |
+178 |         value: f64,
+    |         ^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:179:9
+    |
+179 |         units: String,
+    |         ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:183:9
+    |
+183 |         device_id: String,
+    |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:184:9
+    |
+184 |         fields: HashMap<String, String>,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:185:9
+    |
+185 |         version: u64,
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:186:9
+    |
+186 |         is_snapshot: bool,
+    |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:193:13
+    |
+193 |     Error { message: String },
+    |             ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:195:25
+    |
+195 |     ConnectionChanged { status: ConnectionStatus },
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/rust-daq/src/gui/types.rs:198:9
+    |
+198 |         device_id: String,
+    |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/app.rs:20:5
+   |
+20 |     pub id: String,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/app.rs:21:5
+   |
+21 |     pub name: String,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/app.rs:22:5
+   |
+22 |     pub driver_type: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/app.rs:23:5
+   |
+23 |     pub capabilities: Vec<String>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/app.rs:24:5
+   |
+24 |     pub last_value: Option<f64>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/app.rs:25:5
+   |
+25 |     pub last_units: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/app.rs:26:5
+   |
+26 |     pub last_updated: Option<Instant>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/app.rs:27:5
+   |
+27 |     pub error: Option<String>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/rust-daq/src/gui/app.rs:54:5
+   |
+54 |     DeviceList,
+   |     ^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/rust-daq/src/gui/app.rs:55:5
+   |
+55 |     DeviceDetails,
+   |     ^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/rust-daq/src/gui/app.rs:56:5
+   |
+56 |     Plot,
+   |     ^^^^
+
+warning: missing documentation for a variant
+  --> crates/rust-daq/src/gui/app.rs:57:5
+   |
+57 |     Image,
+   |     ^^^^^
+
+warning: missing documentation for a variant
+  --> crates/rust-daq/src/gui/app.rs:58:5
+   |
+58 |     Log,
+   |     ^^^
+
+warning: missing documentation for a struct field
+  --> crates/rust-daq/src/gui/app.rs:79:5
+   |
+79 |     pub _backend_handle: Option<()>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates/rust-daq/src/gui/app.rs:99:5
+   |
+99 |     pub fn new() -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a module
+  --> crates/rust-daq/src/lib.rs:82:5
+   |
+82 |     pub mod daq {
+   |     ^^^^^^^^^^^
+
+warning: `rust_daq` (lib) generated 95 warnings (run `cargo fix --lib -p rust_daq` to apply 4 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.28s

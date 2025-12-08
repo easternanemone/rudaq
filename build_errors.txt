@@ -1,0 +1,888 @@
+warning: unused imports: `mpsc` and `oneshot`
+  --> crates/daq-core/src/core.rs:35:30
+   |
+35 | use tokio::sync::{broadcast, mpsc, oneshot};
+   |                              ^^^^  ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: use of deprecated struct `core::DataPoint`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:754:12
+    |
+754 |     Scalar(DataPoint),
+    |            ^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated struct `core::DataPoint`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:754:12
+    |
+754 |     Scalar(DataPoint),
+    |            ^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::timestamp`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:765:33
+    |
+765 |             Data::Scalar(dp) => dp.timestamp,
+    |                                 ^^^^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::channel`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:774:34
+    |
+774 |             Data::Scalar(dp) => &dp.channel,
+    |                                  ^^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::unit`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:783:34
+    |
+783 |             Data::Scalar(dp) => &dp.unit,
+    |                                  ^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::metadata`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:792:33
+    |
+792 |             Data::Scalar(dp) => dp.metadata.as_ref(),
+    |                                 ^^^^^^^^^^^
+
+warning: `daq-core` (lib) generated 7 warnings (run `cargo fix --lib -p daq-core` to apply 1 suggestion)
+    Checking rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq)
+error[E0432]: unresolved import `tokio::fs`
+   --> crates/rust-daq/src/config/versioning.rs:7:5
+    |
+7   | use tokio::fs;
+    |     ^^^^^^^^^ no `fs` in the root
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:511:13
+    |
+511 |     pub mod fs;
+    |             ^^
+note: the item is gated behind the `fs` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:510:1
+    |
+510 | / cfg_fs! {
+511 | |     pub mod fs;
+512 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_fs` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: a similar name exists in the module
+    |
+7   - use tokio::fs;
+7   + use tokio::os;
+    |
+help: consider importing this module instead
+    |
+7   - use tokio::fs;
+7   + use std::fs;
+    |
+
+error[E0432]: unresolved import `tokio::time`
+   --> crates/rust-daq/src/data/hdf5_writer.rs:15:12
+    |
+15  | use tokio::time::{interval, Duration};
+    |            ^^^^ could not find `time` in `tokio`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:564:13
+    |
+564 |     pub mod time;
+    |             ^^^^
+note: the item is gated behind the `time` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:563:1
+    |
+563 | / cfg_time! {
+564 | |     pub mod time;
+565 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_time` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0432]: unresolved import `tokio::time`
+   --> crates/rust-daq/src/error_recovery.rs:11:12
+    |
+11  | use tokio::time::sleep;
+    |            ^^^^ could not find `time` in `tokio`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:564:13
+    |
+564 |     pub mod time;
+    |             ^^^^
+note: the item is gated behind the `time` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:563:1
+    |
+563 | / cfg_time! {
+564 | |     pub mod time;
+565 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_time` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0432]: unresolved import `tokio::time`
+   --> crates/rust-daq/src/experiment/run_engine.rs:49:12
+    |
+49  | use tokio::time::{sleep, Duration};
+    |            ^^^^ could not find `time` in `tokio`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:564:13
+    |
+564 |     pub mod time;
+    |             ^^^^
+note: the item is gated behind the `time` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:563:1
+    |
+563 | / cfg_time! {
+564 | |     pub mod time;
+565 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_time` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0432]: unresolved import `tokio::time`
+   --> crates/rust-daq/src/hardware/mock.rs:21:12
+    |
+21  | use tokio::time::{sleep, Duration};
+    |            ^^^^ could not find `time` in `tokio`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:564:13
+    |
+564 |     pub mod time;
+    |             ^^^^
+note: the item is gated behind the `time` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:563:1
+    |
+563 | / cfg_time! {
+564 | |     pub mod time;
+565 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_time` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0432]: unresolved import `tokio::time`
+   --> crates/rust-daq/src/hardware/mock_serial.rs:191:20
+    |
+191 |         use tokio::time::{timeout, Duration};
+    |                    ^^^^ could not find `time` in `tokio`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:564:13
+    |
+564 |     pub mod time;
+    |             ^^^^
+note: the item is gated behind the `time` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:563:1
+    |
+563 | / cfg_time! {
+564 | |     pub mod time;
+565 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_time` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0432]: unresolved import `tokio::time`
+   --> crates/rust-daq/src/hardware/mock_serial.rs:237:20
+    |
+237 |         use tokio::time::{timeout, Duration};
+    |                    ^^^^ could not find `time` in `tokio`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:564:13
+    |
+564 |     pub mod time;
+    |             ^^^^
+note: the item is gated behind the `time` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:563:1
+    |
+563 | / cfg_time! {
+564 | |     pub mod time;
+565 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_time` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0432]: unresolved imports `tokio::runtime::Handle`, `tokio::runtime::RuntimeFlavor`
+  --> crates/rust-daq/src/scripting/bindings.rs:42:22
+   |
+42 | use tokio::runtime::{Handle, RuntimeFlavor};
+   |                      ^^^^^^  ^^^^^^^^^^^^^ no `RuntimeFlavor` in `runtime`
+   |                      |
+   |                      no `Handle` in `runtime`
+   |
+   = help: consider importing this struct instead:
+           tracing_subscriber::reload::Handle
+
+error[E0432]: unresolved import `tokio::task::block_in_place`
+  --> crates/rust-daq/src/scripting/bindings.rs:44:5
+   |
+44 | use tokio::task::block_in_place;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `block_in_place` in `task`
+
+error[E0432]: unresolved import `tokio::runtime::Handle`
+  --> crates/rust-daq/src/scripting/engine.rs:36:5
+   |
+36 | use tokio::runtime::Handle;
+   |     ^^^^^^^^^^^^^^^^^^^^^^ no `Handle` in `runtime`
+   |
+help: consider importing this struct instead
+   |
+36 - use tokio::runtime::Handle;
+36 + use tracing_subscriber::reload::Handle;
+   |
+
+error[E0432]: unresolved import `tokio::runtime::Handle`
+  --> crates/rust-daq/src/scripting/plan_bindings.rs:31:5
+   |
+31 | use tokio::runtime::Handle;
+   |     ^^^^^^^^^^^^^^^^^^^^^^ no `Handle` in `runtime`
+   |
+help: consider importing this struct instead
+   |
+31 - use tokio::runtime::Handle;
+31 + use tracing_subscriber::reload::Handle;
+   |
+
+error[E0432]: unresolved import `tokio::task::block_in_place`
+  --> crates/rust-daq/src/scripting/plan_bindings.rs:32:5
+   |
+32 | use tokio::task::block_in_place;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `block_in_place` in `task`
+
+error[E0433]: failed to resolve: could not find `time` in `tokio`
+   --> crates/rust-daq/src/health/sys_monitor.rs:30:35
+    |
+30  |         let mut interval = tokio::time::interval(self.update_interval);
+    |                                   ^^^^ could not find `time` in `tokio`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:564:13
+    |
+564 |     pub mod time;
+    |             ^^^^
+note: the item is gated behind the `time` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:563:1
+    |
+563 | / cfg_time! {
+564 | |     pub mod time;
+565 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_time` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0433]: failed to resolve: could not find `time` in `tokio`
+   --> crates/rust-daq/src/scripting/bindings.rs:273:62
+    |
+273 |             let _ = block_in_place(|| handle.block_on(tokio::time::sleep(Duration::from_secs_f64(seconds))));
+    |                                                              ^^^^ could not find `time` in `tokio`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:564:13
+    |
+564 |     pub mod time;
+    |             ^^^^
+note: the item is gated behind the `time` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:563:1
+    |
+563 | / cfg_time! {
+564 | |     pub mod time;
+565 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_time` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `gui`
+  --> crates/rust-daq/src/lib.rs:82:37
+   |
+82 |             Box::new(|_cc| Box::new(gui::app::DaqGuiApp::new())),
+   |                                     ^^^ use of unresolved module or unlinked crate `gui`
+   |
+help: there is a crate or module with a similar name
+   |
+82 |             Box::new(|_cc| Box::new(egui::app::DaqGuiApp::new())),
+   |                                     +
+
+error[E0425]: cannot find function `spawn_blocking` in module `tokio::task`
+   --> crates/rust-daq/src/data/hdf5_writer.rs:444:22
+    |
+444 |         tokio::task::spawn_blocking(move || -> Result<()> {
+    |                      ^^^^^^^^^^^^^^ not found in `tokio::task`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/task/mod.rs:281:23
+    |
+281 |     pub use blocking::spawn_blocking;
+    |                       ^^^^^^^^^^^^^^
+note: the item is gated behind the `rt` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/task/mod.rs:277:1
+    |
+277 | / cfg_rt! {
+278 | |     pub use crate::runtime::task::{JoinError, JoinHandle};
+279 | |
+280 | |     mod blocking;
+...   |
+331 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_rt` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `JoinHandle` in module `tokio::task`
+   --> crates/rust-daq/src/hardware/mock.rs:226:51
+    |
+226 |     streaming_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    |                                                   ^^^^^^^^^^ not found in `tokio::task`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/task/mod.rs:278:47
+    |
+278 |     pub use crate::runtime::task::{JoinError, JoinHandle};
+    |                                               ^^^^^^^^^^
+note: the item is gated behind the `rt` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/task/mod.rs:277:1
+    |
+277 | / cfg_rt! {
+278 | |     pub use crate::runtime::task::{JoinError, JoinHandle};
+279 | |
+280 | |     mod blocking;
+...   |
+331 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_rt` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider importing this struct
+    |
+16  + use std::thread::JoinHandle;
+    |
+help: if you import `JoinHandle`, refer to it directly
+    |
+226 -     streaming_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+226 +     streaming_task: Arc<Mutex<Option<JoinHandle<()>>>>,
+    |
+
+error[E0412]: cannot find type `JoinHandle` in module `tokio::task`
+   --> crates/rust-daq/src/hardware/mock.rs:244:59
+    |
+244 |         let streaming_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>> =
+    |                                                           ^^^^^^^^^^ not found in `tokio::task`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/task/mod.rs:278:47
+    |
+278 |     pub use crate::runtime::task::{JoinError, JoinHandle};
+    |                                               ^^^^^^^^^^
+note: the item is gated behind the `rt` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/task/mod.rs:277:1
+    |
+277 | / cfg_rt! {
+278 | |     pub use crate::runtime::task::{JoinError, JoinHandle};
+279 | |
+280 | |     mod blocking;
+...   |
+331 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_rt` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider importing this struct
+    |
+16  + use std::thread::JoinHandle;
+    |
+help: if you import `JoinHandle`, refer to it directly
+    |
+244 -         let streaming_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>> =
+244 +         let streaming_task: Arc<Mutex<Option<JoinHandle<()>>>> =
+    |
+
+error[E0425]: cannot find function `spawn` in crate `tokio`
+   --> crates/rust-daq/src/hardware/mock.rs:301:45
+    |
+301 |                         let handle = tokio::spawn(async move {
+    |                                             ^^^^^ not found in `tokio`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:560:19
+    |
+560 |     pub use task::spawn;
+    |                   ^^^^^
+note: the item is gated behind the `rt` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:559:1
+    |
+559 | / cfg_rt! {
+560 | |     pub use task::spawn;
+561 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_rt` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider importing this function
+    |
+16  + use std::thread::spawn;
+    |
+help: if you import `spawn`, refer to it directly
+    |
+301 -                         let handle = tokio::spawn(async move {
+301 +                         let handle = spawn(async move {
+    |
+
+error[E0425]: cannot find function `spawn_blocking` in module `tokio::task`
+   --> crates/rust-daq/src/scripting/rhai_engine.rs:315:22
+    |
+315 |         tokio::task::spawn_blocking(move || {
+    |                      ^^^^^^^^^^^^^^ not found in `tokio::task`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/task/mod.rs:281:23
+    |
+281 |     pub use blocking::spawn_blocking;
+    |                       ^^^^^^^^^^^^^^
+note: the item is gated behind the `rt` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/task/mod.rs:277:1
+    |
+277 | / cfg_rt! {
+278 | |     pub use crate::runtime::task::{JoinError, JoinHandle};
+279 | |
+280 | |     mod blocking;
+...   |
+331 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_rt` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0425]: cannot find function `spawn_blocking` in module `tokio::task`
+   --> crates/rust-daq/src/scripting/rhai_engine.rs:333:22
+    |
+333 |         tokio::task::spawn_blocking(move || {
+    |                      ^^^^^^^^^^^^^^ not found in `tokio::task`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/task/mod.rs:281:23
+    |
+281 |     pub use blocking::spawn_blocking;
+    |                       ^^^^^^^^^^^^^^
+note: the item is gated behind the `rt` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/task/mod.rs:277:1
+    |
+277 | / cfg_rt! {
+278 | |     pub use crate::runtime::task::{JoinError, JoinHandle};
+279 | |
+280 | |     mod blocking;
+...   |
+331 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_rt` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0433]: failed to resolve: could not find `borrow` in `core`
+  --> crates/rust-daq/src/lib.rs:71:1
+   |
+71 | #[wasm_bindgen]
+   | ^^^^^^^^^^^^^^^ could not find `borrow` in `core`
+   |
+   = note: this error originates in the attribute macro `wasm_bindgen` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider importing this module
+   |
+40 + use std::borrow;
+   |
+
+error[E0603]: module `runtime` is private
+   --> crates/rust-daq/src/scripting/bindings.rs:42:12
+    |
+42  | use tokio::runtime::{Handle, RuntimeFlavor};
+    |            ^^^^^^^ private module
+    |
+note: the module `runtime` is defined here
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:537:5
+    |
+537 |     pub(crate) mod runtime;
+    |     ^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: module `runtime` is private
+   --> crates/rust-daq/src/scripting/engine.rs:36:12
+    |
+36  | use tokio::runtime::Handle;
+    |            ^^^^^^^ private module
+    |
+note: the module `runtime` is defined here
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:537:5
+    |
+537 |     pub(crate) mod runtime;
+    |     ^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: module `runtime` is private
+   --> crates/rust-daq/src/scripting/plan_bindings.rs:31:12
+    |
+31  | use tokio::runtime::Handle;
+    |            ^^^^^^^ private module
+    |
+note: the module `runtime` is defined here
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:537:5
+    |
+537 |     pub(crate) mod runtime;
+    |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::observable::ParameterSet`
+  --> crates/rust-daq/src/data/hdf5_writer.rs:18:5
+   |
+18 | use crate::observable::ParameterSet;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: implementation of an `unsafe` trait
+   --> crates/rust-daq/src/data/ring_buffer.rs:176:1
+    |
+176 | unsafe impl Send for RingBuffer {}
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: requested on the command line with `-W unsafe-code`
+
+warning: implementation of an `unsafe` trait
+   --> crates/rust-daq/src/data/ring_buffer.rs:181:1
+    |
+181 | unsafe impl Sync for RingBuffer {}
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:241:24
+    |
+241 |           let mut mmap = unsafe {
+    |  ________________________^
+242 | |             MmapOptions::new()
+243 | |                 .map_mut(&file)
+244 | |                 .context("Failed to create memory mapping")?
+245 | |         };
+    | |_________^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:252:9
+    |
+252 | /         unsafe {
+253 | |             // Write header fields
+254 | |             (*header).magic = MAGIC;
+255 | |             (*header).capacity_bytes = capacity_bytes as u64;
+...   |
+271 | |             (*header)._padding.fill(0);
+272 | |         }
+    | |_________^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:277:24
+    |
+277 |         let data_ptr = unsafe { mmap.as_mut_ptr().add(HEADER_SIZE) };
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:306:24
+    |
+306 |           let mut mmap = unsafe {
+    |  ________________________^
+307 | |             MmapOptions::new()
+308 | |                 .map_mut(&file)
+309 | |                 .context("Failed to map ring buffer file")?
+310 | |         };
+    | |_________^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:316:33
+    |
+316 |         let (magic, capacity) = unsafe { ((*header).magic, (*header).capacity_bytes) };
+    |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:329:24
+    |
+329 |         let data_ptr = unsafe { mmap.as_mut_ptr().add(HEADER_SIZE) };
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:380:9
+    |
+380 | /         unsafe {
+381 | |             debug_assert!(HEADER_SIZE + self.capacity as usize <= self.mmap.len());
+382 | |             debug_assert!(data.len() <= self.capacity as usize);
+...   |
+424 | |             (*self.header).write_epoch.fetch_add(1, Ordering::Release);
+425 | |         }
+    | |_________^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:558:13
+    |
+558 | /             unsafe {
+559 | |                 debug_assert!(HEADER_SIZE + self.capacity as usize <= self.mmap.len());
+...   |
+639 | |             }
+    | |_____________^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:732:9
+    |
+732 |         unsafe { (*self.header).stream_id.load(Ordering::Acquire) }
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:741:9
+    |
+741 |         unsafe { (*self.header).magic }
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:751:9
+    |
+751 |         unsafe { (*self.header).write_epoch.load(Ordering::Acquire) }
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:793:9
+    |
+793 |         unsafe { (*self.header).write_head.load(Ordering::Acquire) }
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:839:9
+    |
+839 |         unsafe { (*self.header).read_tail.load(Ordering::Acquire) }
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:847:9
+    |
+847 | /         unsafe {
+848 | |             (*self.header).read_tail.store(new_tail, Ordering::Release);
+849 | |         }
+    | |_________^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:858:9
+    |
+858 | /         unsafe {
+859 | |             (*self.header).read_tail.fetch_add(bytes, Ordering::Release);
+860 | |         }
+    | |_________^
+
+warning: unused import: `async_trait::async_trait`
+  --> crates/rust-daq/src/measurement/mod.rs:41:5
+   |
+41 | use async_trait::async_trait;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated struct `scripting::engine::ScriptHost`: Use RhaiEngine instead. See docs/guides/scripting/migration_v4_to_v5.md
+  --> crates/rust-daq/src/scripting/engine.rs:78:6
+   |
+78 | impl ScriptHost {
+   |      ^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+   --> crates/rust-daq/src/config/versioning.rs:273:13
+    |
+273 |         let toml_str = fs::read_to_string(&path).await?;
+    |             ^^^^^^^^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `str`
+    = note: all local variables must have a statically known size
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+   --> crates/rust-daq/src/config/versioning.rs:273:24
+    |
+273 |         let toml_str = fs::read_to_string(&path).await?;
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `str`
+    = note: all local variables must have a statically known size
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+   --> crates/rust-daq/src/config/versioning.rs:273:55
+    |
+273 |         let toml_str = fs::read_to_string(&path).await?;
+    |                                                       ^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `str`
+note: required by a bound in `Break`
+   --> /Users/briansquires/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/control_flow.rs:87:25
+    |
+87  | pub enum ControlFlow<B, C = ()> {
+    |                         ^^^^^^ required by this bound in `Break`
+...
+95  |     Break(B),
+    |     ----- required by a bound in this variant
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+   --> crates/rust-daq/src/config/versioning.rs:273:24
+    |
+273 |         let toml_str = fs::read_to_string(&path).await?;
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `str`
+note: required by a bound in `std::ops::ControlFlow::Continue`
+   --> /Users/briansquires/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/control_flow.rs:87:25
+    |
+87  | pub enum ControlFlow<B, C = ()> {
+    |                         ^^^^^^ required by this bound in `ControlFlow::Continue`
+...
+91  |     Continue(C),
+    |     -------- required by a bound in this variant
+
+error[E0277]: the size for values of type `[u8]` cannot be known at compilation time
+   --> crates/rust-daq/src/hardware/mock_serial.rs:197:25
+    |
+197 |                 Ok(Some(chunk)) => self.write_buffer.extend_from_slice(&chunk),
+    |                         ^^^^^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `[u8]`
+    = note: all local variables must have a statically known size
+
+error[E0277]: the size for values of type `[u8]` cannot be known at compilation time
+   --> crates/rust-daq/src/hardware/mock_serial.rs:197:20
+    |
+197 |                 Ok(Some(chunk)) => self.write_buffer.extend_from_slice(&chunk),
+    |                    ^^^^^^^^^^^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `[u8]`
+note: required by a bound in `std::prelude::v1::Some`
+   --> /Users/briansquires/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/option.rs:591:17
+    |
+591 | pub enum Option<T> {
+    |                 ^ required by this bound in `std::prelude::v1::Some`
+...
+599 |     Some(#[stable(feature = "rust1", since = "1.0.0")] T),
+    |     ---- required by a bound in this tuple variant
+
+error[E0277]: the size for values of type `[u8]` cannot be known at compilation time
+   --> crates/rust-daq/src/hardware/mock_serial.rs:198:20
+    |
+198 |                 Ok(None) => panic!("Client-side port closed while expecting a write."),
+    |                    ^^^^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `[u8]`
+note: required by a bound in `std::prelude::v1::None`
+   --> /Users/briansquires/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/option.rs:591:17
+    |
+591 | pub enum Option<T> {
+    |                 ^ required by this bound in `std::prelude::v1::None`
+...
+595 |     None,
+    |     ---- required by a bound in this unit variant
+
+error[E0277]: the size for values of type `[u8]` cannot be known at compilation time
+   --> crates/rust-daq/src/hardware/mock_serial.rs:196:68
+    |
+196 |             match timeout(timeout_duration, self.writes_rx.recv()).await {
+    |                                                                    ^^^^^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `[u8]`
+note: required by an implicit `Sized` bound in `std::option::Option`
+   --> /Users/briansquires/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/option.rs:591:17
+    |
+591 | pub enum Option<T> {
+    |                 ^ required by the implicit `Sized` requirement on this type parameter in `Option`
+
+error[E0277]: the size for values of type `[u8]` cannot be known at compilation time
+   --> crates/rust-daq/src/hardware/mock_serial.rs:240:27
+    |
+240 |         while let Ok(Some(chunk)) = timeout(short_timeout, self.writes_rx.recv()).await {
+    |                           ^^^^^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `[u8]`
+    = note: all local variables must have a statically known size
+
+error[E0277]: the size for values of type `[u8]` cannot be known at compilation time
+   --> crates/rust-daq/src/hardware/mock_serial.rs:240:22
+    |
+240 |         while let Ok(Some(chunk)) = timeout(short_timeout, self.writes_rx.recv()).await {
+    |                      ^^^^^^^^^^^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `[u8]`
+note: required by a bound in `std::prelude::v1::Some`
+   --> /Users/briansquires/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/option.rs:591:17
+    |
+591 | pub enum Option<T> {
+    |                 ^ required by this bound in `std::prelude::v1::Some`
+...
+599 |     Some(#[stable(feature = "rust1", since = "1.0.0")] T),
+    |     ---- required by a bound in this tuple variant
+
+error[E0277]: the size for values of type `[u8]` cannot be known at compilation time
+   --> crates/rust-daq/src/hardware/mock_serial.rs:240:83
+    |
+240 |         while let Ok(Some(chunk)) = timeout(short_timeout, self.writes_rx.recv()).await {
+    |                                                                                   ^^^^^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `[u8]`
+note: required by an implicit `Sized` bound in `std::option::Option`
+   --> /Users/briansquires/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/option.rs:591:17
+    |
+591 | pub enum Option<T> {
+    |                 ^ required by the implicit `Sized` requirement on this type parameter in `Option`
+
+error[E0308]: mismatched types
+  --> crates/rust-daq/src/lib.rs:80:13
+   |
+79 |         .start(
+   |          ----- arguments to this method are incorrect
+80 |             canvas_id,
+   |             ^^^^^^^^^ expected `HtmlCanvasElement`, found `&str`
+   |
+note: method defined here
+  --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/eframe-0.33.2/src/web/web_runner.rs:57:18
+   |
+57 |     pub async fn start(
+   |                  ^^^^^
+
+warning: use of deprecated field `scripting::engine::ScriptHost::engine`: Use RhaiEngine instead. See docs/guides/scripting/migration_v4_to_v5.md
+   --> crates/rust-daq/src/scripting/engine.rs:105:16
+    |
+105 |         Self { engine, runtime }
+    |                ^^^^^^
+
+warning: use of deprecated field `scripting::engine::ScriptHost::runtime`: Use RhaiEngine instead. See docs/guides/scripting/migration_v4_to_v5.md
+   --> crates/rust-daq/src/scripting/engine.rs:105:24
+    |
+105 |         Self { engine, runtime }
+    |                        ^^^^^^^
+
+warning: use of deprecated field `scripting::engine::ScriptHost::engine`: Use RhaiEngine instead. See docs/guides/scripting/migration_v4_to_v5.md
+   --> crates/rust-daq/src/scripting/engine.rs:154:16
+    |
+154 |         Self { engine, runtime }
+    |                ^^^^^^
+
+warning: use of deprecated field `scripting::engine::ScriptHost::runtime`: Use RhaiEngine instead. See docs/guides/scripting/migration_v4_to_v5.md
+   --> crates/rust-daq/src/scripting/engine.rs:154:24
+    |
+154 |         Self { engine, runtime }
+    |                        ^^^^^^^
+
+warning: use of deprecated field `scripting::engine::ScriptHost::engine`: Use RhaiEngine instead. See docs/guides/scripting/migration_v4_to_v5.md
+   --> crates/rust-daq/src/scripting/engine.rs:185:9
+    |
+185 |         self.engine.eval_with_scope(&mut scope, script)
+    |         ^^^^^^^^^^^
+
+warning: use of deprecated field `scripting::engine::ScriptHost::engine`: Use RhaiEngine instead. See docs/guides/scripting/migration_v4_to_v5.md
+   --> crates/rust-daq/src/scripting/engine.rs:211:9
+    |
+211 |         self.engine.compile(script)?;
+    |         ^^^^^^^^^^^
+
+warning: use of deprecated field `scripting::engine::ScriptHost::engine`: Use RhaiEngine instead. See docs/guides/scripting/migration_v4_to_v5.md
+   --> crates/rust-daq/src/scripting/engine.rs:232:14
+    |
+232 |         &mut self.engine
+    |              ^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+  --> crates/rust-daq/src/hardware/mock.rs:64:13
+   |
+64 |         let mut position = Self::attach_stage_callbacks(position, position_state.clone(), 10.0);
+   |             ----^^^^^^^^
+   |             |
+   |             help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+  --> crates/rust-daq/src/hardware/mock.rs:87:13
+   |
+87 |         let mut position = Self::attach_stage_callbacks(position, position_state.clone(), 10.0);
+   |             ----^^^^^^^^
+   |             |
+   |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/rust-daq/src/hardware/mock.rs:110:13
+    |
+110 |         let mut position =
+    |             ----^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+Some errors have detailed explanations: E0277, E0308, E0412, E0425, E0432, E0433, E0603.
+For more information about an error, try `rustc --explain E0277`.
+warning: `rust_daq` (lib) generated 30 warnings
+error: could not compile `rust_daq` (lib) due to 37 previous errors; 30 warnings emitted

@@ -1,0 +1,15 @@
+[package]
+name = "daq-examples"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+rust_daq = { path = "../rust-daq", features = ["full"] }
+tokio = { version = "1.36", features = ["full"] }
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+tracing = "0.1"
+tracing-subscriber = "0.3"

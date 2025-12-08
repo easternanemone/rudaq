@@ -1,0 +1,249 @@
+warning: unused imports: `mpsc` and `oneshot`
+  --> crates/daq-core/src/core.rs:35:30
+   |
+35 | use tokio::sync::{broadcast, mpsc, oneshot};
+   |                              ^^^^  ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: use of deprecated struct `core::DataPoint`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:754:12
+    |
+754 |     Scalar(DataPoint),
+    |            ^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated struct `core::DataPoint`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:754:12
+    |
+754 |     Scalar(DataPoint),
+    |            ^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::timestamp`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:765:33
+    |
+765 |             Data::Scalar(dp) => dp.timestamp,
+    |                                 ^^^^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::channel`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:774:34
+    |
+774 |             Data::Scalar(dp) => &dp.channel,
+    |                                  ^^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::unit`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:783:34
+    |
+783 |             Data::Scalar(dp) => &dp.unit,
+    |                                  ^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::metadata`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:792:33
+    |
+792 |             Data::Scalar(dp) => dp.metadata.as_ref(),
+    |                                 ^^^^^^^^^^^
+
+warning: `daq-core` (lib) generated 7 warnings (run `cargo fix --lib -p daq-core` to apply 1 suggestion)
+    Checking rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq)
+warning: unused import: `std::borrow`
+  --> crates/rust-daq/src/lib.rs:41:5
+   |
+41 | use std::borrow;
+   |     ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `async_trait::async_trait`
+  --> crates/rust-daq/src/measurement/mod.rs:41:5
+   |
+41 | use async_trait::async_trait;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `addr`
+   --> crates/rust-daq/src/gui/backend.rs:171:13
+    |
+171 |         let addr = if address.starts_with("http") {
+    |             ^^^^ help: if this is intentional, prefix it with an underscore: `_addr`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+error[E0599]: the method `list_devices` exists for mutable reference `&mut HardwareServiceClient<WasmClient>`, but its trait bounds were not satisfied
+   --> crates/rust-daq/src/gui/backend.rs:250:14
+    |
+17  |   struct WasmClient;
+    |   ----------------- doesn't satisfy `_: Service<Request<UnsyncBoxBody<Bytes, Status>>>`
+...
+249 |           match client
+    |  _______________-
+250 | |             .list_devices(ListDevicesRequest {
+    | |             -^^^^^^^^^^^^ method cannot be called on `&mut HardwareServiceClient<WasmClient>` due to unsatisfied trait bounds
+    | |_____________|
+    |
+    |
+    = note: the following trait bounds were not satisfied:
+            `WasmClient: Service<request::Request<http_body::combinators::box_body::UnsyncBoxBody<prost::bytes::Bytes, tonic::Status>>>`
+note: the trait `Service` must be implemented
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-service-0.3.3/src/lib.rs:311:1
+    |
+311 | pub trait Service<Request> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: the method `read_value` exists for mutable reference `&mut HardwareServiceClient<WasmClient>`, but its trait bounds were not satisfied
+   --> crates/rust-daq/src/gui/backend.rs:305:14
+    |
+17  |   struct WasmClient;
+    |   ----------------- doesn't satisfy `_: Service<Request<UnsyncBoxBody<Bytes, Status>>>`
+...
+304 |           match client
+    |  _______________-
+305 | |             .read_value(ReadValueRequest {
+    | |             -^^^^^^^^^^ method cannot be called on `&mut HardwareServiceClient<WasmClient>` due to unsatisfied trait bounds
+    | |_____________|
+    |
+    |
+    = note: the following trait bounds were not satisfied:
+            `WasmClient: Service<request::Request<http_body::combinators::box_body::UnsyncBoxBody<prost::bytes::Bytes, tonic::Status>>>`
+note: the trait `Service` must be implemented
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-service-0.3.3/src/lib.rs:311:1
+    |
+311 | pub trait Service<Request> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: the method `move_absolute` exists for mutable reference `&mut HardwareServiceClient<WasmClient>`, but its trait bounds were not satisfied
+   --> crates/rust-daq/src/gui/backend.rs:345:14
+    |
+17  |   struct WasmClient;
+    |   ----------------- doesn't satisfy `_: Service<Request<UnsyncBoxBody<Bytes, Status>>>`
+...
+344 |           match client
+    |  _______________-
+345 | |             .move_absolute(MoveRequest {
+    | |_____________-^^^^^^^^^^^^^
+    |
+    = note: the following trait bounds were not satisfied:
+            `WasmClient: Service<request::Request<http_body::combinators::box_body::UnsyncBoxBody<prost::bytes::Bytes, tonic::Status>>>`
+note: the trait `Service` must be implemented
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-service-0.3.3/src/lib.rs:311:1
+    |
+311 | pub trait Service<Request> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following trait defines an item `move_absolute`, perhaps you need to implement it:
+            candidate #1: `Stage`
+
+error[E0599]: the method `move_relative` exists for mutable reference `&mut HardwareServiceClient<WasmClient>`, but its trait bounds were not satisfied
+   --> crates/rust-daq/src/gui/backend.rs:382:14
+    |
+17  |   struct WasmClient;
+    |   ----------------- doesn't satisfy `_: Service<Request<UnsyncBoxBody<Bytes, Status>>>`
+...
+381 |           match client
+    |  _______________-
+382 | |             .move_relative(MoveRequest {
+    | |             -^^^^^^^^^^^^^ method cannot be called on `&mut HardwareServiceClient<WasmClient>` due to unsatisfied trait bounds
+    | |_____________|
+    |
+    |
+    = note: the following trait bounds were not satisfied:
+            `WasmClient: Service<request::Request<http_body::combinators::box_body::UnsyncBoxBody<prost::bytes::Bytes, tonic::Status>>>`
+note: the trait `Service` must be implemented
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-service-0.3.3/src/lib.rs:311:1
+    |
+311 | pub trait Service<Request> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following trait defines an item `move_relative`, perhaps you need to implement it:
+            candidate #1: `Stage`
+
+error[E0599]: the method `set_parameter` exists for mutable reference `&mut HardwareServiceClient<WasmClient>`, but its trait bounds were not satisfied
+   --> crates/rust-daq/src/gui/backend.rs:419:14
+    |
+17  |   struct WasmClient;
+    |   ----------------- doesn't satisfy `_: Service<Request<UnsyncBoxBody<Bytes, Status>>>`
+...
+418 |           match client
+    |  _______________-
+419 | |             .set_parameter(SetParameterRequest {
+    | |             -^^^^^^^^^^^^^ method cannot be called on `&mut HardwareServiceClient<WasmClient>` due to unsatisfied trait bounds
+    | |_____________|
+    |
+    |
+    = note: the following trait bounds were not satisfied:
+            `WasmClient: Service<request::Request<http_body::combinators::box_body::UnsyncBoxBody<prost::bytes::Bytes, tonic::Status>>>`
+note: the trait `Service` must be implemented
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-service-0.3.3/src/lib.rs:311:1
+    |
+311 | pub trait Service<Request> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: the method `list_parameters` exists for mutable reference `&mut HardwareServiceClient<WasmClient>`, but its trait bounds were not satisfied
+   --> crates/rust-daq/src/gui/backend.rs:455:14
+    |
+17  |   struct WasmClient;
+    |   ----------------- doesn't satisfy `_: Service<Request<UnsyncBoxBody<Bytes, Status>>>`
+...
+454 |           match client
+    |  _______________-
+455 | |             .list_parameters(ListParametersRequest {
+    | |             -^^^^^^^^^^^^^^^ method cannot be called on `&mut HardwareServiceClient<WasmClient>` due to unsatisfied trait bounds
+    | |_____________|
+    |
+    |
+    = note: the following trait bounds were not satisfied:
+            `WasmClient: Service<request::Request<http_body::combinators::box_body::UnsyncBoxBody<prost::bytes::Bytes, tonic::Status>>>`
+note: the trait `Service` must be implemented
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-service-0.3.3/src/lib.rs:311:1
+    |
+311 | pub trait Service<Request> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: the method `clone` exists for enum `std::option::Option<HardwareServiceClient<WasmClient>>`, but its trait bounds were not satisfied
+    --> crates/rust-daq/src/gui/backend.rs:488:40
+     |
+488  |         let Some(client) = self.client.clone() else {
+     |                                        ^^^^^ method cannot be called due to unsatisfied trait bounds
+     |
+    ::: /Users/briansquires/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/option.rs:591:1
+     |
+591  | pub enum Option<T> {
+     | ------------------ doesn't satisfy `_: Clone`
+     |
+    ::: /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:3884:5
+     |
+3884 |     pub struct HardwareServiceClient<T> {
+     |     ----------------------------------- doesn't satisfy `HardwareServiceClient<WasmClient>: Clone`
+     |
+     = note: the following trait bounds were not satisfied:
+             `HardwareServiceClient<WasmClient>: Clone`
+             which is required by `std::option::Option<HardwareServiceClient<WasmClient>>: Clone`
+help: consider annotating `HardwareServiceClient<WasmClient>` with `#[derive(Clone)]`
+    -->  /Users/briansquires/code/rust-daq/target/wasm32-unknown-unknown/debug/build/rust_daq-d69e5f73eeee7e5c/out/daq.rs:3884:5
+     |
+3884 +     #[derive(Clone)]
+3885 |     pub struct HardwareServiceClient<T> {
+     |
+
+warning: unused variable: `task`
+   --> crates/rust-daq/src/gui/backend.rs:608:21
+    |
+608 |         if let Some(task) = self.state_stream_task.take() {
+    |                     ^^^^ help: if this is intentional, prefix it with an underscore: `_task`
+
+warning: unused variable: `cc`
+   --> crates/rust-daq/src/lib.rs:116:23
+    |
+116 |             Box::new(|cc| Ok(Box::new(gui::app::DaqGuiApp::new()))),
+    |                       ^^ help: if this is intentional, prefix it with an underscore: `_cc`
+
+warning: use of deprecated method `eframe::egui::Slider::<'a>::clamp_to_range`: Use `slider.clamping(…) instead
+   --> crates/rust-daq/src/gui/widgets.rs:131:18
+    |
+131 |                 .clamp_to_range(true),
+    |                  ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+For more information about this error, try `rustc --explain E0599`.
+warning: `rust_daq` (lib) generated 6 warnings
+error: could not compile `rust_daq` (lib) due to 7 previous errors; 6 warnings emitted

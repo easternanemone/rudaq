@@ -1,0 +1,317 @@
+warning: unused imports: `mpsc` and `oneshot`
+  --> crates/daq-core/src/core.rs:35:30
+   |
+35 | use tokio::sync::{broadcast, mpsc, oneshot};
+   |                              ^^^^  ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: use of deprecated struct `core::DataPoint`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:754:12
+    |
+754 |     Scalar(DataPoint),
+    |            ^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated struct `core::DataPoint`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:754:12
+    |
+754 |     Scalar(DataPoint),
+    |            ^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::timestamp`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:765:33
+    |
+765 |             Data::Scalar(dp) => dp.timestamp,
+    |                                 ^^^^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::channel`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:774:34
+    |
+774 |             Data::Scalar(dp) => &dp.channel,
+    |                                  ^^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::unit`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:783:34
+    |
+783 |             Data::Scalar(dp) => &dp.unit,
+    |                                  ^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::metadata`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:792:33
+    |
+792 |             Data::Scalar(dp) => dp.metadata.as_ref(),
+    |                                 ^^^^^^^^^^^
+
+warning: `daq-core` (lib) generated 7 warnings (run `cargo fix --lib -p daq-core` to apply 1 suggestion)
+    Checking rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq)
+error[E0252]: the name `JsCast` is defined multiple times
+  --> crates/rust-daq/src/lib.rs:80:5
+   |
+78 | use wasm_bindgen::JsCast;
+   |     -------------------- previous import of the trait `JsCast` here
+79 | #[cfg(target_arch = "wasm32")]
+80 | use wasm_bindgen::JsCast;
+   |     ^^^^^^^^^^^^^^^^^^^^ `JsCast` reimported here
+   |
+   = note: `JsCast` must be defined only once in the type namespace of this module
+
+error[E0432]: unresolved import `tokio::fs`
+   --> crates/rust-daq/src/config/versioning.rs:7:5
+    |
+7   | use tokio::fs;
+    |     ^^^^^^^^^ no `fs` in the root
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:511:13
+    |
+511 |     pub mod fs;
+    |             ^^
+note: the item is gated behind the `fs` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:510:1
+    |
+510 | / cfg_fs! {
+511 | |     pub mod fs;
+512 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_fs` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: a similar name exists in the module
+    |
+7   - use tokio::fs;
+7   + use tokio::os;
+    |
+help: consider importing this module instead
+    |
+7   - use tokio::fs;
+7   + use std::fs;
+    |
+
+error[E0433]: failed to resolve: could not find `hardware` in the crate root
+  --> crates/rust-daq/src/experiment/run_engine.rs:56:12
+   |
+56 | use crate::hardware::registry::DeviceRegistry;
+   |            ^^^^^^^^ could not find `hardware` in the crate root
+   |
+note: found an item that was configured out
+  --> crates/rust-daq/src/lib.rs:62:9
+   |
+62 | pub mod hardware;
+   |         ^^^^^^^^
+note: the item is gated here
+  --> crates/rust-daq/src/lib.rs:61:1
+   |
+61 | #[cfg(not(target_arch = "wasm32"))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0432]: unresolved import `tokio::time`
+   --> crates/rust-daq/src/experiment/run_engine.rs:49:12
+    |
+49  | use tokio::time::{sleep, Duration};
+    |            ^^^^ could not find `time` in `tokio`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:564:13
+    |
+564 |     pub mod time;
+    |             ^^^^
+note: the item is gated behind the `time` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:563:1
+    |
+563 | / cfg_time! {
+564 | |     pub mod time;
+565 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_time` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0432]: unresolved import `crate::grpc`
+  --> crates/rust-daq/src/gui/backend.rs:20:12
+   |
+20 | use crate::grpc::{
+   |            ^^^^ could not find `grpc` in the crate root
+   |
+note: found an item that was configured out
+  --> crates/rust-daq/src/lib.rs:72:9
+   |
+72 | pub mod grpc; // gRPC server & protobuf types
+   |         ^^^^
+note: the item is gated here
+  --> crates/rust-daq/src/lib.rs:71:1
+   |
+71 | #[cfg(not(target_arch = "wasm32"))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: could not find `time` in `tokio`
+   --> crates/rust-daq/src/health/sys_monitor.rs:30:35
+    |
+30  |         let mut interval = tokio::time::interval(self.update_interval);
+    |                                   ^^^^ could not find `time` in `tokio`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:564:13
+    |
+564 |     pub mod time;
+    |             ^^^^
+note: the item is gated behind the `time` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:563:1
+    |
+563 | / cfg_time! {
+564 | |     pub mod time;
+565 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_time` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0433]: failed to resolve: could not find `DaqGui` in `app`
+   --> crates/rust-daq/src/lib.rs:101:46
+    |
+101 |             Box::new(|cc| Box::new(gui::app::DaqGui::new(cc))),
+    |                                              ^^^^^^ could not find `DaqGui` in `app`
+
+error[E0433]: failed to resolve: could not find `borrow` in `core`
+  --> crates/rust-daq/src/lib.rs:83:1
+   |
+83 | #[wasm_bindgen]
+   | ^^^^^^^^^^^^^^^ could not find `borrow` in `core`
+   |
+   = note: this error originates in the attribute macro `wasm_bindgen` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider importing this module
+   |
+40 + use std::borrow;
+   |
+
+warning: unused import: `async_trait::async_trait`
+  --> crates/rust-daq/src/measurement/mod.rs:41:5
+   |
+41 | use async_trait::async_trait;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `wasm_bindgen::JsCast`
+  --> crates/rust-daq/src/lib.rs:80:5
+   |
+80 | use wasm_bindgen::JsCast;
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+   --> crates/rust-daq/src/config/versioning.rs:273:13
+    |
+273 |         let toml_str = fs::read_to_string(&path).await?;
+    |             ^^^^^^^^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `str`
+    = note: all local variables must have a statically known size
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+   --> crates/rust-daq/src/config/versioning.rs:273:24
+    |
+273 |         let toml_str = fs::read_to_string(&path).await?;
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `str`
+    = note: all local variables must have a statically known size
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+   --> crates/rust-daq/src/config/versioning.rs:273:55
+    |
+273 |         let toml_str = fs::read_to_string(&path).await?;
+    |                                                       ^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `str`
+note: required by a bound in `Break`
+   --> /Users/briansquires/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/control_flow.rs:87:25
+    |
+87  | pub enum ControlFlow<B, C = ()> {
+    |                         ^^^^^^ required by this bound in `Break`
+...
+95  |     Break(B),
+    |     ----- required by a bound in this variant
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+   --> crates/rust-daq/src/config/versioning.rs:273:24
+    |
+273 |         let toml_str = fs::read_to_string(&path).await?;
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `str`
+note: required by a bound in `std::ops::ControlFlow::Continue`
+   --> /Users/briansquires/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/control_flow.rs:87:25
+    |
+87  | pub enum ControlFlow<B, C = ()> {
+    |                         ^^^^^^ required by this bound in `ControlFlow::Continue`
+...
+91  |     Continue(C),
+    |     -------- required by a bound in this variant
+
+warning: unused variable: `addr`
+   --> crates/rust-daq/src/gui/backend.rs:170:13
+    |
+170 |         let addr = if address.starts_with("http") {
+    |             ^^^^ help: if this is intentional, prefix it with an underscore: `_addr`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `task`
+   --> crates/rust-daq/src/gui/backend.rs:607:21
+    |
+607 |         if let Some(task) = self.state_stream_task.take() {
+    |                     ^^^^ help: if this is intentional, prefix it with an underscore: `_task`
+
+error[E0599]: `JsValue` doesn't implement `std::fmt::Display`
+   --> crates/rust-daq/src/lib.rs:104:24
+    |
+104 |         .map_err(|e| e.to_string().into())
+    |                        ^^^^^^^^^
+    |
+   ::: /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wasm-bindgen-0.2.106/src/lib.rs:153:1
+    |
+153 | pub struct JsValue {
+    | ------------------ doesn't satisfy `JsValue: ToString` or `JsValue: std::fmt::Display`
+    |
+    = note: the following trait bounds were not satisfied:
+            `JsValue: std::fmt::Display`
+            which is required by `JsValue: ToString`
+
+error[E0560]: struct `Backend` has no field named `endpoint`
+  --> crates/rust-daq/src/gui/backend.rs:76:13
+   |
+76 |             endpoint: None,
+   |             ^^^^^^^^ `Backend` does not have this field
+   |
+   = note: all struct fields are already assigned
+
+warning: use of deprecated method `eframe::egui::Slider::<'a>::clamp_to_range`: Use `slider.clamping(…) instead
+   --> crates/rust-daq/src/gui/widgets.rs:131:18
+    |
+131 |                 .clamp_to_range(true),
+    |                  ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+error[E0308]: mismatched types
+   --> crates/rust-daq/src/gui/app.rs:80:35
+    |
+80  |             _backend_handle: Some(backend_thread),
+    |                              ---- ^^^^^^^^^^^^^^ expected `JoinHandle<()>`, found `()`
+    |                              |
+    |                              arguments to this enum variant are incorrect
+    |
+    = note: expected struct `std::thread::JoinHandle<()>`
+            found unit type `()`
+help: the type constructed contains `()` due to the type of the argument passed
+   --> crates/rust-daq/src/gui/app.rs:80:30
+    |
+80  |             _backend_handle: Some(backend_thread),
+    |                              ^^^^^--------------^
+    |                                   |
+    |                                   this argument influences the type of `Some`
+note: tuple variant defined here
+   --> /Users/briansquires/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/option.rs:599:5
+    |
+599 |     Some(#[stable(feature = "rust1", since = "1.0.0")] T),
+    |     ^^^^
+
+Some errors have detailed explanations: E0252, E0277, E0308, E0432, E0433, E0560, E0599.
+For more information about an error, try `rustc --explain E0252`.
+warning: `rust_daq` (lib) generated 5 warnings
+error: could not compile `rust_daq` (lib) due to 15 previous errors; 5 warnings emitted

@@ -1,0 +1,276 @@
+
+
+# Keep the main crate at root for compatibility
+[package]
+name = "rust_daq"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <you@example.com>"]
+description = "A modular scientific data acquisition (DAQ) application in Rust."
+
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "rust_daq"
+path = "src/lib.rs"
+
+[lints.rust]
+# Enable additional safety warnings
+unsafe_code = "warn"
+missing_docs = "warn"
+
+[lints.clippy]
+# Safety & correctness
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+# Performance
+large_futures = "warn"
+large_stack_frames = "warn"
+# Style
+module_name_repetitions = "allow"
+must_use_candidate = "warn"
+
+
+[dependencies]
+# Async Runtime
+# tokio replaced below with correct features
+
+daq-core = { path = "../daq-core" }
+
+# Memory Allocator (Microsoft Rust Guidelines: M-MIMALLOC-APPS)
+# mimalloc removed (moved to daq-bin)
+
+# GUI (updated to latest to fix macOS crash)
+# GUI (updated to latest to fix macOS crash)
+# GUI (updated to latest to fix macOS crash)
+egui = { version = "0.30", optional = true }
+eframe = { version = "0.30", features = ["persistence"], optional = true }
+egui_plot = { version = "0.30", optional = true }
+egui_dock = { version = "0.15", optional = true }
+egui_extras = { version = "0.30", optional = true }
+
+# Data Handling
+ringbuf = "0.3.3"
+memmap2 = "0.9"
+hdf5 = { version = "0.8.1", optional = true }
+arrow = { version = "57", optional = true, features = ["ipc"] }
+csv = { version = "1.3.0", optional = true }
+matrw = { version = "0.1.2", optional = true }
+netcdf = { version = "0.9.0", optional = true }
+chrono = { version = "0.4.38", features = ["serde"] }
+rustfft = "6.2.0"
+num-complex = "0.4.5"
+
+# Serialization & Configuration
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# tokio = { version = "1.36", default-features = false, features = ["sync", "macros", "rt-multi-thread"] }
+serde_yaml = "0.9" # For plugin YAML definitions
+prse = "1.2.1" # For friendly response parsing
+strfmt = "0.2.5" # For command string formatting
+config = { version = "0.14.0", features = ["toml"] }
+toml = "0.8.12"
+bincode = "1.3"
+flatbuffers = "24.3.25"
+# V5 configuration system (Figment-based)
+figment = { version = "0.10", features = ["toml", "env"] }
+
+# Error Handling
+anyhow = "1.0.82"
+thiserror = "1.0.59"
+
+# Scripting
+rhai = { version = "1.19", features = ["sync"] }
+pyo3 = { version = "0.23", features = ["auto-initialize"], optional = true }
+
+# Logging
+log = "0.4.21"
+env_logger = "0.11.3"
+multi_log = "0.1.2"
+tracing = "0.1"
+# V5 tracing infrastructure
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json", "ansi"] }
+
+# CLI
+# clap removed (moved to daq-bin)
+
+# Concurrency & Async
+async-trait = "0.1.79"
+futures = "0.3.30"
+
+# gRPC & Protobuf (for remote control API)
+# tonic = { version = "0.10", default-features = false, features = ["prost", "codegen"] }
+# prost = "0.12"
+tokio-stream = { version = "0.1", default-features = false, features = ["sync"] }
+tonic-web = { version = "0.10", optional = true }
+tower-http = { version = "0.4", features = ["cors"], optional = true }
+
+# Instrument Communication (Native only)
+# serialport, tokio-serial, pvcam-sys, visa-rs moved to target specific block
+bytes = "1.0"
+
+# Utilities
+regex = "1.0.8" # For error pattern matching
+rand = "0.8.5" # For mock data generation
+opener = "0.7.0"
+biquad = "0.4.1"
+humantime-serde = "1.1.1"
+uuid = { version = "1.10", features = ["v4", "serde"] }
+similar = "2.3"
+sha2 = "0.10"
+dirs = "5.0"
+# hostname moved to native deps
+once_cell = { version = "1.21.3", features = ["std"] }
+notify = { version = "7", optional = true } # File watching for hot-reload
+sysinfo = "0.37.2"
+
+[build-dependencies]
+flatbuffers = "24.3.25"
+flatc-rust = "0.2"
+tonic-build = "0.10"
+
+[dev-dependencies]
+egui_kittest = "0.30"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tempfile = "3.10.1"
+serial_test = "3.1.1"
+tokio-test = "0.4"
+tracing-test = "0.2"
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+hostname = "0.4"
+# tokio moved to shared dependencies
+tokio = { version = "1.36", default-features = false, features = ["sync", "macros", "rt-multi-thread", "time", "fs"] }
+tonic = { version = "0.10", default-features = false, features = ["transport", "prost", "codegen"] }
+prost = "0.12"
+serialport = { version = "4.3.0", optional = true }
+tokio-serial = { version = "5.4", optional = true }
+pvcam-sys = { path = "pvcam-sys", optional = true }
+visa-rs = { version = "0.5", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# tokio moved to shared dependencies
+tokio = { version = "1.36", default-features = false, features = ["sync", "macros", "rt", "time"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+console_error_panic_hook = "0.1"
+tracing-wasm = "0.2"
+# tonic-web-wasm-client = { version = "0.5", default-features = false }
+getrandom-02 = { package = "getrandom", version = "0.2", features = ["js"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }
+gloo-timers = { version = "0.3", features = ["futures"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "Element", "HtmlElement", "Node", "Performance", "Location", "Headers", "Request", "RequestInit", "Response", "console"] }
+prost = "0.12"
+tonic = { version = "0.11", default-features = false, features = ["prost", "codegen"] }
+tonic-web-wasm-client = "0.5"
+web-time = "1.1"
+
+[features]
+# NOTE: Phase 1 (bd-61) migrated to actor-based state management
+# For rollback instructions, see ROLLBACK_ACTOR.md
+default = ["storage_csv", "instrument_serial"]
+full = ["storage_csv", "storage_arrow", "storage_matlab", "storage_netcdf", "instrument_serial", "modules", "server", "all_hardware"]
+
+# NOTE: storage_hdf5 requires a native HDF5 installation (e.g., libhdf5-dev). It is
+# intentionally omitted from the "full" feature set to keep CI and users without HDF5
+# toolchains working. Enable explicitly with `--features storage_hdf5` when available.
+
+# Storage backends
+storage_csv = ["dep:csv"]
+storage_hdf5 = ["dep:hdf5"]
+storage_arrow = ["dep:arrow"]
+storage_matlab = ["dep:matrw"]
+storage_netcdf = ["dep:netcdf"]
+
+# Legacy instrument support
+instrument_serial = ["dep:serialport"]
+instrument_visa = ["dep:visa-rs"]
+
+# V5+ Serial communication (safe async for laboratory devices)
+tokio_serial = ["dep:tokio-serial", "instrument_serial"]
+
+# V5 Hardware drivers (async, capability-based)
+# Serial drivers now use tokio-serial
+instrument_thorlabs = ["tokio_serial"]
+instrument_newport = ["tokio_serial"]
+instrument_photometrics = ["tokio_serial"]
+instrument_spectra_physics = ["tokio_serial"]
+instrument_newport_power_meter = ["tokio_serial"]
+
+# Convenience feature to enable all V5 hardware drivers
+all_hardware = [
+    "instrument_thorlabs",
+    "instrument_newport",
+    "instrument_photometrics",
+    "instrument_spectra_physics",
+    "instrument_newport_power_meter",
+]
+
+# Phase 2 (bd-63): Networking layer with FlatBuffers protocol
+networking = []
+server = ["networking", "dep:tonic-web", "dep:tower-http", "tokio/full"]
+gui_egui = ["dep:egui", "dep:eframe", "dep:egui_plot", "dep:egui_dock", "dep:egui_extras"]
+
+# Phase 3B (bd-c0ai): Module system with runtime instrument assignment
+# Requires networking for gRPC proto types used in module context
+modules = ["networking"]
+
+# PVCAM SDK integration (requires PVCAM SDK installed)
+pvcam_hardware = ["dep:pvcam-sys", "pvcam-sys/pvcam-sdk"]
+hardware_tests = []
+
+# Camera model for tests (default: Prime BSI 2048x2048)
+# Enable for Prime 95B (1200x1200) instead
+prime_95b_tests = []
+
+# Python scripting backend
+scripting_python = ["dep:pyo3"]
+
+# Plugin hot-reload (development only)
+# Watches plugin directories for changes and reloads without restart
+plugins_hot_reload = ["dep:notify"]
+
+# Binaries and Examples moved to separate crates
+# [[bin]]
+# name = "rust_daq"
+# path = "src/main.rs"
+
+# [[bin]]
+# name = "rust_daq_gui_egui"
+# path = "src/gui_main.rs"
+# required-features = ["networking", "gui_egui"]
+
+# [[bin]]
+# name = "discovery"
+# path = "tools/discovery/main.rs"
+# required-features = ["instrument_serial"]
+
+# [[bin]]
+# name = "quick_test"
+# path = "tools/discovery/quick_test.rs"
+# required-features = ["instrument_serial"]
+
+# [[bin]]
+# name = "script_runner"
+# path = "tools/script_runner/main.rs"
+
+# [[example]]
+# name = "test_maitai_serial"
+# path = "examples/test_maitai_serial.rs"
+# required-features = ["tokio_serial"]
+
+# [[example]]
+# name = "grpc_server_demo"
+# required-features = ["networking"]
+
+# [[example]]
+# name = "hw_polarization_test"
+# path = "examples/hw_polarization_test.rs"
+# required-features = ["instrument_thorlabs", "instrument_spectra_physics", "instrument_newport_power_meter"]
+
+[[bench]]
+name = "parameter_bench"
+harness = false

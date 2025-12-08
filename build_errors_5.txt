@@ -1,0 +1,188 @@
+warning: unused imports: `mpsc` and `oneshot`
+  --> crates/daq-core/src/core.rs:35:30
+   |
+35 | use tokio::sync::{broadcast, mpsc, oneshot};
+   |                              ^^^^  ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: use of deprecated struct `core::DataPoint`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:754:12
+    |
+754 |     Scalar(DataPoint),
+    |            ^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated struct `core::DataPoint`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:754:12
+    |
+754 |     Scalar(DataPoint),
+    |            ^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::timestamp`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:765:33
+    |
+765 |             Data::Scalar(dp) => dp.timestamp,
+    |                                 ^^^^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::channel`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:774:34
+    |
+774 |             Data::Scalar(dp) => &dp.channel,
+    |                                  ^^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::unit`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:783:34
+    |
+783 |             Data::Scalar(dp) => &dp.unit,
+    |                                  ^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::metadata`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:792:33
+    |
+792 |             Data::Scalar(dp) => dp.metadata.as_ref(),
+    |                                 ^^^^^^^^^^^
+
+warning: `daq-core` (lib) generated 7 warnings (run `cargo fix --lib -p daq-core` to apply 1 suggestion)
+    Checking rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq)
+error[E0252]: the name `JsCast` is defined multiple times
+  --> crates/rust-daq/src/lib.rs:93:5
+   |
+91 | use wasm_bindgen::JsCast;
+   |     -------------------- previous import of the trait `JsCast` here
+92 | #[cfg(target_arch = "wasm32")]
+93 | use wasm_bindgen::JsCast;
+   |     ^^^^^^^^^^^^^^^^^^^^ `JsCast` reimported here
+   |
+   = note: `JsCast` must be defined only once in the type namespace of this module
+
+error[E0433]: failed to resolve: could not find `hardware` in the crate root
+  --> crates/rust-daq/src/experiment/run_engine.rs:56:12
+   |
+56 | use crate::hardware::registry::DeviceRegistry;
+   |            ^^^^^^^^ could not find `hardware` in the crate root
+   |
+note: found an item that was configured out
+  --> crates/rust-daq/src/lib.rs:63:9
+   |
+63 | pub mod hardware;
+   |         ^^^^^^^^
+note: the item is gated here
+  --> crates/rust-daq/src/lib.rs:62:1
+   |
+62 | #[cfg(not(target_arch = "wasm32"))]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0432]: unresolved imports `crate::grpc::DeviceInfo`, `crate::grpc::DeviceStateSubscribeRequest`, `crate::grpc::HardwareServiceClient`, `crate::grpc::ListDevicesRequest`, `crate::grpc::ListParametersRequest`, `crate::grpc::MoveRequest`, `crate::grpc::ReadValueRequest`, `crate::grpc::SetParameterRequest`, `crate::grpc::ParameterDescriptor`
+  --> crates/rust-daq/src/gui/backend.rs:21:5
+   |
+21 |     DeviceInfo as ProtoDeviceInfo, DeviceStateSubscribeRequest, HardwareServiceClient,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^ no `HardwareServiceClient` in `grpc`
+   |     |                              |
+   |     |                              no `DeviceStateSubscribeRequest` in `grpc`
+   |     no `DeviceInfo` in `grpc`
+22 |     ListDevicesRequest, ListParametersRequest, MoveRequest, ReadValueRequest, SetParameterRequest,
+   |     ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^ no `SetParameterRequest` in `grpc`
+   |     |                   |                      |            |
+   |     |                   |                      |            no `ReadValueRequest` in `grpc`
+   |     |                   |                      no `MoveRequest` in `grpc`
+   |     |                   no `ListParametersRequest` in `grpc`
+   |     no `ListDevicesRequest` in `grpc`
+23 |     ParameterDescriptor as ProtoParameterDescriptor,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `ParameterDescriptor` in `grpc`
+   |
+   = help: consider importing one of these structs instead:
+           crate::grpc::daq::DeviceInfo
+           crate::gui::DeviceInfo
+   = help: consider importing this struct instead:
+           crate::grpc::daq::DeviceStateSubscribeRequest
+   = help: consider importing this struct instead:
+           crate::grpc::daq::hardware_service_client::HardwareServiceClient
+   = help: consider importing this struct instead:
+           crate::grpc::daq::ListDevicesRequest
+   = help: consider importing this struct instead:
+           crate::grpc::daq::ListParametersRequest
+   = help: consider importing this struct instead:
+           crate::grpc::daq::MoveRequest
+   = help: consider importing this struct instead:
+           crate::grpc::daq::ReadValueRequest
+   = help: consider importing this struct instead:
+           crate::grpc::daq::SetParameterRequest
+   = help: consider importing one of these structs instead:
+           crate::grpc::daq::ParameterDescriptor
+           crate::gui::ParameterDescriptor
+
+error[E0433]: failed to resolve: could not find `borrow` in `core`
+  --> crates/rust-daq/src/lib.rs:96:1
+   |
+96 | #[wasm_bindgen]
+   | ^^^^^^^^^^^^^^^ could not find `borrow` in `core`
+   |
+   = note: this error originates in the attribute macro `wasm_bindgen` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider importing one of these modules
+   |
+40 + use crate::borrow;
+   |
+40 + use std::borrow;
+   |
+
+warning: unused import: `std::borrow`
+  --> crates/rust-daq/src/lib.rs:41:5
+   |
+41 | use std::borrow;
+   |     ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `async_trait::async_trait`
+  --> crates/rust-daq/src/measurement/mod.rs:41:5
+   |
+41 | use async_trait::async_trait;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `wasm_bindgen::JsCast`
+  --> crates/rust-daq/src/lib.rs:93:5
+   |
+93 | use wasm_bindgen::JsCast;
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `addr`
+   --> crates/rust-daq/src/gui/backend.rs:171:13
+    |
+171 |         let addr = if address.starts_with("http") {
+    |             ^^^^ help: if this is intentional, prefix it with an underscore: `_addr`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `task`
+   --> crates/rust-daq/src/gui/backend.rs:608:21
+    |
+608 |         if let Some(task) = self.state_stream_task.take() {
+    |                     ^^^^ help: if this is intentional, prefix it with an underscore: `_task`
+
+error[E0308]: mismatched types
+   --> crates/rust-daq/src/lib.rs:114:27
+    |
+114 |             Box::new(|cc| Box::new(gui::app::DaqGuiApp::new())),
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Result<Box<dyn App>, Box<...>>`, found `Box<DaqGuiApp>`
+    |
+    = note: expected enum `Result<Box<(dyn App + 'static)>, Box<(dyn std::error::Error + std::marker::Send + Sync + 'static)>>`
+             found struct `Box<DaqGuiApp>`
+help: try wrapping the expression in `Ok`
+    |
+114 |             Box::new(|cc| Ok(Box::new(gui::app::DaqGuiApp::new()))),
+    |                           +++                                    +
+
+warning: use of deprecated method `eframe::egui::Slider::<'a>::clamp_to_range`: Use `slider.clamping(…) instead
+   --> crates/rust-daq/src/gui/widgets.rs:131:18
+    |
+131 |                 .clamp_to_range(true),
+    |                  ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+Some errors have detailed explanations: E0252, E0308, E0432, E0433.
+For more information about an error, try `rustc --explain E0252`.
+warning: `rust_daq` (lib) generated 6 warnings
+error: could not compile `rust_daq` (lib) due to 5 previous errors; 6 warnings emitted

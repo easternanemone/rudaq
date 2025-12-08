@@ -1,0 +1,130 @@
+tokio v1.48.0
+├── tokio feature "bytes"
+│   ├── tokio feature "io-util"
+│   │   └── tokio feature "full"
+│   │       ├── daq-bin v0.1.0 (/Users/briansquires/code/rust-daq/crates/daq-bin)
+│   │       │   └── daq-bin feature "default" (command-line)
+│   │       └── rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq)
+│   │           ├── rust_daq feature "all_hardware"
+│   │           │   └── rust_daq feature "full"
+│   │           │       └── daq-bin v0.1.0 (/Users/briansquires/code/rust-daq/crates/daq-bin) (*)
+│   │           ├── rust_daq feature "default" (command-line)
+│   │           │   └── daq-bin v0.1.0 (/Users/briansquires/code/rust-daq/crates/daq-bin) (*)
+│   │           ├── rust_daq feature "full" (*)
+│   │           ├── rust_daq feature "instrument_newport"
+│   │           │   └── rust_daq feature "all_hardware" (*)
+│   │           ├── rust_daq feature "instrument_newport_power_meter"
+│   │           │   └── rust_daq feature "all_hardware" (*)
+│   │           ├── rust_daq feature "instrument_photometrics"
+│   │           │   └── rust_daq feature "all_hardware" (*)
+│   │           ├── rust_daq feature "instrument_serial"
+│   │           │   ├── rust_daq feature "default" (command-line) (*)
+│   │           │   ├── rust_daq feature "full" (*)
+│   │           │   └── rust_daq feature "tokio_serial"
+│   │           │       ├── rust_daq feature "instrument_newport" (*)
+│   │           │       ├── rust_daq feature "instrument_newport_power_meter" (*)
+│   │           │       ├── rust_daq feature "instrument_photometrics" (*)
+│   │           │       ├── rust_daq feature "instrument_spectra_physics"
+│   │           │       │   └── rust_daq feature "all_hardware" (*)
+│   │           │       └── rust_daq feature "instrument_thorlabs"
+│   │           │           └── rust_daq feature "all_hardware" (*)
+│   │           ├── rust_daq feature "instrument_spectra_physics" (*)
+│   │           ├── rust_daq feature "instrument_thorlabs" (*)
+│   │           ├── rust_daq feature "modules"
+│   │           │   └── rust_daq feature "full" (*)
+│   │           ├── rust_daq feature "networking"
+│   │           │   ├── rust_daq feature "modules" (*)
+│   │           │   └── rust_daq feature "server"
+│   │           │       └── rust_daq feature "full" (*)
+│   │           ├── rust_daq feature "server" (*)
+│   │           ├── rust_daq feature "storage_arrow"
+│   │           │   └── rust_daq feature "full" (*)
+│   │           ├── rust_daq feature "storage_csv"
+│   │           │   ├── rust_daq feature "default" (command-line) (*)
+│   │           │   └── rust_daq feature "full" (*)
+│   │           ├── rust_daq feature "storage_matlab"
+│   │           │   └── rust_daq feature "full" (*)
+│   │           ├── rust_daq feature "storage_netcdf"
+│   │           │   └── rust_daq feature "full" (*)
+│   │           └── rust_daq feature "tokio_serial" (*)
+│   └── tokio feature "process"
+│       └── tokio feature "full" (*)
+├── tokio feature "default"
+│   ├── daq-bin v0.1.0 (/Users/briansquires/code/rust-daq/crates/daq-bin) (*)
+│   ├── daq-core v0.1.0 (/Users/briansquires/code/rust-daq/crates/daq-core)
+│   │   └── daq-core feature "default" (command-line)
+│   │       └── rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq) (*)
+│   ├── hyper v0.14.32
+│   │   └── hyper feature "stream"
+│   │       └── tonic-web v0.10.2
+│   │           └── tonic-web feature "default"
+│   │               └── rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq) (*)
+│   ├── rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq) (*)
+│   ├── tokio-stream v0.1.17
+│   │   ├── tokio-stream feature "default"
+│   │   │   ├── rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq) (*)
+│   │   │   ├── tonic v0.10.2
+│   │   │   │   └── tonic-web v0.10.2 (*)
+│   │   │   │   ├── tonic feature "codegen"
+│   │   │   │   │   └── rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq) (*)
+│   │   │   │   └── tonic feature "prost"
+│   │   │   │       └── rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq) (*)
+│   │   │   └── tonic-web v0.10.2 (*)
+│   │   ├── tokio-stream feature "sync"
+│   │   │   └── rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq) (*)
+│   │   ├── tokio-stream feature "time"
+│   │   │   └── tokio-stream feature "default" (*)
+│   │   └── tokio-stream feature "tokio-util"
+│   │       └── tokio-stream feature "sync" (*)
+│   ├── tokio-util v0.7.17
+│   │   └── tokio-util feature "default"
+│   │       └── tokio-stream v0.1.17 (*)
+│   └── tonic v0.10.2 (*)
+├── tokio feature "fs"
+│   └── tokio feature "full" (*)
+├── tokio feature "full" (*)
+├── tokio feature "io-std"
+│   └── tokio feature "full" (*)
+├── tokio feature "io-util" (*)
+├── tokio feature "libc"
+│   ├── tokio feature "net"
+│   │   └── tokio feature "full" (*)
+│   ├── tokio feature "process" (*)
+│   └── tokio feature "signal"
+│       └── tokio feature "full" (*)
+├── tokio feature "macros"
+│   ├── daq-core v0.1.0 (/Users/briansquires/code/rust-daq/crates/daq-core) (*)
+│   └── rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq) (*)
+│   └── tokio feature "full" (*)
+├── tokio feature "mio"
+│   ├── tokio feature "net" (*)
+│   ├── tokio feature "process" (*)
+│   └── tokio feature "signal" (*)
+├── tokio feature "net" (*)
+├── tokio feature "parking_lot"
+│   └── tokio feature "full" (*)
+├── tokio feature "process" (*)
+├── tokio feature "rt"
+│   ├── tokio feature "full" (*)
+│   └── tokio feature "rt-multi-thread"
+│       └── tokio feature "full" (*)
+├── tokio feature "rt-multi-thread" (*)
+├── tokio feature "signal" (*)
+├── tokio feature "signal-hook-registry"
+│   ├── tokio feature "process" (*)
+│   └── tokio feature "signal" (*)
+├── tokio feature "socket2"
+│   └── tokio feature "net" (*)
+├── tokio feature "sync"
+│   ├── daq-core v0.1.0 (/Users/briansquires/code/rust-daq/crates/daq-core) (*)
+│   ├── hyper v0.14.32 (*)
+│   ├── rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq) (*)
+│   ├── tokio-stream v0.1.17 (*)
+│   └── tokio-util v0.7.17 (*)
+│   ├── tokio feature "full" (*)
+│   └── tokio-stream feature "sync" (*)
+├── tokio feature "time"
+│   ├── tokio feature "full" (*)
+│   └── tokio-stream feature "time" (*)
+└── tokio feature "tokio-macros"
+    └── tokio feature "macros" (*)

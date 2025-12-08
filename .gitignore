@@ -121,3 +121,4 @@ cocoindex_flows/
 docker-compose.yml
 docs/HYBRID_SEARCH_SETUP.md
 docs/MORPH_*.md
+.docker-data/

@@ -1,0 +1,555 @@
+    Blocking waiting for file lock on build directory
+   Compiling zerocopy v0.8.31
+    Checking accesskit v0.17.1
+    Checking ron v0.8.1
+    Checking emath v0.30.0
+    Checking epaint_default_fonts v0.30.0
+    Checking objc2-core-graphics v0.3.2
+    Checking image v0.25.9
+    Checking enum-map v2.7.3
+    Checking ecolor v0.30.0
+    Checking objc2-app-kit v0.3.2
+    Checking accesskit_consumer v0.26.0
+    Checking accesskit_macos v0.18.1
+    Checking accesskit_winit v0.23.1
+    Checking glutin v0.32.3
+    Checking arboard v3.6.1
+    Checking glutin-winit v0.5.0
+    Checking ahash v0.8.12
+    Checking ppv-lite86 v0.2.21
+    Checking epaint v0.30.0
+    Checking hashbrown v0.14.5
+    Checking rhai v1.23.6
+    Checking rand_chacha v0.3.1
+    Checking rand v0.8.5
+    Checking hashlink v0.8.4
+    Checking ordered-multimap v0.7.3
+    Checking rust-ini v0.20.0
+    Checking tower v0.4.13
+    Checking yaml-rust2 v0.8.1
+    Checking config v0.14.1
+    Checking egui v0.30.0
+    Checking axum v0.6.20
+    Checking daq-core v0.1.0 (/Users/briansquires/code/rust-daq/crates/daq-core)
+warning: use of deprecated struct `core::DataPoint`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:754:12
+    |
+754 |     Scalar(DataPoint),
+    |            ^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated struct `core::DataPoint`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:754:12
+    |
+754 |     Scalar(DataPoint),
+    |            ^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::timestamp`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:765:33
+    |
+765 |             Data::Scalar(dp) => dp.timestamp,
+    |                                 ^^^^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::channel`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:774:34
+    |
+774 |             Data::Scalar(dp) => &dp.channel,
+    |                                  ^^^^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::unit`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:783:34
+    |
+783 |             Data::Scalar(dp) => &dp.unit,
+    |                                  ^^^^^^^
+
+warning: use of deprecated field `core::DataPoint::metadata`: Use Measurement enum instead
+   --> crates/daq-core/src/core.rs:792:33
+    |
+792 |             Data::Scalar(dp) => dp.metadata.as_ref(),
+    |                                 ^^^^^^^^^^^
+
+warning: `daq-core` (lib) generated 6 warnings
+    Checking tonic v0.10.2
+    Checking egui_glow v0.30.0
+    Checking egui-winit v0.30.0
+    Checking egui_extras v0.30.0
+    Checking egui_plot v0.30.0
+    Checking egui_dock v0.15.0
+    Checking eframe v0.30.0
+    Checking rust_daq v0.1.0 (/Users/briansquires/code/rust-daq/crates/rust-daq)
+error[E0432]: unresolved import `tokio::fs`
+   --> crates/rust-daq/src/config/versioning.rs:7:5
+    |
+7   | use tokio::fs;
+    |     ^^^^^^^^^ no `fs` in the root
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:511:13
+    |
+511 |     pub mod fs;
+    |             ^^
+note: the item is gated behind the `fs` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:510:1
+    |
+510 | / cfg_fs! {
+511 | |     pub mod fs;
+512 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_fs` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: a similar name exists in the module
+    |
+7   - use tokio::fs;
+7   + use tokio::os;
+    |
+help: consider importing one of these modules instead
+    |
+7   - use tokio::fs;
+7   + use std::fs;
+    |
+7   - use tokio::fs;
+7   + use std::os::darwin::fs;
+    |
+7   - use tokio::fs;
+7   + use std::os::macos::fs;
+    |
+7   - use tokio::fs;
+7   + use std::os::unix::fs;
+    |
+
+error[E0432]: unresolved import `tokio::fs`
+   --> crates/rust-daq/src/grpc/storage_service.rs:24:5
+    |
+24  | use tokio::fs;
+    |     ^^^^^^^^^ no `fs` in the root
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:511:13
+    |
+511 |     pub mod fs;
+    |             ^^
+note: the item is gated behind the `fs` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:510:1
+    |
+510 | / cfg_fs! {
+511 | |     pub mod fs;
+512 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_fs` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: a similar name exists in the module
+    |
+24  - use tokio::fs;
+24  + use tokio::os;
+    |
+help: consider importing one of these modules instead
+    |
+24  - use tokio::fs;
+24  + use std::fs;
+    |
+24  - use tokio::fs;
+24  + use std::os::darwin::fs;
+    |
+24  - use tokio::fs;
+24  + use std::os::macos::fs;
+    |
+24  - use tokio::fs;
+24  + use std::os::unix::fs;
+    |
+
+error[E0433]: failed to resolve: could not find `fs` in `tokio`
+   --> crates/rust-daq/src/grpc/storage_service.rs:142:42
+    |
+142 |             if let Ok(metadata) = tokio::fs::metadata(path).await {
+    |                                          ^^ could not find `fs` in `tokio`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:511:13
+    |
+511 |     pub mod fs;
+    |             ^^
+note: the item is gated behind the `fs` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:510:1
+    |
+510 | / cfg_fs! {
+511 | |     pub mod fs;
+512 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_fs` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider importing this module
+    |
+7   + use std::fs;
+    |
+help: if you import `fs`, refer to it directly
+    |
+142 -             if let Ok(metadata) = tokio::fs::metadata(path).await {
+142 +             if let Ok(metadata) = fs::metadata(path).await {
+    |
+
+error[E0433]: failed to resolve: could not find `fs` in `tokio`
+   --> crates/rust-daq/src/grpc/storage_service.rs:866:39
+    |
+866 |         let total_size_bytes = tokio::fs::metadata(path)
+    |                                       ^^ could not find `fs` in `tokio`
+    |
+note: found an item that was configured out
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:511:13
+    |
+511 |     pub mod fs;
+    |             ^^
+note: the item is gated behind the `fs` feature
+   --> /Users/briansquires/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.48.0/src/lib.rs:510:1
+    |
+510 | / cfg_fs! {
+511 | |     pub mod fs;
+512 | | }
+    | |_^
+    = note: this error originates in the macro `cfg_fs` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider importing this module
+    |
+7   + use std::fs;
+    |
+help: if you import `fs`, refer to it directly
+    |
+866 -         let total_size_bytes = tokio::fs::metadata(path)
+866 +         let total_size_bytes = fs::metadata(path)
+    |
+
+warning: unused import: `std::borrow`
+  --> crates/rust-daq/src/lib.rs:41:5
+   |
+41 | use std::borrow;
+   |     ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `crate::observable::ParameterSet`
+  --> crates/rust-daq/src/data/hdf5_writer.rs:18:5
+   |
+18 | use crate::observable::ParameterSet;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: implementation of an `unsafe` trait
+   --> crates/rust-daq/src/data/ring_buffer.rs:176:1
+    |
+176 | unsafe impl Send for RingBuffer {}
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: requested on the command line with `-W unsafe-code`
+
+warning: implementation of an `unsafe` trait
+   --> crates/rust-daq/src/data/ring_buffer.rs:181:1
+    |
+181 | unsafe impl Sync for RingBuffer {}
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:241:24
+    |
+241 |           let mut mmap = unsafe {
+    |  ________________________^
+242 | |             MmapOptions::new()
+243 | |                 .map_mut(&file)
+244 | |                 .context("Failed to create memory mapping")?
+245 | |         };
+    | |_________^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:252:9
+    |
+252 | /         unsafe {
+253 | |             // Write header fields
+254 | |             (*header).magic = MAGIC;
+255 | |             (*header).capacity_bytes = capacity_bytes as u64;
+...   |
+271 | |             (*header)._padding.fill(0);
+272 | |         }
+    | |_________^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:277:24
+    |
+277 |         let data_ptr = unsafe { mmap.as_mut_ptr().add(HEADER_SIZE) };
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:306:24
+    |
+306 |           let mut mmap = unsafe {
+    |  ________________________^
+307 | |             MmapOptions::new()
+308 | |                 .map_mut(&file)
+309 | |                 .context("Failed to map ring buffer file")?
+310 | |         };
+    | |_________^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:316:33
+    |
+316 |         let (magic, capacity) = unsafe { ((*header).magic, (*header).capacity_bytes) };
+    |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:329:24
+    |
+329 |         let data_ptr = unsafe { mmap.as_mut_ptr().add(HEADER_SIZE) };
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:380:9
+    |
+380 | /         unsafe {
+381 | |             debug_assert!(HEADER_SIZE + self.capacity as usize <= self.mmap.len());
+382 | |             debug_assert!(data.len() <= self.capacity as usize);
+...   |
+424 | |             (*self.header).write_epoch.fetch_add(1, Ordering::Release);
+425 | |         }
+    | |_________^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:558:13
+    |
+558 | /             unsafe {
+559 | |                 debug_assert!(HEADER_SIZE + self.capacity as usize <= self.mmap.len());
+...   |
+639 | |             }
+    | |_____________^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:732:9
+    |
+732 |         unsafe { (*self.header).stream_id.load(Ordering::Acquire) }
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:741:9
+    |
+741 |         unsafe { (*self.header).magic }
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:751:9
+    |
+751 |         unsafe { (*self.header).write_epoch.load(Ordering::Acquire) }
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:793:9
+    |
+793 |         unsafe { (*self.header).write_head.load(Ordering::Acquire) }
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:839:9
+    |
+839 |         unsafe { (*self.header).read_tail.load(Ordering::Acquire) }
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:847:9
+    |
+847 | /         unsafe {
+848 | |             (*self.header).read_tail.store(new_tail, Ordering::Release);
+849 | |         }
+    | |_________^
+
+warning: usage of an `unsafe` block
+   --> crates/rust-daq/src/data/ring_buffer.rs:858:9
+    |
+858 | /         unsafe {
+859 | |             (*self.header).read_tail.fetch_add(bytes, Ordering::Release);
+860 | |         }
+    | |_________^
+
+warning: unused import: `async_trait::async_trait`
+  --> crates/rust-daq/src/measurement/mod.rs:41:5
+   |
+41 | use async_trait::async_trait;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::time::Duration`
+ --> crates/rust-daq/src/gui/app.rs:2:5
+  |
+2 | use std::time::Duration;
+  |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `PluginActionable`, `PluginAxis`, `PluginCapabilities`, `PluginLoggable`, `PluginMovable`, `PluginProtocol`, `PluginReadable`, `PluginScriptable`, `PluginSettable`, `PluginSummary`, `PluginSwitchable`, and `PluginUiElement`
+  --> crates/rust-daq/src/grpc/plugin_service.rs:20:26
+   |
+20 |     ListPluginsResponse, PluginActionable, PluginAxis, PluginCapabilities, PluginInfo,
+   |                          ^^^^^^^^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+21 |     PluginInstanceStatus, PluginInstanceSummary, PluginLoggable, PluginMovable, PluginProtocol,
+   |                                                  ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^^^^
+22 |     PluginReadable, PluginScriptable, PluginSettable, PluginSummary, PluginSwitchable,
+   |     ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^
+23 |     PluginUiElement, SpawnPluginRequest, SpawnPluginResponse,
+   |     ^^^^^^^^^^^^^^^
+
+warning: unused import: `PlanTypeSummary`
+  --> crates/rust-daq/src/grpc/run_engine_service.rs:12:83
+   |
+12 |     ListPlanTypesResponse, PauseEngineRequest, PauseEngineResponse, PlanTypeInfo, PlanTypeSummary,
+   |                                                                                   ^^^^^^^^^^^^^^^
+
+warning: use of deprecated struct `scripting::engine::ScriptHost`: Use RhaiEngine instead. See docs/guides/scripting/migration_v4_to_v5.md
+  --> crates/rust-daq/src/scripting/engine.rs:78:6
+   |
+78 | impl ScriptHost {
+   |      ^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+   --> crates/rust-daq/src/config/versioning.rs:273:13
+    |
+273 |         let toml_str = fs::read_to_string(&path).await?;
+    |             ^^^^^^^^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `str`
+    = note: all local variables must have a statically known size
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+   --> crates/rust-daq/src/config/versioning.rs:273:24
+    |
+273 |         let toml_str = fs::read_to_string(&path).await?;
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `str`
+    = note: all local variables must have a statically known size
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+   --> crates/rust-daq/src/config/versioning.rs:273:55
+    |
+273 |         let toml_str = fs::read_to_string(&path).await?;
+    |                                                       ^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `str`
+note: required by a bound in `Break`
+   --> /Users/briansquires/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/control_flow.rs:87:25
+    |
+87  | pub enum ControlFlow<B, C = ()> {
+    |                         ^^^^^^ required by this bound in `Break`
+...
+95  |     Break(B),
+    |     ----- required by a bound in this variant
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+   --> crates/rust-daq/src/config/versioning.rs:273:24
+    |
+273 |         let toml_str = fs::read_to_string(&path).await?;
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `str`
+note: required by a bound in `std::ops::ControlFlow::Continue`
+   --> /Users/briansquires/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/control_flow.rs:87:25
+    |
+87  | pub enum ControlFlow<B, C = ()> {
+    |                         ^^^^^^ required by this bound in `ControlFlow::Continue`
+...
+91  |     Continue(C),
+    |     -------- required by a bound in this variant
+
+warning: use of deprecated method `egui::Slider::<'a>::clamp_to_range`: Use `slider.clamping(…) instead
+   --> crates/rust-daq/src/gui/widgets.rs:131:18
+    |
+131 |                 .clamp_to_range(true),
+    |                  ^^^^^^^^^^^^^^
+
+warning: use of deprecated field `scripting::engine::ScriptHost::engine`: Use RhaiEngine instead. See docs/guides/scripting/migration_v4_to_v5.md
+   --> crates/rust-daq/src/scripting/engine.rs:105:16
+    |
+105 |         Self { engine, runtime }
+    |                ^^^^^^
+
+warning: use of deprecated field `scripting::engine::ScriptHost::runtime`: Use RhaiEngine instead. See docs/guides/scripting/migration_v4_to_v5.md
+   --> crates/rust-daq/src/scripting/engine.rs:105:24
+    |
+105 |         Self { engine, runtime }
+    |                        ^^^^^^^
+
+warning: use of deprecated field `scripting::engine::ScriptHost::engine`: Use RhaiEngine instead. See docs/guides/scripting/migration_v4_to_v5.md
+   --> crates/rust-daq/src/scripting/engine.rs:154:16
+    |
+154 |         Self { engine, runtime }
+    |                ^^^^^^
+
+warning: use of deprecated field `scripting::engine::ScriptHost::runtime`: Use RhaiEngine instead. See docs/guides/scripting/migration_v4_to_v5.md
+   --> crates/rust-daq/src/scripting/engine.rs:154:24
+    |
+154 |         Self { engine, runtime }
+    |                        ^^^^^^^
+
+warning: use of deprecated field `scripting::engine::ScriptHost::engine`: Use RhaiEngine instead. See docs/guides/scripting/migration_v4_to_v5.md
+   --> crates/rust-daq/src/scripting/engine.rs:185:9
+    |
+185 |         self.engine.eval_with_scope(&mut scope, script)
+    |         ^^^^^^^^^^^
+
+warning: use of deprecated field `scripting::engine::ScriptHost::engine`: Use RhaiEngine instead. See docs/guides/scripting/migration_v4_to_v5.md
+   --> crates/rust-daq/src/scripting/engine.rs:211:9
+    |
+211 |         self.engine.compile(script)?;
+    |         ^^^^^^^^^^^
+
+warning: use of deprecated field `scripting::engine::ScriptHost::engine`: Use RhaiEngine instead. See docs/guides/scripting/migration_v4_to_v5.md
+   --> crates/rust-daq/src/scripting/engine.rs:232:14
+    |
+232 |         &mut self.engine
+    |              ^^^^^^^^^^^
+
+warning: unused variable: `left`
+   --> crates/rust-daq/src/gui/app.rs:116:18
+    |
+116 |             let [left, rest] = surface.split_left(root, 0.25, vec![Tab::DeviceList]);
+    |                  ^^^^ help: if this is intentional, prefix it with an underscore: `_left`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+error[E0499]: cannot borrow `viewer` as mutable more than once at a time
+   --> crates/rust-daq/src/gui/app.rs:351:24
+    |
+349 |         DockArea::new(&mut viewer.app.dock_state)
+    |                       -------------------------- first mutable borrow occurs here
+350 |             .style(Style::from_egui(ctx.style().as_ref()))
+351 |             .show(ctx, &mut viewer);
+    |              ----      ^^^^^^^^^^^ second mutable borrow occurs here
+    |              |
+    |              first borrow later used by call
+
+warning: variable does not need to be mutable
+  --> crates/rust-daq/src/hardware/mock.rs:64:13
+   |
+64 |         let mut position = Self::attach_stage_callbacks(position, position_state.clone(), 10.0);
+   |             ----^^^^^^^^
+   |             |
+   |             help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+  --> crates/rust-daq/src/hardware/mock.rs:87:13
+   |
+87 |         let mut position = Self::attach_stage_callbacks(position, position_state.clone(), 10.0);
+   |             ----^^^^^^^^
+   |             |
+   |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/rust-daq/src/hardware/mock.rs:110:13
+    |
+110 |         let mut position =
+    |             ----^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/rust-daq/src/hardware/mock.rs:296:29
+    |
+296 |                         let mut flag_for_task = streaming_flag.clone();
+    |                             ----^^^^^^^^^^^^^
+    |                             |
+    |                             help: remove this `mut`
+
+Some errors have detailed explanations: E0277, E0432, E0433, E0499.
+For more information about an error, try `rustc --explain E0277`.
+warning: `rust_daq` (lib) generated 37 warnings
+error: could not compile `rust_daq` (lib) due to 9 previous errors; 37 warnings emitted
