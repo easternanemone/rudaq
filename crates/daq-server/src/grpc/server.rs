@@ -935,6 +935,17 @@ pub async fn start_server_with_hardware(
         }
     }
 
+    // Setup Rerun Visualization
+    match crate::rerun_sink::RerunSink::new("rust_daq") {
+        Ok(rerun) => {
+            println!("  - Rerun Visualization: Active");
+            rerun.monitor_broadcast(control_server.data_sender().subscribe());
+        }
+        Err(e) => {
+            eprintln!("Warning: Failed to start Rerun visualization: {}", e);
+        }
+    }
+
     let run_engine_server = RunEngineServiceImpl::new();
     let hardware_server = HardwareServiceImpl::new(registry.clone());
     let module_server = ModuleServiceImpl::new(registry.clone());
