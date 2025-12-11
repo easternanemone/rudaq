@@ -30,24 +30,24 @@ The project is structured as a Cargo workspace with the following key components
 ```mermaid
 graph TD
     subgraph "Application Layer"
-        Bin[daq-bin]
-        Glue[rust-daq / GUI]
+        Bin["daq-bin"]
+        Glue["rust-daq / GUI"]
     end
 
     subgraph "Domain Logic"
-        Exp[daq-experiment]
-        Server[daq-server]
-        Script[daq-scripting]
+        Exp["daq-experiment"]
+        Server["daq-server"]
+        Script["daq-scripting"]
     end
 
     subgraph "Infrastructure"
-        Hard[daq-hardware]
-        Store[daq-storage]
-        Proto[daq-proto]
+        Hard["daq-hardware"]
+        Store["daq-storage"]
+        Proto["daq-proto"]
     end
 
     subgraph "Core"
-        Core[daq-core]
+        Core["daq-core"]
     end
 
     Bin --> Glue
@@ -82,11 +82,11 @@ The system follows a pipeline architecture for experiment data:
 ```mermaid
 sequenceDiagram
     participant User
-    participant Scripting as daq-scripting
-    participant Engine as RunEngine (daq-experiment)
-    participant HW as Hardware (daq-hardware)
-    participant Store as Storage (daq-storage)
-    participant Client as GUI/Network
+    participant Scripting as "daq-scripting"
+    participant Engine as "RunEngine (daq-experiment)"
+    participant HW as "Hardware (daq-hardware)"
+    participant Store as "Storage (daq-storage)"
+    participant Client as "GUI/Network"
 
     User->>Scripting: Define Plan (Scan)
     Scripting->>Engine: Queue Plan
