@@ -109,6 +109,32 @@ sequenceDiagram
 3.  **Document-Oriented Data Model**: Data is treated as a stream of self-describing documents (Start -> Descriptor -> Events... -> Stop). This schema-less approach adapts well to varied experiments.
 4.  **Workspace Composition**: Usage of Cargo workspace to enforce modularity, though `rust-daq` remains a large central integrator.
 
+## Data Pipeline Architecture (The Mullet Strategy)
+
+To resolve the conflict between high-throughput reliable storage and low-latency live visualization, the system implements a **Tee-based Pipeline**:
+
+```mermaid
+graph LR
+    Source[Driver] --> Tee
+    
+    subgraph "Reliable Path (Business)"
+        Tee -->|mpsc::channel| StorageSink[RingBuffer / HDF5]
+    end
+    
+    subgraph "Lossy Path (Party)"
+        Tee -->|broadcast::channel| ServerBus[DaqServer Bus]
+        ServerBus -->|gRPC| Client[GUI / Python]
+    end
+```
+
+### Components
+1.  **MeasurementSource**: Drivers (e.g., `PvcamDriver`) produce `Arc<Frame>` or `Measurement` data.
+2.  **Tee**: A processor that splits the stream into two paths:
+    *   **Reliable Path**: Uses bounded `mpsc` channels with **backpressure**. If the storage writer lags, the driver is blocked/slowed to prevent data loss.
+    *   **Lossy Path**: Uses `broadcast` channels. If consumers (GUI, Network) lag, they miss frames (`RecvError::Lagged`), but the pipeline continues at full speed.
+3.  **Storage Sink**: A dedicated task consuming the Reliable Path and writing to the memory-mapped `RingBuffer`.
+4.  **Live View**: The `DaqServer` subscribes to the Lossy Path and streams data to gRPC clients.
+
 ## Code Smells & Recommendations
 
 1.  **The `rust-daq` Monolith**:
