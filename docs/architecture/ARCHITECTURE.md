@@ -29,24 +29,24 @@ The project is structured as a Cargo workspace with the following key components
 
 ```mermaid
 graph TD
-    subgraph "Application Layer"
+    subgraph AppLayer ["Application Layer"]
         Bin["daq-bin"]
         Glue["rust-daq / GUI"]
     end
 
-    subgraph "Domain Logic"
+    subgraph DomainLayer ["Domain Logic"]
         Exp["daq-experiment"]
         Server["daq-server"]
         Script["daq-scripting"]
     end
 
-    subgraph "Infrastructure"
+    subgraph InfraLayer ["Infrastructure"]
         Hard["daq-hardware"]
         Store["daq-storage"]
         Proto["daq-proto"]
     end
 
-    subgraph "Core"
+    subgraph CoreLayer ["Core"]
         Core["daq-core"]
     end
 
