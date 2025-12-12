@@ -323,12 +323,12 @@ pub enum DriverType {
     /// Mock camera for testing (FrameProducer + Triggerable + ExposureControl)
     MockCamera,
 
-    /*
-    // Pvcam disabled in daq-hardware
+    /// Photometrics PVCAM camera
+    #[cfg(feature = "driver_pvcam")]
     Pvcam {
+        /// Camera name reported by PVCAM (e.g., "PrimeBSI")
         camera_name: String,
     },
-    */
     /// Plugin-based device loaded from YAML configuration
     #[cfg(feature = "tokio_serial")]
     Plugin {
@@ -358,18 +358,12 @@ impl DriverType {
                 Capability::Triggerable,
                 Capability::ExposureControl,
             ],
-            // DriverType::Pvcam { .. } => vec![
-            //     Capability::Readable,
-            //     Capability::Triggerable,
-            //     Capability::ExposureControl,
-            // ],
-            /*
+            #[cfg(feature = "driver_pvcam")]
             DriverType::Pvcam { .. } => vec![
                 Capability::FrameProducer,
                 Capability::Triggerable,
                 Capability::ExposureControl,
             ],
-            */
             #[cfg(feature = "tokio_serial")]
             DriverType::Plugin { .. } => {
                 // Note: Plugin capabilities are determined at runtime from YAML
@@ -394,9 +388,8 @@ impl DriverType {
             DriverType::MockStage { .. } => "mock_stage",
             DriverType::MockPowerMeter { .. } => "mock_power_meter",
             DriverType::MockCamera => "mock_camera",
-            /*
+            #[cfg(feature = "driver_pvcam")]
             DriverType::Pvcam { .. } => "pvcam",
-            */
             #[cfg(feature = "tokio_serial")]
             DriverType::Plugin { .. } => {
                 // Note: This is a generic name; actual plugin name is stored in plugin_id
