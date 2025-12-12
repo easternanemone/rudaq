@@ -277,6 +277,8 @@ impl PvcamAcquisition {
         let mut buffer_cnt: uns32 = 0;
         let mut no_frame_count: u32 = 0;
         const MAX_NO_FRAME_ITERATIONS: u32 = 5000;
+        // Reuse a scratch Vec to avoid reallocating per frame.
+        let mut pixel_bytes: Vec<u8> = Vec::with_capacity(frame_pixels * std::mem::size_of::<u16>());
 
         while streaming.get() {
             unsafe {
@@ -294,7 +296,10 @@ impl PvcamAcquisition {
                                 frame_ptr as *const u8,
                                 frame_pixels * std::mem::size_of::<u16>(),
                             );
-                            let pixel_bytes: Vec<u8> = bytes.to_vec();
+                            pixel_bytes.clear();
+                            pixel_bytes.extend_from_slice(bytes);
+                            #[cfg(feature = "arrow_tap")]
+                            let pixel_bytes_for_arrow = pixel_bytes.clone();
                             #[cfg(feature = "arrow_tap")]
                             let pixel_bytes_for_arrow = pixel_bytes.clone();
                             // SAFETY: frame_ptr came from pl_exp_get_oldest_frame on this handle; unlocking returns it to PVCAM.

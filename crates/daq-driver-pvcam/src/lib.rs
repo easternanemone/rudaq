@@ -169,6 +169,15 @@ impl PvcamDriver {
     pub fn resolution(&self) -> (u32, u32) {
         (self.sensor_width, self.sensor_height)
     }
+
+    /// Register an Arrow tap to receive frames as `UInt16Array` (requires `arrow_tap` feature).
+    #[cfg(feature = "arrow_tap")]
+    pub async fn set_arrow_tap(
+        &self,
+        tx: tokio::sync::mpsc::Sender<std::sync::Arc<arrow::array::UInt16Array>>,
+    ) {
+        self.acquisition.set_arrow_tap(tx).await;
+    }
 }
 
 #[async_trait]
