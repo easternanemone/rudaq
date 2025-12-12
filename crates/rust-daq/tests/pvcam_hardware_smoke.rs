@@ -32,7 +32,6 @@
 use rust_daq::hardware::capabilities::FrameProducer;
 use rust_daq::hardware::pvcam::PvcamDriver;
 use std::env;
-use std::time::Duration;
 
 /// Check if smoke test is enabled via environment variable
 fn smoke_test_enabled() -> bool {
@@ -120,9 +119,10 @@ async fn pvcam_smoke_test() {
     println!("  Frame size: {}x{}", frame.width, frame.height);
     let pixels: Vec<u16> = match frame.bit_depth {
         16 => frame
-            .as_u16_slice()
-            .map(|s| s.to_vec())
-            .unwrap_or_else(|| frame.data.iter().map(|&b| b as u16).collect()),
+            .data
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect(),
         _ => frame.data.iter().map(|&b| b as u16).collect(),
     };
 
