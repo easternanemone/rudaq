@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 rust_daq = { path = "../rust-daq", features = ["server", "all_hardware", "instrument_serial", "modules", "storage_csv"] }
 daq-server = { path = "../daq-server" }
+daq-hardware = { path = "../daq-hardware" }
 daq-proto = { path = "../daq-proto" }
 anyhow = "1.0"
 clap = { version = "4.5.4", features = ["derive"] }
@@ -22,3 +23,4 @@ default = ["networking"]
 networking = []
 storage_hdf5 = ["rust_daq/storage_hdf5"]
 storage_arrow = ["rust_daq/storage_arrow"]
+pvcam = ["rust_daq/pvcam_hardware", "daq-hardware/driver_pvcam"]
