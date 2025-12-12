@@ -58,6 +58,8 @@ driver-spectra-physics = ["tokio_serial"]
 full = ["driver-thorlabs", "driver-newport", "driver-spectra-physics", "instrument_photometrics", "simulator"]
 # pvcam_hardware = ["dep:pvcam-sys"]
 driver_pvcam = ["dep:daq-driver-pvcam"]
+# Enable PVCAM Arrow tap (passes through to driver feature)
+driver_pvcam_arrow_tap = ["driver_pvcam", "daq-driver-pvcam/arrow_tap"]
 # Alias for backward compatibility
 pvcam_hardware = ["driver_pvcam"]
 instrument_photometrics = []

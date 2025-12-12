@@ -72,6 +72,9 @@ pub use daq_hardware::drivers::esp300;
 #[cfg(all(feature = "instrument_photometrics", feature = "pvcam_hardware"))]
 pub use daq_hardware::drivers::pvcam;
 
+#[cfg(all(feature = "instrument_photometrics", feature = "pvcam_hardware", feature = "arrow"))]
+pub use daq_hardware::drivers::pvcam::PvcamDriver;
+
 #[cfg(feature = "instrument_spectra_physics")]
 pub use daq_hardware::drivers::maitai;
 
