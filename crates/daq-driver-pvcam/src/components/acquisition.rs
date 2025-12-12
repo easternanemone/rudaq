@@ -22,6 +22,7 @@ pub struct PvcamAcquisition {
     pub frame_count: Arc<AtomicU64>,
     pub frame_tx: tokio::sync::broadcast::Sender<Arc<Frame>>,
     pub reliable_tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<Arc<Frame>>>>>,
+    pub single_rx: Arc<Mutex<Option<tokio::sync::oneshot::Receiver<Arc<Frame>>>>>,
     
     #[cfg(feature = "pvcam_hardware")]
     poll_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
@@ -39,6 +40,7 @@ impl PvcamAcquisition {
             frame_count: Arc::new(AtomicU64::new(0)),
             frame_tx,
             reliable_tx: Arc::new(Mutex::new(None)),
+            single_rx: Arc::new(Mutex::new(None)),
             
             #[cfg(feature = "pvcam_hardware")]
             poll_handle: Arc::new(Mutex::new(None)),

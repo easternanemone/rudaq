@@ -73,8 +73,8 @@
 //! ```
 
 use daq_core::capabilities::{
-    Actionable, EmissionControl, ExposureControl, FrameProducer, Loggable, Movable, Parameterized,
-    Readable, Settable, ShutterControl, Stageable, Switchable, Triggerable, WavelengthTunable,
+    ExposureControl, FrameProducer, Movable, Parameterized, Readable, Settable, Stageable,
+    Triggerable,
 };
 use daq_core::data::Frame;
 use daq_core::pipeline::MeasurementSource;

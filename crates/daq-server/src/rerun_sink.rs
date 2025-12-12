@@ -1,6 +1,24 @@
 //! Rerun Visualization Sink
 //!
 //! Pushes measurements to Rerun.io for visualization.
+//!
+//! ## Blueprint Support
+//!
+//! Since the Rust Blueprint API is not yet available (see rerun-io/rerun#5521),
+//! blueprints must be created using Python and loaded via `load_blueprint()`.
+//!
+//! Generate blueprints with:
+//! ```bash
+//! cd crates/daq-server/blueprints
+//! pip install rerun-sdk
+//! python generate_blueprints.py
+//! ```
+//!
+//! Then load in Rust:
+//! ```rust,ignore
+//! let sink = RerunSink::new()?;
+//! sink.load_blueprint("crates/daq-server/blueprints/daq_default.rbl")?;
+//! ```
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -8,8 +26,12 @@ use daq_core::core::{Measurement, PixelBuffer};
 use daq_core::pipeline::MeasurementSink;
 use rerun::{RecordingStream, RecordingStreamBuilder};
 use rerun::archetypes::{Scalars, Tensor};
+use std::path::Path;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+
+/// Default application ID - must match the Python blueprint generator
+pub const APP_ID: &str = "rust-daq";
 
 pub struct RerunSink {
     rec: RecordingStream,
@@ -17,11 +39,50 @@ pub struct RerunSink {
 
 impl RerunSink {
     /// Create a new Rerun sink that spawns a viewer or connects to a remote one.
-    pub fn new(application_id: &str) -> Result<Self> {
+    pub fn new() -> Result<Self> {
+        Self::with_app_id(APP_ID)
+    }
+
+    /// Create a new Rerun sink with a custom application ID.
+    ///
+    /// Note: If using pre-generated blueprints, the app ID must match.
+    pub fn with_app_id(application_id: &str) -> Result<Self> {
         let rec = RecordingStreamBuilder::new(application_id)
             .spawn() // Spawns a viewer process or connects to one
             ?;
         Ok(Self { rec })
+    }
+
+    /// Load a blueprint from an .rbl file.
+    ///
+    /// The blueprint's application ID must match the recording's application ID.
+    /// Generate blueprints using `crates/daq-server/blueprints/generate_blueprints.py`.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let sink = RerunSink::new()?;
+    /// sink.load_blueprint("crates/daq-server/blueprints/daq_default.rbl")?;
+    /// ```
+    pub fn load_blueprint(&self, path: impl AsRef<Path>) -> Result<()> {
+        self.rec.log_file_from_path(
+            path,
+            None,   // No entity path prefix
+            true,   // Static (blueprint doesn't change over time)
+        )?;
+        Ok(())
+    }
+
+    /// Load a blueprint only if the file exists.
+    ///
+    /// Returns `Ok(true)` if the blueprint was loaded, `Ok(false)` if the path
+    /// does not exist, and `Err` if loading failed.
+    pub fn load_blueprint_if_exists(&self, path: impl AsRef<Path>) -> Result<bool> {
+        let path_ref = path.as_ref();
+        if !path_ref.exists() {
+            return Ok(false);
+        }
+        self.load_blueprint(path_ref)?;
+        Ok(true)
     }
 
     /// Subscribe to a broadcast channel and log all received measurements.
@@ -52,7 +113,10 @@ impl RerunSink {
             Measurement::Spectrum { timestamp, .. } => timestamp,
         };
         
-        rec.set_time_nanos("stable_time", ts.timestamp_nanos_opt().unwrap_or(0));
+        rec.set_time(
+            "stable_time",
+            rerun::TimeCell::from_timestamp_nanos_since_epoch(ts.timestamp_nanos_opt().unwrap_or(0)),
+        );
 
         match meas {
             Measurement::Scalar { value, .. } => {

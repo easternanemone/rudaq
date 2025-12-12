@@ -156,16 +156,8 @@ impl PvcamDriver {
     }
 
     pub async fn acquire_frame(&self) -> Result<Frame> {
-        // Trigger single frame acquisition?
-        // PvcamAcquisition mainly supports streaming.
-        // For single frame, we can start stream, wait for 1 frame, stop stream.
-        // Or use internal acquire_frame logic if we preserved it.
-        // But I moved logic to acquisition component which is stream-centric.
-        // I'll implement a helper in Acquisition or here.
-        // For now, let's just return error or implement simplified version.
-        // Actually, existing code used `acquire_frame_internal`.
-        // I'll leave this as a TODO or implement a simple one-shot stream.
-        todo!("Implement acquire_frame via acquisition component")
+        let conn = self.connection.lock().await;
+        self.acquisition.acquire_single_frame(&conn, self.roi.get(), self.binning.get(), self.exposure_ms.get()).await
     }
 
     pub fn resolution(&self) -> (u32, u32) {

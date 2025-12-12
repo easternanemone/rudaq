@@ -25,7 +25,7 @@
 //! }
 //! ```
 
-use crate::rhai::{Engine, EvalAltResult, Map, Position};
+use crate::rhai::{Engine, EvalAltResult, Position};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::runtime::Handle;

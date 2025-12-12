@@ -56,10 +56,6 @@ use super::ring_buffer::RingBuffer;
 /// }
 /// ```
 pub struct HDF5Writer {
-    #[expect(
-        dead_code,
-        reason = "output_path will be used when HDF5 writing is implemented"
-    )]
     output_path: PathBuf,
     ring_buffer: Arc<RingBuffer>,
     flush_interval: Duration,

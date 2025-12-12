@@ -93,7 +93,11 @@ impl DaqServer {
 
         // Spawn background task to write data to RingBuffer if provided
         if let Some(rb) = ring_buffer.clone() {
-            let (rb_tx, mut rb_rx) = mpsc::channel(512);
+            let rb_chan = std::env::var("DAQ_PIPELINE_RINGBUF_CH")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(512);
+            let (rb_tx, mut rb_rx) = mpsc::channel(rb_chan);
             let drop_counter = Arc::new(AtomicU64::new(0));
 
             // Forward broadcast stream into bounded channel with drop metrics
@@ -740,7 +744,7 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
     Ok(())
 }
 
-use daq_core::pipeline::{MeasurementSource, MeasurementSink, Tee}; // Added import
+use daq_core::pipeline::{MeasurementSink, Tee};
 
 // ... (existing imports)
 
@@ -877,7 +881,11 @@ pub async fn start_server_with_hardware(
                 println!("  - Wiring pipeline for device: {}", info.id);
                 
                 // 1. Create channel for Source output (Arc<Frame>)
-                let (frame_tx, mut frame_rx) = tokio::sync::mpsc::channel(16);
+            let frame_chan = std::env::var("DAQ_PIPELINE_FRAME_CH")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(16);
+            let (frame_tx, mut frame_rx) = tokio::sync::mpsc::channel(frame_chan);
                 
                 // 2. Register source output
                 if let Err(e) = source.register_output(frame_tx).await {
@@ -886,7 +894,11 @@ pub async fn start_server_with_hardware(
                 }
 
                 // 3. Create channel for Measurement (Tee Input)
-                let (meas_tx, meas_rx) = tokio::sync::mpsc::channel(16);
+                let meas_chan = std::env::var("DAQ_PIPELINE_MEAS_CH")
+                    .ok()
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or(16);
+                let (meas_tx, meas_rx) = tokio::sync::mpsc::channel(meas_chan);
                 let device_id = info.id.clone();
 
                 // 4. Spawn Converter Task (Frame -> Measurement)
@@ -936,9 +948,34 @@ pub async fn start_server_with_hardware(
     }
 
     // Setup Rerun Visualization
-    match crate::rerun_sink::RerunSink::new("rust_daq") {
+    match crate::rerun_sink::RerunSink::new() {
         Ok(rerun) => {
             println!("  - Rerun Visualization: Active");
+
+            // Optional blueprint: default path or override via RERUN_BLUEPRINT
+            let blueprint_choice = std::env::var("RERUN_BLUEPRINT")
+                .unwrap_or_else(|_| "crates/daq-server/blueprints/daq_default.rbl".to_string());
+            let skip_blueprint = matches!(
+                blueprint_choice.to_ascii_lowercase().as_str(),
+                "none" | "off" | "skip"
+            );
+
+            if skip_blueprint {
+                println!("    - Blueprint: skipped (RERUN_BLUEPRINT={})", blueprint_choice);
+            } else {
+                match rerun.load_blueprint_if_exists(&blueprint_choice) {
+                    Ok(true) => println!("    - Blueprint: {}", blueprint_choice),
+                    Ok(false) => println!(
+                        "    - Blueprint: not found at {} (generate with `python crates/daq-server/blueprints/generate_blueprints.py`)",
+                        blueprint_choice
+                    ),
+                    Err(e) => eprintln!(
+                        "Warning: Failed to load blueprint {}: {}",
+                        blueprint_choice, e
+                    ),
+                }
+            }
+
             rerun.monitor_broadcast(control_server.data_sender().subscribe());
         }
         Err(e) => {

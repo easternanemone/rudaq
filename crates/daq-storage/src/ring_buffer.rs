@@ -45,8 +45,6 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 
 use crate::tap_registry::TapRegistry;
-use async_trait::async_trait;
-use daq_core::pipeline::MeasurementSink;
 
 #[cfg(feature = "storage_arrow")]
 use arrow::record_batch::RecordBatch;
@@ -135,10 +133,6 @@ pub struct RingBuffer {
     path: PathBuf,
 
     /// Memory-mapped file backing the ring buffer
-    #[expect(
-        dead_code,
-        reason = "mmap must be kept alive to maintain memory mapping validity"
-    )]
     mmap: MmapMut,
 
     /// Pointer to the header structure
@@ -1252,5 +1246,3 @@ mod tests {
         assert!(!result.unwrap());
     }
 }
-
-

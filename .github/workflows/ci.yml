@@ -174,6 +174,67 @@ jobs:
           path: target/doc
           if-no-files-found: error
 
+  blueprints:
+    name: Rerun Blueprints
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install python venv
+        run: sudo apt-get update && sudo apt-get install -y python3-venv
+
+      - name: Regenerate blueprints
+        run: scripts/regenerate_blueprints.sh
+
+      - name: Upload blueprints artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rerun-blueprints-${{ github.sha }}
+          path: |
+            crates/daq-server/blueprints/*.rbl
+          if-no-files-found: error
+
+  tee-bench:
+    name: Tee Bench Sample
+    runs-on: ubuntu-latest
+    needs: [lint, ast-grep]
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'tee-bench')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Run tee bench (sample)
+        env:
+          TEE_BENCH_LATENCY: 1
+        run: |
+          set -e
+          {
+            echo "=== Tee bench: 50k msgs, payload 0 ==="
+            TEE_BENCH_MESSAGES=50000 TEE_BENCH_PAYLOAD=0 cargo run -p daq-core --example tee_bench --release
+            echo
+            echo "=== Tee bench: 50k msgs, payload 256 ==="
+            TEE_BENCH_MESSAGES=50000 TEE_BENCH_PAYLOAD=256 cargo run -p daq-core --example tee_bench --release
+            echo
+            echo "=== Tee bench: 20k msgs, payload 256, buffer 32 (backpressure) ==="
+            TEE_BENCH_MESSAGES=20000 TEE_BENCH_PAYLOAD=256 TEE_BENCH_BUFFER=32 cargo run -p daq-core --example tee_bench --release
+          } | tee tee_bench_output.txt
+
+      - name: Upload bench output
+        uses: actions/upload-artifact@v4
+        with:
+          name: tee-bench-${{ github.sha }}
+          path: tee_bench_output.txt
+          if-no-files-found: error
+
   test:
     name: Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

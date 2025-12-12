@@ -1,139 +1,100 @@
-# GitHub Copilot Instructions for Beads
+# GitHub Copilot Instructions for rust-daq
 
 ## Project Overview
 
-**beads** (command: `bd`) is a Git-backed issue tracker designed for AI-supervised coding workflows. We dogfood our own tool for all task tracking.
+**rust-daq** is a modular, high-performance, headless-first Data Acquisition (DAQ) system written in Rust for scientific instrumentation.
 
 **Key Features:**
-- Dependency-aware issue tracking
-- Auto-sync with Git via JSONL
-- AI-optimized CLI with JSON output
-- Built-in daemon for background operations
-- MCP server integration for Claude and other AI assistants
+- Capability-based Hardware Abstraction Layer (HAL)
+- Bluesky-inspired experiment orchestration (Plans + RunEngine)
+- gRPC remote control with Rhai scripting
+- Apache Arrow / HDF5 data storage
 
 ## Tech Stack
 
-- **Language**: Go 1.21+
-- **Storage**: SQLite (internal/storage/sqlite/)
-- **CLI Framework**: Cobra
-- **Testing**: Go standard testing + table-driven tests
+- **Language**: Rust 1.75+
+- **Async Runtime**: Tokio
+- **Serialization**: Serde, protobuf (tonic)
+- **Testing**: Rust standard + hardware-in-the-loop
 - **CI/CD**: GitHub Actions
-- **MCP Server**: Python (integrations/beads-mcp/)
 
 ## Coding Guidelines
 
+### Critical Pattern: Reactive Parameters
+
+**DO NOT** use raw `Arc<RwLock<T>>` or `Mutex<T>` for device state.
+
+**USE** `Parameter<T>` with async hardware callbacks:
+```rust
+use daq_core::parameter::Parameter;
+use futures::future::BoxFuture;
+
+let mut param = Parameter::new("wavelength_nm", 800.0)
+    .with_range(690.0, 1040.0);
+
+param.connect_to_hardware_write(move |val| -> BoxFuture<'static, Result<()>> {
+    Box::pin(async move {
+        // Write to hardware here
+        Ok(())
+    })
+});
+```
+
 ### Testing
-- Always write tests for new features
-- Use `BEADS_DB=/tmp/test.db` to avoid polluting production database
-- Run `go test -short ./...` before committing
-- Never create test issues in production DB (use temporary DB)
+
+- Run `cargo test` before committing
+- Use `--features hardware_tests` only on remote machine with hardware
+- Never use `std::thread::sleep` in async code - use `tokio::time::sleep`
 
 ### Code Style
-- Run `golangci-lint run ./...` before committing
-- Follow existing patterns in `cmd/bd/` for new commands
-- Add `--json` flag to all commands for programmatic use
-- Update docs when changing behavior
 
-### Git Workflow
-- Always commit `.beads/issues.jsonl` with code changes
-- Run `bd sync` at end of work sessions
-- Install git hooks: `bd hooks install` (ensures DB ↔ JSONL consistency)
+- Run `cargo fmt --all` and `cargo clippy --all-features` before committing
+- All methods are async - ensure tokio runtime context
+- Use capability traits (`Movable`, `Readable`, etc.) for hardware abstraction
 
-## Issue Tracking with bd
+## Issue Tracking with bd (beads)
 
 **CRITICAL**: This project uses **bd** for ALL task tracking. Do NOT create markdown TODO lists.
 
 ### Essential Commands
 
 ```bash
-# Find work
-bd ready --json                    # Unblocked issues
-bd stale --days 30 --json          # Forgotten issues
-
-# Create and manage
-bd create "Title" -t bug|feature|task -p 0-4 --json
-bd create "Subtask" --parent <epic-id> --json  # Hierarchical subtask
-bd update <id> --status in_progress --json
-bd close <id> --reason "Done" --json
-
-# Search
-bd list --status open --priority 1 --json
-bd show <id> --json
-
-# Sync (CRITICAL at end of session!)
-bd sync  # Force immediate export/commit/push
+bd ready                           # Unblocked issues
+bd create "Title" -t task -p 2     # Create issue
+bd update <id> --status in_progress
+bd close <id> --reason "Done"
 ```
 
 ### Workflow
 
-1. **Check ready work**: `bd ready --json`
-2. **Claim task**: `bd update <id> --status in_progress`
-3. **Work on it**: Implement, test, document
-4. **Discover new work?** `bd create "Found bug" -p 1 --deps discovered-from:<parent-id> --json`
-5. **Complete**: `bd close <id> --reason "Done" --json`
-6. **Sync**: `bd sync` (flushes changes to git immediately)
+1. Check ready work: `bd ready`
+2. Claim task: `bd update <id> --status in_progress`
+3. Work on it
+4. Complete: `bd close <id> --reason "Done"`
+5. Commit `.beads/issues.jsonl` with code changes
 
-### Priorities
+## Build Commands
 
-- `0` - Critical (security, data loss, broken builds)
-- `1` - High (major features, important bugs)
-- `2` - Medium (default, nice-to-have)
-- `3` - Low (polish, optimization)
-- `4` - Backlog (future ideas)
-
-## Project Structure
-
-```
-beads/
-├── cmd/bd/              # CLI commands (add new commands here)
-├── internal/
-│   ├── types/           # Core data types
-│   └── storage/         # Storage layer
-│       └── sqlite/      # SQLite implementation
-├── integrations/
-│   └── beads-mcp/       # MCP server (Python)
-├── examples/            # Integration examples
-├── docs/                # Documentation
-└── .beads/
-    ├── beads.db         # SQLite database (DO NOT COMMIT)
-    └── issues.jsonl     # Git-synced issue storage
+```bash
+cargo build                        # Default features
+cargo build --all-features         # All features
+cargo test -p daq-core             # Test specific crate
+cargo clippy --all-targets --all-features
 ```
 
-## Available Resources
+## Feature Flags
 
-### MCP Server (Recommended)
-Use the beads MCP server for native function calls instead of shell commands:
-- Install: `pip install beads-mcp`
-- Functions: `mcp__beads__ready()`, `mcp__beads__create()`, etc.
-- See `integrations/beads-mcp/README.md`
-
-### Scripts
-- `./scripts/bump-version.sh <version> --commit` - Update all version files atomically
-- `./scripts/release.sh <version>` - Complete release workflow
-- `./scripts/update-homebrew.sh <version>` - Update Homebrew formula
-
-### Key Documentation
-- **AGENTS.md** - Comprehensive AI agent guide (detailed workflows, advanced features)
-- **AGENT_INSTRUCTIONS.md** - Development procedures, testing, releases
-- **README.md** - User-facing documentation
-- **docs/CLI_REFERENCE.md** - Complete command reference
-
-## CLI Help
-
-Run `bd <command> --help` to see all available flags for any command.
-For example: `bd create --help` shows `--parent`, `--deps`, `--assignee`, etc.
+- **Storage**: `storage_csv` (default), `storage_hdf5`, `storage_arrow`
+- **Hardware**: `instrument_serial` (default), `instrument_thorlabs`, `instrument_newport`, `instrument_photometrics`
+- **System**: `networking` (gRPC), `hardware_tests`
 
 ## Important Rules
 
-- ✅ Use bd for ALL task tracking
-- ✅ Always use `--json` flag for programmatic use
-- ✅ Run `bd sync` at end of sessions
-- ✅ Test with `BEADS_DB=/tmp/test.db`
-- ✅ Run `bd <cmd> --help` to discover available flags
-- ❌ Do NOT create markdown TODO lists
-- ❌ Do NOT create test issues in production DB
-- ❌ Do NOT commit `.beads/beads.db` (JSONL only)
+- Use `Parameter<T>` for all hardware state (not raw Mutex/RwLock)
+- Use bd for ALL task tracking
+- Test with mock hardware first, then real hardware on remote
+- Remote hardware machine: `maitai@100.117.5.12`
 
 ---
 
-**For detailed workflows and advanced features, see [AGENTS.md](../AGENTS.md)**
+**For detailed documentation, see [CLAUDE.md](../CLAUDE.md)**

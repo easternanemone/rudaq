@@ -31,7 +31,8 @@ pub trait MeasurementSource: Send + Sync {
     ///
     /// This connects the source to the rest of the pipeline.
     /// The implementation should spawn a task to produce data into `tx`.
-    async fn register_output(&mut self, tx: mpsc::Sender<Self::Output>) -> Result<(), Self::Error>;
+    /// Uses `&self` to allow usage with `Arc<dyn MeasurementSource>`.
+    async fn register_output(&self, tx: mpsc::Sender<Self::Output>) -> Result<(), Self::Error>;
 }
 
 /// A sink that consumes measurements.

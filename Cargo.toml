@@ -10,6 +10,7 @@ members = [
     "crates/daq-hardware",
     "crates/daq-scripting",
     "crates/daq-bin", "crates/daq-server", "crates/daq-experiment",
+    "crates/daq-egui",
     # "crates/daq-examples",
 ]
 exclude = [
