@@ -2,7 +2,9 @@
 //!
 //! Handles SDK initialization, camera opening/closing, and resource cleanup.
 
+#[cfg(feature = "pvcam_hardware")]
 use anyhow::{anyhow, Context, Result};
+#[cfg(feature = "pvcam_hardware")]
 use std::ffi::CString;
 
 #[cfg(feature = "pvcam_hardware")]
@@ -12,8 +14,10 @@ use pvcam_sys::*;
 #[cfg(feature = "pvcam_hardware")]
 pub(crate) fn get_pvcam_error() -> String {
     unsafe {
+        // SAFETY: PVCAM docs state error query functions are thread-safe after initialization.
         let err_code = pl_error_code();
         let mut err_msg = vec![0i8; 256];
+        // SAFETY: Buffer is valid and sized per SDK requirement (256 bytes).
         pl_error_message(err_code, err_msg.as_mut_ptr());
         let err_str = std::ffi::CStr::from_ptr(err_msg.as_ptr()).to_string_lossy();
         format!("error {} - {}", err_code, err_str)
@@ -51,6 +55,7 @@ impl PvcamConnection {
         }
 
         unsafe {
+            // SAFETY: Global PVCAM init; must be called before other SDK functions and is idempotent here.
             if pl_pvcam_init() == 0 {
                 return Err(anyhow!("Failed to initialize PVCAM SDK: {}", get_pvcam_error()));
             }
@@ -74,6 +79,7 @@ impl PvcamConnection {
         // Get camera count
         let mut total_cameras: i16 = 0;
         unsafe {
+            // SAFETY: total_cameras is a valid out pointer; SDK already initialized.
             if pl_cam_get_total(&mut total_cameras) == 0 {
                 return Err(anyhow!("Failed to get camera count: {}", get_pvcam_error()));
             }
@@ -87,9 +93,11 @@ impl PvcamConnection {
         let mut hcam: i16 = 0;
 
         unsafe {
+            // SAFETY: camera_name_cstr is a valid C string; hcam is a valid out pointer.
             if pl_cam_open(camera_name_cstr.as_ptr() as *mut i8, &mut hcam, 0) == 0 {
                 // Try first available camera
                 let mut name_buffer = vec![0i8; 256];
+                // SAFETY: name_buffer is writable and sized per SDK requirement.
                 if pl_cam_get_name(0, name_buffer.as_mut_ptr()) != 0 {
                     if pl_cam_open(name_buffer.as_mut_ptr(), &mut hcam, 0) == 0 {
                         return Err(anyhow!("Failed to open any camera"));
@@ -109,6 +117,7 @@ impl PvcamConnection {
     pub fn close(&mut self) {
         if let Some(h) = self.handle.take() {
             unsafe {
+                // SAFETY: h was returned by pl_cam_open and is still owned by this connection.
                 pl_cam_close(h);
             }
         }
@@ -120,6 +129,7 @@ impl PvcamConnection {
         self.close(); // Ensure camera closed first
         if self.sdk_initialized {
             unsafe {
+                // SAFETY: Balanced with pl_pvcam_init; only called once per process here.
                 pl_pvcam_uninit();
             }
             self.sdk_initialized = false;

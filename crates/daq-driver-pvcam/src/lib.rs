@@ -61,7 +61,7 @@ impl PvcamDriver {
             #[cfg(feature = "pvcam_hardware")]
             let name = camera_name.clone();
             move || -> Result<Arc<Mutex<PvcamConnection>>> {
-                let mut conn = PvcamConnection::new();
+                let conn = PvcamConnection::new();
                 #[cfg(feature = "pvcam_hardware")]
                 {
                     conn.initialize()?;
@@ -83,7 +83,9 @@ impl PvcamDriver {
     async fn create(camera_name: String, connection: Arc<Mutex<PvcamConnection>>) -> Result<Self> {
         // Query sensor size
         let (width, height) = {
+            #[allow(unused_mut)]
             let mut w = 2048;
+            #[allow(unused_mut)]
             let mut h = 2048;
             #[cfg(feature = "pvcam_hardware")]
             {
@@ -92,6 +94,7 @@ impl PvcamDriver {
                     unsafe {
                         let mut ser: uns16 = 0;
                         let mut par: uns16 = 0;
+                        // SAFETY: hcam is open; ser/par are valid out pointers for current dimensions.
                         pl_get_param(hcam, PARAM_SER_SIZE, ATTR_CURRENT, &mut ser as *mut _ as *mut _);
                         pl_get_param(hcam, PARAM_PAR_SIZE, ATTR_CURRENT, &mut par as *mut _ as *mut _);
                         if ser > 0 && par > 0 {

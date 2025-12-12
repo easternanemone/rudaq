@@ -75,6 +75,7 @@ impl PvcamAcquisition {
             
             // Setup region
             let region = unsafe {
+                // SAFETY: rgn_type is POD; zeroed then fully initialized before use.
                 let mut rgn: rgn_type = std::mem::zeroed();
                 rgn.s1 = roi.x as uns16;
                 rgn.s2 = (roi.x + roi.width - 1) as uns16;
@@ -87,6 +88,7 @@ impl PvcamAcquisition {
 
             let mut frame_bytes: uns32 = 0;
             unsafe {
+                // SAFETY: h is a valid camera handle; region points to initialized rgn_type; frame_bytes is writable.
                 if pl_exp_setup_cont(
                     h,
                     1,
@@ -111,6 +113,7 @@ impl PvcamAcquisition {
             let circ_size_bytes = (circ_buf.len() * 2) as uns32;
 
             unsafe {
+                // SAFETY: circ_ptr points to contiguous u16 buffer sized circ_size_bytes; SDK expects byte size.
                 if pl_exp_start_cont(h, circ_ptr as *mut _, circ_size_bytes) == 0 {
                     let _ = self.streaming.set(false).await;
                     return Err(anyhow!("Failed to start continuous acquisition"));
@@ -230,7 +233,10 @@ impl PvcamAcquisition {
                 let _ = handle.await;
             }
             if let Some(h) = conn.handle() {
-                unsafe { pl_exp_stop_cont(h, CCS_HALT); }
+                unsafe {
+                    // SAFETY: h is an open camera handle; stopping acquisition after poll loop exit.
+                    pl_exp_stop_cont(h, CCS_HALT);
+                }
             }
             *self.circ_buffer.lock().await = None;
         }
@@ -256,6 +262,7 @@ impl PvcamAcquisition {
 
         while streaming.get() {
             unsafe {
+                // SAFETY: pointers to status/bytes/buffer_cnt are valid; hcam is open while loop runs.
                 if pl_exp_check_cont_status(hcam, &mut status, &mut bytes_arrived, &mut buffer_cnt) == 0 {
                     break;
                 }
@@ -263,9 +270,11 @@ impl PvcamAcquisition {
                 match status {
                     s if s == READOUT_COMPLETE || s == EXPOSURE_IN_PROGRESS => {
                         let mut frame_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+                        // SAFETY: frame_ptr is an out pointer; call fills with valid frame address while locked.
                         if pl_exp_get_oldest_frame(hcam, &mut frame_ptr) != 0 && !frame_ptr.is_null() {
                             let src = std::slice::from_raw_parts(frame_ptr as *const u16, frame_pixels);
                             let pixels = src.to_vec();
+                            // SAFETY: frame_ptr came from pl_exp_get_oldest_frame on this handle; unlocking returns it to PVCAM.
                             pl_exp_unlock_oldest_frame(hcam);
 
                             let frame = Frame::from_u16(width, height, &pixels);
@@ -294,6 +303,9 @@ impl PvcamAcquisition {
                 }
             }
         }
-        unsafe { pl_exp_stop_cont(hcam, CCS_HALT); }
+        unsafe {
+            // SAFETY: hcam is still open; ensure acquisition stopped when loop exits abnormally.
+            pl_exp_stop_cont(hcam, CCS_HALT);
+        }
     }
 }
