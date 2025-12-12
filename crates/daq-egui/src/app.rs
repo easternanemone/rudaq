@@ -1,6 +1,50 @@
 //! Main application state and UI logic.
 
 use eframe::egui;
+use once_cell::sync::Lazy;
+use std::io::Write;
+use std::sync::{Arc, Mutex};
+use tracing_subscriber::fmt::writer::MakeWriterExt;
+use tracing_subscriber::EnvFilter;
+
+struct UiLogWriter {
+    buf: Arc<Mutex<Vec<String>>>,
+    cur: String,
+}
+
+impl std::io::Write for UiLogWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        for &b in bytes {
+            if b == b'\n' {
+                let mut guard = self.buf.lock().unwrap();
+                guard.push(self.cur.clone());
+                self.cur.clear();
+            } else {
+                self.cur.push(b as char);
+            }
+        }
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+struct UiLogMakeWriter {
+    buf: Arc<Mutex<Vec<String>>>,
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for UiLogMakeWriter {
+    type Writer = UiLogWriter;
+    fn make_writer(&'a self) -> Self::Writer {
+        UiLogWriter {
+            buf: self.buf.clone(),
+            cur: String::new(),
+        }
+    }
+}
+
+static UI_LOG_BUFFER: Lazy<Arc<Mutex<Vec<String>>>> = Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
 
 use crate::client::DaqClient;
 use crate::panels::{ConnectionPanel, DevicesPanel, ScriptsPanel, ScansPanel, StoragePanel, ModulesPanel};
@@ -38,9 +82,13 @@ pub struct DaqApp {
     
     /// Tokio runtime for async operations
     runtime: tokio::runtime::Runtime,
-    #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics", feature = "pvcam_hardware"))]
+    /// Rolling in-app log buffer
+    log_buffer: Vec<String>,
+    /// PVCAM live view streaming state (requires rerun_viewer + instrument_photometrics)
+    /// Works in mock mode without pvcam_hardware, or with real SDK when pvcam_hardware enabled
+    #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
     pvcam_streaming: bool,
-    #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics", feature = "pvcam_hardware"))]
+    #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
     pvcam_task: Option<tokio::task::JoinHandle<()>>,
 }
 
@@ -52,6 +100,7 @@ pub enum Panel {
     Scans,
     Storage,
     Modules,
+    Logs,
 }
 
 impl DaqApp {
@@ -69,6 +118,20 @@ impl DaqApp {
             .build()
             .expect("Failed to create tokio runtime");
 
+        // Install tracing subscriber that also feeds the UI log buffer (only once).
+        static SUB_INIT: std::sync::Once = std::sync::Once::new();
+        SUB_INIT.call_once(|| {
+            let writer = UiLogMakeWriter {
+                buf: UI_LOG_BUFFER.clone(),
+            }
+            .and(std::io::stdout);
+
+            let _ = tracing_subscriber::fmt()
+                .with_env_filter(EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()))
+                .with_writer(writer)
+                .try_init();
+        });
+
         Self {
             client: None,
             connection_state: ConnectionState::Disconnected,
@@ -81,9 +144,10 @@ impl DaqApp {
             storage_panel: StoragePanel::default(),
             modules_panel: ModulesPanel::default(),
             runtime,
-            #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics", feature = "pvcam_hardware"))]
+            log_buffer: Vec::new(),
+            #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
             pvcam_streaming: false,
-            #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics", feature = "pvcam_hardware"))]
+            #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
             pvcam_task: None,
         }
     }
@@ -215,6 +279,7 @@ impl DaqApp {
                     ui.selectable_value(&mut self.active_panel, Panel::Scans, "📊 Scans");
                     ui.selectable_value(&mut self.active_panel, Panel::Storage, "💾 Storage");
                     ui.selectable_value(&mut self.active_panel, Panel::Modules, "🧩 Modules");
+                    ui.selectable_value(&mut self.active_panel, Panel::Logs, "🪵 Logs");
                 });
                 
                 ui.separator();
@@ -227,8 +292,8 @@ impl DaqApp {
                         .spawn();
                 }
 
-                // PVCAM live view via Rerun
-                #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics", feature = "pvcam_hardware"))]
+                // PVCAM live view via Rerun (mock mode without SDK, real mode with pvcam_hardware)
+                #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
                 {
                     ui.add_space(8.0);
                     let label = if self.pvcam_streaming { "🛑 Stop PVCAM Live" } else { "🎥 PVCAM Live to Rerun" };
@@ -265,16 +330,37 @@ impl DaqApp {
                 Panel::Modules => {
                     self.modules_panel.ui(ui, self.client.as_mut(), &self.runtime);
                 }
+                Panel::Logs => {
+                    self.render_logs(ui);
+                }
             }
         });
     }
 
-    #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics", feature = "pvcam_hardware"))]
+    fn render_logs(&mut self, ui: &mut egui::Ui) {
+        use egui::ScrollArea;
+        ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
+            for line in &self.log_buffer {
+                ui.label(line);
+            }
+        });
+    }
+
+    fn poll_logs(&mut self) {
+        if let Ok(mut buf) = UI_LOG_BUFFER.lock() {
+            if !buf.is_empty() {
+                self.log_buffer.extend(buf.drain(..));
+                self.log_dirty = true;
+            }
+        }
+    }
+
+    #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
     fn start_pvcam_stream(&mut self) {
+        use daq_core::capabilities::FrameProducer;
+        use daq_driver_pvcam::PvcamDriver;
         use rerun::archetypes::Tensor;
-        use rerun::components::TensorData;
         use rerun::RecordingStreamBuilder;
-        use rust_daq::hardware::pvcam::PvcamDriver;
 
         let handle = self.runtime.handle().clone();
         self.pvcam_task = Some(handle.spawn(async move {
@@ -300,12 +386,11 @@ impl DaqApp {
                 return;
             }
 
-            let rec = match RecordingStreamBuilder::new("PVCAM Live")
-                .connect("127.0.0.1:9876")
-            {
+            // Spawn viewer or connect to existing one
+            let rec = match RecordingStreamBuilder::new("PVCAM Live").spawn() {
                 Ok(r) => r,
                 Err(err) => {
-                    eprintln!("Failed to connect to rerun viewer: {err}");
+                    eprintln!("Failed to spawn rerun viewer: {err}");
                     let _ = driver.stop_stream().await;
                     return;
                 }
@@ -316,15 +401,14 @@ impl DaqApp {
                 if frame.bit_depth != 16 {
                     continue;
                 }
-                let td = match TensorData::try_from_rows_cols(
-                    frame.height as usize,
-                    frame.width as usize,
-                    bytemuck::cast_slice::<u8, u16>(&frame.data),
-                ) {
-                    Ok(t) => t,
-                    Err(_) => continue,
-                };
-                let tensor = Tensor::new(td);
+                // Convert raw bytes to u16 slice and create tensor
+                let u16_data: &[u16] = bytemuck::cast_slice(&frame.data);
+                let shape = vec![frame.height as u64, frame.width as u64];
+                let tensor_data = rerun::TensorData::new(
+                    shape,
+                    rerun::TensorBuffer::U16(u16_data.to_vec().into()),
+                );
+                let tensor = Tensor::new(tensor_data);
                 let _ = rec.log("/pvcam/image", &tensor);
             }
 
@@ -333,10 +417,19 @@ impl DaqApp {
 
         self.pvcam_streaming = true;
     }
+
+    fn poll_logs(&mut self) {
+        if let Ok(mut buf) = UI_LOG_BUFFER.lock() {
+            if !buf.is_empty() {
+                self.log_buffer.extend(buf.drain(..));
+            }
+        }
+    }
 }
 
 impl eframe::App for DaqApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll_logs();
         self.render_menu_bar(ctx);
         self.render_status_bar(ctx);
         self.render_nav_panel(ctx);

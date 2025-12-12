@@ -2469,12 +2469,16 @@ name = "daq-egui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "chrono",
+ "daq-core",
+ "daq-driver-pvcam",
  "daq-proto",
  "eframe 0.31.1",
  "egui 0.31.1",
  "egui_extras 0.31.1",
  "mimalloc",
+ "once_cell",
  "prost 0.12.6",
  "rerun",
  "tokio",

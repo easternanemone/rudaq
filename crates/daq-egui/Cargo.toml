@@ -34,6 +34,9 @@ rerun = { version = "0.27.3", default-features = false, features = [
     "server",
 ], optional = true }
 mimalloc = { version = "0.1", optional = true }
+# For casting pixel data bytes in gRPC streaming
+bytemuck = { version = "1.14", optional = true }
+once_cell = "1.19"
 
 # gRPC client
 daq-proto = { path = "../daq-proto" }
@@ -49,7 +52,18 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono = "0.4"
 
+# Local PVCAM driver (only needed if running daemon locally, not for gRPC streaming)
+daq-core = { path = "../daq-core", optional = true }
+daq-driver-pvcam = { path = "../daq-driver-pvcam", optional = true }
+
 [features]
 default = ["standalone"]
 standalone = ["dep:eframe", "dep:egui_extras"]
-rerun_viewer = ["dep:rerun", "dep:mimalloc"]
+# Embedded Rerun viewer with gRPC camera streaming support
+rerun_viewer = ["dep:rerun", "dep:mimalloc", "dep:bytemuck"]
+
+# Local PVCAM driver support (for running daemon locally)
+# - instrument_photometrics: enables mock mode (no SDK required)
+# - pvcam_hardware: enables real hardware mode (requires PVCAM SDK)
+instrument_photometrics = ["dep:daq-core", "dep:daq-driver-pvcam"]
+pvcam_hardware = ["instrument_photometrics", "daq-driver-pvcam/pvcam_hardware"]
