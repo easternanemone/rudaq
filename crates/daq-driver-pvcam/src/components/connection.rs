@@ -4,8 +4,6 @@
 
 use anyhow::{anyhow, Context, Result};
 use std::ffi::CString;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 #[cfg(feature = "pvcam_hardware")]
 use pvcam_sys::*;

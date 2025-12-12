@@ -7,7 +7,7 @@
 
 pub mod components;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use daq_core::capabilities::{ExposureControl, Frame, FrameProducer, Parameterized, Triggerable};
 use daq_core::core::Roi;
@@ -24,12 +24,11 @@ pub use crate::components::features::{
 
 use crate::components::acquisition::PvcamAcquisition;
 use crate::components::connection::PvcamConnection;
-use crate::components::features::PvcamFeatures;
-
 #[cfg(feature = "pvcam_hardware")]
 use pvcam_sys::*;
 
 /// Driver for Photometrics PVCAM cameras
+#[allow(dead_code)]
 pub struct PvcamDriver {
     camera_name: String,
     
@@ -59,6 +58,7 @@ impl PvcamDriver {
     pub async fn new_async(camera_name: String) -> Result<Self> {
         // Run initialization in blocking task
         let connection = tokio::task::spawn_blocking({
+            #[cfg(feature = "pvcam_hardware")]
             let name = camera_name.clone();
             move || -> Result<Arc<Mutex<PvcamConnection>>> {
                 let mut conn = PvcamConnection::new();
@@ -82,24 +82,27 @@ impl PvcamDriver {
 
     async fn create(camera_name: String, connection: Arc<Mutex<PvcamConnection>>) -> Result<Self> {
         // Query sensor size
-        let (mut width, mut height) = (2048, 2048); // Default
-        
-        #[cfg(feature = "pvcam_hardware")]
-        {
-            let conn = connection.lock().await;
-            if let Some(h) = conn.handle() {
-                unsafe {
-                    let mut ser: uns16 = 0;
-                    let mut par: uns16 = 0;
-                    pl_get_param(h, PARAM_SER_SIZE, ATTR_CURRENT, &mut ser as *mut _ as *mut _);
-                    pl_get_param(h, PARAM_PAR_SIZE, ATTR_CURRENT, &mut par as *mut _ as *mut _);
-                    if ser > 0 && par > 0 {
-                        width = ser as u32;
-                        height = par as u32;
+        let (width, height) = {
+            let mut w = 2048;
+            let mut h = 2048;
+            #[cfg(feature = "pvcam_hardware")]
+            {
+                let conn = connection.lock().await;
+                if let Some(hcam) = conn.handle() {
+                    unsafe {
+                        let mut ser: uns16 = 0;
+                        let mut par: uns16 = 0;
+                        pl_get_param(hcam, PARAM_SER_SIZE, ATTR_CURRENT, &mut ser as *mut _ as *mut _);
+                        pl_get_param(hcam, PARAM_PAR_SIZE, ATTR_CURRENT, &mut par as *mut _ as *mut _);
+                        if ser > 0 && par > 0 {
+                            w = ser as u32;
+                            h = par as u32;
+                        }
                     }
                 }
             }
-        }
+            (w, h)
+        };
 
         let mut params = ParameterSet::new();
         

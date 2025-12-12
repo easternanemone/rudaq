@@ -17,4 +17,4 @@ futures = "0.3"
 [features]
 default = ["mock"]
 mock = []
-pvcam_hardware = ["dep:pvcam-sys"]
+pvcam_hardware = ["dep:pvcam-sys", "pvcam-sys/pvcam-sdk"]

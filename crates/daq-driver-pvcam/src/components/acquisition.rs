@@ -58,6 +58,8 @@ impl PvcamAcquisition {
         binning: (u16, u16),
         exposure_ms: f64
     ) -> Result<()> {
+        // Avoid unused parameter warnings when hardware feature is disabled.
+        let _ = conn;
         if self.streaming.get() {
             bail!("Already streaming");
         }
@@ -215,6 +217,8 @@ impl PvcamAcquisition {
     }
 
     pub async fn stop_stream(&self, conn: &PvcamConnection) -> Result<()> {
+        // Avoid unused parameter warnings when hardware feature is disabled.
+        let _ = conn;
         if !self.streaming.get() {
             return Ok(());
         }
@@ -264,7 +268,7 @@ impl PvcamAcquisition {
                             let pixels = src.to_vec();
                             pl_exp_unlock_oldest_frame(hcam);
 
-                            let frame = Frame::from_u16(width, height, pixels);
+                            let frame = Frame::from_u16(width, height, &pixels);
                             frame_count.fetch_add(1, Ordering::SeqCst);
                             let frame_arc = Arc::new(frame);
 
