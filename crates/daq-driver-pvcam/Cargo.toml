@@ -24,7 +24,14 @@ arrow_tap = ["arrow"]
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false }
 arrow = "56"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+# Examples and benchmarks that require specific features (bd-h7wh)
+[[example]]
+name = "arrow_tap"
+required-features = ["arrow_tap"]
 
 [[bench]]
 name = "arrow_tap"
 harness = false
+required-features = ["arrow_tap"]

@@ -15,12 +15,16 @@ use daq_core::observable::ParameterSet;
 use daq_core::parameter::Parameter;
 use daq_core::pipeline::MeasurementSource;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use tokio::sync::Mutex;
 
 // Re-export public types from features component
 pub use crate::components::features::{
-    CameraInfo, CentroidsConfig, CentroidsMode, FanSpeed, GainMode, PPFeature, PPParam, SpeedMode,
+    CameraInfo, CentroidsConfig, CentroidsMode, ClearMode, ExposureMode, ExposeOutMode,
+    FanSpeed, GainMode, PPFeature, PPParam, ReadoutPort, SpeedMode,
 };
+// Re-export feature functions for direct access
+pub use crate::components::features::PvcamFeatures;
 
 use crate::components::acquisition::PvcamAcquisition;
 use crate::components::connection::PvcamConnection;
@@ -28,13 +32,20 @@ use crate::components::connection::PvcamConnection;
 use pvcam_sys::*;
 
 /// Driver for Photometrics PVCAM cameras
+///
+/// # Drop Order (bd-nq82)
+///
+/// Fields drop in declaration order. `acquisition` MUST drop before `connection`
+/// to ensure the poll thread stops before the SDK is uninitialized. The explicit
+/// Drop impl also calls stop_stream() to ensure clean shutdown.
 #[allow(dead_code)]
 pub struct PvcamDriver {
     camera_name: String,
-    
-    // Components
-    connection: Arc<Mutex<PvcamConnection>>,
+
+    // Components - ORDER MATTERS for drop safety (bd-nq82)
+    // acquisition must drop BEFORE connection to stop poll thread before SDK uninit
     acquisition: Arc<PvcamAcquisition>,
+    connection: Arc<Mutex<PvcamConnection>>,
     
     // Parameters
     exposure_ms: Parameter<f64>,
@@ -56,16 +67,30 @@ pub struct PvcamDriver {
 
 impl PvcamDriver {
     pub async fn new_async(camera_name: String) -> Result<Self> {
+        tracing::info!("PvcamDriver::new_async called for camera: {}", camera_name);
+        tracing::info!("pvcam_hardware feature enabled: {}", cfg!(feature = "pvcam_hardware"));
+
         // Run initialization in blocking task
         let connection = tokio::task::spawn_blocking({
             #[cfg(feature = "pvcam_hardware")]
             let name = camera_name.clone();
             move || -> Result<Arc<Mutex<PvcamConnection>>> {
+                #[cfg(feature = "pvcam_hardware")]
                 let mut conn = PvcamConnection::new();
+                #[cfg(not(feature = "pvcam_hardware"))]
+                let conn = PvcamConnection::new();
+
                 #[cfg(feature = "pvcam_hardware")]
                 {
+                    tracing::info!("Initializing PVCAM SDK...");
                     conn.initialize()?;
+                    tracing::info!("PVCAM SDK initialized, opening camera: {}", name);
                     conn.open(&name)?;
+                    tracing::info!("Camera opened successfully, handle: {:?}", conn.handle());
+                }
+                #[cfg(not(feature = "pvcam_hardware"))]
+                {
+                    tracing::warn!("pvcam_hardware feature NOT enabled - using mock mode");
                 }
                 Ok(Arc::new(Mutex::new(conn)))
             }
@@ -143,8 +168,9 @@ impl PvcamDriver {
 
         Ok(Self {
             camera_name,
-            connection,
+            // Field order matches struct declaration for drop safety (bd-nq82)
             acquisition,
+            connection,
             exposure_ms,
             roi,
             binning,
@@ -228,6 +254,14 @@ impl FrameProducer for PvcamDriver {
     async fn subscribe_frames(&self) -> Option<tokio::sync::broadcast::Receiver<Arc<Frame>>> {
         Some(self.acquisition.frame_tx.subscribe())
     }
+
+    async fn is_streaming(&self) -> Result<bool> {
+        Ok(self.streaming.get())
+    }
+
+    fn frame_count(&self) -> u64 {
+        self.acquisition.frame_count.load(Ordering::SeqCst)
+    }
 }
 
 #[async_trait]
@@ -245,5 +279,33 @@ impl MeasurementSource for PvcamDriver {
 impl Parameterized for PvcamDriver {
     fn parameters(&self) -> &ParameterSet {
         &self.params
+    }
+}
+
+/// Drop impl ensures streaming is stopped before acquisition/connection drop (bd-nq82).
+///
+/// This prevents the poll thread from calling PVCAM SDK functions after uninit.
+/// We use block_on to synchronously stop streaming since Drop cannot be async.
+impl Drop for PvcamDriver {
+    fn drop(&mut self) {
+        // Only attempt cleanup if streaming is active
+        if self.streaming.get() {
+            tracing::debug!("PvcamDriver::drop - stopping active stream");
+
+            // Use tokio's current runtime to block on stop_stream
+            // This ensures the poll thread exits before we drop acquisition/connection
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                let conn = self.connection.clone();
+                let acq = self.acquisition.clone();
+                let _ = handle.block_on(async move {
+                    let conn_guard = conn.lock().await;
+                    let _ = acq.stop_stream(&conn_guard).await;
+                });
+                tracing::debug!("PvcamDriver::drop - stream stopped");
+            } else {
+                // No tokio runtime - acquisition Drop will handle shutdown via flag
+                tracing::warn!("PvcamDriver::drop - no tokio runtime, relying on acquisition Drop");
+            }
+        }
     }
 }
