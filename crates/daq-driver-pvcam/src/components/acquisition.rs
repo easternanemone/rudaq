@@ -1006,28 +1006,28 @@ impl PvcamAcquisition {
                     break;
                 }
 
-                // Gemini SDK review: Removed redundant pl_exp_check_cont_status from drain loop.
-                // pl_exp_get_oldest_frame_ex already returns 0 when no frames are available,
-                // so the status check adds unnecessary syscall overhead in the hot path.
-                //
-                // We still need to detect READOUT_FAILED, but we do that via a periodic check
-                // in the outer loop's fallback path (see buffer_cnt > 0 logic above).
-
-                // Fetch oldest frame with FRAME_INFO for loss detection (bd-ek9n.3)
+                // Check acquisition status and detect fatal errors
+                // NOTE: Gemini suggested removing this for performance, but testing shows
+                // it's needed for proper frame timing synchronization with the hardware.
                 unsafe {
+                    if pl_exp_check_cont_status(hcam, &mut status, &mut bytes_arrived, &mut buffer_cnt) == 0 {
+                        tracing::error!("PVCAM status check failed");
+                        let _ = error_tx.send(AcquisitionError::StatusCheckFailed);
+                        fatal_error = true;
+                        break;
+                    }
+
+                    if status == READOUT_FAILED {
+                        tracing::error!("PVCAM readout failed");
+                        let _ = error_tx.send(AcquisitionError::ReadoutFailed);
+                        fatal_error = true;
+                        break;
+                    }
+
+                    // Fetch oldest frame with FRAME_INFO for loss detection (bd-ek9n.3)
                     let mut frame_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
                     if pl_exp_get_oldest_frame_ex(hcam, &mut frame_ptr, &mut frame_info) == 0 || frame_ptr.is_null() {
-                        // No more frames available - exit drain loop
-                        // Check if this was due to a fatal error
-                        if pl_exp_check_cont_status(hcam, &mut status, &mut bytes_arrived, &mut buffer_cnt) == 0 {
-                            tracing::error!("PVCAM status check failed after frame retrieval error");
-                            let _ = error_tx.send(AcquisitionError::StatusCheckFailed);
-                            fatal_error = true;
-                        } else if status == READOUT_FAILED {
-                            tracing::error!("PVCAM readout failed");
-                            let _ = error_tx.send(AcquisitionError::ReadoutFailed);
-                            fatal_error = true;
-                        }
+                        // No more frames available - exit drain loop normally
                         break;
                     }
                     frames_processed_in_drain += 1;
