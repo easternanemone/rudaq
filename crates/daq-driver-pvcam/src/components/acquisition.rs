@@ -195,11 +195,15 @@ impl CallbackContext {
 /// FFI-safe EOF callback function (bd-ek9n.2)
 ///
 /// This function is called by PVCAM when a frame is ready. It must:
-/// 1. Be `extern "C"` to match bindgen's generated function signatures
+/// 1. Be `extern "system"` for cross-platform ABI safety (stdcall on Windows, cdecl on Unix)
 /// 2. Do minimal work (just signal, no heavy processing)
 /// 3. Not block or perform I/O
 ///
-/// Note: On Unix, `extern "C"` and `extern "system"` are equivalent.
+/// Uses `extern "system"` instead of `extern "C"` for Windows compatibility:
+/// - On Unix: both ABIs are equivalent (cdecl)
+/// - On Windows: `extern "system"` uses __stdcall as PVCAM SDK expects
+/// - On Windows x64: both ABIs are unified, so either works
+///
 /// The callback is cast to `*mut c_void` when registered with PVCAM.
 ///
 /// # Safety
@@ -207,7 +211,7 @@ impl CallbackContext {
 /// - `p_frame_info` must be a valid pointer to FRAME_INFO or null
 /// - `p_context` must be a valid pointer to CallbackContext
 #[cfg(feature = "pvcam_hardware")]
-pub unsafe extern "C" fn pvcam_eof_callback(
+pub unsafe extern "system" fn pvcam_eof_callback(
     p_frame_info: *const FRAME_INFO,
     p_context: *mut std::ffi::c_void,
 ) {
@@ -773,9 +777,9 @@ impl PvcamAcquisition {
         #[cfg(feature = "arrow_tap")]
         arrow_tap: Option<tokio::sync::mpsc::Sender<Arc<arrow::array::UInt16Array>>>,
         frame_count: Arc<AtomicU64>,
-        _lost_frames: Arc<AtomicU64>,
-        _discontinuity_events: Arc<AtomicU64>,
-        _last_hw_frame_nr: Arc<AtomicI32>,
+        lost_frames: Arc<AtomicU64>,
+        discontinuity_events: Arc<AtomicU64>,
+        last_hw_frame_nr: Arc<AtomicI32>,
         callback_ctx: Arc<std::pin::Pin<Box<CallbackContext>>>,
         use_callback: bool,
         frame_bytes: usize,
@@ -832,6 +836,11 @@ impl PvcamAcquisition {
             // Drain loop: process all available frames to avoid losing events
             // when multiple callbacks fire while we're processing
             let mut frames_processed_in_drain: u32 = 0;
+
+            // Stack-allocated FRAME_INFO for pl_exp_get_oldest_frame_ex (bd-ek9n.3)
+            // Using zeroed struct as PVCAM will fill in the fields on frame retrieval.
+            let mut frame_info: FRAME_INFO = unsafe { std::mem::zeroed() };
+
             loop {
                 // Check shutdown between frames
                 if !streaming.get() || shutdown.load(Ordering::Acquire) {
@@ -849,13 +858,46 @@ impl PvcamAcquisition {
                         break;
                     }
 
-                    // Try to fetch the oldest frame from the circular buffer
+                    // Fetch oldest frame with FRAME_INFO for loss detection (bd-ek9n.3)
                     let mut frame_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-                    if pl_exp_get_oldest_frame(hcam, &mut frame_ptr) == 0 || frame_ptr.is_null() {
+                    if pl_exp_get_oldest_frame_ex(hcam, &mut frame_ptr, &mut frame_info) == 0 || frame_ptr.is_null() {
                         // No more frames available - exit drain loop
                         break;
                     }
                     frames_processed_in_drain += 1;
+
+                    // Frame loss detection (bd-ek9n.3): Check for gaps in FrameNr sequence
+                    // FrameNr is 1-based hardware counter from PVCAM
+                    let current_frame_nr = frame_info.FrameNr;
+                    let prev_frame_nr = last_hw_frame_nr.load(Ordering::Acquire);
+
+                    if prev_frame_nr >= 0 {
+                        // Not the first frame - check for gaps
+                        let expected_frame_nr = prev_frame_nr + 1;
+                        if current_frame_nr > expected_frame_nr {
+                            // Gap detected: frames were lost between prev and current
+                            let frames_lost = (current_frame_nr - expected_frame_nr) as u64;
+                            lost_frames.fetch_add(frames_lost, Ordering::Relaxed);
+                            discontinuity_events.fetch_add(1, Ordering::Relaxed);
+                            tracing::warn!(
+                                "Frame loss detected: expected FrameNr {}, got {} ({} frames lost)",
+                                expected_frame_nr,
+                                current_frame_nr,
+                                frames_lost
+                            );
+                        } else if current_frame_nr < expected_frame_nr && current_frame_nr != 1 {
+                            // Frame number went backwards (not due to wrap to 1)
+                            // This is unexpected but log it as discontinuity
+                            discontinuity_events.fetch_add(1, Ordering::Relaxed);
+                            tracing::warn!(
+                                "Frame number discontinuity: expected {}, got {} (possible SDK reset)",
+                                expected_frame_nr,
+                                current_frame_nr
+                            );
+                        }
+                    }
+                    // Update last seen frame number
+                    last_hw_frame_nr.store(current_frame_nr, Ordering::Release);
 
                     // Memory optimization (bd-ek9n.5): Single copy from SDK buffer.
                     // Trim to expected_frame_bytes to exclude metadata/padding.
@@ -873,12 +915,6 @@ impl PvcamAcquisition {
                     if use_callback {
                         callback_ctx.consume_one();
                     }
-
-                    // NOTE: Frame loss detection via FRAME_INFO.FrameNr requires
-                    // pl_exp_get_oldest_frame_ex which provides per-frame FRAME_INFO.
-                    // The callback's latest_frame_nr may not match the oldest frame
-                    // we just retrieved, so we don't use it here to avoid false reports.
-                    // TODO(bd-ek9n.3): Implement pl_exp_get_oldest_frame_ex for accurate detection.
 
                     // Create Frame with ownership transfer - no additional copy (bd-ek9n.5)
                     let frame = Frame::from_bytes(width, height, 16, pixel_data);
@@ -921,13 +957,24 @@ impl PvcamAcquisition {
             }
         }
 
-        // Log acquisition summary
+        // Log acquisition summary with frame loss statistics (bd-ek9n.3)
         let total_frames = frame_count.load(Ordering::Relaxed);
-        tracing::info!("PVCAM acquisition ended: {} frames captured", total_frames);
+        let total_lost = lost_frames.load(Ordering::Relaxed);
+        let total_discontinuities = discontinuity_events.load(Ordering::Relaxed);
 
-        // NOTE: Frame loss statistics are currently disabled because accurate
-        // detection requires pl_exp_get_oldest_frame_ex with per-frame FRAME_INFO.
-        // See TODO(bd-ek9n.3) above.
+        if total_lost > 0 || total_discontinuities > 0 {
+            tracing::warn!(
+                "PVCAM acquisition ended: {} frames captured, {} frames lost, {} discontinuity events",
+                total_frames,
+                total_lost,
+                total_discontinuities
+            );
+        } else {
+            tracing::info!(
+                "PVCAM acquisition ended: {} frames captured (no frame loss detected)",
+                total_frames
+            );
+        }
 
         // NOTE: We do NOT call pl_exp_stop_cont here - that's done in stop_stream()
         // after the poll handle is awaited. Calling it here would race with
