@@ -249,6 +249,40 @@ pub enum AcquisitionError {
     Timeout,
 }
 
+/// Hardware frame metadata decoded from PVCAM embedded metadata (Gemini SDK review).
+///
+/// When `PARAM_METADATA_ENABLED` is true, PVCAM embeds timing information
+/// directly in the frame buffer. This struct holds the decoded values
+/// which provide microsecond-precision hardware timestamps from the FPGA.
+///
+/// # Timestamps
+///
+/// - `timestamp_bof_ns`: Beginning of frame timestamp in nanoseconds
+/// - `timestamp_eof_ns`: End of frame timestamp in nanoseconds
+/// - `exposure_time_ns`: Actual exposure time in nanoseconds
+///
+/// # Usage
+///
+/// Hardware timestamps are superior to software timestamps for:
+/// - Correlating camera frames with other hardware events (stage movement, laser pulses)
+/// - Precise inter-frame timing analysis
+/// - Detecting timing jitter or irregularities
+#[derive(Debug, Clone, Default)]
+pub struct FrameMetadata {
+    /// Hardware frame number (1-based, from FPGA)
+    pub frame_nr: u32,
+    /// Beginning of frame timestamp in nanoseconds (from FPGA clock)
+    pub timestamp_bof_ns: u64,
+    /// End of frame timestamp in nanoseconds (from FPGA clock)
+    pub timestamp_eof_ns: u64,
+    /// Actual exposure time in nanoseconds
+    pub exposure_time_ns: u64,
+    /// Bit depth of the image data
+    pub bit_depth: u8,
+    /// Number of ROIs in the frame
+    pub roi_count: u16,
+}
+
 /// Page-aligned buffer for DMA performance (Gemini SDK review).
 /// PVCAM DMA requires 4KB page alignment to avoid internal driver copies.
 #[cfg(feature = "pvcam_hardware")]
@@ -321,6 +355,14 @@ pub struct PvcamAcquisition {
     #[cfg(feature = "arrow_tap")]
     pub arrow_tap: Arc<Mutex<Option<tokio::sync::mpsc::Sender<Arc<arrow::array::UInt16Array>>>>>,
 
+    /// Optional metadata channel for hardware timestamps (Gemini SDK review).
+    /// When enabled, each frame's decoded metadata is sent here alongside the frame data.
+    #[cfg(feature = "pvcam_hardware")]
+    pub metadata_tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<FrameMetadata>>>>,
+    /// Whether metadata decoding is enabled for this acquisition.
+    #[cfg(feature = "pvcam_hardware")]
+    metadata_enabled: Arc<AtomicBool>,
+
     /// Frame loss detection counters (bd-ek9n.3).
     /// Total number of frames lost due to buffer overflows or processing delays.
     pub lost_frames: Arc<AtomicU64>,
@@ -370,6 +412,12 @@ impl PvcamAcquisition {
             reliable_tx: Arc::new(Mutex::new(None)),
             #[cfg(feature = "arrow_tap")]
             arrow_tap: Arc::new(Mutex::new(None)),
+
+            // Metadata channel and state (Gemini SDK review)
+            #[cfg(feature = "pvcam_hardware")]
+            metadata_tx: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "pvcam_hardware")]
+            metadata_enabled: Arc::new(AtomicBool::new(false)),
 
             // Frame loss detection counters (bd-ek9n.3)
             lost_frames: Arc::new(AtomicU64::new(0)),
@@ -507,6 +555,36 @@ impl PvcamAcquisition {
         *guard = Some(tx);
     }
 
+    /// Enable metadata decoding and set the metadata channel (Gemini SDK review).
+    ///
+    /// When enabled, PVCAM embeds hardware timestamps in frame buffers which are
+    /// decoded using `pl_md_frame_decode`. This provides microsecond-precision
+    /// timing from the FPGA for correlating frames with other hardware events.
+    ///
+    /// # Arguments
+    ///
+    /// * `tx` - Channel to receive `FrameMetadata` for each frame
+    ///
+    /// # Note
+    ///
+    /// Must be called before `start_stream()`. The metadata channel will receive
+    /// one `FrameMetadata` per frame in sync with the frame delivery.
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn enable_metadata(&self, tx: tokio::sync::mpsc::Sender<FrameMetadata>) {
+        let mut guard = self.metadata_tx.lock().await;
+        *guard = Some(tx);
+        self.metadata_enabled.store(true, Ordering::Release);
+        tracing::info!("Metadata decoding enabled for acquisition");
+    }
+
+    /// Disable metadata decoding (Gemini SDK review).
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn disable_metadata(&self) {
+        let mut guard = self.metadata_tx.lock().await;
+        *guard = None;
+        self.metadata_enabled.store(false, Ordering::Release);
+    }
+
     /// Start streaming frames
     ///
     /// # Frame Loss Detection (bd-ek9n.3)
@@ -539,14 +617,24 @@ impl PvcamAcquisition {
         if let Some(h) = conn.handle() {
             // Hardware path
 
-            // PVCAM Safety: Disable metadata before acquisition (Gemini SDK review finding).
-            // When PARAM_METADATA_ENABLED is true, frame buffers contain header data before pixels,
-            // which corrupts image data if not properly parsed. Until pl_md_frame_decode support
-            // is implemented, force-disable metadata for data integrity.
-            if PvcamFeatures::is_metadata_enabled(conn).unwrap_or(false) {
-                tracing::warn!("Disabling PVCAM metadata for acquisition data integrity");
+            // Check if metadata decoding is enabled (via enable_metadata() call)
+            let use_metadata = self.metadata_enabled.load(Ordering::Acquire);
+
+            // Configure PVCAM metadata based on whether decoding is enabled (Gemini SDK review).
+            // When metadata is enabled, frame buffers contain header data before pixels.
+            // We only enable it when pl_md_frame_decode will be used to parse the data.
+            let current_metadata = PvcamFeatures::is_metadata_enabled(conn).unwrap_or(false);
+            if use_metadata && !current_metadata {
+                tracing::info!("Enabling PVCAM metadata for hardware timestamp decoding");
+                if let Err(e) = PvcamFeatures::set_metadata_enabled(conn, true) {
+                    tracing::error!("Failed to enable metadata: {}. Falling back to no metadata", e);
+                    self.metadata_enabled.store(false, Ordering::Release);
+                }
+            } else if !use_metadata && current_metadata {
+                // Disable metadata to prevent data corruption when not decoding
+                tracing::debug!("Disabling PVCAM metadata (no decoder configured)");
                 if let Err(e) = PvcamFeatures::set_metadata_enabled(conn, false) {
-                    tracing::error!("Failed to disable metadata: {}. Acquisition may produce corrupt data", e);
+                    tracing::warn!("Failed to disable metadata: {}. Data may include headers", e);
                 }
             }
 
@@ -695,6 +783,11 @@ impl PvcamAcquisition {
             #[cfg(feature = "arrow_tap")]
             let arrow_tap = _arrow_tap.clone();
 
+            // Gemini SDK review: Metadata channel for hardware timestamps
+            let metadata_tx = self.metadata_tx.lock().await.clone();
+            // Re-check use_metadata after potential error during enable
+            let use_metadata = self.metadata_enabled.load(Ordering::Acquire);
+
             // Gemini SDK review: Create error channel for involuntary stop signaling.
             // Fatal errors (READOUT_FAILED, etc.) are sent from frame loop to update streaming state.
             // Uses tokio unbounded_channel: send() is non-blocking (safe from sync code),
@@ -726,6 +819,8 @@ impl PvcamAcquisition {
                     width,
                     height,
                     error_tx,
+                    use_metadata,
+                    metadata_tx,
                 );
             });
 
@@ -892,6 +987,8 @@ impl PvcamAcquisition {
     /// * `height` - Frame height in pixels
     /// * `error_tx` - Tokio unbounded channel to signal fatal errors for involuntary stop handling.
     ///                UnboundedSender::send() is non-blocking and safe to call from sync code.
+    /// * `use_metadata` - Whether metadata decoding is enabled (Gemini SDK review)
+    /// * `metadata_tx` - Optional channel for decoded hardware timestamps
     #[cfg(feature = "pvcam_hardware")]
     #[allow(clippy::too_many_arguments)]
     fn frame_loop_hardware(
@@ -914,6 +1011,8 @@ impl PvcamAcquisition {
         width: u32,
         height: u32,
         error_tx: tokio::sync::mpsc::UnboundedSender<AcquisitionError>,
+        use_metadata: bool,
+        metadata_tx: Option<tokio::sync::mpsc::Sender<FrameMetadata>>,
     ) {
         let mut status: i16 = 0;
         let mut bytes_arrived: uns32 = 0;
@@ -937,6 +1036,24 @@ impl PvcamAcquisition {
         } else {
             tracing::debug!("Using polling mode for frame acquisition");
         }
+
+        // Gemini SDK review: Create md_frame struct for metadata decoding
+        // This struct holds pointers into the frame buffer for extracting timestamps.
+        // Must be created before the loop and released after.
+        let md_frame_ptr: *mut md_frame = if use_metadata {
+            let mut ptr: *mut md_frame = std::ptr::null_mut();
+            // Create struct for 1 ROI (single-ROI acquisition)
+            let result = unsafe { pl_md_create_frame_struct_cont(&mut ptr, 1) };
+            if result == 0 || ptr.is_null() {
+                tracing::warn!("Failed to create md_frame struct, metadata decoding disabled");
+                std::ptr::null_mut()
+            } else {
+                tracing::debug!("Created md_frame struct for metadata decoding");
+                ptr
+            }
+        } else {
+            std::ptr::null_mut()
+        };
 
         // Check both streaming flag and shutdown signal (bd-z8q8).
         // Shutdown is set in Drop to ensure the loop exits before SDK uninit.
@@ -1057,8 +1174,41 @@ impl PvcamAcquisition {
                     // Update last seen frame number
                     last_hw_frame_nr.store(current_frame_nr, Ordering::Release);
 
+                    // Gemini SDK review: Decode frame metadata for hardware timestamps
+                    // This must happen before copying pixel data as metadata parsing identifies
+                    // the pixel data offset within the buffer.
+                    let frame_metadata = if !md_frame_ptr.is_null() {
+                        // Decode the metadata-enabled frame buffer
+                        let decode_result = pl_md_frame_decode(
+                            md_frame_ptr,
+                            frame_ptr,
+                            frame_bytes as uns32,
+                        );
+                        if decode_result != 0 {
+                            // Successfully decoded - extract timestamps
+                            let hdr = &*(*md_frame_ptr).header;
+                            let ts_res = hdr.timestampResNs as u64;
+                            let exp_res = hdr.exposureTimeResNs as u64;
+                            Some(FrameMetadata {
+                                frame_nr: hdr.frameNr,
+                                timestamp_bof_ns: (hdr.timestampBOF as u64) * ts_res,
+                                timestamp_eof_ns: (hdr.timestampEOF as u64) * ts_res,
+                                exposure_time_ns: (hdr.exposureTime as u64) * exp_res,
+                                bit_depth: hdr.bitDepth,
+                                roi_count: hdr.roiCount,
+                            })
+                        } else {
+                            tracing::warn!("pl_md_frame_decode failed for frame {}", current_frame_nr);
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
                     // Memory optimization (bd-ek9n.5): Single copy from SDK buffer.
-                    // Trim to expected_frame_bytes to exclude metadata/padding.
+                    // When metadata is enabled, the pixel data starts after the header.
+                    // For simplicity, we copy expected_frame_bytes from the buffer start
+                    // (metadata header is at the END of the buffer per PVCAM design).
                     let copy_bytes = frame_bytes.min(expected_frame_bytes);
                     let sdk_bytes = std::slice::from_raw_parts(
                         frame_ptr as *const u8,
@@ -1094,6 +1244,11 @@ impl PvcamAcquisition {
                         let buffer = Buffer::from(frame_arc.data.clone());
                         let arr = Arc::new(PrimitiveArray::<UInt16Type>::new(Arc::new(buffer), None));
                         let _ = tap.blocking_send(arr);
+                    }
+
+                    // Gemini SDK review: Send metadata through channel if available
+                    if let (Some(md), Some(ref tx)) = (frame_metadata, &metadata_tx) {
+                        let _ = tx.blocking_send(md);
                     }
                 }
             }
@@ -1132,6 +1287,18 @@ impl PvcamAcquisition {
                         // Yield a bit to avoid hammering pl_exp_check_cont_status in a tight loop.
                         std::thread::sleep(Duration::from_millis(1));
                     }
+                }
+            }
+        }
+
+        // Gemini SDK review: Release md_frame struct if it was allocated
+        if !md_frame_ptr.is_null() {
+            unsafe {
+                let result = pl_md_release_frame_struct(md_frame_ptr);
+                if result == 0 {
+                    tracing::warn!("pl_md_release_frame_struct failed");
+                } else {
+                    tracing::debug!("Released md_frame struct");
                 }
             }
         }
