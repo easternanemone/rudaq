@@ -58,6 +58,8 @@ use std::sync::atomic::AtomicI32;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+#[cfg(feature = "pvcam_hardware")]
+use std::alloc::{alloc_zeroed, dealloc, Layout};
 use daq_core::data::Frame;
 use daq_core::parameter::Parameter;
 use crate::components::connection::PvcamConnection;
@@ -234,6 +236,73 @@ pub unsafe extern "system" fn pvcam_eof_callback(
     ctx.signal_frame_ready(frame_nr);
 }
 
+/// Acquisition error type for signaling fatal errors from frame loop (Gemini SDK review).
+/// Used to signal "involuntary stop" conditions back to the driver.
+#[cfg(feature = "pvcam_hardware")]
+#[derive(Debug, Clone)]
+pub enum AcquisitionError {
+    /// READOUT_FAILED status from pl_exp_check_cont_status
+    ReadoutFailed,
+    /// pl_exp_check_cont_status returned 0 (SDK error)
+    StatusCheckFailed,
+    /// Too many consecutive timeouts without frames
+    Timeout,
+}
+
+/// Page-aligned buffer for DMA performance (Gemini SDK review).
+/// PVCAM DMA requires 4KB page alignment to avoid internal driver copies.
+#[cfg(feature = "pvcam_hardware")]
+pub struct PageAlignedBuffer {
+    ptr: *mut u8,
+    layout: Layout,
+    len: usize,
+}
+
+#[cfg(feature = "pvcam_hardware")]
+impl PageAlignedBuffer {
+    const PAGE_SIZE: usize = 4096;
+
+    /// Allocate a page-aligned buffer of the given size.
+    /// Panics if allocation fails (unlikely for reasonable sizes).
+    pub fn new(size: usize) -> Self {
+        let layout = Layout::from_size_align(size, Self::PAGE_SIZE)
+            .expect("Invalid layout for page-aligned buffer");
+        let ptr = unsafe { alloc_zeroed(layout) };
+        if ptr.is_null() {
+            panic!("Failed to allocate page-aligned buffer of {} bytes", size);
+        }
+        Self { ptr, layout, len: size }
+    }
+
+    /// Get a mutable pointer to the buffer for passing to PVCAM SDK.
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.ptr
+    }
+
+    /// Get the buffer length in bytes.
+    #[allow(dead_code)]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+}
+
+#[cfg(feature = "pvcam_hardware")]
+impl Drop for PageAlignedBuffer {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe { dealloc(self.ptr, self.layout); }
+        }
+    }
+}
+
+// SAFETY: The buffer is only accessed from the frame loop thread and
+// PVCAM SDK (which operates on the same thread). The Arc<Mutex<>> wrapper
+// ensures synchronized access.
+#[cfg(feature = "pvcam_hardware")]
+unsafe impl Send for PageAlignedBuffer {}
+#[cfg(feature = "pvcam_hardware")]
+unsafe impl Sync for PageAlignedBuffer {}
+
 /// PVCAM acquisition state and frame streaming.
 ///
 /// Manages continuous acquisition with circular buffers and provides frame
@@ -267,12 +336,16 @@ pub struct PvcamAcquisition {
     shutdown: Arc<AtomicBool>,
     #[cfg(feature = "pvcam_hardware")]
     poll_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
-    /// Circular buffer passed to PVCAM - MUST remain allocated for acquisition lifetime.
-    /// Using Vec<u8> to match the byte pointer passed to pl_exp_start_cont.
+    /// Page-aligned circular buffer for DMA performance (Gemini SDK review).
+    /// PVCAM DMA requires 4KB alignment to avoid internal driver copies.
     #[cfg(feature = "pvcam_hardware")]
-    circ_buffer: Arc<Mutex<Option<Vec<u8>>>>,
+    circ_buffer: Arc<Mutex<Option<PageAlignedBuffer>>>,
     #[cfg(feature = "pvcam_hardware")]
     trigger_frame: Arc<Mutex<Option<Vec<u16>>>>,
+    /// Error sender for signaling involuntary stops from frame loop (Gemini SDK review).
+    /// Fatal errors (READOUT_FAILED, etc.) are sent here so the driver can update streaming state.
+    #[cfg(feature = "pvcam_hardware")]
+    error_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<AcquisitionError>>>>,
     /// Callback context for EOF notifications (bd-ek9n.2).
     /// Pinned to ensure stable address for FFI callback.
     #[cfg(feature = "pvcam_hardware")]
@@ -311,6 +384,9 @@ impl PvcamAcquisition {
             circ_buffer: Arc::new(Mutex::new(None)),
             #[cfg(feature = "pvcam_hardware")]
             trigger_frame: Arc::new(Mutex::new(None)),
+            // Error channel for involuntary stop signaling (Gemini SDK review)
+            #[cfg(feature = "pvcam_hardware")]
+            error_tx: Arc::new(Mutex::new(None)),
             // Pinned callback context for EOF notifications (bd-ek9n.2)
             #[cfg(feature = "pvcam_hardware")]
             callback_context: Arc::new(Box::pin(CallbackContext::new())),
@@ -576,11 +652,15 @@ impl PvcamAcquisition {
                 )
             })?;
 
-            let mut circ_buf: Vec<u8> = vec![0u8; circ_buf_size];
+            // Gemini SDK review: Use page-aligned buffer for DMA performance.
+            // Standard Vec<u8> is only 1-byte aligned; PVCAM DMA requires 4KB alignment
+            // to avoid internal driver copies (double buffering).
+            let mut circ_buf = PageAlignedBuffer::new(circ_buf_size);
             let circ_ptr = circ_buf.as_mut_ptr();
+            tracing::debug!("Allocated {}KB page-aligned circular buffer", circ_buf_size / 1024);
 
             unsafe {
-                // SAFETY: circ_ptr points to contiguous buffer sized circ_size_bytes; SDK expects byte size.
+                // SAFETY: circ_ptr points to page-aligned contiguous buffer; SDK expects byte size.
                 if pl_exp_start_cont(h, circ_ptr as *mut _, circ_size_bytes) == 0 {
                     // Deregister callback on failure
                     if use_callback {
@@ -593,7 +673,7 @@ impl PvcamAcquisition {
                 }
             }
 
-            // CRITICAL: Store the ORIGINAL buffer passed to pl_exp_start_cont.
+            // CRITICAL: Store the page-aligned buffer passed to pl_exp_start_cont.
             // The buffer MUST remain allocated for the entire acquisition lifetime.
             // DO NOT convert or transform - PVCAM holds a raw pointer to this memory.
             *self.circ_buffer.lock().await = Some(circ_buf);
@@ -613,6 +693,14 @@ impl PvcamAcquisition {
             let height = binned_height;
             #[cfg(feature = "arrow_tap")]
             let arrow_tap = _arrow_tap.clone();
+
+            // Gemini SDK review: Create error channel for involuntary stop signaling.
+            // Fatal errors (READOUT_FAILED, etc.) are sent from frame loop to update streaming state.
+            let (error_tx, error_rx) = std::sync::mpsc::channel::<AcquisitionError>();
+            *self.error_tx.lock().await = Some(error_tx.clone());
+
+            // Clone streaming parameter for error watcher task
+            let streaming_for_watcher = self.streaming.clone();
 
             let poll_handle = tokio::task::spawn_blocking(move || {
                 Self::frame_loop_hardware(
@@ -634,10 +722,40 @@ impl PvcamAcquisition {
                     expected_frame_bytes,
                     width,
                     height,
+                    error_tx,
                 );
             });
 
             *self.poll_handle.lock().await = Some(poll_handle);
+
+            // Gemini SDK review: Spawn error watcher to handle involuntary stops.
+            // This prevents "zombie streaming" where fatal errors leave streaming=true.
+            tokio::spawn(async move {
+                // Check for errors in a loop (non-blocking recv with timeout)
+                loop {
+                    match error_rx.recv_timeout(Duration::from_millis(100)) {
+                        Ok(err) => {
+                            tracing::error!("Acquisition error (involuntary stop): {:?}", err);
+                            // Update streaming state to reflect the involuntary stop
+                            if let Err(e) = streaming_for_watcher.set(false).await {
+                                tracing::error!("Failed to update streaming state after error: {}", e);
+                            }
+                            break;
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            // Check if streaming stopped normally
+                            if !streaming_for_watcher.get() {
+                                break;
+                            }
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            // Frame loop ended (channel dropped)
+                            break;
+                        }
+                    }
+                }
+            });
+
             return Ok(());
         }
 
@@ -781,6 +899,7 @@ impl PvcamAcquisition {
     /// * `expected_frame_bytes` - Expected pixel data size (without metadata)
     /// * `width` - Frame width in pixels
     /// * `height` - Frame height in pixels
+    /// * `error_tx` - Channel to signal fatal errors for involuntary stop handling
     #[cfg(feature = "pvcam_hardware")]
     #[allow(clippy::too_many_arguments)]
     fn frame_loop_hardware(
@@ -802,6 +921,7 @@ impl PvcamAcquisition {
         expected_frame_bytes: usize,
         width: u32,
         height: u32,
+        error_tx: std::sync::mpsc::Sender<AcquisitionError>,
     ) {
         let mut status: i16 = 0;
         let mut bytes_arrived: uns32 = 0;
@@ -863,6 +983,8 @@ impl PvcamAcquisition {
                 consecutive_timeouts += 1;
                 if consecutive_timeouts >= max_consecutive_timeouts {
                     tracing::warn!("Frame loop: max consecutive timeouts reached");
+                    // Gemini SDK review: Signal involuntary stop on timeout
+                    let _ = error_tx.send(AcquisitionError::Timeout);
                     break;
                 }
                 continue;
@@ -872,6 +994,7 @@ impl PvcamAcquisition {
             // Drain loop: process all available frames to avoid losing events
             // when multiple callbacks fire while we're processing
             let mut frames_processed_in_drain: u32 = 0;
+            let mut fatal_error = false;
 
             // Stack-allocated FRAME_INFO for pl_exp_get_oldest_frame_ex (bd-ek9n.3)
             // Using zeroed struct as PVCAM will fill in the fields on frame retrieval.
@@ -883,21 +1006,28 @@ impl PvcamAcquisition {
                     break;
                 }
 
-                // Check acquisition status
+                // Gemini SDK review: Removed redundant pl_exp_check_cont_status from drain loop.
+                // pl_exp_get_oldest_frame_ex already returns 0 when no frames are available,
+                // so the status check adds unnecessary syscall overhead in the hot path.
+                //
+                // We still need to detect READOUT_FAILED, but we do that via a periodic check
+                // in the outer loop's fallback path (see buffer_cnt > 0 logic above).
+
+                // Fetch oldest frame with FRAME_INFO for loss detection (bd-ek9n.3)
                 unsafe {
-                    if pl_exp_check_cont_status(hcam, &mut status, &mut bytes_arrived, &mut buffer_cnt) == 0 {
-                        break;
-                    }
-
-                    if status == READOUT_FAILED {
-                        tracing::error!("PVCAM readout failed");
-                        break;
-                    }
-
-                    // Fetch oldest frame with FRAME_INFO for loss detection (bd-ek9n.3)
                     let mut frame_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
                     if pl_exp_get_oldest_frame_ex(hcam, &mut frame_ptr, &mut frame_info) == 0 || frame_ptr.is_null() {
                         // No more frames available - exit drain loop
+                        // Check if this was due to a fatal error
+                        if pl_exp_check_cont_status(hcam, &mut status, &mut bytes_arrived, &mut buffer_cnt) == 0 {
+                            tracing::error!("PVCAM status check failed after frame retrieval error");
+                            let _ = error_tx.send(AcquisitionError::StatusCheckFailed);
+                            fatal_error = true;
+                        } else if status == READOUT_FAILED {
+                            tracing::error!("PVCAM readout failed");
+                            let _ = error_tx.send(AcquisitionError::ReadoutFailed);
+                            fatal_error = true;
+                        }
                         break;
                     }
                     frames_processed_in_drain += 1;
@@ -974,6 +1104,12 @@ impl PvcamAcquisition {
                         let _ = tap.blocking_send(arr);
                     }
                 }
+            }
+
+            // Gemini SDK review: Exit outer loop on fatal error to prevent zombie streaming
+            if fatal_error {
+                tracing::error!("Exiting frame loop due to fatal acquisition error");
+                break;
             }
 
             // Fix for pending_frames getting stuck (medium priority issue):

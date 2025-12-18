@@ -1810,6 +1810,22 @@ impl PvcamFeatures {
     }
 
     /// Enable or disable frame metadata (bd-ne6a)
+    ///
+    /// **WARNING:** Frame metadata is currently disabled during acquisition (see acquisition.rs).
+    /// When enabled, frame buffers contain header data before pixel data which requires
+    /// parsing with pl_md_frame_decode. Without proper parsing, this corrupts image data.
+    ///
+    /// # Future Work (Gemini SDK Review)
+    ///
+    /// To fully support metadata:
+    /// 1. Add pl_md_create_frame_struct and pl_md_frame_decode to pvcam-sys bindings
+    /// 2. Create md_frame struct to hold decoded metadata
+    /// 3. Update frame_loop_hardware to detect metadata-enabled mode
+    /// 4. Parse frames using pl_md_frame_decode to extract:
+    ///    - Hardware timestamps (microsecond precision from FPGA)
+    ///    - Hardware frame count (absolute reference for loss detection)
+    ///    - Pixel data offset/size
+    /// 5. Remove the force-disable in start_stream once parsing is implemented
     pub fn set_metadata_enabled(_conn: &PvcamConnection, _enabled: bool) -> Result<()> {
         #[cfg(feature = "pvcam_hardware")]
         if let Some(h) = _conn.handle() {
