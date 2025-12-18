@@ -54,19 +54,6 @@ pub use daq_core::parameter;
 pub use crate::hardware;
 
 // =============================================================================
-// Data Storage & Processing
-// =============================================================================
-
-#[cfg(not(target_arch = "wasm32"))]
-/// Data storage components (ring buffers, HDF5 writers)
-///
-/// Re-exported from `daq-storage`. Includes:
-/// - `RingBuffer` - Memory-mapped ring buffer for high-throughput data
-/// - `HDF5Writer` - Background writer for HDF5 persistence
-/// - `RingBufferReader` - Helper for reading from ring buffer taps
-pub use crate::data;
-
-// =============================================================================
 // Experiment Orchestration
 // =============================================================================
 

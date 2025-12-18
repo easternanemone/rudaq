@@ -171,6 +171,14 @@ pub struct Ell14Driver {
 }
 
 impl Ell14Driver {
+    /// Default calibration: nominal 143360 pulses / 360 degrees = 398.2222 pulses/degree
+    ///
+    /// **WARNING:** This is a nominal value that may not match your specific device!
+    /// Individual ELL14 units have device-specific calibration values stored in firmware.
+    /// For accurate positioning, use [`new_async_with_device_calibration`] to query
+    /// the device's actual `PULSES/M.U.` value from the `IN` command response.
+    pub const DEFAULT_PULSES_PER_DEGREE: f64 = 398.2222;
+
     async fn with_retry<F, Fut, T>(&self, operation: &str, mut op: F) -> Result<T>
     where
         F: FnMut() -> Fut,
@@ -218,7 +226,7 @@ impl Ell14Driver {
         Ok(Self::build(
             Arc::new(Mutex::new(port)),
             address.to_string(),
-            398.2222,
+            Self::DEFAULT_PULSES_PER_DEGREE,
         ))
     }
 
@@ -246,7 +254,7 @@ impl Ell14Driver {
     /// * `shared_port` - Shared serial port from [`open_shared_port`]
     /// * `address` - Device address on the bus (0-9, A-F)
     pub fn with_shared_port(shared_port: SharedPort, address: &str) -> Self {
-        Self::build(shared_port, address.to_string(), 398.2222)
+        Self::build(shared_port, address.to_string(), Self::DEFAULT_PULSES_PER_DEGREE)
     }
 
     /// Internal helper to open a serial port with ELL14 settings
@@ -262,10 +270,13 @@ impl Ell14Driver {
         Ok(Box::new(port))
     }
 
-    /// Create a new ELL14 driver instance asynchronously
+    /// Create a new ELL14 driver instance asynchronously with default calibration
     ///
-    /// This is the preferred constructor as it uses `spawn_blocking` to avoid
-    /// blocking the async runtime during serial port opening.
+    /// Uses `spawn_blocking` to avoid blocking the async runtime during serial
+    /// port opening. Uses default calibration of 398.2222 pulses/degree.
+    ///
+    /// For accurate calibration from the device itself, use
+    /// [`new_async_with_device_calibration`] instead.
     ///
     /// # Arguments
     /// * `port_path` - Serial port path (e.g., "/dev/ttyUSB0" on Linux, "COM3" on Windows)
@@ -282,7 +293,74 @@ impl Ell14Driver {
             .await
             .context("spawn_blocking for ELL14 port opening failed")??;
 
-        Ok(Self::build(Arc::new(Mutex::new(port)), address, 398.2222))
+        Ok(Self::build(Arc::new(Mutex::new(port)), address, Self::DEFAULT_PULSES_PER_DEGREE))
+    }
+
+    /// Create a new ELL14 driver and query device for actual calibration
+    ///
+    /// **Recommended constructor** - queries the device for its actual
+    /// `pulses_per_unit` calibration value rather than using a hardcoded default.
+    ///
+    /// # Arguments
+    /// * `port_path` - Serial port path (e.g., "/dev/ttyUSB0" on Linux, "COM3" on Windows)
+    /// * `address` - Device address (usually "0")
+    ///
+    /// # Errors
+    /// Returns error if serial port cannot be opened or device info query fails
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let driver = Ell14Driver::new_async_with_device_calibration("/dev/ttyUSB0", "0").await?;
+    /// println!("Calibration: {:.4} pulses/degree", driver.get_pulses_per_degree());
+    /// ```
+    pub async fn new_async_with_device_calibration(port_path: &str, address: &str) -> Result<Self> {
+        let port_path_owned = port_path.to_string();
+        let address_owned = address.to_string();
+
+        // Use spawn_blocking to avoid blocking the async runtime
+        let port = spawn_blocking(move || Self::open_port(&port_path_owned))
+            .await
+            .context("spawn_blocking for ELL14 port opening failed")??;
+
+        let shared_port = Arc::new(Mutex::new(port));
+
+        // Create driver with default calibration first (needed for get_device_info)
+        let mut driver = Self::build(
+            shared_port,
+            address_owned,
+            Self::DEFAULT_PULSES_PER_DEGREE,
+        );
+
+        // Query device for actual calibration
+        // Per ELLx protocol manual: PULSES/M.U. = pulses per measurement unit
+        // For rotation stages (ELL14), M.U. = degrees, so this is pulses/degree directly
+        match driver.get_device_info().await {
+            Ok(info) => {
+                if info.pulses_per_unit > 0 {
+                    // PULSES/M.U. is pulses per measurement unit (degrees for ELL14)
+                    // Use the value directly - do NOT divide by 360!
+                    let pulses_per_degree = info.pulses_per_unit as f64;
+                    tracing::info!(
+                        "ELL14 device calibration: {} pulses/degree (from device)",
+                        pulses_per_degree
+                    );
+                    driver.pulses_per_degree = pulses_per_degree;
+                } else {
+                    tracing::warn!(
+                        "ELL14 device returned 0 pulses_per_unit, using default {:.4}",
+                        Self::DEFAULT_PULSES_PER_DEGREE
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to query ELL14 device info, using default calibration: {}",
+                    e
+                );
+            }
+        }
+
+        Ok(driver)
     }
 
     /// Create with custom calibration factor
@@ -319,7 +397,8 @@ impl Ell14Driver {
                 let port = port.clone();
                 let address = address.clone();
                 Box::pin(async move {
-                    let pulses = (position_deg * pulses_per_degree) as i32;
+                    // Round to nearest pulse to avoid truncation errors
+                    let pulses = (position_deg * pulses_per_degree).round() as i32;
                     let hex_pulses = format!("{:08X}", pulses as u32);
                     let payload = format!("{}ma{}", address, hex_pulses);
 
@@ -613,7 +692,8 @@ impl Ell14Driver {
     /// This sets the distance the device moves when `jog_forward()` or
     /// `jog_backward()` is called.
     pub async fn set_jog_step(&self, degrees: f64) -> Result<()> {
-        let pulses = (degrees * self.pulses_per_degree).abs() as u32;
+        // Round to nearest pulse to avoid truncation errors
+        let pulses = (degrees * self.pulses_per_degree).abs().round() as u32;
         let hex_pulses = format!("{:08X}", pulses);
         let cmd = format!("sj{}", hex_pulses);
 
@@ -896,7 +976,8 @@ impl Ell14Driver {
     /// This offsets the zero position from the mechanical home.
     /// Call `save_user_data()` to persist this setting.
     pub async fn set_home_offset(&self, degrees: f64) -> Result<()> {
-        let pulses = (degrees * self.pulses_per_degree) as i32;
+        // Round to nearest pulse to avoid truncation errors
+        let pulses = (degrees * self.pulses_per_degree).round() as i32;
         let hex_pulses = format!("{:08X}", pulses as u32);
         let cmd = format!("so{}", hex_pulses);
 
@@ -1038,7 +1119,8 @@ impl Movable for Ell14Driver {
 
     async fn move_rel(&self, distance_deg: f64) -> Result<()> {
         // Command: mr (Move Relative)
-        let pulses = (distance_deg * self.pulses_per_degree) as i32;
+        // Round to nearest pulse to avoid truncation errors
+        let pulses = (distance_deg * self.pulses_per_degree).round() as i32;
         let hex_pulses = format!("{:08X}", pulses as u32);
 
         let cmd = format!("mr{}", hex_pulses);
@@ -1200,14 +1282,14 @@ mod tests {
 
     #[test]
     fn test_position_conversion() {
-        let pulses_per_degree = 398.2222;
+        let pulses_per_degree: f64 = 398.2222;
 
-        // Test 45 degrees: 398.2222 * 45 = 17919.999 ≈ 17919
-        let pulses = (45.0 * pulses_per_degree) as i32;
-        assert_eq!(pulses, 17919);
+        // Test 45 degrees: 398.2222 * 45 = 17919.999, rounds to 17920
+        let pulses = (45.0 * pulses_per_degree).round() as i32;
+        assert_eq!(pulses, 17920);
 
-        // Test 90 degrees: 398.2222 * 90 = 35839.998 ≈ 35839
-        let pulses = (90.0 * pulses_per_degree) as i32;
-        assert_eq!(pulses, 35839);
+        // Test 90 degrees: 398.2222 * 90 = 35839.998, rounds to 35840
+        let pulses = (90.0 * pulses_per_degree).round() as i32;
+        assert_eq!(pulses, 35840);
     }
 }

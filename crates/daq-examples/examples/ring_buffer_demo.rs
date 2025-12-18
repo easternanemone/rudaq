@@ -6,7 +6,7 @@
 //! Run with: cargo run --example ring_buffer_demo
 
 use anyhow::Result;
-use rust_daq::data::ring_buffer::RingBuffer;
+use daq_storage::ring_buffer::RingBuffer;
 use std::path::Path;
 use std::sync::Arc;
 use std::thread;

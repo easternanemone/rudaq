@@ -3,6 +3,10 @@
 //! Provides HDF5 data storage and export functionality via gRPC.
 //! Uses the "Mullet Strategy": Arrow for fast in-memory processing,
 //! HDF5 for long-term storage and cross-platform compatibility.
+//!
+//! # Security (bd-hwq9)
+//! All user-provided filenames are sanitized to prevent path traversal attacks.
+//! Output paths are validated to remain within the configured output directory.
 
 use crate::grpc::proto::{
     AcquisitionInfo, AcquisitionSummary, ConfigureStorageRequest, ConfigureStorageResponse,
@@ -29,6 +33,135 @@ use uuid::Uuid;
 
 #[cfg(feature = "storage_hdf5")]
 use crate::data::ring_buffer::RingBuffer;
+
+// =============================================================================
+// Path Security (bd-hwq9)
+// =============================================================================
+
+/// Sanitize a user-provided name to a safe filename component.
+///
+/// This prevents path traversal attacks by:
+/// - Removing directory separators (/, \)
+/// - Removing path traversal sequences (..)
+/// - Only allowing alphanumeric characters, underscores, hyphens, and periods
+/// - Ensuring the result is non-empty (falls back to "unnamed" if empty)
+///
+/// # Security
+/// This is a critical security function. Any changes must be reviewed carefully.
+fn sanitize_filename_component(name: &str) -> String {
+    // Replace common directory separators with underscores
+    let sanitized: String = name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '\0' => '_',
+            c if c.is_alphanumeric() || c == '_' || c == '-' || c == '.' => c,
+            _ => '_',
+        })
+        .collect();
+
+    // Remove any remaining path traversal patterns
+    let sanitized = sanitized
+        .replace("..", "_")
+        .replace("._", "_")
+        .replace("_.", "_");
+
+    // Collapse multiple underscores
+    let mut result = String::with_capacity(sanitized.len());
+    let mut last_was_underscore = false;
+    for c in sanitized.chars() {
+        if c == '_' {
+            if !last_was_underscore {
+                result.push(c);
+            }
+            last_was_underscore = true;
+        } else {
+            result.push(c);
+            last_was_underscore = false;
+        }
+    }
+
+    // Trim leading/trailing underscores and periods (prevent hidden files)
+    let result = result.trim_matches(|c| c == '_' || c == '.');
+
+    // Ensure non-empty
+    if result.is_empty() {
+        "unnamed".to_string()
+    } else {
+        result.to_string()
+    }
+}
+
+/// Validate that a path is safely within the expected base directory.
+///
+/// This uses canonicalization to resolve symlinks and relative paths,
+/// then verifies the result starts with the expected base directory.
+///
+/// # Returns
+/// - `Ok(canonical_path)` if the path is valid and within the base directory
+/// - `Err(message)` if the path escapes the base directory or cannot be validated
+///
+/// # Security
+/// This is a critical security function that prevents directory traversal via:
+/// - Relative paths (../)
+/// - Symlink escapes
+/// - Absolute path injection
+fn validate_path_within_directory(
+    base_dir: &Path,
+    target_path: &Path,
+) -> Result<PathBuf, String> {
+    // Canonicalize base directory (must exist)
+    let canonical_base = base_dir.canonicalize().map_err(|e| {
+        format!(
+            "Cannot canonicalize base directory '{}': {}",
+            base_dir.display(),
+            e
+        )
+    })?;
+
+    // For the target path, we need to handle files that don't exist yet.
+    // Canonicalize the parent directory, then append the filename.
+    let parent = target_path.parent().ok_or_else(|| {
+        format!("Invalid target path: {}", target_path.display())
+    })?;
+    let filename = target_path.file_name().ok_or_else(|| {
+        format!("Target path has no filename: {}", target_path.display())
+    })?;
+
+    // If parent doesn't exist, try to canonicalize what does exist
+    let canonical_parent = if parent.exists() {
+        parent.canonicalize().map_err(|e| {
+            format!(
+                "Cannot canonicalize parent directory '{}': {}",
+                parent.display(),
+                e
+            )
+        })?
+    } else {
+        // Parent doesn't exist - check if it would be created within base
+        // For safety, require the parent directory to exist
+        return Err(format!(
+            "Parent directory does not exist: {}",
+            parent.display()
+        ));
+    };
+
+    let canonical_target = canonical_parent.join(filename);
+
+    // Verify the canonical target starts with the canonical base
+    if !canonical_target.starts_with(&canonical_base) {
+        return Err(format!(
+            "Path '{}' escapes base directory '{}'",
+            target_path.display(),
+            base_dir.display()
+        ));
+    }
+
+    Ok(canonical_target)
+}
+
+// =============================================================================
+// Service Implementation
+// =============================================================================
 
 /// Active recording session state
 struct RecordingSession {
@@ -117,14 +250,21 @@ impl StorageServiceImpl {
     }
 
     /// Generate output filename from pattern
+    ///
+    /// # Security (bd-hwq9)
+    /// The `name` parameter is sanitized to prevent path traversal attacks.
+    /// Only safe filename characters are allowed in the output.
     fn generate_filename(&self, name: &str, pattern: &str) -> String {
+        // SECURITY: Sanitize user-provided name to prevent path traversal
+        let safe_name = sanitize_filename_component(name);
+
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
         pattern
-            .replace("{name}", name)
+            .replace("{name}", &safe_name)
             .replace("{timestamp}", &timestamp.to_string())
             .replace("{date}", &chrono::Utc::now().format("%Y-%m-%d").to_string())
             .replace(
@@ -307,9 +447,26 @@ impl StorageService for StorageServiceImpl {
 
         let settings = self.settings.read().await;
 
-        // Generate output path
+        // Generate output path with sanitized filename
         let filename = self.generate_filename(&req.name, &settings.filename_pattern);
         let output_path = settings.output_directory.join(&filename);
+
+        // SECURITY (bd-hwq9): Validate the output path stays within the configured directory
+        // This is defense-in-depth - sanitize_filename_component should have already
+        // prevented path traversal, but we verify as a second layer of protection.
+        let validated_path = match validate_path_within_directory(&settings.output_directory, &output_path) {
+            Ok(path) => path,
+            Err(e) => {
+                tracing::error!("Path validation failed for recording '{}': {}", req.name, e);
+                return Ok(Response::new(StartRecordingResponse {
+                    success: false,
+                    error_message: format!("Invalid output path: {}", e),
+                    recording_id: String::new(),
+                    output_path: String::new(),
+                }));
+            }
+        };
+        let output_path = validated_path;
 
         let recording_id = Uuid::new_v4().to_string();
         let start_time_ns = SystemTime::now()
@@ -449,7 +606,10 @@ impl StorageService for StorageServiceImpl {
             .as_nanos() as u64;
         let duration_ns = end_time_ns - session.start_time_ns;
 
-        if let Some(active) = session.writer.lock().await.take() {
+        // bd-q33m: Take writer under lock, then drop lock before awaiting flush
+        // This prevents holding the mutex guard across the .await point
+        let active = { session.writer.lock().await.take() };
+        if let Some(active) = active {
             active.handle.abort();
             if let Err(e) = active.writer.flush_to_disk().await {
                 tracing::warn!(
@@ -992,5 +1152,131 @@ mod tests {
 
         // Empty list is valid
         assert!(resp.acquisitions.is_empty() || !resp.acquisitions.is_empty());
+    }
+
+    // =========================================================================
+    // Security Tests (bd-hwq9)
+    // =========================================================================
+
+    #[test]
+    fn test_sanitize_filename_basic() {
+        // Normal names should pass through
+        assert_eq!(sanitize_filename_component("test"), "test");
+        assert_eq!(sanitize_filename_component("my_file"), "my_file");
+        assert_eq!(sanitize_filename_component("data-2024"), "data-2024");
+        assert_eq!(sanitize_filename_component("scan.h5"), "scan.h5");
+    }
+
+    #[test]
+    fn test_sanitize_filename_path_traversal() {
+        // Path traversal attempts should be neutralized
+        assert_eq!(sanitize_filename_component("../../../etc/passwd"), "etc_passwd");
+        assert_eq!(sanitize_filename_component(".."), "unnamed");
+        assert_eq!(sanitize_filename_component("foo/../bar"), "foo_bar");
+        assert_eq!(sanitize_filename_component("a..b"), "a_b");
+    }
+
+    #[test]
+    fn test_sanitize_filename_directory_separators() {
+        // Directory separators should be replaced
+        assert_eq!(sanitize_filename_component("path/to/file"), "path_to_file");
+        assert_eq!(sanitize_filename_component("path\\to\\file"), "path_to_file");
+        assert_eq!(sanitize_filename_component("/absolute/path"), "absolute_path");
+    }
+
+    #[test]
+    fn test_sanitize_filename_special_chars() {
+        // Special characters should be replaced with underscores
+        assert_eq!(sanitize_filename_component("file:name"), "file_name");
+        assert_eq!(sanitize_filename_component("file\0name"), "file_name");
+        assert_eq!(sanitize_filename_component("file<>name"), "file_name");
+    }
+
+    #[test]
+    fn test_sanitize_filename_empty_and_edge_cases() {
+        // Empty strings should return "unnamed"
+        assert_eq!(sanitize_filename_component(""), "unnamed");
+        assert_eq!(sanitize_filename_component("..."), "unnamed");
+        assert_eq!(sanitize_filename_component("___"), "unnamed");
+        assert_eq!(sanitize_filename_component("._._"), "unnamed");
+    }
+
+    #[test]
+    fn test_sanitize_filename_unicode() {
+        // Unicode alphanumeric should be preserved, others replaced
+        assert_eq!(sanitize_filename_component("日本語"), "日本語");
+        assert_eq!(sanitize_filename_component("tëst"), "tëst");
+        assert_eq!(sanitize_filename_component("файл"), "файл");
+    }
+
+    #[test]
+    fn test_validate_path_within_directory() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let base_dir = temp_dir.path();
+
+        // Valid path within directory
+        let valid_path = base_dir.join("test.h5");
+        assert!(validate_path_within_directory(base_dir, &valid_path).is_ok());
+
+        // Path traversal attempt should fail
+        let traversal_path = base_dir.join("../../../etc/passwd");
+        assert!(validate_path_within_directory(base_dir, &traversal_path).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_start_recording_path_traversal_blocked() {
+        let service = StorageServiceImpl::new(None);
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        // Configure storage first
+        let config_req = Request::new(ConfigureStorageRequest {
+            output_directory: temp_dir.path().to_string_lossy().to_string(),
+            hdf5_config: None,
+            flush_interval_ms: None,
+            max_buffer_mb: None,
+        });
+        service.configure_storage(config_req).await.unwrap();
+
+        // Attempt path traversal in recording name
+        let malicious_req = Request::new(StartRecordingRequest {
+            name: "../../../etc/passwd".to_string(),
+            metadata: HashMap::new(),
+            config_override: None,
+            scan_id: None,
+            run_uid: None,
+        });
+
+        let response = service
+            .start_recording(malicious_req)
+            .await
+            .unwrap()
+            .into_inner();
+
+        // The filename should be sanitized, so it might succeed with a safe name
+        // OR fail path validation. Either way, it should NOT write to /etc/passwd.
+        // Check that if it succeeded, the output path is within the temp dir.
+        if response.success {
+            let output_path = std::path::Path::new(&response.output_path);
+            // Use canonicalized paths for comparison (handles macOS /tmp -> /private symlink)
+            let canonical_temp = temp_dir.path().canonicalize().unwrap();
+            let canonical_output_parent = output_path.parent().unwrap().canonicalize().unwrap();
+            assert!(
+                canonical_output_parent.starts_with(&canonical_temp),
+                "Output path '{}' should be within temp directory '{}'",
+                response.output_path,
+                canonical_temp.display()
+            );
+            // Verify it's NOT writing to /etc/passwd
+            assert!(
+                !output_path.to_string_lossy().contains("/etc/passwd"),
+                "Should not write to /etc/passwd"
+            );
+            // Clean up by stopping
+            let stop_req = Request::new(StopRecordingRequest {
+                recording_id: Some(response.recording_id),
+                final_metadata: HashMap::new(),
+            });
+            let _ = service.stop_recording(stop_req).await;
+        }
     }
 }

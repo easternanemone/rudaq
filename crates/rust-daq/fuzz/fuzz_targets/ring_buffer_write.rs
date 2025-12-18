@@ -9,7 +9,7 @@
 
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
-use rust_daq::data::ring_buffer::RingBuffer;
+use daq_storage::ring_buffer::RingBuffer;
 use tempfile::TempDir;
 
 /// Fuzz input for write operations

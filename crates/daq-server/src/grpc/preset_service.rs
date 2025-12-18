@@ -431,7 +431,7 @@ impl PresetServiceImpl {
                         }
 
                         if let Some(parameter) = param_set.get(param_name) {
-                            match parameter.set_json(value.clone()).await {
+                            match parameter.set_json(value.clone()) {
                                 Ok(_) => applied_count += 1,
                                 Err(e) => errors.push(format!(
                                     "Failed to set parameter '{}.{}': {}",

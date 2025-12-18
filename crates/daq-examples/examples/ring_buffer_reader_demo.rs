@@ -9,7 +9,7 @@
 //! Run with: cargo run --example ring_buffer_reader_demo
 
 use anyhow::Result;
-use rust_daq::data::{RingBuffer, RingBufferReader};
+use daq_storage::{RingBuffer, RingBufferReader};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::time::sleep;

@@ -56,20 +56,11 @@ pub mod prelude;
 )]
 pub use daq_core::core;
 
-#[cfg(not(target_arch = "wasm32"))]
-pub mod data; // Re-enabled for ring buffer implementation (Phase 4J: bd-q2we)
-
 #[deprecated(
     since = "0.5.0",
     note = "Use `rust_daq::prelude::error` instead. Root re-exports will be removed in 0.6.0"
 )]
 pub use daq_core::error;
-#[cfg(not(target_arch = "wasm32"))]
-// error_recovery moved to daq-core
-pub mod measurement;
-pub mod metadata;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod session;
 pub mod validation;
 
 // Phase 1: Architectural redesign - New core abstractions

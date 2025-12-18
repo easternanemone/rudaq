@@ -26,18 +26,8 @@
 // =============================================================================
 
 #[test]
-fn verify_ring_buffer_export() {
-    // This test fails to compile if RingBuffer is not exported from rust_daq::data
-    fn _check_type_exists<T>() {}
-    _check_type_exists::<rust_daq::data::ring_buffer::RingBuffer>();
-}
 
 #[test]
-fn verify_hdf5_writer_export() {
-    // This test fails to compile if HDF5Writer is not exported from rust_daq::data
-    fn _check_type_exists<T>() {}
-    _check_type_exists::<rust_daq::data::hdf5_writer::HDF5Writer>();
-}
 
 // =============================================================================
 // Hardware Capability Trait Exports
@@ -360,25 +350,10 @@ fn verify_daq_error_export() {
 // =============================================================================
 
 #[test]
-fn verify_power_export() {
-    // Verify PowerMeasure trait is exported from measurement::power module
-    use rust_daq::measurement::power::PowerMeasure;
-    fn _check_trait_exists<T: PowerMeasure>() {}
-}
 
 #[test]
-fn verify_data_distributor_export() {
-    // Verify DataDistributor is exported
-    fn _check_type_exists<T>() {}
-    _check_type_exists::<rust_daq::measurement::DataDistributor<u32>>();
-}
 
 #[test]
-fn verify_core_measurement_export() {
-    // Verify Measurement enum from core module
-    fn _check_type_exists<T>() {}
-    _check_type_exists::<rust_daq::core::Measurement>();
-}
 
 // =============================================================================
 // Scripting Engine (V5)

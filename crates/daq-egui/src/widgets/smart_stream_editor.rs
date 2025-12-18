@@ -63,11 +63,10 @@ impl SmartStreamEditor {
 
         ui.separator();
 
-        if ui.button("🚀 Upload to Hardware").clicked() {
-            // This will be handled by PendingAction
-            return true;
-        }
+        let upload_clicked = ui.button("🚀 Upload to Hardware").clicked();
 
-        false
+        // bd-ota0: Return true if any change occurred OR upload was requested
+        // Previously the 'changed' variable was computed but never returned
+        changed || upload_clicked
     }
 }

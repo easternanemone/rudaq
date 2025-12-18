@@ -803,6 +803,35 @@ impl PvcamDriver {
     ) {
         self.acquisition.set_arrow_tap(tx).await;
     }
+
+    /// Gracefully shutdown the driver, stopping any active streaming.
+    ///
+    /// This method should be called before dropping the driver when running
+    /// in an async context to ensure proper cleanup. If not called, the Drop
+    /// implementation will attempt best-effort cleanup but cannot perform
+    /// async operations.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let driver = PvcamDriver::new_async("PrimeBSI").await?;
+    /// driver.start_stream().await?;
+    /// // ... use the camera ...
+    /// driver.shutdown().await?;  // Clean shutdown before drop
+    /// ```
+    ///
+    /// # Safety (bd-lwg7)
+    /// This method is safe to call from any async context. The Drop implementation
+    /// cannot use `block_on()` as it would panic if called from within an async
+    /// context, so this explicit shutdown method is preferred.
+    pub async fn shutdown(&self) -> Result<()> {
+        if self.streaming.get() {
+            tracing::debug!("PvcamDriver::shutdown - stopping active stream");
+            let conn = self.connection.lock().await;
+            self.acquisition.stop_stream(&conn).await?;
+            tracing::debug!("PvcamDriver::shutdown - stream stopped");
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -912,30 +941,33 @@ impl Commandable for PvcamDriver {
     }
 }
 
-/// Drop impl ensures streaming is stopped before acquisition/connection drop (bd-nq82).
+/// Drop impl ensures streaming state is signaled for cleanup (bd-nq82, bd-lwg7).
 ///
-/// This prevents the poll thread from calling PVCAM SDK functions after uninit.
-/// We use block_on to synchronously stop streaming since Drop cannot be async.
+/// # Important (bd-lwg7)
+/// This Drop implementation does NOT call `block_on()` to avoid panicking when
+/// dropped inside an async context. Instead, it relies on:
+///
+/// 1. Users calling `shutdown().await` before dropping (preferred)
+/// 2. `PvcamAcquisition::Drop` setting shutdown flags and signaling the poll thread
+///
+/// The poll thread will exit on its next iteration when it sees the shutdown flag.
+/// This may leave hardware in a streaming state briefly, but avoids runtime panics.
+///
+/// For clean shutdown, always call `driver.shutdown().await` before dropping.
 impl Drop for PvcamDriver {
     fn drop(&mut self) {
-        // Only attempt cleanup if streaming is active
         if self.streaming.get() {
-            tracing::debug!("PvcamDriver::drop - stopping active stream");
-
-            // Use tokio's current runtime to block on stop_stream
-            // This ensures the poll thread exits before we drop acquisition/connection
-            if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                let conn = self.connection.clone();
-                let acq = self.acquisition.clone();
-                let _ = handle.block_on(async move {
-                    let conn_guard = conn.lock().await;
-                    let _ = acq.stop_stream(&conn_guard).await;
-                });
-                tracing::debug!("PvcamDriver::drop - stream stopped");
-            } else {
-                // No tokio runtime - acquisition Drop will handle shutdown via flag
-                tracing::warn!("PvcamDriver::drop - no tokio runtime, relying on acquisition Drop");
-            }
+            // Log warning - user should have called shutdown() first
+            tracing::warn!(
+                "PvcamDriver dropped while streaming was active. \
+                 Call driver.shutdown().await before dropping for clean shutdown. \
+                 Relying on PvcamAcquisition::Drop for best-effort cleanup."
+            );
+            // PvcamAcquisition::Drop will:
+            // 1. Set shutdown flag (atomic)
+            // 2. Signal callback context
+            // 3. Abort poll handle
+            // This is non-blocking and safe from any context.
         }
     }
 }

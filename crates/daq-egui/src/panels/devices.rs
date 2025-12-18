@@ -984,11 +984,41 @@ impl DevicesPanel {
         // Mark as setting
         self.setting_params.insert(buffer_key);
 
-        // Create channel for result if not already exists
-        let tx = if let Some(rx) = &self.param_set_rx {
-            // Reuse existing channel - but we need to create a new sender
-            // Actually, let's just create a new channel each time for simplicity
-            drop(rx);
+        // Create or reuse channel for results
+        // Use take() to properly replace the receiver if it exists
+        let tx = if self.param_set_rx.is_some() {
+            // Poll any remaining results before replacing channel
+            // This ensures we don't lose in-flight operations
+            while let Some(rx) = &mut self.param_set_rx {
+                match rx.try_recv() {
+                    Ok(result) => {
+                        // Process any pending result before channel replacement
+                        let key = (result.device_id.clone(), result.param_name.clone());
+                        self.setting_params.remove(&key);
+
+                        if result.success {
+                            if let Some(device) = self.devices.iter_mut().find(|d| d.info.id == result.device_id) {
+                                if let Some(param) = device.parameters.iter_mut().find(|p| p.descriptor.name == result.param_name) {
+                                    param.update_value(result.actual_value.clone());
+                                }
+                            }
+                            let unquoted = result.actual_value.trim_matches('"').to_string();
+                            self.param_edit_buffers.insert(key.clone(), unquoted);
+                            self.param_errors.remove(&key);
+                        } else if let Some(err) = result.error {
+                            self.param_errors.insert(key, err);
+                        }
+                    }
+                    Err(mpsc::error::TryRecvError::Empty) => break,
+                    Err(mpsc::error::TryRecvError::Disconnected) => {
+                        self.param_set_rx = None;
+                        break;
+                    }
+                }
+            }
+
+            // Now safely replace the channel
+            self.param_set_rx.take();
             let (new_tx, new_rx) = mpsc::channel(16);
             self.param_set_rx = Some(new_rx);
             new_tx

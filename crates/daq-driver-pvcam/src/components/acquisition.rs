@@ -337,6 +337,175 @@ unsafe impl Send for PageAlignedBuffer {}
 #[cfg(feature = "pvcam_hardware")]
 unsafe impl Sync for PageAlignedBuffer {}
 
+// =============================================================================
+// FFI Safety Wrappers (bd-g9gq)
+// =============================================================================
+//
+// These functions isolate unsafe FFI calls into small helpers with explicit
+// safety contracts. Each function documents its preconditions and invariants.
+// =============================================================================
+
+#[cfg(feature = "pvcam_hardware")]
+mod ffi_safe {
+    use super::*;
+
+    /// Stop continuous acquisition on a camera.
+    ///
+    /// # Safety Contract
+    /// - `hcam` must be a valid, open camera handle
+    /// - Acquisition must have been started with `pl_exp_start_cont`
+    /// - Must be called before closing the camera
+    pub fn stop_acquisition(hcam: i16, mode: i16) {
+        debug_assert!(hcam >= 0, "Invalid camera handle: {}", hcam);
+        // SAFETY: Caller guarantees hcam is valid and acquisition is active
+        unsafe {
+            pl_exp_stop_cont(hcam, mode);
+        }
+    }
+
+    /// Deregister a callback from a camera.
+    ///
+    /// # Safety Contract
+    /// - `hcam` must be a valid, open camera handle
+    /// - Callback must have been registered with `pl_cam_register_callback_ex3`
+    pub fn deregister_callback(hcam: i16, callback_type: i32) {
+        debug_assert!(hcam >= 0, "Invalid camera handle: {}", hcam);
+        // SAFETY: Caller guarantees hcam is valid and callback was registered
+        unsafe {
+            pl_cam_deregister_callback(hcam, callback_type);
+        }
+    }
+
+    /// Check continuous acquisition status.
+    ///
+    /// # Safety Contract
+    /// - `hcam` must be a valid, open camera handle
+    /// - Acquisition must be active
+    ///
+    /// # Returns
+    /// - `Ok((status, bytes_arrived, buffer_cnt))` on success
+    /// - `Err(())` if the status check failed (camera error)
+    pub fn check_cont_status(hcam: i16) -> Result<(i16, uns32, uns32), ()> {
+        debug_assert!(hcam >= 0, "Invalid camera handle: {}", hcam);
+        let mut status: i16 = 0;
+        let mut bytes_arrived: uns32 = 0;
+        let mut buffer_cnt: uns32 = 0;
+
+        // SAFETY: All pointers are valid stack allocations
+        let result = unsafe {
+            pl_exp_check_cont_status(hcam, &mut status, &mut bytes_arrived, &mut buffer_cnt)
+        };
+
+        if result == 0 {
+            Err(())
+        } else {
+            Ok((status, bytes_arrived, buffer_cnt))
+        }
+    }
+
+    /// Get the oldest frame from the circular buffer with frame info.
+    ///
+    /// # Safety Contract
+    /// - `hcam` must be a valid, open camera handle
+    /// - Acquisition must be active with frames available
+    /// - `frame_info` must be a valid pointer to a FRAME_INFO struct
+    ///
+    /// # Returns
+    /// - `Ok(frame_ptr)` - pointer to the frame data in the circular buffer
+    /// - `Err(())` if no frame available or error
+    pub fn get_oldest_frame(hcam: i16, frame_info: &mut FRAME_INFO) -> Result<*mut std::ffi::c_void, ()> {
+        debug_assert!(hcam >= 0, "Invalid camera handle: {}", hcam);
+        let mut frame_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+
+        // SAFETY: hcam is valid, frame_info and frame_ptr are valid stack allocations
+        let result = unsafe {
+            pl_exp_get_oldest_frame_ex(hcam, &mut frame_ptr, frame_info)
+        };
+
+        if result == 0 || frame_ptr.is_null() {
+            Err(())
+        } else {
+            Ok(frame_ptr)
+        }
+    }
+
+    /// Release the oldest frame back to the circular buffer.
+    ///
+    /// # Safety Contract
+    /// - `hcam` must be a valid, open camera handle
+    /// - A frame must have been retrieved with `get_oldest_frame`
+    pub fn release_oldest_frame(hcam: i16) {
+        debug_assert!(hcam >= 0, "Invalid camera handle: {}", hcam);
+        // SAFETY: Caller guarantees hcam is valid and a frame was retrieved
+        unsafe {
+            pl_exp_unlock_oldest_frame(hcam);
+        }
+    }
+
+    /// Create a metadata frame struct for decoding.
+    ///
+    /// # Safety Contract
+    /// - `roi_count` must be > 0
+    ///
+    /// # Returns
+    /// - `Some(ptr)` - valid md_frame pointer (must be released with `release_md_frame`)
+    /// - `None` if creation failed
+    pub fn create_md_frame(roi_count: u16) -> Option<*mut md_frame> {
+        debug_assert!(roi_count > 0, "ROI count must be positive");
+        let mut ptr: *mut md_frame = std::ptr::null_mut();
+
+        // SAFETY: ptr is a valid stack allocation, roi_count is validated
+        let result = unsafe { pl_md_create_frame_struct_cont(&mut ptr, roi_count) };
+
+        if result == 0 || ptr.is_null() {
+            None
+        } else {
+            Some(ptr)
+        }
+    }
+
+    /// Release a metadata frame struct.
+    ///
+    /// # Safety Contract
+    /// - `ptr` must have been created with `create_md_frame`
+    /// - Must not be called twice on the same pointer
+    pub fn release_md_frame(ptr: *mut md_frame) {
+        if !ptr.is_null() {
+            // SAFETY: Caller guarantees ptr was created by create_md_frame
+            unsafe {
+                pl_md_release_frame_struct(ptr);
+            }
+        }
+    }
+
+    /// Decode metadata from a frame buffer.
+    ///
+    /// # Safety Contract
+    /// - `md_frame_ptr` must be a valid md_frame struct
+    /// - `frame_ptr` must point to valid frame data
+    /// - `frame_size` must match the actual buffer size
+    ///
+    /// # Returns
+    /// - `true` if decoding succeeded
+    /// - `false` if decoding failed
+    pub fn decode_frame_metadata(
+        md_frame_ptr: *mut md_frame,
+        frame_ptr: *const std::ffi::c_void,
+        frame_size: u32,
+    ) -> bool {
+        debug_assert!(!md_frame_ptr.is_null(), "md_frame_ptr must not be null");
+        debug_assert!(!frame_ptr.is_null(), "frame_ptr must not be null");
+        debug_assert!(frame_size > 0, "frame_size must be positive");
+
+        // SAFETY: All pointers are valid per caller contract, frame_size matches buffer
+        let result = unsafe {
+            pl_md_frame_decode(md_frame_ptr, frame_ptr as *mut _, frame_size)
+        };
+
+        result != 0
+    }
+}
+
 /// PVCAM acquisition state and frame streaming.
 ///
 /// Manages continuous acquisition with circular buffers and provides frame
@@ -937,18 +1106,19 @@ impl PvcamAcquisition {
             // This wakes any waiting thread in the frame loop
             self.callback_context.signal_shutdown();
 
-            if let Some(handle) = self.poll_handle.lock().await.take() {
+            // bd-hehw: Take handle under lock, then drop lock before awaiting
+            // This prevents holding the mutex guard across the .await point
+            let handle = { self.poll_handle.lock().await.take() };
+            if let Some(handle) = handle {
                 let _ = handle.await;
             }
             if let Some(h) = conn.handle() {
-                unsafe {
-                    // SAFETY: h is an open camera handle; stopping acquisition after poll loop exit.
-                    pl_exp_stop_cont(h, CCS_HALT);
-                    // Deregister EOF callback if registered (bd-ek9n.2)
-                    if self.callback_registered.load(Ordering::Acquire) {
-                        pl_cam_deregister_callback(h, PL_CALLBACK_EOF);
-                        self.callback_registered.store(false, Ordering::Release);
-                    }
+                // bd-g9gq: Use FFI safe wrappers with explicit safety contracts
+                ffi_safe::stop_acquisition(h, CCS_HALT);
+                // Deregister EOF callback if registered (bd-ek9n.2)
+                if self.callback_registered.load(Ordering::Acquire) {
+                    ffi_safe::deregister_callback(h, PL_CALLBACK_EOF);
+                    self.callback_registered.store(false, Ordering::Release);
                 }
             }
             // Clear stored state after cleanup
@@ -1040,16 +1210,17 @@ impl PvcamAcquisition {
         // Gemini SDK review: Create md_frame struct for metadata decoding
         // This struct holds pointers into the frame buffer for extracting timestamps.
         // Must be created before the loop and released after.
+        // bd-g9gq: Use FFI safe wrapper with explicit safety contract
         let md_frame_ptr: *mut md_frame = if use_metadata {
-            let mut ptr: *mut md_frame = std::ptr::null_mut();
-            // Create struct for 1 ROI (single-ROI acquisition)
-            let result = unsafe { pl_md_create_frame_struct_cont(&mut ptr, 1) };
-            if result == 0 || ptr.is_null() {
-                tracing::warn!("Failed to create md_frame struct, metadata decoding disabled");
-                std::ptr::null_mut()
-            } else {
-                tracing::debug!("Created md_frame struct for metadata decoding");
-                ptr
+            match ffi_safe::create_md_frame(1) {
+                Some(ptr) => {
+                    tracing::debug!("Created md_frame struct for metadata decoding");
+                    ptr
+                }
+                None => {
+                    tracing::warn!("Failed to create md_frame struct, metadata decoding disabled");
+                    std::ptr::null_mut()
+                }
             }
         } else {
             std::ptr::null_mut()
@@ -1060,6 +1231,7 @@ impl PvcamAcquisition {
         // Use Acquire ordering to synchronize with Release store in Drop (bd-nfk6).
         while streaming.get() && !shutdown.load(Ordering::Acquire) {
             // Wait for frame notification (callback mode) or poll (fallback mode)
+            // bd-g9gq: Use FFI safe wrapper with explicit safety contract
             let has_frames = if use_callback {
                 // Callback mode (bd-ek9n.2): Wait on condvar with timeout
                 // Returns number of pending frames (0 on timeout/shutdown)
@@ -1067,20 +1239,21 @@ impl PvcamAcquisition {
                     true
                 } else {
                     // Fallback: if callbacks are missed, avoid deadlock by occasionally checking status.
-                    unsafe {
-                        pl_exp_check_cont_status(hcam, &mut status, &mut bytes_arrived, &mut buffer_cnt) != 0
-                            && buffer_cnt > 0
+                    match ffi_safe::check_cont_status(hcam) {
+                        Ok((_, _, cnt)) => cnt > 0,
+                        Err(()) => false,
                     }
                 }
             } else {
                 // Polling mode fallback: Check status with 1ms delay
-                unsafe {
-                    if pl_exp_check_cont_status(hcam, &mut status, &mut bytes_arrived, &mut buffer_cnt) == 0 {
-                        break;
+                match ffi_safe::check_cont_status(hcam) {
+                    Ok((_, _, cnt)) => {
+                        buffer_cnt = cnt;
+                        // Only treat as "has frames" when PVCAM reports filled buffers.
+                        // Treating EXPOSURE_IN_PROGRESS as "has frames" causes a hot-spin when no frame is ready yet.
+                        cnt > 0
                     }
-                    // Only treat as "has frames" when PVCAM reports filled buffers.
-                    // Treating EXPOSURE_IN_PROGRESS as "has frames" causes a hot-spin when no frame is ready yet.
-                    buffer_cnt > 0
+                    Err(()) => break,
                 }
             };
 
@@ -1118,28 +1291,38 @@ impl PvcamAcquisition {
                 // Check acquisition status and detect fatal errors
                 // NOTE: Gemini suggested removing this for performance, but testing shows
                 // it's needed for proper frame timing synchronization with the hardware.
-                unsafe {
-                    if pl_exp_check_cont_status(hcam, &mut status, &mut bytes_arrived, &mut buffer_cnt) == 0 {
+                // bd-g9gq: Use FFI safe wrapper with explicit safety contract
+                let (check_status, _, _) = match ffi_safe::check_cont_status(hcam) {
+                    Ok(result) => result,
+                    Err(()) => {
                         tracing::error!("PVCAM status check failed");
                         let _ = error_tx.send(AcquisitionError::StatusCheckFailed);
                         fatal_error = true;
                         break;
                     }
+                };
+                status = check_status;
 
-                    if status == READOUT_FAILED {
-                        tracing::error!("PVCAM readout failed");
-                        let _ = error_tx.send(AcquisitionError::ReadoutFailed);
-                        fatal_error = true;
-                        break;
-                    }
+                if status == READOUT_FAILED {
+                    tracing::error!("PVCAM readout failed");
+                    let _ = error_tx.send(AcquisitionError::ReadoutFailed);
+                    fatal_error = true;
+                    break;
+                }
 
-                    // Fetch oldest frame with FRAME_INFO for loss detection (bd-ek9n.3)
-                    let mut frame_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-                    if pl_exp_get_oldest_frame_ex(hcam, &mut frame_ptr, &mut frame_info) == 0 || frame_ptr.is_null() {
+                // Fetch oldest frame with FRAME_INFO for loss detection (bd-ek9n.3)
+                // bd-g9gq: Use FFI safe wrapper with explicit safety contract
+                let frame_ptr = match ffi_safe::get_oldest_frame(hcam, &mut frame_info) {
+                    Ok(ptr) => ptr,
+                    Err(()) => {
                         // No more frames available - exit drain loop normally
                         break;
                     }
-                    frames_processed_in_drain += 1;
+                };
+                frames_processed_in_drain += 1;
+
+                // Remaining frame processing is in an unsafe block for pointer operations
+                unsafe {
 
                     // Frame loss detection (bd-ek9n.3): Check for gaps in FrameNr sequence
                     // FrameNr is 1-based hardware counter from PVCAM
@@ -1177,14 +1360,10 @@ impl PvcamAcquisition {
                     // Gemini SDK review: Decode frame metadata for hardware timestamps
                     // This must happen before copying pixel data as metadata parsing identifies
                     // the pixel data offset within the buffer.
+                    // bd-g9gq: Use FFI safe wrapper with explicit safety contract
                     let frame_metadata = if !md_frame_ptr.is_null() {
                         // Decode the metadata-enabled frame buffer
-                        let decode_result = pl_md_frame_decode(
-                            md_frame_ptr,
-                            frame_ptr,
-                            frame_bytes as uns32,
-                        );
-                        if decode_result != 0 {
+                        if ffi_safe::decode_frame_metadata(md_frame_ptr, frame_ptr, frame_bytes as uns32) {
                             // Successfully decoded - extract timestamps
                             let hdr = &*(*md_frame_ptr).header;
                             let ts_res = hdr.timestampResNs as u64;
@@ -1217,7 +1396,8 @@ impl PvcamAcquisition {
                     let pixel_data = sdk_bytes.to_vec();
 
                     // Unlock ASAP to free SDK buffer for next frame
-                    pl_exp_unlock_oldest_frame(hcam);
+                    // bd-g9gq: Use FFI safe wrapper with explicit safety contract
+                    ffi_safe::release_oldest_frame(hcam);
 
                     // Decrement pending frame counter (callback mode)
                     if use_callback {
@@ -1292,15 +1472,10 @@ impl PvcamAcquisition {
         }
 
         // Gemini SDK review: Release md_frame struct if it was allocated
+        // bd-g9gq: Use FFI safe wrapper with explicit safety contract
         if !md_frame_ptr.is_null() {
-            unsafe {
-                let result = pl_md_release_frame_struct(md_frame_ptr);
-                if result == 0 {
-                    tracing::warn!("pl_md_release_frame_struct failed");
-                } else {
-                    tracing::debug!("Released md_frame struct");
-                }
-            }
+            ffi_safe::release_md_frame(md_frame_ptr);
+            tracing::debug!("Released md_frame struct");
         }
 
         // Log acquisition summary with frame loss statistics (bd-ek9n.3)

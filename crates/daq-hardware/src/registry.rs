@@ -1052,6 +1052,7 @@ impl DeviceRegistry {
                     exposure_control: None,
                     settable: None,
                     stageable: None,
+                    commandable: None,
                     parameterized: Some(driver),
                     #[cfg(feature = "driver-spectra-physics")]
                     shutter_control: None,

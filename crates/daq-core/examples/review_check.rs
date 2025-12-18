@@ -4,7 +4,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::time::Duration;
 
-#[tokio::main]
+// bd-ga2o: Use current_thread flavor since daq-core doesn't enable rt-multi-thread
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     println!("--- Test 1: NaN Initial Value ---");
     // Test if we can create an observable with NaN and then apply range constraints

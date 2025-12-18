@@ -11,7 +11,7 @@
 //! Run with: cargo bench --bench ring_buffer
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use rust_daq::data::ring_buffer::RingBuffer;
+use daq_storage::ring_buffer::RingBuffer;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;

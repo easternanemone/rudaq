@@ -40,7 +40,7 @@ use memmap2::{MmapMut, MmapOptions};
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{fence, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tokio::sync::mpsc;
 
@@ -150,8 +150,18 @@ pub struct RingBuffer {
     /// Capacity of the data region in bytes
     capacity: u64,
 
-    /// Write lock to serialize concurrent writes and prevent data races
-    write_lock: Mutex<()>,
+    /// Data access lock for memory-safe concurrent access (bd-t17q).
+    ///
+    /// This RwLock ensures readers and writers don't access the same memory
+    /// region concurrently, preventing data races (undefined behavior).
+    ///
+    /// - Writers take an exclusive write lock
+    /// - Readers take a shared read lock
+    /// - Multiple readers can read concurrently when no writer is active
+    ///
+    /// Note: The seqlock (write_epoch) is still used for optimistic read retries
+    /// after data changes, but the RwLock prevents actual concurrent access.
+    data_lock: RwLock<()>,
 
     /// Registry for live data taps
     taps: Arc<TapRegistry>,
@@ -181,19 +191,21 @@ impl std::fmt::Debug for RingBuffer {
 // 4. The TapRegistry is wrapped in Arc and is itself Send+Sync
 unsafe impl Send for RingBuffer {}
 
-// SAFETY: RingBuffer can be safely shared across threads because:
-// 1. Write operations are serialized through `write_lock` (std::sync::Mutex)
+// SAFETY (bd-t17q): RingBuffer can be safely shared across threads because:
+// 1. Data access is synchronized through `data_lock` (std::sync::RwLock):
+//    - Writers take exclusive write lock, preventing concurrent reads/writes
+//    - Readers take shared read lock, allowing concurrent reads but blocking writers
 // 2. Readers use Acquire ordering on atomic loads to see published writes
 // 3. Writers use Release ordering after memcpy to publish data
-// 4. The seqlock pattern (write_epoch) ensures readers detect concurrent writes:
+// 4. The seqlock pattern (write_epoch) provides optimistic retry for stale reads:
 //    - Writers increment epoch (odd) before writing, (even) after
-//    - Readers check epoch before and after read, retry if changed or odd
+//    - Readers check epoch after read to detect concurrent writes (now blocked by lock)
 // 5. Memory ordering: Release on write_head/epoch ensures prior memcpy is visible
 //    to readers who Acquire load these values
 // 6. The TapRegistry uses internal synchronization (RwLock)
 //
 // INVARIANTS that must be maintained:
-// - write_lock MUST be held during any write to the data region
+// - data_lock MUST be held (write mode for writers, read mode for readers)
 // - write_epoch MUST be incremented before and after memcpy with proper ordering
 // - Capacity bounds MUST be validated before any pointer arithmetic
 unsafe impl Sync for RingBuffer {}
@@ -305,7 +317,7 @@ impl RingBuffer {
             header,
             data_ptr,
             capacity: capacity_bytes as u64,
-            write_lock: Mutex::new(()),
+            data_lock: RwLock::new(()),
             taps: Arc::new(TapRegistry::new()),
         })
     }
@@ -399,15 +411,15 @@ impl RingBuffer {
             header,
             data_ptr,
             capacity,
-            write_lock: Mutex::new(()),
+            data_lock: RwLock::new(()),
             taps: Arc::new(TapRegistry::new()),
         })
     }
 
     /// Write data to the ring buffer.
     ///
-    /// This operation uses an internal lock to serialize concurrent writes.
-    /// Reads remain lock-free via atomic operations.
+    /// This operation takes an exclusive write lock on the data region,
+    /// preventing concurrent reads/writes and ensuring memory safety (bd-t17q).
     ///
     /// After writing, all registered tap consumers are notified. Taps that
     /// can't keep up will have frames dropped (non-blocking send).
@@ -424,11 +436,11 @@ impl RingBuffer {
     /// # Thread Safety
     /// Multiple concurrent writers are safe - the internal lock serializes writes.
     pub fn write(&self, data: &[u8]) -> Result<()> {
-        // Acquire write lock to serialize concurrent writes
+        // Acquire exclusive write lock to prevent concurrent reads/writes (bd-t17q)
         let _guard = self
-            .write_lock
-            .lock()
-            .map_err(|_| anyhow!("Write lock poisoned"))?;
+            .data_lock
+            .write()
+            .map_err(|_| anyhow!("Data lock poisoned"))?;
 
         let len = data.len() as u64;
 
@@ -623,6 +635,17 @@ impl RingBuffer {
     ///     .expect("blocking task panicked");
     /// ```
     pub fn read_snapshot(&self) -> Vec<u8> {
+        // Take shared read lock to prevent concurrent writes during byte copies.
+        // Multiple readers can hold the lock concurrently, but writers get exclusive access.
+        // This prevents undefined behavior from non-atomic byte copies racing with writes.
+        let _guard = match self.data_lock.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("Data lock poisoned in read_snapshot, recovering");
+                poisoned.into_inner()
+            }
+        };
+
         const MAX_RETRIES: usize = 500;
         // Configurable timeout via DAQ_RINGBUFFER_TIMEOUT_MS (default: 500ms)
         // Increased from 100ms to handle high-throughput camera streaming
@@ -964,6 +987,254 @@ impl RingBuffer {
         unsafe {
             (*self.header).read_tail.fetch_add(bytes, Ordering::Release);
         }
+    }
+}
+
+// =============================================================================
+// Async Wrapper for Tokio Runtime Safety (bd-cmcp)
+// =============================================================================
+
+/// Async-safe wrapper for RingBuffer that enforces spawn_blocking usage.
+///
+/// This wrapper prevents accidentally calling blocking RingBuffer methods
+/// directly from async contexts. All operations that may block
+/// (like `read_snapshot`) are automatically wrapped in `tokio::task::spawn_blocking`.
+///
+/// # Why This Wrapper Exists
+///
+/// RingBuffer uses `std::thread::sleep()` in its backoff logic during contention.
+/// When called directly from async contexts, this blocks the entire tokio worker thread,
+/// which can stall the entire async runtime. This wrapper enforces the use of
+/// `spawn_blocking` at compile time, making it impossible to accidentally block
+/// the async runtime.
+///
+/// # Example
+///
+/// ```no_run
+/// # use std::path::Path;
+/// # use std::sync::Arc;
+/// # use daq_storage::ring_buffer::{RingBuffer, AsyncRingBuffer};
+/// # async fn example() -> anyhow::Result<()> {
+/// let rb = Arc::new(RingBuffer::create(Path::new("/tmp/test.buf"), 10)?);
+/// let async_rb = AsyncRingBuffer::new(rb);
+///
+/// // This automatically uses spawn_blocking internally
+/// let snapshot = async_rb.read_snapshot().await;
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Clone)]
+pub struct AsyncRingBuffer {
+    inner: Arc<RingBuffer>,
+}
+
+impl AsyncRingBuffer {
+    /// Create a new AsyncRingBuffer from a RingBuffer.
+    ///
+    /// # Arguments
+    /// * `ring_buffer` - The underlying RingBuffer to wrap
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use std::path::Path;
+    /// # use std::sync::Arc;
+    /// # use daq_storage::ring_buffer::{RingBuffer, AsyncRingBuffer};
+    /// # fn example() -> anyhow::Result<()> {
+    /// let rb = Arc::new(RingBuffer::create(Path::new("/tmp/test.buf"), 10)?);
+    /// let async_rb = AsyncRingBuffer::new(rb);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn new(ring_buffer: Arc<RingBuffer>) -> Self {
+        Self {
+            inner: ring_buffer,
+        }
+    }
+
+    /// Read a snapshot of current data in the ring buffer (async-safe).
+    ///
+    /// This method automatically uses `tokio::task::spawn_blocking` to ensure
+    /// the blocking backoff logic doesn't stall the async runtime.
+    ///
+    /// # Returns
+    /// A Vec containing a snapshot of the current buffer contents
+    ///
+    /// # Panics
+    /// Panics if the blocking task panics (should be extremely rare)
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use std::path::Path;
+    /// # use std::sync::Arc;
+    /// # use daq_storage::ring_buffer::{RingBuffer, AsyncRingBuffer};
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let rb = Arc::new(RingBuffer::create(Path::new("/tmp/test.buf"), 10)?);
+    /// let async_rb = AsyncRingBuffer::new(rb);
+    ///
+    /// let snapshot = async_rb.read_snapshot().await;
+    /// println!("Read {} bytes", snapshot.len());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn read_snapshot(&self) -> Vec<u8> {
+        let rb = self.inner.clone();
+        tokio::task::spawn_blocking(move || rb.read_snapshot())
+            .await
+            .expect("spawn_blocking panicked during read_snapshot")
+    }
+
+    /// Write data to the ring buffer (async-safe).
+    ///
+    /// While writes themselves don't block on backoff, wrapping them in spawn_blocking
+    /// ensures consistent behavior and prevents potential lock contention from
+    /// blocking the async runtime.
+    ///
+    /// # Arguments
+    /// * `data` - Byte slice to write
+    ///
+    /// # Returns
+    /// Ok(()) on success, Err if data is too large for buffer
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use std::path::Path;
+    /// # use std::sync::Arc;
+    /// # use daq_storage::ring_buffer::{RingBuffer, AsyncRingBuffer};
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let rb = Arc::new(RingBuffer::create(Path::new("/tmp/test.buf"), 10)?);
+    /// let async_rb = AsyncRingBuffer::new(rb);
+    ///
+    /// async_rb.write(b"test data").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn write(&self, data: &[u8]) -> Result<()> {
+        let rb = self.inner.clone();
+        let data = data.to_vec();
+        tokio::task::spawn_blocking(move || rb.write(&data))
+            .await
+            .expect("spawn_blocking panicked during write")?;
+        Ok(())
+    }
+
+    /// Register a new tap consumer to receive every Nth frame.
+    ///
+    /// This method doesn't block, so it doesn't need spawn_blocking.
+    ///
+    /// # Arguments
+    /// * `id` - Unique identifier for this tap
+    /// * `nth_frame` - Deliver every nth frame (1 = every frame, 10 = every 10th)
+    ///
+    /// # Returns
+    /// A receiver that will receive frame data, or an error if tap already exists
+    pub fn register_tap(&self, id: String, nth_frame: usize) -> Result<mpsc::Receiver<Vec<u8>>> {
+        self.inner.register_tap(id, nth_frame)
+    }
+
+    /// Unregister a tap consumer.
+    ///
+    /// # Arguments
+    /// * `id` - The tap ID to remove
+    ///
+    /// # Returns
+    /// Ok(true) if tap was found and removed, Ok(false) if tap didn't exist
+    pub fn unregister_tap(&self, id: &str) -> Result<bool> {
+        self.inner.unregister_tap(id)
+    }
+
+    /// Get the number of currently registered taps.
+    pub fn tap_count(&self) -> usize {
+        self.inner.tap_count()
+    }
+
+    /// Get information about all registered taps.
+    pub fn list_taps(&self) -> Vec<(String, usize)> {
+        self.inner.list_taps()
+    }
+
+    /// Get the capacity of the data region in bytes.
+    pub fn capacity(&self) -> u64 {
+        self.inner.capacity()
+    }
+
+    /// Get the filesystem path to the backing file.
+    pub fn path(&self) -> &Path {
+        self.inner.path()
+    }
+
+    /// Get the stream identifier for cross-process reader synchronization.
+    pub fn stream_id(&self) -> u64 {
+        self.inner.stream_id()
+    }
+
+    /// Get the magic number for buffer validation.
+    pub fn magic(&self) -> u64 {
+        self.inner.magic()
+    }
+
+    /// Get the write epoch for seqlock synchronization.
+    pub fn write_epoch(&self) -> u64 {
+        self.inner.write_epoch()
+    }
+
+    /// Get the current write head position (monotonically increasing).
+    pub fn write_head(&self) -> u64 {
+        self.inner.write_head()
+    }
+
+    /// Get the current read tail position (marks oldest unconsumed data).
+    pub fn read_tail(&self) -> u64 {
+        self.inner.read_tail()
+    }
+
+    /// Update the read tail position (mark data as consumed).
+    pub fn update_read_tail(&self, new_tail: u64) {
+        self.inner.update_read_tail(new_tail)
+    }
+
+    /// Advance the read tail by a number of bytes (convenience wrapper).
+    pub fn advance_tail(&self, bytes: u64) {
+        self.inner.advance_tail(bytes)
+    }
+
+    /// Get access to the inner RingBuffer.
+    ///
+    /// # Warning
+    /// This exposes the underlying blocking RingBuffer. Only use this if you
+    /// know you're in a non-async context or will properly wrap calls in
+    /// spawn_blocking yourself.
+    pub fn inner(&self) -> &Arc<RingBuffer> {
+        &self.inner
+    }
+}
+
+impl std::fmt::Debug for AsyncRingBuffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AsyncRingBuffer")
+            .field("inner", &self.inner)
+            .finish()
+    }
+}
+
+#[cfg(feature = "storage_arrow")]
+impl AsyncRingBuffer {
+    /// Write an Arrow RecordBatch in IPC format with length prefix (async-safe).
+    ///
+    /// This serializes the batch to Arrow IPC format and writes it to the ring buffer
+    /// with a 4-byte little-endian length prefix.
+    ///
+    /// # Arguments
+    /// * `batch` - The Arrow RecordBatch to write
+    ///
+    /// # Returns
+    /// Ok(()) on success, Err on serialization or write failure
+    pub async fn write_arrow_batch(&self, batch: &RecordBatch) -> Result<()> {
+        let rb = self.inner.clone();
+        let batch = batch.clone();
+        tokio::task::spawn_blocking(move || rb.write_arrow_batch(&batch))
+            .await
+            .expect("spawn_blocking panicked during write_arrow_batch")?;
+        Ok(())
     }
 }
 
@@ -1444,5 +1715,248 @@ mod tests {
             "Error should mention size mismatch: {}",
             err_msg
         );
+    }
+
+    // =============================================================================
+    // AsyncRingBuffer Tests (bd-cmcp)
+    // =============================================================================
+
+    #[tokio::test]
+    async fn test_async_ring_buffer_basic() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("async_test.buf");
+
+        let rb = Arc::new(RingBuffer::create(&path, 10).unwrap());
+        let async_rb = AsyncRingBuffer::new(rb);
+
+        // Write data
+        let test_data = b"Hello, async ring buffer!";
+        async_rb.write(test_data).await.unwrap();
+
+        // Read snapshot
+        let snapshot = async_rb.read_snapshot().await;
+        assert_eq!(snapshot, test_data);
+    }
+
+    #[tokio::test]
+    async fn test_async_ring_buffer_concurrent() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("async_concurrent.buf");
+
+        let rb = Arc::new(RingBuffer::create(&path, 100).unwrap());
+        let async_rb = AsyncRingBuffer::new(rb);
+
+        // Spawn multiple writer tasks
+        let mut writer_handles = Vec::new();
+        for i in 0..10 {
+            let arb = async_rb.clone();
+            let handle = tokio::spawn(async move {
+                for j in 0..100 {
+                    let data = format!("Writer {} Message {}", i, j);
+                    arb.write(data.as_bytes()).await.unwrap();
+                }
+            });
+            writer_handles.push(handle);
+        }
+
+        // Spawn multiple reader tasks
+        let mut reader_handles = Vec::new();
+        for _ in 0..5 {
+            let arb = async_rb.clone();
+            let handle = tokio::spawn(async move {
+                for _ in 0..50 {
+                    let _snapshot = arb.read_snapshot().await;
+                    tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
+                }
+            });
+            reader_handles.push(handle);
+        }
+
+        // Wait for all tasks to complete
+        for handle in writer_handles {
+            handle.await.unwrap();
+        }
+        for handle in reader_handles {
+            handle.await.unwrap();
+        }
+
+        // Final read should succeed
+        let snapshot = async_rb.read_snapshot().await;
+        assert!(!snapshot.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_async_ring_buffer_tap_registration() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("async_tap.buf");
+
+        let rb = Arc::new(RingBuffer::create(&path, 10).unwrap());
+        let async_rb = AsyncRingBuffer::new(rb);
+
+        // Register a tap
+        let mut rx = async_rb.register_tap("test_tap".to_string(), 1).unwrap();
+
+        // Verify tap is registered
+        assert_eq!(async_rb.tap_count(), 1);
+        assert_eq!(async_rb.list_taps(), vec![("test_tap".to_string(), 1)]);
+
+        // Write data
+        let test_data = b"test frame";
+        async_rb.write(test_data).await.unwrap();
+
+        // Should receive the frame
+        let received = tokio::time::timeout(Duration::from_millis(100), rx.recv())
+            .await
+            .unwrap();
+
+        assert_eq!(received.as_ref(), Some(&test_data.to_vec()));
+
+        // Unregister tap
+        assert!(async_rb.unregister_tap("test_tap").unwrap());
+        assert_eq!(async_rb.tap_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_async_ring_buffer_metadata_methods() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("async_metadata.buf");
+
+        let rb = Arc::new(RingBuffer::create(&path, 10).unwrap());
+        let async_rb = AsyncRingBuffer::new(rb);
+
+        // Test metadata accessors
+        assert_eq!(async_rb.capacity(), 10 * 1024 * 1024);
+        assert!(async_rb.magic() == MAGIC);
+        assert_eq!(async_rb.write_head(), 0);
+        assert_eq!(async_rb.read_tail(), 0);
+        assert!(async_rb.stream_id() > 0);
+
+        // Write some data
+        async_rb.write(b"test data").await.unwrap();
+
+        // Check that write_head advanced
+        assert_eq!(async_rb.write_head(), 9);
+
+        // Test tail operations
+        async_rb.advance_tail(5);
+        assert_eq!(async_rb.read_tail(), 5);
+
+        async_rb.update_read_tail(9);
+        assert_eq!(async_rb.read_tail(), 9);
+    }
+
+    #[tokio::test]
+    async fn test_async_ring_buffer_wrap_around() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("async_wrap.buf");
+
+        let rb = Arc::new(RingBuffer::create(&path, 1).unwrap()); // 1 MB
+        let async_rb = AsyncRingBuffer::new(rb);
+
+        let capacity = async_rb.capacity() as usize;
+
+        // Write data that will wrap around
+        let test_data = vec![0xAA; 512];
+
+        // Fill buffer past capacity to test wrap
+        for _ in 0..3 {
+            async_rb.write(&test_data).await.unwrap();
+        }
+
+        // Verify data wraps correctly
+        let snapshot = async_rb.read_snapshot().await;
+        assert!(snapshot.len() <= capacity);
+    }
+
+    #[tokio::test]
+    async fn test_async_ring_buffer_debug_impl() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("async_debug.buf");
+
+        let rb = Arc::new(RingBuffer::create(&path, 10).unwrap());
+        let async_rb = AsyncRingBuffer::new(rb);
+
+        // Test Debug implementation
+        let debug_str = format!("{:?}", async_rb);
+        assert!(debug_str.contains("AsyncRingBuffer"));
+    }
+
+    #[tokio::test]
+    async fn test_async_ring_buffer_clone() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("async_clone.buf");
+
+        let rb = Arc::new(RingBuffer::create(&path, 10).unwrap());
+        let async_rb = AsyncRingBuffer::new(rb);
+
+        // Clone the async ring buffer
+        let async_rb_clone = async_rb.clone();
+
+        // Write with original
+        async_rb.write(b"original").await.unwrap();
+
+        // Read with clone
+        let snapshot = async_rb_clone.read_snapshot().await;
+        assert_eq!(snapshot, b"original");
+
+        // Write with clone
+        async_rb_clone.write(b"clone").await.unwrap();
+
+        // Read with original
+        let snapshot = async_rb.read_snapshot().await;
+        assert!(snapshot.len() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_async_ring_buffer_inner_access() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("async_inner.buf");
+
+        let rb = Arc::new(RingBuffer::create(&path, 10).unwrap());
+        let async_rb = AsyncRingBuffer::new(rb.clone());
+
+        // Access inner should return the same Arc
+        let inner = async_rb.inner();
+        assert!(Arc::ptr_eq(inner, &rb));
+    }
+
+    #[cfg(feature = "storage_arrow")]
+    #[tokio::test]
+    async fn test_async_ring_buffer_arrow_batch() {
+        use arrow::array::{Float64Array, Int32Array};
+        use arrow::datatypes::{DataType, Field, Schema};
+        use arrow::record_batch::RecordBatch;
+        use std::sync::Arc as ArrowArc;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("async_arrow.buf");
+
+        let rb = Arc::new(RingBuffer::create(&path, 10).unwrap());
+        let async_rb = AsyncRingBuffer::new(rb);
+
+        // Create a simple Arrow RecordBatch
+        let schema = ArrowArc::new(Schema::new(vec![
+            Field::new("id", DataType::Int32, false),
+            Field::new("value", DataType::Float64, false),
+        ]));
+
+        let id_array = Int32Array::from(vec![1, 2, 3]);
+        let value_array = Float64Array::from(vec![1.0, 2.0, 3.0]);
+
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![ArrowArc::new(id_array), ArrowArc::new(value_array)],
+        )
+        .unwrap();
+
+        // Write Arrow batch
+        async_rb.write_arrow_batch(&batch).await.unwrap();
+
+        // Read snapshot
+        let snapshot = async_rb.read_snapshot().await;
+        assert!(!snapshot.is_empty());
+
+        // The snapshot should contain the Arrow IPC data with length prefix
+        assert!(snapshot.len() > 4); // At least 4 bytes for length prefix
     }
 }
