@@ -932,7 +932,8 @@ impl PvcamAcquisition {
                     if let Some(ref tap) = arrow_tap {
                         use arrow::array::{PrimitiveArray, UInt16Type};
                         use arrow::buffer::Buffer;
-                        let buffer = Buffer::from(frame_arc.data().to_vec());
+                        // Frame.data is a public Vec<u8> field, not a method
+                        let buffer = Buffer::from(frame_arc.data.clone());
                         let arr = Arc::new(PrimitiveArray::<UInt16Type>::new(Arc::new(buffer), None));
                         let _ = tap.blocking_send(arr);
                     }

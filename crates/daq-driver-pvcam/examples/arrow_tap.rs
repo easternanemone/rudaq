@@ -8,7 +8,7 @@
 //! LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:$LD_LIBRARY_PATH \
 //! cargo run -p daq-driver-pvcam --example arrow_tap --features "pvcam_hardware,arrow_tap" -- PrimeBSI
 
-use std::sync::Arc;
+use arrow::array::Array;
 use tokio::sync::mpsc;
 
 #[tokio::main]
