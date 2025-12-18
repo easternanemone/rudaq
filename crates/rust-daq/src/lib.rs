@@ -1,10 +1,9 @@
-//! # Rust DAQ Core Library
+//! # Rust DAQ Integration Layer
 //!
-//! This crate serves as the integration layer for the `rust_daq` application. It encapsulates all the
-//! fundamental components required for data acquisition, instrument control, data processing,
-//! and the graphical user interface. By organizing the project as a library, we can share
-//! core logic between different frontends, such as the native GUI application (`main.rs`)
-//! and potential future integrations like Python bindings.
+//! This crate serves as the **integration layer** for the `rust_daq` application, providing
+//! organized re-exports and feature-gating for optional components. After the bd-232k refactoring,
+//! this crate no longer owns implementation code—it orchestrates dependencies and provides
+//! convenient import patterns.
 //!
 //! ## Recommended Usage
 //!
@@ -15,37 +14,57 @@
 //! ```
 //!
 //! The prelude module provides organized re-exports from the entire `rust_daq` ecosystem,
-//! avoiding import ambiguity and making it clear which crate each type comes from.
+//! grouped by functional area (core types, hardware, storage, scripting, etc.).
 //!
-//! ## Crate Structure
+//! **Or import directly from focused crates:**
 //!
-//! The library is organized into several modules, each with a distinct responsibility:
+//! ```rust,ignore
+//! use daq_core::error::DaqError;
+//! use daq_storage::ring_buffer::RingBuffer;
+//! use daq_hardware::capabilities::Movable;
+//! ```
 //!
-//! - **`config`**: Defines the structures for loading and validating application configuration
-//!   from TOML files. See `config::Settings`.
-//! - **`core`**: Re-exported from `daq-core`. Provides fundamental traits and types for the DAQ
-//!   system, such as domain types and essential abstractions.
-//! - **`data`**: Includes components for data handling, such as ring buffers and data processors
-//!   (non-WASM only).
-//! - **`error`**: Re-exported from `daq-core`. Defines the custom `DaqError` enum for centralized
-//!   error handling across the application.
-//! - **`experiment`**: Re-exported from `daq-experiment`. RunEngine and Plan definitions for
-//!   experiment orchestration (non-WASM only).
-//! - **`gui`**: egui-based GUI components (requires `gui_egui` feature).
-//! - **`hardware`**: Re-exported from `daq-hardware`. Hardware Abstraction Layer with capability
-//!   traits and device drivers (non-WASM only).
-//! - **`log_capture`**: Provides a custom `log::Log` implementation to capture log messages for
-//!   display within the GUI (requires `gui_egui` feature, non-WASM only).
-//! - **`measurement`**: Measurement-related functionality (non-WASM only).
-//! - **`metadata`**: Defines structures for capturing and storing experimental metadata.
-//! - **`modules`**: Module management for experiment-specific workflows (non-WASM only).
-//! - **`observable`**: Re-exported from `daq-core`. Observable pattern for reactive state.
-//! - **`parameter`**: Re-exported from `daq-core`. Reactive Parameter<T> system with async hardware
-//!   callbacks. All V5 drivers MUST implement Parameterized trait to expose parameters for gRPC
-//!   control, presets, and experiment metadata. See docs/architecture/ADR_005_REACTIVE_PARAMETERS.md
-//! - **`scripting`**: Re-exported from `daq-scripting`. Rhai scripting engine integration (non-WASM only).
-//! - **`session`**: Implements session management for saving and loading the application state (non-WASM only).
-//! - **`validation`**: A collection of utility functions for validating configuration parameters.
+//! ## Architecture (Post bd-232k Refactoring)
+//!
+//! **Key Changes:**
+//! - `rust-daq` is now an **integration layer** (not a monolithic crate)
+//! - Dead modules removed: `data/`, `metadata.rs`, `session.rs`, `measurement/` (-3,023 lines)
+//! - Optional dependencies: `daq-server` and `daq-scripting` enabled via feature flags
+//! - Root re-exports deprecated in favor of `prelude` module (will be removed in 0.6.0)
+//!
+//! **Module Organization:**
+//!
+//! - **[`prelude`]**: Organized re-exports grouped by functional area (core, hardware, storage, etc.)
+//! - **[`config`]**: Application configuration structures (TOML-based, Figment integration)
+//! - **[`validation`]**: Configuration parameter validation utilities
+//! - **[`hardware`]**: Re-exported from `daq-hardware` (HAL, capability traits, drivers)
+//! - **[`modules`]**: Module management for experiment-specific workflows (non-WASM only)
+//! - **[`gui`]**: egui-based GUI components (requires `gui_egui` feature)
+//! - **[`log_capture`]**: Log capture for GUI display (requires `gui_egui` feature, non-WASM only)
+//!
+//! **Deprecated Re-exports (will be removed in 0.6.0):**
+//! - `rust_daq::core` → Use `rust_daq::prelude::core` or `daq_core::core`
+//! - `rust_daq::error` → Use `rust_daq::prelude::error` or `daq_core::error`
+//! - `rust_daq::observable` → Use `rust_daq::prelude::observable` or `daq_core::observable`
+//! - `rust_daq::parameter` → Use `rust_daq::prelude::parameter` or `daq_core::parameter`
+//! - `rust_daq::experiment` → Use `rust_daq::prelude::experiment` or `daq_experiment`
+//! - `rust_daq::scripting` → Use `rust_daq::prelude::scripting` or `daq_scripting` (requires `scripting` feature)
+//!
+//! ## Feature Flags
+//!
+//! **Optional Components:**
+//! - `scripting` - Enables `daq-scripting` dependency (Rhai engine integration)
+//! - `server` - Enables `daq-server` dependency (gRPC server implementation)
+//! - `modules` - Module system (depends on `scripting`)
+//!
+//! **High-Level Profiles:**
+//! - `backend` - Server + modules + all hardware + CSV storage
+//! - `frontend` - GUI (egui) + networking
+//! - `cli` - All hardware + CSV storage + scripting
+//! - `full` - Most features (excludes HDF5 which requires native libraries)
+//!
+//! See [`CLAUDE.md`](https://github.com/yourusername/rust-daq/blob/main/CLAUDE.md) for complete
+//! documentation on the bd-232k refactoring and migration guide.
 
 pub mod config;
 pub mod prelude;

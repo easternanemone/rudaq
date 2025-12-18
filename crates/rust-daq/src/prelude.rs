@@ -1,8 +1,7 @@
 //! Prelude module for convenient imports
 //!
-//! This module provides organized re-exports from the `rust-daq` ecosystem.
-//! Import this to get access to common types and traits without dealing with
-//! import ambiguity.
+//! This module provides **organized re-exports** from the `rust-daq` ecosystem, created during
+//! the bd-232k refactoring to eliminate import ambiguity and clarify module ownership.
 //!
 //! # Usage
 //!
@@ -12,13 +11,26 @@
 //!
 //! # Organization
 //!
-//! Re-exports are grouped by functional area:
-//! - Core domain types and errors
-//! - Reactive programming (Parameter, Observable)
-//! - Hardware abstraction and drivers
-//! - Data storage and processing
-//! - Experiment orchestration
-//! - Scripting integration
+//! Re-exports are grouped by functional area for clarity:
+//!
+//! - **Core domain types and errors** (`core`, `error`)
+//! - **Reactive programming** (`parameter`, `observable`)
+//! - **Hardware abstraction and drivers** (`hardware`)
+//! - **Experiment orchestration** (`experiment`)
+//! - **Scripting integration** (`scripting` - requires `scripting` feature)
+//! - **Module system** (`modules`)
+//!
+//! # Design Rationale (bd-232k)
+//!
+//! Before bd-232k, `rust_daq` re-exported types at the crate root (e.g., `rust_daq::core`,
+//! `rust_daq::error`), creating ambiguity about whether code lived in `rust-daq` or a
+//! dependency crate. The prelude pattern makes it explicit:
+//!
+//! - `rust_daq::prelude::core` → clearly from `daq-core` crate
+//! - `rust_daq::prelude::hardware` → clearly from `daq-hardware` crate
+//! - `rust_daq::prelude::scripting` → clearly from `daq-scripting` crate (optional)
+//!
+//! Root re-exports are deprecated and will be removed in 0.6.0.
 
 // =============================================================================
 // Core Domain Types & Errors
