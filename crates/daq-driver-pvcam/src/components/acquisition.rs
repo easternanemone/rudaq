@@ -195,16 +195,19 @@ impl CallbackContext {
 /// FFI-safe EOF callback function (bd-ek9n.2)
 ///
 /// This function is called by PVCAM when a frame is ready. It must:
-/// 1. Be `extern "system"` for FFI compatibility (PVCAM uses `__stdcall` on Windows)
+/// 1. Be `extern "C"` to match bindgen's generated function signatures
 /// 2. Do minimal work (just signal, no heavy processing)
 /// 3. Not block or perform I/O
+///
+/// Note: On Unix, `extern "C"` and `extern "system"` are equivalent.
+/// The callback is cast to `*mut c_void` when registered with PVCAM.
 ///
 /// # Safety
 ///
 /// - `p_frame_info` must be a valid pointer to FRAME_INFO or null
 /// - `p_context` must be a valid pointer to CallbackContext
 #[cfg(feature = "pvcam_hardware")]
-pub unsafe extern "system" fn pvcam_eof_callback(
+pub unsafe extern "C" fn pvcam_eof_callback(
     p_frame_info: *const FRAME_INFO,
     p_context: *mut std::ffi::c_void,
 ) {
@@ -366,7 +369,7 @@ impl PvcamAcquisition {
                 && avail != 0
             {
                 // Get the default (recommended) value
-                let mut recommended_bytes: uns64 = 0;
+                let mut recommended_bytes: u64 = 0;
                 if pl_get_param(
                     hcam,
                     PARAM_FRAME_BUFFER_SIZE,
@@ -516,13 +519,15 @@ impl PvcamAcquisition {
 
             // PVCAM Best Practices (bd-ek9n.2): Register EOF callback before starting acquisition
             // The callback signals frame readiness, eliminating polling overhead.
-            let callback_ctx_ptr = self.callback_context.as_ref().get_ref() as *const CallbackContext;
+            // Get raw pointer to pinned CallbackContext for FFI
+            // Deref Arc -> Pin<Box<T>> -> T, then take address
+            let callback_ctx_ptr = &**self.callback_context as *const CallbackContext;
             let use_callback = unsafe {
-                // Use _manual variant to avoid conflicts with bindgen-generated symbols
-                let result = pl_cam_register_callback_ex3_manual(
+                // Use bindgen-generated function, cast callback to *mut c_void
+                let result = pl_cam_register_callback_ex3(
                     h,
                     PL_CALLBACK_EOF,
-                    pvcam_eof_callback,
+                    pvcam_eof_callback as *mut std::ffi::c_void,
                     callback_ctx_ptr as *mut std::ffi::c_void,
                 );
                 if result == 0 {
@@ -561,7 +566,7 @@ impl PvcamAcquisition {
                 if pl_exp_start_cont(h, circ_ptr as *mut _, circ_size_bytes) == 0 {
                     // Deregister callback on failure
                     if use_callback {
-                        pl_cam_deregister_callback_manual(h, PL_CALLBACK_EOF);
+                        pl_cam_deregister_callback(h, PL_CALLBACK_EOF);
                         self.callback_registered.store(false, Ordering::Release);
                     }
                     self.active_hcam.store(-1, Ordering::Release); // -1 = no active handle
@@ -718,7 +723,7 @@ impl PvcamAcquisition {
                     pl_exp_stop_cont(h, CCS_HALT);
                     // Deregister EOF callback if registered (bd-ek9n.2)
                     if self.callback_registered.load(Ordering::Acquire) {
-                        pl_cam_deregister_callback_manual(h, PL_CALLBACK_EOF);
+                        pl_cam_deregister_callback(h, PL_CALLBACK_EOF);
                         self.callback_registered.store(false, Ordering::Release);
                     }
                 }
@@ -984,7 +989,7 @@ impl Drop for PvcamAcquisition {
 
                     // Deregister callback to prevent use-after-free
                     if self.callback_registered.swap(false, Ordering::AcqRel) {
-                        let dereg_result = pl_cam_deregister_callback_manual(hcam, PL_CALLBACK_EOF);
+                        let dereg_result = pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
                         if dereg_result == 0 {
                             tracing::warn!("pl_cam_deregister_callback failed in Drop");
                         } else {
