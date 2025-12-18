@@ -615,6 +615,7 @@ impl PvcamAcquisition {
                     last_hw_frame_nr,
                     callback_ctx,
                     use_callback,
+                    exposure_ms,
                     actual_frame_bytes,
                     expected_frame_bytes,
                     width,
@@ -782,6 +783,7 @@ impl PvcamAcquisition {
         last_hw_frame_nr: Arc<AtomicI32>,
         callback_ctx: Arc<std::pin::Pin<Box<CallbackContext>>>,
         use_callback: bool,
+        exposure_ms: f64,
         frame_bytes: usize,
         expected_frame_bytes: usize,
         width: u32,
@@ -791,8 +793,18 @@ impl PvcamAcquisition {
         let mut bytes_arrived: uns32 = 0;
         let mut buffer_cnt: uns32 = 0;
         let mut consecutive_timeouts: u32 = 0;
-        const MAX_CONSECUTIVE_TIMEOUTS: u32 = 5000;
         const CALLBACK_WAIT_TIMEOUT_MS: u64 = 100; // Short timeout to check shutdown
+        let max_consecutive_timeouts: u32 = if use_callback {
+            // In callback mode, "no frames" often just means we're waiting for the next exposure/readout.
+            // Scale the stuck-acquisition timeout with exposure time while still bounding it.
+            let expected_period_ms = exposure_ms.max(1.0);
+            // Bound to 24h to avoid overflow while still supporting very long exposures.
+            let max_idle_ms = (expected_period_ms * 10.0 + 5_000.0).min(24.0 * 60.0 * 60.0 * 1000.0);
+            ((max_idle_ms / CALLBACK_WAIT_TIMEOUT_MS as f64).ceil() as u64).min(u32::MAX as u64) as u32
+        } else {
+            // Polling mode sleeps ~1ms per miss, so 5000 ~= 5 seconds.
+            5000
+        };
 
         if use_callback {
             tracing::debug!("Using EOF callback mode for frame acquisition");
@@ -808,14 +820,24 @@ impl PvcamAcquisition {
             let has_frames = if use_callback {
                 // Callback mode (bd-ek9n.2): Wait on condvar with timeout
                 // Returns number of pending frames (0 on timeout/shutdown)
-                callback_ctx.wait_for_frames(CALLBACK_WAIT_TIMEOUT_MS) > 0
+                if callback_ctx.wait_for_frames(CALLBACK_WAIT_TIMEOUT_MS) > 0 {
+                    true
+                } else {
+                    // Fallback: if callbacks are missed, avoid deadlock by occasionally checking status.
+                    unsafe {
+                        pl_exp_check_cont_status(hcam, &mut status, &mut bytes_arrived, &mut buffer_cnt) != 0
+                            && buffer_cnt > 0
+                    }
+                }
             } else {
                 // Polling mode fallback: Check status with 1ms delay
                 unsafe {
                     if pl_exp_check_cont_status(hcam, &mut status, &mut bytes_arrived, &mut buffer_cnt) == 0 {
                         break;
                     }
-                    status == READOUT_COMPLETE || status == EXPOSURE_IN_PROGRESS
+                    // Only treat as "has frames" when PVCAM reports filled buffers.
+                    // Treating EXPOSURE_IN_PROGRESS as "has frames" causes a hot-spin when no frame is ready yet.
+                    buffer_cnt > 0
                 }
             };
 
@@ -825,7 +847,7 @@ impl PvcamAcquisition {
                     std::thread::sleep(Duration::from_millis(1));
                 }
                 consecutive_timeouts += 1;
-                if consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS {
+                if consecutive_timeouts >= max_consecutive_timeouts {
                     tracing::warn!("Frame loop: max consecutive timeouts reached");
                     break;
                 }
@@ -942,18 +964,32 @@ impl PvcamAcquisition {
 
             // Fix for pending_frames getting stuck (medium priority issue):
             // If pending_frames counter is out of sync with actual frames available,
-            // reset it to 0 after drain loop to avoid getting stuck in infinite wait.
-            // This can happen if PVCAM drops frames internally without calling callback.
+            // avoid a busy-loop where pending_frames>0 prevents waiting, but no frame can be retrieved.
+            //
+            // Do NOT assume the callback implies the oldest frame is immediately retrievable.
+            // If we couldn't retrieve any frames, clear pending_frames and rely on the callback timeout
+            // fallback status check above to avoid deadlock if the callback was early/missed.
             if use_callback {
                 let remaining = callback_ctx.pending_frames.load(Ordering::Acquire);
                 if remaining > 0 && frames_processed_in_drain == 0 {
                     // Callback said frames were ready, but we couldn't retrieve any.
-                    // This indicates a desync - reset counter to avoid getting stuck.
-                    tracing::warn!(
-                        "pending_frames desync: {} pending but 0 retrieved, resetting counter",
-                        remaining
-                    );
-                    callback_ctx.pending_frames.store(0, Ordering::Release);
+                    // Confirm there's really no data available and then clear pending_frames to avoid spin.
+                    let mut has_buffered_frames = false;
+                    unsafe {
+                        if pl_exp_check_cont_status(hcam, &mut status, &mut bytes_arrived, &mut buffer_cnt) != 0 {
+                            has_buffered_frames = buffer_cnt > 0;
+                        }
+                    }
+
+                    if !has_buffered_frames {
+                        tracing::warn!(
+                            "pending_frames desync: {} pending but 0 retrieved; clearing pending counter and continuing",
+                            remaining
+                        );
+                        callback_ctx.pending_frames.store(0, Ordering::Release);
+                        // Yield a bit to avoid hammering pl_exp_check_cont_status in a tight loop.
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
                 }
             }
         }
