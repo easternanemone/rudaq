@@ -59,6 +59,9 @@ struct ExecutionState {
 // DataPoint is imported from crate::measurement_types (see above)
 
 /// DAQ gRPC server implementation
+///
+/// Provides gRPC services for data acquisition control. When the `scripting` feature is enabled,
+/// includes ControlService for script execution and measurement streaming.
 pub struct DaqServer {
     #[cfg(feature = "scripting")]
     script_engine: Arc<RwLock<RhaiEngine>>,
@@ -763,7 +766,10 @@ impl ControlService for DaqServer {
     }
 }
 
-/// Start the DAQ gRPC server (script control only)
+/// Start the DAQ gRPC server
+///
+/// Provides RunEngineService and optionally ControlService (when `scripting` feature is enabled).
+/// ControlService includes script execution, stream_measurements, and stream_status methods.
 pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
     use crate::grpc::health_service::HealthServiceImpl;
     use crate::grpc::proto::health::health_check_response::ServingStatus;
@@ -806,8 +812,8 @@ use daq_core::pipeline::{MeasurementSink, Tee};
 
 /// Start the DAQ gRPC server with hardware control (bd-4x6q)
 ///
-/// This version includes both the ControlService for script management
-/// and the HardwareService for direct device control.
+/// Provides HardwareService for direct device control and optionally ControlService
+/// (when `scripting` feature is enabled) for script management and data streaming.
 ///
 /// # Arguments
 /// * `addr` - Socket address to listen on
