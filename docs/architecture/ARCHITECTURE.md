@@ -63,6 +63,7 @@ graph TD
     Exp --> Core
     Server --> Core
     Server --> Proto
+    Server -.optional (scripting).-> Script
     Hard --> Core
     Store --> Core
     Proto --> Core
