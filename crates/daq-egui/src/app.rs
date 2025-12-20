@@ -47,7 +47,10 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for UiLogMakeWriter {
 static UI_LOG_BUFFER: Lazy<Arc<Mutex<Vec<String>>>> = Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
 
 use crate::client::DaqClient;
-use crate::panels::{ConnectionPanel, DevicesPanel, ScriptsPanel, ScansPanel, StoragePanel, ModulesPanel, GettingStartedPanel};
+use crate::panels::{
+    ConnectionPanel, DevicesPanel, DocumentViewerPanel, GettingStartedPanel, ModulesPanel,
+    PlanRunnerPanel, ScansPanel, ScriptsPanel, StoragePanel,
+};
 
 /// Connection state to the DAQ daemon
 #[derive(Debug, Clone, PartialEq)]
@@ -98,6 +101,8 @@ pub struct DaqApp {
     scans_panel: ScansPanel,
     storage_panel: StoragePanel,
     modules_panel: ModulesPanel,
+    plan_runner_panel: PlanRunnerPanel,
+    document_viewer_panel: DocumentViewerPanel,
 
     /// Tokio runtime for async operations
     runtime: tokio::runtime::Runtime,
@@ -125,6 +130,8 @@ pub enum Panel {
     Scans,
     Storage,
     Modules,
+    PlanRunner,
+    DocumentViewer,
     Logs,
 }
 
@@ -172,6 +179,8 @@ impl DaqApp {
             scans_panel: ScansPanel::default(),
             storage_panel: StoragePanel::default(),
             modules_panel: ModulesPanel::default(),
+            plan_runner_panel: PlanRunnerPanel::default(),
+            document_viewer_panel: DocumentViewerPanel::default(),
             runtime,
             connect_tx,
             connect_rx,
@@ -360,6 +369,8 @@ impl DaqApp {
                     ui.selectable_value(&mut self.active_panel, Panel::Scans, "📊 Scans");
                     ui.selectable_value(&mut self.active_panel, Panel::Storage, "💾 Storage");
                     ui.selectable_value(&mut self.active_panel, Panel::Modules, "🧩 Modules");
+                    ui.selectable_value(&mut self.active_panel, Panel::PlanRunner, "🎯 Plan Runner");
+                    ui.selectable_value(&mut self.active_panel, Panel::DocumentViewer, "📄 Documents");
                     ui.selectable_value(&mut self.active_panel, Panel::Logs, "🪵 Logs");
                 });
                 
@@ -413,6 +424,12 @@ impl DaqApp {
                 }
                 Panel::Modules => {
                     self.modules_panel.ui(ui, self.client.as_mut(), &self.runtime);
+                }
+                Panel::PlanRunner => {
+                    self.plan_runner_panel.ui(ui, self.client.as_mut());
+                }
+                Panel::DocumentViewer => {
+                    self.document_viewer_panel.ui(ui, self.client.as_mut());
                 }
                 Panel::Logs => {
                     self.render_logs(ui);

@@ -717,7 +717,19 @@ message GetPresetRequest {
 // =============================================================================
 // ScanService - Coordinated multi-axis scans (bd-4le6)
 // =============================================================================
-
+//
+// DEPRECATED (v0.6.0): Use RunEngineService instead for declarative experiment
+// control with pause/resume/abort capabilities and structured document streaming.
+//
+// Migration Path:
+// - ScanService.CreateScan + StartScan → RunEngineService.QueuePlan + StartEngine
+// - ScanService.PauseScan → RunEngineService.PauseEngine
+// - ScanService.ResumeScan → RunEngineService.ResumeEngine
+// - ScanService.StopScan → RunEngineService.AbortPlan
+// - ScanService.StreamScanProgress → RunEngineService.StreamDocuments
+//
+// This service will be removed in v0.8.0 after a two-release deprecation period.
+//
 service ScanService {
   // Create a new scan configuration (returns scan_id)
   rpc CreateScan(CreateScanRequest) returns (CreateScanResponse);

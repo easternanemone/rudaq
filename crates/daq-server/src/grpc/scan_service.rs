@@ -730,6 +730,11 @@ impl ScanService for ScanServiceImpl {
         &self,
         request: Request<CreateScanRequest>,
     ) -> Result<Response<CreateScanResponse>, Status> {
+        tracing::warn!(
+            "ScanService.CreateScan is DEPRECATED (v0.6.0). \
+             Use RunEngineService.QueuePlan instead. \
+             ScanService will be removed in v0.8.0."
+        );
         let req = request.into_inner();
         self.with_request_deadline("CreateScan", self.create_scan_inner(req))
             .await
@@ -739,6 +744,11 @@ impl ScanService for ScanServiceImpl {
         &self,
         request: Request<StartScanRequest>,
     ) -> Result<Response<StartScanResponse>, Status> {
+        tracing::warn!(
+            "ScanService.StartScan is DEPRECATED (v0.6.0). \
+             Use RunEngineService.StartEngine instead. \
+             ScanService will be removed in v0.8.0."
+        );
         let req = request.into_inner();
         self.with_request_deadline("StartScan", self.start_scan_inner(req))
             .await
@@ -748,6 +758,11 @@ impl ScanService for ScanServiceImpl {
         &self,
         request: Request<PauseScanRequest>,
     ) -> Result<Response<PauseScanResponse>, Status> {
+        tracing::warn!(
+            "ScanService.PauseScan is DEPRECATED (v0.6.0). \
+             Use RunEngineService.PauseEngine instead. \
+             ScanService will be removed in v0.8.0."
+        );
         let req = request.into_inner();
         self.with_request_deadline("PauseScan", self.pause_scan_inner(req))
             .await
@@ -757,6 +772,11 @@ impl ScanService for ScanServiceImpl {
         &self,
         request: Request<ResumeScanRequest>,
     ) -> Result<Response<ResumeScanResponse>, Status> {
+        tracing::warn!(
+            "ScanService.ResumeScan is DEPRECATED (v0.6.0). \
+             Use RunEngineService.ResumeEngine instead. \
+             ScanService will be removed in v0.8.0."
+        );
         let req = request.into_inner();
         self.with_request_deadline("ResumeScan", self.resume_scan_inner(req))
             .await
@@ -766,6 +786,11 @@ impl ScanService for ScanServiceImpl {
         &self,
         request: Request<StopScanRequest>,
     ) -> Result<Response<StopScanResponse>, Status> {
+        tracing::warn!(
+            "ScanService.StopScan is DEPRECATED (v0.6.0). \
+             Use RunEngineService.AbortPlan instead. \
+             ScanService will be removed in v0.8.0."
+        );
         let req = request.into_inner();
         self.with_request_deadline("StopScan", self.stop_scan_inner(req))
             .await
@@ -775,6 +800,11 @@ impl ScanService for ScanServiceImpl {
         &self,
         request: Request<GetScanStatusRequest>,
     ) -> Result<Response<ScanStatus>, Status> {
+        tracing::warn!(
+            "ScanService.GetScanStatus is DEPRECATED (v0.6.0). \
+             Use RunEngineService.GetEngineStatus instead. \
+             ScanService will be removed in v0.8.0."
+        );
         let req = request.into_inner();
 
         let scans_guard = self.scans.lock().await;
@@ -789,6 +819,11 @@ impl ScanService for ScanServiceImpl {
         &self,
         request: Request<ListScansRequest>,
     ) -> Result<Response<ListScansResponse>, Status> {
+        tracing::warn!(
+            "ScanService.ListScans is DEPRECATED (v0.6.0). \
+             Use RunEngineService APIs instead. \
+             ScanService will be removed in v0.8.0."
+        );
         let req = request.into_inner();
 
         let scans_guard = self.scans.lock().await;
@@ -814,6 +849,11 @@ impl ScanService for ScanServiceImpl {
         &self,
         request: Request<StreamScanProgressRequest>,
     ) -> Result<Response<Self::StreamScanProgressStream>, Status> {
+        tracing::warn!(
+            "ScanService.StreamScanProgress is DEPRECATED (v0.6.0). \
+             Use RunEngineService.StreamDocuments instead for structured experiment data. \
+             ScanService will be removed in v0.8.0."
+        );
         let req = request.into_inner();
 
         let scans_guard = self.scans.lock().await;
