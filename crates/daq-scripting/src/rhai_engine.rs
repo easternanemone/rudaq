@@ -220,10 +220,31 @@ impl RhaiEngine {
         // Register hardware bindings
         crate::bindings::register_hardware(&mut engine);
 
+        // Register plan bindings (bd-w14j.1)
+        crate::plan_bindings::register_plans(&mut engine);
+
         Ok(Self {
             engine: Arc::new(engine),
             scope: Arc::new(Mutex::new(Scope::new())),
         })
+    }
+
+    /// Inject a RunEngine handle into the script scope as a global variable.
+    ///
+    /// This enables scripts to queue and execute plans using the RunEngine.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let mut engine = RhaiEngine::with_hardware()?;
+    /// let registry = Arc::new(RwLock::new(DeviceRegistry::new()));
+    /// let run_engine = RunEngineHandle::new(registry);
+    /// engine.set_run_engine(run_engine);
+    ///
+    /// // Now scripts can use: run_engine.queue(plan); run_engine.start();
+    /// ```
+    pub fn set_run_engine(&mut self, handle: crate::plan_bindings::RunEngineHandle) -> Result<(), ScriptError> {
+        self.set_global("run_engine", ScriptValue::new(handle))
     }
 
     /// Convert a Rhai Dynamic to ScriptValue
@@ -248,6 +269,7 @@ impl RhaiEngine {
     /// Convert a ScriptValue to Rhai Dynamic
     fn script_value_to_dynamic(value: ScriptValue) -> Result<Dynamic, ScriptError> {
         use crate::bindings::{CameraHandle, StageHandle};
+        use crate::plan_bindings::RunEngineHandle;
 
         // Try to extract common types first
         if let Some(i) = value.downcast_ref::<i64>() {
@@ -269,6 +291,10 @@ impl RhaiEngine {
         } else if let Some(camera) = value.downcast_ref::<CameraHandle>() {
             Ok(Dynamic::from(camera.clone()))
         }
+        // Handle RunEngine (bd-w14j.1)
+        else if let Some(run_engine) = value.downcast_ref::<RunEngineHandle>() {
+            Ok(Dynamic::from(run_engine.clone()))
+        }
         // Try to extract Dynamic directly if that's what was wrapped
         else if let Ok(dyn_val) = value.downcast::<Dynamic>() {
             Ok(dyn_val)
@@ -276,7 +302,7 @@ impl RhaiEngine {
         // As a last resort, try extracting custom Rhai types
         else {
             Err(ScriptError::TypeConversionError {
-                expected: "i64, f64, bool, String, StageHandle, CameraHandle, or Dynamic"
+                expected: "i64, f64, bool, String, StageHandle, CameraHandle, RunEngineHandle, or Dynamic"
                     .to_string(),
                 found: "unknown type".to_string(),
             })

@@ -34,6 +34,7 @@ tonic-web = { version = "0.10", optional = true }
 sysinfo = "0.37.2"
 bincode = "1.3"
 rerun = { version = "0.27.3", features = ["server"] }
+daq-experiment = { version = "0.1.0", path = "../daq-experiment" }
 
 [features]
 default = ["modules", "server", "networking", "scripting"]

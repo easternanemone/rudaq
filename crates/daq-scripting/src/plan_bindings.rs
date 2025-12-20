@@ -34,6 +34,7 @@ use tokio::task::block_in_place;
 use daq_experiment::plans::{Count, GridScan, LineScan, Plan};
 use daq_experiment::run_engine::RunEngine;
 use daq_hardware::registry::DeviceRegistry;
+use tokio::sync::RwLock;
 
 // =============================================================================
 // RunEngine Handle - Rhai-Compatible Wrapper
@@ -51,7 +52,7 @@ pub struct RunEngineHandle {
 
 impl RunEngineHandle {
     /// Create a new RunEngineHandle wrapping a DeviceRegistry
-    pub fn new(registry: Arc<DeviceRegistry>) -> Self {
+    pub fn new(registry: Arc<RwLock<DeviceRegistry>>) -> Self {
         Self {
             engine: Arc::new(RunEngine::new(registry)),
         }
@@ -355,6 +356,45 @@ pub fn register_plans(engine: &mut Engine) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rhai_engine::RhaiEngine;
+    use crate::traits::ScriptEngine;
+    use daq_hardware::registry::DeviceRegistry;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    #[tokio::test]
+    async fn test_plan_bindings_registered() {
+        // Verify that plan creation functions are available after with_hardware()
+        let mut engine = RhaiEngine::with_hardware().unwrap();
+
+        // This should not panic - plan functions should be registered
+        let script = r#"
+            let plan = line_scan("stage_x", 0.0, 10.0, 11, "detector");
+        "#;
+
+        let result = engine.execute_script(script).await;
+        assert!(result.is_ok(), "Plan creation should work: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_run_engine_injection() {
+        // Verify that run_engine can be injected and used
+        let mut engine = RhaiEngine::with_hardware().unwrap();
+
+        // Create and inject run_engine
+        let registry = Arc::new(RwLock::new(DeviceRegistry::new()));
+        let run_engine = RunEngineHandle::new(registry);
+        engine.set_run_engine(run_engine).expect("Failed to set run_engine");
+
+        // This should not panic - run_engine should be accessible
+        let script = r#"
+            let plan = count_simple(5);
+            run_engine.queue(plan);
+        "#;
+
+        let result = engine.execute_script(script).await;
+        assert!(result.is_ok(), "RunEngine operations should work: {:?}", result);
+    }
 
     #[test]
     fn test_line_scan_creation() {

@@ -100,7 +100,7 @@ pub struct RunEngine {
     state: RwLock<EngineState>,
 
     /// Device registry for hardware operations
-    device_registry: Arc<DeviceRegistry>,
+    device_registry: Arc<RwLock<DeviceRegistry>>,
 
     /// Queue of plans to execute
     plan_queue: Mutex<Vec<QueuedPlan>>,
@@ -123,7 +123,7 @@ pub struct RunEngine {
 
 impl RunEngine {
     /// Create a new RunEngine
-    pub fn new(device_registry: Arc<DeviceRegistry>) -> Self {
+    pub fn new(device_registry: Arc<RwLock<DeviceRegistry>>) -> Self {
         let (doc_sender, _) = broadcast::channel(1024);
 
         Self {
@@ -257,7 +257,7 @@ impl RunEngine {
         self.emit_document(Document::Start(start_doc.clone())).await;
 
         // Capture experiment manifest - snapshot all hardware parameters (bd-ej44)
-        let parameter_snapshot = self.device_registry.snapshot_all_parameters();
+        let parameter_snapshot = self.device_registry.read().await.snapshot_all_parameters();
         let manifest = ExperimentManifest::new(
             &run_uid,
             &start_doc.plan_type,
@@ -484,7 +484,8 @@ impl RunEngine {
         debug!(device = %device_id, position = %position, "Moving");
 
         // Get the device from registry and move it
-        if let Some(device) = self.device_registry.get_movable(device_id) {
+        let device = self.device_registry.read().await.get_movable(device_id);
+        if let Some(device) = device {
             device.move_abs(position).await?;
         } else {
             warn!(device = %device_id, "Device not found or not movable, skipping move");
@@ -498,7 +499,8 @@ impl RunEngine {
         debug!(device = %device_id, "Reading");
 
         // Get the device from registry and read it
-        if let Some(device) = self.device_registry.get_readable(device_id) {
+        let device = self.device_registry.read().await.get_readable(device_id);
+        if let Some(device) = device {
             let value = device.read().await?;
             Ok(value)
         } else {
@@ -512,7 +514,8 @@ impl RunEngine {
         debug!(device = %device_id, "Triggering");
 
         // Get the device from registry and trigger it
-        if let Some(device) = self.device_registry.get_triggerable(device_id) {
+        let device = self.device_registry.read().await.get_triggerable(device_id);
+        if let Some(device) = device {
             device.trigger().await?;
         } else {
             debug!(device = %device_id, "Device not triggerable, skipping");
@@ -531,7 +534,8 @@ impl RunEngine {
         debug!(device = %device_id, param = %parameter, value = %value, "Setting parameter");
 
         // Try legacy Settable trait first (backwards compatibility)
-        if let Some(settable) = self.device_registry.get_settable(device_id) {
+        let settable = self.device_registry.read().await.get_settable(device_id);
+        if let Some(settable) = settable {
             // Parse the value string to JSON
             let json_value: serde_json::Value = serde_json::from_str(value)
                 .or_else(|_| {
@@ -545,16 +549,18 @@ impl RunEngine {
         }
 
         // New path - use Parameterized trait and Parameter<T> system
-        if let Some(params) = self.device_registry.get_parameters(device_id) {
-            if let Some(param) = params.get(parameter) {
-                // Parse the value string to JSON
-                let json_value: serde_json::Value = serde_json::from_str(value)
-                    .or_else(|_| {
-                        // Try as raw string if JSON parsing fails
-                        Ok::<_, serde_json::Error>(serde_json::Value::String(value.to_string()))
-                    })
-                    .map_err(|e| anyhow::anyhow!("Invalid value format: {}", e))?;
+        // Parse the value string to JSON first (before acquiring lock)
+        let json_value: serde_json::Value = serde_json::from_str(value)
+            .or_else(|_| {
+                // Try as raw string if JSON parsing fails
+                Ok::<_, serde_json::Error>(serde_json::Value::String(value.to_string()))
+            })
+            .map_err(|e| anyhow::anyhow!("Invalid value format: {}", e))?;
 
+        // Hold the lock while accessing and setting the parameter (set_json is synchronous)
+        let registry = self.device_registry.read().await;
+        if let Some(params) = registry.get_parameters(device_id) {
+            if let Some(param) = params.get(parameter) {
                 // Set the parameter (synchronous call via ParameterBase trait)
                 param.set_json(json_value)?;
                 return Ok(());
@@ -618,7 +624,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_engine_state_transitions() {
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = Arc::new(RwLock::new(DeviceRegistry::new()));
         let engine = RunEngine::new(registry);
 
         assert_eq!(engine.state().await, EngineState::Idle);
@@ -632,7 +638,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_queue_plan() {
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = Arc::new(RwLock::new(DeviceRegistry::new()));
         let engine = RunEngine::new(registry);
 
         let plan = Box::new(Count::new(5));
@@ -643,7 +649,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_document_subscription() {
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = Arc::new(RwLock::new(DeviceRegistry::new()));
         let engine = RunEngine::new(registry);
 
         let mut rx = engine.subscribe();
