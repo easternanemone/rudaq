@@ -2,6 +2,7 @@
 
 use eframe::egui;
 use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
 
 use crate::client::DaqClient;
 
@@ -13,8 +14,14 @@ enum PendingAction {
     StopModule { module_id: String },
 }
 
+enum ModuleActionResult {
+    Refresh(Result<(Vec<daq_proto::daq::ModuleTypeSummary>, Vec<daq_proto::daq::ModuleStatus>), String>),
+    Create { module_id: String, result: Result<(), String> },
+    Start { module_id: String, result: Result<(), String> },
+    Stop { module_id: String, result: Result<(), String> },
+}
+
 /// Modules panel state
-#[derive(Default)]
 pub struct ModulesPanel {
     /// Available module types
     module_types: Vec<daq_proto::daq::ModuleTypeSummary>,
@@ -34,11 +41,79 @@ pub struct ModulesPanel {
     status: Option<String>,
     /// Pending action
     pending_action: Option<PendingAction>,
+    /// Async action result sender
+    action_tx: mpsc::Sender<ModuleActionResult>,
+    /// Async action result receiver
+    action_rx: mpsc::Receiver<ModuleActionResult>,
+    /// Number of in-flight async actions
+    action_in_flight: usize,
 }
 
 impl ModulesPanel {
+    fn poll_async_results(&mut self, ctx: &egui::Context) {
+        let mut updated = false;
+
+        loop {
+            match self.action_rx.try_recv() {
+                Ok(result) => {
+                    self.action_in_flight = self.action_in_flight.saturating_sub(1);
+                    match result {
+                        ModuleActionResult::Refresh(result) => match result {
+                            Ok((types, modules)) => {
+                                self.module_types = types;
+                                self.modules = modules;
+                                self.last_refresh = Some(std::time::Instant::now());
+                                self.status = Some(format!(
+                                    "Loaded {} types, {} modules",
+                                    self.module_types.len(),
+                                    self.modules.len()
+                                ));
+                                self.error = None;
+                            }
+                            Err(e) => {
+                                self.error = Some(e);
+                            }
+                        },
+                        ModuleActionResult::Create { module_id, result } => {
+                            match result {
+                                Ok(()) => {
+                                    self.status = Some(format!("Created module: {}", module_id));
+                                    self.new_module_name.clear();
+                                    self.error = None;
+                                }
+                                Err(e) => self.error = Some(e),
+                            }
+                        }
+                        ModuleActionResult::Start { module_id, result } => match result {
+                            Ok(()) => {
+                                self.status = Some(format!("Started module: {}", module_id));
+                                self.error = None;
+                            }
+                            Err(e) => self.error = Some(e),
+                        },
+                        ModuleActionResult::Stop { module_id, result } => match result {
+                            Ok(()) => {
+                                self.status = Some(format!("Stopped module: {}", module_id));
+                                self.error = None;
+                            }
+                            Err(e) => self.error = Some(e),
+                        },
+                    }
+                    updated = true;
+                }
+                Err(mpsc::error::TryRecvError::Empty) => break,
+                Err(mpsc::error::TryRecvError::Disconnected) => break,
+            }
+        }
+
+        if self.action_in_flight > 0 || updated {
+            ctx.request_repaint();
+        }
+    }
+
     /// Render the modules panel
     pub fn ui(&mut self, ui: &mut egui::Ui, client: Option<&mut DaqClient>, runtime: &Runtime) {
+        self.poll_async_results(ui.ctx());
         self.pending_action = None;
         
         ui.heading("Modules");
@@ -171,7 +246,13 @@ impl ModulesPanel {
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.colored_label(state_color, "●");
-                ui.strong(&module.instance_name);
+                let selected = self.selected_module.as_ref() == Some(&module.module_id);
+                if ui
+                    .selectable_label(selected, &module.instance_name)
+                    .clicked()
+                {
+                    self.selected_module = Some(module.module_id.clone());
+                }
                 ui.label(format!("({})", module.type_id));
             });
             
@@ -254,27 +335,22 @@ impl ModulesPanel {
             self.error = Some("Not connected to daemon".to_string());
             return;
         };
-        
+
         let mut client = client.clone();
-        match runtime.block_on(async {
-            let types = client.list_module_types().await?;
-            let modules = client.list_modules().await?;
-            Ok::<_, anyhow::Error>((types, modules))
-        }) {
-            Ok((types, modules)) => {
-                self.module_types = types;
-                self.modules = modules;
-                self.last_refresh = Some(std::time::Instant::now());
-                self.status = Some(format!(
-                    "Loaded {} types, {} modules",
-                    self.module_types.len(),
-                    self.modules.len()
-                ));
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+        runtime.spawn(async move {
+            let result = async {
+                let types = client.list_module_types().await?;
+                let modules = client.list_modules().await?;
+                Ok::<_, anyhow::Error>((types, modules))
             }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
-        }
+            .await
+            .map_err(|e| e.to_string());
+
+            let _ = tx.send(ModuleActionResult::Refresh(result)).await;
+        });
     }
     
     /// Create a new module
@@ -290,21 +366,32 @@ impl ModulesPanel {
         let mut client = client.clone();
         let type_id = type_id.to_string();
         let name = name.to_string();
-        
-        match runtime.block_on(client.create_module(&type_id, &name)) {
-            Ok(response) => {
-                if response.success {
-                    self.status = Some(format!("Created module: {}", response.module_id));
-                    self.new_module_name.clear();
-                    // Note: Would need to refresh to show new module
-                } else {
-                    self.error = Some(response.error_message);
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+        runtime.spawn(async move {
+            let result = client.create_module(&type_id, &name).await;
+            let action = match result {
+                Ok(response) => {
+                    if response.success {
+                        ModuleActionResult::Create {
+                            module_id: response.module_id,
+                            result: Ok(()),
+                        }
+                    } else {
+                        ModuleActionResult::Create {
+                            module_id: String::new(),
+                            result: Err(response.error_message),
+                        }
+                    }
                 }
-            }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
-        }
+                Err(e) => ModuleActionResult::Create {
+                    module_id: String::new(),
+                    result: Err(e.to_string()),
+                },
+            };
+            let _ = tx.send(action).await;
+        });
     }
     
     /// Start a module
@@ -319,19 +406,27 @@ impl ModulesPanel {
         
         let mut client = client.clone();
         let module_id = module_id.to_string();
-        
-        match runtime.block_on(client.start_module(&module_id)) {
-            Ok(response) => {
-                if response.success {
-                    self.status = Some(format!("Started module: {}", module_id));
-                } else {
-                    self.error = Some(response.error_message);
-                }
-            }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
-        }
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+        runtime.spawn(async move {
+            let result = client.start_module(&module_id).await;
+            let action = match result {
+                Ok(response) => ModuleActionResult::Start {
+                    module_id,
+                    result: if response.success {
+                        Ok(())
+                    } else {
+                        Err(response.error_message)
+                    },
+                },
+                Err(e) => ModuleActionResult::Start {
+                    module_id,
+                    result: Err(e.to_string()),
+                },
+            };
+            let _ = tx.send(action).await;
+        });
     }
     
     /// Stop a module
@@ -346,18 +441,46 @@ impl ModulesPanel {
         
         let mut client = client.clone();
         let module_id = module_id.to_string();
-        
-        match runtime.block_on(client.stop_module(&module_id)) {
-            Ok(response) => {
-                if response.success {
-                    self.status = Some(format!("Stopped module: {}", module_id));
-                } else {
-                    self.error = Some(response.error_message);
-                }
-            }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+        runtime.spawn(async move {
+            let result = client.stop_module(&module_id).await;
+            let action = match result {
+                Ok(response) => ModuleActionResult::Stop {
+                    module_id,
+                    result: if response.success {
+                        Ok(())
+                    } else {
+                        Err(response.error_message)
+                    },
+                },
+                Err(e) => ModuleActionResult::Stop {
+                    module_id,
+                    result: Err(e.to_string()),
+                },
+            };
+            let _ = tx.send(action).await;
+        });
+    }
+}
+
+impl Default for ModulesPanel {
+    fn default() -> Self {
+        let (action_tx, action_rx) = mpsc::channel(16);
+        Self {
+            module_types: Vec::new(),
+            modules: Vec::new(),
+            selected_type: None,
+            new_module_name: String::new(),
+            selected_module: None,
+            last_refresh: None,
+            error: None,
+            status: None,
+            pending_action: None,
+            action_tx,
+            action_rx,
+            action_in_flight: 0,
         }
     }
 }

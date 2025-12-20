@@ -48,6 +48,29 @@ enum PendingAction {
     ExecuteCommand { device_id: String, command: String, args: String },
 }
 
+/// Result of an async device action
+enum DeviceActionResult {
+    Refresh(Result<Vec<DeviceCache>, String>),
+    Move {
+        device_id: String,
+        success: bool,
+        final_position: f64,
+        error: Option<String>,
+    },
+    Read {
+        device_id: String,
+        success: bool,
+        value: f64,
+        units: String,
+        error: Option<String>,
+    },
+    Command {
+        command: String,
+        success: bool,
+        error: Option<String>,
+    },
+}
+
 /// Devices panel state
 pub struct DevicesPanel {
     /// Cached device list
@@ -64,6 +87,12 @@ pub struct DevicesPanel {
     status: Option<String>,
     /// Pending action to execute
     pending_action: Option<PendingAction>,
+    /// Async action result sender
+    action_tx: mpsc::Sender<DeviceActionResult>,
+    /// Async action result receiver
+    action_rx: mpsc::Receiver<DeviceActionResult>,
+    /// Number of in-flight async actions
+    action_in_flight: usize,
     /// Parameter search filter (bd-cdh5.1)
     param_filter: String,
     /// Parameter edit buffers keyed by (device_id, param_name) (bd-cdh5.1)
@@ -89,6 +118,7 @@ pub struct DevicesPanel {
 
 impl Default for DevicesPanel {
     fn default() -> Self {
+        let (action_tx, action_rx) = mpsc::channel(16);
         Self {
             devices: Vec::new(),
             selected_device: None,
@@ -97,6 +127,9 @@ impl Default for DevicesPanel {
             error: None,
             status: None,
             pending_action: None,
+            action_tx,
+            action_rx,
+            action_in_flight: 0,
             param_filter: String::new(),
             param_edit_buffers: std::collections::HashMap::new(),
             param_errors: std::collections::HashMap::new(),
@@ -114,6 +147,71 @@ impl Default for DevicesPanel {
 impl DevicesPanel {
     /// Poll for completed async operations (non-blocking)
     fn poll_async_results(&mut self, ctx: &egui::Context) {
+        // Poll device action results
+        let mut updated = false;
+        loop {
+            match self.action_rx.try_recv() {
+                Ok(result) => {
+                    self.action_in_flight = self.action_in_flight.saturating_sub(1);
+                    match result {
+                        DeviceActionResult::Refresh(result) => match result {
+                            Ok(devices) => {
+                                self.devices = devices;
+                                self.last_refresh = Some(std::time::Instant::now());
+                                self.status = Some(format!("Loaded {} devices", self.devices.len()));
+                                self.error = None;
+                            }
+                            Err(e) => {
+                                self.error = Some(e);
+                            }
+                        },
+                        DeviceActionResult::Move {
+                            device_id,
+                            success,
+                            final_position,
+                            error,
+                        } => {
+                            if success {
+                                self.status = Some(format!("Moved {} to {:.4}", device_id, final_position));
+                                self.error = None;
+                            } else {
+                                self.error = error;
+                            }
+                        }
+                        DeviceActionResult::Read {
+                            device_id,
+                            success,
+                            value,
+                            units,
+                            error,
+                        } => {
+                            if success {
+                                self.status = Some(format!("{}: {:.4} {}", device_id, value, units));
+                                self.error = None;
+                            } else {
+                                self.error = error;
+                            }
+                        }
+                        DeviceActionResult::Command {
+                            command,
+                            success,
+                            error,
+                        } => {
+                            if success {
+                                self.status = Some(format!("Command '{}' executed successfully", command));
+                                self.error = None;
+                            } else {
+                                self.error = error;
+                            }
+                        }
+                    }
+                    updated = true;
+                }
+                Err(mpsc::error::TryRecvError::Empty) => break,
+                Err(mpsc::error::TryRecvError::Disconnected) => break,
+            }
+        }
+
         // Poll parameter load results
         if let Some(rx) = &mut self.param_load_rx {
             match rx.try_recv() {
@@ -179,6 +277,10 @@ impl DevicesPanel {
                     self.param_set_rx = None;
                 }
             }
+        }
+
+        if self.action_in_flight > 0 || updated {
+            ctx.request_repaint();
         }
     }
 
@@ -741,19 +843,29 @@ impl DevicesPanel {
         let device_id = device_id.to_string();
         let command = command.to_string();
         let args = args.to_string();
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
 
-        match runtime.block_on(client.execute_device_command(&device_id, &command, &args)) {
-            Ok(response) => {
-                if response.success {
-                    self.status = Some(format!("Command '{}' executed successfully", command));
-                } else {
-                    self.error = Some(response.error_message);
-                }
-            }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
-        }
+        runtime.spawn(async move {
+            let result = client.execute_device_command(&device_id, &command, &args).await;
+            let action = match result {
+                Ok(response) => DeviceActionResult::Command {
+                    command,
+                    success: response.success,
+                    error: if response.success {
+                        None
+                    } else {
+                        Some(response.error_message)
+                    },
+                },
+                Err(e) => DeviceActionResult::Command {
+                    command,
+                    success: false,
+                    error: Some(e.to_string()),
+                },
+            };
+            let _ = tx.send(action).await;
+        });
     }
     
     /// Refresh the device list from the daemon
@@ -771,31 +883,31 @@ impl DevicesPanel {
         };
 
         let mut client = client.clone();
-        match runtime.block_on(async {
-            let devices = client.list_devices().await?;
-            let mut cached = Vec::new();
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
 
-            for info in devices {
-                let state = client.get_device_state(&info.id).await.ok();
-                cached.push(DeviceCache {
-                    info,
-                    state,
-                    parameters: Vec::new(),
-                    parameters_loaded: false,
-                });
-            }
+        runtime.spawn(async move {
+            let result = async {
+                let devices = client.list_devices().await?;
+                let mut cached = Vec::new();
 
-            Ok::<_, anyhow::Error>(cached)
-        }) {
-            Ok(devices) => {
-                self.devices = devices;
-                self.last_refresh = Some(std::time::Instant::now());
-                self.status = Some(format!("Loaded {} devices", self.devices.len()));
+                for info in devices {
+                    let state = client.get_device_state(&info.id).await.ok();
+                    cached.push(DeviceCache {
+                        info,
+                        state,
+                        parameters: Vec::new(),
+                        parameters_loaded: false,
+                    });
+                }
+
+                Ok::<_, anyhow::Error>(cached)
             }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
-        }
+            .await
+            .map_err(|e| e.to_string());
+
+            let _ = tx.send(DeviceActionResult::Refresh(result)).await;
+        });
     }
     
     /// Move a device
@@ -817,27 +929,36 @@ impl DevicesPanel {
         
         let mut client = client.clone();
         let device_id = device_id.to_string();
-        
-        let result = runtime.block_on(async {
-            if relative {
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+        runtime.spawn(async move {
+            let result = if relative {
                 client.move_relative(&device_id, value).await
             } else {
                 client.move_absolute(&device_id, value).await
-            }
+            };
+
+            let action = match result {
+                Ok(response) => DeviceActionResult::Move {
+                    device_id,
+                    success: response.success,
+                    final_position: response.final_position,
+                    error: if response.success {
+                        None
+                    } else {
+                        Some(response.error_message)
+                    },
+                },
+                Err(e) => DeviceActionResult::Move {
+                    device_id,
+                    success: false,
+                    final_position: 0.0,
+                    error: Some(e.to_string()),
+                },
+            };
+            let _ = tx.send(action).await;
         });
-        
-        match result {
-            Ok(response) => {
-                if response.success {
-                    self.status = Some(format!("Moved to {:.4}", response.final_position));
-                } else {
-                    self.error = Some(response.error_message);
-                }
-            }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
-        }
     }
     
     /// Read value from a device
@@ -852,19 +973,33 @@ impl DevicesPanel {
 
         let mut client = client.clone();
         let device_id = device_id.to_string();
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
 
-        match runtime.block_on(client.read_value(&device_id)) {
-            Ok(response) => {
-                if response.success {
-                    self.status = Some(format!("Value: {:.4} {}", response.value, response.units));
-                } else {
-                    self.error = Some(response.error_message);
-                }
-            }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
-        }
+        runtime.spawn(async move {
+            let result = client.read_value(&device_id).await;
+            let action = match result {
+                Ok(response) => DeviceActionResult::Read {
+                    device_id,
+                    success: response.success,
+                    value: response.value,
+                    units: response.units,
+                    error: if response.success {
+                        None
+                    } else {
+                        Some(response.error_message)
+                    },
+                },
+                Err(e) => DeviceActionResult::Read {
+                    device_id,
+                    success: false,
+                    value: 0.0,
+                    units: String::new(),
+                    error: Some(e.to_string()),
+                },
+            };
+            let _ = tx.send(action).await;
+        });
     }
 
     // =========================================================================

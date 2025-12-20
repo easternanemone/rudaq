@@ -9,6 +9,7 @@ mod rerun_app {
     use rerun::external::re_grpc_client;
     use rerun::external::re_uri::ProxyUri;
     use daq_egui::client::DaqClient;
+    use tokio::sync::mpsc;
 
     // Use Rerun's memory tracking allocator
     #[global_allocator]
@@ -62,6 +63,18 @@ mod rerun_app {
         daq_state: DaqControlState,
         client: Option<DaqClient>,
         runtime: tokio::runtime::Runtime,
+        action_tx: mpsc::Sender<RerunActionResult>,
+        action_rx: mpsc::Receiver<RerunActionResult>,
+        action_in_flight: usize,
+    }
+
+    enum RerunActionResult {
+        Connect(Result<DaqClient, String>),
+        Refresh(Result<Vec<DeviceInfo>, String>),
+        Move { device_id: String, result: Result<f64, String> },
+        Read { device_id: String, result: Result<(f64, String), String> },
+        StartStream { device_id: String, frame_count: Option<u32>, result: Result<(), String> },
+        StopStream { device_id: String, result: Result<u32, String> },
     }
 
     impl DaqRerunApp {
@@ -74,29 +87,29 @@ mod rerun_app {
                 .enable_all()
                 .build()
                 .expect("Failed to create tokio runtime");
+            let (action_tx, action_rx) = mpsc::channel(16);
 
             Self {
                 rerun_app,
                 daq_state: DaqControlState::default(),
                 client: None,
                 runtime,
+                action_tx,
+                action_rx,
+                action_in_flight: 0,
             }
         }
 
         fn connect(&mut self) {
             let address = self.daq_state.daemon_address.clone();
-            match self.runtime.block_on(DaqClient::connect(&address)) {
-                Ok(client) => {
-                    self.client = Some(client);
-                    self.daq_state.connection_status = "Connected".to_string();
-                    self.daq_state.status_message = Some("Connected to daemon".to_string());
-                    self.daq_state.error_message = None;
-                }
-                Err(e) => {
-                    self.daq_state.connection_status = "Error".to_string();
-                    self.daq_state.error_message = Some(e.to_string());
-                }
-            }
+            let tx = self.action_tx.clone();
+            self.action_in_flight = self.action_in_flight.saturating_add(1);
+            self.daq_state.connection_status = "Connecting...".to_string();
+
+            self.runtime.spawn(async move {
+                let result = DaqClient::connect(&address).await.map_err(|e| e.to_string());
+                let _ = tx.send(RerunActionResult::Connect(result)).await;
+            });
         }
 
         fn disconnect(&mut self) {
@@ -112,33 +125,33 @@ mod rerun_app {
             };
 
             let mut client = client.clone();
-            match self.runtime.block_on(async {
-                let devices = client.list_devices().await?;
-                let mut infos = Vec::new();
-                for d in devices {
-                    let state = client.get_device_state(&d.id).await.ok();
-                    infos.push(DeviceInfo {
-                        id: d.id,
-                        name: d.name,
-                        driver: d.driver_type,
-                        is_movable: d.is_movable,
-                        is_readable: d.is_readable,
-                        is_frame_producer: d.is_frame_producer,
-                        position: state.as_ref().and_then(|s| s.position),
-                        reading: state.as_ref().and_then(|s| s.last_reading),
-                    });
+            let tx = self.action_tx.clone();
+            self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+            self.runtime.spawn(async move {
+                let result = async {
+                    let devices = client.list_devices().await?;
+                    let mut infos = Vec::new();
+                    for d in devices {
+                        let state = client.get_device_state(&d.id).await.ok();
+                        infos.push(DeviceInfo {
+                            id: d.id,
+                            name: d.name,
+                            driver: d.driver_type,
+                            is_movable: d.is_movable,
+                            is_readable: d.is_readable,
+                            is_frame_producer: d.is_frame_producer,
+                            position: state.as_ref().and_then(|s| s.position),
+                            reading: state.as_ref().and_then(|s| s.last_reading),
+                        });
+                    }
+                    Ok::<_, anyhow::Error>(infos)
                 }
-                Ok::<_, anyhow::Error>(infos)
-            }) {
-                Ok(devices) => {
-                    self.daq_state.status_message = Some(format!("Loaded {} devices", devices.len()));
-                    self.daq_state.devices = devices;
-                    self.daq_state.error_message = None;
-                }
-                Err(e) => {
-                    self.daq_state.error_message = Some(e.to_string());
-                }
-            }
+                .await
+                .map_err(|e| e.to_string());
+
+                let _ = tx.send(RerunActionResult::Refresh(result)).await;
+            });
         }
 
         fn move_device(&mut self, device_id: &str, value: f64, relative: bool) {
@@ -146,30 +159,33 @@ mod rerun_app {
             
             let mut client = client.clone();
             let device_id = device_id.to_string();
-            
-            let result = self.runtime.block_on(async {
-                if relative {
+            let tx = self.action_tx.clone();
+            self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+            self.runtime.spawn(async move {
+                let result = if relative {
                     client.move_relative(&device_id, value).await
                 } else {
                     client.move_absolute(&device_id, value).await
-                }
-            });
-
-            match result {
-                Ok(response) if response.success => {
-                    self.daq_state.status_message = Some(format!("Moved to {:.4}", response.final_position));
-                    // Update device position
-                    if let Some(dev) = self.daq_state.devices.iter_mut().find(|d| d.id == device_id) {
-                        dev.position = Some(response.final_position);
+                };
+                let action = match result {
+                    Ok(response) if response.success => {
+                        RerunActionResult::Move {
+                            device_id,
+                            result: Ok(response.final_position),
+                        }
                     }
-                }
-                Ok(response) => {
-                    self.daq_state.error_message = Some(response.error_message);
-                }
-                Err(e) => {
-                    self.daq_state.error_message = Some(e.to_string());
-                }
-            }
+                    Ok(response) => RerunActionResult::Move {
+                        device_id,
+                        result: Err(response.error_message),
+                    },
+                    Err(e) => RerunActionResult::Move {
+                        device_id,
+                        result: Err(e.to_string()),
+                    },
+                };
+                let _ = tx.send(action).await;
+            });
         }
 
         fn read_device(&mut self, device_id: &str) {
@@ -177,21 +193,27 @@ mod rerun_app {
 
             let mut client = client.clone();
             let device_id = device_id.to_string();
+            let tx = self.action_tx.clone();
+            self.action_in_flight = self.action_in_flight.saturating_add(1);
 
-            match self.runtime.block_on(client.read_value(&device_id)) {
-                Ok(response) if response.success => {
-                    self.daq_state.status_message = Some(format!("{}: {:.4} {}", device_id, response.value, response.units));
-                    if let Some(dev) = self.daq_state.devices.iter_mut().find(|d| d.id == device_id) {
-                        dev.reading = Some(response.value);
-                    }
-                }
-                Ok(response) => {
-                    self.daq_state.error_message = Some(response.error_message);
-                }
-                Err(e) => {
-                    self.daq_state.error_message = Some(e.to_string());
-                }
-            }
+            self.runtime.spawn(async move {
+                let result = client.read_value(&device_id).await;
+                let action = match result {
+                    Ok(response) if response.success => RerunActionResult::Read {
+                        device_id,
+                        result: Ok((response.value, response.units)),
+                    },
+                    Ok(response) => RerunActionResult::Read {
+                        device_id,
+                        result: Err(response.error_message),
+                    },
+                    Err(e) => RerunActionResult::Read {
+                        device_id,
+                        result: Err(e.to_string()),
+                    },
+                };
+                let _ = tx.send(action).await;
+            });
         }
 
         fn start_stream(&mut self, device_id: &str, frame_count: Option<u32>) {
@@ -199,24 +221,30 @@ mod rerun_app {
 
             let mut client = client.clone();
             let device_id = device_id.to_string();
+            let tx = self.action_tx.clone();
+            self.action_in_flight = self.action_in_flight.saturating_add(1);
 
-            match self.runtime.block_on(client.start_stream(&device_id, frame_count)) {
-                Ok(response) if response.success => {
-                    let msg = if let Some(n) = frame_count {
-                        format!("Started streaming {} frames from {}", n, device_id)
-                    } else {
-                        format!("Started streaming from {}", device_id)
-                    };
-                    self.daq_state.status_message = Some(msg);
-                    self.daq_state.error_message = None;
-                }
-                Ok(response) => {
-                    self.daq_state.error_message = Some(response.error_message);
-                }
-                Err(e) => {
-                    self.daq_state.error_message = Some(e.to_string());
-                }
-            }
+            self.runtime.spawn(async move {
+                let result = client.start_stream(&device_id, frame_count).await;
+                let action = match result {
+                    Ok(response) if response.success => RerunActionResult::StartStream {
+                        device_id,
+                        frame_count,
+                        result: Ok(()),
+                    },
+                    Ok(response) => RerunActionResult::StartStream {
+                        device_id,
+                        frame_count,
+                        result: Err(response.error_message),
+                    },
+                    Err(e) => RerunActionResult::StartStream {
+                        device_id,
+                        frame_count,
+                        result: Err(e.to_string()),
+                    },
+                };
+                let _ = tx.send(action).await;
+            });
         }
 
         fn stop_stream(&mut self, device_id: &str) {
@@ -224,18 +252,115 @@ mod rerun_app {
 
             let mut client = client.clone();
             let device_id = device_id.to_string();
+            let tx = self.action_tx.clone();
+            self.action_in_flight = self.action_in_flight.saturating_add(1);
 
-            match self.runtime.block_on(client.stop_stream(&device_id)) {
-                Ok(response) if response.success => {
-                    self.daq_state.status_message = Some(format!("Stopped streaming from {} ({} frames captured)", device_id, response.frames_captured));
-                    self.daq_state.error_message = None;
+            self.runtime.spawn(async move {
+                let result = client.stop_stream(&device_id).await;
+                let action = match result {
+                    Ok(response) if response.success => RerunActionResult::StopStream {
+                        device_id,
+                        result: Ok(response.frames_captured),
+                    },
+                    Ok(_response) => RerunActionResult::StopStream {
+                        device_id,
+                        result: Err("Failed to stop stream".to_string()),
+                    },
+                    Err(e) => RerunActionResult::StopStream {
+                        device_id,
+                        result: Err(e.to_string()),
+                    },
+                };
+                let _ = tx.send(action).await;
+            });
+        }
+
+        fn poll_async_results(&mut self, ctx: &egui::Context) {
+            let mut updated = false;
+            loop {
+                match self.action_rx.try_recv() {
+                    Ok(result) => {
+                        self.action_in_flight = self.action_in_flight.saturating_sub(1);
+                        match result {
+                            RerunActionResult::Connect(result) => match result {
+                                Ok(client) => {
+                                    self.client = Some(client);
+                                    self.daq_state.connection_status = "Connected".to_string();
+                                    self.daq_state.status_message = Some("Connected to daemon".to_string());
+                                    self.daq_state.error_message = None;
+                                }
+                                Err(e) => {
+                                    self.client = None;
+                                    self.daq_state.connection_status = "Error".to_string();
+                                    self.daq_state.error_message = Some(e);
+                                }
+                            },
+                            RerunActionResult::Refresh(result) => match result {
+                                Ok(devices) => {
+                                    self.daq_state.status_message = Some(format!("Loaded {} devices", devices.len()));
+                                    self.daq_state.devices = devices;
+                                    self.daq_state.error_message = None;
+                                }
+                                Err(e) => self.daq_state.error_message = Some(e),
+                            },
+                            RerunActionResult::Move { device_id, result } => match result {
+                                Ok(position) => {
+                                    self.daq_state.status_message =
+                                        Some(format!("Moved to {:.4}", position));
+                                    if let Some(dev) =
+                                        self.daq_state.devices.iter_mut().find(|d| d.id == device_id)
+                                    {
+                                        dev.position = Some(position);
+                                    }
+                                    self.daq_state.error_message = None;
+                                }
+                                Err(e) => self.daq_state.error_message = Some(e),
+                            },
+                            RerunActionResult::Read { device_id, result } => match result {
+                                Ok((value, units)) => {
+                                    self.daq_state.status_message =
+                                        Some(format!("{}: {:.4} {}", device_id, value, units));
+                                    if let Some(dev) =
+                                        self.daq_state.devices.iter_mut().find(|d| d.id == device_id)
+                                    {
+                                        dev.reading = Some(value);
+                                    }
+                                    self.daq_state.error_message = None;
+                                }
+                                Err(e) => self.daq_state.error_message = Some(e),
+                            },
+                            RerunActionResult::StartStream { device_id, frame_count, result } => match result {
+                                Ok(()) => {
+                                    let msg = if let Some(n) = frame_count {
+                                        format!("Started streaming {} frames from {}", n, device_id)
+                                    } else {
+                                        format!("Started streaming from {}", device_id)
+                                    };
+                                    self.daq_state.status_message = Some(msg);
+                                    self.daq_state.error_message = None;
+                                }
+                                Err(e) => self.daq_state.error_message = Some(e),
+                            },
+                            RerunActionResult::StopStream { device_id, result } => match result {
+                                Ok(frames) => {
+                                    self.daq_state.status_message = Some(format!(
+                                        "Stopped streaming from {} ({} frames captured)",
+                                        device_id, frames
+                                    ));
+                                    self.daq_state.error_message = None;
+                                }
+                                Err(e) => self.daq_state.error_message = Some(e),
+                            },
+                        }
+                        updated = true;
+                    }
+                    Err(mpsc::error::TryRecvError::Empty) => break,
+                    Err(mpsc::error::TryRecvError::Disconnected) => break,
                 }
-                Ok(_response) => {
-                    self.daq_state.error_message = Some("Failed to stop stream".to_string());
-                }
-                Err(e) => {
-                    self.daq_state.error_message = Some(e.to_string());
-                }
+            }
+
+            if self.action_in_flight > 0 || updated {
+                ctx.request_repaint();
             }
         }
 
@@ -365,6 +490,7 @@ mod rerun_app {
         }
 
         fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+            self.poll_async_results(ctx);
             // Left panel for DAQ controls
             egui::SidePanel::left("daq_control_panel")
                 .default_width(300.0)

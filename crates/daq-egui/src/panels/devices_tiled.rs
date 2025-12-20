@@ -4,6 +4,7 @@ use eframe::egui;
 use egui_tiles::{Tiles, Tree, TileId, Container, Linear, LinearDir};
 use std::collections::HashMap;
 use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
 
 use crate::client::DaqClient;
 
@@ -54,6 +55,23 @@ pub enum DeviceAction {
     MoveAbsolute { device_id: String, value: f64 },
     MoveRelative { device_id: String, value: f64 },
     ReadValue { device_id: String },
+}
+
+enum DeviceActionResult {
+    Refresh(Result<Vec<DevicePane>, String>),
+    Move {
+        device_id: String,
+        success: bool,
+        final_position: f64,
+        error: Option<String>,
+    },
+    Read {
+        device_id: String,
+        success: bool,
+        value: f64,
+        units: String,
+        error: Option<String>,
+    },
 }
 
 /// Behavior for the tile tree
@@ -182,10 +200,17 @@ pub struct DevicesTiledPanel {
     status: Option<String>,
     /// Pending actions
     pending_actions: Vec<DeviceAction>,
+    /// Async action result sender
+    action_tx: mpsc::Sender<DeviceActionResult>,
+    /// Async action result receiver
+    action_rx: mpsc::Receiver<DeviceActionResult>,
+    /// Number of in-flight async actions
+    action_in_flight: usize,
 }
 
 impl Default for DevicesTiledPanel {
     fn default() -> Self {
+        let (action_tx, action_rx) = mpsc::channel(16);
         Self {
             tree: None,
             device_tiles: HashMap::new(),
@@ -193,13 +218,78 @@ impl Default for DevicesTiledPanel {
             error: None,
             status: None,
             pending_actions: Vec::new(),
+            action_tx,
+            action_rx,
+            action_in_flight: 0,
         }
     }
 }
 
 impl DevicesTiledPanel {
+    fn poll_async_results(&mut self, ctx: &egui::Context) {
+        let mut updated = false;
+        loop {
+            match self.action_rx.try_recv() {
+                Ok(result) => {
+                    self.action_in_flight = self.action_in_flight.saturating_sub(1);
+                    match result {
+                        DeviceActionResult::Refresh(result) => match result {
+                            Ok(panes) => {
+                                self.status = Some(format!("Loaded {} devices", panes.len()));
+                                self.last_refresh = Some(std::time::Instant::now());
+                                self.error = None;
+                                self.build_tree(panes);
+                            }
+                            Err(e) => self.error = Some(e),
+                        },
+                        DeviceActionResult::Move {
+                            device_id,
+                            success,
+                            final_position,
+                            error,
+                        } => {
+                            if success {
+                                self.status = Some(format!(
+                                    "Moved {} to {:.4}",
+                                    device_id, final_position
+                                ));
+                                self.error = None;
+                                self.update_device_position(&device_id, final_position);
+                            } else {
+                                self.error = error;
+                            }
+                        }
+                        DeviceActionResult::Read {
+                            device_id,
+                            success,
+                            value,
+                            units,
+                            error,
+                        } => {
+                            if success {
+                                self.status = Some(format!("{}: {:.4} {}", device_id, value, units));
+                                self.error = None;
+                                self.update_device_reading(&device_id, value);
+                            } else {
+                                self.error = error;
+                            }
+                        }
+                    }
+                    updated = true;
+                }
+                Err(mpsc::error::TryRecvError::Empty) => break,
+                Err(mpsc::error::TryRecvError::Disconnected) => break,
+            }
+        }
+
+        if self.action_in_flight > 0 || updated {
+            ctx.request_repaint();
+        }
+    }
+
     /// Render the tiled devices panel
     pub fn ui(&mut self, ui: &mut egui::Ui, client: Option<&mut DaqClient>, runtime: &Runtime) {
+        self.poll_async_results(ui.ctx());
         // Top toolbar
         ui.horizontal(|ui| {
             if ui.button("🔄 Refresh Devices").clicked() {
@@ -252,29 +342,29 @@ impl DevicesTiledPanel {
         };
 
         let mut client = client.clone();
-        match runtime.block_on(async {
-            let devices = client.list_devices().await?;
-            let mut panes = Vec::new();
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
 
-            for info in devices {
-                let mut pane = DevicePane::from_device_info(&info);
-                if let Ok(state) = client.get_device_state(&info.id).await {
-                    pane.update_state(&state);
+        runtime.spawn(async move {
+            let result = async {
+                let devices = client.list_devices().await?;
+                let mut panes = Vec::new();
+
+                for info in devices {
+                    let mut pane = DevicePane::from_device_info(&info);
+                    if let Ok(state) = client.get_device_state(&info.id).await {
+                        pane.update_state(&state);
+                    }
+                    panes.push(pane);
                 }
-                panes.push(pane);
-            }
 
-            Ok::<_, anyhow::Error>(panes)
-        }) {
-            Ok(panes) => {
-                self.status = Some(format!("Loaded {} devices", panes.len()));
-                self.last_refresh = Some(std::time::Instant::now());
-                self.build_tree(panes);
+                Ok::<_, anyhow::Error>(panes)
             }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
-        }
+            .await
+            .map_err(|e| e.to_string());
+
+            let _ = tx.send(DeviceActionResult::Refresh(result)).await;
+        });
     }
 
     /// Build the tile tree from device panes
@@ -322,47 +412,88 @@ impl DevicesTiledPanel {
             return;
         };
 
-        let mut client = client.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
 
         match action {
             DeviceAction::MoveAbsolute { device_id, value } => {
-                match runtime.block_on(client.move_absolute(&device_id, value)) {
-                    Ok(response) => {
-                        if response.success {
-                            self.status = Some(format!("Moved {} to {:.4}", device_id, response.final_position));
-                            self.update_device_position(&device_id, response.final_position);
-                        } else {
-                            self.error = Some(response.error_message);
-                        }
-                    }
-                    Err(e) => self.error = Some(e.to_string()),
-                }
+                let mut client = client.clone();
+                let tx = self.action_tx.clone();
+                runtime.spawn(async move {
+                    let result = client.move_absolute(&device_id, value).await;
+                    let action = match result {
+                        Ok(response) => DeviceActionResult::Move {
+                            device_id,
+                            success: response.success,
+                            final_position: response.final_position,
+                            error: if response.success {
+                                None
+                            } else {
+                                Some(response.error_message)
+                            },
+                        },
+                        Err(e) => DeviceActionResult::Move {
+                            device_id,
+                            success: false,
+                            final_position: 0.0,
+                            error: Some(e.to_string()),
+                        },
+                    };
+                    let _ = tx.send(action).await;
+                });
             }
             DeviceAction::MoveRelative { device_id, value } => {
-                match runtime.block_on(client.move_relative(&device_id, value)) {
-                    Ok(response) => {
-                        if response.success {
-                            self.status = Some(format!("Moved {} to {:.4}", device_id, response.final_position));
-                            self.update_device_position(&device_id, response.final_position);
-                        } else {
-                            self.error = Some(response.error_message);
-                        }
-                    }
-                    Err(e) => self.error = Some(e.to_string()),
-                }
+                let mut client = client.clone();
+                let tx = self.action_tx.clone();
+                runtime.spawn(async move {
+                    let result = client.move_relative(&device_id, value).await;
+                    let action = match result {
+                        Ok(response) => DeviceActionResult::Move {
+                            device_id,
+                            success: response.success,
+                            final_position: response.final_position,
+                            error: if response.success {
+                                None
+                            } else {
+                                Some(response.error_message)
+                            },
+                        },
+                        Err(e) => DeviceActionResult::Move {
+                            device_id,
+                            success: false,
+                            final_position: 0.0,
+                            error: Some(e.to_string()),
+                        },
+                    };
+                    let _ = tx.send(action).await;
+                });
             }
             DeviceAction::ReadValue { device_id } => {
-                match runtime.block_on(client.read_value(&device_id)) {
-                    Ok(response) => {
-                        if response.success {
-                            self.status = Some(format!("{}: {:.4} {}", device_id, response.value, response.units));
-                            self.update_device_reading(&device_id, response.value);
-                        } else {
-                            self.error = Some(response.error_message);
-                        }
-                    }
-                    Err(e) => self.error = Some(e.to_string()),
-                }
+                let mut client = client.clone();
+                let tx = self.action_tx.clone();
+                runtime.spawn(async move {
+                    let result = client.read_value(&device_id).await;
+                    let action = match result {
+                        Ok(response) => DeviceActionResult::Read {
+                            device_id,
+                            success: response.success,
+                            value: response.value,
+                            units: response.units,
+                            error: if response.success {
+                                None
+                            } else {
+                                Some(response.error_message)
+                            },
+                        },
+                        Err(e) => DeviceActionResult::Read {
+                            device_id,
+                            success: false,
+                            value: 0.0,
+                            units: String::new(),
+                            error: Some(e.to_string()),
+                        },
+                    };
+                    let _ = tx.send(action).await;
+                });
             }
         }
     }

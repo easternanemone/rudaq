@@ -348,10 +348,6 @@ fn get_static_module_type_info(type_id: &str) -> Option<ModuleTypeInfo> {
 /// - Event and data streaming
 pub struct ModuleServiceImpl {
     /// Device registry for hardware access
-    #[expect(
-        dead_code,
-        reason = "device_registry will be used for device assignment validation"
-    )]
     device_registry: Arc<RwLock<DeviceRegistry>>,
 
     /// Stub module storage (used when modules feature is disabled)

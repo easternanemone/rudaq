@@ -40,12 +40,14 @@ impl ParameterCache {
     }
 
     /// Set error state
+    #[allow(dead_code)]
     pub fn set_error(&mut self, error: String) {
         self.last_error = Some(error);
     }
 }
 
 /// Result of rendering a parameter editor
+#[allow(dead_code)]
 pub enum ParameterEditResult {
     /// No change
     None,
@@ -54,6 +56,7 @@ pub enum ParameterEditResult {
 }
 
 /// Render the appropriate editor widget for a parameter
+#[allow(dead_code)]
 pub fn render_parameter_editor(
     ui: &mut egui::Ui,
     param: &mut ParameterCache,
@@ -88,6 +91,7 @@ pub fn render_parameter_editor(
 }
 
 /// Render a checkbox for boolean parameters
+#[allow(dead_code)]
 fn render_bool_editor(ui: &mut egui::Ui, param: &mut ParameterCache) -> ParameterEditResult {
     let mut value = param.current_value.parse::<bool>().unwrap_or(false);
     let old_value = value;
@@ -110,6 +114,7 @@ fn render_bool_editor(ui: &mut egui::Ui, param: &mut ParameterCache) -> Paramete
 
 /// Render a Slider or DragValue for integer parameters
 /// Uses Slider when both min/max are available (bd-cdh5.2), DragValue otherwise.
+#[allow(dead_code)]
 fn render_int_editor(ui: &mut egui::Ui, param: &mut ParameterCache) -> ParameterEditResult {
     let mut value = param.edit_buffer.parse::<i64>().unwrap_or(0);
     let original = param.current_value.parse::<i64>().unwrap_or(0);
@@ -157,6 +162,7 @@ fn render_int_editor(ui: &mut egui::Ui, param: &mut ParameterCache) -> Parameter
 
 /// Render a Slider or DragValue for float parameters
 /// Uses Slider when both min/max are available (bd-cdh5.2), DragValue otherwise.
+#[allow(dead_code)]
 fn render_float_editor(ui: &mut egui::Ui, param: &mut ParameterCache) -> ParameterEditResult {
     let mut value = param.edit_buffer.parse::<f64>().unwrap_or(0.0);
     let original = param.current_value.parse::<f64>().unwrap_or(0.0);
@@ -203,6 +209,7 @@ fn render_float_editor(ui: &mut egui::Ui, param: &mut ParameterCache) -> Paramet
 }
 
 /// Render a TextEdit for string parameters
+#[allow(dead_code)]
 fn render_string_editor(ui: &mut egui::Ui, param: &mut ParameterCache) -> ParameterEditResult {
     let original = param.current_value.clone();
     let mut result = ParameterEditResult::None;
@@ -225,6 +232,7 @@ fn render_string_editor(ui: &mut egui::Ui, param: &mut ParameterCache) -> Parame
 }
 
 /// Render a ComboBox for enum parameters
+#[allow(dead_code)]
 fn render_enum_editor(ui: &mut egui::Ui, param: &mut ParameterCache) -> ParameterEditResult {
     let mut selected = param.current_value.trim_matches('"').to_string();
     let original = selected.clone();
@@ -257,6 +265,7 @@ fn render_enum_editor(ui: &mut egui::Ui, param: &mut ParameterCache) -> Paramete
 }
 
 /// Render a read-only display for complex/unknown types
+#[allow(dead_code)]
 fn render_json_fallback(ui: &mut egui::Ui, param: &mut ParameterCache) -> ParameterEditResult {
     ui.horizontal(|ui| {
         ui.label(&param.descriptor.name);

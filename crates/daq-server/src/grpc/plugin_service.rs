@@ -73,6 +73,7 @@ pub struct PluginServiceImpl {
     #[cfg(feature = "tokio_serial")]
     registry: Arc<RwLock<DeviceRegistry>>,
     instances: Arc<RwLock<HashMap<String, PluginInstance>>>,
+    #[cfg(feature = "tokio_serial")]
     next_instance_id: Arc<RwLock<u64>>,
 }
 
@@ -101,11 +102,11 @@ impl PluginServiceImpl {
     pub fn new_stub() -> Self {
         Self {
             instances: Arc::new(RwLock::new(HashMap::new())),
-            next_instance_id: Arc::new(RwLock::new(1)),
         }
     }
 
     /// Generate the next instance ID
+    #[cfg(feature = "tokio_serial")]
     async fn next_instance_id(&self) -> String {
         let mut id = self.next_instance_id.write().await;
         let current = *id;

@@ -127,6 +127,7 @@ pub struct LineScan {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 enum LineScanStep {
     Move,
     Settle,

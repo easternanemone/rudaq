@@ -3,6 +3,7 @@
 use eframe::egui;
 use once_cell::sync::Lazy;
 use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 use tracing_subscriber::EnvFilter;
 
@@ -57,20 +58,38 @@ pub enum ConnectionState {
     Error(String),
 }
 
+enum ConnectResult {
+    Connected {
+        client: DaqClient,
+        daemon_version: Option<String>,
+        address: String,
+    },
+    Failed {
+        error: String,
+        address: String,
+    },
+}
+
 /// Main application state
 pub struct DaqApp {
     /// gRPC client (wrapped in Option for lazy initialization)
     client: Option<DaqClient>,
-    
+
     /// Current connection state
     connection_state: ConnectionState,
-    
+
     /// Target daemon address
     daemon_address: String,
-    
+
+    /// Daemon version (retrieved via GetDaemonInfo)
+    daemon_version: Option<String>,
+
+    /// GUI version (from CARGO_PKG_VERSION)
+    gui_version: String,
+
     /// Active panel/tab
     active_panel: Panel,
-    
+
     /// Panel states
     connection_panel: ConnectionPanel,
     devices_panel: DevicesPanel,
@@ -78,9 +97,14 @@ pub struct DaqApp {
     scans_panel: ScansPanel,
     storage_panel: StoragePanel,
     modules_panel: ModulesPanel,
-    
+
     /// Tokio runtime for async operations
     runtime: tokio::runtime::Runtime,
+    /// Async connect result channel
+    connect_tx: mpsc::Sender<ConnectResult>,
+    connect_rx: mpsc::Receiver<ConnectResult>,
+    /// Whether a connect attempt is in flight
+    connect_pending: bool,
     /// Rolling in-app log buffer
     log_buffer: Vec<String>,
     /// PVCAM live view streaming state (requires rerun_viewer + instrument_photometrics)
@@ -116,6 +140,7 @@ impl DaqApp {
             .enable_all()
             .build()
             .expect("Failed to create tokio runtime");
+        let (connect_tx, connect_rx) = mpsc::channel(4);
 
         // Install tracing subscriber that also feeds the UI log buffer (only once).
         static SUB_INIT: std::sync::Once = std::sync::Once::new();
@@ -135,6 +160,8 @@ impl DaqApp {
             client: None,
             connection_state: ConnectionState::Disconnected,
             daemon_address: "http://127.0.0.1:50051".to_string(),
+            daemon_version: None,
+            gui_version: env!("CARGO_PKG_VERSION").to_string(),
             active_panel: Panel::Devices,
             connection_panel: ConnectionPanel::default(),
             devices_panel: DevicesPanel::default(),
@@ -143,6 +170,9 @@ impl DaqApp {
             storage_panel: StoragePanel::default(),
             modules_panel: ModulesPanel::default(),
             runtime,
+            connect_tx,
+            connect_rx,
+            connect_pending: false,
             log_buffer: Vec::new(),
             #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
             pvcam_streaming: false,
@@ -153,25 +183,45 @@ impl DaqApp {
 
     /// Attempt to connect to the daemon
     fn connect(&mut self) {
-        self.connection_state = ConnectionState::Connecting;
-        let address = self.daemon_address.clone();
-        
-        match self.runtime.block_on(DaqClient::connect(&address)) {
-            Ok(client) => {
-                self.client = Some(client);
-                self.connection_state = ConnectionState::Connected;
-                tracing::info!("Connected to daemon at {}", address);
-            }
-            Err(e) => {
-                self.connection_state = ConnectionState::Error(e.to_string());
-                tracing::error!("Failed to connect: {}", e);
-            }
+        if self.connect_pending {
+            return;
         }
+        self.connection_state = ConnectionState::Connecting;
+        self.connect_pending = true;
+        let address = self.daemon_address.clone();
+        let tx = self.connect_tx.clone();
+
+        self.runtime.spawn(async move {
+            match DaqClient::connect(&address).await {
+                Ok(mut client) => {
+                    let daemon_version = match client.get_daemon_info().await {
+                        Ok(info) => Some(info.version),
+                        Err(_) => None,
+                    };
+                    let _ = tx
+                        .send(ConnectResult::Connected {
+                            client,
+                            daemon_version,
+                            address,
+                        })
+                        .await;
+                }
+                Err(e) => {
+                    let _ = tx
+                        .send(ConnectResult::Failed {
+                            error: e.to_string(),
+                            address,
+                        })
+                        .await;
+                }
+            }
+        });
     }
 
     /// Disconnect from the daemon
     fn disconnect(&mut self) {
         self.client = None;
+        self.daemon_version = None;
         self.connection_state = ConnectionState::Disconnected;
         tracing::info!("Disconnected from daemon");
     }
@@ -210,6 +260,30 @@ impl DaqApp {
                 });
             });
         });
+    }
+
+    /// Render version mismatch warning (if applicable)
+    fn render_version_warning(&self, ctx: &egui::Context) {
+        // Only show warning if connected and versions don't match
+        if self.connection_state == ConnectionState::Connected {
+            if let Some(ref daemon_ver) = self.daemon_version {
+                if daemon_ver != &self.gui_version {
+                    egui::TopBottomPanel::top("version_warning")
+                        .show_separator_line(false)
+                        .show(ctx, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.visuals_mut().override_text_color = Some(egui::Color32::from_rgb(255, 200, 0));
+                                ui.label("⚠");
+                                ui.label(format!(
+                                    "Version mismatch: Daemon {} ≠ GUI {}. Some features may not work correctly.",
+                                    daemon_ver, self.gui_version
+                                ));
+                            });
+                            ui.add_space(2.0);
+                        });
+                }
+            }
+        }
     }
 
     /// Render the connection status bar
@@ -338,6 +412,8 @@ impl DaqApp {
 
     fn render_logs(&mut self, ui: &mut egui::Ui) {
         use egui::ScrollArea;
+        self.connection_panel.ui(ui);
+        ui.separator();
         ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
             for line in &self.log_buffer {
                 ui.label(line);
@@ -415,12 +491,65 @@ impl DaqApp {
             }
         }
     }
+
+    fn poll_connect_results(&mut self, ctx: &egui::Context) {
+        let mut updated = false;
+
+        while let Ok(result) = self.connect_rx.try_recv() {
+            self.connect_pending = false;
+            match result {
+                ConnectResult::Connected {
+                    client,
+                    daemon_version,
+                    address,
+                } => {
+                    self.client = Some(client);
+                    self.daemon_version = daemon_version.clone();
+                    self.connection_state = ConnectionState::Connected;
+
+                    tracing::info!("Connected to daemon at {}", address);
+                    match daemon_version {
+                        Some(daemon_ver) => {
+                            tracing::info!(
+                                "Daemon version: {}, GUI version: {}",
+                                daemon_ver,
+                                self.gui_version
+                            );
+                            if daemon_ver != self.gui_version {
+                                tracing::warn!(
+                                    "Version mismatch detected! Daemon: {}, GUI: {}. Some features may not work correctly.",
+                                    daemon_ver,
+                                    self.gui_version
+                                );
+                            }
+                        }
+                        None => {
+                            tracing::warn!("Connected but failed to get daemon version");
+                        }
+                    }
+                }
+                ConnectResult::Failed { error, address } => {
+                    self.client = None;
+                    self.daemon_version = None;
+                    self.connection_state = ConnectionState::Error(error.clone());
+                    tracing::error!("Failed to connect to {}: {}", address, error);
+                }
+            }
+            updated = true;
+        }
+
+        if self.connect_pending || updated {
+            ctx.request_repaint();
+        }
+    }
 }
 
 impl eframe::App for DaqApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_logs();
+        self.poll_connect_results(ctx);
         self.render_menu_bar(ctx);
+        self.render_version_warning(ctx);
         self.render_status_bar(ctx);
         self.render_nav_panel(ctx);
         self.render_content(ctx);

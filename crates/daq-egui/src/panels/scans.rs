@@ -2,6 +2,7 @@
 
 use eframe::egui;
 use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
 
 use crate::client::DaqClient;
 use daq_proto::daq::{ScanConfig, AxisConfig};
@@ -36,8 +37,16 @@ enum PendingAction {
     StopScan { scan_id: String },
 }
 
+enum ScanActionResult {
+    Refresh(Result<(Vec<daq_proto::daq::ScanStatus>, Vec<daq_proto::daq::DeviceInfo>), String>),
+    Create(Result<(String, u32), String>),
+    Start { scan_id: String, result: Result<(), String> },
+    Pause { scan_id: String, result: Result<u32, String> },
+    Resume { scan_id: String, result: Result<(), String> },
+    Stop { scan_id: String, result: Result<u32, String> },
+}
+
 /// Scans panel state
-#[derive(Default)]
 pub struct ScansPanel {
     /// Cached scan list
     scans: Vec<daq_proto::daq::ScanStatus>,
@@ -51,6 +60,12 @@ pub struct ScansPanel {
     status: Option<String>,
     /// Pending action
     pending_action: Option<PendingAction>,
+    /// Async action result sender
+    action_tx: mpsc::Sender<ScanActionResult>,
+    /// Async action result receiver
+    action_rx: mpsc::Receiver<ScanActionResult>,
+    /// Number of in-flight async actions
+    action_in_flight: usize,
     
     // Scan wizard state
     /// Show wizard
@@ -70,8 +85,84 @@ pub struct ScansPanel {
 }
 
 impl ScansPanel {
+    fn poll_async_results(&mut self, ctx: &egui::Context) {
+        let mut updated = false;
+        loop {
+            match self.action_rx.try_recv() {
+                Ok(result) => {
+                    self.action_in_flight = self.action_in_flight.saturating_sub(1);
+                    match result {
+                        ScanActionResult::Refresh(result) => match result {
+                            Ok((scans, devices)) => {
+                                self.scans = scans;
+                                self.devices = devices;
+                                self.last_refresh = Some(std::time::Instant::now());
+                                self.status = Some(format!("Loaded {} scans", self.scans.len()));
+                                self.error = None;
+                            }
+                            Err(e) => self.error = Some(e),
+                        },
+                        ScanActionResult::Create(result) => match result {
+                            Ok((scan_id, total_points)) => {
+                                self.status = Some(format!(
+                                    "Created scan: {} ({} points)",
+                                    scan_id, total_points
+                                ));
+                                self.show_wizard = false;
+                                self.error = None;
+                            }
+                            Err(e) => self.error = Some(e),
+                        },
+                        ScanActionResult::Start { scan_id, result } => match result {
+                            Ok(()) => {
+                                self.status = Some(format!("Started scan: {}", scan_id));
+                                self.error = None;
+                            }
+                            Err(e) => self.error = Some(e),
+                        },
+                        ScanActionResult::Pause { scan_id, result } => match result {
+                            Ok(point) => {
+                                self.status = Some(format!(
+                                    "Paused scan: {} at point {}",
+                                    scan_id, point
+                                ));
+                                self.error = None;
+                            }
+                            Err(e) => self.error = Some(e),
+                        },
+                        ScanActionResult::Resume { scan_id, result } => match result {
+                            Ok(()) => {
+                                self.status = Some(format!("Resumed scan: {}", scan_id));
+                                self.error = None;
+                            }
+                            Err(e) => self.error = Some(e),
+                        },
+                        ScanActionResult::Stop { scan_id, result } => match result {
+                            Ok(points_completed) => {
+                                self.status = Some(format!(
+                                    "Stopped scan: {} ({} points completed)",
+                                    scan_id, points_completed
+                                ));
+                                self.error = None;
+                            }
+                            Err(e) => self.error = Some(e),
+                        },
+                    }
+                    updated = true;
+                }
+                Err(mpsc::error::TryRecvError::Empty) => break,
+                Err(mpsc::error::TryRecvError::Disconnected) => break,
+            }
+        }
+
+        if self.action_in_flight > 0 || updated {
+            ctx.request_repaint();
+        }
+    }
+
     /// Render the scans panel
     pub fn ui(&mut self, ui: &mut egui::Ui, client: Option<&mut DaqClient>, runtime: &Runtime) {
+        self.poll_async_results(ui.ctx());
         self.pending_action = None;
         
         ui.heading("Scans");
@@ -345,23 +436,22 @@ impl ScansPanel {
             self.error = Some("Not connected to daemon".to_string());
             return;
         };
-        
+
         let mut client = client.clone();
-        match runtime.block_on(async {
-            let scans = client.list_scans().await?;
-            let devices = client.list_devices().await.unwrap_or_default();
-            Ok::<_, anyhow::Error>((scans, devices))
-        }) {
-            Ok((scans, devices)) => {
-                self.scans = scans;
-                self.devices = devices;
-                self.last_refresh = Some(std::time::Instant::now());
-                self.status = Some(format!("Loaded {} scans", self.scans.len()));
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+        runtime.spawn(async move {
+            let result = async {
+                let scans = client.list_scans().await?;
+                let devices = client.list_devices().await.unwrap_or_default();
+                Ok::<_, anyhow::Error>((scans, devices))
             }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
-        }
+            .await
+            .map_err(|e| e.to_string());
+
+            let _ = tx.send(ScanActionResult::Refresh(result)).await;
+        });
     }
     
     /// Create a new scan from wizard config
@@ -395,22 +485,23 @@ impl ScansPanel {
         };
         
         let mut client = client.clone();
-        match runtime.block_on(client.create_scan(config)) {
-            Ok(response) => {
-                if response.success {
-                    self.status = Some(format!(
-                        "Created scan: {} ({} points)",
-                        response.scan_id, response.total_points
-                    ));
-                    self.show_wizard = false;
-                } else {
-                    self.error = Some(response.error_message);
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+        runtime.spawn(async move {
+            let result = client.create_scan(config).await;
+            let action = match result {
+                Ok(response) => {
+                    if response.success {
+                        ScanActionResult::Create(Ok((response.scan_id, response.total_points)))
+                    } else {
+                        ScanActionResult::Create(Err(response.error_message))
+                    }
                 }
-            }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
-        }
+                Err(e) => ScanActionResult::Create(Err(e.to_string())),
+            };
+            let _ = tx.send(action).await;
+        });
     }
     
     /// Start a scan
@@ -424,19 +515,27 @@ impl ScansPanel {
         
         let mut client = client.clone();
         let scan_id = scan_id.to_string();
-        
-        match runtime.block_on(client.start_scan(&scan_id)) {
-            Ok(response) => {
-                if response.success {
-                    self.status = Some(format!("Started scan: {}", scan_id));
-                } else {
-                    self.error = Some(response.error_message);
-                }
-            }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
-        }
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+        runtime.spawn(async move {
+            let result = client.start_scan(&scan_id).await;
+            let action = match result {
+                Ok(response) => ScanActionResult::Start {
+                    scan_id,
+                    result: if response.success {
+                        Ok(())
+                    } else {
+                        Err(response.error_message)
+                    },
+                },
+                Err(e) => ScanActionResult::Start {
+                    scan_id,
+                    result: Err(e.to_string()),
+                },
+            };
+            let _ = tx.send(action).await;
+        });
     }
     
     /// Pause a scan
@@ -450,17 +549,32 @@ impl ScansPanel {
         
         let mut client = client.clone();
         let scan_id = scan_id.to_string();
-        
-        match runtime.block_on(client.pause_scan(&scan_id)) {
-            Ok(response) => {
-                if response.success {
-                    self.status = Some(format!("Paused scan at point {}", response.paused_at_point));
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+        runtime.spawn(async move {
+            let result = client.pause_scan(&scan_id).await;
+            let action = match result {
+                Ok(response) => {
+                    if response.success {
+                        ScanActionResult::Pause {
+                            scan_id,
+                            result: Ok(response.paused_at_point),
+                        }
+                    } else {
+                        ScanActionResult::Pause {
+                            scan_id,
+                            result: Err("Failed to pause scan".to_string()),
+                        }
+                    }
                 }
-            }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
-        }
+                Err(e) => ScanActionResult::Pause {
+                    scan_id,
+                    result: Err(e.to_string()),
+                },
+            };
+            let _ = tx.send(action).await;
+        });
     }
     
     /// Resume a scan
@@ -474,19 +588,27 @@ impl ScansPanel {
         
         let mut client = client.clone();
         let scan_id = scan_id.to_string();
-        
-        match runtime.block_on(client.resume_scan(&scan_id)) {
-            Ok(response) => {
-                if response.success {
-                    self.status = Some(format!("Resumed scan: {}", scan_id));
-                } else {
-                    self.error = Some(response.error_message);
-                }
-            }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
-        }
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+        runtime.spawn(async move {
+            let result = client.resume_scan(&scan_id).await;
+            let action = match result {
+                Ok(response) => ScanActionResult::Resume {
+                    scan_id,
+                    result: if response.success {
+                        Ok(())
+                    } else {
+                        Err(response.error_message)
+                    },
+                },
+                Err(e) => ScanActionResult::Resume {
+                    scan_id,
+                    result: Err(e.to_string()),
+                },
+            };
+            let _ = tx.send(action).await;
+        });
     }
     
     /// Stop a scan
@@ -500,21 +622,55 @@ impl ScansPanel {
         
         let mut client = client.clone();
         let scan_id = scan_id.to_string();
-        
-        match runtime.block_on(client.stop_scan(&scan_id, false)) {
-            Ok(response) => {
-                if response.success {
-                    self.status = Some(format!(
-                        "Stopped scan: {} ({} points completed)",
-                        scan_id, response.points_completed
-                    ));
-                } else {
-                    self.error = Some(response.error_message);
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+        runtime.spawn(async move {
+            let result = client.stop_scan(&scan_id, false).await;
+            let action = match result {
+                Ok(response) => {
+                    if response.success {
+                        ScanActionResult::Stop {
+                            scan_id,
+                            result: Ok(response.points_completed),
+                        }
+                    } else {
+                        ScanActionResult::Stop {
+                            scan_id,
+                            result: Err(response.error_message),
+                        }
+                    }
                 }
-            }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
+                Err(e) => ScanActionResult::Stop {
+                    scan_id,
+                    result: Err(e.to_string()),
+                },
+            };
+            let _ = tx.send(action).await;
+        });
+    }
+}
+
+impl Default for ScansPanel {
+    fn default() -> Self {
+        let (action_tx, action_rx) = mpsc::channel(16);
+        Self {
+            scans: Vec::new(),
+            devices: Vec::new(),
+            last_refresh: None,
+            error: None,
+            status: None,
+            pending_action: None,
+            action_tx,
+            action_rx,
+            action_in_flight: 0,
+            show_wizard: false,
+            wizard_name: String::new(),
+            wizard_scan_type: 1,
+            wizard_axes: Vec::new(),
+            wizard_acquire_devices: Vec::new(),
+            wizard_dwell_ms: 100.0,
+            wizard_triggers_per_point: 1,
         }
     }
 }

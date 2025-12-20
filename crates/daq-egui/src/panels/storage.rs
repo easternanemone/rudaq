@@ -2,6 +2,7 @@
 
 use eframe::egui;
 use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
 
 use crate::client::DaqClient;
 
@@ -12,8 +13,13 @@ enum PendingAction {
     StopRecording,
 }
 
+enum StorageActionResult {
+    Refresh(Result<(Option<daq_proto::daq::StorageConfig>, Option<daq_proto::daq::RecordingStatus>, Vec<daq_proto::daq::AcquisitionSummary>), String>),
+    Start(Result<String, String>),
+    Stop(Result<(String, u64, u64), String>),
+}
+
 /// Storage panel state
-#[derive(Default)]
 pub struct StoragePanel {
     /// Storage configuration
     config: Option<daq_proto::daq::StorageConfig>,
@@ -31,11 +37,71 @@ pub struct StoragePanel {
     status: Option<String>,
     /// Pending action
     pending_action: Option<PendingAction>,
+    /// Async action result sender
+    action_tx: mpsc::Sender<StorageActionResult>,
+    /// Async action result receiver
+    action_rx: mpsc::Receiver<StorageActionResult>,
+    /// Number of in-flight async actions
+    action_in_flight: usize,
 }
 
 impl StoragePanel {
+    fn poll_async_results(&mut self, ctx: &egui::Context) {
+        let mut updated = false;
+        loop {
+            match self.action_rx.try_recv() {
+                Ok(result) => {
+                    self.action_in_flight = self.action_in_flight.saturating_sub(1);
+                    match result {
+                        StorageActionResult::Refresh(result) => match result {
+                            Ok((config, status, acquisitions)) => {
+                                self.config = config;
+                                self.recording_status = status;
+                                self.acquisitions = acquisitions;
+                                self.last_refresh = Some(std::time::Instant::now());
+                                self.status = Some(format!(
+                                    "Loaded {} acquisitions",
+                                    self.acquisitions.len()
+                                ));
+                                self.error = None;
+                            }
+                            Err(e) => self.error = Some(e),
+                        },
+                        StorageActionResult::Start(result) => match result {
+                            Ok(output_path) => {
+                                self.status = Some(format!("Recording started: {}", output_path));
+                                self.recording_name.clear();
+                                self.error = None;
+                            }
+                            Err(e) => self.error = Some(e),
+                        },
+                        StorageActionResult::Stop(result) => match result {
+                            Ok((output_path, file_size_bytes, total_samples)) => {
+                                let size_mb = file_size_bytes as f64 / 1_000_000.0;
+                                self.status = Some(format!(
+                                    "Recording saved: {} ({:.2} MB, {} samples)",
+                                    output_path, size_mb, total_samples
+                                ));
+                                self.error = None;
+                            }
+                            Err(e) => self.error = Some(e),
+                        },
+                    }
+                    updated = true;
+                }
+                Err(mpsc::error::TryRecvError::Empty) => break,
+                Err(mpsc::error::TryRecvError::Disconnected) => break,
+            }
+        }
+
+        if self.action_in_flight > 0 || updated {
+            ctx.request_repaint();
+        }
+    }
+
     /// Render the storage panel
     pub fn ui(&mut self, ui: &mut egui::Ui, client: Option<&mut DaqClient>, runtime: &Runtime) {
+        self.poll_async_results(ui.ctx());
         self.pending_action = None;
         
         ui.heading("Storage");
@@ -221,23 +287,21 @@ impl StoragePanel {
         };
         
         let mut client = client.clone();
-        match runtime.block_on(async {
-            let config = client.get_storage_config().await.ok();
-            let status = client.get_recording_status().await.ok();
-            let acquisitions = client.list_acquisitions().await.unwrap_or_default();
-            Ok::<_, anyhow::Error>((config, status, acquisitions))
-        }) {
-            Ok((config, status, acquisitions)) => {
-                self.config = config;
-                self.recording_status = status;
-                self.acquisitions = acquisitions;
-                self.last_refresh = Some(std::time::Instant::now());
-                self.status = Some(format!("Loaded {} acquisitions", self.acquisitions.len()));
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+        runtime.spawn(async move {
+            let result = async {
+                let config = client.get_storage_config().await.ok();
+                let status = client.get_recording_status().await.ok();
+                let acquisitions = client.list_acquisitions().await.unwrap_or_default();
+                Ok::<_, anyhow::Error>((config, status, acquisitions))
             }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
-        }
+            .await
+            .map_err(|e| e.to_string());
+
+            let _ = tx.send(StorageActionResult::Refresh(result)).await;
+        });
     }
     
     /// Start recording
@@ -252,20 +316,23 @@ impl StoragePanel {
         
         let mut client = client.clone();
         let name = name.to_string();
-        
-        match runtime.block_on(client.start_recording(&name)) {
-            Ok(response) => {
-                if response.success {
-                    self.status = Some(format!("Recording started: {}", response.output_path));
-                    self.recording_name.clear();
-                } else {
-                    self.error = Some(response.error_message);
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+        runtime.spawn(async move {
+            let result = client.start_recording(&name).await;
+            let action = match result {
+                Ok(response) => {
+                    if response.success {
+                        StorageActionResult::Start(Ok(response.output_path))
+                    } else {
+                        StorageActionResult::Start(Err(response.error_message))
+                    }
                 }
-            }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
-        }
+                Err(e) => StorageActionResult::Start(Err(e.to_string())),
+            };
+            let _ = tx.send(action).await;
+        });
     }
     
     /// Stop recording
@@ -279,22 +346,45 @@ impl StoragePanel {
         };
         
         let mut client = client.clone();
-        
-        match runtime.block_on(client.stop_recording()) {
-            Ok(response) => {
-                if response.success {
-                    let size_mb = response.file_size_bytes as f64 / 1_000_000.0;
-                    self.status = Some(format!(
-                        "Recording saved: {} ({:.2} MB, {} samples)",
-                        response.output_path, size_mb, response.total_samples
-                    ));
-                } else {
-                    self.error = Some(response.error_message);
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+        runtime.spawn(async move {
+            let result = client.stop_recording().await;
+            let action = match result {
+                Ok(response) => {
+                    if response.success {
+                        StorageActionResult::Stop(Ok((
+                            response.output_path,
+                            response.file_size_bytes,
+                            response.total_samples,
+                        )))
+                    } else {
+                        StorageActionResult::Stop(Err(response.error_message))
+                    }
                 }
-            }
-            Err(e) => {
-                self.error = Some(e.to_string());
-            }
+                Err(e) => StorageActionResult::Stop(Err(e.to_string())),
+            };
+            let _ = tx.send(action).await;
+        });
+    }
+}
+
+impl Default for StoragePanel {
+    fn default() -> Self {
+        let (action_tx, action_rx) = mpsc::channel(16);
+        Self {
+            config: None,
+            recording_status: None,
+            acquisitions: Vec::new(),
+            last_refresh: None,
+            recording_name: String::new(),
+            error: None,
+            status: None,
+            pending_action: None,
+            action_tx,
+            action_rx,
+            action_in_flight: 0,
         }
     }
 }
