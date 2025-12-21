@@ -104,16 +104,13 @@ impl RunEngineService for RunEngineServiceImpl {
         _request: Request<StartEngineRequest>,
     ) -> Result<Response<StartEngineResponse>, Status> {
         // Start the engine (spawns background task)
-        match self.engine.start().await {
-            Ok(_) => Ok(Response::new(StartEngineResponse {
-                success: true,
-                error_message: String::new(),
-            })),
-            Err(e) => Ok(Response::new(StartEngineResponse {
-                success: false,
-                error_message: format!("Failed to start engine: {}", e),
-            })),
-        }
+        self.engine.start().await
+            .map_err(|e| Status::internal(format!("Failed to start engine: {}", e)))?;
+
+        Ok(Response::new(StartEngineResponse {
+            success: true,
+            error_message: String::new(),
+        }))
     }
 
     async fn pause_engine(
@@ -133,51 +130,43 @@ impl RunEngineService for RunEngineServiceImpl {
         &self,
         _request: Request<ResumeEngineRequest>,
     ) -> Result<Response<ResumeEngineResponse>, Status> {
-        match self.engine.resume().await {
-            Ok(_) => Ok(Response::new(ResumeEngineResponse {
-                success: true,
-                error_message: String::new(),
-            })),
-            Err(e) => Ok(Response::new(ResumeEngineResponse {
-                success: false,
-                error_message: format!("Failed to resume engine: {}", e),
-            })),
-        }
+        self.engine.resume().await
+            .map_err(|e| Status::internal(format!("Failed to resume engine: {}", e)))?;
+
+        Ok(Response::new(ResumeEngineResponse {
+            success: true,
+            error_message: String::new(),
+        }))
     }
 
     async fn abort_plan(
         &self,
         request: Request<AbortPlanRequest>,
     ) -> Result<Response<AbortPlanResponse>, Status> {
-        let _run_uid = &request.get_ref().run_uid;
+        let _req = request.into_inner();
 
-        // TODO: Support aborting specific run_uid (currently aborts current)
-        match self.engine.abort("user requested abort via gRPC").await {
-            Ok(_) => Ok(Response::new(AbortPlanResponse {
-                success: true,
-                error_message: String::new(),
-            })),
-            Err(e) => Ok(Response::new(AbortPlanResponse {
-                success: false,
-                error_message: format!("Failed to abort plan: {}", e),
-            })),
-        }
+        // TODO: Support aborting specific run_uid (currently aborts current run only)
+        // For now, ignore _req.run_uid and abort the currently executing plan
+        self.engine.abort("user requested abort via gRPC").await
+            .map_err(|e| Status::internal(format!("Failed to abort plan: {}", e)))?;
+
+        Ok(Response::new(AbortPlanResponse {
+            success: true,
+            error_message: String::new(),
+        }))
     }
 
     async fn halt_engine(
         &self,
         _request: Request<HaltEngineRequest>,
     ) -> Result<Response<HaltEngineResponse>, Status> {
-        match self.engine.halt().await {
-            Ok(_) => Ok(Response::new(HaltEngineResponse {
-                halted: true,
-                message: "Engine halted successfully".to_string(),
-            })),
-            Err(e) => Ok(Response::new(HaltEngineResponse {
-                halted: false,
-                message: format!("Failed to halt engine: {}", e),
-            })),
-        }
+        self.engine.halt().await
+            .map_err(|e| Status::internal(format!("Failed to halt engine: {}", e)))?;
+
+        Ok(Response::new(HaltEngineResponse {
+            halted: true,
+            message: "Engine halted successfully".to_string(),
+        }))
     }
 
     async fn get_engine_status(
