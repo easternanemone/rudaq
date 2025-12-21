@@ -214,35 +214,77 @@ impl RunEngineService for RunEngineServiceImpl {
 
     async fn stream_documents(
         &self,
-        _request: Request<StreamDocumentsRequest>,
+        request: Request<StreamDocumentsRequest>,
     ) -> Result<Response<Self::StreamDocumentsStream>, Status> {
         // Subscribe to document stream from RunEngine
         let rx = self.engine.subscribe();
 
+        // Extract filters from request
+        let req = request.into_inner();
+        let run_uid_filter = req.run_uid.filter(|s| !s.is_empty());
+        let doc_types_filter = if req.doc_types.is_empty() {
+            None
+        } else {
+            Some(req.doc_types)
+        };
+
         // Convert broadcast::Receiver to BroadcastStream and map documents
         // Use filter_map to skip documents that can't be converted (e.g., Manifest)
-        let stream = BroadcastStream::new(rx).filter_map(|result| async move {
-            match result {
-                Ok(domain_doc) => {
-                    // Convert domain document to proto
-                    match domain_to_proto_document(domain_doc) {
-                        Ok(Some(proto_doc)) => Some(Ok(proto_doc)),
-                        Ok(None) => None, // Skip this document (e.g., Manifest)
-                        Err(e) => Some(Err(Status::internal(format!("Document conversion failed: {}", e)))),
+        // and apply request filters
+        let stream = BroadcastStream::new(rx).filter_map(move |result| {
+            let run_uid_filter = run_uid_filter.clone();
+            let doc_types_filter = doc_types_filter.clone();
+
+            async move {
+                match result {
+                    Ok(domain_doc) => {
+                        // Convert domain document to proto
+                        match domain_to_proto_document(domain_doc) {
+                            Ok(Some(proto_doc)) => {
+                                // Apply run_uid filter
+                                if let Some(ref filter_uid) = run_uid_filter {
+                                    // Extract run_uid from document based on type
+                                    let doc_run_uid = match &proto_doc.payload {
+                                        Some(crate::grpc::proto::document::Payload::Start(s)) => Some(&s.run_uid),
+                                        Some(crate::grpc::proto::document::Payload::Stop(s)) => Some(&s.run_uid),
+                                        Some(crate::grpc::proto::document::Payload::Descriptor(d)) => Some(&d.run_uid),
+                                        Some(crate::grpc::proto::document::Payload::Event(_)) => None, // Event has descriptor_uid, not run_uid
+                                        None => None,
+                                    };
+
+                                    if let Some(uid) = doc_run_uid {
+                                        if uid != filter_uid {
+                                            return None; // Skip - different run
+                                        }
+                                    }
+                                }
+
+                                // Apply doc_types filter
+                                if let Some(ref filter_types) = doc_types_filter {
+                                    if !filter_types.contains(&proto_doc.doc_type) {
+                                        return None; // Skip - type not in filter
+                                    }
+                                }
+
+                                Some(Ok(proto_doc))
+                            }
+                            Ok(None) => None, // Skip this document (e.g., Manifest)
+                            Err(e) => Some(Err(Status::internal(format!("Document conversion failed: {}", e)))),
+                        }
                     }
-                }
-                Err(e) => {
-                    // Check if this is a Lagged error by examining the error string
-                    let err_str = format!("{:?}", e);
-                    if err_str.contains("Lagged") {
-                        // Receiver fell behind - log and continue without terminating stream
-                        tracing::warn!(
-                            "Document stream lagged: client too slow, skipping messages"
-                        );
-                        None // Skip, don't terminate
-                    } else {
-                        // Other errors (e.g., Closed) - terminate stream
-                        Some(Err(Status::unavailable(format!("Document stream error: {}", e))))
+                    Err(e) => {
+                        // Check if this is a Lagged error by examining the error string
+                        let err_str = format!("{:?}", e);
+                        if err_str.contains("Lagged") {
+                            // Receiver fell behind - log and continue without terminating stream
+                            tracing::warn!(
+                                "Document stream lagged: client too slow, skipping messages"
+                            );
+                            None // Skip, don't terminate
+                        } else {
+                            // Other errors (e.g., Closed) - terminate stream
+                            Some(Err(Status::unavailable(format!("Document stream error: {}", e))))
+                        }
                     }
                 }
             }
