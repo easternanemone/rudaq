@@ -371,6 +371,9 @@ fn create_plan_from_request(req: &QueuePlanRequest) -> Result<Box<dyn daq_experi
             if num_points == 0 {
                 return Err("num_points must be > 0".to_string());
             }
+            if num_points > 10_000_000 {
+                return Err("num_points must be <= 10,000,000 to prevent resource exhaustion".to_string());
+            }
 
             let mut plan = Count::new(num_points);
 
@@ -386,6 +389,9 @@ fn create_plan_from_request(req: &QueuePlanRequest) -> Result<Box<dyn daq_experi
             if let Some(delay_str) = req.parameters.get("delay") {
                 let delay = delay_str.parse::<f64>()
                     .map_err(|e| format!("Invalid delay: {}", e))?;
+                if !delay.is_finite() {
+                    return Err("delay must be a finite number (not NaN or infinity)".to_string());
+                }
                 if delay < 0.0 {
                     return Err("delay must be >= 0".to_string());
                 }
@@ -415,8 +421,17 @@ fn create_plan_from_request(req: &QueuePlanRequest) -> Result<Box<dyn daq_experi
                 .ok_or("Missing device mapping: motor")?;
 
             // Validate parameters
+            if !start.is_finite() {
+                return Err("start must be a finite number (not NaN or infinity)".to_string());
+            }
+            if !end.is_finite() {
+                return Err("end must be a finite number (not NaN or infinity)".to_string());
+            }
             if num_points == 0 {
                 return Err("num_points must be > 0".to_string());
+            }
+            if num_points > 10_000_000 {
+                return Err("num_points must be <= 10,000,000 to prevent resource exhaustion".to_string());
             }
             if start == end {
                 return Err("start and end must be different for line scan".to_string());
@@ -439,6 +454,9 @@ fn create_plan_from_request(req: &QueuePlanRequest) -> Result<Box<dyn daq_experi
             if let Some(settle_str) = req.parameters.get("settle_time") {
                 let settle = settle_str.parse::<f64>()
                     .map_err(|e| format!("Invalid settle_time: {}", e))?;
+                if !settle.is_finite() {
+                    return Err("settle_time must be a finite number (not NaN or infinity)".to_string());
+                }
                 if settle < 0.0 {
                     return Err("settle_time must be >= 0".to_string());
                 }
@@ -486,11 +504,29 @@ fn create_plan_from_request(req: &QueuePlanRequest) -> Result<Box<dyn daq_experi
                 .ok_or("Missing device mapping: y_motor")?;
 
             // Validate parameters
+            if !x_start.is_finite() {
+                return Err("x_start must be a finite number (not NaN or infinity)".to_string());
+            }
+            if !x_end.is_finite() {
+                return Err("x_end must be a finite number (not NaN or infinity)".to_string());
+            }
+            if !y_start.is_finite() {
+                return Err("y_start must be a finite number (not NaN or infinity)".to_string());
+            }
+            if !y_end.is_finite() {
+                return Err("y_end must be a finite number (not NaN or infinity)".to_string());
+            }
             if x_points == 0 {
                 return Err("x_points must be > 0".to_string());
             }
+            if x_points > 100_000 {
+                return Err("x_points must be <= 100,000 to prevent resource exhaustion".to_string());
+            }
             if y_points == 0 {
                 return Err("y_points must be > 0".to_string());
+            }
+            if y_points > 100_000 {
+                return Err("y_points must be <= 100,000 to prevent resource exhaustion".to_string());
             }
             if x_start == x_end {
                 return Err("x_start and x_end must be different for grid scan".to_string());
