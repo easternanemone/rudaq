@@ -12,9 +12,9 @@ use crate::grpc::proto::{
 };
 use daq_experiment::run_engine::RunEngine;
 use daq_experiment::Document; // Re-exported from daq_core
+use futures::StreamExt; // For .filter_map() with async
 use std::sync::Arc;
 use tokio_stream::wrappers::BroadcastStream;
-use tokio_stream::StreamExt; // For .map() on Stream
 use tonic::{Request, Response, Status};
 
 /// RunEngine gRPC service implementation.
@@ -220,13 +220,32 @@ impl RunEngineService for RunEngineServiceImpl {
         let rx = self.engine.subscribe();
 
         // Convert broadcast::Receiver to BroadcastStream and map documents
-        let stream = BroadcastStream::new(rx).map(|result| match result {
-            Ok(domain_doc) => {
-                // Convert domain document to proto
-                domain_to_proto_document(domain_doc)
-                    .map_err(|e| Status::internal(format!("Document conversion failed: {}", e)))
+        // Use filter_map to skip documents that can't be converted (e.g., Manifest)
+        let stream = BroadcastStream::new(rx).filter_map(|result| async move {
+            match result {
+                Ok(domain_doc) => {
+                    // Convert domain document to proto
+                    match domain_to_proto_document(domain_doc) {
+                        Ok(Some(proto_doc)) => Some(Ok(proto_doc)),
+                        Ok(None) => None, // Skip this document (e.g., Manifest)
+                        Err(e) => Some(Err(Status::internal(format!("Document conversion failed: {}", e)))),
+                    }
+                }
+                Err(e) => {
+                    // Check if this is a Lagged error by examining the error string
+                    let err_str = format!("{:?}", e);
+                    if err_str.contains("Lagged") {
+                        // Receiver fell behind - log and continue without terminating stream
+                        tracing::warn!(
+                            "Document stream lagged: client too slow, skipping messages"
+                        );
+                        None // Skip, don't terminate
+                    } else {
+                        // Other errors (e.g., Closed) - terminate stream
+                        Some(Err(Status::unavailable(format!("Document stream error: {}", e))))
+                    }
+                }
             }
-            Err(e) => Err(Status::internal(format!("Document stream error: {}", e))),
         });
 
         Ok(Response::new(Box::pin(stream)))
@@ -367,12 +386,13 @@ fn create_plan_from_request(req: &QueuePlanRequest) -> Result<Box<dyn daq_experi
 }
 
 /// Convert domain Document to proto Document
+/// Returns Ok(None) for documents that have no proto equivalent (e.g., Manifest)
 fn domain_to_proto_document(
     doc: Document,
-) -> Result<crate::grpc::proto::Document, String> {
+) -> Result<Option<crate::grpc::proto::Document>, String> {
     use crate::grpc::proto::{
-        Document as ProtoDocument, DocumentType as ProtoDocType, EventDocument, StartDocument,
-        StopDocument,
+        DataKey as ProtoDataKey, DescriptorDocument, Document as ProtoDocument,
+        DocumentType as ProtoDocType, EventDocument, StartDocument, StopDocument,
     };
     use daq_experiment::Document as DomainDoc;
 
@@ -425,20 +445,50 @@ fn domain_to_proto_document(
                 Some(crate::grpc::proto::document::Payload::Event(proto_event)),
             )
         }
-        DomainDoc::Descriptor(_) => {
-            // Descriptor not yet implemented - skip for now
-            return Err("Descriptor documents not yet implemented".to_string());
+        DomainDoc::Descriptor(desc) => {
+            // Convert DataKey HashMap
+            let proto_data_keys = desc
+                .data_keys
+                .into_iter()
+                .map(|(k, v)| {
+                    (
+                        k,
+                        ProtoDataKey {
+                            dtype: v.dtype,
+                            shape: v.shape,
+                            source: v.source,
+                            units: v.units,
+                            precision: v.precision,
+                        },
+                    )
+                })
+                .collect();
+
+            let proto_desc = DescriptorDocument {
+                run_uid: desc.run_uid.clone(),
+                descriptor_uid: desc.uid.clone(),
+                name: desc.name.clone(),
+                data_keys: proto_data_keys,
+                configuration: desc.configuration.clone(),
+            };
+            (
+                ProtoDocType::DocDescriptor as i32,
+                desc.uid,
+                desc.time_ns,
+                Some(crate::grpc::proto::document::Payload::Descriptor(proto_desc)),
+            )
         }
-        DomainDoc::Manifest(_) => {
-            // Manifest not yet implemented - skip for now
-            return Err("Manifest documents not yet implemented".to_string());
+        DomainDoc::Manifest(_manifest) => {
+            // Manifest has no proto equivalent - skip gracefully
+            tracing::debug!("Skipping Manifest document (no proto mapping)");
+            return Ok(None);
         }
     };
 
-    Ok(ProtoDocument {
+    Ok(Some(ProtoDocument {
         doc_type,
         uid,
         timestamp_ns,
         payload,
-    })
+    }))
 }
