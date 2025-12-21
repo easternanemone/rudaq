@@ -217,12 +217,19 @@ impl RunEngineService for RunEngineServiceImpl {
             Some(req.doc_types)
         };
 
+        // Maintain descriptor_uid → run_uid mapping for Event filtering
+        // Events only have descriptor_uid, need to look up run_uid
+        let descriptor_to_run_map = std::sync::Arc::new(tokio::sync::Mutex::new(
+            std::collections::HashMap::<String, String>::new()
+        ));
+
         // Convert broadcast::Receiver to BroadcastStream and map documents
         // Use filter_map to skip documents that can't be converted (e.g., Manifest)
         // and apply request filters
         let stream = BroadcastStream::new(rx).filter_map(move |result| {
             let run_uid_filter = run_uid_filter.clone();
             let doc_types_filter = doc_types_filter.clone();
+            let descriptor_map = descriptor_to_run_map.clone();
 
             async move {
                 match result {
@@ -234,17 +241,36 @@ impl RunEngineService for RunEngineServiceImpl {
                                 if let Some(ref filter_uid) = run_uid_filter {
                                     // Extract run_uid from document based on type
                                     let doc_run_uid = match &proto_doc.payload {
-                                        Some(crate::grpc::proto::document::Payload::Start(s)) => Some(&s.run_uid),
-                                        Some(crate::grpc::proto::document::Payload::Stop(s)) => Some(&s.run_uid),
-                                        Some(crate::grpc::proto::document::Payload::Descriptor(d)) => Some(&d.run_uid),
-                                        Some(crate::grpc::proto::document::Payload::Event(_)) => None, // Event has descriptor_uid, not run_uid
+                                        Some(crate::grpc::proto::document::Payload::Start(s)) => {
+                                            Some(s.run_uid.clone())
+                                        }
+                                        Some(crate::grpc::proto::document::Payload::Stop(s)) => {
+                                            Some(s.run_uid.clone())
+                                        }
+                                        Some(crate::grpc::proto::document::Payload::Descriptor(d)) => {
+                                            // Record descriptor_uid → run_uid mapping
+                                            let mut map = descriptor_map.lock().await;
+                                            map.insert(d.descriptor_uid.clone(), d.run_uid.clone());
+                                            Some(d.run_uid.clone())
+                                        }
+                                        Some(crate::grpc::proto::document::Payload::Event(e)) => {
+                                            // Look up run_uid via descriptor_uid
+                                            let map = descriptor_map.lock().await;
+                                            map.get(&e.descriptor_uid).cloned()
+                                        }
                                         None => None,
                                     };
 
                                     if let Some(uid) = doc_run_uid {
-                                        if uid != filter_uid {
+                                        if uid != *filter_uid {
                                             return None; // Skip - different run
                                         }
+                                    } else if matches!(&proto_doc.payload, Some(crate::grpc::proto::document::Payload::Event(_))) {
+                                        // Event with unknown descriptor - drop when filter active
+                                        tracing::debug!(
+                                            "Dropping Event with unknown descriptor_uid (run_uid filter active)"
+                                        );
+                                        return None;
                                     }
                                 }
 
