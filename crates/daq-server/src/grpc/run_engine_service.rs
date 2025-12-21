@@ -306,10 +306,18 @@ fn create_plan_from_request(req: &QueuePlanRequest) -> Result<Box<dyn daq_experi
                 .parse::<usize>()
                 .map_err(|e| format!("Invalid num_points: {}", e))?;
 
+            // Validate parameters
+            if num_points == 0 {
+                return Err("num_points must be > 0".to_string());
+            }
+
             let mut plan = Count::new(num_points);
 
             // Optional detector
             if let Some(detector) = req.device_mapping.get("detector") {
+                if detector.is_empty() {
+                    return Err("detector device name cannot be empty".to_string());
+                }
                 plan = plan.with_detector(detector);
             }
 
@@ -317,6 +325,9 @@ fn create_plan_from_request(req: &QueuePlanRequest) -> Result<Box<dyn daq_experi
             if let Some(delay_str) = req.parameters.get("delay") {
                 let delay = delay_str.parse::<f64>()
                     .map_err(|e| format!("Invalid delay: {}", e))?;
+                if delay < 0.0 {
+                    return Err("delay must be >= 0".to_string());
+                }
                 plan = plan.with_delay(delay);
             }
 
@@ -342,10 +353,24 @@ fn create_plan_from_request(req: &QueuePlanRequest) -> Result<Box<dyn daq_experi
             let motor = req.device_mapping.get("motor")
                 .ok_or("Missing device mapping: motor")?;
 
+            // Validate parameters
+            if num_points == 0 {
+                return Err("num_points must be > 0".to_string());
+            }
+            if start == end {
+                return Err("start and end must be different for line scan".to_string());
+            }
+            if motor.is_empty() {
+                return Err("motor device name cannot be empty".to_string());
+            }
+
             let mut plan = LineScan::new(motor, start, end, num_points);
 
             // Optional detector
             if let Some(detector) = req.device_mapping.get("detector") {
+                if detector.is_empty() {
+                    return Err("detector device name cannot be empty".to_string());
+                }
                 plan = plan.with_detector(detector);
             }
 
@@ -353,6 +378,9 @@ fn create_plan_from_request(req: &QueuePlanRequest) -> Result<Box<dyn daq_experi
             if let Some(settle_str) = req.parameters.get("settle_time") {
                 let settle = settle_str.parse::<f64>()
                     .map_err(|e| format!("Invalid settle_time: {}", e))?;
+                if settle < 0.0 {
+                    return Err("settle_time must be >= 0".to_string());
+                }
                 plan = plan.with_settle_time(settle);
             }
 
@@ -396,6 +424,29 @@ fn create_plan_from_request(req: &QueuePlanRequest) -> Result<Box<dyn daq_experi
             let y_motor = req.device_mapping.get("y_motor")
                 .ok_or("Missing device mapping: y_motor")?;
 
+            // Validate parameters
+            if x_points == 0 {
+                return Err("x_points must be > 0".to_string());
+            }
+            if y_points == 0 {
+                return Err("y_points must be > 0".to_string());
+            }
+            if x_start == x_end {
+                return Err("x_start and x_end must be different for grid scan".to_string());
+            }
+            if y_start == y_end {
+                return Err("y_start and y_end must be different for grid scan".to_string());
+            }
+            if x_motor.is_empty() {
+                return Err("x_motor device name cannot be empty".to_string());
+            }
+            if y_motor.is_empty() {
+                return Err("y_motor device name cannot be empty".to_string());
+            }
+            if x_motor == y_motor {
+                return Err("x_motor and y_motor must be different".to_string());
+            }
+
             // Note: GridScan takes (outer/slow, inner/fast) axes
             // Convention: y is outer (slow), x is inner (fast)
             let mut plan = GridScan::new(
@@ -411,6 +462,9 @@ fn create_plan_from_request(req: &QueuePlanRequest) -> Result<Box<dyn daq_experi
 
             // Optional detector
             if let Some(detector) = req.device_mapping.get("detector") {
+                if detector.is_empty() {
+                    return Err("detector device name cannot be empty".to_string());
+                }
                 plan = plan.with_detector(detector);
             }
 
