@@ -39,22 +39,22 @@ let res = camera.resolution(); // Get resolution as [width, height]
 
 ### RunEngine (RunEngineHandle)
 
-Bluesky-style plan execution engine.
+Bluesky-style plan execution engine. Pre-injected as the global `run_engine` variable when configured in the daemon.
 
 ```rhai
-let re = create_run_engine();
-re.queue(plan);           // Queue a plan
-re.start();               // Start processing queue
-re.pause();               // Pause at checkpoint
-re.resume();              // Resume execution
-re.abort();               // Abort current plan
-re.halt();                // Emergency stop
+// Use the pre-injected run_engine global
+run_engine.queue(plan);           // Queue a plan
+run_engine.start();               // Start processing queue
+run_engine.pause();               // Pause at checkpoint
+run_engine.resume();              // Resume execution
+run_engine.abort("reason");       // Abort current plan
+run_engine.halt();                // Emergency stop
 
 // Query state
-let state = re.state();         // "idle", "running", "paused"
-let len = re.queue_len();       // Queue length
-let uid = re.current_run_uid(); // Current run UUID
-let prog = re.current_progress(); // Progress (0-100)
+let state = run_engine.state();         // "idle", "running", "paused"
+let len = run_engine.queue_len();       // Queue length
+let uid = run_engine.current_run_uid(); // Current run UUID
+let prog = run_engine.current_progress(); // Progress (0-100)
 ```
 
 ### Plan (PlanHandle)
@@ -63,11 +63,14 @@ Defines experiment plans for the RunEngine.
 
 ```rhai
 // Create plans
-let plan = count_simple(10);           // Simple count plan
-let plan = scan(motor, 0.0, 10.0, 11); // 1D scan
+let plan = count_simple(10);                                  // Simple count plan
+let plan = count(10, "detector", 0.5);                        // Count with detector and delay
+let plan = line_scan("motor", 0.0, 10.0, 11, "detector");    // 1D linear scan
+let plan = grid_scan("x_motor", 0.0, 10.0, 11,               // 2D grid scan
+                     "y_motor", 0.0, 5.0, 6, "detector");
 
 // Plan properties
-let type_str = plan.plan_type();  // "count", "scan", etc.
+let type_str = plan.plan_type();  // "count", "line_scan", "grid_scan"
 let name = plan.plan_name();      // Plan name
 let points = plan.num_points();   // Number of points
 ```
@@ -79,8 +82,10 @@ let points = plan.num_points();   // Number of points
 | `print(msg)` | Print message to console |
 | `sleep(seconds)` | Pause execution (use `f64`) |
 | `create_mock_stage()` | Create a mock stage for testing |
-| `create_run_engine()` | Create a RunEngine instance |
-| `count_simple(n)` | Create a simple count plan |
+| `count_simple(n)` | Create a simple count plan (n points) |
+| `count(n, detector, delay)` | Create count plan with detector and delay |
+| `line_scan(motor, start, end, points, detector)` | Create 1D linear scan plan |
+| `grid_scan(x_motor, x_start, x_end, x_points, y_motor, y_start, y_end, y_points, detector)` | Create 2D grid scan plan |
 
 ## Example Scripts
 
@@ -146,6 +151,38 @@ for i in 0..5 {
 }
 
 print("Acquisition complete!");
+```
+
+## RunEngine Example
+
+```rhai
+// Queue and execute declarative plans
+print("Setting up experiment plans...");
+
+// Create multiple plans
+let count_plan = count_simple(10);
+let scan_plan = line_scan("motor", 0.0, 10.0, 11, "detector");
+
+// Queue plans for execution
+run_engine.queue(count_plan);
+run_engine.queue(scan_plan);
+
+// Check queue
+let queue_len = run_engine.queue_len();
+print(`Queued ${queue_len} plans`);
+
+// Start execution
+run_engine.start();
+
+// Monitor progress
+while run_engine.state() != "idle" {
+    let progress = run_engine.current_progress();
+    let uid = run_engine.current_run_uid();
+    print(`Run ${uid}: ${progress}% complete`);
+    sleep(0.5);
+}
+
+print("All plans complete!");
 ```
 
 ## Rhai Language Reference
