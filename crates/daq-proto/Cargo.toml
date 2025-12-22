@@ -7,7 +7,6 @@ description = "Protocol buffer definitions and conversions for rust-daq"
 [dependencies]
 daq-core = { path = "../daq-core" }
 prost = "0.12"
-anyhow = "1.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tonic = { version = "0.10", default-features = false, features = ["transport", "prost", "codegen"] }
@@ -21,3 +20,6 @@ tonic-build = "0.11"
 [features]
 default = []
 server = []
+
+[package.metadata.cargo-machete]
+ignored = ["prost", "tonic-build"]  # prost: used by tonic codegen; tonic-build: build dep

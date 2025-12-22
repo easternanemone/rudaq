@@ -12,6 +12,10 @@ use daq_proto::daq::{
     // Request/Response types
     DaemonInfoRequest, ListDevicesRequest, ListScansRequest, ListScriptsRequest,
     ListExecutionsRequest, MoveRequest, ReadValueRequest, DeviceStateRequest,
+    // Script execution types (Phase 6: bd-uu9t)
+    StartRequest as ScriptStartRequest, StartResponse as ScriptStartResponse,
+    StopRequest as ScriptStopRequest, StopResponse as ScriptStopResponse,
+    UploadRequest as ScriptUploadRequest, UploadResponse as ScriptUploadResponse,
     // Storage types
     GetStorageConfigRequest, GetRecordingStatusRequest, StartRecordingRequest,
     StopRecordingRequest, ListAcquisitionsRequest,
@@ -22,10 +26,12 @@ use daq_proto::daq::{
     CreateScanRequest, StartScanRequest, StopScanRequest, PauseScanRequest,
     ResumeScanRequest, ScanConfig,
     // Camera streaming
-    StartStreamRequest, StopStreamRequest,
+    StartStreamRequest, StopStreamRequest, StreamFramesRequest, FrameData,
     // Parameter types (bd-cdh5.1)
     ListParametersRequest, GetParameterRequest, SetParameterRequest,
     DeviceCommandRequest,
+    // Observable streaming (bd-qqjq stub for bd-r5vb)
+    StreamObservablesRequest, ObservableValue,
 };
 
 /// gRPC client wrapper for the DAQ daemon
@@ -132,6 +138,47 @@ impl DaqClient {
             state: None,
         }).await?;
         Ok(response.into_inner().executions)
+    }
+
+    /// Upload a script to the daemon (Phase 6: bd-uu9t)
+    pub async fn upload_script(
+        &mut self,
+        name: &str,
+        content: &str,
+        metadata: std::collections::HashMap<String, String>,
+    ) -> Result<ScriptUploadResponse> {
+        let response = self.control.upload_script(ScriptUploadRequest {
+            name: name.to_string(),
+            script_content: content.to_string(),
+            metadata,
+        }).await?;
+        Ok(response.into_inner())
+    }
+
+    /// Start execution of an uploaded script (Phase 6: bd-uu9t)
+    pub async fn start_script(
+        &mut self,
+        script_id: &str,
+        parameters: std::collections::HashMap<String, String>,
+    ) -> Result<ScriptStartResponse> {
+        let response = self.control.start_script(ScriptStartRequest {
+            script_id: script_id.to_string(),
+            parameters,
+        }).await?;
+        Ok(response.into_inner())
+    }
+
+    /// Stop a running script execution (Phase 6: bd-uu9t)
+    pub async fn stop_script(
+        &mut self,
+        execution_id: &str,
+        force: bool,
+    ) -> Result<ScriptStopResponse> {
+        let response = self.control.stop_script(ScriptStopRequest {
+            execution_id: execution_id.to_string(),
+            force,
+        }).await?;
+        Ok(response.into_inner())
     }
 
     // =========================================================================
@@ -314,6 +361,23 @@ impl DaqClient {
         Ok(response.into_inner())
     }
 
+    /// Stream frames from a camera device
+    ///
+    /// Returns a gRPC stream of FrameData. The max_fps parameter limits the
+    /// frame rate to prevent overwhelming the GUI (0 = no limit).
+    pub async fn stream_frames(
+        &mut self,
+        device_id: &str,
+        max_fps: u32,
+    ) -> Result<impl futures::Stream<Item = Result<FrameData, tonic::Status>>> {
+        let request = StreamFramesRequest {
+            device_id: device_id.to_string(),
+            max_fps,
+        };
+        let response = self.hardware.stream_frames(request).await?;
+        Ok(response.into_inner())
+    }
+
     // =========================================================================
     // Parameter Service (bd-cdh5.1)
     // =========================================================================
@@ -357,6 +421,35 @@ impl DaqClient {
             command: command.to_string(),
             args: args.to_string(),
         }).await?;
+        Ok(response.into_inner())
+    }
+
+    // =========================================================================
+    // Observable Streaming (bd-qqjq stub for bd-r5vb)
+    // =========================================================================
+
+    /// Stream observable values from devices
+    ///
+    /// Returns a stream of ObservableValue messages from the specified devices
+    /// and observables. The server may downsample to the requested rate.
+    ///
+    /// # Arguments
+    ///
+    /// * `device_ids` - Device IDs to stream from
+    /// * `observable_names` - Observable names to stream (e.g., "power_mw")
+    /// * `sample_rate_hz` - Desired sample rate (server may downsample)
+    pub async fn stream_observables(
+        &mut self,
+        device_ids: Vec<String>,
+        observable_names: Vec<String>,
+        sample_rate_hz: u32,
+    ) -> Result<impl futures::Stream<Item = Result<ObservableValue, tonic::Status>>> {
+        let request = StreamObservablesRequest {
+            device_ids,
+            observable_names,
+            sample_rate_hz,
+        };
+        let response = self.hardware.stream_observables(request).await?;
         Ok(response.into_inner())
     }
 

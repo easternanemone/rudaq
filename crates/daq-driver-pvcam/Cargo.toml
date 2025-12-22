@@ -10,9 +10,7 @@ pvcam-sys = { path = "pvcam-sys", optional = true }
 async-trait = "0.1"
 tokio = { version = "1", features = ["sync", "time"] }
 anyhow = "1.0"
-thiserror = "1.0"
 tracing = "0.1"
-futures = "0.3" 
 serde_json = "1.0"
 arrow = { version = "56", optional = true }
 

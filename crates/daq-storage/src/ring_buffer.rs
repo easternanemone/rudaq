@@ -228,8 +228,14 @@ impl RingBuffer {
     /// let rb = RingBuffer::create(Path::new("/tmp/my_ring_buffer"), 100).unwrap();
     /// ```
     pub fn create(path: &Path, capacity_mb: usize) -> Result<Self> {
-        let capacity_bytes = capacity_mb * 1024 * 1024;
-        let total_size = HEADER_SIZE + capacity_bytes;
+        let capacity_bytes = capacity_mb
+            .checked_mul(1024)
+            .and_then(|v| v.checked_mul(1024))
+            .ok_or_else(|| anyhow!("Capacity calculation overflowed (capacity_mb too large)"))?;
+            
+        let total_size = capacity_bytes
+            .checked_add(HEADER_SIZE)
+            .ok_or_else(|| anyhow!("Total size calculation overflowed"))?;
 
         // Create or open the backing file
         let mut opts = OpenOptions::new();

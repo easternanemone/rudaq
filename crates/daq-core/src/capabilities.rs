@@ -85,6 +85,72 @@ use async_trait::async_trait;
 
 pub use crate::data::Frame;
 
+// =============================================================================
+// Device Category
+// =============================================================================
+
+/// Device category for classification and UI grouping
+///
+/// Used by the hardware registry and UI panels to categorize devices.
+/// Drivers should explicitly set their category; the gRPC layer falls back
+/// to string-based inference only if category is not set.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let metadata = DeviceMetadata {
+///     category: Some(DeviceCategory::Camera),
+///     frame_width: Some(2048),
+///     ..Default::default()
+/// };
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum DeviceCategory {
+    /// Cameras and imaging devices (FrameProducer)
+    Camera,
+    /// Motion stages and actuators (Movable)
+    Stage,
+    /// Detectors and sensors (Readable)
+    Detector,
+    /// Lasers and light sources
+    Laser,
+    /// Power meters and energy sensors
+    PowerMeter,
+    /// Devices that don't fit other categories
+    #[default]
+    Other,
+}
+
+impl DeviceCategory {
+    /// Human-readable label
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Camera => "Cameras",
+            Self::Stage => "Stages",
+            Self::Detector => "Detectors",
+            Self::Laser => "Lasers",
+            Self::PowerMeter => "Power Meters",
+            Self::Other => "Other",
+        }
+    }
+
+    /// Icon for UI display
+    pub fn icon(&self) -> &'static str {
+        match self {
+            Self::Camera => "📷",
+            Self::Stage => "🔄",
+            Self::Detector => "📊",
+            Self::Laser => "💡",
+            Self::PowerMeter => "⚡",
+            Self::Other => "🔧",
+        }
+    }
+}
+
+// =============================================================================
+// Capability Traits
+// =============================================================================
+
 /// Capability: Motion Control
 ///
 /// Devices that can move to positions (stages, actuators, goniometers).

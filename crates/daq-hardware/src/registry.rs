@@ -461,6 +461,11 @@ pub struct DeviceInfo {
 /// Capability-specific metadata for a device
 #[derive(Debug, Clone, Default)]
 pub struct DeviceMetadata {
+    /// Device category for UI grouping (bd-le6k: moved from gRPC inference layer)
+    ///
+    /// Drivers should set this explicitly. The gRPC layer will fall back to
+    /// string-based driver name inference only if this is None.
+    pub category: Option<daq_core::capabilities::DeviceCategory>,
     /// For Movable devices: position units (e.g., "mm", "degrees")
     pub position_units: Option<String>,
     /// For Movable devices: min position

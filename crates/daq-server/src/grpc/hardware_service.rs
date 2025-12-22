@@ -15,6 +15,7 @@ use crate::grpc::proto::{
     DeviceStateResponse,
     DeviceStateSubscribeRequest,
     DeviceStateUpdate,
+    FrameData,
     GetEmissionRequest,
     GetEmissionResponse,
     GetExposureRequest,
@@ -30,6 +31,7 @@ use crate::grpc::proto::{
     ListParametersResponse,
     MoveRequest,
     MoveResponse,
+    ObservableValue,
     ParameterChange,
     ParameterDescriptor,
     ParameterValue,
@@ -55,6 +57,8 @@ use crate::grpc::proto::{
     StopMotionResponse,
     StopStreamRequest,
     StopStreamResponse,
+    StreamFramesRequest,
+    StreamObservablesRequest,
     StreamParameterChangesRequest,
     StreamPositionRequest,
     StreamValuesRequest,
@@ -139,34 +143,31 @@ impl HardwareServiceImpl {
                         let dev_id = device_id.clone();
                         let p_name = param_name.to_string();
 
-                        // Prefer Parameter<T> to preserve hardware callbacks; fallback to Observable<T>
+                        // Monitor Parameter<T> types only for StreamParameterChanges
+                        // (configuration/settings that change infrequently)
+                        //
+                        // Observable<T> types are NOT monitored here - they are high-frequency
+                        // sensor readings that should use StreamObservables instead to avoid:
+                        // 1. Double traffic (StreamParameterChanges + StreamObservables)
+                        // 2. Inefficient string serialization for numeric data
+                        //
+                        // See bd-ijre for architectural rationale.
 
-                        // f64
+                        // f64 parameters (NOT observables)
                         if let Some(p) = param_set.get_typed::<Parameter<f64>>(param_name) {
                             monitor_parameter(p.subscribe(), tx, dev_id, p_name);
-                        } else if let Some(p) = param_set.get_typed::<Observable<f64>>(param_name) {
-                            monitor_parameter(p.subscribe(), tx, dev_id, p_name);
                         }
-                        // bool
+                        // bool parameters
                         else if let Some(p) = param_set.get_typed::<Parameter<bool>>(param_name) {
                             monitor_parameter(p.subscribe(), tx, dev_id, p_name);
-                        } else if let Some(p) = param_set.get_typed::<Observable<bool>>(param_name)
-                        {
-                            monitor_parameter(p.subscribe(), tx, dev_id, p_name);
                         }
-                        // String
+                        // String parameters
                         else if let Some(p) = param_set.get_typed::<Parameter<String>>(param_name)
                         {
                             monitor_parameter(p.subscribe(), tx, dev_id, p_name);
-                        } else if let Some(p) =
-                            param_set.get_typed::<Observable<String>>(param_name)
-                        {
-                            monitor_parameter(p.subscribe(), tx, dev_id, p_name);
                         }
-                        // i64
+                        // i64 parameters
                         else if let Some(p) = param_set.get_typed::<Parameter<i64>>(param_name) {
-                            monitor_parameter(p.subscribe(), tx, dev_id, p_name);
-                        } else if let Some(p) = param_set.get_typed::<Observable<i64>>(param_name) {
                             monitor_parameter(p.subscribe(), tx, dev_id, p_name);
                         }
                     }
@@ -1298,6 +1299,111 @@ impl HardwareService for HardwareServiceImpl {
         }
     }
 
+    type StreamFramesStream = ReceiverStream<Result<FrameData, Status>>;
+
+    /// Stream frames from a FrameProducer device to GUI clients
+    ///
+    /// Subscribes to the device's frame broadcast channel and forwards frames
+    /// over gRPC. Supports optional rate limiting via max_fps.
+    async fn stream_frames(
+        &self,
+        request: Request<StreamFramesRequest>,
+    ) -> Result<Response<Self::StreamFramesStream>, Status> {
+        let req = request.into_inner();
+        let device_id = req.device_id.clone();
+        let max_fps = req.max_fps;
+
+        // Get frame producer and subscribe to frame broadcast
+        let frame_producer = {
+            let registry = self.registry.read().await;
+            registry.get_frame_producer(&device_id)
+        };
+
+        let frame_producer = frame_producer.ok_or_else(|| {
+            Status::not_found(format!(
+                "Device '{}' not found or not a frame producer",
+                device_id
+            ))
+        })?;
+
+        // Subscribe to frame broadcast channel
+        let mut frame_rx = frame_producer.subscribe_frames().await.ok_or_else(|| {
+            Status::unavailable(format!(
+                "Device '{}' does not support frame streaming",
+                device_id
+            ))
+        })?;
+
+        // Calculate minimum interval between frames for rate limiting
+        let min_interval = if max_fps > 0 {
+            Some(Duration::from_secs_f64(1.0 / max_fps as f64))
+        } else {
+            None
+        };
+
+        // Create output channel for gRPC stream
+        let (tx, rx) = tokio::sync::mpsc::channel(16);
+
+        // Spawn task to forward frames from broadcast to gRPC stream
+        let device_id_clone = device_id.clone();
+        tokio::spawn(async move {
+            let mut last_frame_time = std::time::Instant::now();
+            let mut frame_number: u64 = 0;
+
+            loop {
+                match frame_rx.recv().await {
+                    Ok(frame) => {
+                        // Rate limiting: skip frame if too soon
+                        if let Some(interval) = min_interval {
+                            let elapsed = last_frame_time.elapsed();
+                            if elapsed < interval {
+                                continue; // Skip this frame
+                            }
+                        }
+                        last_frame_time = std::time::Instant::now();
+                        frame_number += 1;
+
+                        // Convert Arc<Frame> to FrameData proto
+                        let timestamp_ns = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .map(|d| d.as_nanos() as u64)
+                            .unwrap_or(0);
+
+                        let frame_data = FrameData {
+                            device_id: device_id_clone.clone(),
+                            width: frame.width,
+                            height: frame.height,
+                            bit_depth: frame.bit_depth,
+                            data: frame.data.clone(),
+                            frame_number,
+                            timestamp_ns,
+                            exposure_ms: None, // TODO: get from device state
+                        };
+
+                        if tx.send(Ok(frame_data)).await.is_err() {
+                            // Client disconnected
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        // Frames were dropped due to slow consumer
+                        tracing::warn!(
+                            device_id = %device_id_clone,
+                            frames_dropped = n,
+                            "Frame stream lagged, dropped frames"
+                        );
+                        // Continue receiving
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        // Producer stopped streaming
+                        break;
+                    }
+                }
+            }
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
+    }
 
     // =========================================================================
     // Device Lifecycle (Stage/Unstage - Bluesky pattern)
@@ -1315,10 +1421,16 @@ impl HardwareService for HardwareServiceImpl {
         request: Request<StageDeviceRequest>,
     ) -> Result<Response<StageDeviceResponse>, Status> {
         let req = request.into_inner();
-        let registry = self.registry.read().await;
+        let (stageable, exists) = {
+            let registry = self.registry.read().await;
+            (
+                registry.get_stageable(&req.device_id),
+                registry.contains(&req.device_id),
+            )
+        };
 
         // Verify device exists
-        if !registry.contains(&req.device_id) {
+        if !exists {
             return Err(Status::not_found(format!(
                 "Device '{}' not found",
                 req.device_id
@@ -1326,7 +1438,7 @@ impl HardwareService for HardwareServiceImpl {
         }
 
         // If device implements Stageable, call stage()
-        if let Some(stageable) = registry.get_stageable(&req.device_id) {
+        if let Some(stageable) = stageable {
             stageable.stage().await.map_err(|e| {
                 Status::internal(format!("Failed to stage device '{}': {}", req.device_id, e))
             })?;
@@ -1358,10 +1470,16 @@ impl HardwareService for HardwareServiceImpl {
         request: Request<UnstageDeviceRequest>,
     ) -> Result<Response<UnstageDeviceResponse>, Status> {
         let req = request.into_inner();
-        let registry = self.registry.read().await;
+        let (stageable, exists) = {
+            let registry = self.registry.read().await;
+            (
+                registry.get_stageable(&req.device_id),
+                registry.contains(&req.device_id),
+            )
+        };
 
         // Verify device exists
-        if !registry.contains(&req.device_id) {
+        if !exists {
             return Err(Status::not_found(format!(
                 "Device '{}' not found",
                 req.device_id
@@ -1369,7 +1487,7 @@ impl HardwareService for HardwareServiceImpl {
         }
 
         // If device implements Stageable, call unstage()
-        if let Some(stageable) = registry.get_stageable(&req.device_id) {
+        if let Some(stageable) = stageable {
             stageable.unstage().await.map_err(|e| {
                 Status::internal(format!(
                     "Failed to unstage device '{}': {}",
@@ -1405,6 +1523,15 @@ impl HardwareService for HardwareServiceImpl {
         // Try the new generic Commandable interface first
         if let Some(device) = registry.get_commandable(&req.device_id) {
             // Parse arguments as JSON
+            const MAX_ARGS_LEN: usize = 64 * 1024; // 64KB
+            if req.args.len() > MAX_ARGS_LEN {
+                return Err(Status::invalid_argument(format!(
+                    "Arguments too large: {} bytes (max {})",
+                    req.args.len(),
+                    MAX_ARGS_LEN
+                )));
+            }
+
             let args = if req.args.is_empty() {
                 serde_json::json!({})
             } else {
@@ -1436,7 +1563,11 @@ impl HardwareService for HardwareServiceImpl {
             #[cfg(feature = "instrument_spectra_physics")]
             "enable_emission" => {
                 // Imports removed
-                if let Some(device) = registry.get_emission_control(&req.device_id) {
+                let device = {
+                    let registry = self.registry.read().await;
+                    registry.get_emission_control(&req.device_id)
+                };
+                if let Some(device) = device {
                     device.enable_emission().await.map_err(|e| {
                         Status::internal(format!("Failed to enable emission: {}", e))
                     })?;
@@ -1455,7 +1586,11 @@ impl HardwareService for HardwareServiceImpl {
             #[cfg(feature = "instrument_spectra_physics")]
             "disable_emission" => {
                 // Imports removed
-                if let Some(device) = registry.get_emission_control(&req.device_id) {
+                let device = {
+                    let registry = self.registry.read().await;
+                    registry.get_emission_control(&req.device_id)
+                };
+                if let Some(device) = device {
                     device.disable_emission().await.map_err(|e| {
                         Status::internal(format!("Failed to disable emission: {}", e))
                     })?;
@@ -1778,6 +1913,130 @@ impl HardwareService for HardwareServiceImpl {
 
         Ok(Response::new(ReceiverStream::new(stream_rx)))
     }
+
+    // =========================================================================
+    // Observable Streaming (bd-qqjq, bd-ijre)
+    //
+    // Dedicated high-throughput stream for numeric observables (sensor readings).
+    // Separated from StreamParameterChanges to avoid:
+    // 1. Double traffic for rapidly changing values
+    // 2. Inefficient string serialization
+    // =========================================================================
+
+    type StreamObservablesStream =
+        tokio_stream::wrappers::ReceiverStream<Result<ObservableValue, Status>>;
+
+    async fn stream_observables(
+        &self,
+        request: Request<StreamObservablesRequest>,
+    ) -> Result<Response<Self::StreamObservablesStream>, Status> {
+        let req = request.into_inner();
+        let device_ids = req.device_ids;
+        let observable_names = req.observable_names;
+        let sample_rate_hz = req.sample_rate_hz.max(1); // Minimum 1 Hz
+
+        // Calculate sample interval
+        let sample_interval = std::time::Duration::from_secs_f64(1.0 / sample_rate_hz as f64);
+
+        // Create output channel
+        let (tx, rx) = tokio::sync::mpsc::channel::<Result<ObservableValue, Status>>(128);
+
+        // Get registry reference
+        let registry = self.registry.clone();
+
+        // Spawn streaming task
+        tokio::spawn(async move {
+            // Collect observables to monitor
+            // Observable uses watch channel (single producer, multiple consumers with latest value)
+            let mut subscriptions: Vec<(
+                String,                                           // device_id
+                String,                                           // observable_name
+                tokio::sync::watch::Receiver<f64>,                // subscription
+                std::time::Instant,                               // last_sent
+                f64,                                              // last_value (for change detection)
+            )> = Vec::new();
+
+            {
+                let registry = registry.read().await;
+                for device_id in &device_ids {
+                    if let Some(param_set) = registry.get_parameters(device_id) {
+                        for obs_name in &observable_names {
+                            // Try to get Observable<f64> for this name
+                            if let Some(observable) = param_set.get_typed::<Observable<f64>>(obs_name) {
+                                let rx = observable.subscribe();
+                                let initial_value = *rx.borrow();
+                                subscriptions.push((
+                                    device_id.clone(),
+                                    obs_name.clone(),
+                                    rx,
+                                    std::time::Instant::now(),
+                                    initial_value,
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+
+            if subscriptions.is_empty() {
+                tracing::debug!(
+                    "StreamObservables: No matching observables found for {:?}/{:?}",
+                    device_ids, observable_names
+                );
+                return;
+            }
+
+            tracing::debug!(
+                "StreamObservables: Monitoring {} observables at {} Hz",
+                subscriptions.len(), sample_rate_hz
+            );
+
+            // Stream loop - check each subscription for updates
+            let mut interval = tokio::time::interval(sample_interval / 2); // Check at 2x rate
+
+            loop {
+                interval.tick().await;
+
+                // Check if client disconnected
+                if tx.is_closed() {
+                    tracing::debug!("StreamObservables: Client disconnected");
+                    break;
+                }
+
+                // Check each subscription for new values
+                for (device_id, obs_name, rx, last_sent, last_value) in &mut subscriptions {
+                    // Get current value from watch receiver
+                    let current_value = *rx.borrow();
+
+                    // Only send if value changed and rate limit elapsed
+                    if (current_value - *last_value).abs() > f64::EPSILON
+                        && last_sent.elapsed() >= sample_interval
+                    {
+                        let msg = ObservableValue {
+                            device_id: device_id.clone(),
+                            observable_name: obs_name.clone(),
+                            value: current_value,
+                            units: String::new(), // TODO: Get units from observable metadata
+                            timestamp_ns: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_nanos() as u64)
+                                .unwrap_or(0),
+                        };
+
+                        if tx.send(Ok(msg)).await.is_err() {
+                            tracing::debug!("StreamObservables: Failed to send, client gone");
+                            return;
+                        }
+
+                        *last_sent = std::time::Instant::now();
+                        *last_value = current_value;
+                    }
+                }
+            }
+        });
+
+        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(rx)))
+    }
 }
 
 // Helper: fetch current device state (shared by SubscribeDeviceState)
@@ -1936,10 +2195,18 @@ fn map_hardware_error_to_status(error_msg: &str) -> Status {
 
 /// Convert internal DeviceInfo to proto DeviceInfo
 fn device_info_to_proto(info: &daq_hardware::registry::DeviceInfo) -> DeviceInfo {
+    // Use explicit category from metadata if set, otherwise infer from driver/capabilities
+    let category = get_device_category(
+        info.metadata.category,
+        &info.driver_type,
+        &info.capabilities,
+    );
+
     DeviceInfo {
         id: info.id.clone(),
         name: info.name.clone(),
         driver_type: info.driver_type.clone(),
+        category: category as i32,
         is_movable: info.capabilities.contains(&Capability::Movable),
         is_readable: info.capabilities.contains(&Capability::Readable),
         is_triggerable: info.capabilities.contains(&Capability::Triggerable),
@@ -1964,6 +2231,72 @@ fn device_info_to_proto(info: &daq_hardware::registry::DeviceInfo) -> DeviceInfo
             max_wavelength_nm: info.metadata.max_wavelength_nm,
         }),
     }
+}
+
+/// Get device category, preferring explicit metadata over inference (bd-le6k)
+///
+/// Priority:
+/// 1. Explicit category from DeviceMetadata (set by driver)
+/// 2. String-based inference from driver_type (fallback)
+/// 3. Capability-based inference (last resort)
+fn get_device_category(
+    explicit_category: Option<daq_core::capabilities::DeviceCategory>,
+    driver_type: &str,
+    capabilities: &[Capability],
+) -> daq_proto::DeviceCategory {
+    use daq_proto::DeviceCategory as ProtoCategory;
+    use daq_core::capabilities::DeviceCategory as CoreCategory;
+
+    // 1. Use explicit category from metadata if set by driver
+    if let Some(category) = explicit_category {
+        return match category {
+            CoreCategory::Camera => ProtoCategory::Camera,
+            CoreCategory::Stage => ProtoCategory::Stage,
+            CoreCategory::Detector => ProtoCategory::Detector,
+            CoreCategory::Laser => ProtoCategory::Laser,
+            CoreCategory::PowerMeter => ProtoCategory::PowerMeter,
+            CoreCategory::Other => ProtoCategory::Other,
+        };
+    }
+
+    // 2. Fall back to string-based inference from driver type
+    let driver_lower = driver_type.to_lowercase();
+
+    if driver_lower.contains("pvcam") || driver_lower.contains("camera") {
+        return ProtoCategory::Camera;
+    }
+
+    if driver_lower.contains("maitai") || driver_lower.contains("laser") {
+        return ProtoCategory::Laser;
+    }
+
+    if driver_lower.contains("1830") || driver_lower.contains("power_meter") || driver_lower.contains("powermeter") {
+        return ProtoCategory::PowerMeter;
+    }
+
+    if driver_lower.contains("esp300") || driver_lower.contains("ell14") || driver_lower.contains("stage") {
+        return ProtoCategory::Stage;
+    }
+
+    // 3. Fall back to capability-based inference
+    if capabilities.contains(&Capability::FrameProducer) {
+        return ProtoCategory::Camera;
+    }
+
+    if capabilities.contains(&Capability::WavelengthTunable) || capabilities.contains(&Capability::EmissionControl) {
+        return ProtoCategory::Laser;
+    }
+
+    if capabilities.contains(&Capability::Movable) {
+        return ProtoCategory::Stage;
+    }
+
+    if capabilities.contains(&Capability::Readable) && !capabilities.contains(&Capability::Movable) {
+        return ProtoCategory::Detector;
+    }
+
+    // Default to Other for unknown devices
+    ProtoCategory::Other
 }
 
 #[cfg(test)]

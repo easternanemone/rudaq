@@ -19,11 +19,8 @@ memmap2 = "0.9"
 
 # Async & Logging
 tokio = { version = "1.36", features = ["sync", "fs"] }
-log = "0.4"
 tracing = "0.1"
 anyhow = "1.0"
-thiserror = "1.0"
-async-trait = "0.1.89"
 
 [dev-dependencies]
 tempfile = "3.10"

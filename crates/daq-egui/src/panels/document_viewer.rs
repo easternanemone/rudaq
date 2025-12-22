@@ -25,6 +25,7 @@ pub struct DocumentViewerPanel {
 }
 
 impl DocumentViewerPanel {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             document_log: Vec::new(),

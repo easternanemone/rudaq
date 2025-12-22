@@ -12,12 +12,16 @@ use crate::grpc::proto::{
 use crate::grpc::run_engine_service::RunEngineServiceImpl;
 use daq_core::core::Measurement;
 #[cfg(feature = "scripting")]
+use daq_core::limits;
+#[cfg(feature = "scripting")]
 use daq_scripting::ScriptEngine; // Trait import
 // use daq_core::error::DaqError; // Unused
 use daq_proto::daq::{UploadRequest, UploadResponse};
 #[cfg(feature = "scripting")]
 use daq_scripting::RhaiEngine;
 use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::Arc;
 #[cfg(feature = "storage_hdf5")]
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -26,10 +30,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio::sync::{RwLock, broadcast};
 use tokio::task::JoinHandle;
-use tonic::transport::Server;
+use tonic::service::interceptor::interceptor;
+use tonic::transport::{Identity, Server, ServerTlsConfig};
 use tonic::{Request, Response, Status};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use uuid::Uuid;
+
+use figment::{Figment, providers::{Env, Format, Serialized, Toml}};
+use http::HeaderValue;
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
+use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "storage_hdf5")]
 use daq_storage::hdf5_writer::HDF5Writer;
@@ -54,6 +64,169 @@ struct ExecutionState {
     error: Option<String>,
     progress_percent: u32,
     current_line: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
+struct GrpcConfigFile {
+    grpc: GrpcSettings,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+struct GrpcSettings {
+    tls_cert_path: Option<PathBuf>,
+    tls_key_path: Option<PathBuf>,
+    auth_enabled: bool,
+    auth_token: Option<String>,
+    allowed_origins: Vec<String>,
+    bind_address: Option<IpAddr>,
+}
+
+impl Default for GrpcSettings {
+    fn default() -> Self {
+        Self {
+            tls_cert_path: None,
+            tls_key_path: None,
+            auth_enabled: false,
+            auth_token: None,
+            allowed_origins: Vec::new(),
+            bind_address: Some(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct JwtClaims {
+    exp: Option<usize>,
+    iss: Option<String>,
+    aud: Option<String>,
+    sub: Option<String>,
+}
+
+impl GrpcSettings {
+    fn load() -> Result<Self, Box<dyn std::error::Error>> {
+        let config_path = PathBuf::from("config/config.v4.toml");
+        let mut figment = Figment::from(Serialized::defaults(GrpcConfigFile::default()))
+            .merge(Env::prefixed("RUSTDAQ_").split("__"));
+
+        if config_path.exists() {
+            figment = figment.merge(Toml::file(&config_path));
+        } else {
+            eprintln!(
+                "⚠️  gRPC config file not found at {} (using defaults/env overrides)",
+                config_path.display()
+            );
+        }
+
+        let settings: GrpcConfigFile = figment.extract()?;
+        Ok(settings.grpc)
+    }
+
+    fn auth_token(&self) -> Option<&str> {
+        self.auth_token
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+    }
+
+    fn bind_socket(&self, default_port: u16) -> SocketAddr {
+        let bind_ip = self
+            .bind_address
+            .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
+        SocketAddr::new(bind_ip, default_port)
+    }
+}
+
+fn build_tls_config(settings: &GrpcSettings) -> Result<Option<ServerTlsConfig>, Box<dyn std::error::Error>> {
+    let (cert_path, key_path) = match (&settings.tls_cert_path, &settings.tls_key_path) {
+        (Some(cert), Some(key)) => (cert, key),
+        (None, None) => return Ok(None),
+        _ => {
+            return Err("gRPC TLS requires both grpc.tls_cert_path and grpc.tls_key_path".into());
+        }
+    };
+
+    let cert = std::fs::read(cert_path)
+        .map_err(|e| format!("Failed to read TLS cert {}: {}", cert_path.display(), e))?;
+    let key = std::fs::read(key_path)
+        .map_err(|e| format!("Failed to read TLS key {}: {}", key_path.display(), e))?;
+    let identity = Identity::from_pem(cert, key);
+    Ok(Some(ServerTlsConfig::new().identity(identity)))
+}
+
+fn build_cors_layer(settings: &GrpcSettings) -> Result<CorsLayer, Box<dyn std::error::Error>> {
+    let mut cors = CorsLayer::new()
+        .allow_headers(Any)
+        .allow_methods(Any);
+
+    if settings.allowed_origins.is_empty() {
+        eprintln!(
+            "⚠️  grpc.allowed_origins is empty; gRPC-web requests will be blocked by CORS"
+        );
+        cors = cors.allow_origin(AllowOrigin::list(Vec::<HeaderValue>::new()));
+    } else {
+        let origins = settings
+            .allowed_origins
+            .iter()
+            .map(|origin| HeaderValue::from_str(origin))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Invalid origin in grpc.allowed_origins: {}", e))?;
+        cors = cors.allow_origin(AllowOrigin::list(origins));
+    }
+
+    Ok(cors)
+}
+
+fn validate_auth(settings: &GrpcSettings, request: &Request<()>) -> Result<(), Status> {
+    if !settings.auth_enabled {
+        return Ok(());
+    }
+
+    let expected = settings.auth_token().ok_or_else(|| {
+        Status::unauthenticated("auth enabled but grpc.auth_token is not configured")
+    })?;
+
+    let metadata = request.metadata();
+    let header_token = metadata
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(extract_bearer_token);
+
+    let api_key_header = metadata
+        .get("x-api-key")
+        .and_then(|value| value.to_str().ok());
+
+    let candidate = header_token.or(api_key_header);
+    let token = match candidate {
+        Some(token) => token,
+        None => return Err(Status::unauthenticated("missing authorization token")),
+    };
+
+    if token == expected {
+        return Ok(());
+    }
+
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.validate_exp = true;
+    let decoding_key = DecodingKey::from_secret(expected.as_bytes());
+    decode::<JwtClaims>(token, &decoding_key, &validation)
+        .map(|_| ())
+        .map_err(|_| Status::unauthenticated("invalid authentication token"))
+}
+
+fn extract_bearer_token(header_value: &str) -> Option<&str> {
+    let trimmed = header_value.trim();
+    let mut parts = trimmed.splitn(2, ' ');
+    let scheme = parts.next()?;
+    let token = parts.next();
+    if token.is_none() {
+        return Some(trimmed);
+    }
+    if scheme.eq_ignore_ascii_case("bearer") || scheme.eq_ignore_ascii_case("apikey") {
+        return token.map(str::trim);
+    }
+    Some(trimmed)
 }
 
 // DataPoint is imported from crate::measurement_types (see above)
@@ -101,8 +274,14 @@ impl DaqServer {
     /// let ring_buffer = Arc::new(RingBuffer::create(Path::new("/tmp/daq_ring"), 100)?);
     /// let server = DaqServer::new(Some(ring_buffer));
     /// ```
+    /// Create a new DAQ server instance.
+    ///
+    /// # Arguments
+    /// * `ring_buffer` - Optional RingBuffer for persistent data storage (when storage features enabled)
     #[cfg(feature = "storage_hdf5")]
-    pub fn new(ring_buffer: Option<Arc<daq_storage::ring_buffer::RingBuffer>>) -> Self {
+    pub fn new(
+        ring_buffer: Option<Arc<daq_storage::ring_buffer::RingBuffer>>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         // Create broadcast channel for data distribution (capacity 1000 in-flight messages)
         let (data_tx, mut data_rx) = broadcast::channel(1000);
         let data_tx = Arc::new(data_tx);
@@ -174,11 +353,11 @@ impl DaqServer {
             });
         }
 
-        Self {
+        Ok(Self {
             #[cfg(feature = "scripting")]
             script_engine: Arc::new(RwLock::new(
                 RhaiEngine::with_hardware()
-                    .expect("failed to initialize RhaiEngine with hardware bindings"),
+                    .map_err(|e| format!("failed to initialize RhaiEngine with hardware bindings: {}", e))?,
             )),
             #[cfg(feature = "scripting")]
             scripts: Arc::new(RwLock::new(HashMap::new())),
@@ -192,21 +371,21 @@ impl DaqServer {
             data_tx,
             #[cfg(feature = "storage_hdf5")]
             ring_buffer,
-        }
+        })
     }
 
     /// Create a new DAQ server instance without storage features.
     #[cfg(not(feature = "storage_hdf5"))]
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         // Create broadcast channel for data distribution
         let (data_tx, _rx) = broadcast::channel(1000);
         let data_tx = Arc::new(data_tx);
 
-        Self {
+        Ok(Self {
             #[cfg(feature = "scripting")]
             script_engine: Arc::new(RwLock::new(
                 RhaiEngine::with_hardware()
-                    .expect("failed to initialize RhaiEngine with hardware bindings"),
+                    .map_err(|e| format!("failed to initialize RhaiEngine with hardware bindings: {}", e))?,
             )),
             #[cfg(feature = "scripting")]
             scripts: Arc::new(RwLock::new(HashMap::new())),
@@ -218,7 +397,7 @@ impl DaqServer {
             running_tasks: Arc::new(RwLock::new(HashMap::new())),
             start_time: SystemTime::now(),
             data_tx,
-        }
+        })
     }
 
     /// Get a clone of the data broadcast sender for hardware drivers.
@@ -293,12 +472,12 @@ impl std::fmt::Debug for DaqServer {
 impl Default for DaqServer {
     #[cfg(feature = "storage_hdf5")]
     fn default() -> Self {
-        Self::new(None)
+        Self::new(None).expect("failed to create DaqServer")
     }
 
     #[cfg(not(feature = "storage_hdf5"))]
     fn default() -> Self {
-        Self::new()
+        Self::new().expect("failed to create DaqServer")
     }
 }
 
@@ -312,6 +491,19 @@ impl ControlService for DaqServer {
     ) -> Result<Response<UploadResponse>, Status> {
         let req = request.into_inner();
         let script_id = Uuid::new_v4().to_string();
+
+        let script_size = req.script_content.as_bytes().len();
+        if script_size > limits::MAX_SCRIPT_SIZE {
+            return Ok(Response::new(UploadResponse {
+                script_id: String::new(),
+                success: false,
+                error_message: format!(
+                    "Script too large: {} bytes (max {})",
+                    script_size,
+                    limits::MAX_SCRIPT_SIZE
+                ),
+            }));
+        }
 
         // Validate script syntax
         let engine = self.script_engine.read().await;
@@ -336,7 +528,7 @@ impl ControlService for DaqServer {
                 name: req.name,
                 upload_time: SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_nanos() as u64,
                 metadata: req.metadata,
             },
@@ -371,7 +563,7 @@ impl ControlService for DaqServer {
                 state: "RUNNING".to_string(),
                 start_time: SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_nanos() as u64,
                 end_time: None,
                 error: None,
@@ -399,7 +591,7 @@ impl ControlService for DaqServer {
                 exec.end_time = Some(
                     SystemTime::now()
                         .duration_since(UNIX_EPOCH)
-                        .unwrap()
+                        .unwrap_or_default()
                         .as_nanos() as u64,
                 );
                 exec.progress_percent = 100;
@@ -475,7 +667,7 @@ impl ControlService for DaqServer {
             exec.end_time = Some(
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_nanos() as u64,
             );
         }
@@ -532,7 +724,7 @@ impl ControlService for DaqServer {
                     live_values: HashMap::new(),
                     timestamp_ns: std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
+                        .unwrap_or_default()
                         .as_nanos() as u64,
                 };
 
@@ -775,7 +967,21 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
     use crate::grpc::proto::health::health_check_response::ServingStatus;
     use crate::grpc::proto::health::health_server::HealthServer;
 
-    let server = DaqServer::new();
+    let grpc_settings = GrpcSettings::load()?;
+    if grpc_settings.auth_enabled && grpc_settings.auth_token().is_none() {
+        return Err("grpc.auth_enabled is true but grpc.auth_token is not configured".into());
+    }
+
+    let bind_addr = grpc_settings.bind_socket(addr.port());
+    if bind_addr.ip() != addr.ip() {
+        eprintln!(
+            "⚠️  Overriding gRPC bind address {} -> {} (set grpc.bind_address to change)",
+            addr.ip(),
+            bind_addr.ip()
+        );
+    }
+
+    let server = DaqServer::new()?;
 
     // Create RunEngine with empty registry (bd-w14j.2.2)
     let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
@@ -790,16 +996,32 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
     health_service.set_serving_status("daq.ControlService", ServingStatus::Serving);
     health_service.set_serving_status("daq.RunEngineService", ServingStatus::Serving);
 
-    println!("DAQ gRPC server listening on {}", addr);
+    println!("DAQ gRPC server listening on {}", bind_addr);
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_headers(Any)
-        .allow_methods(Any);
+    if !grpc_settings.auth_enabled {
+        eprintln!("⚠️  gRPC auth is disabled (set grpc.auth_enabled=true to require auth)");
+    }
 
+    let cors = build_cors_layer(&grpc_settings)?;
+    let tls_config = build_tls_config(&grpc_settings)?;
+    if tls_config.is_none() {
+        eprintln!(
+            "⚠️  gRPC TLS is disabled (set grpc.tls_cert_path + grpc.tls_key_path to enable)"
+        );
+    }
+
+    let auth_settings = grpc_settings.clone();
     let mut builder = Server::builder()
         .accept_http1(true)
-        .layer(cors);
+        .layer(cors)
+        .layer(interceptor(move |request: Request<()>| {
+            validate_auth(&auth_settings, &request)?;
+            Ok(request)
+        }));
+
+    if let Some(tls_config) = tls_config {
+        builder = builder.tls_config(tls_config)?;
+    }
 
     #[cfg(feature = "scripting")]
     let builder = builder.add_service(tonic_web::enable(ControlServiceServer::new(server)));
@@ -807,7 +1029,7 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
     builder
         .add_service(tonic_web::enable(HealthServer::new(health_service)))
         .add_service(tonic_web::enable(RunEngineServiceServer::new(run_engine)))
-        .serve(addr)
+        .serve(bind_addr)
         .await?;
 
     Ok(())
@@ -859,6 +1081,20 @@ pub async fn start_server_with_hardware(
     use crate::grpc::proto::storage_service_server::StorageServiceServer;
     use crate::grpc::scan_service::ScanServiceImpl;
     use crate::grpc::storage_service::StorageServiceImpl;
+
+    let grpc_settings = GrpcSettings::load()?;
+    if grpc_settings.auth_enabled && grpc_settings.auth_token().is_none() {
+        return Err("grpc.auth_enabled is true but grpc.auth_token is not configured".into());
+    }
+
+    let bind_addr = grpc_settings.bind_socket(addr.port());
+    if bind_addr.ip() != addr.ip() {
+        eprintln!(
+            "⚠️  Overriding gRPC bind address {} -> {} (set grpc.bind_address to change)",
+            addr.ip(),
+            bind_addr.ip()
+        );
+    }
     use std::path::Path;
 
     // Create ring buffer for scan data persistence (The Mullet Strategy)
@@ -915,9 +1151,9 @@ pub async fn start_server_with_hardware(
 
     // Initialize control server WITHOUT internal RingBuffer logic (we wire it manually)
     #[cfg(feature = "storage_hdf5")]
-    let control_server = DaqServer::new(None);
+    let control_server = DaqServer::new(None)?;
     #[cfg(not(feature = "storage_hdf5"))]
-    let control_server = DaqServer::new();
+    let control_server = DaqServer::new()?;
 
     // Setup Reliable Sink (RingBuffer Writer)
     let reliable_sink_tx = if let Some(ref rb) = ring_buffer {
@@ -1121,7 +1357,7 @@ pub async fn start_server_with_hardware(
     #[cfg(feature = "tokio_serial")]
     standard_health_service.set_serving_status("daq.PluginService", ServingStatus::Serving);
 
-    println!("DAQ gRPC server (with hardware) listening on {}", addr);
+    println!("DAQ gRPC server (with hardware) listening on {}", bind_addr);
     println!("  - ControlService: script management");
     println!("  - HardwareService: direct device control");
     println!("  - HealthService: system health monitoring (bd-ergo)");
@@ -1132,15 +1368,34 @@ pub async fn start_server_with_hardware(
     println!("  - PresetService: configuration save/load (bd-akcm)");
     println!("  - StorageService: HDF5 data storage (bd-p6im)");
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_headers(Any)
-        .allow_methods(Any);
+    if !grpc_settings.auth_enabled {
+        eprintln!("⚠️  gRPC auth is disabled (set grpc.auth_enabled=true to require auth)");
+    }
+
+    let cors = build_cors_layer(&grpc_settings)?;
+    let tls_config = build_tls_config(&grpc_settings)?;
+    if tls_config.is_none() {
+        eprintln!(
+            "⚠️  gRPC TLS is disabled (set grpc.tls_cert_path + grpc.tls_key_path to enable)"
+        );
+    }
 
     #[cfg(feature = "tokio_serial")]
-    let mut server_builder = Server::builder()
-        .accept_http1(true)
-        .layer(cors.clone());
+    let mut server_builder = {
+        let auth_settings = grpc_settings.clone();
+        Server::builder()
+            .accept_http1(true)
+            .layer(cors.clone())
+            .layer(interceptor(move |request: Request<()>| {
+                validate_auth(&auth_settings, &request)?;
+                Ok(request)
+            }))
+    };
+
+    #[cfg(feature = "tokio_serial")]
+    if let Some(tls_config) = tls_config {
+        server_builder = server_builder.tls_config(tls_config)?;
+    }
 
     #[cfg(all(feature = "tokio_serial", feature = "scripting"))]
     let server_builder = server_builder.add_service(tonic_web::enable(ControlServiceServer::new(control_server)));
@@ -1168,9 +1423,21 @@ pub async fn start_server_with_hardware(
         .add_service(tonic_web::enable(StorageServiceServer::new(storage_server)));
 
     #[cfg(not(feature = "tokio_serial"))]
-    let mut server_builder = Server::builder()
-        .accept_http1(true)
-        .layer(cors.clone());
+    let mut server_builder = {
+        let auth_settings = grpc_settings.clone();
+        Server::builder()
+            .accept_http1(true)
+            .layer(cors.clone())
+            .layer(interceptor(move |request: Request<()>| {
+                validate_auth(&auth_settings, &request)?;
+                Ok(request)
+            }))
+    };
+
+    #[cfg(not(feature = "tokio_serial"))]
+    if let Some(tls_config) = tls_config {
+        server_builder = server_builder.tls_config(tls_config)?;
+    }
 
     #[cfg(all(not(feature = "tokio_serial"), feature = "scripting"))]
     let server_builder = server_builder.add_service(tonic_web::enable(ControlServiceServer::new(control_server)));
@@ -1196,7 +1463,7 @@ pub async fn start_server_with_hardware(
         .add_service(tonic_web::enable(PresetServiceServer::new(preset_server)))
         .add_service(tonic_web::enable(StorageServiceServer::new(storage_server)));
 
-    server_builder.serve(addr).await?;
+    server_builder.serve(bind_addr).await?;
 
     Ok(())
 }
@@ -1506,5 +1773,57 @@ mod tests {
         assert_eq!(client1_data.len(), 3);
         assert_eq!(client2_data.len(), 3);
         assert_eq!(client1_data, client2_data);
+    }
+
+    #[test]
+    fn test_auth_rejects_missing_token() {
+        let settings = GrpcSettings {
+            auth_enabled: true,
+            auth_token: Some("secret".to_string()),
+            ..Default::default()
+        };
+
+        let request = Request::new(());
+        let result = validate_auth(&settings, &request);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code(), tonic::Code::Unauthenticated);
+    }
+
+    #[test]
+    fn test_auth_rejects_invalid_token() {
+        let settings = GrpcSettings {
+            auth_enabled: true,
+            auth_token: Some("secret".to_string()),
+            ..Default::default()
+        };
+
+        let mut request = Request::new(());
+        request
+            .metadata_mut()
+            .insert("authorization", "Bearer wrong".parse().unwrap());
+
+        let result = validate_auth(&settings, &request);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code(), tonic::Code::Unauthenticated);
+    }
+
+    #[test]
+    fn test_auth_allows_matching_token() {
+        let settings = GrpcSettings {
+            auth_enabled: true,
+            auth_token: Some("secret".to_string()),
+            ..Default::default()
+        };
+
+        let mut request = Request::new(());
+        request
+            .metadata_mut()
+            .insert("x-api-key", "secret".parse().unwrap());
+
+        let result = validate_auth(&settings, &request);
+
+        assert!(result.is_ok());
     }
 }

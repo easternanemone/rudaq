@@ -156,10 +156,14 @@ pub struct RunStartDoc {
 
 impl RunStartDoc {
     /// Add metadata to this run start.
-    pub fn with_metadata(mut self, key: impl Into<String>, value: impl Serialize) -> Self {
+    pub fn with_metadata(
+        mut self,
+        key: impl Into<String>,
+        value: impl Serialize,
+    ) -> Result<Self, serde_json::Error> {
         self.metadata
-            .insert(key.into(), serde_json::to_value(value).unwrap());
-        self
+            .insert(key.into(), serde_json::to_value(value)?);
+        Ok(self)
     }
 }
 

@@ -26,6 +26,9 @@ eframe = { version = "0.31", default-features = false, features = [
 ], optional = true }
 egui = "0.31"
 egui_extras = { version = "0.31", features = ["all_loaders"], optional = true }
+egui_dock = { version = "0.18", optional = true, features = ["serde"] }
+egui_plot = { version = "0.31", optional = true }
+serde = { version = "1.0", features = ["derive"] }
 
 # Rerun for embedded viewer
 rerun = { version = "0.27.3", default-features = false, features = [
@@ -60,12 +63,15 @@ daq-driver-pvcam = { path = "../daq-driver-pvcam", optional = true }
 
 [features]
 default = ["standalone"]
-standalone = ["dep:eframe", "dep:egui_extras"]
+standalone = ["dep:eframe", "dep:egui_extras", "dep:egui_dock", "dep:egui_plot"]
 # Embedded Rerun viewer with gRPC camera streaming support
-rerun_viewer = ["dep:rerun", "dep:mimalloc", "dep:bytemuck"]
+rerun_viewer = ["dep:rerun", "dep:mimalloc", "dep:bytemuck", "dep:egui_dock", "dep:egui_plot"]
 
 # Local PVCAM driver support (for running daemon locally)
 # - instrument_photometrics: enables mock mode (no SDK required)
 # - pvcam_hardware: enables real hardware mode (requires PVCAM SDK)
 instrument_photometrics = ["dep:daq-core", "dep:daq-driver-pvcam"]
 pvcam_hardware = ["instrument_photometrics", "daq-driver-pvcam/pvcam_hardware"]
+
+[package.metadata.cargo-machete]
+ignored = ["egui_extras", "prost"]  # egui_extras: feature-gated; prost: used by tonic codegen

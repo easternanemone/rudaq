@@ -11,7 +11,7 @@ use tonic::Request;
 
 #[tokio::test]
 async fn test_grpc_upload_valid_script() {
-    let server = DaqServer::new();
+    let server = DaqServer::new().unwrap();
     let request = Request::new(UploadRequest {
         script_content: "let x = 42; x + 1".to_string(),
         name: "test_script".to_string(),
@@ -28,7 +28,7 @@ async fn test_grpc_upload_valid_script() {
 
 #[tokio::test]
 async fn test_grpc_upload_invalid_script() {
-    let server = DaqServer::new();
+    let server = DaqServer::new().unwrap();
     let request = Request::new(UploadRequest {
         script_content: "this is not valid rhai {{{".to_string(),
         name: "bad_script".to_string(),
@@ -44,7 +44,7 @@ async fn test_grpc_upload_invalid_script() {
 
 #[tokio::test]
 async fn test_grpc_start_script_not_found() {
-    let server = DaqServer::new();
+    let server = DaqServer::new().unwrap();
     let request = Request::new(StartRequest {
         script_id: "nonexistent_id".to_string(),
         parameters: HashMap::new(),
@@ -65,7 +65,7 @@ async fn test_grpc_start_script_not_found() {
 
 #[tokio::test]
 async fn test_grpc_status_no_execution() {
-    let server = DaqServer::new();
+    let server = DaqServer::new().unwrap();
     let request = Request::new(StatusRequest {
         execution_id: "nonexistent_execution".to_string(),
     });
@@ -83,7 +83,7 @@ async fn test_grpc_status_no_execution() {
 
 #[tokio::test]
 async fn test_grpc_full_workflow() {
-    let server = DaqServer::new();
+    let server = DaqServer::new().unwrap();
 
     // Upload script
     let upload_request = Request::new(UploadRequest {

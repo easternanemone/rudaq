@@ -10,6 +10,55 @@ mod rerun_app {
     use rerun::external::re_uri::ProxyUri;
     use daq_egui::client::DaqClient;
     use tokio::sync::mpsc;
+    use egui_dock::{DockArea, DockState, Style, TabViewer};
+
+    /// Simplified Instrument Manager Panel for Rerun viewer
+    /// (uses Rerun's egui version)
+    #[derive(Default)]
+    struct InstrumentManagerPanel {
+        // Simplified state - just a placeholder for now
+        last_refresh: Option<std::time::Instant>,
+    }
+
+    impl InstrumentManagerPanel {
+        fn ui(&mut self, ui: &mut egui::Ui, _client: Option<&mut DaqClient>, _runtime: &tokio::runtime::Runtime) {
+            ui.heading("Instruments");
+            ui.label("Instrument manager panel");
+            ui.small("(Simplified version for Rerun viewer)");
+
+            if let Some(last) = self.last_refresh {
+                ui.label(format!("Last refresh: {:.1}s ago", last.elapsed().as_secs_f32()));
+            }
+
+            if ui.button("Refresh").clicked() {
+                self.last_refresh = Some(std::time::Instant::now());
+            }
+        }
+    }
+
+    /// Simplified Signal Plotter Panel for Rerun viewer
+    /// (uses Rerun's egui version)
+    #[derive(Default)]
+    struct SignalPlotterPanel {
+        // Simplified state - just a placeholder for now
+        paused: bool,
+    }
+
+    impl SignalPlotterPanel {
+        fn ui(&mut self, ui: &mut egui::Ui) {
+            ui.heading("Signal Scope");
+            ui.label("Signal plotter panel");
+            ui.small("(Simplified version for Rerun viewer)");
+
+            ui.horizontal(|ui| {
+                let label = if self.paused { "▶ Resume" } else { "⏸ Pause" };
+                ui.toggle_value(&mut self.paused, label);
+            });
+
+            ui.separator();
+            ui.label("Use Rerun viewer for primary data visualization");
+        }
+    }
 
     // Use Rerun's memory tracking allocator
     #[global_allocator]
@@ -66,6 +115,11 @@ mod rerun_app {
         action_tx: mpsc::Sender<RerunActionResult>,
         action_rx: mpsc::Receiver<RerunActionResult>,
         action_in_flight: usize,
+
+        // Dockable panel state
+        dock_state: DockState<PanelKind>,
+        instrument_panel: InstrumentManagerPanel,
+        signal_plotter: SignalPlotterPanel,
     }
 
     enum RerunActionResult {
@@ -77,90 +131,206 @@ mod rerun_app {
         StopStream { device_id: String, result: Result<u32, String> },
     }
 
-    impl DaqRerunApp {
-        pub fn new(
-            _cc: &eframe::CreationContext<'_>,
-            rerun_app: re_viewer::App,
-        ) -> Self {
-            let runtime = tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
-                .enable_all()
-                .build()
-                .expect("Failed to create tokio runtime");
-            let (action_tx, action_rx) = mpsc::channel(16);
+    /// Panel types that can be docked
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    enum PanelKind {
+        DaqControl,
+        InstrumentManager,
+        SignalPlotter,
+    }
 
-            Self {
-                rerun_app,
-                daq_state: DaqControlState::default(),
-                client: None,
-                runtime,
-                action_tx,
-                action_rx,
-                action_in_flight: 0,
+    /// Storage key for dock state persistence
+    const DOCK_STATE_KEY: &str = "daq_dock_state";
+
+    impl PanelKind {
+        fn title(&self) -> &'static str {
+            match self {
+                Self::DaqControl => "DAQ Control",
+                Self::InstrumentManager => "Instruments",
+                Self::SignalPlotter => "Signal Scope",
             }
         }
+    }
 
-        fn connect(&mut self) {
-            let address = self.daq_state.daemon_address.clone();
-            let tx = self.action_tx.clone();
-            self.action_in_flight = self.action_in_flight.saturating_add(1);
-            self.daq_state.connection_status = "Connecting...".to_string();
+    /// Tab viewer for dockable panels
+    struct DaqTabViewer<'a> {
+        daq_state: &'a mut DaqControlState,
+        client: &'a mut Option<DaqClient>,
+        runtime: &'a tokio::runtime::Runtime,
+        action_tx: &'a mpsc::Sender<RerunActionResult>,
+        action_in_flight: &'a mut usize,
+        instrument_panel: &'a mut InstrumentManagerPanel,
+        signal_plotter: &'a mut SignalPlotterPanel,
+    }
 
-            self.runtime.spawn(async move {
-                let result = DaqClient::connect(&address).await.map_err(|e| e.to_string());
-                let _ = tx.send(RerunActionResult::Connect(result)).await;
-            });
-        }
+    impl<'a> DaqTabViewer<'a> {
+        fn render_daq_control(&mut self, ui: &mut egui::Ui) {
+            ui.heading("DAQ Control");
 
-        fn disconnect(&mut self) {
-            self.client = None;
-            self.daq_state.connection_status = "Disconnected".to_string();
-            self.daq_state.devices.clear();
-        }
+            // Connection
+            ui.group(|ui| {
+                ui.label("Control Plane (gRPC):");
+                ui.horizontal(|ui| {
+                    ui.label("Daemon:");
+                    ui.text_edit_singleline(&mut self.daq_state.daemon_address);
+                });
 
-        fn refresh_devices(&mut self) {
-            let Some(client) = &mut self.client else {
-                self.daq_state.error_message = Some("Not connected".to_string());
-                return;
-            };
+                ui.horizontal(|ui| {
+                    let connected = self.client.is_some();
+                    let status_color = if connected { egui::Color32::GREEN } else { egui::Color32::GRAY };
+                    ui.colored_label(status_color, "●");
+                    ui.label(&self.daq_state.connection_status);
 
-            let mut client = client.clone();
-            let tx = self.action_tx.clone();
-            self.action_in_flight = self.action_in_flight.saturating_add(1);
+                    if connected {
+                        if ui.button("Disconnect").clicked() {
+                            *self.client = None;
+                            self.daq_state.connection_status = "Disconnected".to_string();
+                            self.daq_state.devices.clear();
+                        }
+                    } else {
+                        if ui.button("Connect").clicked() {
+                            let address = self.daq_state.daemon_address.clone();
+                            let tx = self.action_tx.clone();
+                            *self.action_in_flight = self.action_in_flight.saturating_add(1);
+                            self.daq_state.connection_status = "Connecting...".to_string();
 
-            self.runtime.spawn(async move {
-                let result = async {
-                    let devices = client.list_devices().await?;
-                    let mut infos = Vec::new();
-                    for d in devices {
-                        let state = client.get_device_state(&d.id).await.ok();
-                        infos.push(DeviceInfo {
-                            id: d.id,
-                            name: d.name,
-                            driver: d.driver_type,
-                            is_movable: d.is_movable,
-                            is_readable: d.is_readable,
-                            is_frame_producer: d.is_frame_producer,
-                            position: state.as_ref().and_then(|s| s.position),
-                            reading: state.as_ref().and_then(|s| s.last_reading),
-                        });
+                            self.runtime.spawn(async move {
+                                let result = DaqClient::connect(&address).await.map_err(|e| e.to_string());
+                                let _ = tx.send(RerunActionResult::Connect(result)).await;
+                            });
+                        }
                     }
-                    Ok::<_, anyhow::Error>(infos)
-                }
-                .await
-                .map_err(|e| e.to_string());
+                });
 
-                let _ = tx.send(RerunActionResult::Refresh(result)).await;
+                ui.separator();
+                ui.label("Data Plane (Rerun):");
+                ui.horizontal(|ui| {
+                    ui.label("Rerun URL:");
+                    ui.text_edit_singleline(&mut self.daq_state.rerun_url);
+                });
+                ui.small("Note: Rerun connection established at startup. Restart to change.");
             });
+
+            // Messages
+            if let Some(err) = &self.daq_state.error_message {
+                ui.colored_label(egui::Color32::RED, err);
+            }
+            if let Some(status) = &self.daq_state.status_message {
+                ui.colored_label(egui::Color32::GREEN, status);
+            }
+
+            ui.separator();
+
+            // Devices
+            if ui.button("🔄 Refresh Devices").clicked() {
+                let Some(client) = self.client else {
+                    self.daq_state.error_message = Some("Not connected".to_string());
+                    return;
+                };
+
+                let mut client = client.clone();
+                let tx = self.action_tx.clone();
+                *self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+                self.runtime.spawn(async move {
+                    let result = async {
+                        let devices = client.list_devices().await?;
+                        let mut infos = Vec::new();
+                        for d in devices {
+                            let state = client.get_device_state(&d.id).await.ok();
+                            infos.push(DeviceInfo {
+                                id: d.id,
+                                name: d.name,
+                                driver: d.driver_type,
+                                is_movable: d.is_movable,
+                                is_readable: d.is_readable,
+                                is_frame_producer: d.is_frame_producer,
+                                position: state.as_ref().and_then(|s| s.position),
+                                reading: state.as_ref().and_then(|s| s.last_reading),
+                            });
+                        }
+                        Ok::<_, anyhow::Error>(infos)
+                    }
+                    .await
+                    .map_err(|e| e.to_string());
+
+                    let _ = tx.send(RerunActionResult::Refresh(result)).await;
+                });
+            }
+
+            if self.daq_state.devices.is_empty() {
+                ui.label("No devices");
+            } else {
+                egui::ScrollArea::vertical()
+                    .max_height(400.0)
+                    .show(ui, |ui| {
+                        let devices = self.daq_state.devices.clone();
+                        for (i, device) in devices.iter().enumerate() {
+                            let selected = self.daq_state.selected_device == Some(i);
+                            ui.group(|ui| {
+                                ui.horizontal(|ui| {
+                                    if ui.selectable_label(selected, &device.name).clicked() {
+                                        self.daq_state.selected_device = Some(i);
+                                    }
+                                    ui.label(format!("({})", device.driver));
+                                });
+
+                                if let Some(pos) = device.position {
+                                    ui.label(format!("Position: {:.4}", pos));
+                                }
+                                if let Some(reading) = device.reading {
+                                    ui.label(format!("Reading: {:.4}", reading));
+                                }
+
+                                ui.horizontal(|ui| {
+                                    if device.is_movable {
+                                        ui.add(egui::DragValue::new(&mut self.daq_state.move_target).speed(0.1));
+                                        if ui.small_button("Go").clicked() {
+                                            self.move_device(&device.id, self.daq_state.move_target, false);
+                                        }
+                                        for delta in [-1.0, -0.1, 0.1, 1.0] {
+                                            let label = if delta > 0.0 { format!("+{}", delta) } else { format!("{}", delta) };
+                                            if ui.small_button(label).clicked() {
+                                                self.move_device(&device.id, delta, true);
+                                            }
+                                        }
+                                    }
+                                    if device.is_readable {
+                                        if ui.small_button("📖").clicked() {
+                                            self.read_device(&device.id);
+                                        }
+                                    }
+                                    if device.is_frame_producer {
+                                        if ui.small_button("▶ Stream 10").clicked() {
+                                            self.start_stream(&device.id, Some(10));
+                                        }
+                                        if ui.small_button("▶ Stream").clicked() {
+                                            self.start_stream(&device.id, None);
+                                        }
+                                        if ui.small_button("⏹ Stop").clicked() {
+                                            self.stop_stream(&device.id);
+                                        }
+                                    }
+                                });
+                            });
+                        }
+                    });
+            }
+
+            // Data visualization info
+            ui.separator();
+            ui.heading("Visualization");
+            ui.small("Camera frames and measurements logged by the daemon");
+            ui.small("appear automatically in the Rerun viewer panel.");
         }
 
         fn move_device(&mut self, device_id: &str, value: f64, relative: bool) {
-            let Some(client) = &mut self.client else { return };
-            
+            let Some(client) = self.client else { return };
+
             let mut client = client.clone();
             let device_id = device_id.to_string();
             let tx = self.action_tx.clone();
-            self.action_in_flight = self.action_in_flight.saturating_add(1);
+            *self.action_in_flight = self.action_in_flight.saturating_add(1);
 
             self.runtime.spawn(async move {
                 let result = if relative {
@@ -189,12 +359,12 @@ mod rerun_app {
         }
 
         fn read_device(&mut self, device_id: &str) {
-            let Some(client) = &mut self.client else { return };
+            let Some(client) = self.client else { return };
 
             let mut client = client.clone();
             let device_id = device_id.to_string();
             let tx = self.action_tx.clone();
-            self.action_in_flight = self.action_in_flight.saturating_add(1);
+            *self.action_in_flight = self.action_in_flight.saturating_add(1);
 
             self.runtime.spawn(async move {
                 let result = client.read_value(&device_id).await;
@@ -217,12 +387,12 @@ mod rerun_app {
         }
 
         fn start_stream(&mut self, device_id: &str, frame_count: Option<u32>) {
-            let Some(client) = &mut self.client else { return };
+            let Some(client) = self.client else { return };
 
             let mut client = client.clone();
             let device_id = device_id.to_string();
             let tx = self.action_tx.clone();
-            self.action_in_flight = self.action_in_flight.saturating_add(1);
+            *self.action_in_flight = self.action_in_flight.saturating_add(1);
 
             self.runtime.spawn(async move {
                 let result = client.start_stream(&device_id, frame_count).await;
@@ -248,19 +418,19 @@ mod rerun_app {
         }
 
         fn stop_stream(&mut self, device_id: &str) {
-            let Some(client) = &mut self.client else { return };
+            let Some(client) = self.client else { return };
 
             let mut client = client.clone();
             let device_id = device_id.to_string();
             let tx = self.action_tx.clone();
-            self.action_in_flight = self.action_in_flight.saturating_add(1);
+            *self.action_in_flight = self.action_in_flight.saturating_add(1);
 
             self.runtime.spawn(async move {
                 let result = client.stop_stream(&device_id).await;
                 let action = match result {
                     Ok(response) if response.success => RerunActionResult::StopStream {
                         device_id,
-                        result: Ok(response.frames_captured),
+                        result: Ok(response.frames_captured as u32),
                     },
                     Ok(_response) => RerunActionResult::StopStream {
                         device_id,
@@ -273,6 +443,69 @@ mod rerun_app {
                 };
                 let _ = tx.send(action).await;
             });
+        }
+    }
+
+    impl<'a> TabViewer for DaqTabViewer<'a> {
+        type Tab = PanelKind;
+
+        fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
+            tab.title().into()
+        }
+
+        fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
+            match tab {
+                PanelKind::DaqControl => {
+                    self.render_daq_control(ui);
+                }
+                PanelKind::InstrumentManager => {
+                    self.instrument_panel.ui(ui, self.client.as_mut(), self.runtime);
+                }
+                PanelKind::SignalPlotter => {
+                    self.signal_plotter.ui(ui);
+                }
+            }
+        }
+    }
+
+    impl DaqRerunApp {
+        pub fn new(
+            cc: &eframe::CreationContext<'_>,
+            rerun_app: re_viewer::App,
+        ) -> Self {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .expect("Failed to create tokio runtime");
+            let (action_tx, action_rx) = mpsc::channel(16);
+
+            // Try to restore dock state from storage, otherwise create default layout
+            let dock_state = cc.storage
+                .and_then(|storage| eframe::get_value::<DockState<PanelKind>>(storage, DOCK_STATE_KEY))
+                .unwrap_or_else(Self::default_dock_layout);
+
+            Self {
+                rerun_app,
+                daq_state: DaqControlState::default(),
+                client: None,
+                runtime,
+                action_tx,
+                action_rx,
+                action_in_flight: 0,
+                dock_state,
+                instrument_panel: InstrumentManagerPanel::default(),
+                signal_plotter: SignalPlotterPanel::default(),
+            }
+        }
+
+        /// Creates the default dock layout with all panels as tabs
+        fn default_dock_layout() -> DockState<PanelKind> {
+            let mut dock_state = DockState::new(vec![PanelKind::DaqControl]);
+            let surface = dock_state.main_surface_mut();
+            surface.push_to_first_leaf(PanelKind::InstrumentManager);
+            surface.push_to_first_leaf(PanelKind::SignalPlotter);
+            dock_state
         }
 
         fn poll_async_results(&mut self, ctx: &egui::Context) {
@@ -364,141 +597,50 @@ mod rerun_app {
             }
         }
 
-        /// Render DAQ control panel
-        fn daq_control_panel(&mut self, ui: &mut egui::Ui) {
-            ui.heading("DAQ Control");
-
-            // Connection
-            ui.group(|ui| {
-                ui.label("Control Plane (gRPC):");
-                ui.horizontal(|ui| {
-                    ui.label("Daemon:");
-                    ui.text_edit_singleline(&mut self.daq_state.daemon_address);
-                });
-
-                ui.horizontal(|ui| {
-                    let connected = self.client.is_some();
-                    let status_color = if connected { egui::Color32::GREEN } else { egui::Color32::GRAY };
-                    ui.colored_label(status_color, "●");
-                    ui.label(&self.daq_state.connection_status);
-
-                    if connected {
-                        if ui.button("Disconnect").clicked() {
-                            self.disconnect();
-                        }
-                    } else {
-                        if ui.button("Connect").clicked() {
-                            self.connect();
-                        }
-                    }
-                });
-
-                ui.separator();
-                ui.label("Data Plane (Rerun):");
-                ui.horizontal(|ui| {
-                    ui.label("Rerun URL:");
-                    ui.text_edit_singleline(&mut self.daq_state.rerun_url);
-                });
-                ui.small("Note: Rerun connection established at startup. Restart to change.");
-            });
-
-            // Messages
-            if let Some(err) = &self.daq_state.error_message {
-                ui.colored_label(egui::Color32::RED, err);
-            }
-            if let Some(status) = &self.daq_state.status_message {
-                ui.colored_label(egui::Color32::GREEN, status);
-            }
-
-            ui.separator();
-
-            // Devices
-            if ui.button("🔄 Refresh Devices").clicked() {
-                self.refresh_devices();
-            }
-
-            if self.daq_state.devices.is_empty() {
-                ui.label("No devices");
-            } else {
-                egui::ScrollArea::vertical()
-                    .max_height(400.0)
-                    .show(ui, |ui| {
-                        let devices = self.daq_state.devices.clone();
-                        for (i, device) in devices.iter().enumerate() {
-                            let selected = self.daq_state.selected_device == Some(i);
-                            ui.group(|ui| {
-                                ui.horizontal(|ui| {
-                                    if ui.selectable_label(selected, &device.name).clicked() {
-                                        self.daq_state.selected_device = Some(i);
-                                    }
-                                    ui.label(format!("({})", device.driver));
-                                });
-                                
-                                if let Some(pos) = device.position {
-                                    ui.label(format!("Position: {:.4}", pos));
-                                }
-                                if let Some(reading) = device.reading {
-                                    ui.label(format!("Reading: {:.4}", reading));
-                                }
-
-                                ui.horizontal(|ui| {
-                                    if device.is_movable {
-                                        ui.add(egui::DragValue::new(&mut self.daq_state.move_target).speed(0.1));
-                                        if ui.small_button("Go").clicked() {
-                                            self.move_device(&device.id, self.daq_state.move_target, false);
-                                        }
-                                        for delta in [-1.0, -0.1, 0.1, 1.0] {
-                                            let label = if delta > 0.0 { format!("+{}", delta) } else { format!("{}", delta) };
-                                            if ui.small_button(label).clicked() {
-                                                self.move_device(&device.id, delta, true);
-                                            }
-                                        }
-                                    }
-                                    if device.is_readable {
-                                        if ui.small_button("📖").clicked() {
-                                            self.read_device(&device.id);
-                                        }
-                                    }
-                                    if device.is_frame_producer {
-                                        if ui.small_button("▶ Stream 10").clicked() {
-                                            self.start_stream(&device.id, Some(10));
-                                        }
-                                        if ui.small_button("▶ Stream").clicked() {
-                                            self.start_stream(&device.id, None);
-                                        }
-                                        if ui.small_button("⏹ Stop").clicked() {
-                                            self.stop_stream(&device.id);
-                                        }
-                                    }
-                                });
-                            });
-                        }
-                    });
-            }
-
-            // Data visualization info
-            ui.separator();
-            ui.heading("Visualization");
-            ui.small("Camera frames and measurements logged by the daemon");
-            ui.small("appear automatically in the Rerun viewer panel.");
-        }
     }
 
     impl eframe::App for DaqRerunApp {
         fn save(&mut self, storage: &mut dyn eframe::Storage) {
+            // Save dock panel layout
+            eframe::set_value(storage, DOCK_STATE_KEY, &self.dock_state);
+            // Save Rerun app state
             self.rerun_app.save(storage);
         }
 
         fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
             self.poll_async_results(ctx);
-            // Left panel for DAQ controls
-            egui::SidePanel::left("daq_control_panel")
-                .default_width(300.0)
+
+            // Top menu bar for layout control
+            egui::TopBottomPanel::top("daq_menu_bar").show(ctx, |ui| {
+                #[allow(deprecated)] // egui 0.33 deprecated menu::bar, but rerun uses 0.33
+                egui::menu::bar(ui, |ui| {
+                    ui.menu_button("View", |ui| {
+                        if ui.button("Reset Panel Layout").clicked() {
+                            self.dock_state = Self::default_dock_layout();
+                            ui.close_menu();
+                        }
+                    });
+                });
+            });
+
+            // Left panel with dockable tabs
+            egui::SidePanel::left("daq_dock_panel")
+                .default_width(350.0)
                 .resizable(true)
                 .show(ctx, |ui| {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        self.daq_control_panel(ui);
-                    });
+                    let mut viewer = DaqTabViewer {
+                        daq_state: &mut self.daq_state,
+                        client: &mut self.client,
+                        runtime: &self.runtime,
+                        action_tx: &self.action_tx,
+                        action_in_flight: &mut self.action_in_flight,
+                        instrument_panel: &mut self.instrument_panel,
+                        signal_plotter: &mut self.signal_plotter,
+                    };
+
+                    DockArea::new(&mut self.dock_state)
+                        .style(Style::from_egui(ui.style().as_ref()))
+                        .show_inside(ui, &mut viewer);
                 });
 
             // Rest is Rerun viewer

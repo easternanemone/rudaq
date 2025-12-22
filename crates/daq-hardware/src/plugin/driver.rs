@@ -18,6 +18,8 @@ use tokio_serial::SerialStream;
 
 use crate::plugin::schema::{CommandSequence, InstrumentConfig, ValueType};
 use daq_core::observable::ParameterSet; // NEW: For Parameterized trait implementation
+use daq_core::error::DaqError;
+use daq_core::limits::{self, validate_frame_size};
 
 // =============================================================================
 // Connection Enum - Unified abstraction over Serial, TCP, and Mock
@@ -257,7 +259,7 @@ impl GenericDriver {
         // Read response
         let mut response_bytes = Vec::new();
         let mut buf = [0u8; 128];
-        let mut deadline = tokio::time::Instant::now() + timeout_duration;
+        let deadline = tokio::time::Instant::now() + timeout_duration;
 
         loop {
             let n = tokio::time::timeout_at(deadline, conn.read(&mut buf)).await??;
@@ -266,12 +268,18 @@ impl GenericDriver {
                 break;
             }
             response_bytes.extend_from_slice(&buf[..n]);
+            if response_bytes.len() > limits::MAX_RESPONSE_SIZE {
+                return Err(DaqError::ResponseTooLarge {
+                    bytes: response_bytes.len(),
+                    max_bytes: limits::MAX_RESPONSE_SIZE,
+                }
+                .into());
+            }
 
             if response_bytes.ends_with(&self.termination_bytes) {
                 tracing::debug!("Received termination bytes. Breaking read loop.");
                 break;
             }
-            deadline = tokio::time::Instant::now() + timeout_duration;
         }
 
         // Connection lock is released here when `conn` goes out of scope
@@ -361,7 +369,8 @@ impl GenericDriver {
         let width = frame_producer.width;
         let height = frame_producer.height;
         let bytes_per_pixel = 2usize; // 16-bit pixels
-        let frame_size = (width * height) as usize * bytes_per_pixel;
+        let frame_info = validate_frame_size(width, height, bytes_per_pixel)?;
+        let frame_size = frame_info.bytes;
 
         // Execute frame command and read binary response
         let raw_bytes = self
@@ -369,7 +378,7 @@ impl GenericDriver {
             .await?;
 
         // Convert raw bytes to u16 pixels (little-endian)
-        let mut buffer = vec![0u16; (width * height) as usize];
+        let mut buffer = vec![0u16; frame_info.pixels];
         for (i, chunk) in raw_bytes.chunks_exact(2).enumerate() {
             buffer[i] = u16::from_le_bytes([chunk[0], chunk[1]]);
         }
@@ -1433,8 +1442,8 @@ impl GenericDriver {
 
         let intensity = mock_config.as_ref().map(|m| m.intensity).unwrap_or(1000);
 
-        let size = (width * height) as usize;
-        let mut buffer = vec![0u16; size];
+        let frame_info = validate_frame_size(width, height, 2)?;
+        let mut buffer = vec![0u16; frame_info.pixels];
 
         match pattern {
             "checkerboard" => {

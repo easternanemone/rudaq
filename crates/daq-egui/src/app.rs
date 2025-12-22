@@ -48,8 +48,10 @@ static UI_LOG_BUFFER: Lazy<Arc<Mutex<Vec<String>>>> = Lazy::new(|| Arc::new(Mute
 
 use crate::client::DaqClient;
 use crate::panels::{
-    ConnectionPanel, DevicesPanel, DocumentViewerPanel, GettingStartedPanel, ModulesPanel,
+    DevicesPanel, DocumentViewerPanel, GettingStartedPanel, ModulesPanel,
     PlanRunnerPanel, ScansPanel, ScriptsPanel, StoragePanel,
+    InstrumentManagerPanel, SignalPlotterPanel, ImageViewerPanel,
+    LoggingPanel, ConnectionStatus as LogConnectionStatus,
 };
 
 /// Connection state to the DAQ daemon
@@ -94,7 +96,6 @@ pub struct DaqApp {
     active_panel: Panel,
 
     /// Panel states
-    connection_panel: ConnectionPanel,
     getting_started_panel: GettingStartedPanel,
     devices_panel: DevicesPanel,
     scripts_panel: ScriptsPanel,
@@ -103,6 +104,10 @@ pub struct DaqApp {
     modules_panel: ModulesPanel,
     plan_runner_panel: PlanRunnerPanel,
     document_viewer_panel: DocumentViewerPanel,
+    instrument_manager_panel: InstrumentManagerPanel,
+    signal_plotter_panel: SignalPlotterPanel,
+    image_viewer_panel: ImageViewerPanel,
+    logging_panel: LoggingPanel,
 
     /// Tokio runtime for async operations
     runtime: tokio::runtime::Runtime,
@@ -111,8 +116,6 @@ pub struct DaqApp {
     connect_rx: mpsc::Receiver<ConnectResult>,
     /// Whether a connect attempt is in flight
     connect_pending: bool,
-    /// Rolling in-app log buffer
-    log_buffer: Vec<String>,
     /// PVCAM live view streaming state (requires rerun_viewer + instrument_photometrics)
     /// Works in mock mode without pvcam_hardware, or with real SDK when pvcam_hardware enabled
     #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
@@ -125,6 +128,7 @@ pub struct DaqApp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Panel {
     GettingStarted,
+    Instruments,
     Devices,
     Scripts,
     Scans,
@@ -132,6 +136,8 @@ pub enum Panel {
     Modules,
     PlanRunner,
     DocumentViewer,
+    SignalPlotter,
+    ImageViewer,
     Logs,
 }
 
@@ -172,7 +178,6 @@ impl DaqApp {
             daemon_version: None,
             gui_version: env!("CARGO_PKG_VERSION").to_string(),
             active_panel: Panel::GettingStarted,
-            connection_panel: ConnectionPanel::default(),
             getting_started_panel: GettingStartedPanel::default(),
             devices_panel: DevicesPanel::default(),
             scripts_panel: ScriptsPanel::default(),
@@ -181,11 +186,14 @@ impl DaqApp {
             modules_panel: ModulesPanel::default(),
             plan_runner_panel: PlanRunnerPanel::default(),
             document_viewer_panel: DocumentViewerPanel::default(),
+            instrument_manager_panel: InstrumentManagerPanel::default(),
+            signal_plotter_panel: SignalPlotterPanel::new(),
+            image_viewer_panel: ImageViewerPanel::new(),
+            logging_panel: LoggingPanel::new(),
             runtime,
             connect_tx,
             connect_rx,
             connect_pending: false,
-            log_buffer: Vec::new(),
             #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
             pvcam_streaming: false,
             #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
@@ -199,6 +207,8 @@ impl DaqApp {
             return;
         }
         self.connection_state = ConnectionState::Connecting;
+        self.logging_panel.connection_status = LogConnectionStatus::Connecting;
+        self.logging_panel.info("Connection", &format!("Connecting to {}", self.daemon_address));
         self.connect_pending = true;
         let address = self.daemon_address.clone();
         let tx = self.connect_tx.clone();
@@ -235,6 +245,8 @@ impl DaqApp {
         self.client = None;
         self.daemon_version = None;
         self.connection_state = ConnectionState::Disconnected;
+        self.logging_panel.connection_status = LogConnectionStatus::Disconnected;
+        self.logging_panel.info("Connection", "Disconnected from daemon");
         tracing::info!("Disconnected from daemon");
     }
 
@@ -363,14 +375,33 @@ impl DaqApp {
                 ui.separator();
                 
                 ui.vertical(|ui| {
+                    // Getting Started
                     ui.selectable_value(&mut self.active_panel, Panel::GettingStarted, "🚀 Getting Started");
+
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("Hardware").small().color(egui::Color32::GRAY));
+                    ui.selectable_value(&mut self.active_panel, Panel::Instruments, "🔬 Instruments");
                     ui.selectable_value(&mut self.active_panel, Panel::Devices, "🔧 Devices");
+
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("Visualization").small().color(egui::Color32::GRAY));
+                    ui.selectable_value(&mut self.active_panel, Panel::SignalPlotter, "📈 Signal Plotter");
+                    ui.selectable_value(&mut self.active_panel, Panel::ImageViewer, "🖼 Image Viewer");
+
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("Experiment").small().color(egui::Color32::GRAY));
                     ui.selectable_value(&mut self.active_panel, Panel::Scripts, "📜 Scripts");
                     ui.selectable_value(&mut self.active_panel, Panel::Scans, "📊 Scans");
-                    ui.selectable_value(&mut self.active_panel, Panel::Storage, "💾 Storage");
-                    ui.selectable_value(&mut self.active_panel, Panel::Modules, "🧩 Modules");
                     ui.selectable_value(&mut self.active_panel, Panel::PlanRunner, "🎯 Plan Runner");
+
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("Data").small().color(egui::Color32::GRAY));
+                    ui.selectable_value(&mut self.active_panel, Panel::Storage, "💾 Storage");
                     ui.selectable_value(&mut self.active_panel, Panel::DocumentViewer, "📄 Documents");
+
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("System").small().color(egui::Color32::GRAY));
+                    ui.selectable_value(&mut self.active_panel, Panel::Modules, "🧩 Modules");
                     ui.selectable_value(&mut self.active_panel, Panel::Logs, "🪵 Logs");
                 });
                 
@@ -410,8 +441,19 @@ impl DaqApp {
                 Panel::GettingStarted => {
                     self.getting_started_panel.ui(ui);
                 }
+                Panel::Instruments => {
+                    self.instrument_manager_panel.ui(ui, self.client.as_mut(), &self.runtime);
+                }
                 Panel::Devices => {
                     self.devices_panel.ui(ui, self.client.as_mut(), &self.runtime);
+                }
+                Panel::SignalPlotter => {
+                    // Drain any pending updates from async tasks
+                    self.signal_plotter_panel.drain_updates();
+                    self.signal_plotter_panel.ui(ui);
+                }
+                Panel::ImageViewer => {
+                    self.image_viewer_panel.ui(ui, self.client.as_mut(), &self.runtime);
                 }
                 Panel::Scripts => {
                     self.scripts_panel.ui(ui, self.client.as_mut(), &self.runtime);
@@ -432,22 +474,12 @@ impl DaqApp {
                     self.document_viewer_panel.ui(ui, self.client.as_mut());
                 }
                 Panel::Logs => {
-                    self.render_logs(ui);
+                    self.logging_panel.ui(ui);
                 }
             }
         });
     }
 
-    fn render_logs(&mut self, ui: &mut egui::Ui) {
-        use egui::ScrollArea;
-        self.connection_panel.ui(ui);
-        ui.separator();
-        ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
-            for line in &self.log_buffer {
-                ui.label(line);
-            }
-        });
-    }
 
     #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
     fn start_pvcam_stream(&mut self) {
@@ -513,9 +545,24 @@ impl DaqApp {
     }
 
     fn poll_logs(&mut self) {
+        use crate::panels::LogLevel;
         if let Ok(mut buf) = UI_LOG_BUFFER.lock() {
-            if !buf.is_empty() {
-                self.log_buffer.extend(buf.drain(..));
+            for line in buf.drain(..) {
+                // Parse log level from tracing format (e.g., "INFO daq_egui: message")
+                let (level, source, message) = if let Some(rest) = line.strip_prefix("ERROR ") {
+                    (LogLevel::Error, "tracing", rest)
+                } else if let Some(rest) = line.strip_prefix("WARN ") {
+                    (LogLevel::Warn, "tracing", rest)
+                } else if let Some(rest) = line.strip_prefix("INFO ") {
+                    (LogLevel::Info, "tracing", rest)
+                } else if let Some(rest) = line.strip_prefix("DEBUG ") {
+                    (LogLevel::Debug, "tracing", rest)
+                } else if let Some(rest) = line.strip_prefix("TRACE ") {
+                    (LogLevel::Trace, "tracing", rest)
+                } else {
+                    (LogLevel::Info, "tracing", line.as_str())
+                };
+                self.logging_panel.log(level, source, message);
             }
         }
     }
@@ -534,6 +581,8 @@ impl DaqApp {
                     self.client = Some(client);
                     self.daemon_version = daemon_version.clone();
                     self.connection_state = ConnectionState::Connected;
+                    self.logging_panel.connection_status = LogConnectionStatus::Connected;
+                    self.logging_panel.info("Connection", &format!("Connected to daemon at {}", address));
 
                     tracing::info!("Connected to daemon at {}", address);
                     match daemon_version {
@@ -560,6 +609,8 @@ impl DaqApp {
                     self.client = None;
                     self.daemon_version = None;
                     self.connection_state = ConnectionState::Error(error.clone());
+                    self.logging_panel.connection_status = LogConnectionStatus::Error;
+                    self.logging_panel.error("Connection", &format!("Failed to connect to {}: {}", address, error));
                     tracing::error!("Failed to connect to {}: {}", address, error);
                 }
             }

@@ -196,6 +196,7 @@ service HardwareService {
   // Frame Streaming (for FrameProducer devices)
   rpc StartStream(StartStreamRequest) returns (StartStreamResponse);
   rpc StopStream(StopStreamRequest) returns (StopStreamResponse);
+  rpc StreamFrames(StreamFramesRequest) returns (stream FrameData);
 
   // Device Lifecycle (Stage/Unstage for safe setup/teardown)
   rpc StageDevice(StageDeviceRequest) returns (StageDeviceResponse);
@@ -211,6 +212,9 @@ service HardwareService {
   rpc GetParameter(GetParameterRequest) returns (ParameterValue);
   rpc SetParameter(SetParameterRequest) returns (SetParameterResponse);
   rpc StreamParameterChanges(StreamParameterChangesRequest) returns (stream ParameterChange);
+
+  // Observable Streaming (bd-qqjq)
+  rpc StreamObservables(StreamObservablesRequest) returns (stream ObservableValue);
 }
 
 // =============================================================================
@@ -238,11 +242,23 @@ message ListDevicesResponse {
   repeated DeviceInfo devices = 1;
 }
 
+// Device categorization for GUI organization
+enum DeviceCategory {
+  DEVICE_CATEGORY_UNSPECIFIED = 0;
+  DEVICE_CATEGORY_CAMERA = 1;
+  DEVICE_CATEGORY_STAGE = 2;
+  DEVICE_CATEGORY_DETECTOR = 3;
+  DEVICE_CATEGORY_LASER = 4;
+  DEVICE_CATEGORY_POWER_METER = 5;
+  DEVICE_CATEGORY_OTHER = 99;
+}
+
 // Complete device information including capabilities
 message DeviceInfo {
   string id = 1;
   string name = 2;
   string driver_type = 3;  // "ell14", "esp300", "pvcam", "mock_stage", etc.
+  DeviceCategory category = 4;  // Device category for GUI grouping
 
   // Capabilities as flags
   bool is_movable = 10;
@@ -545,6 +561,24 @@ message StopStreamResponse {
   uint64 frames_captured = 2;
 }
 
+// Stream frames from a FrameProducer device to GUI
+message StreamFramesRequest {
+  string device_id = 1;
+  uint32 max_fps = 2;  // Rate limit for GUI rendering (0 = no limit)
+}
+
+// Single frame of image data
+message FrameData {
+  string device_id = 1;
+  uint32 width = 2;
+  uint32 height = 3;
+  uint32 bit_depth = 4;  // 8, 12, or 16
+  bytes data = 5;        // Raw pixel data (row-major, little-endian for >8-bit)
+  uint64 frame_number = 6;
+  uint64 timestamp_ns = 7;  // Nanoseconds since epoch
+  optional double exposure_ms = 8;
+}
+
 // Arrow Flight ticket for zero-copy bulk data transfer
 message FlightTicket {
   string endpoint = 1;  // e.g., "localhost:50052"
@@ -656,6 +690,27 @@ message ParameterChange {
   string units = 5;
   uint64 timestamp_ns = 6;
   string source = 7;            // "user", "hardware", "script"
+}
+
+// --------------------------------------------------------------------------
+// Observable Streaming Messages (bd-qqjq)
+// --------------------------------------------------------------------------
+
+message StreamObservablesRequest {
+  // List of device IDs to stream from (empty = all devices)
+  repeated string device_ids = 1;
+  // List of observable names to stream (empty = all observables)
+  repeated string observable_names = 2;
+  // Target sample rate in Hz (0 = as fast as available)
+  uint32 sample_rate_hz = 3;
+}
+
+message ObservableValue {
+  string device_id = 1;
+  string observable_name = 2;
+  double value = 3;
+  string units = 4;
+  uint64 timestamp_ns = 5;
 }
 
 // =============================================================================

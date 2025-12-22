@@ -7,7 +7,6 @@ edition = "2021"
 daq-core = { path = "../daq-core" }
 async-trait = "0.1.79"
 anyhow = "1.0.82"
-thiserror = "1.0.59"
 serde = { version = "1.0", features = ["derive"] }
 tracing = "0.1"
 serde_json = "1.0"

@@ -83,6 +83,7 @@ impl std::fmt::Display for EngineState {
 struct QueuedPlan {
     plan: Box<dyn Plan>,
     metadata: HashMap<String, String>,
+    run_uid: String,
 }
 
 /// Run context for the currently executing plan
@@ -163,7 +164,11 @@ impl RunEngine {
         info!(run_uid = %run_uid, plan_type = %plan.plan_type(), "Queueing plan");
 
         let mut queue = self.plan_queue.lock().await;
-        queue.push(QueuedPlan { plan, metadata });
+        queue.push(QueuedPlan {
+            plan,
+            metadata,
+            run_uid: run_uid.clone(),
+        });
 
         run_uid
     }
@@ -249,6 +254,7 @@ impl RunEngine {
 
         // Create and emit StartDoc
         let mut start_doc = StartDoc::new(plan.plan_type(), plan.plan_name());
+        start_doc.uid = queued.run_uid.clone();
         start_doc.plan_args = plan.plan_args();
         start_doc.metadata = queued.metadata;
         start_doc.hints = plan.movers();

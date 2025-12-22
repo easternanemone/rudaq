@@ -26,3 +26,6 @@ networking = []
 storage_hdf5 = ["rust_daq/storage_hdf5"]
 storage_arrow = ["rust_daq/storage_arrow"]
 pvcam = ["rust_daq/pvcam_hardware", "daq-hardware/driver_pvcam"]
+
+[package.metadata.cargo-machete]
+ignored = ["daq-hardware"]  # Needed for pvcam feature passthrough

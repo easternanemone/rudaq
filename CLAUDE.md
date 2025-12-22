@@ -419,6 +419,71 @@ rust_daq = { path = "../rust-daq", features = ["backend"] }  # includes server
 rust_daq = { path = "../rust-daq", features = ["cli"] }      # includes scripting
 ```
 
+## bd-b1fb Code Review Epic (COMPLETE)
+
+**Epic Goal:** Deep code review to identify and fix security, safety, and architectural issues.
+
+**Status:** ✅ Complete (14 issues, all implemented)
+
+**Key Outcomes:**
+
+1. **gRPC Security Hardening (P0)**:
+   - Added loopback-only bind address (127.0.0.1)
+   - Implemented token-based authentication interceptor
+   - Added CORS restrictions for gRPC-web
+   - TLS configuration support (optional)
+   - Configuration in `config/config.v4.toml`
+
+2. **Size Limits & DoS Prevention (P0)**:
+   - Centralized limits in `daq-core/src/limits.rs`
+   - `MAX_FRAME_BYTES`: 100MB max frame payload
+   - `MAX_RESPONSE_SIZE`: 1MB max gRPC response
+   - `MAX_SCRIPT_SIZE`: 1MB max script upload
+   - `MAX_FRAME_DIMENSION`: 65,536 pixels max width/height
+   - `validate_frame_size()` helper with checked arithmetic
+
+3. **Input Validation (P1)**:
+   - Size validation for script uploads
+   - Frame dimension bounds checking
+   - JSON parsing with error handling
+   - Safe `i64→usize` conversions with bounds checks
+
+4. **Async Safety (P2)**:
+   - Fixed lock-across-await patterns in hardware service
+   - Added explicit lock guard drops before `.await` points
+
+5. **Architecture Documentation (P3)**:
+   - `docs/architecture/adr-device-actor-pattern.md` - Actor pattern for DeviceRegistry
+   - `docs/architecture/adr-grpc-validation-layer.md` - Input validation strategy
+
+**gRPC Security Configuration:**
+
+```toml
+# config/config.v4.toml
+[grpc]
+bind_address = "127.0.0.1"        # Loopback only (secure default)
+auth_enabled = false              # Enable for production
+# auth_token = "change-me"        # Required when auth_enabled = true
+# tls_cert_path = "config/tls/server.crt"
+# tls_key_path = "config/tls/server.key"
+allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+```
+
+**Size Limit Usage:**
+
+```rust
+use daq_core::limits::{validate_frame_size, MAX_SCRIPT_SIZE, MAX_RESPONSE_SIZE};
+
+// Validate frame dimensions before allocation
+let frame_size = validate_frame_size(width, height, bytes_per_pixel)?;
+let buffer = vec![0u8; frame_size.bytes];
+
+// Check script size before processing
+if script_content.len() > MAX_SCRIPT_SIZE {
+    return Err(Status::invalid_argument("Script too large"));
+}
+```
+
 ## Feature Flags
 
 **High-Level Profiles:**

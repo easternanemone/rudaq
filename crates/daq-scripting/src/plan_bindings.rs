@@ -92,6 +92,27 @@ impl PlanHandle {
 }
 
 // =============================================================================
+// Helper Functions
+// =============================================================================
+
+fn validate_points(points: i64) -> Result<usize, Box<EvalAltResult>> {
+    const MAX_SCAN_POINTS: i64 = 1_000_000;
+    if points <= 0 {
+        return Err(Box::new(EvalAltResult::ErrorRuntime(
+            format!("points must be positive, got {}", points).into(),
+            Position::NONE,
+        )));
+    }
+    if points > MAX_SCAN_POINTS {
+        return Err(Box::new(EvalAltResult::ErrorRuntime(
+            format!("points exceeds maximum ({}), got {}", MAX_SCAN_POINTS, points).into(),
+            Position::NONE,
+        )));
+    }
+    Ok(points as usize)
+}
+
+// =============================================================================
 // Plan Registration
 // =============================================================================
 
@@ -113,9 +134,10 @@ pub fn register_plans(engine: &mut Engine) {
     // line_scan(motor, start, end, points, detector)
     engine.register_fn(
         "line_scan",
-        |motor: &str, start: f64, end: f64, points: i64, detector: &str| -> PlanHandle {
-            let plan = LineScan::new(motor, start, end, points as usize).with_detector(detector);
-            PlanHandle::new(plan)
+        |motor: &str, start: f64, end: f64, points: i64, detector: &str| -> Result<PlanHandle, Box<EvalAltResult>> {
+            let valid_points = validate_points(points)?;
+            let plan = LineScan::new(motor, start, end, valid_points).with_detector(detector);
+            Ok(PlanHandle::new(plan))
         },
     );
 
@@ -128,11 +150,12 @@ pub fn register_plans(engine: &mut Engine) {
          points: i64,
          detector: &str,
          settle: f64|
-         -> PlanHandle {
-            let plan = LineScan::new(motor, start, end, points as usize)
+         -> Result<PlanHandle, Box<EvalAltResult>> {
+            let valid_points = validate_points(points)?;
+            let plan = LineScan::new(motor, start, end, valid_points)
                 .with_detector(detector)
                 .with_settle_time(settle);
-            PlanHandle::new(plan)
+            Ok(PlanHandle::new(plan))
         },
     );
 
@@ -148,39 +171,44 @@ pub fn register_plans(engine: &mut Engine) {
          y_end: f64,
          y_points: i64,
          detector: &str|
-         -> PlanHandle {
+         -> Result<PlanHandle, Box<EvalAltResult>> {
+            let valid_x_points = validate_points(x_points)?;
+            let valid_y_points = validate_points(y_points)?;
+
             // Note: GridScan takes (outer_axis, ..., inner_axis, ...)
             // x is typically the inner (fast) axis, y is the outer (slow) axis
             let plan = GridScan::new(
                 y_motor,
                 y_start,
                 y_end,
-                y_points as usize,
+                valid_y_points,
                 x_motor,
                 x_start,
                 x_end,
-                x_points as usize,
+                valid_x_points,
             )
             .with_detector(detector);
-            PlanHandle::new(plan)
+            Ok(PlanHandle::new(plan))
         },
     );
 
     // count(num_points, detector, delay_seconds)
     engine.register_fn(
         "count",
-        |num_points: i64, detector: &str, delay: f64| -> PlanHandle {
-            let plan = Count::new(num_points as usize)
+        |num_points: i64, detector: &str, delay: f64| -> Result<PlanHandle, Box<EvalAltResult>> {
+            let valid_points = validate_points(num_points)?;
+            let plan = Count::new(valid_points)
                 .with_detector(detector)
                 .with_delay(delay);
-            PlanHandle::new(plan)
+            Ok(PlanHandle::new(plan))
         },
     );
 
     // count simple (no delay)
-    engine.register_fn("count_simple", |num_points: i64| -> PlanHandle {
-        let plan = Count::new(num_points as usize);
-        PlanHandle::new(plan)
+    engine.register_fn("count_simple", |num_points: i64| -> Result<PlanHandle, Box<EvalAltResult>> {
+        let valid_points = validate_points(num_points)?;
+        let plan = Count::new(valid_points);
+        Ok(PlanHandle::new(plan))
     });
 
     // =========================================================================
@@ -456,5 +484,44 @@ mod tests {
             .expect("Failed to get num_points");
 
         assert_eq!(num_points, 21);
+    }
+
+    #[test]
+    fn test_validate_points_negative() {
+        let mut engine = Engine::new();
+        register_plans(&mut engine);
+
+        let result: Result<PlanHandle, _> = engine.eval(r#"line_scan("x", 0.0, 10.0, -5, "det")"#);
+        if let Err(e) = result {
+            assert!(e.to_string().contains("points must be positive"));
+        } else {
+            panic!("Expected error for negative points, got Ok");
+        }
+    }
+
+    #[test]
+    fn test_validate_points_zero() {
+        let mut engine = Engine::new();
+        register_plans(&mut engine);
+
+        let result: Result<PlanHandle, _> = engine.eval(r#"line_scan("x", 0.0, 10.0, 0, "det")"#);
+        if let Err(e) = result {
+            assert!(e.to_string().contains("points must be positive"));
+        } else {
+            panic!("Expected error for zero points, got Ok");
+        }
+    }
+
+    #[test]
+    fn test_validate_points_too_large() {
+        let mut engine = Engine::new();
+        register_plans(&mut engine);
+
+        let result: Result<PlanHandle, _> = engine.eval(r#"line_scan("x", 0.0, 10.0, 1000001, "det")"#);
+        if let Err(e) = result {
+            assert!(e.to_string().contains("points exceeds maximum"));
+        } else {
+            panic!("Expected error for too many points, got Ok");
+        }
     }
 }

@@ -378,6 +378,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::approx_constant)] // 3.14 is test data, not a math constant
     async fn test_read_typed() {
         let (tx, rx) = mpsc::channel(16);
         let mut reader = RingBufferReader::new(rx);

@@ -1,0 +1,17 @@
+# rust-daq configuration (v4)
+# gRPC server security defaults: loopback bind, restricted CORS, optional auth/TLS.
+
+[grpc]
+# Bind address for the gRPC server (port is provided by CLI/runtime).
+bind_address = "127.0.0.1"
+
+# Optional TLS configuration (PEM-encoded).
+# tls_cert_path = "config/tls/server.crt"
+# tls_key_path = "config/tls/server.key"
+
+# Authentication settings (API key or JWT HMAC secret).
+auth_enabled = false
+# auth_token = "change-me"
+
+# Allowed origins for gRPC-web (CORS). Keep this list tight.
+allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]

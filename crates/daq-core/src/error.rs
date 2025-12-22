@@ -241,6 +241,32 @@ pub enum DaqError {
     #[error("Data processing error: {0}")]
     Processing(String),
 
+    /// Requested frame dimensions exceed supported limits.
+    #[error(
+        "Frame dimensions {width}x{height} exceed maximum {max_dimension} per dimension"
+    )]
+    FrameDimensionsTooLarge {
+        width: u32,
+        height: u32,
+        max_dimension: u32,
+    },
+
+    /// Calculating a size overflowed usize.
+    #[error("Size overflow while computing {context}")]
+    SizeOverflow { context: &'static str },
+
+    /// Frame payload exceeds maximum allowed size.
+    #[error("Frame size {bytes} bytes exceeds maximum {max_bytes} bytes")]
+    FrameTooLarge { bytes: usize, max_bytes: usize },
+
+    /// Response payload exceeds maximum allowed size.
+    #[error("Response size {bytes} bytes exceeds maximum {max_bytes} bytes")]
+    ResponseTooLarge { bytes: usize, max_bytes: usize },
+
+    /// Script payload exceeds maximum allowed size.
+    #[error("Script size {bytes} bytes exceeds maximum {max_bytes} bytes")]
+    ScriptTooLarge { bytes: usize, max_bytes: usize },
+
     /// Module does not support the requested operation.
     ///
     /// Occurs when calling a capability method on a module that doesn't implement

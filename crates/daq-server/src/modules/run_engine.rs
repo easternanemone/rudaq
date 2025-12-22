@@ -75,10 +75,14 @@ impl RunConfig {
     }
 
     /// Add metadata.
-    pub fn with_metadata(mut self, key: impl Into<String>, value: impl serde::Serialize) -> Self {
+    pub fn with_metadata(
+        mut self,
+        key: impl Into<String>,
+        value: impl serde::Serialize,
+    ) -> Result<Self, serde_json::Error> {
         self.metadata
-            .insert(key.into(), serde_json::to_value(value).unwrap());
-        self
+            .insert(key.into(), serde_json::to_value(value)?);
+        Ok(self)
     }
 }
 
@@ -417,7 +421,9 @@ mod tests {
         let config = RunConfig::default()
             .with_max_duration(60.0)
             .with_metadata("operator", "test_user")
-            .with_metadata("sample", "silicon_wafer");
+            .unwrap()
+            .with_metadata("sample", "silicon_wafer")
+            .unwrap();
 
         assert_eq!(config.max_duration_secs, Some(60.0));
         assert!(config.metadata.contains_key("operator"));

@@ -9,7 +9,6 @@ daq-hardware = { path = "../daq-hardware" }
 anyhow = "1.0"
 tokio = { version = "1.36", features = ["sync", "time", "macros", "rt"] }
 tracing = "0.1"
-serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 # async-recursion might be needed for nested plans if we implement them
 # futures = "0.3"
