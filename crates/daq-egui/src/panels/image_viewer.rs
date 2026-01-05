@@ -273,6 +273,22 @@ enum ImageViewerAction {
     CamerasLoaded(Vec<String>),
     /// Error from async operation
     Error(String),
+    /// Reconnection attempt result (bd-12qt)
+    ReconnectResult { device_id: String, success: bool },
+}
+
+/// Connection state for camera device (bd-12qt)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConnectionState {
+    /// No device selected or initial state
+    #[default]
+    Idle,
+    /// Connected and streaming normally
+    Connected,
+    /// Device disconnected or error occurred
+    Disconnected,
+    /// Attempting to reconnect
+    Reconnecting,
 }
 
 /// Image Viewer Panel state
@@ -362,6 +378,16 @@ pub struct ImageViewerPanel {
     live_exposure: bool,
     /// Last time exposure was sent (for debounce)
     exposure_last_sent: Option<Instant>,
+
+    // -- Connection Resilience Fields (bd-12qt) --
+    /// Connection state for the current device
+    connection_state: ConnectionState,
+    /// Number of consecutive connection failures
+    retry_count: u32,
+    /// Time of last disconnect (for auto-retry backoff)
+    last_disconnect: Option<Instant>,
+    /// Enable automatic reconnection attempts
+    auto_reconnect: bool,
 }
 
 impl Default for ImageViewerPanel {
@@ -411,6 +437,12 @@ impl Default for ImageViewerPanel {
             loading_params_device: None,
             live_exposure: true,
             exposure_last_sent: None,
+
+            // Connection resilience (bd-12qt)
+            connection_state: ConnectionState::Idle,
+            retry_count: 0,
+            last_disconnect: None,
+            auto_reconnect: true,
         }
     }
 }
@@ -433,6 +465,26 @@ impl ImageViewerPanel {
                     self.error = Some(msg);
                     // Clear subscription state on error to allow restart
                     self.subscription = None;
+                    // bd-12qt: Update connection state on error
+                    if self.connection_state == ConnectionState::Connected {
+                        self.connection_state = ConnectionState::Disconnected;
+                        self.last_disconnect = Some(Instant::now());
+                        self.retry_count = 0;
+                    }
+                }
+                ImageViewerAction::ReconnectResult { device_id, success } => {
+                    // bd-12qt: Handle reconnection result
+                    if success {
+                        self.connection_state = ConnectionState::Connected;
+                        self.retry_count = 0;
+                        self.error = None;
+                        self.status = Some(format!("Reconnected to {}", device_id));
+                    } else {
+                        self.connection_state = ConnectionState::Disconnected;
+                        self.retry_count += 1;
+                        self.status =
+                            Some(format!("Reconnect failed (attempt {})", self.retry_count));
+                    }
                 }
             }
         }
@@ -892,6 +944,8 @@ impl ImageViewerPanel {
         self.device_id = Some(device_id.to_string());
         self.error = None;
         self.status = Some(format!("Connecting to {}...", device_id));
+        // bd-12qt: Update connection state
+        self.connection_state = ConnectionState::Reconnecting;
 
         let Some(frame_tx) = self.frame_tx.clone() else {
             self.error = Some("Internal error: no frame channel".to_string());
@@ -1097,6 +1151,13 @@ impl ImageViewerPanel {
         self.bit_depth = frame.bit_depth;
         self.frame_count = frame.frame_number;
         self.error = None;
+
+        // bd-12qt: Update connection state when receiving frames
+        if self.connection_state != ConnectionState::Connected {
+            self.connection_state = ConnectionState::Connected;
+            self.retry_count = 0;
+            self.status = Some("Connected".to_string());
+        }
         self.status = None;
 
         // Store frame data for ROI statistics
@@ -1279,6 +1340,22 @@ impl ImageViewerPanel {
             ui.ctx().request_repaint();
         }
 
+        // bd-12qt: Auto-reconnect logic with exponential backoff
+        let mut should_auto_reconnect = false;
+        if self.auto_reconnect
+            && self.connection_state == ConnectionState::Disconnected
+            && self.device_id.is_some()
+            && self.subscription.is_none()
+        {
+            // Exponential backoff: 2^retry_count seconds, capped at 60 seconds
+            let backoff_secs = (2u64.pow(self.retry_count.min(6))).min(60);
+            if let Some(last_disconnect) = self.last_disconnect {
+                if last_disconnect.elapsed().as_secs() >= backoff_secs {
+                    should_auto_reconnect = true;
+                }
+            }
+        }
+
         // Auto-refresh camera list on first load or if stale
         let should_refresh = self.last_refresh.is_none()
             || self
@@ -1353,6 +1430,24 @@ impl ImageViewerPanel {
                         start_stream_device = Some(device_id.clone());
                     }
                 }
+            }
+
+            // Reconnect button when disconnected (bd-12qt)
+            if self.connection_state == ConnectionState::Disconnected {
+                if ui
+                    .button("🔄 Reconnect")
+                    .on_hover_text("Attempt to reconnect to camera")
+                    .clicked()
+                {
+                    if let Some(device_id) = &self.device_id {
+                        start_stream_device = Some(device_id.clone());
+                        self.connection_state = ConnectionState::Reconnecting;
+                    }
+                }
+
+                // Auto-reconnect toggle
+                ui.checkbox(&mut self.auto_reconnect, "Auto")
+                    .on_hover_text("Automatically attempt reconnection");
             }
 
             // Colormap selector
@@ -1488,9 +1583,16 @@ impl ImageViewerPanel {
                 self.refresh_cameras(client_val, runtime);
             }
 
-            // Handle start stream
+            // Handle start stream (manual or auto-reconnect)
             if let Some(device_id) = start_stream_device {
                 self.start_stream(&device_id, client_val, runtime);
+            } else if should_auto_reconnect {
+                // bd-12qt: Auto-reconnect
+                if let Some(device_id) = self.device_id.clone() {
+                    self.connection_state = ConnectionState::Reconnecting;
+                    self.last_disconnect = Some(Instant::now()); // Reset timer for next attempt
+                    self.start_stream(&device_id, client_val, runtime);
+                }
             }
 
             // Handle pending param updates
@@ -1512,8 +1614,28 @@ impl ImageViewerPanel {
 
         ui.separator();
 
-        // Status bar
+        // Status bar with connection indicator (bd-12qt)
         ui.horizontal(|ui| {
+            // Connection state indicator
+            match self.connection_state {
+                ConnectionState::Idle => {}
+                ConnectionState::Connected => {
+                    ui.colored_label(egui::Color32::GREEN, "●");
+                    ui.label("Connected");
+                    ui.separator();
+                }
+                ConnectionState::Disconnected => {
+                    ui.colored_label(egui::Color32::RED, "●");
+                    ui.label("Disconnected");
+                    ui.separator();
+                }
+                ConnectionState::Reconnecting => {
+                    ui.colored_label(egui::Color32::YELLOW, "●");
+                    ui.label("Reconnecting...");
+                    ui.separator();
+                }
+            }
+
             if self.width > 0 {
                 ui.label(format!(
                     "{}x{} @ {}bit",
@@ -1542,11 +1664,7 @@ impl ImageViewerPanel {
         let has_controls_panel = self.show_controls && !self.camera_params.is_empty();
 
         let stats_panel_width = if has_roi_panel || has_histogram_panel || has_controls_panel {
-            if has_controls_panel {
-                280.0
-            } else {
-                200.0
-            }
+            if has_controls_panel { 280.0 } else { 200.0 }
         } else {
             0.0
         };

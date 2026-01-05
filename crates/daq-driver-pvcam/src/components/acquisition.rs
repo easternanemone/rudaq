@@ -246,8 +246,14 @@ pub unsafe extern "system" fn pvcam_eof_callback(
 
 /// Acquisition error type for signaling fatal errors from frame loop (Gemini SDK review).
 /// Used to signal "involuntary stop" conditions back to the driver.
-#[cfg(feature = "pvcam_hardware")]
-#[derive(Debug, Clone)]
+///
+/// # Error Recovery (bd-g9po)
+///
+/// These errors indicate conditions that may require driver reinitialization:
+/// - `ReadoutFailed`: Hardware error during frame readout (possible USB disconnect)
+/// - `StatusCheckFailed`: SDK returned error from status query
+/// - `Timeout`: No frames received for extended period
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AcquisitionError {
     /// READOUT_FAILED status from pl_exp_check_cont_status
     ReadoutFailed,
@@ -553,6 +559,10 @@ pub struct PvcamAcquisition {
     #[cfg(feature = "pvcam_hardware")]
     last_hardware_frame_nr: Arc<AtomicI32>,
 
+    /// Last error that occurred during acquisition (bd-g9po).
+    /// Set when a fatal error causes involuntary stop. Cleared by `clear_error()`.
+    last_error: Arc<std::sync::Mutex<Option<AcquisitionError>>>,
+
     /// Shutdown signal for the poll loop (bd-z8q8).
     /// Set to true in Drop to signal the poll thread to exit.
     #[cfg(feature = "pvcam_hardware")]
@@ -606,6 +616,9 @@ impl PvcamAcquisition {
             #[cfg(feature = "pvcam_hardware")]
             last_hardware_frame_nr: Arc::new(AtomicI32::new(-1)), // -1 = uninitialized
 
+            // Error tracking (bd-g9po)
+            last_error: Arc::new(std::sync::Mutex::new(None)),
+
             #[cfg(feature = "pvcam_hardware")]
             shutdown: Arc::new(AtomicBool::new(false)),
             #[cfg(feature = "pvcam_hardware")]
@@ -647,6 +660,35 @@ impl PvcamAcquisition {
             self.lost_frames.load(Ordering::Relaxed),
             self.discontinuity_events.load(Ordering::Relaxed),
         )
+    }
+
+    /// Check if an error occurred during acquisition (bd-g9po).
+    ///
+    /// Returns true if the last acquisition ended due to an error rather than
+    /// a normal stop. Use `last_error()` to get details.
+    pub fn has_error(&self) -> bool {
+        self.last_error
+            .lock()
+            .map(|guard| guard.is_some())
+            .unwrap_or(false)
+    }
+
+    /// Get the last acquisition error, if any (bd-g9po).
+    ///
+    /// Returns the error type from the last failed acquisition. Errors are
+    /// set when the frame loop exits due to SDK failures or timeouts.
+    pub fn last_error(&self) -> Option<AcquisitionError> {
+        self.last_error.lock().ok().and_then(|guard| *guard)
+    }
+
+    /// Clear the error state (bd-g9po).
+    ///
+    /// Call this before retrying an operation after an error, or as part of
+    /// driver reinitialization.
+    pub fn clear_error(&self) {
+        if let Ok(mut guard) = self.last_error.lock() {
+            *guard = None;
+        }
     }
 
     /// Calculate optimal circular buffer frame count (bd-ek9n.4)
@@ -993,6 +1035,9 @@ impl PvcamAcquisition {
             // Clone streaming parameter for error watcher task
             let streaming_for_watcher = self.streaming.clone();
 
+            // Clone last_error for error watcher task (bd-g9po)
+            let last_error_for_watcher = self.last_error.clone();
+
             // Capture ROI and binning for frame metadata (bd-183h)
             let roi_x = roi.x;
             let roi_y = roi.y;
@@ -1031,11 +1076,18 @@ impl PvcamAcquisition {
             // Gemini SDK review: Spawn error watcher to handle involuntary stops.
             // This prevents "zombie streaming" where fatal errors leave streaming=true.
             // Uses tokio::sync::mpsc::unbounded_channel for async-native recv() without polling.
+            // bd-g9po: Also stores error in last_error for recovery detection.
             tokio::spawn(async move {
                 // Async recv() suspends the task until a message arrives or channel closes.
                 // No polling loop needed - tokio handles the wake-up efficiently.
                 if let Some(err) = error_rx.recv().await {
                     tracing::error!("Acquisition error (involuntary stop): {:?}", err);
+
+                    // bd-g9po: Store error for recovery detection
+                    if let Ok(mut guard) = last_error_for_watcher.lock() {
+                        *guard = Some(err);
+                    }
+
                     // Update streaming state to reflect the involuntary stop
                     if let Err(e) = streaming_for_watcher.set(false).await {
                         tracing::error!("Failed to update streaming state after error: {}", e);
@@ -1058,7 +1110,9 @@ impl PvcamAcquisition {
         // Handle case where hardware feature enabled but handle missing (mock fallback logic)
         #[cfg(feature = "pvcam_hardware")]
         if conn.handle().is_none() {
-            tracing::warn!("start_stream: pvcam_hardware compiled but handle is None - falling back to mock stream");
+            tracing::warn!(
+                "start_stream: pvcam_hardware compiled but handle is None - falling back to mock stream"
+            );
             self.start_mock_stream(roi, binning, exposure_ms, reliable_tx)
                 .await?;
         }
@@ -1534,7 +1588,10 @@ impl PvcamAcquisition {
                     if let Some(ref tx) = reliable_tx {
                         if tx.try_send(frame_arc.clone()).is_err() && current_frame_nr % 100 == 0 {
                             // Rate-limit warnings to avoid log spam at high FPS
-                            tracing::warn!("Reliable channel full, dropping frames around {} for measurement pipeline", current_frame_nr);
+                            tracing::warn!(
+                                "Reliable channel full, dropping frames around {} for measurement pipeline",
+                                current_frame_nr
+                            );
                         }
                     }
 
@@ -1666,7 +1723,9 @@ impl Drop for PvcamAcquisition {
                     tracing::debug!("Aborted PVCAM frame loop handle in Drop");
                 }
             } else {
-                tracing::warn!("Could not acquire poll_handle lock in Drop - frame loop may outlive connection");
+                tracing::warn!(
+                    "Could not acquire poll_handle lock in Drop - frame loop may outlive connection"
+                );
             }
 
             // CRITICAL SAFETY: Stop camera and deregister callback BEFORE buffer/context are freed.

@@ -5,8 +5,8 @@ use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 use once_cell::sync::Lazy;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
+use tracing_subscriber::EnvFilter;
 
 struct UiLogWriter {
     buf: Arc<Mutex<Vec<String>>>,
@@ -49,14 +49,14 @@ static UI_LOG_BUFFER: Lazy<Arc<Mutex<Vec<String>>>> =
     Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
 
 use crate::client::DaqClient;
-use crate::connection::{AddressSource, DaemonAddress, resolve_address, save_to_storage};
+use crate::connection::{resolve_address, save_to_storage, AddressSource, DaemonAddress};
 use crate::panels::{
     ConnectionDiagnostics, ConnectionStatus as LogConnectionStatus, DevicesPanel,
     DocumentViewerPanel, GettingStartedPanel, ImageViewerPanel, InstrumentManagerPanel,
     LoggingPanel, ModulesPanel, PlanRunnerPanel, ScansPanel, ScriptsPanel, SignalPlotterPanel,
     StoragePanel,
 };
-use crate::reconnect::{ConnectionManager, ConnectionState, friendly_error_message};
+use crate::reconnect::{friendly_error_message, ConnectionManager, ConnectionState};
 
 /// Result of a health check sent through the channel (bd-j3xz.3.3: includes RTT).
 enum HealthCheckResult {
@@ -458,8 +458,8 @@ impl DaqApp {
     fn start_pvcam_stream(&mut self) {
         use daq_core::capabilities::FrameProducer;
         use daq_driver_pvcam::PvcamDriver;
-        use rerun::RecordingStreamBuilder;
         use rerun::archetypes::Tensor;
+        use rerun::RecordingStreamBuilder;
 
         let handle = self.runtime.handle().clone();
         self.pvcam_task = Some(handle.spawn(async move {

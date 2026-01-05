@@ -289,7 +289,11 @@ mod mock_features {
     fn get_temperature_mock() {
         let conn = mock_connection();
         let temp = PvcamFeatures::get_temperature(&conn).unwrap();
-        assert_eq!(temp, -40.0, "Mock temperature should be -40.0");
+        // MockCameraState defaults to 25.0 (room temperature)
+        assert_eq!(
+            temp, 25.0,
+            "Mock temperature should match default mock state"
+        );
     }
 
     #[test]

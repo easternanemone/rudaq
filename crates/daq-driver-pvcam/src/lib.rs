@@ -949,6 +949,128 @@ impl PvcamDriver {
         }
         Ok(())
     }
+
+    /// Check if the driver experienced an error that requires recovery.
+    ///
+    /// Returns true if the last acquisition ended due to an error (USB disconnect,
+    /// SDK failure, etc.) rather than a normal stop.
+    ///
+    /// # Error Recovery (bd-g9po)
+    ///
+    /// When this returns true, the caller should:
+    /// 1. Call `reset_error_state()` to clear the error
+    /// 2. Optionally call `reinitialize()` to fully reset the SDK connection
+    /// 3. Retry the operation
+    pub fn has_error(&self) -> bool {
+        self.acquisition.has_error()
+    }
+
+    /// Get the last error that occurred, if any.
+    ///
+    /// Returns the error type from the last failed acquisition. The error is
+    /// cleared when `reset_error_state()` or `reinitialize()` is called.
+    pub fn last_error(&self) -> Option<crate::components::acquisition::AcquisitionError> {
+        self.acquisition.last_error()
+    }
+
+    /// Reset the error state without reinitializing the SDK.
+    ///
+    /// Use this for transient errors where the SDK is still functional.
+    /// For more serious errors (USB disconnect), use `reinitialize()` instead.
+    pub async fn reset_error_state(&self) -> Result<()> {
+        self.acquisition.clear_error();
+        // Reset streaming state in case it was left in inconsistent state
+        if self.streaming.get() {
+            let conn = self.connection.lock().await;
+            self.acquisition.stop_stream(&conn).await?;
+        }
+        Ok(())
+    }
+
+    /// Reinitialize the driver after a fatal error.
+    ///
+    /// This performs a full reset of the SDK connection:
+    /// 1. Stops any active streaming
+    /// 2. Closes and reopens the camera connection
+    /// 3. Clears all error state
+    /// 4. Reloads camera parameters
+    ///
+    /// # Error Recovery (bd-g9po)
+    ///
+    /// Call this after detecting a fatal error (USB disconnect, SDK crash) to
+    /// restore the driver to a functional state. The camera must still be
+    /// physically connected for this to succeed.
+    ///
+    /// # Example
+    /// ```ignore
+    /// if driver.has_error() {
+    ///     match driver.reinitialize().await {
+    ///         Ok(()) => println!("Camera recovered"),
+    ///         Err(e) => println!("Camera not available: {}", e),
+    ///     }
+    /// }
+    /// ```
+    #[cfg(feature = "pvcam_hardware")]
+    pub async fn reinitialize(&self) -> Result<()> {
+        use crate::components::features::PvcamFeatures;
+
+        tracing::info!("Reinitializing PVCAM driver after error");
+
+        // 1. Stop streaming if active
+        if self.streaming.get() {
+            let conn = self.connection.lock().await;
+            let _ = self.acquisition.stop_stream(&conn).await;
+        }
+
+        // 2. Clear error state
+        self.acquisition.clear_error();
+
+        // 3. Close and reopen the camera
+        let camera_name = self.camera_name.clone();
+        let connection = self.connection.clone();
+
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let mut conn = connection.blocking_lock();
+
+            // Close existing connection
+            conn.close();
+
+            // Reinitialize SDK (ref counting handles multiple instances)
+            conn.initialize()?;
+
+            // Reopen camera
+            conn.open(&camera_name)?;
+
+            tracing::info!("Camera reconnected successfully");
+            Ok(())
+        })
+        .await??;
+
+        // 4. Reload camera info (temperature, etc. may have changed)
+        let conn = self.connection.lock().await;
+        if let Ok(temp) = PvcamFeatures::get_temperature(&conn) {
+            let _ = self.temperature.set(temp).await;
+        }
+
+        tracing::info!("PVCAM driver reinitialized successfully");
+        Ok(())
+    }
+
+    /// Reinitialize the driver after a fatal error (mock mode).
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub async fn reinitialize(&self) -> Result<()> {
+        tracing::info!("Reinitializing PVCAM driver (mock mode)");
+
+        // Just clear error state in mock mode
+        self.acquisition.clear_error();
+
+        if self.streaming.get() {
+            let conn = self.connection.lock().await;
+            let _ = self.acquisition.stop_stream(&conn).await;
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
