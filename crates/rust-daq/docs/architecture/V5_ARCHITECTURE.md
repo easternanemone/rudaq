@@ -1,6 +1,6 @@
 # V5 Architecture - Headless-First & Capability-Based Design
 
-**Last Updated**: 2025-12-10
+**Last Updated**: 2024-12-25
 **Status**: ✅ FULLY IMPLEMENTED
 **Architecture Coordinator**: Gemini
 
@@ -17,12 +17,8 @@ The rust-daq V5 architecture represents a complete paradigm shift from monolithi
 - ✅ **COMPLETE**: V1/V2/V3/V4 legacy code eliminated
 - ✅ **COMPLETE**: Unified capability trait system (`crates/daq-hardware/src/capabilities.rs`)
 - ✅ **COMPLETE**: V5 hardware drivers in `crates/rust-daq/src/hardware/` (7 driver types)
-- ✅ **COMPLETE**: gRPC remote control (Phase 3)
-- ✅ **COMPLETE**: Rhai scripting engine (`crates/rust-daq/src/scripting/rhai_engine.rs`)
-- ✅ **COMPLETE**: HDF5 storage layer (`crates/rust-daq/src/data/hdf5_writer.rs`)
-- ✅ **COMPLETE**: Proto extraction to `crates/daq-proto/`
-- ✅ **COMPLETE**: Modules decoupled from networking (`modules = []`)
-- 🔄 **IN PROGRESS**: Phase 3 crate extraction (daq-hardware, daq-storage, daq-scripting)
+- ✅ **COMPLETE**: Phase 2 (gRPC Streaming & Controls)
+- 🔄 **IN PROGRESS**: Phase 3 (Crate extraction - daq-hardware, daq-storage, daq-scripting)
 
 ## Architectural Principles
 
@@ -63,12 +59,14 @@ pub trait FrameProducer: Send + Sync {
 ```
 
 **Benefits**:
+
 - Hardware-agnostic experiment code (generic over trait bounds)
 - Compile-time safety (cannot call unsupported operations)
 - Easy testing (mock individual capabilities)
 - Clear contracts (small, focused traits)
 
 **Composition Pattern**:
+
 ```rust
 // Triggered camera composes multiple capabilities
 struct TriggeredCamera { /* ... */ }
@@ -126,7 +124,7 @@ where
 ┌─────────────────────────────────────────┐
 │ Client Layer (Remote, Crash-Isolated)  │
 ├─────────────────────────────────────────┤
-│  • Tauri/WebAssembly UI                │
+│  • egui GUI (Dockable Panels)          │
 │  • Python Client (grpcio)              │
 │  • Julia Client                        │
 │  • Real-time visualization             │
@@ -135,6 +133,7 @@ where
 ```
 
 **Crash Resilience Guarantee**:
+
 - Daemon owns hardware, runs experiments autonomously
 - Client can crash/disconnect without affecting acquisition
 - Network failures do not interrupt hardware operations
@@ -160,12 +159,14 @@ for i in 0..100 {
 ```
 
 **Safety Mechanisms**:
+
 - 10,000 operation limit (prevents infinite loops)
 - Automatic script termination on timeout
 - Sandboxed execution (no filesystem access)
 - Type-safe bindings (async→sync bridge)
 
 **Bindings Layer** (`crates/rust-daq/src/scripting/bindings.rs`):
+
 - Wraps async Rust hardware methods for sync Rhai
 - Uses `tokio::task::block_in_place` for thread safety
 - Exposes simplified API (move_abs, trigger, read, etc.)
@@ -175,6 +176,7 @@ for i in 0..100 {
 **Philosophy**: Separate fast data path (Arrow) from compatibility layer (HDF5).
 
 **The Mullet Strategy**:
+
 - **Arrow in Front**: Ring buffer uses Apache Arrow IPC format
   - Memory-mapped shared memory (`/dev/shm`)
   - Lock-free atomic operations
@@ -188,6 +190,7 @@ for i in 0..100 {
   - No Arrow exposure in user-facing APIs
 
 **Implementation** (`crates/rust-daq/src/data/ring_buffer.rs`, `crates/rust-daq/src/data/hdf5_writer.rs`):
+
 ```rust
 // Ring buffer header (#[repr(C)] for cross-language compat)
 struct RingBufferHeader {
@@ -214,6 +217,7 @@ impl HDF5Writer {
 **Philosophy**: Type-safe, high-performance remote procedure calls.
 
 **gRPC API** (`proto/daq.proto`):
+
 ```protobuf
 service ControlService {
   rpc UploadScript(UploadRequest) returns (UploadResponse);
@@ -226,6 +230,7 @@ service ControlService {
 ```
 
 **Server Implementation** (`crates/rust-daq/src/grpc/server.rs`):
+
 - Tonic-based async gRPC server
 - WebSocket streaming for real-time telemetry
 - HTTP/2 multiplexing for data streams
@@ -238,6 +243,7 @@ service ControlService {
 **Directory**: `crates/rust-daq/src/hardware/`
 
 **Components**:
+
 - `capabilities.rs` - Atomic trait definitions (Movable, Readable, etc.)
 - `mock.rs` - Reference implementations for testing
 - `esp300.rs` - Newport ESP300 motion controller (Movable trait)
@@ -247,11 +253,13 @@ service ControlService {
 - `newport_1830c.rs` - Power meter (Readable trait)
 
 **State Management**:
+
 - Devices use `tokio::sync::Mutex<State>` for interior mutability
 - Trait methods take `&self` (immutable reference)
 - Lock contention is primary flow control mechanism
 
 **Example Driver Structure**:
+
 ```rust
 pub struct Esp300Driver {
     state: Mutex<Esp300State>,
@@ -283,11 +291,13 @@ impl Movable for Esp300Driver {
 **Directory**: `crates/rust-daq/src/scripting/`
 
 **Components**:
+
 - `rhai_engine.rs` - Primary Rhai scripting engine (use this)
 - `engine.rs` - ScriptHost wrapper (**DEPRECATED** - legacy V4 compatibility layer)
 - `bindings.rs` - Hardware bindings (async→sync bridge)
 
 **Safety Constraints**:
+
 - Max operations: 10,000 per script
 - Max string length: 1 MB
 - No filesystem access
@@ -295,6 +305,7 @@ impl Movable for Esp300Driver {
 - Controlled imports only
 
 **Async Bridge Pattern**:
+
 ```rust
 // Rhai is sync, Rust hardware is async - bridge the gap
 fn register_hardware_bindings(engine: &mut Engine, hardware: Arc<dyn Movable>) {
@@ -315,10 +326,12 @@ fn register_hardware_bindings(engine: &mut Engine, hardware: Arc<dyn Movable>) {
 **Directory**: `crates/rust-daq/src/grpc/`
 
 **Components**:
+
 - `server.rs` - DaqServer implementation
 - `proto/` - Generated Protobuf bindings
 
 **Request Flow**:
+
 1. Client sends `UploadScript` with .rhai code
 2. Server validates syntax
 3. Client sends `StartExperiment`
@@ -328,6 +341,7 @@ fn register_hardware_bindings(engine: &mut Engine, hardware: Arc<dyn Movable>) {
 7. Client can `StopExperiment` at any time
 
 **Concurrency Model**:
+
 - Each RPC runs in separate Tokio task
 - Hardware access arbitrated by Mutex locks
 - Background script execution does not block RPC handlers
@@ -337,18 +351,21 @@ fn register_hardware_bindings(engine: &mut Engine, hardware: Arc<dyn Movable>) {
 **Directory**: `crates/rust-daq/src/data/`
 
 **Components**:
+
 - `ring_buffer.rs` - Memory-mapped circular buffer
 - `hdf5_writer.rs` - Arrow→HDF5 translation
 - `storage.rs` - Storage backend abstraction
 - `fft.rs` - Signal processing utilities
 
 **Performance Characteristics**:
+
 - Write latency: <100 ns (lock-free path)
 - Read latency: <50 ns (zero-copy mmap)
 - Throughput: 14.6M ops/sec (measured)
 - Capacity: Configurable (default 100 MB)
 
 **Cross-Language Access**:
+
 ```python
 # Python client reads ring buffer via pyarrow
 import pyarrow as pa
@@ -372,6 +389,7 @@ for batch in reader:
 **CRITICAL RULE**: Hardware drivers MUST NOT depend on Arrow/Parquet/HDF5.
 
 **Correct Dependency Flow**:
+
 ```
 Hardware (crates/rust-daq/src/hardware/)
     ↓ produces
@@ -383,6 +401,7 @@ Arrow → Parquet/HDF5
 ```
 
 **Example (Correct)**:
+
 ```rust
 // Hardware layer - no Arrow dependency
 impl FrameProducer for PvcamCamera {
@@ -402,6 +421,7 @@ impl RingBuffer {
 ```
 
 **Anti-Pattern (Forbidden)**:
+
 ```rust
 // WRONG - hardware driver depends on Arrow
 impl PvcamCamera {
@@ -416,6 +436,7 @@ impl PvcamCamera {
 **CRITICAL RULE**: Scripts MUST work with multiple backend engines (Rhai/Python/Lua).
 
 **Abstraction Layer** (`crates/rust-daq/src/scripting/script_engine.rs`):
+
 ```rust
 pub trait ScriptEngine {
     fn execute(&self, code: &str) -> Result<Value>;
@@ -433,6 +454,7 @@ impl ScriptEngine for Pyo3ScriptEngine { /* ... */ }
 ```
 
 **Experiment code should NEVER directly import `rhai`:
+
 ```rust
 // CORRECT - Generic over script engine
 pub struct ExperimentRunner {
@@ -464,6 +486,7 @@ pub struct ExperimentRunner {
 ### Active V5 Components
 
 **Fully Operational**:
+
 - crates/daq-hardware/src/capabilities.rs (382 lines) - Capability traits
 - crates/daq-hardware/src/mock.rs (353 lines) - Reference implementations
 - crates/rust-daq/src/scripting/engine.rs (112 lines) - Rhai engine
@@ -478,12 +501,14 @@ pub struct ExperimentRunner {
 ### Remaining V3 Fragments (Low Priority)
 
 **src/core_v3.rs** - Type definitions (Roi, ImageMetadata)
+
 - Used by 10+ files for shared types
 - NOT a competing architecture (just types)
 - Gradual consolidation into V5 modules planned
 - Timeline: Phase 5 (production readiness)
 
 **Legacy instrument implementations** - Old V3 drivers
+
 - src/instrument/esp300.rs (old V2 pattern)
 - src/instrument/pvcam.rs (old V2 pattern)
 - To be replaced by src/hardware/ V5 implementations
@@ -496,6 +521,7 @@ pub struct ExperimentRunner {
 **Rationale**: Kameo adds unnecessary complexity for our use case.
 
 **Replacement Pattern**:
+
 ```rust
 // BEFORE (V4 - Kameo actor)
 #[derive(Actor)]
@@ -520,6 +546,7 @@ impl Movable for Esp300Driver {
 ```
 
 **Benefits**:
+
 - Simpler mental model (no mailboxes)
 - Lower latency (no message serialization)
 - Easier debugging (direct stack traces)
@@ -530,8 +557,9 @@ impl Movable for Esp300Driver {
 **Rationale**: Crash resilience requires daemon/client separation.
 
 **Replacement Pattern**:
+
 - Core daemon runs headless (src/main.rs daemon mode)
-- GUI is remote client (Tauri/WebAssembly)
+- GUI is remote client (egui-based)
 - Communication via gRPC (type-safe, versioned)
 - Client can crash without affecting experiments
 
@@ -540,6 +568,7 @@ impl Movable for Esp300Driver {
 **Rationale**: Hardware drivers should not depend on storage formats.
 
 **Enforcement**:
+
 - Hardware drivers use simple types (f64, FrameRef)
 - Data layer handles Arrow serialization
 - Scripts never see Arrow types
@@ -550,6 +579,7 @@ impl Movable for Esp300Driver {
 **Rationale**: Enable multiple scripting languages (Rhai/Python/Lua).
 
 **Enforcement**:
+
 - Trait-based ScriptEngine interface
 - Backend-agnostic bindings
 - Language-specific implementations hidden
@@ -605,6 +635,7 @@ impl Movable for Esp300Driver {
 ### Phase 5: Production Readiness
 
 **Tasks**:
+
 - Migrate all hardware drivers to V5 capabilities
 - Comprehensive end-to-end testing
 - Security audit (gRPC authentication)
@@ -616,6 +647,7 @@ impl Movable for Esp300Driver {
 ### Phase 6: Advanced Features
 
 **Potential Additions**:
+
 - PyO3 scripting backend (Python alternative to Rhai)
 - WebAssembly GUI client (browser-based)
 - Distributed acquisition (multi-node coordination)
@@ -652,7 +684,7 @@ The V5 architecture represents a complete transformation from fragmented legacy 
 
 **Architecture Purity**: 95% (up from 0% in V1/V2/V3/V4 era)
 
-**Next Milestone**: End-to-end validation with real hardware (ESP300, PVCAM, MaiTai)
+**Next Milestone**: Verification of gRPC streaming on real hardware (`maitai`).
 
 **Recommendation**: Proceed with hardware driver migration and production testing. Architectural foundation is solid.
 
