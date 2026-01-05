@@ -1,11 +1,12 @@
 //! Main application state and UI logic.
 
 use eframe::egui;
+use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 use once_cell::sync::Lazy;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use tracing_subscriber::fmt::writer::MakeWriterExt;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::fmt::writer::MakeWriterExt;
 
 struct UiLogWriter {
     buf: Arc<Mutex<Vec<String>>>,
@@ -44,21 +45,24 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for UiLogMakeWriter {
     }
 }
 
-static UI_LOG_BUFFER: Lazy<Arc<Mutex<Vec<String>>>> = Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
+static UI_LOG_BUFFER: Lazy<Arc<Mutex<Vec<String>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
 
 use crate::client::DaqClient;
-use crate::connection::{resolve_address, save_to_storage, AddressSource, DaemonAddress};
-use crate::reconnect::{friendly_error_message, ConnectionManager, ConnectionState};
+use crate::connection::{AddressSource, DaemonAddress, resolve_address, save_to_storage};
 use crate::panels::{
-    DevicesPanel, DocumentViewerPanel, GettingStartedPanel, ModulesPanel,
-    PlanRunnerPanel, ScansPanel, ScriptsPanel, StoragePanel,
-    InstrumentManagerPanel, SignalPlotterPanel, ImageViewerPanel,
-    LoggingPanel, ConnectionStatus as LogConnectionStatus,
+    ConnectionDiagnostics, ConnectionStatus as LogConnectionStatus, DevicesPanel,
+    DocumentViewerPanel, GettingStartedPanel, ImageViewerPanel, InstrumentManagerPanel,
+    LoggingPanel, ModulesPanel, PlanRunnerPanel, ScansPanel, ScriptsPanel, SignalPlotterPanel,
+    StoragePanel,
 };
+use crate::reconnect::{ConnectionManager, ConnectionState, friendly_error_message};
 
-/// Result of a health check sent through the channel.
+/// Result of a health check sent through the channel (bd-j3xz.3.3: includes RTT).
 enum HealthCheckResult {
-    Success,
+    /// Health check succeeded with round-trip time in milliseconds.
+    Success { rtt_ms: f64 },
+    /// Health check failed with error message.
     Failed(String),
 }
 
@@ -85,8 +89,11 @@ pub struct DaqApp {
     /// GUI version (from CARGO_PKG_VERSION)
     gui_version: String,
 
-    /// Active panel/tab
-    active_panel: Panel,
+    /// Dock state for panel management
+    dock_state: Option<DockState<Panel>>,
+
+    /// Queue for deferred UI actions (e.g. opening tabs from Nav panel)
+    ui_actions: Vec<UiAction>,
 
     /// Panel states
     getting_started_panel: GettingStartedPanel,
@@ -116,9 +123,15 @@ pub struct DaqApp {
     pvcam_task: Option<tokio::task::JoinHandle<()>>,
 }
 
+/// Action to perform on the UI state
+enum UiAction {
+    FocusTab(Panel),
+}
+
 /// Available panels in the UI
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Panel {
+    Nav,
     GettingStarted,
     Instruments,
     Devices,
@@ -156,7 +169,9 @@ impl DaqApp {
             .and(std::io::stdout);
 
             let _ = tracing_subscriber::fmt()
-                .with_env_filter(EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()))
+                .with_env_filter(
+                    EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()),
+                )
                 .with_writer(writer)
                 .try_init();
         });
@@ -168,6 +183,13 @@ impl DaqApp {
         // Create health check channel
         let (health_tx, health_rx) = mpsc::channel(4);
 
+        // Initialize dock state
+        let dock_state = if let Some(storage) = cc.storage {
+            eframe::get_value(storage, eframe::APP_KEY).unwrap_or_else(Self::default_dock_state)
+        } else {
+            Self::default_dock_state()
+        };
+
         Self {
             client: None,
             connection: ConnectionManager::new(),
@@ -176,7 +198,8 @@ impl DaqApp {
             address_error: None,
             daemon_version: None,
             gui_version: env!("CARGO_PKG_VERSION").to_string(),
-            active_panel: Panel::GettingStarted,
+            dock_state: Some(dock_state),
+            ui_actions: Vec::new(),
             getting_started_panel: GettingStartedPanel::default(),
             devices_panel: DevicesPanel::default(),
             scripts_panel: ScriptsPanel::default(),
@@ -199,6 +222,20 @@ impl DaqApp {
         }
     }
 
+    /// Create the default dock layout
+    fn default_dock_state() -> DockState<Panel> {
+        let mut dock_state = DockState::new(vec![Panel::GettingStarted]);
+        let surface = dock_state.main_surface_mut();
+
+        // Split left for Nav
+        let [_nav, content] = surface.split_left(NodeIndex::root(), 0.15, vec![Panel::Nav]);
+
+        // Split bottom of content for Logs
+        let [_content, _logs] = surface.split_below(content, 0.75, vec![Panel::Logs]);
+
+        dock_state
+    }
+
     /// Attempt to connect to the daemon
     fn connect(&mut self) {
         if self.connection.is_busy() {
@@ -213,7 +250,8 @@ impl DaqApp {
             }
             Err(e) => {
                 self.address_error = Some(e.to_string());
-                self.logging_panel.error("Connection", &format!("Invalid address: {}", e));
+                self.logging_panel
+                    .error("Connection", &format!("Invalid address: {}", e));
                 return;
             }
         }
@@ -221,10 +259,15 @@ impl DaqApp {
         self.logging_panel.connection_status = LogConnectionStatus::Connecting;
         self.logging_panel.info(
             "Connection",
-            &format!("Connecting to {} ({})", self.daemon_address, self.daemon_address.source().label()),
+            &format!(
+                "Connecting to {} ({})",
+                self.daemon_address,
+                self.daemon_address.source().label()
+            ),
         );
 
-        self.connection.connect(self.daemon_address.clone(), &self.runtime);
+        self.connection
+            .connect(self.daemon_address.clone(), &self.runtime);
     }
 
     /// Disconnect from the daemon
@@ -233,7 +276,8 @@ impl DaqApp {
         self.daemon_version = None;
         self.connection.disconnect();
         self.logging_panel.connection_status = LogConnectionStatus::Disconnected;
-        self.logging_panel.info("Connection", "Disconnected from daemon");
+        self.logging_panel
+            .info("Connection", "Disconnected from daemon");
     }
 
     /// Render the top menu bar
@@ -245,30 +289,31 @@ impl DaqApp {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
-                
+
                 ui.menu_button("View", |ui| {
                     if ui.button("Getting Started").clicked() {
-                        self.active_panel = Panel::GettingStarted;
+                        self.ui_actions
+                            .push(UiAction::FocusTab(Panel::GettingStarted));
                         ui.close_menu();
                     }
                     if ui.button("Devices").clicked() {
-                        self.active_panel = Panel::Devices;
+                        self.ui_actions.push(UiAction::FocusTab(Panel::Devices));
                         ui.close_menu();
                     }
                     if ui.button("Scripts").clicked() {
-                        self.active_panel = Panel::Scripts;
+                        self.ui_actions.push(UiAction::FocusTab(Panel::Scripts));
                         ui.close_menu();
                     }
                     if ui.button("Scans").clicked() {
-                        self.active_panel = Panel::Scans;
+                        self.ui_actions.push(UiAction::FocusTab(Panel::Scans));
                         ui.close_menu();
                     }
                     if ui.button("Storage").clicked() {
-                        self.active_panel = Panel::Storage;
+                        self.ui_actions.push(UiAction::FocusTab(Panel::Storage));
                         ui.close_menu();
                     }
                     if ui.button("Modules").clicked() {
-                        self.active_panel = Panel::Modules;
+                        self.ui_actions.push(UiAction::FocusTab(Panel::Modules));
                         ui.close_menu();
                     }
                 });
@@ -309,9 +354,12 @@ impl DaqApp {
                 let state_label = self.connection.state().label();
                 let is_connected = self.connection.state().is_connected();
                 let is_connecting = self.connection.state().is_connecting();
-                let is_disconnected = matches!(self.connection.state(), ConnectionState::Disconnected);
+                let is_disconnected =
+                    matches!(self.connection.state(), ConnectionState::Disconnected);
                 let error_info = match self.connection.state() {
-                    ConnectionState::Error { message, retriable } => Some((message.clone(), *retriable)),
+                    ConnectionState::Error { message, retriable } => {
+                        Some((message.clone(), *retriable))
+                    }
                     _ => None,
                 };
                 let seconds_until_retry = self.connection.seconds_until_retry();
@@ -332,8 +380,12 @@ impl DaqApp {
 
                 // Show source as tooltip on the label
                 let source_label = format!("[{}]", self.daemon_address.source().label());
-                ui.label(egui::RichText::new(&source_label).small().color(egui::Color32::GRAY))
-                    .on_hover_text(format!("Source: {}", self.daemon_address.source()));
+                ui.label(
+                    egui::RichText::new(&source_label)
+                        .small()
+                        .color(egui::Color32::GRAY),
+                )
+                .on_hover_text(format!("Source: {}", self.daemon_address.source()));
 
                 // Text input - show with error highlight if invalid
                 let text_color = if self.address_error.is_some() {
@@ -349,7 +401,8 @@ impl DaqApp {
                 let response = ui.add_sized([200.0, 18.0], text_edit);
 
                 // Check for Enter key press before potentially consuming response
-                let enter_pressed = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let enter_pressed =
+                    response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
 
                 // Show resolved URL as tooltip when connected
                 if is_connected {
@@ -364,7 +417,8 @@ impl DaqApp {
                 } else if let Some((_, retriable)) = &error_info {
                     if *retriable {
                         if ui.button("Retry").clicked() || enter_pressed {
-                            self.connection.retry(self.daemon_address.clone(), &self.runtime);
+                            self.connection
+                                .retry(self.daemon_address.clone(), &self.runtime);
                             self.logging_panel.connection_status = LogConnectionStatus::Connecting;
                         }
                     } else if ui.button("Connect").clicked() || enter_pressed {
@@ -378,7 +432,8 @@ impl DaqApp {
                     if ui.button("Cancel").clicked() {
                         self.connection.cancel();
                         self.logging_panel.connection_status = LogConnectionStatus::Disconnected;
-                        self.logging_panel.info("Connection", "Connection attempt cancelled");
+                        self.logging_panel
+                            .info("Connection", "Connection attempt cancelled");
                     }
                     ui.spinner();
                 }
@@ -399,128 +454,12 @@ impl DaqApp {
         });
     }
 
-    /// Render the left navigation panel
-    fn render_nav_panel(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::left("nav_panel")
-            .resizable(false)
-            .default_width(120.0)
-            .show(ctx, |ui| {
-                ui.heading("Navigation");
-                ui.separator();
-                
-                ui.vertical(|ui| {
-                    // Getting Started
-                    ui.selectable_value(&mut self.active_panel, Panel::GettingStarted, "🚀 Getting Started");
-
-                    ui.add_space(4.0);
-                    ui.label(egui::RichText::new("Hardware").small().color(egui::Color32::GRAY));
-                    ui.selectable_value(&mut self.active_panel, Panel::Instruments, "🔬 Instruments");
-                    ui.selectable_value(&mut self.active_panel, Panel::Devices, "🔧 Devices");
-
-                    ui.add_space(4.0);
-                    ui.label(egui::RichText::new("Visualization").small().color(egui::Color32::GRAY));
-                    ui.selectable_value(&mut self.active_panel, Panel::SignalPlotter, "📈 Signal Plotter");
-                    ui.selectable_value(&mut self.active_panel, Panel::ImageViewer, "🖼 Image Viewer");
-
-                    ui.add_space(4.0);
-                    ui.label(egui::RichText::new("Experiment").small().color(egui::Color32::GRAY));
-                    ui.selectable_value(&mut self.active_panel, Panel::Scripts, "📜 Scripts");
-                    ui.selectable_value(&mut self.active_panel, Panel::Scans, "📊 Scans");
-                    ui.selectable_value(&mut self.active_panel, Panel::PlanRunner, "🎯 Plan Runner");
-
-                    ui.add_space(4.0);
-                    ui.label(egui::RichText::new("Data").small().color(egui::Color32::GRAY));
-                    ui.selectable_value(&mut self.active_panel, Panel::Storage, "💾 Storage");
-                    ui.selectable_value(&mut self.active_panel, Panel::DocumentViewer, "📄 Documents");
-
-                    ui.add_space(4.0);
-                    ui.label(egui::RichText::new("System").small().color(egui::Color32::GRAY));
-                    ui.selectable_value(&mut self.active_panel, Panel::Modules, "🧩 Modules");
-                    ui.selectable_value(&mut self.active_panel, Panel::Logs, "🪵 Logs");
-                });
-                
-                ui.separator();
-                ui.add_space(8.0);
-
-                // Rerun visualization button
-                if ui.button("📈 Open Rerun").clicked() {
-                    // Launch Rerun viewer
-                    let _ = std::process::Command::new("rerun")
-                        .spawn();
-                }
-
-                // PVCAM live view via Rerun (mock mode without SDK, real mode with pvcam_hardware)
-                #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
-                {
-                    ui.add_space(8.0);
-                    let label = if self.pvcam_streaming { "🛑 Stop PVCAM Live" } else { "🎥 PVCAM Live to Rerun" };
-                    if ui.button(label).clicked() {
-                        if self.pvcam_streaming {
-                            if let Some(task) = self.pvcam_task.take() {
-                                task.abort();
-                            }
-                            self.pvcam_streaming = false;
-                        } else {
-                            self.start_pvcam_stream();
-                        }
-                    }
-                }
-            });
-    }
-
-    /// Render the main content area
-    fn render_content(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            match self.active_panel {
-                Panel::GettingStarted => {
-                    self.getting_started_panel.ui(ui);
-                }
-                Panel::Instruments => {
-                    self.instrument_manager_panel.ui(ui, self.client.as_mut(), &self.runtime);
-                }
-                Panel::Devices => {
-                    self.devices_panel.ui(ui, self.client.as_mut(), &self.runtime);
-                }
-                Panel::SignalPlotter => {
-                    // Drain any pending updates from async tasks
-                    self.signal_plotter_panel.drain_updates();
-                    self.signal_plotter_panel.ui(ui);
-                }
-                Panel::ImageViewer => {
-                    self.image_viewer_panel.ui(ui, self.client.as_mut(), &self.runtime);
-                }
-                Panel::Scripts => {
-                    self.scripts_panel.ui(ui, self.client.as_mut(), &self.runtime);
-                }
-                Panel::Scans => {
-                    self.scans_panel.ui(ui, self.client.as_mut(), &self.runtime);
-                }
-                Panel::Storage => {
-                    self.storage_panel.ui(ui, self.client.as_mut(), &self.runtime);
-                }
-                Panel::Modules => {
-                    self.modules_panel.ui(ui, self.client.as_mut(), &self.runtime);
-                }
-                Panel::PlanRunner => {
-                    self.plan_runner_panel.ui(ui, self.client.as_mut());
-                }
-                Panel::DocumentViewer => {
-                    self.document_viewer_panel.ui(ui, self.client.as_mut());
-                }
-                Panel::Logs => {
-                    self.logging_panel.ui(ui);
-                }
-            }
-        });
-    }
-
-
     #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
     fn start_pvcam_stream(&mut self) {
         use daq_core::capabilities::FrameProducer;
         use daq_driver_pvcam::PvcamDriver;
-        use rerun::archetypes::Tensor;
         use rerun::RecordingStreamBuilder;
+        use rerun::archetypes::Tensor;
 
         let handle = self.runtime.handle().clone();
         self.pvcam_task = Some(handle.spawn(async move {
@@ -603,13 +542,19 @@ impl DaqApp {
 
     fn poll_connect_results(&mut self, ctx: &egui::Context) {
         // Poll connection manager for results
-        if let Some((client, daemon_version)) = self.connection.poll(&self.runtime, &self.daemon_address) {
+        if let Some((client, daemon_version)) =
+            self.connection.poll(&self.runtime, &self.daemon_address)
+        {
             self.client = Some(client);
             self.daemon_version = daemon_version.clone();
             self.logging_panel.connection_status = LogConnectionStatus::Connected;
             self.logging_panel.info(
                 "Connection",
-                &format!("Connected to {} ({})", self.daemon_address.as_str(), self.daemon_address.source().label()),
+                &format!(
+                    "Connected to {} ({})",
+                    self.daemon_address.as_str(),
+                    self.daemon_address.source().label()
+                ),
             );
 
             // Log version info
@@ -640,10 +585,8 @@ impl DaqApp {
                 if self.logging_panel.connection_status != LogConnectionStatus::Error {
                     self.logging_panel.connection_status = LogConnectionStatus::Error;
                     if let Some(err) = self.connection.state().error_message() {
-                        self.logging_panel.error(
-                            "Connection",
-                            &format!("Connection failed: {}", err),
-                        );
+                        self.logging_panel
+                            .error("Connection", &format!("Connection failed: {}", err));
                     }
                 }
             }
@@ -682,9 +625,12 @@ impl DaqApp {
         let tx = self.health_tx.clone();
 
         self.runtime.spawn(async move {
+            // Measure RTT for the health check (bd-j3xz.3.3)
+            let start = std::time::Instant::now();
             match client.health_check().await {
                 Ok(()) => {
-                    let _ = tx.send(HealthCheckResult::Success).await;
+                    let rtt_ms = start.elapsed().as_secs_f64() * 1000.0;
+                    let _ = tx.send(HealthCheckResult::Success { rtt_ms }).await;
                 }
                 Err(e) => {
                     let _ = tx.send(HealthCheckResult::Failed(e.to_string())).await;
@@ -697,8 +643,8 @@ impl DaqApp {
     fn poll_health_checks(&mut self) {
         while let Ok(result) = self.health_rx.try_recv() {
             match result {
-                HealthCheckResult::Success => {
-                    self.connection.record_health_success();
+                HealthCheckResult::Success { rtt_ms } => {
+                    self.connection.record_health_success(rtt_ms);
                 }
                 HealthCheckResult::Failed(error) => {
                     let should_reconnect = self.connection.record_health_failure(&error);
@@ -714,14 +660,240 @@ impl DaqApp {
                         );
 
                         // Trigger reconnect
-                        self.connection.trigger_health_reconnect(
-                            self.daemon_address.clone(),
-                            &self.runtime,
-                        );
+                        self.connection
+                            .trigger_health_reconnect(self.daemon_address.clone(), &self.runtime);
                     }
                 }
             }
         }
+    }
+
+    /// Update the logging panel's connection diagnostics from the ConnectionManager (bd-j3xz.3.3).
+    fn update_connection_diagnostics(&mut self) {
+        let health_status = self.connection.health_status();
+
+        // Calculate relative times
+        let secs_since_last_success = health_status
+            .last_success
+            .map(|t| t.elapsed().as_secs_f64());
+        let secs_since_last_error = health_status
+            .last_error_at
+            .map(|t| t.elapsed().as_secs_f64());
+
+        self.logging_panel.connection_diagnostics = ConnectionDiagnostics {
+            last_rtt_ms: health_status.last_rtt_ms,
+            total_errors: health_status.total_errors,
+            secs_since_last_error,
+            last_error_message: health_status.last_error_message.clone(),
+            secs_since_last_success,
+            consecutive_failures: health_status.consecutive_failures,
+        };
+    }
+}
+
+struct DaqTabViewer<'a> {
+    app: &'a mut DaqApp,
+}
+
+impl<'a> TabViewer for DaqTabViewer<'a> {
+    type Tab = Panel;
+
+    fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
+        match tab {
+            Panel::Nav => "Navigation".into(),
+            Panel::GettingStarted => "🚀 Getting Started".into(),
+            Panel::Instruments => "🔬 Instruments".into(),
+            Panel::Devices => "🔧 Devices".into(),
+            Panel::Scripts => "📜 Scripts".into(),
+            Panel::Scans => "📊 Scans".into(),
+            Panel::Storage => "💾 Storage".into(),
+            Panel::Modules => "🧩 Modules".into(),
+            Panel::PlanRunner => "🎯 Plan Runner".into(),
+            Panel::DocumentViewer => "📄 Documents".into(),
+            Panel::SignalPlotter => "📈 Signal Plotter".into(),
+            Panel::ImageViewer => "🖼 Image Viewer".into(),
+            Panel::Logs => "🪵 Logs".into(),
+        }
+    }
+
+    fn closeable(&mut self, tab: &mut Self::Tab) -> bool {
+        !matches!(tab, Panel::Nav)
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
+        match tab {
+            Panel::Nav => self.render_nav(ui),
+            Panel::GettingStarted => self.app.getting_started_panel.ui(ui),
+            Panel::Instruments => self.app.instrument_manager_panel.ui(
+                ui,
+                self.app.client.as_mut(),
+                &self.app.runtime,
+            ),
+            Panel::Devices => {
+                self.app
+                    .devices_panel
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+            }
+            Panel::Scripts => {
+                self.app
+                    .scripts_panel
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+            }
+            Panel::Scans => {
+                self.app
+                    .scans_panel
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+            }
+            Panel::Storage => {
+                self.app
+                    .storage_panel
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+            }
+            Panel::Modules => {
+                self.app
+                    .modules_panel
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+            }
+            Panel::PlanRunner => self.app.plan_runner_panel.ui(ui, self.app.client.as_mut()),
+            Panel::DocumentViewer => self
+                .app
+                .document_viewer_panel
+                .ui(ui, self.app.client.as_mut()),
+            Panel::SignalPlotter => {
+                self.app.signal_plotter_panel.drain_updates();
+                self.app.signal_plotter_panel.ui(ui);
+            }
+            Panel::ImageViewer => {
+                self.app
+                    .image_viewer_panel
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+            }
+            Panel::Logs => self.app.logging_panel.ui(ui),
+        }
+    }
+}
+
+impl<'a> DaqTabViewer<'a> {
+    fn render_nav(&mut self, ui: &mut egui::Ui) {
+        ui.vertical(|ui| {
+            ui.heading("Navigation");
+            ui.separator();
+
+            // Getting Started
+            if ui.button("🚀 Getting Started").clicked() {
+                self.app
+                    .ui_actions
+                    .push(UiAction::FocusTab(Panel::GettingStarted));
+            }
+
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("Hardware")
+                    .small()
+                    .color(egui::Color32::GRAY),
+            );
+            if ui.button("🔬 Instruments").clicked() {
+                self.app
+                    .ui_actions
+                    .push(UiAction::FocusTab(Panel::Instruments));
+            }
+            if ui.button("🔧 Devices").clicked() {
+                self.app.ui_actions.push(UiAction::FocusTab(Panel::Devices));
+            }
+
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("Visualization")
+                    .small()
+                    .color(egui::Color32::GRAY),
+            );
+            if ui.button("📈 Signal Plotter").clicked() {
+                self.app
+                    .ui_actions
+                    .push(UiAction::FocusTab(Panel::SignalPlotter));
+            }
+            if ui.button("🖼 Image Viewer").clicked() {
+                self.app
+                    .ui_actions
+                    .push(UiAction::FocusTab(Panel::ImageViewer));
+            }
+
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("Experiment")
+                    .small()
+                    .color(egui::Color32::GRAY),
+            );
+            if ui.button("📜 Scripts").clicked() {
+                self.app.ui_actions.push(UiAction::FocusTab(Panel::Scripts));
+            }
+            if ui.button("📊 Scans").clicked() {
+                self.app.ui_actions.push(UiAction::FocusTab(Panel::Scans));
+            }
+            if ui.button("🎯 Plan Runner").clicked() {
+                self.app
+                    .ui_actions
+                    .push(UiAction::FocusTab(Panel::PlanRunner));
+            }
+
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("Data")
+                    .small()
+                    .color(egui::Color32::GRAY),
+            );
+            if ui.button("💾 Storage").clicked() {
+                self.app.ui_actions.push(UiAction::FocusTab(Panel::Storage));
+            }
+            if ui.button("📄 Documents").clicked() {
+                self.app
+                    .ui_actions
+                    .push(UiAction::FocusTab(Panel::DocumentViewer));
+            }
+
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("System")
+                    .small()
+                    .color(egui::Color32::GRAY),
+            );
+            if ui.button("🧩 Modules").clicked() {
+                self.app.ui_actions.push(UiAction::FocusTab(Panel::Modules));
+            }
+            if ui.button("🪵 Logs").clicked() {
+                self.app.ui_actions.push(UiAction::FocusTab(Panel::Logs));
+            }
+
+            ui.separator();
+            ui.add_space(8.0);
+
+            // Rerun visualization button
+            if ui.button("📈 Open Rerun").clicked() {
+                // Launch Rerun viewer
+                let _ = std::process::Command::new("rerun").spawn();
+            }
+
+            // PVCAM live view via Rerun
+            #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
+            {
+                ui.add_space(8.0);
+                let label = if self.app.pvcam_streaming {
+                    "🛑 Stop PVCAM Live"
+                } else {
+                    "🎥 PVCAM Live to Rerun"
+                };
+                if ui.button(label).clicked() {
+                    if self.app.pvcam_streaming {
+                        if let Some(task) = self.app.pvcam_task.take() {
+                            task.abort();
+                        }
+                        self.app.pvcam_streaming = false;
+                    } else {
+                        self.app.start_pvcam_stream();
+                    }
+                }
+            }
+        });
     }
 }
 
@@ -731,11 +903,37 @@ impl eframe::App for DaqApp {
         self.poll_connect_results(ctx);
         self.maybe_spawn_health_check();
         self.poll_health_checks();
+        self.update_connection_diagnostics(); // bd-j3xz.3.3
         self.render_menu_bar(ctx);
         self.render_version_warning(ctx);
         self.render_status_bar(ctx);
-        self.render_nav_panel(ctx);
-        self.render_content(ctx);
+
+        // Render Dock Area
+        let mut dock_state = self
+            .dock_state
+            .take()
+            .unwrap_or_else(Self::default_dock_state);
+        let mut viewer = DaqTabViewer { app: self };
+        DockArea::new(&mut dock_state)
+            .style(Style::from_egui(ctx.style().as_ref()))
+            .show(ctx, &mut viewer);
+
+        // Process deferred UI actions
+        for action in self.ui_actions.drain(..) {
+            match action {
+                UiAction::FocusTab(panel) => {
+                    if let Some((surface, node, tab)) = dock_state.find_tab(&panel) {
+                        dock_state.set_active_tab((surface, node, tab));
+                        dock_state.set_focused_node_and_surface((surface, node));
+                    } else {
+                        // Add to focused leaf or fallback to root
+                        dock_state.main_surface_mut().push_to_focused_leaf(panel);
+                    }
+                }
+            }
+        }
+
+        self.dock_state = Some(dock_state);
     }
 
     /// Save application state (including successful daemon address) to storage.
@@ -743,6 +941,11 @@ impl eframe::App for DaqApp {
         // Only persist the address if we're connected (save known-good addresses)
         if self.connection.state().is_connected() {
             save_to_storage(storage, &self.daemon_address);
+        }
+
+        // Persist dock layout
+        if let Some(dock_state) = &self.dock_state {
+            eframe::set_value(storage, eframe::APP_KEY, dock_state);
         }
     }
 }
