@@ -83,7 +83,6 @@ Drivers are included for:
 
 -   [**System Architecture**](docs/architecture/ARCHITECTURE.md): Detailed breakdown of system design.
 -   [**Feature Matrix**](docs/architecture/FEATURE_MATRIX.md): Guide to cargo features and build profiles.
--   [**V5 Architecture Overview**](crates/rust-daq/docs/architecture/V5_ARCHITECTURE.md): Specifics of the current architecture version.
 -   [**Benchmarks**](docs/benchmarks/tee.md): Tee pipeline throughput/latency numbers and how to run `tee_bench` (see CI artifact `tee-bench-*` for latest sample outputs).
 
 ## 📄 License
