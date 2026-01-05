@@ -19,6 +19,24 @@ cargo run -p daq-egui --bin rust-daq-gui --features standalone
 
 The GUI will automatically connect to `http://127.0.0.1:50051`.
 
+## User Interface
+The application features a modern, dockable interface powered by `egui_dock`.
+
+### Layout
+- **Navigation Panel (Left):** Access all tools and modules.
+- **Main Content (Center):** The active tool (e.g., Signal Plotter, Scripts).
+- **Logs (Bottom):** Real-time application logs and system status.
+
+### Customizing the Workspace
+- **Drag and Drop:** Click and drag tab headers to rearrange panels.
+- **Split Views:** Drag a tab to the edge of a pane to split the view (e.g., view Scripts and Plotter side-by-side).
+- **Persistence:** Your layout is automatically saved and restored when you restart the application.
+
+### Navigation Panel
+The Navigation panel acts as the command center:
+- **Focus Tab:** Clicking a button (e.g., "Signal Plotter") focuses that tab if it's already open.
+- **Open Tab:** If a tab isn't visible, clicking its button in Navigation will add it to the workspace.
+
 ## Connection Management
 
 The GUI implements robust connection handling with auto-reconnect, health monitoring, and graceful offline degradation. See [ADR: Connection Reliability](../../docs/architecture/adr-connection-reliability.md) for architectural details.

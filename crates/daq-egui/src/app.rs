@@ -949,3 +949,43 @@ impl eframe::App for DaqApp {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_panel_serialization() {
+        let panel = Panel::Nav;
+        let serialized = serde_json::to_string(&panel).unwrap();
+        assert_eq!(serialized, "\"Nav\"");
+
+        let deserialized: Panel = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, Panel::Nav);
+    }
+
+    #[test]
+    fn test_default_dock_layout() {
+        let dock_state = DaqApp::default_dock_state();
+
+        let mut found_nav = false;
+        let mut found_logs = false;
+        let mut found_getting_started = false;
+
+        for ((_surface, _node), tab) in dock_state.iter_all_tabs() {
+            match tab {
+                Panel::Nav => found_nav = true,
+                Panel::Logs => found_logs = true,
+                Panel::GettingStarted => found_getting_started = true,
+                _ => {}
+            }
+        }
+
+        assert!(found_nav, "Navigation panel missing from default layout");
+        assert!(found_logs, "Logs panel missing from default layout");
+        assert!(
+            found_getting_started,
+            "Getting Started panel missing from default layout"
+        );
+    }
+}
