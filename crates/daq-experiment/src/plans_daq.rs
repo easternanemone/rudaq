@@ -709,6 +709,10 @@ impl PlanBuilder for VoltageScanBuilder {
     fn description(&self) -> String {
         "Scan AO voltage while reading AI".to_string()
     }
+
+    fn categories(&self) -> Vec<String> {
+        vec!["scanning".to_string(), "1d".to_string(), "daq".to_string()]
+    }
 }
 
 /// Builder for TimeSeries plans
@@ -757,6 +761,10 @@ impl PlanBuilder for TimeSeriesBuilder {
 
     fn description(&self) -> String {
         "Continuous AI logging at fixed sample rate".to_string()
+    }
+
+    fn categories(&self) -> Vec<String> {
+        vec!["time_series".to_string(), "1d".to_string(), "daq".to_string()]
     }
 }
 
@@ -813,6 +821,10 @@ impl PlanBuilder for TriggeredAcquisitionBuilder {
 
     fn description(&self) -> String {
         "Hardware-triggered multi-channel acquisition".to_string()
+    }
+
+    fn categories(&self) -> Vec<String> {
+        vec!["triggered".to_string(), "0d".to_string(), "daq".to_string()]
     }
 }
 

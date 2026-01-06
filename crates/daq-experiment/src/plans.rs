@@ -698,6 +698,9 @@ pub trait PlanBuilder: Send + Sync {
 
     /// Get human-readable description of the plan type
     fn description(&self) -> String;
+
+    /// Get category tags for this plan type (e.g., "scanning", "0d", "1d", "2d")
+    fn categories(&self) -> Vec<String>;
 }
 
 /// Builder for Count plans
@@ -755,6 +758,10 @@ impl PlanBuilder for CountBuilder {
 
     fn description(&self) -> String {
         "Repeated measurements at current position".to_string()
+    }
+
+    fn categories(&self) -> Vec<String> {
+        vec!["0d".to_string()]
     }
 }
 
@@ -841,6 +848,10 @@ impl PlanBuilder for LineScanBuilder {
 
     fn description(&self) -> String {
         "1D linear scan along a motor axis".to_string()
+    }
+
+    fn categories(&self) -> Vec<String> {
+        vec!["scanning".to_string(), "1d".to_string()]
     }
 }
 
@@ -967,6 +978,10 @@ impl PlanBuilder for GridScanBuilder {
     fn description(&self) -> String {
         "2D grid scan over two motor axes".to_string()
     }
+
+    fn categories(&self) -> Vec<String> {
+        vec!["scanning".to_string(), "2d".to_string()]
+    }
 }
 
 /// Plan registry for looking up and creating plans by type
@@ -997,11 +1012,11 @@ impl PlanRegistry {
             .insert(plan_type.to_string(), Box::new(builder));
     }
 
-    /// List available plan types with descriptions
-    pub fn list_types(&self) -> Vec<(String, String)> {
+    /// List available plan types with descriptions and categories
+    pub fn list_types(&self) -> Vec<(String, String, Vec<String>)> {
         self.builders
             .iter()
-            .map(|(k, v)| (k.clone(), v.description()))
+            .map(|(k, v)| (k.clone(), v.description(), v.categories()))
             .collect()
     }
 

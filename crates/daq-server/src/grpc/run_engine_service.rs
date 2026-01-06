@@ -193,17 +193,7 @@ impl RunEngineService for RunEngineServiceImpl {
             .plan_registry
             .list_types()
             .into_iter()
-            .map(|(type_id, description)| {
-                // Determine categories based on plan type
-                // TODO: Add category metadata to PlanBuilder trait
-                let categories = if type_id == "count" {
-                    vec!["0d".to_string()]
-                } else if type_id == "grid_scan" {
-                    vec!["scanning".to_string(), "2d".to_string()]
-                } else {
-                    vec!["scanning".to_string(), "1d".to_string()]
-                };
-
+            .map(|(type_id, description, categories)| {
                 let display_name = match type_id.as_str() {
                     "count" => "Count",
                     "line_scan" => "Line Scan",
@@ -359,6 +349,18 @@ impl RunEngineService for RunEngineServiceImpl {
             DomainEngineState::Aborting => ProtoEngineState::EngineAborting,
         };
 
+        // Get run timing information
+        let run_start_ns = self.engine.current_run_start_ns().await.unwrap_or(0);
+        let elapsed_ns = if run_start_ns > 0 {
+            let now_ns = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0);
+            now_ns.saturating_sub(run_start_ns)
+        } else {
+            0
+        };
+
         Ok(Response::new(EngineStatus {
             state: proto_state as i32,
             current_run_uid: None,
@@ -366,8 +368,8 @@ impl RunEngineService for RunEngineServiceImpl {
             current_event_number: None,
             total_events_expected: None,
             queued_plans: queue_len,
-            run_start_ns: 0, // TODO: Track run start time
-            elapsed_ns: 0,   // TODO: Track elapsed time
+            run_start_ns,
+            elapsed_ns,
         }))
     }
 

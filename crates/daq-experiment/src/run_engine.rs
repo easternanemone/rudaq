@@ -99,6 +99,8 @@ struct RunContext {
     collected_frames: HashMap<String, Vec<u8>>,
     current_positions: HashMap<String, f64>,
     frame_subscriptions: HashMap<String, broadcast::Receiver<Arc<Frame>>>,
+    /// Unix timestamp in nanoseconds when the run started
+    run_start_ns: u64,
 }
 
 /// The RunEngine orchestrates experiment execution
@@ -153,6 +155,11 @@ impl RunEngine {
     /// Get current engine state
     pub async fn state(&self) -> EngineState {
         *self.state.read().await
+    }
+
+    /// Get the start time (Unix nanoseconds) of the current run, if any
+    pub async fn current_run_start_ns(&self) -> Option<u64> {
+        self.run_context.lock().await.as_ref().map(|ctx| ctx.run_start_ns)
     }
 
     /// Queue a plan for execution
@@ -345,6 +352,10 @@ impl RunEngine {
                 collected_frames: HashMap::new(),
                 current_positions: HashMap::new(),
                 frame_subscriptions,
+                run_start_ns: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0),
             });
         }
 
