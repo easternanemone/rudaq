@@ -838,6 +838,42 @@ async fn test_home_offset_get() {
 }
 
 #[tokio::test]
+async fn test_compare_motor_frequencies() {
+    println!("\n=== Test: Compare Motor Frequencies Across All Rotators ===");
+    println!("Checking motor 1 and motor 2 frequencies for addresses 2, 3, 8\n");
+
+    for addr in ADDRESSES {
+        let driver =
+            Ell14Driver::new(&get_elliptec_port(), addr).expect("Failed to create driver");
+
+        println!("Rotator {} (address {}):", addr, addr);
+
+        match driver.get_motor1_info().await {
+            Ok(info) => {
+                println!(
+                    "  Motor 1: freq={} Hz, fwd_period={}, bwd_period={}",
+                    info.frequency, info.forward_period, info.backward_period
+                );
+            }
+            Err(e) => println!("  Motor 1: Error - {}", e),
+        }
+
+        match driver.get_motor2_info().await {
+            Ok(info) => {
+                println!(
+                    "  Motor 2: freq={} Hz, fwd_period={}, bwd_period={}",
+                    info.frequency, info.forward_period, info.backward_period
+                );
+            }
+            Err(e) => println!("  Motor 2: Error - {}", e),
+        }
+        println!();
+    }
+
+    println!("NOTE: If frequencies differ significantly, run optimize_motors() on the slow rotator");
+}
+
+#[tokio::test]
 async fn test_motor_info() {
     println!("\n=== Test: Motor Info ===");
 
