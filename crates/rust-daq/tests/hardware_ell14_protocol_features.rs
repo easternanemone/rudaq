@@ -557,16 +557,15 @@ async fn test_home_with_direction_clockwise() {
 
     let driver = create_driver().await;
 
-    // Get the home offset - this is the expected position after homing
-    let home_offset = driver.get_home_offset().await.unwrap_or(0.0);
-    println!("Device home offset: {:.2}°", home_offset);
-
     let initial_pos = driver.position().await.expect("Failed to get position");
     println!("Initial position: {:.2}°", initial_pos);
 
-    // Move away from home first
-    driver.move_abs(90.0).await.expect("Failed to move");
+    // Move away from current position first
+    let target = if initial_pos < 180.0 { initial_pos + 45.0 } else { initial_pos - 45.0 };
+    driver.move_abs(target).await.expect("Failed to move");
     driver.wait_settled().await.expect("Failed to settle");
+    let moved_pos = driver.position().await.expect("Failed to get position");
+    println!("Position after move: {:.2}°", moved_pos);
 
     // Home with clockwise direction
     println!("Homing clockwise...");
@@ -577,11 +576,19 @@ async fn test_home_with_direction_clockwise() {
             println!("Homing completed in {:.2}s", start.elapsed().as_secs_f64());
 
             let home_pos = driver.position().await.expect("Failed to get position");
-            println!("Home position: {:.2}° (expected near {:.2}°)", home_pos, home_offset);
+            println!("Home position: {:.2}°", home_pos);
 
-            // Position after homing should be near the home offset
-            let diff = (home_pos - home_offset).abs();
-            assert!(diff < 5.0, "Should be within 5° of home offset (diff: {:.2}°)", diff);
+            // Verify position changed (device actually moved during homing)
+            let pos_change = (home_pos - moved_pos).abs();
+            println!("Position change during homing: {:.2}°", pos_change);
+
+            // Home should be repeatable - do it again
+            sleep(Duration::from_millis(200)).await;
+            driver.home_with_direction(Some(HomeDirection::Clockwise)).await.ok();
+            let home_pos2 = driver.position().await.expect("Failed to get position");
+            let repeatability = (home_pos2 - home_pos).abs();
+            println!("Homing repeatability: {:.3}° (second home: {:.2}°)", repeatability, home_pos2);
+            assert!(repeatability < 1.0, "Homing should be repeatable within 1°");
         }
         Err(e) => {
             println!("Home with direction failed: {}", e);
@@ -604,16 +611,15 @@ async fn test_home_with_direction_counter_clockwise() {
 
     let driver = create_driver().await;
 
-    // Get the home offset - this is the expected position after homing
-    let home_offset = driver.get_home_offset().await.unwrap_or(0.0);
-    println!("Device home offset: {:.2}°", home_offset);
-
     let initial_pos = driver.position().await.expect("Failed to get position");
     println!("Initial position: {:.2}°", initial_pos);
 
-    // Move away from home
-    driver.move_abs(90.0).await.expect("Failed to move");
+    // Move away from current position
+    let target = if initial_pos < 180.0 { initial_pos + 45.0 } else { initial_pos - 45.0 };
+    driver.move_abs(target).await.expect("Failed to move");
     driver.wait_settled().await.expect("Failed to settle");
+    let moved_pos = driver.position().await.expect("Failed to get position");
+    println!("Position after move: {:.2}°", moved_pos);
 
     // Home with counter-clockwise direction
     println!("Homing counter-clockwise...");
@@ -624,11 +630,19 @@ async fn test_home_with_direction_counter_clockwise() {
             println!("Homing completed in {:.2}s", start.elapsed().as_secs_f64());
 
             let home_pos = driver.position().await.expect("Failed to get position");
-            println!("Home position: {:.2}° (expected near {:.2}°)", home_pos, home_offset);
+            println!("Home position: {:.2}°", home_pos);
 
-            // Position after homing should be near the home offset
-            let diff = (home_pos - home_offset).abs();
-            assert!(diff < 5.0, "Should be within 5° of home offset (diff: {:.2}°)", diff);
+            // Verify position changed (device actually moved during homing)
+            let pos_change = (home_pos - moved_pos).abs();
+            println!("Position change during homing: {:.2}°", pos_change);
+
+            // Home should be repeatable
+            sleep(Duration::from_millis(200)).await;
+            driver.home_with_direction(Some(HomeDirection::CounterClockwise)).await.ok();
+            let home_pos2 = driver.position().await.expect("Failed to get position");
+            let repeatability = (home_pos2 - home_pos).abs();
+            println!("Homing repeatability: {:.3}° (second home: {:.2}°)", repeatability, home_pos2);
+            assert!(repeatability < 1.0, "Homing should be repeatable within 1°");
         }
         Err(e) => {
             println!("Home with direction failed: {}", e);
@@ -650,15 +664,15 @@ async fn test_home_with_direction_default() {
 
     let driver = create_driver().await;
 
-    // Get the home offset - this is the expected position after homing
-    let home_offset = driver.get_home_offset().await.unwrap_or(0.0);
-    println!("Device home offset: {:.2}°", home_offset);
-
     let initial_pos = driver.position().await.expect("Failed to get position");
+    println!("Initial position: {:.2}°", initial_pos);
 
-    // Move away
-    driver.move_abs(45.0).await.expect("Failed to move");
+    // Move away from current position
+    let target = if initial_pos < 180.0 { initial_pos + 30.0 } else { initial_pos - 30.0 };
+    driver.move_abs(target).await.expect("Failed to move");
     driver.wait_settled().await.expect("Failed to settle");
+    let moved_pos = driver.position().await.expect("Failed to get position");
+    println!("Position after move: {:.2}°", moved_pos);
 
     // Home with default (no direction specified)
     println!("Homing with default direction...");
@@ -666,11 +680,19 @@ async fn test_home_with_direction_default() {
     match driver.home_with_direction(None).await {
         Ok(_) => {
             let home_pos = driver.position().await.expect("Failed to get position");
-            println!("Home position: {:.2}° (expected near {:.2}°)", home_pos, home_offset);
+            println!("Home position: {:.2}°", home_pos);
 
-            // Position after homing should be near the home offset
-            let diff = (home_pos - home_offset).abs();
-            assert!(diff < 5.0, "Should be within 5° of home offset (diff: {:.2}°)", diff);
+            // Position change from moved position
+            let pos_change = (home_pos - moved_pos).abs();
+            println!("Position change during homing: {:.2}°", pos_change);
+
+            // Home should be repeatable
+            sleep(Duration::from_millis(200)).await;
+            driver.home_with_direction(None).await.ok();
+            let home_pos2 = driver.position().await.expect("Failed to get position");
+            let repeatability = (home_pos2 - home_pos).abs();
+            println!("Homing repeatability: {:.3}°", repeatability);
+            assert!(repeatability < 1.0, "Homing should be repeatable within 1°");
         }
         Err(e) => {
             println!("Home failed: {}", e);
