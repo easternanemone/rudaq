@@ -1077,11 +1077,13 @@ impl Ell14Driver {
     pub async fn save_user_data(&self) -> Result<()> {
         let resp = self.transaction("us").await?;
 
-        // Should return "XUS00" on success
-        if resp.contains("US") {
+        // Response can be "XUS00" or "XGS00" (status OK) on success
+        if resp.contains("US") || resp.contains("GS00") {
             Ok(())
         } else {
-            Err(anyhow!("Failed to save user data: {}", resp))
+            // Check for error status
+            self.check_error_response(&resp)?;
+            Ok(())
         }
     }
 
