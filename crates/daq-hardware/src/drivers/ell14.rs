@@ -952,66 +952,100 @@ impl Ell14Driver {
     /// - Year (4): "2023" (ASCII, not hex)
     /// - Firmware (2): "17"
     /// - Thread type (1): "0"
-    /// - Travel (5): "10168" hex (pulses)
-    /// - Pulses/unit (8): "00023000" hex (total pulses for full 360° rotation)
+    ///
+    /// **Firmware-dependent response formats:**
+    /// - Older firmware (v15-v17): 30 data chars after IN marker
+    ///   - Travel (5): "10168" hex (pulses)
+    ///   - Pulses/unit (8): "00023000" hex (total pulses for full 360° rotation)
+    /// - Newer firmware: 33 data chars (original spec)
+    ///   - Travel (8): "10168000" hex
+    ///   - Pulses/unit (8): "00023000" hex
     pub async fn get_device_info(&self) -> Result<DeviceInfo> {
         let resp = self.transaction("in").await?;
 
         if let Some(idx) = resp.find("IN") {
             let data = resp[idx + 2..].trim();
-            if data.len() >= 25 {
-                // Parse device type (2 hex chars -> device number)
-                let device_type_hex = &data[0..2];
-                let device_type = u8::from_str_radix(device_type_hex, 16)
-                    .map(|n| format!("ELL{}", n))
-                    .unwrap_or_else(|_| device_type_hex.to_string());
 
-                // Serial number (8 chars)
-                let serial = data[2..10].to_string();
+            // Validate response length - support both older (30 char) and newer (33 char) formats
+            // Common fields (first 17 chars) are the same in both formats
+            const MIN_LEN: usize = 25;  // Minimum for basic parsing
+            const OLD_FW_LEN: usize = 30;  // Older firmware (v15-v17)
+            const NEW_FW_LEN: usize = 33;  // Newer firmware (original spec)
 
-                // Year (4 ASCII chars, not hex)
-                let year = data[10..14].parse::<u16>().unwrap_or(0);
+            if data.len() < MIN_LEN {
+                return Err(anyhow!(
+                    "ELL14 device info response too short: got {} chars, expected at least {} chars. \
+                    Response: {:?}. This may indicate a communication error or incompatible firmware.",
+                    data.len(), MIN_LEN, data
+                ));
+            }
 
-                // Firmware (2 chars)
-                let firmware = data[14..16].to_string();
+            if data.len() != OLD_FW_LEN && data.len() != NEW_FW_LEN && data.len() < MIN_LEN {
+                tracing::warn!(
+                    "ELL14 device info response has unexpected length {}: {:?}. \
+                    Expected {} (older firmware) or {} (newer firmware). Attempting to parse anyway.",
+                    data.len(), data, OLD_FW_LEN, NEW_FW_LEN
+                );
+            }
 
-                // Thread type (1 char at position 16)
-                let hardware = if data.len() >= 17 {
-                    Some(data[16..17].to_string())
-                } else {
-                    None
-                };
+            // Parse device type (2 hex chars -> device number)
+            let device_type_hex = &data[0..2];
+            let device_type = u8::from_str_radix(device_type_hex, 16)
+                .map(|n| format!("ELL{}", n))
+                .unwrap_or_else(|_| device_type_hex.to_string());
 
-                // Travel in pulses (5 hex chars starting at 17)
-                // Note: Original format spec said 8 chars, but actual devices send 5
+            // Serial number (8 chars)
+            let serial = data[2..10].to_string();
+
+            // Year (4 ASCII chars, not hex)
+            let year = data[10..14].parse::<u16>().unwrap_or(0);
+
+            // Firmware (2 chars)
+            let firmware = data[14..16].to_string();
+
+            // Thread type (1 char at position 16)
+            let hardware = if data.len() >= 17 {
+                Some(data[16..17].to_string())
+            } else {
+                None
+            };
+
+            // Parse travel and pulses_per_unit based on response length
+            let (travel, pulses_per_unit) = if data.len() >= NEW_FW_LEN {
+                // Newer firmware format: Travel (8 hex) at [17:25], Pulses/unit (8 hex) at [25:33]
+                let travel = u32::from_str_radix(&data[17..25], 16).unwrap_or(0);
+                let pulses_per_unit = u32::from_str_radix(&data[25..33], 16).unwrap_or(0);
+                (travel, pulses_per_unit)
+            } else if data.len() >= OLD_FW_LEN {
+                // Older firmware format: Travel (5 hex) at [17:22], Pulses/unit (8 hex) at [22:30]
+                let travel = u32::from_str_radix(&data[17..22], 16).unwrap_or(0);
+                let pulses_per_unit = u32::from_str_radix(&data[22..30], 16).unwrap_or(0);
+                (travel, pulses_per_unit)
+            } else {
+                // Partial response - extract what we can
                 let travel = if data.len() >= 22 {
                     u32::from_str_radix(&data[17..22], 16).unwrap_or(0)
                 } else {
                     0
                 };
+                (travel, 0)
+            };
 
-                // Pulses per unit (8 hex chars starting at 22)
-                // This is total pulses for full travel, NOT pulses per degree
-                // To get pulses/degree for rotation stages: divide by 360
-                let pulses_per_unit = if data.len() >= 30 {
-                    u32::from_str_radix(&data[22..30], 16).unwrap_or(0)
-                } else {
-                    0
-                };
-
-                return Ok(DeviceInfo {
-                    device_type,
-                    serial,
-                    year,
-                    firmware,
-                    hardware,
-                    travel,
-                    pulses_per_unit,
-                });
-            }
+            return Ok(DeviceInfo {
+                device_type,
+                serial,
+                year,
+                firmware,
+                hardware,
+                travel,
+                pulses_per_unit,
+            });
         }
 
-        Err(anyhow!("Failed to parse device info: {}", resp))
+        Err(anyhow!(
+            "Failed to parse device info: no 'IN' marker found in response: {:?}",
+            resp
+        ))
     }
 
     // =========================================================================
