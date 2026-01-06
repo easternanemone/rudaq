@@ -826,6 +826,13 @@ impl Ell14Driver {
 
         if let Some(idx) = resp.find(marker) {
             let data = resp[idx + 2..].trim();
+            // Debug: log raw response for protocol verification
+            tracing::debug!(
+                "Motor {} raw response: '{}' (len={})",
+                motor_num,
+                data,
+                data.len()
+            );
             // Full response is 24 hex chars: 2+2+4+4+4+4+4
             if data.len() >= 24 {
                 // Parse all fields per protocol spec
