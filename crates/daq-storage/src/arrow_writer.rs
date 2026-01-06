@@ -22,8 +22,11 @@
 //! - `storage_arrow`: Enables Arrow IPC writer
 //! - `storage_parquet`: Enables Parquet writer (includes Arrow)
 
+#[cfg(feature = "storage_arrow")]
 use std::collections::HashMap;
+#[cfg(feature = "storage_arrow")]
 use std::path::PathBuf;
+#[cfg(feature = "storage_arrow")]
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "storage_arrow")]
@@ -526,7 +529,10 @@ mod tests {
             configuration: HashMap::new(),
             time_ns: 0,
         };
-        writer.write(Document::Descriptor(descriptor)).await.unwrap();
+        writer
+            .write(Document::Descriptor(descriptor))
+            .await
+            .unwrap();
 
         // Events
         for i in 0..10 {
@@ -608,7 +614,10 @@ mod tests {
             configuration: HashMap::new(),
             time_ns: 0,
         };
-        writer.write(Document::Descriptor(descriptor)).await.unwrap();
+        writer
+            .write(Document::Descriptor(descriptor))
+            .await
+            .unwrap();
 
         // Events
         for i in 0..10 {

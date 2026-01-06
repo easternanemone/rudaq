@@ -2438,7 +2438,6 @@ async fn test_graceful_disconnect() {
 /// Tests raw serial responses when moving rotator 2 vs rotator 3
 #[tokio::test]
 async fn test_diagnose_rotator2_move_issue() {
-    use rust_daq::hardware::ell14::Ell14Driver;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio_serial::SerialPortBuilderExt;
 

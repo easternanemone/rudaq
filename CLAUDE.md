@@ -557,37 +557,53 @@ if script_content.len() > MAX_SCRIPT_SIZE {
 
 ## Thorlabs ELL14 Rotator Setup
 
-**CRITICAL: Always query device for calibration!**
+**Use the Bus-Centric API (Ell14Bus)**
 
-Each ELL14 unit has device-specific calibration stored in firmware. The hardcoded default (398.2222 pulses/degree) may not match your device.
+The ELL14 uses RS-485, a multidrop bus where all devices share one serial connection. The `Ell14Bus` struct enforces this architecture:
 
 ```rust
-// CORRECT: Query device for actual calibration
-let driver = Ell14Driver::new_async_with_device_calibration("/dev/ttyUSB0", "0").await?;
+use daq_hardware::drivers::ell14::Ell14Bus;
+use daq_hardware::capabilities::Movable;
 
-// AVOID: Uses hardcoded default that may not match your hardware
-let driver = Ell14Driver::new_async("/dev/ttyUSB0", "0").await?;
+// Open the RS-485 bus (one connection for all devices)
+let bus = Ell14Bus::open("/dev/ttyUSB1").await?;
+
+// Get calibrated device handles (queries device for pulses/degree)
+let rotator_2 = bus.device("2").await?;
+let rotator_3 = bus.device("3").await?;
+let rotator_8 = bus.device("8").await?;
+
+// All devices share the connection - no contention issues
+rotator_2.move_abs(45.0).await?;
+rotator_3.move_abs(90.0).await?;
+
+// Discover all devices on the bus
+let devices = bus.discover().await?;
+for dev in devices {
+    println!("Found {} at address {}", dev.info.device_type, dev.address);
+}
 ```
 
-**Protocol Note:** The `IN` command returns `PULSES/M.U.` (pulses per measurement unit), which is the **total pulses for full 360° rotation**. To get pulses/degree, divide by 360:
-- Example: Device returns 143360 → 143360 / 360 = 398.22 pulses/degree
+**Key Methods:**
+- `Ell14Bus::open(port)` - Opens the RS-485 bus
+- `bus.device(addr)` - Gets a calibrated device handle (queries firmware for pulses/degree)
+- `bus.device_uncalibrated(addr)` - Gets device with default calibration (faster)
+- `bus.discover()` - Scans all 16 addresses to enumerate devices
+
+**Deprecated Constructors:** The following are deprecated and will be removed in 0.3.0:
+- `Ell14Driver::new()` - Opens dedicated port (fails on multidrop)
+- `Ell14Driver::new_async()` - Opens dedicated port
+- `Ell14Driver::new_async_with_device_calibration()` - Opens dedicated port
+
+**Protocol Note:** The `IN` command returns `PULSES/M.U.` (pulses per measurement unit). For rotation stages, this is pulses/degree directly.
 
 **Firmware Versions:** The `IN` response length varies by firmware:
-- Older firmware (v15-v17): 30 data chars - Travel at `[17:22]`, Pulses/unit at `[22:30]`
-- Newer firmware: 33 data chars - Travel at `[17:25]`, Pulses/unit at `[25:33]`
+- Older firmware (v15-v17): 30 data chars
+- Newer firmware: 33 data chars
 
 The driver auto-detects the format and parses accordingly.
 
-**Multidrop Bus:** Multiple ELL14 devices can share one serial port:
-
-```rust
-let shared = Ell14Driver::open_shared_port("/dev/ttyUSB0")?;
-let rotator_2 = Ell14Driver::with_shared_port(shared.clone(), "2");
-let rotator_3 = Ell14Driver::with_shared_port(shared.clone(), "3");
-```
-
-**Without `PVCAM_VERSION`:** Error 151 (PL_ERR_INSTALLATION_CORRUPTED) occurs at runtime.
-**Without `LIBRARY_PATH`:** Rust linker fails with "cannot find -lpvcam".
+**Hardware on maitai:** Port `/dev/ttyUSB1`, addresses 2, 3, 8.
 
 **Troubleshooting:** See [PVCAM_SETUP.md](docs/troubleshooting/PVCAM_SETUP.md) for detailed installation and error resolution.
 
