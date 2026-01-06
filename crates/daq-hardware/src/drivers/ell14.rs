@@ -957,12 +957,8 @@ impl Ell14Driver {
     pub async fn get_device_info(&self) -> Result<DeviceInfo> {
         let resp = self.transaction("in").await?;
 
-        // Debug: print raw response for troubleshooting
-        eprintln!("DEBUG get_device_info: raw response = {:?} (len={})", resp, resp.len());
-
         if let Some(idx) = resp.find("IN") {
             let data = resp[idx + 2..].trim();
-            eprintln!("DEBUG get_device_info: data after IN marker = {:?} (len={})", data, data.len());
             if data.len() >= 25 {
                 // Parse device type (2 hex chars -> device number)
                 let device_type_hex = &data[0..2];
