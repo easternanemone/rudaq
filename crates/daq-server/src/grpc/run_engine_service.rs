@@ -302,12 +302,17 @@ impl RunEngineService for RunEngineServiceImpl {
         &self,
         request: Request<AbortPlanRequest>,
     ) -> Result<Response<AbortPlanResponse>, Status> {
-        let _req = request.into_inner();
+        let req = request.into_inner();
 
-        // TODO: Support aborting specific run_uid (currently aborts current run only)
-        // For now, ignore _req.run_uid and abort the currently executing plan
+        // Support aborting specific run_uid or current if empty (bd-vi16.3)
+        let run_uid = if req.run_uid.is_empty() {
+            None
+        } else {
+            Some(req.run_uid.as_str())
+        };
+
         self.engine
-            .abort("user requested abort via gRPC")
+            .abort_run(run_uid, "user requested abort via gRPC")
             .await
             .map_err(|e| Status::internal(format!("Failed to abort plan: {}", e)))?;
 

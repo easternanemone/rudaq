@@ -162,6 +162,16 @@ impl RunEngine {
         self.run_context.lock().await.as_ref().map(|ctx| ctx.run_start_ns)
     }
 
+    /// Get the run_uids of all queued plans
+    pub async fn queued_run_uids(&self) -> Vec<String> {
+        self.plan_queue
+            .lock()
+            .await
+            .iter()
+            .map(|q| q.run_uid.clone())
+            .collect()
+    }
+
     /// Queue a plan for execution
     pub async fn queue(&self, plan: Box<dyn Plan>) -> String {
         self.queue_with_metadata(plan, HashMap::new()).await
@@ -238,17 +248,60 @@ impl RunEngine {
         Ok(())
     }
 
-    /// Abort current plan (stops at next safe point)
+    /// Abort a plan by run_uid or the current plan if run_uid is None/empty
+    ///
+    /// - If `run_uid` is None or empty, aborts the currently executing plan
+    /// - If `run_uid` matches the current run, aborts it
+    /// - If `run_uid` matches a queued plan, removes it from the queue
+    /// - Returns error if `run_uid` is specified but not found
     pub async fn abort(&self, reason: &str) -> anyhow::Result<()> {
-        let current_state = *self.state.read().await;
-        match current_state {
-            EngineState::Running | EngineState::Paused => {
-                info!(reason = %reason, "Abort requested");
-                *self.abort_requested.write().await = true;
-                *self.state.write().await = EngineState::Aborting;
-                Ok(())
+        self.abort_run(None, reason).await
+    }
+
+    /// Abort a specific run by run_uid, or current if None/empty (bd-vi16.3)
+    pub async fn abort_run(&self, run_uid: Option<&str>, reason: &str) -> anyhow::Result<()> {
+        let target_uid = run_uid.filter(|s| !s.is_empty());
+
+        match target_uid {
+            None => {
+                // Abort current run (existing behavior)
+                let current_state = *self.state.read().await;
+                match current_state {
+                    EngineState::Running | EngineState::Paused => {
+                        info!(reason = %reason, "Abort requested for current run");
+                        *self.abort_requested.write().await = true;
+                        *self.state.write().await = EngineState::Aborting;
+                        Ok(())
+                    }
+                    _ => anyhow::bail!("Cannot abort: engine is {}", current_state),
+                }
             }
-            _ => anyhow::bail!("Cannot abort: engine is {}", current_state),
+            Some(uid) => {
+                // Check if it matches current run
+                let current_run_uid = self.current_run_uid().await;
+                if current_run_uid.as_deref() == Some(uid) {
+                    info!(run_uid = %uid, reason = %reason, "Abort requested for current run");
+                    *self.abort_requested.write().await = true;
+                    *self.state.write().await = EngineState::Aborting;
+                    return Ok(());
+                }
+
+                // Check if it matches a queued plan
+                let mut queue = self.plan_queue.lock().await;
+                if let Some(pos) = queue.iter().position(|q| q.run_uid == uid) {
+                    let removed = queue.remove(pos);
+                    info!(
+                        run_uid = %uid,
+                        plan_type = %removed.plan.plan_type(),
+                        reason = %reason,
+                        "Removed queued plan"
+                    );
+                    return Ok(());
+                }
+
+                // Not found
+                anyhow::bail!("Run '{}' not found (not current and not queued)", uid)
+            }
         }
     }
 
