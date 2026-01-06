@@ -840,6 +840,8 @@ async fn test_home_offset_get() {
 #[tokio::test]
 async fn test_compare_motor_frequencies() {
     println!("\n=== Test: Compare Motor Frequencies Across All Rotators ===");
+    println!("Expected: Piezo resonant frequency ~78-106 kHz per Thorlabs protocol");
+    println!("Formula: Hz = 14,740,000 / Period");
     println!("Checking motor 1 and motor 2 frequencies for addresses 2, 3, 8\n");
 
     for addr in ADDRESSES {
@@ -850,9 +852,12 @@ async fn test_compare_motor_frequencies() {
 
         match driver.get_motor1_info().await {
             Ok(info) => {
+                // Convert frequency to kHz for readability
+                let freq_khz = info.frequency as f64 / 1000.0;
+                let status = if freq_khz >= 50.0 && freq_khz <= 150.0 { "OK" } else { "CHECK!" };
                 println!(
-                    "  Motor 1: freq={} Hz, fwd_period={}, bwd_period={}",
-                    info.frequency, info.forward_period, info.backward_period
+                    "  Motor 1: freq={:.1} kHz, fwd_period={}, bwd_period={} - {}",
+                    freq_khz, info.forward_period, info.backward_period, status
                 );
             }
             Err(e) => println!("  Motor 1: Error - {}", e),
@@ -860,9 +865,11 @@ async fn test_compare_motor_frequencies() {
 
         match driver.get_motor2_info().await {
             Ok(info) => {
+                let freq_khz = info.frequency as f64 / 1000.0;
+                let status = if freq_khz >= 50.0 && freq_khz <= 150.0 { "OK" } else { "CHECK!" };
                 println!(
-                    "  Motor 2: freq={} Hz, fwd_period={}, bwd_period={}",
-                    info.frequency, info.forward_period, info.backward_period
+                    "  Motor 2: freq={:.1} kHz, fwd_period={}, bwd_period={} - {}",
+                    freq_khz, info.forward_period, info.backward_period, status
                 );
             }
             Err(e) => println!("  Motor 2: Error - {}", e),

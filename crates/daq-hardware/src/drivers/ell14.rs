@@ -806,25 +806,59 @@ impl Ell14Driver {
     }
 
     /// Parse motor info response (shared by i1 and i2)
+    ///
+    /// Per Thorlabs ELLx Protocol Manual Issue 10:
+    /// Response format: "XI1{Loop}{Motor}{Current}{RampUp}{RampDn}{PeriodFwd}{PeriodBwd}"
+    /// - Loop: 2 hex chars (01 = loop ON)
+    /// - Motor: 2 hex chars (01 = motor working)
+    /// - Current: 4 hex chars (last measurement, e.g., 0428 = 0.57A)
+    /// - RampUp: 4 hex chars (FFFF = not defined)
+    /// - RampDn: 4 hex chars (FFFF = not defined)
+    /// - PeriodFwd: 4 hex chars (forward resonant period)
+    /// - PeriodBwd: 4 hex chars (backward resonant period)
+    ///
+    /// Frequency formula: Hz = 14,740,000 / Period
+    /// Example: Period=00BD (189) -> 14740000/189 = ~78 kHz
     async fn parse_motor_info(&self, cmd: &str, motor_num: u8) -> Result<MotorInfo> {
         let resp = self.transaction(cmd).await?;
 
-        // Response format: "XI1{Loop}{Motor}{PWM_Fwd}{PWM_Bwd}{Period_Fwd}{Period_Bwd}"
-        // All fields are hex encoded
         let marker = if motor_num == 1 { "I1" } else { "I2" };
 
         if let Some(idx) = resp.find(marker) {
             let data = resp[idx + 2..].trim();
-            if data.len() >= 12 {
-                // Parse fields (approximate, actual format may vary)
+            // Full response is 24 hex chars: 2+2+4+4+4+4+4
+            if data.len() >= 24 {
+                // Parse all fields per protocol spec
+                let loop_state = u8::from_str_radix(&data[0..2], 16).unwrap_or(0) != 0;
+                let motor_on = u8::from_str_radix(&data[2..4], 16).unwrap_or(0) != 0;
+                // Current at [4..8], RampUp at [8..12], RampDn at [12..16] - parsed but not stored
+                let forward_period = u16::from_str_radix(&data[16..20], 16).unwrap_or(0);
+                let backward_period = u16::from_str_radix(&data[20..24], 16).unwrap_or(0);
+
+                // Frequency formula from Thorlabs protocol: Hz = 14,740,000 / Period
+                let frequency = if forward_period > 0 {
+                    14_740_000 / forward_period as u32
+                } else {
+                    0
+                };
+
+                return Ok(MotorInfo {
+                    motor_number: motor_num,
+                    loop_state,
+                    motor_on,
+                    frequency,
+                    forward_period,
+                    backward_period,
+                });
+            } else if data.len() >= 12 {
+                // Fallback for shorter responses (some firmware versions)
                 let loop_state = u8::from_str_radix(&data[0..2], 16).unwrap_or(0) != 0;
                 let motor_on = u8::from_str_radix(&data[2..4], 16).unwrap_or(0) != 0;
                 let forward_period = u16::from_str_radix(&data[4..8], 16).unwrap_or(0);
                 let backward_period = u16::from_str_radix(&data[8..12], 16).unwrap_or(0);
 
-                // Frequency is calculated from period
                 let frequency = if forward_period > 0 {
-                    1_000_000 / forward_period as u32
+                    14_740_000 / forward_period as u32
                 } else {
                     0
                 };
@@ -841,7 +875,7 @@ impl Ell14Driver {
         }
 
         Err(anyhow!(
-            "Failed to parse motor {} info: {}",
+            "Failed to parse motor {} info (response: {})",
             motor_num,
             resp
         ))
