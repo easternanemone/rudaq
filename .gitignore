@@ -40,7 +40,6 @@ rust_depr_test*
 *.toml.backup
 check_output.txt
 test_compile_output.txt
-.beads-backup*/
 
 # Build/debug logs (temporary working files)
 build_errors*.txt
@@ -52,8 +51,7 @@ tree*.txt
 # Removed Windows wrapper files per user request
 hive-mind-prompt-*.txt
 
-# Local development artifacts
-.beads/
+# Local development artifacts (beads is tracked for issue sync)
 .beads-backup*/
 .brv/
 .byterover-quick-ref.md
