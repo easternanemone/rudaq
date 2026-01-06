@@ -2,16 +2,21 @@
 //! Elliptec ELL14 Hardware Validation Tests
 //!
 //! Tests for Thorlabs Elliptec ELL14 rotation mounts on shared RS-485 bus.
-//! Hardware: 3 rotators at addresses 2, 3, 8 on /dev/ttyUSB0
+//! Hardware: 3 rotators at addresses 2, 3, 8 on /dev/ttyUSB1
 //!
-//! Run with: cargo test --features "hardware_tests,instrument_thorlabs" --test hardware_elliptec_validation -- --nocapture
+//! Run with: cargo test --features "hardware_tests,instrument_thorlabs" --test hardware_elliptec_validation -- --nocapture --test-threads=1
 //!
 //! SAFETY: These tests move physical hardware. Ensure no obstructions before running.
+//!
+//! NOTE: All tests share a single serial port connection to avoid "Device or resource busy"
+//! errors. The ELL14 is on an RS-485 multidrop bus - all devices share one physical connection
+//! with address-based multiplexing.
 
 #![cfg(all(feature = "hardware_tests", feature = "instrument_thorlabs"))]
 
+use once_cell::sync::OnceCell;
 use rust_daq::hardware::capabilities::Movable;
-use rust_daq::hardware::ell14::Ell14Driver;
+use rust_daq::hardware::ell14::{Ell14Driver, SharedPort};
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -23,15 +28,37 @@ fn get_elliptec_port() -> String {
 const ADDRESSES: [&str; 3] = ["2", "3", "8"];
 const POSITION_TOLERANCE_DEG: f64 = 1.0;
 
-/// Create driver with device-specific calibration
+/// Global shared serial port for all ELL14 devices on the RS-485 bus
+///
+/// This ensures all tests and all device addresses share a single serial connection,
+/// avoiding "Device or resource busy" errors from multiple open attempts.
+static SHARED_PORT: OnceCell<SharedPort> = OnceCell::new();
+
+/// Get or initialize the shared serial port
+fn get_shared_port() -> SharedPort {
+    SHARED_PORT
+        .get_or_init(|| {
+            Ell14Driver::open_shared_port(&get_elliptec_port())
+                .expect("Failed to open shared ELL14 serial port")
+        })
+        .clone()
+}
+
+/// Create driver with device-specific calibration using shared port
 ///
 /// CRITICAL: This reads pulses_per_degree from the device's `IN` response
 /// rather than using a hardcoded default. Each ELL14 unit has device-specific
 /// calibration stored in firmware.
+///
+/// All drivers share the same serial port connection (RS-485 multidrop bus).
 async fn create_driver(addr: &str) -> Ell14Driver {
-    Ell14Driver::new_async_with_device_calibration(&get_elliptec_port(), addr)
+    let shared_port = get_shared_port();
+    Ell14Driver::with_shared_port_calibrated(shared_port, addr)
         .await
-        .expect(&format!("Failed to create calibrated driver for address {}", addr))
+        .expect(&format!(
+            "Failed to create calibrated driver for address {}",
+            addr
+        ))
 }
 
 // =============================================================================

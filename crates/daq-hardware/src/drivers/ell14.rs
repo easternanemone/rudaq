@@ -551,6 +551,69 @@ impl Ell14Driver {
         )
     }
 
+    /// Create an ELL14 driver using a shared serial port with device calibration
+    ///
+    /// This is the **preferred method** for multidrop bus configurations.
+    /// It queries the device for its actual calibration value, ensuring accurate positioning.
+    ///
+    /// # Arguments
+    /// * `shared_port` - Shared serial port from [`open_shared_port`]
+    /// * `address` - Device address on the bus (0-9, A-F)
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// // Open shared port once
+    /// let shared = Ell14Driver::open_shared_port("/dev/ttyUSB0")?;
+    ///
+    /// // Create calibrated drivers for multiple devices on the bus
+    /// let rotator_2 = Ell14Driver::with_shared_port_calibrated(shared.clone(), "2").await?;
+    /// let rotator_3 = Ell14Driver::with_shared_port_calibrated(shared.clone(), "3").await?;
+    /// let rotator_8 = Ell14Driver::with_shared_port_calibrated(shared.clone(), "8").await?;
+    /// ```
+    pub async fn with_shared_port_calibrated(
+        shared_port: SharedPort,
+        address: &str,
+    ) -> Result<Self> {
+        // Create driver with default calibration first (needed for get_device_info)
+        let mut driver = Self::build(
+            shared_port,
+            address.to_string(),
+            Self::DEFAULT_PULSES_PER_DEGREE,
+        );
+
+        // Query device for actual calibration
+        match driver.get_device_info().await {
+            Ok(info) => {
+                if info.pulses_per_unit > 0 {
+                    let pulses_per_degree = info.pulses_per_unit as f64 / 360.0;
+                    tracing::info!(
+                        address = %address,
+                        pulses_per_degree = pulses_per_degree,
+                        total_pulses = info.pulses_per_unit,
+                        "ELL14 device calibration loaded"
+                    );
+                    driver.pulses_per_degree = pulses_per_degree;
+                } else {
+                    tracing::warn!(
+                        address = %address,
+                        default = Self::DEFAULT_PULSES_PER_DEGREE,
+                        "ELL14 device returned 0 pulses_per_unit, using default"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    address = %address,
+                    error = %e,
+                    default = Self::DEFAULT_PULSES_PER_DEGREE,
+                    "Failed to query ELL14 device info, using default calibration"
+                );
+            }
+        }
+
+        Ok(driver)
+    }
+
     /// Internal helper to open a serial port with ELL14 settings
     fn open_port(port_path: &str) -> Result<DynSerial> {
         let port = tokio_serial::new(port_path, 9600)
