@@ -1014,9 +1014,7 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
     let server = DaqServer::new()?;
 
     // Create RunEngine with empty registry (bd-w14j.2.2)
-    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
-        daq_hardware::registry::DeviceRegistry::new(),
-    ));
+    let registry = std::sync::Arc::new(daq_hardware::registry::DeviceRegistry::new());
     let run_engine_instance = std::sync::Arc::new(daq_experiment::RunEngine::new(registry));
     let run_engine = RunEngineServiceImpl::new(run_engine_instance);
 
@@ -1091,7 +1089,7 @@ use daq_core::pipeline::{MeasurementSink, Tee};
 /// ```
 pub async fn start_server_with_hardware(
     addr: std::net::SocketAddr,
-    registry: std::sync::Arc<tokio::sync::RwLock<daq_hardware::registry::DeviceRegistry>>,
+    registry: std::sync::Arc<daq_hardware::registry::DeviceRegistry>,
     health_monitor: std::sync::Arc<daq_core::health::SystemHealthMonitor>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::grpc::hardware_service::HardwareServiceImpl;
@@ -1213,20 +1211,16 @@ pub async fn start_server_with_hardware(
     // SAFETY (bd-jnfu.6): Collect device info and sources while holding lock,
     // then DROP lock before performing async operations to prevent deadlock/contention.
     {
-        // Phase 1: Collect devices and sources while holding lock (sync only)
-        let devices_to_wire: Vec<_> = {
-            let reg_lock = registry.read().await;
-            reg_lock
-                .list_devices()
-                .into_iter()
-                .filter_map(|info| {
-                    reg_lock
-                        .get_measurement_source_frame(&info.id)
-                        .map(|source| (info.id.clone(), source))
-                })
-                .collect()
-            // Lock is dropped here at end of block
-        };
+        // Phase 1: Collect devices and sources (lock-free with DashMap)
+        let devices_to_wire: Vec<_> = registry
+            .list_devices()
+            .into_iter()
+            .filter_map(|info| {
+                registry
+                    .get_measurement_source_frame(&info.id)
+                    .map(|source| (info.id.clone(), source))
+            })
+            .collect();
 
         // Phase 2: Perform async registration (no lock held)
         for (device_id, source) in devices_to_wire {
@@ -1357,9 +1351,8 @@ pub async fn start_server_with_hardware(
     // Create PluginService with shared factory and registry (bd-0451)
     #[cfg(feature = "tokio_serial")]
     let plugin_server = {
-        let reg = registry.read().await;
-        let factory = reg.plugin_factory();
-        drop(reg);
+        // No lock needed for registry anymore
+        let factory = registry.plugin_factory();
         PluginServiceImpl::new(factory, registry.clone())
     };
 

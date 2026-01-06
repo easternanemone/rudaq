@@ -72,7 +72,7 @@ pub struct PluginServiceImpl {
     #[cfg(feature = "tokio_serial")]
     factory: Arc<RwLock<PluginFactory>>,
     #[cfg(feature = "tokio_serial")]
-    registry: Arc<RwLock<DeviceRegistry>>,
+    registry: Arc<DeviceRegistry>,
     instances: Arc<RwLock<HashMap<String, PluginInstance>>>,
     #[cfg(feature = "tokio_serial")]
     next_instance_id: Arc<RwLock<u64>>,
@@ -89,7 +89,7 @@ impl std::fmt::Debug for PluginServiceImpl {
 impl PluginServiceImpl {
     /// Create a new PluginService with the given plugin factory and device registry
     #[cfg(feature = "tokio_serial")]
-    pub fn new(factory: Arc<RwLock<PluginFactory>>, registry: Arc<RwLock<DeviceRegistry>>) -> Self {
+    pub fn new(factory: Arc<RwLock<PluginFactory>>, registry: Arc<DeviceRegistry>) -> Self {
         Self {
             factory,
             registry,
@@ -422,8 +422,8 @@ impl PluginService for PluginServiceImpl {
                     };
 
                     // 2. Register with DeviceRegistry
-                    let mut registry = self.registry.write().await;
-                    if let Err(e) = registry
+                    if let Err(e) = self
+                        .registry
                         .register_plugin_instance(device_config, driver_arc.clone())
                         .await
                     {
@@ -649,8 +649,7 @@ impl PluginService for PluginServiceImpl {
             // Also unregister from the DeviceRegistry
             #[cfg(feature = "tokio_serial")]
             {
-                let mut registry = self.registry.write().await;
-                if !registry.unregister(&instance.device_id) {
+                if !self.registry.unregister(&instance.device_id) {
                     tracing::warn!(
                         "Device '{}' for instance '{}' was not found in registry during destroy.",
                         instance.device_id,

@@ -2531,6 +2531,7 @@ dependencies = [
  "async-trait",
  "daq-core",
  "daq-driver-pvcam",
+ "dashmap",
  "dirs 5.0.1",
  "futures",
  "log",

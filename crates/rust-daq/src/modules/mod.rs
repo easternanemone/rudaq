@@ -38,7 +38,7 @@ use daq_core::modules::{
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{broadcast, mpsc};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -143,7 +143,7 @@ pub struct ModuleContext {
     assignments: HashMap<String, String>,
 
     /// Device registry for accessing hardware
-    registry: Arc<RwLock<DeviceRegistry>>,
+    registry: Arc<DeviceRegistry>,
 
     /// Channel for emitting events
     event_tx: mpsc::Sender<ModuleEvent>,
@@ -160,7 +160,7 @@ impl std::fmt::Debug for ModuleContext {
         f.debug_struct("ModuleContext")
             .field("module_id", &self.module_id)
             .field("assignments", &self.assignments)
-            .field("registry", &"<Arc<RwLock<DeviceRegistry>>>")
+            .field("registry", &"<Arc<DeviceRegistry>>")
             .field("event_tx", &"<mpsc::Sender>")
             .field("data_tx", &"<mpsc::Sender>")
             .field("shutdown_rx", &"<broadcast::Receiver>")
@@ -173,7 +173,7 @@ impl ModuleContext {
     pub fn new(
         module_id: String,
         assignments: HashMap<String, String>,
-        registry: Arc<RwLock<DeviceRegistry>>,
+        registry: Arc<DeviceRegistry>,
         event_tx: mpsc::Sender<ModuleEvent>,
         data_tx: mpsc::Sender<ModuleDataPoint>,
         shutdown_rx: broadcast::Receiver<()>,
@@ -189,10 +189,9 @@ impl ModuleContext {
     }
 
     /// Get a Readable device assigned to a role
-    pub async fn get_readable(&self, role_id: &str) -> Option<Arc<dyn Readable>> {
+    pub fn get_readable(&self, role_id: &str) -> Option<Arc<dyn Readable>> {
         let device_id = self.assignments.get(role_id)?;
-        let registry = self.registry.read().await;
-        registry.get_readable(device_id)
+        self.registry.get_readable(device_id)
     }
 
     /// Emit an event
@@ -401,7 +400,7 @@ impl ModuleInstance {
     }
 
     /// Stage the module (Bluesky pattern - prepare resources before start)
-    pub async fn stage(&mut self, registry: Arc<RwLock<DeviceRegistry>>) -> Result<()> {
+    pub async fn stage(&mut self, registry: Arc<DeviceRegistry>) -> Result<()> {
         let ctx = ModuleContext::new(
             self.id.clone(),
             self.assignments.clone(),
@@ -414,7 +413,7 @@ impl ModuleInstance {
     }
 
     /// Unstage the module (Bluesky pattern - release resources after stop)
-    pub async fn unstage(&mut self, registry: Arc<RwLock<DeviceRegistry>>) -> Result<()> {
+    pub async fn unstage(&mut self, registry: Arc<DeviceRegistry>) -> Result<()> {
         let ctx = ModuleContext::new(
             self.id.clone(),
             self.assignments.clone(),
@@ -427,7 +426,7 @@ impl ModuleInstance {
     }
 
     /// Start the module
-    pub async fn start(&mut self, registry: Arc<RwLock<DeviceRegistry>>) -> Result<()> {
+    pub async fn start(&mut self, registry: Arc<DeviceRegistry>) -> Result<()> {
         let ctx = ModuleContext::new(
             self.id.clone(),
             self.assignments.clone(),
@@ -479,7 +478,7 @@ pub type ModuleFactory = fn() -> Box<dyn Module>;
 /// Registry for module types and instances
 pub struct ModuleRegistry {
     /// Device registry for hardware access
-    device_registry: Arc<RwLock<DeviceRegistry>>,
+    device_registry: Arc<DeviceRegistry>,
 
     /// Registered module types: type_id -> factory
     module_types: HashMap<String, ModuleFactory>,
@@ -494,7 +493,7 @@ pub struct ModuleRegistry {
 impl std::fmt::Debug for ModuleRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ModuleRegistry")
-            .field("device_registry", &"<Arc<RwLock<DeviceRegistry>>>")
+            .field("device_registry", &"<Arc<DeviceRegistry>>")
             .field(
                 "module_types",
                 &format!("{} registered types", self.module_types.len()),
@@ -513,7 +512,7 @@ impl std::fmt::Debug for ModuleRegistry {
 
 impl ModuleRegistry {
     /// Create a new module registry
-    pub fn new(device_registry: Arc<RwLock<DeviceRegistry>>) -> Self {
+    pub fn new(device_registry: Arc<DeviceRegistry>) -> Self {
         let mut registry = Self {
             device_registry,
             module_types: HashMap::new(),
@@ -628,18 +627,10 @@ impl ModuleRegistry {
     }
 
     /// Assign a device to a module role
-    pub async fn assign_device(
-        &mut self,
-        module_id: &str,
-        role_id: &str,
-        device_id: &str,
-    ) -> Result<()> {
+    pub fn assign_device(&mut self, module_id: &str, role_id: &str, device_id: &str) -> Result<()> {
         // Verify device exists
-        {
-            let registry = self.device_registry.read().await;
-            if registry.get_device_info(device_id).is_none() {
-                return Err(anyhow!("Device not found: {}", device_id));
-            }
+        if self.device_registry.get_device_info(device_id).is_none() {
+            return Err(anyhow!("Device not found: {}", device_id));
         }
 
         let instance = self
@@ -758,7 +749,7 @@ impl ModuleRegistry {
 
     /// Get the device registry
     #[must_use]
-    pub fn device_registry(&self) -> Arc<RwLock<DeviceRegistry>> {
+    pub fn device_registry(&self) -> Arc<DeviceRegistry> {
         Arc::clone(&self.device_registry)
     }
 
@@ -807,7 +798,7 @@ mod tests {
 
     #[test]
     fn test_module_registry_creation() {
-        let device_registry = Arc::new(RwLock::new(DeviceRegistry::new()));
+        let device_registry = Arc::new(DeviceRegistry::new());
         let registry = ModuleRegistry::new(device_registry);
 
         // Should have built-in types registered
@@ -818,7 +809,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_module() {
-        let device_registry = Arc::new(RwLock::new(DeviceRegistry::new()));
+        let device_registry = Arc::new(DeviceRegistry::new());
         let mut registry = ModuleRegistry::new(device_registry);
 
         let module_id = registry
@@ -833,7 +824,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_configure_module() {
-        let device_registry = Arc::new(RwLock::new(DeviceRegistry::new()));
+        let device_registry = Arc::new(DeviceRegistry::new());
         let mut registry = ModuleRegistry::new(device_registry);
 
         let module_id = registry
@@ -854,7 +845,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_module() {
-        let device_registry = Arc::new(RwLock::new(DeviceRegistry::new()));
+        let device_registry = Arc::new(DeviceRegistry::new());
         let mut registry = ModuleRegistry::new(device_registry);
 
         let module_id = registry

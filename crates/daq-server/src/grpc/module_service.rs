@@ -348,7 +348,7 @@ fn get_static_module_type_info(type_id: &str) -> Option<ModuleTypeInfo> {
 /// - Event and data streaming
 pub struct ModuleServiceImpl {
     /// Device registry for hardware access
-    device_registry: Arc<RwLock<DeviceRegistry>>,
+    device_registry: Arc<DeviceRegistry>,
 
     /// Stub module storage (used when modules feature is disabled)
     #[cfg(not(feature = "modules"))]
@@ -362,7 +362,7 @@ pub struct ModuleServiceImpl {
 impl ModuleServiceImpl {
     /// Create a new ModuleService (stub mode - without modules feature)
     #[cfg(not(feature = "modules"))]
-    pub fn new(registry: Arc<RwLock<DeviceRegistry>>) -> Self {
+    pub fn new(registry: Arc<DeviceRegistry>) -> Self {
         Self {
             device_registry: registry,
             stub_modules: Arc::new(RwLock::new(HashMap::new())),
@@ -371,7 +371,7 @@ impl ModuleServiceImpl {
 
     /// Create a new ModuleService (full mode - with modules feature)
     #[cfg(feature = "modules")]
-    pub fn new(registry: Arc<RwLock<DeviceRegistry>>) -> Self {
+    pub fn new(registry: Arc<DeviceRegistry>) -> Self {
         let module_registry = ModuleRegistry::new(registry.clone());
         Self {
             device_registry: registry,
@@ -507,7 +507,6 @@ impl ModuleService for ModuleServiceImpl {
     ) -> Result<Response<ListModulesResponse>, Status> {
         let req = request.into_inner();
         let registry = self.module_registry.read().await;
-        let device_registry = self.device_registry.read().await;
 
         let mut modules: Vec<ModuleStatus> = registry
             .list_modules()
@@ -550,7 +549,7 @@ impl ModuleService for ModuleServiceImpl {
                 // Check all devices are online
                 let all_devices_online = assignments
                     .values()
-                    .all(|device_id| device_registry.get_device_info(device_id).is_some());
+                    .all(|device_id| self.device_registry.get_device_info(device_id).is_some());
 
                 ModuleStatus {
                     module_id: instance.id.clone(),
@@ -583,7 +582,6 @@ impl ModuleService for ModuleServiceImpl {
     ) -> Result<Response<ModuleStatus>, Status> {
         let req = request.into_inner();
         let registry = self.module_registry.read().await;
-        let device_registry = self.device_registry.read().await;
 
         let instance = registry
             .get_module(&req.module_id)
@@ -611,7 +609,7 @@ impl ModuleService for ModuleServiceImpl {
 
         let all_devices_online = assignments
             .values()
-            .all(|device_id| device_registry.get_device_info(device_id).is_some());
+            .all(|device_id| self.device_registry.get_device_info(device_id).is_some());
 
         Ok(Response::new(ModuleStatus {
             module_id: instance.id.clone(),
@@ -677,7 +675,6 @@ impl ModuleService for ModuleServiceImpl {
     ) -> Result<Response<ModuleConfig>, Status> {
         let req = request.into_inner();
         let registry = self.module_registry.read().await;
-        let device_registry = self.device_registry.read().await;
 
         let instance = registry
             .get_module(&req.module_id)
@@ -687,7 +684,7 @@ impl ModuleService for ModuleServiceImpl {
             .get_assignments()
             .iter()
             .map(|(role_id, device_id)| {
-                let device_info = device_registry.get_device_info(device_id);
+                let device_info = self.device_registry.get_device_info(device_id);
                 DeviceAssignment {
                     role_id: role_id.clone(),
                     device_id: device_id.to_string(),
@@ -719,10 +716,7 @@ impl ModuleService for ModuleServiceImpl {
         let req = request.into_inner();
         let mut registry = self.module_registry.write().await;
 
-        match registry
-            .assign_device(&req.module_id, &req.role_id, &req.device_id)
-            .await
-        {
+        match registry.assign_device(&req.module_id, &req.role_id, &req.device_id) {
             Ok(()) => {
                 // Check if module is now ready
                 let instance = registry.get_module(&req.module_id);
@@ -780,7 +774,6 @@ impl ModuleService for ModuleServiceImpl {
     ) -> Result<Response<ListAssignmentsResponse>, Status> {
         let req = request.into_inner();
         let registry = self.module_registry.read().await;
-        let device_registry = self.device_registry.read().await;
 
         let instance = registry
             .get_module(&req.module_id)
@@ -790,7 +783,7 @@ impl ModuleService for ModuleServiceImpl {
             .get_assignments()
             .iter()
             .map(|(role_id, device_id)| {
-                let device_info = device_registry.get_device_info(device_id);
+                let device_info = self.device_registry.get_device_info(device_id);
                 DeviceAssignment {
                     role_id: role_id.clone(),
                     device_id: device_id.to_string(),
@@ -1598,7 +1591,7 @@ mod tests {
     use std::collections::HashMap;
 
     fn create_test_service() -> ModuleServiceImpl {
-        let registry = Arc::new(RwLock::new(DeviceRegistry::new()));
+        let registry = Arc::new(DeviceRegistry::new());
         ModuleServiceImpl::new(registry)
     }
 

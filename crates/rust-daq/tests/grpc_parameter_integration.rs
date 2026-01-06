@@ -21,7 +21,6 @@ use daq_proto::daq::{GetParameterRequest, SetParameterRequest, StreamParameterCh
 use daq_server::grpc::hardware_service::HardwareServiceImpl;
 use rust_daq::hardware::registry::{DeviceConfig, DeviceRegistry, DriverType};
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
 use tonic::Request;
 
@@ -45,7 +44,7 @@ async fn test_basic_parameter_integration() -> Result<()> {
         .await?;
 
     // Wrap in Arc<RwLock> for HardwareService
-    let registry = Arc::new(RwLock::new(registry));
+    let registry = Arc::new(registry);
     let service = HardwareServiceImpl::new(registry.clone());
 
     // Get initial exposure value
@@ -78,8 +77,7 @@ async fn test_basic_parameter_integration() -> Result<()> {
     assert_eq!(new_value, 0.1);
 
     // Verify hardware callback was invoked (MockCamera tracks internal state)
-    let reg = registry.read().await;
-    let exposure_ctrl = reg.get_exposure_control("mock_camera").unwrap();
+    let exposure_ctrl = registry.get_exposure_control("mock_camera").unwrap();
     let actual_exposure = exposure_ctrl.get_exposure().await?;
     assert_eq!(actual_exposure, 0.1);
 
@@ -105,7 +103,7 @@ async fn test_parameter_change_notifications() -> Result<()> {
         })
         .await?;
 
-    let registry = Arc::new(RwLock::new(registry));
+    let registry = Arc::new(registry);
     let service = HardwareServiceImpl::new(registry.clone());
 
     // Subscribe to parameter changes (no filter)
@@ -274,7 +272,7 @@ async fn test_invalid_parameter_name() -> Result<()> {
         })
         .await?;
 
-    let registry = Arc::new(RwLock::new(registry));
+    let registry = Arc::new(registry);
     let service = HardwareServiceImpl::new(registry);
 
     // Try to set non-existent parameter
@@ -305,7 +303,7 @@ async fn test_out_of_range_value() -> Result<()> {
         })
         .await?;
 
-    let registry = Arc::new(RwLock::new(registry));
+    let registry = Arc::new(registry);
     let service = HardwareServiceImpl::new(registry);
 
     // Try to set exposure outside valid range (0.001 - 10.0 seconds)
@@ -336,7 +334,7 @@ async fn test_type_mismatch() -> Result<()> {
         })
         .await?;
 
-    let registry = Arc::new(RwLock::new(registry));
+    let registry = Arc::new(registry);
     let service = HardwareServiceImpl::new(registry);
 
     // Try to set string value to f64 parameter
@@ -357,7 +355,7 @@ async fn test_type_mismatch() -> Result<()> {
 #[tokio::test]
 async fn test_device_not_found() -> Result<()> {
     let registry = DeviceRegistry::new();
-    let registry = Arc::new(RwLock::new(registry));
+    let registry = Arc::new(registry);
     let service = HardwareServiceImpl::new(registry);
 
     let request = Request::new(SetParameterRequest {
@@ -392,15 +390,14 @@ async fn test_concurrent_parameter_access_no_deadlock() -> Result<()> {
         })
         .await?;
 
-    let registry = Arc::new(RwLock::new(registry));
+    let registry = Arc::new(registry);
     let service = Arc::new(HardwareServiceImpl::new(registry.clone()));
 
     // Spawn background task: loops calling driver.get_exposure().await
     let registry_clone = registry.clone();
     let read_task = tokio::spawn(async move {
         for i in 0..1000 {
-            let reg = registry_clone.read().await;
-            if let Some(exposure_ctrl) = reg.get_exposure_control("mock_camera") {
+            if let Some(exposure_ctrl) = registry_clone.get_exposure_control("mock_camera") {
                 // This acquires: Driver Mutex → reads Parameter
                 let _ = exposure_ctrl.get_exposure().await;
             }
@@ -483,7 +480,7 @@ async fn test_multiple_devices_parameter_isolation() -> Result<()> {
         })
         .await?;
 
-    let registry = Arc::new(RwLock::new(registry));
+    let registry = Arc::new(registry);
     let service = HardwareServiceImpl::new(registry.clone());
 
     // Set different exposures for each camera
@@ -548,7 +545,7 @@ async fn test_filtered_parameter_notifications() -> Result<()> {
         })
         .await?;
 
-    let registry = Arc::new(RwLock::new(registry));
+    let registry = Arc::new(registry);
     let service = HardwareServiceImpl::new(registry.clone());
 
     // Subscribe to parameter changes for camera1 only

@@ -304,7 +304,6 @@ async fn start_daemon(
             create_lab_registry, create_mock_registry, create_registry_from_file,
         };
         use std::sync::Arc;
-        use tokio::sync::RwLock;
 
         let addr = format!("0.0.0.0:{}", port).parse()?;
 
@@ -331,7 +330,7 @@ async fn start_daemon(
         }
         println!();
 
-        let registry = Arc::new(RwLock::new(registry));
+        let registry = Arc::new(registry);
 
         // Start registry monitoring
         let mon_registry = registry.clone();
@@ -340,7 +339,7 @@ async fn start_daemon(
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
             loop {
                 interval.tick().await;
-                let count = mon_registry.read().await.len();
+                let count = mon_registry.len();
                 mon_health
                     .heartbeat_with_message(
                         "hardware_registry",

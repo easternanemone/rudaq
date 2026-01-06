@@ -34,7 +34,6 @@ use tokio::task::block_in_place;
 use daq_experiment::plans::{Count, GridScan, LineScan, Plan};
 use daq_experiment::run_engine::RunEngine;
 use daq_hardware::registry::DeviceRegistry;
-use tokio::sync::RwLock;
 
 // =============================================================================
 // RunEngine Handle - Rhai-Compatible Wrapper
@@ -52,7 +51,7 @@ pub struct RunEngineHandle {
 
 impl RunEngineHandle {
     /// Create a new RunEngineHandle wrapping a DeviceRegistry
-    pub fn new(registry: Arc<RwLock<DeviceRegistry>>) -> Self {
+    pub fn new(registry: Arc<DeviceRegistry>) -> Self {
         Self {
             engine: Arc::new(RunEngine::new(registry)),
         }
@@ -400,7 +399,6 @@ mod tests {
     use crate::traits::ScriptEngine;
     use daq_hardware::registry::DeviceRegistry;
     use std::sync::Arc;
-    use tokio::sync::RwLock;
 
     #[tokio::test]
     async fn test_plan_bindings_registered() {
@@ -422,7 +420,7 @@ mod tests {
         let mut engine = RhaiEngine::with_hardware().unwrap();
 
         // Create and inject run_engine
-        let registry = Arc::new(RwLock::new(DeviceRegistry::new()));
+        let registry = Arc::new(DeviceRegistry::new());
         let run_engine = RunEngineHandle::new(registry);
         engine
             .set_run_engine(run_engine)

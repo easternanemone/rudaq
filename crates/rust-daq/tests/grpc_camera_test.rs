@@ -12,7 +12,6 @@ use daq_server::grpc::hardware_service::HardwareServiceImpl;
 use rust_daq::hardware::registry::{DeviceConfig, DeviceRegistry, DriverType};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
 use tonic::Request;
 
@@ -45,7 +44,7 @@ async fn test_grpc_camera_control_stream() -> Result<()> {
         })
         .await?;
 
-    let registry = Arc::new(RwLock::new(registry));
+    let registry = Arc::new(registry);
     let service = HardwareServiceImpl::new(registry.clone());
 
     // 2. Verify Parameter Control (Exposure)

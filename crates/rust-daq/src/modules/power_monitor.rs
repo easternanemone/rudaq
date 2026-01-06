@@ -359,7 +359,7 @@ impl Module for PowerMonitor {
         }
 
         // Verify power meter is assigned
-        let power_meter = ctx.get_readable("power_meter").await.ok_or_else(|| {
+        let power_meter = ctx.get_readable("power_meter").ok_or_else(|| {
             anyhow!("No power meter assigned. Assign a readable device to the 'power_meter' role.")
         })?;
 

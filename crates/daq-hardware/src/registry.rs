@@ -85,8 +85,8 @@ use daq_core::pipeline::MeasurementSource;
 use crate::plugin::driver::GenericDriver;
 // use crate::plugin::driver::{Connection, GenericDriver};
 // use crate::plugin::schema::{DriverType, InstrumentConfig, PluginMetadata, ScriptType};
-use anyhow::{anyhow, Result};
-use daq_core::observable::ParameterSet;
+use anyhow::{Result, anyhow};
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -545,9 +545,20 @@ struct RegisteredDevice {
 /// - Discovering connected devices
 /// - Accessing devices by capability
 /// - Querying device information
+///
+/// # Thread Safety
+///
+/// DeviceRegistry is internally thread-safe using DashMap for the devices collection.
+/// This eliminates the need for external RwLock wrapping and allows concurrent access
+/// to different devices without global lock contention. Individual device lookups
+/// only lock the specific entry being accessed.
+///
+/// Usage:
+/// - Pass as `Arc<DeviceRegistry>`
+/// - Call methods directly (no `.read().await` needed)
 pub struct DeviceRegistry {
-    /// Registered devices by ID
-    devices: HashMap<DeviceId, RegisteredDevice>,
+    /// Registered devices by ID (thread-safe via DashMap)
+    devices: DashMap<DeviceId, RegisteredDevice>,
 
     /// Shared serial ports for ELL14 multidrop bus (interior mutability for async access)
     /// Key: port path (e.g., "/dev/ttyUSB0"), Value: shared Arc<Mutex<SerialStream>>
@@ -563,7 +574,7 @@ impl DeviceRegistry {
     /// Create a new empty device registry
     pub fn new() -> Self {
         Self {
-            devices: HashMap::new(),
+            devices: DashMap::new(),
             #[cfg(feature = "driver-thorlabs")]
             ell14_shared_ports: RwLock::new(HashMap::new()),
             #[cfg(feature = "tokio_serial")]
@@ -577,7 +588,7 @@ impl DeviceRegistry {
         plugin_factory: Arc<RwLock<crate::plugin::registry::PluginFactory>>,
     ) -> Self {
         Self {
-            devices: HashMap::new(),
+            devices: DashMap::new(),
             #[cfg(feature = "driver-thorlabs")]
             ell14_shared_ports: RwLock::new(HashMap::new()),
             plugin_factory,
@@ -617,7 +628,11 @@ impl DeviceRegistry {
     /// - Device ID is already registered
     /// - Configuration validation fails (missing ports, invalid parameters)
     /// - Hardware driver fails to initialize
-    pub async fn register(&mut self, config: DeviceConfig) -> Result<()> {
+    ///
+    /// # Thread Safety (bd-pf31)
+    /// This method is thread-safe and can be called concurrently. Registration of
+    /// the same device ID from multiple threads will fail for all but one caller.
+    pub async fn register(&self, config: DeviceConfig) -> Result<()> {
         if self.devices.contains_key(&config.id) {
             return Err(anyhow!("Device '{}' is already registered", config.id));
         }
@@ -649,9 +664,12 @@ impl DeviceRegistry {
     ///
     /// # Errors
     /// Returns error if the device ID is already registered
+    ///
+    /// # Thread Safety (bd-pf31)
+    /// This method is thread-safe and can be called concurrently.
     #[cfg(feature = "tokio_serial")]
     pub async fn register_plugin_instance(
-        &mut self,
+        &self,
         config: DeviceConfig,
         driver: Arc<GenericDriver>,
     ) -> Result<()> {
@@ -672,20 +690,29 @@ impl DeviceRegistry {
     ///
     /// # Returns
     /// true if device was found and removed, false if not found
-    pub fn unregister(&mut self, id: &str) -> bool {
+    ///
+    /// # Thread Safety (bd-pf31)
+    /// This method is thread-safe and can be called concurrently.
+    pub fn unregister(&self, id: &str) -> bool {
         self.devices.remove(id).is_some()
     }
 
     /// List all registered devices
+    ///
+    /// # Thread Safety (bd-pf31)
+    /// This method iterates over all devices with fine-grained locking per entry.
     pub fn list_devices(&self) -> Vec<DeviceInfo> {
         self.devices
-            .values()
-            .map(|d| DeviceInfo {
-                id: d.config.id.clone(),
-                name: d.config.name.clone(),
-                driver_type: d.config.driver.driver_name().to_string(),
-                capabilities: d.config.driver.capabilities(),
-                metadata: d.metadata.clone(),
+            .iter()
+            .map(|entry| {
+                let d = entry.value();
+                DeviceInfo {
+                    id: d.config.id.clone(),
+                    name: d.config.name.clone(),
+                    driver_type: d.config.driver.driver_name().to_string(),
+                    capabilities: d.config.driver.capabilities(),
+                    metadata: d.metadata.clone(),
+                }
             })
             .collect()
     }
@@ -762,7 +789,7 @@ impl DeviceRegistry {
             .and_then(|d| d.stageable.clone())
     }
 
-    /// Get parameter registry for a device (bd-9clg)
+    /// Get parameterized trait for a device (bd-9clg)
     ///
     /// Enables generic code (gRPC, presets, HDF5 writers) to enumerate and subscribe
     /// to device parameters. Returns None if device doesn't implement Parameterized.
@@ -770,15 +797,20 @@ impl DeviceRegistry {
     /// # Example
     ///
     /// ```rust,ignore
-    /// if let Some(params) = registry.get_parameters("mock_camera") {
+    /// if let Some(parameterized) = registry.get_parameterized("mock_camera") {
+    ///     let params = parameterized.parameters();
     ///     for name in params.names() {
     ///         println!("Parameter: {}", name);
     ///     }
     /// }
     /// ```
-    pub fn get_parameters(&self, device_id: &str) -> Option<&ParameterSet> {
-        let device = self.devices.get(device_id)?;
-        device.parameterized.as_ref().map(|p| p.parameters())
+    ///
+    /// # Thread Safety (bd-pf31)
+    /// Returns an Arc that can be used outside the registry lock scope.
+    pub fn get_parameterized(&self, device_id: &str) -> Option<Arc<dyn Parameterized>> {
+        self.devices
+            .get(device_id)
+            .and_then(|d| d.parameterized.clone())
     }
 
     #[cfg(feature = "driver-spectra-physics")]
@@ -814,11 +846,21 @@ impl DeviceRegistry {
     }
 
     /// Get all devices that support a specific capability
+    ///
+    /// # Thread Safety (bd-pf31)
+    /// This method iterates over all devices with fine-grained locking per entry.
     pub fn devices_with_capability(&self, capability: Capability) -> Vec<DeviceId> {
         self.devices
             .iter()
-            .filter(|(_, d)| d.config.driver.capabilities().contains(&capability))
-            .map(|(id, _)| id.clone())
+            .filter(|entry| {
+                entry
+                    .value()
+                    .config
+                    .driver
+                    .capabilities()
+                    .contains(&capability)
+            })
+            .map(|entry| entry.key().clone())
             .collect()
     }
 
@@ -1153,7 +1195,7 @@ impl DeviceRegistry {
             _ => {
                 return Err(anyhow!(
                     "Invalid driver type for create_registered_plugin: expected Plugin"
-                ))
+                ));
             }
         };
 
@@ -1264,10 +1306,15 @@ impl DeviceRegistry {
     /// //   }
     /// // }
     /// ```
+    ///
+    /// # Thread Safety (bd-pf31)
+    /// This method iterates over all devices with fine-grained locking per entry.
     pub fn snapshot_all_parameters(&self) -> HashMap<String, HashMap<String, serde_json::Value>> {
         let mut snapshot = HashMap::new();
 
-        for (device_id, device) in &self.devices {
+        for entry in self.devices.iter() {
+            let device_id = entry.key();
+            let device = entry.value();
             if let Some(parameterized) = &device.parameterized {
                 let params = parameterized.parameters();
                 let mut device_params = HashMap::new();
@@ -1353,7 +1400,7 @@ impl HardwareConfig {
 /// address = "/dev/ttyUSB2"
 /// ```
 pub async fn create_registry_from_config(config: &HardwareConfig) -> Result<DeviceRegistry> {
-    let mut registry = DeviceRegistry::new();
+    let registry = DeviceRegistry::new();
 
     // Validate all device configurations first (fail fast)
     let mut validation_errors = Vec::new();
@@ -1439,7 +1486,7 @@ pub async fn create_registry_from_file(path: &std::path::Path) -> Result<DeviceR
 /// - ESP300 on /dev/ttyUSB1 (if available)
 #[cfg(feature = "serial")]
 pub async fn create_lab_registry() -> Result<DeviceRegistry> {
-    let mut registry = DeviceRegistry::new();
+    let registry = DeviceRegistry::new();
 
     // Newport 1830-C Power Meter
     if let Err(e) = registry
@@ -1530,7 +1577,7 @@ pub async fn create_lab_registry() -> Result<DeviceRegistry> {
 
 /// Create a DeviceRegistry with mock devices for testing
 pub async fn create_mock_registry() -> Result<DeviceRegistry> {
-    let mut registry = DeviceRegistry::new();
+    let registry = DeviceRegistry::new();
 
     registry
         .register(DeviceConfig {
@@ -1657,7 +1704,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_duplicate_registration_fails() {
-        let mut registry = DeviceRegistry::new();
+        let registry = DeviceRegistry::new();
 
         registry
             .register(DeviceConfig {
@@ -1685,7 +1732,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unregister() {
-        let mut registry = create_mock_registry().await.unwrap();
+        let registry = create_mock_registry().await.unwrap();
 
         assert!(registry.contains("mock_stage"));
         assert!(registry.unregister("mock_stage"));
@@ -1843,23 +1890,27 @@ mod tests {
     #[tokio::test]
     async fn test_validate_driver_config_mock_devices_always_valid() {
         // Mock devices should always pass validation
-        assert!(validate_driver_config(&DriverType::MockStage {
-            initial_position: 0.0
-        })
-        .is_ok());
+        assert!(
+            validate_driver_config(&DriverType::MockStage {
+                initial_position: 0.0
+            })
+            .is_ok()
+        );
 
         assert!(validate_driver_config(&DriverType::MockPowerMeter { reading: 1e-6 }).is_ok());
 
-        assert!(validate_driver_config(&DriverType::MockCamera {
-            width: 640,
-            height: 480
-        })
-        .is_ok());
+        assert!(
+            validate_driver_config(&DriverType::MockCamera {
+                width: 640,
+                height: 480
+            })
+            .is_ok()
+        );
     }
 
     #[tokio::test]
     async fn test_register_fails_on_invalid_config() {
-        let mut registry = DeviceRegistry::new();
+        let registry = DeviceRegistry::new();
 
         let result = registry
             .register(DeviceConfig {
@@ -1907,17 +1958,22 @@ mod tests {
 
         // Verify device info includes all capabilities
         let device_info = registry.get_device_info("mock_camera").unwrap();
-        assert!(device_info
-            .capabilities
-            .contains(&Capability::FrameProducer));
+        assert!(
+            device_info
+                .capabilities
+                .contains(&Capability::FrameProducer)
+        );
         assert!(device_info.capabilities.contains(&Capability::Triggerable));
-        assert!(device_info
-            .capabilities
-            .contains(&Capability::ExposureControl));
+        assert!(
+            device_info
+                .capabilities
+                .contains(&Capability::ExposureControl)
+        );
         assert_eq!(device_info.driver_type, "mock_camera");
 
-        // Test that we can get parameters
-        let params = registry.get_parameters("mock_camera").unwrap();
+        // Test that we can get parameters (bd-pf31: use get_parameterized)
+        let parameterized = registry.get_parameterized("mock_camera").unwrap();
+        let params = parameterized.parameters();
         assert!(params.get("exposure_s").is_some());
         assert!(params.get("armed").is_some());
         assert!(params.get("streaming").is_some());

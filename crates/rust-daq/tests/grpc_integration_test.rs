@@ -16,12 +16,11 @@ mod camera_integration_tests {
     use daq_server::grpc::hardware_service::HardwareServiceImpl;
     use rust_daq::hardware::registry::{DeviceConfig, DeviceRegistry, DriverType};
     use std::sync::Arc;
-    use tokio::sync::RwLock;
     use tonic::Request;
 
     /// Create a registry with MockCamera for testing
     async fn create_camera_registry() -> DeviceRegistry {
-        let mut registry = DeviceRegistry::new();
+        let registry = DeviceRegistry::new();
 
         // Register MockCamera
         registry
@@ -43,7 +42,7 @@ mod camera_integration_tests {
     #[tokio::test]
     async fn test_camera_appears_in_registry_with_correct_capabilities() {
         let registry = create_camera_registry().await;
-        let service = HardwareServiceImpl::new(Arc::new(RwLock::new(registry)));
+        let service = HardwareServiceImpl::new(Arc::new(registry));
 
         let request = Request::new(ListDevicesRequest {
             capability_filter: None,
@@ -66,7 +65,7 @@ mod camera_integration_tests {
     #[tokio::test]
     async fn test_filter_devices_by_triggerable_capability() {
         let registry = create_camera_registry().await;
-        let service = HardwareServiceImpl::new(Arc::new(RwLock::new(registry)));
+        let service = HardwareServiceImpl::new(Arc::new(registry));
 
         let request = Request::new(ListDevicesRequest {
             capability_filter: Some("triggerable".to_string()),
@@ -82,7 +81,7 @@ mod camera_integration_tests {
     #[tokio::test]
     async fn test_filter_devices_by_frame_producer_capability() {
         let registry = create_camera_registry().await;
-        let service = HardwareServiceImpl::new(Arc::new(RwLock::new(registry)));
+        let service = HardwareServiceImpl::new(Arc::new(registry));
 
         let request = Request::new(ListDevicesRequest {
             capability_filter: Some("frame_producer".to_string()),
@@ -98,7 +97,7 @@ mod camera_integration_tests {
     #[tokio::test]
     async fn test_camera_device_state() {
         let registry = create_camera_registry().await;
-        let service = HardwareServiceImpl::new(Arc::new(RwLock::new(registry)));
+        let service = HardwareServiceImpl::new(Arc::new(registry));
 
         let request = Request::new(DeviceStateRequest {
             device_id: "test_camera".to_string(),
@@ -117,7 +116,7 @@ mod camera_integration_tests {
     #[tokio::test]
     async fn test_arm_camera_via_grpc() {
         let registry = create_camera_registry().await;
-        let service = HardwareServiceImpl::new(Arc::new(RwLock::new(registry)));
+        let service = HardwareServiceImpl::new(Arc::new(registry));
 
         // Arm the camera
         let arm_request = Request::new(ArmRequest {
@@ -143,7 +142,7 @@ mod camera_integration_tests {
     #[tokio::test]
     async fn test_trigger_camera_via_grpc() {
         let registry = create_camera_registry().await;
-        let service = HardwareServiceImpl::new(Arc::new(RwLock::new(registry)));
+        let service = HardwareServiceImpl::new(Arc::new(registry));
 
         // Arm first
         let arm_request = Request::new(ArmRequest {
@@ -166,7 +165,7 @@ mod camera_integration_tests {
     #[tokio::test]
     async fn test_trigger_without_arm_fails() {
         let registry = create_camera_registry().await;
-        let service = HardwareServiceImpl::new(Arc::new(RwLock::new(registry)));
+        let service = HardwareServiceImpl::new(Arc::new(registry));
 
         // Try to trigger without arming - should fail with FAILED_PRECONDITION status
         let trigger_request = Request::new(TriggerRequest {
@@ -186,7 +185,7 @@ mod camera_integration_tests {
     #[tokio::test]
     async fn test_start_stop_stream_via_grpc() {
         let registry = create_camera_registry().await;
-        let service = HardwareServiceImpl::new(Arc::new(RwLock::new(registry)));
+        let service = HardwareServiceImpl::new(Arc::new(registry));
 
         // Start streaming
         let start_request = Request::new(StartStreamRequest {
@@ -231,7 +230,7 @@ mod camera_integration_tests {
     #[tokio::test]
     async fn test_frame_count_tracking_via_grpc() {
         let registry = create_camera_registry().await;
-        let service = HardwareServiceImpl::new(Arc::new(RwLock::new(registry)));
+        let service = HardwareServiceImpl::new(Arc::new(registry));
 
         // Arm and trigger to increment frame count
         let arm_request = Request::new(ArmRequest {
@@ -262,7 +261,7 @@ mod camera_integration_tests {
     #[tokio::test]
     async fn test_camera_not_found_error() {
         let registry = create_camera_registry().await;
-        let service = HardwareServiceImpl::new(Arc::new(RwLock::new(registry)));
+        let service = HardwareServiceImpl::new(Arc::new(registry));
 
         let arm_request = Request::new(ArmRequest {
             device_id: "nonexistent_camera".to_string(),
@@ -327,7 +326,7 @@ mod scan_integration_tests {
     #[serial]
     async fn test_create_scan() {
         let registry = create_scan_registry().await;
-        let service = ScanServiceImpl::new(Arc::new(RwLock::new(registry)));
+        let service = ScanServiceImpl::new(Arc::new(registry));
 
         let config = ScanConfig {
             axes: vec![AxisConfig {
@@ -359,7 +358,7 @@ mod scan_integration_tests {
     #[serial]
     async fn test_create_scan_invalid_device() {
         let registry = create_scan_registry().await;
-        let service = ScanServiceImpl::new(Arc::new(RwLock::new(registry)));
+        let service = ScanServiceImpl::new(Arc::new(registry));
 
         let config = ScanConfig {
             axes: vec![AxisConfig {
@@ -387,7 +386,7 @@ mod scan_integration_tests {
     #[serial]
     async fn test_scan_progress_stream_reaches_client() {
         let registry = create_scan_registry().await;
-        let service = ScanServiceImpl::new(Arc::new(RwLock::new(registry)));
+        let service = ScanServiceImpl::new(Arc::new(registry));
 
         // Create scan with minimal motion (MockStage is 10mm/sec with 50ms settle)
         // 3 points at 0.1mm increments means ~10ms move + 50ms settle per point
@@ -485,7 +484,7 @@ mod scan_integration_tests {
     #[serial]
     async fn test_get_scan_status() {
         let registry = create_scan_registry().await;
-        let service = ScanServiceImpl::new(Arc::new(RwLock::new(registry)));
+        let service = ScanServiceImpl::new(Arc::new(registry));
 
         // Create scan
         let config = ScanConfig {

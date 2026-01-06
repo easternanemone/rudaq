@@ -3,12 +3,11 @@ use daq_experiment::plans::Count;
 use daq_experiment::run_engine::RunEngine;
 use daq_hardware::registry::DeviceRegistry;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tokio::time::Duration;
 
 #[tokio::test]
 async fn test_run_uid_consistency() {
-    let registry = Arc::new(RwLock::new(DeviceRegistry::new()));
+    let registry = Arc::new(DeviceRegistry::new());
     let engine = RunEngine::new(registry);
     let mut rx = engine.subscribe();
 

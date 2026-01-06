@@ -107,7 +107,7 @@ pub struct RunEngine {
     state: RwLock<EngineState>,
 
     /// Device registry for hardware operations
-    device_registry: Arc<RwLock<DeviceRegistry>>,
+    device_registry: Arc<DeviceRegistry>,
 
     /// Queue of plans to execute
     plan_queue: Mutex<Vec<QueuedPlan>>,
@@ -130,7 +130,7 @@ pub struct RunEngine {
 
 impl RunEngine {
     /// Create a new RunEngine
-    pub fn new(device_registry: Arc<RwLock<DeviceRegistry>>) -> Self {
+    pub fn new(device_registry: Arc<DeviceRegistry>) -> Self {
         let (doc_sender, _) = broadcast::channel(1024);
 
         Self {
@@ -269,7 +269,7 @@ impl RunEngine {
         self.emit_document(Document::Start(start_doc.clone())).await;
 
         // Capture experiment manifest - snapshot all hardware parameters (bd-ej44)
-        let parameter_snapshot = self.device_registry.read().await.snapshot_all_parameters();
+        let parameter_snapshot = self.device_registry.snapshot_all_parameters();
         let manifest = ExperimentManifest::new(
             &run_uid,
             &start_doc.plan_type,
@@ -292,20 +292,17 @@ impl RunEngine {
 
         // Setup frame subscriptions for any FrameProducers in the plan
         let mut frame_subscriptions = HashMap::new();
-        {
-            let registry = self.device_registry.read().await;
-            for det_id in plan.detectors() {
-                // Check if it's a FrameProducer
-                if let Some(producer) = registry.get_frame_producer(&det_id) {
-                    if let Some(rx) = producer.subscribe_frames().await {
-                        info!("Subscribed to frames from {}", det_id);
-                        frame_subscriptions.insert(det_id.to_string(), rx);
-                    } else {
-                        warn!(
-                            "Device {} is FrameProducer but returned no subscription",
-                            det_id
-                        );
-                    }
+        for det_id in plan.detectors() {
+            // Check if it's a FrameProducer
+            if let Some(producer) = self.device_registry.get_frame_producer(&det_id) {
+                if let Some(rx) = producer.subscribe_frames().await {
+                    info!("Subscribed to frames from {}", det_id);
+                    frame_subscriptions.insert(det_id.to_string(), rx);
+                } else {
+                    warn!(
+                        "Device {} is FrameProducer but returned no subscription",
+                        det_id
+                    );
                 }
             }
         }
@@ -314,9 +311,8 @@ impl RunEngine {
         let mut descriptor = DescriptorDoc::new(&run_uid, "primary");
 
         // Populate descriptor data keys
-        let registry = self.device_registry.read().await;
         for det in plan.detectors() {
-            if let Some(producer) = registry.get_frame_producer(&det) {
+            if let Some(producer) = self.device_registry.get_frame_producer(&det) {
                 let (w, h) = producer.resolution();
                 // Assume uint16 for now, or check metadata if available
                 // Assume uint16 for now, or check metadata if available
@@ -334,7 +330,6 @@ impl RunEngine {
                 .data_keys
                 .insert(mover.clone(), DataKey::scalar(&mover, ""));
         }
-        drop(registry); // Release lock
 
         let descriptor_uid = descriptor.uid.clone();
         self.emit_document(Document::Descriptor(descriptor)).await;
@@ -571,7 +566,7 @@ impl RunEngine {
         debug!(device = %device_id, position = %position, "Moving");
 
         // Get the device from registry and move it
-        let device = self.device_registry.read().await.get_movable(device_id);
+        let device = self.device_registry.get_movable(device_id);
         if let Some(device) = device {
             device.move_abs(position).await?;
         } else {
@@ -586,7 +581,7 @@ impl RunEngine {
         debug!(device = %device_id, "Reading");
 
         // Get the device from registry and read it
-        let device = self.device_registry.read().await.get_readable(device_id);
+        let device = self.device_registry.get_readable(device_id);
         if let Some(device) = device {
             let value = device.read().await?;
             Ok(value)
@@ -601,7 +596,7 @@ impl RunEngine {
         debug!(device = %device_id, "Triggering");
 
         // Get the device from registry and trigger it
-        let device = self.device_registry.read().await.get_triggerable(device_id);
+        let device = self.device_registry.get_triggerable(device_id);
         if let Some(device) = device {
             device.trigger().await?;
         } else {
@@ -621,7 +616,7 @@ impl RunEngine {
         debug!(device = %device_id, param = %parameter, value = %value, "Setting parameter");
 
         // Try legacy Settable trait first (backwards compatibility)
-        let settable = self.device_registry.read().await.get_settable(device_id);
+        let settable = self.device_registry.get_settable(device_id);
         if let Some(settable) = settable {
             // Parse the value string to JSON
             let json_value: serde_json::Value = serde_json::from_str(value)
@@ -636,7 +631,7 @@ impl RunEngine {
         }
 
         // New path - use Parameterized trait and Parameter<T> system
-        // Parse the value string to JSON first (before acquiring lock)
+        // Parse the value string to JSON first
         let json_value: serde_json::Value = serde_json::from_str(value)
             .or_else(|_| {
                 // Try as raw string if JSON parsing fails
@@ -644,9 +639,8 @@ impl RunEngine {
             })
             .map_err(|e| anyhow::anyhow!("Invalid value format: {}", e))?;
 
-        // Hold the lock while accessing and setting the parameter (set_json is synchronous)
-        let registry = self.device_registry.read().await;
-        if let Some(params) = registry.get_parameters(device_id) {
+        if let Some(parameterized) = self.device_registry.get_parameterized(device_id) {
+            let params = parameterized.parameters();
             if let Some(param) = params.get(parameter) {
                 // Set the parameter (synchronous call via ParameterBase trait)
                 param.set_json(json_value)?;
@@ -711,7 +705,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_engine_state_transitions() {
-        let registry = Arc::new(RwLock::new(DeviceRegistry::new()));
+        let registry = Arc::new(DeviceRegistry::new());
         let engine = RunEngine::new(registry);
 
         assert_eq!(engine.state().await, EngineState::Idle);
@@ -725,7 +719,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_queue_plan() {
-        let registry = Arc::new(RwLock::new(DeviceRegistry::new()));
+        let registry = Arc::new(DeviceRegistry::new());
         let engine = RunEngine::new(registry);
 
         let plan = Box::new(Count::new(5));
@@ -736,7 +730,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_document_subscription() {
-        let registry = Arc::new(RwLock::new(DeviceRegistry::new()));
+        let registry = Arc::new(DeviceRegistry::new());
         let engine = RunEngine::new(registry);
 
         let mut rx = engine.subscribe();
@@ -774,26 +768,25 @@ mod tests {
         use daq_hardware::registry::{DeviceConfig, DriverType};
 
         // 1. Setup Registry with MockCamera
-        let registry = Arc::new(RwLock::new(DeviceRegistry::new()));
+        let registry = Arc::new(DeviceRegistry::new());
         {
-            let mut reg = registry.write().await;
-            reg.register(DeviceConfig {
-                id: "cam1".to_string(),
-                name: "Mock Camera".to_string(),
-                driver: DriverType::MockCamera {
-                    width: 10,
-                    height: 10,
-                },
-            })
-            .await
-            .unwrap();
+            registry
+                .register(DeviceConfig {
+                    id: "cam1".to_string(),
+                    name: "Mock Camera".to_string(),
+                    driver: DriverType::MockCamera {
+                        width: 10,
+                        height: 10,
+                    },
+                })
+                .await
+                .unwrap();
         }
 
         // 2. Setup Engine
         // Arm the camera first (since Count plan doesn't stage/arm)
         {
-            let reg = registry.read().await;
-            let cam = reg.get_triggerable("cam1").expect("cam1 not found");
+            let cam = registry.get_triggerable("cam1").expect("cam1 not found");
             cam.arm().await.unwrap();
         }
 

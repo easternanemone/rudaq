@@ -32,7 +32,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status};
@@ -123,7 +123,7 @@ impl ScanExecution {
 /// - HDF5Writer background task flushes to disk at 1 Hz
 /// - Scientists see HDF5 files compatible with Python/MATLAB/Igor
 pub struct ScanServiceImpl {
-    registry: Arc<RwLock<DeviceRegistry>>,
+    registry: Arc<DeviceRegistry>,
     scans: Arc<Mutex<HashMap<String, ScanExecution>>>,
     next_scan_id: Arc<std::sync::atomic::AtomicU64>,
     /// Optional ring buffer for data persistence
@@ -149,7 +149,7 @@ impl ScanServiceImpl {
     }
 
     /// Create a new ScanService with the given device registry
-    pub fn new(registry: Arc<RwLock<DeviceRegistry>>) -> Self {
+    pub fn new(registry: Arc<DeviceRegistry>) -> Self {
         Self {
             registry,
             scans: Arc::new(Mutex::new(HashMap::new())),
@@ -244,18 +244,16 @@ impl ScanServiceImpl {
 
     /// Validate scan configuration against available devices
     async fn validate_config(&self, config: &ScanConfig) -> Result<(), String> {
-        let registry = self.registry.read().await;
-
         // Validate axes
         if config.axes.is_empty() {
             return Err("Scan must have at least one axis".to_string());
         }
 
         for axis in &config.axes {
-            if !registry.contains(&axis.device_id) {
+            if !self.registry.contains(&axis.device_id) {
                 return Err(format!("Device not found: {}", axis.device_id));
             }
-            if registry.get_movable(&axis.device_id).is_none() {
+            if self.registry.get_movable(&axis.device_id).is_none() {
                 return Err(format!("Device is not movable: {}", axis.device_id));
             }
             if axis.num_points == 0 {
@@ -268,20 +266,25 @@ impl ScanServiceImpl {
 
         // Validate acquire devices
         for device_id in &config.acquire_device_ids {
-            if !registry.contains(device_id) {
+            if !self.registry.contains(device_id) {
                 return Err(format!("Acquire device not found: {}", device_id));
             }
-            if registry.get_readable(device_id).is_none() {
-                return Err(format!("Device is not readable: {}", device_id));
+            if self.registry.get_readable(device_id).is_none()
+                && self.registry.get_frame_producer(device_id).is_none()
+            {
+                return Err(format!(
+                    "Acquire device is not readable or frame producer: {}",
+                    device_id
+                ));
             }
         }
 
         // Validate camera if specified
         if let Some(camera_id) = &config.camera_device_id {
-            if !registry.contains(camera_id) {
+            if !self.registry.contains(camera_id) {
                 return Err(format!("Camera device not found: {}", camera_id));
             }
-            if registry.get_triggerable(camera_id).is_none() {
+            if self.registry.get_triggerable(camera_id).is_none() {
                 return Err(format!("Camera is not triggerable: {}", camera_id));
             }
         }
@@ -291,7 +294,7 @@ impl ScanServiceImpl {
 
     /// Execute scan in background task
     async fn run_scan(
-        registry: Arc<RwLock<DeviceRegistry>>,
+        registry: Arc<DeviceRegistry>,
         scan_id: String,
         config: ScanConfig,
         scans: Arc<Mutex<HashMap<String, ScanExecution>>>,
@@ -307,26 +310,26 @@ impl ScanServiceImpl {
         let dwell_ms = config.dwell_time_ms.max(0.0) as u64;
         let triggers = config.triggers_per_point.max(1);
 
-        // Extract device references (lock once, release before async loop)
+        // Extract device references (no global lock needed with DashMap)
         let (movables, readables, triggerable) = {
-            let reg = registry.read().await;
             let movables: Vec<_> = config
                 .axes
                 .iter()
                 .filter_map(|a| {
-                    reg.get_movable(&a.device_id)
+                    registry
+                        .get_movable(&a.device_id)
                         .map(|m| (a.device_id.clone(), m))
                 })
                 .collect::<Vec<_>>();
             let readables: Vec<_> = config
                 .acquire_device_ids
                 .iter()
-                .filter_map(|id| reg.get_readable(id).map(|r| (id.clone(), r)))
+                .filter_map(|id| registry.get_readable(id).map(|r| (id.clone(), r)))
                 .collect::<Vec<_>>();
             let triggerable = config
                 .camera_device_id
                 .as_ref()
-                .and_then(|id| reg.get_triggerable(id).map(|t| (id.clone(), t)));
+                .and_then(|id| registry.get_triggerable(id).map(|t| (id.clone(), t)));
             (movables, readables, triggerable)
         };
 
@@ -696,7 +699,7 @@ impl ScanServiceImpl {
         // If emergency stop, also stop all motion devices
         if req.emergency_stop {
             drop(scans_guard); // Release lock before async operations
-            let registry = self.registry.read().await;
+            // registry access is now lock-free
 
             // Get config to find axes
             let config = {
@@ -706,7 +709,7 @@ impl ScanServiceImpl {
 
             if let Some(config) = config {
                 for axis in &config.axes {
-                    if let Some(movable) = registry.get_movable(&axis.device_id) {
+                    if let Some(movable) = self.registry.get_movable(&axis.device_id) {
                         let _ = movable.stop().await; // Best effort stop
                     }
                 }
