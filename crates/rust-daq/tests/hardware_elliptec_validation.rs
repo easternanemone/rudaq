@@ -2403,3 +2403,84 @@ async fn test_graceful_disconnect() {
     println!("\nFinal verification: {:.2}°", final_pos);
     println!("Graceful disconnect test PASSED");
 }
+
+/// Diagnostic test for rotator 2 movement issue
+///
+/// Tests raw serial responses when moving rotator 2 vs rotator 3
+#[tokio::test]
+async fn test_diagnose_rotator2_move_issue() {
+    use rust_daq::hardware::ell14::Ell14Driver;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio_serial::SerialPortBuilderExt;
+
+    println!("\n=== Diagnostic: Rotator 2 Move Issue ===\n");
+
+    // Open raw serial port
+    let mut port = tokio_serial::new(&get_elliptec_port(), 9600)
+        .data_bits(tokio_serial::DataBits::Eight)
+        .parity(tokio_serial::Parity::None)
+        .stop_bits(tokio_serial::StopBits::One)
+        .flow_control(tokio_serial::FlowControl::None)
+        .open_native_async()
+        .expect("Failed to open serial port");
+
+    async fn raw_transact(
+        port: &mut tokio_serial::SerialStream,
+        cmd: &str,
+    ) -> String {
+        port.write_all(cmd.as_bytes()).await.unwrap();
+        sleep(Duration::from_millis(100)).await;
+
+        let mut buf = [0u8; 64];
+        let mut response = String::new();
+        loop {
+            match tokio::time::timeout(Duration::from_millis(200), port.read(&mut buf)).await {
+                Ok(Ok(n)) if n > 0 => {
+                    response.push_str(&String::from_utf8_lossy(&buf[..n]));
+                }
+                _ => break,
+            }
+        }
+        response
+    }
+
+    // Test rotator 2
+    println!("--- Rotator 2 ---");
+    let resp = raw_transact(&mut port, "2gp").await;
+    println!("Position (2gp): {:?}", resp);
+
+    let resp = raw_transact(&mut port, "2gs").await;
+    println!("Status (2gs): {:?}", resp);
+
+    // Try move - 45 degrees = 45 * 398.22 = 17920 pulses = 0x4600
+    println!("\nSending move command: 2ma00004600 (45°)");
+    let resp = raw_transact(&mut port, "2ma00004600").await;
+    println!("Move response: {:?}", resp);
+
+    sleep(Duration::from_secs(3)).await;
+
+    let resp = raw_transact(&mut port, "2gp").await;
+    println!("Position after move: {:?}", resp);
+
+    let resp = raw_transact(&mut port, "2gs").await;
+    println!("Status after move: {:?}", resp);
+
+    // Test rotator 3 for comparison
+    println!("\n--- Rotator 3 (working) ---");
+    let resp = raw_transact(&mut port, "3gp").await;
+    println!("Position (3gp): {:?}", resp);
+
+    println!("\nSending move command: 3ma00008C00 (90°)");
+    let resp = raw_transact(&mut port, "3ma00008C00").await;
+    println!("Move response: {:?}", resp);
+
+    sleep(Duration::from_secs(3)).await;
+
+    let resp = raw_transact(&mut port, "3gp").await;
+    println!("Position after move: {:?}", resp);
+
+    let resp = raw_transact(&mut port, "3gs").await;
+    println!("Status after move: {:?}", resp);
+
+    println!("\n=== Diagnostic Complete ===");
+}
