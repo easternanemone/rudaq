@@ -6,9 +6,34 @@
 
 ---
 
-## Active Instruments (3/4 Device Types)
+## Active Instruments (4/5 Device Types)
 
-### 1. Newport 1830-C Optical Power Meter ✅
+### 1. Photometrics Prime BSI sCMOS Camera ✅
+
+**Interface:** USB 3.0 (via PVCAM SDK)
+**Camera Name:** `PrimeBSI`
+**Status:** OPERATIONAL
+**Sensor:** GS2020 (2048×2048 pixels, 16-bit)
+
+**PVCAM Configuration:**
+- SDK Version: 3.10.2.5
+- Camera opened via: `pl_cam_open("PrimeBSI", &hcam, 0)`
+- Environment: `PVCAM_VERSION=7.1.1.118`, `PVCAM_SDK_DIR=/opt/pvcam/sdk`
+
+**Connection:**
+```rust
+use daq_driver_pvcam::PvcamDriver;
+let camera = PvcamDriver::new_async("PrimeBSI".to_string()).await?;
+```
+
+**Notes:**
+- Not a serial device - uses Teledyne PVCAM SDK over USB
+- Requires PVCAM runtime libraries installed
+- Camera name "PrimeBSI" is reported by PVCAM enumeration
+
+---
+
+### 2. Newport 1830-C Optical Power Meter ✅
 
 **Port:** `/dev/ttyS0` (Native RS-232)
 **Status:** OPERATIONAL
@@ -30,7 +55,7 @@
 
 ---
 
-### 2. Spectra-Physics MaiTai Ti:Sapphire Laser ✅
+### 3. Spectra-Physics MaiTai Ti:Sapphire Laser ✅
 
 **Port:** `/dev/ttyUSB5` (USB-Serial via Silicon_Labs CP2102)
 **Status:** OPERATIONAL
@@ -68,9 +93,9 @@ Spectra Physics,MaiTai,3227/51054/40856,0245-2.00.34 / CD00000019 / 214-00.004.0
 
 ---
 
-### 3. Thorlabs Elliptec ELL14 Rotation Mounts (3 Units) ✅
+### 4. Thorlabs Elliptec ELL14 Rotation Mounts (3 Units) ✅
 
-**Port:** `/dev/ttyUSB0` (USB-Serial via FTDI FT230X Basic UART)
+**Port:** `/dev/ttyUSB1` (USB-Serial via FTDI FT230X Basic UART)
 **Status:** OPERATIONAL (All 3 devices responding)
 **Bus Type:** Multidrop addressable bus (0-F)
 
@@ -120,7 +145,7 @@ Spectra Physics,MaiTai,3227/51054/40856,0245-2.00.34 / CD00000019 / 214-00.004.0
 
 ## Inactive Instruments
 
-### 4. Newport ESP300 Motion Controller ❌
+### 5. Newport ESP300 Motion Controller ❌
 
 **Port:** `/dev/ttyUSB1` (USB-Serial via FTDI "USB <-> Serial Cable" FT1RALWL)
 **Status:** NOT RESPONDING (likely powered off)
@@ -142,14 +167,14 @@ Spectra Physics,MaiTai,3227/51054/40856,0245-2.00.34 / CD00000019 / 214-00.004.0
 
 ---
 
-## Serial Port Mapping
+## Device Mapping
 
-| Device | Port | USB Hardware ID | Status | Addresses |
-|--------|------|-----------------|--------|-----------|
+| Device | Interface | Identifier | Status | Notes |
+|--------|-----------|------------|--------|-------|
+| Prime BSI Camera | USB 3.0 (PVCAM) | `PrimeBSI` | ✅ Working | 2048×2048, 16-bit |
 | Newport 1830-C | `/dev/ttyS0` | Native RS-232 | ✅ Working | - |
-| ELL14 Bus (3 units) | `/dev/ttyUSB0` | FTDI_FT230X_Basic_UART | ✅ Working | 2, 3, 8 |
-| ESP300 | `/dev/ttyUSB1` | FTDI_USB_-_Serial_Cable (FT1RALWL) | ❌ Not responding | - |
-| (Unused) | `/dev/ttyUSB2-4` | FTDI_USB_-_Serial_Cable | - | - |
+| ELL14 Bus (3 units) | `/dev/ttyUSB1` | FTDI_FT230X_Basic_UART | ✅ Working | Addr: 2, 3, 8 |
+| ESP300 | `/dev/ttyUSB1` | FTDI_USB_-_Serial_Cable | ❌ Not responding | Powered off |
 | MaiTai Laser | `/dev/ttyUSB5` | Silicon_Labs_CP2102 | ✅ Working | - |
 
 ---
