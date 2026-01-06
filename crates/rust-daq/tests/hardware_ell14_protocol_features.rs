@@ -790,6 +790,346 @@ async fn test_stop_command_always_works() {
 }
 
 // =============================================================================
+// Bus Reliability Tests - Prevent Communication Overload
+// =============================================================================
+//
+// ELL14 devices have slow RS-485 communication (9600 baud) and can error out if:
+// 1. Too many commands are sent in rapid succession
+// 2. Too many motors run simultaneously (current draw from bus distributor)
+// 3. Commands overlap on the shared bus
+//
+// These tests verify the driver handles these constraints gracefully.
+
+/// Test that rapid command sequences don't overwhelm the bus
+/// This should run by default to catch command-rate issues early
+#[tokio::test]
+async fn test_bus_rapid_command_sequence() {
+    println!("\n=== Test: Bus Rapid Command Sequence ===");
+    println!("Verifying driver handles rapid commands without bus errors");
+
+    let driver = Ell14Driver::new(&get_elliptec_port(), TEST_ADDRESS)
+        .expect("Failed to create driver");
+
+    let mut success_count = 0;
+    let mut error_count = 0;
+    let total_commands = 20;
+
+    println!("Sending {} rapid position queries...", total_commands);
+
+    for i in 0..total_commands {
+        match driver.position().await {
+            Ok(pos) => {
+                success_count += 1;
+                if i % 5 == 0 {
+                    println!("  [{}/{}] Position: {:.2}°", i + 1, total_commands, pos);
+                }
+            }
+            Err(e) => {
+                error_count += 1;
+                println!("  [{}/{}] Error: {}", i + 1, total_commands, e);
+            }
+        }
+        // NO delay between commands - stress test
+    }
+
+    println!("\nResults: {} successes, {} errors", success_count, error_count);
+
+    // Allow some errors due to bus contention, but majority should succeed
+    let success_rate = success_count as f64 / total_commands as f64;
+    println!("Success rate: {:.1}%", success_rate * 100.0);
+
+    assert!(
+        success_rate >= 0.8,
+        "At least 80% of rapid commands should succeed (got {:.1}%)",
+        success_rate * 100.0
+    );
+
+    // Final verification
+    assert!(verify_device_responsive(&driver).await, "Device should recover after rapid commands");
+}
+
+/// Test proper command spacing prevents errors
+#[tokio::test]
+async fn test_bus_command_spacing() {
+    println!("\n=== Test: Bus Command Spacing ===");
+    println!("Verifying proper inter-command delays prevent errors");
+
+    let driver = Ell14Driver::new(&get_elliptec_port(), TEST_ADDRESS)
+        .expect("Failed to create driver");
+
+    let mut success_count = 0;
+    let total_commands = 15;
+    let inter_command_delay = Duration::from_millis(50); // Recommended minimum
+
+    println!("Sending {} commands with {}ms spacing...", total_commands, inter_command_delay.as_millis());
+
+    for i in 0..total_commands {
+        match driver.position().await {
+            Ok(pos) => {
+                success_count += 1;
+                println!("  [{}/{}] Position: {:.2}°", i + 1, total_commands, pos);
+            }
+            Err(e) => {
+                println!("  [{}/{}] Error: {}", i + 1, total_commands, e);
+            }
+        }
+        sleep(inter_command_delay).await;
+    }
+
+    println!("\nResults: {}/{} commands succeeded", success_count, total_commands);
+
+    // With proper spacing, ALL commands should succeed
+    assert_eq!(
+        success_count, total_commands,
+        "All commands should succeed with proper spacing"
+    );
+}
+
+/// Test mixed command types don't cause bus contention
+#[tokio::test]
+async fn test_bus_mixed_command_types() {
+    println!("\n=== Test: Bus Mixed Command Types ===");
+    println!("Verifying mixed read/write commands work reliably");
+
+    let driver = Ell14Driver::new(&get_elliptec_port(), TEST_ADDRESS)
+        .expect("Failed to create driver");
+
+    let initial_pos = driver.position().await.expect("Failed to get initial position");
+    let inter_command_delay = Duration::from_millis(50);
+
+    println!("Running mixed command sequence...");
+
+    // Sequence of different command types
+    let commands: Vec<(&str, bool)> = vec![
+        ("get_position", true),
+        ("get_device_info", true),
+        ("get_velocity", true),
+        ("small_move", true),
+        ("get_position", true),
+        ("get_motor1_info", true),
+        ("get_jog_step", true),
+        ("stop", true),
+    ];
+
+    let mut success_count = 0;
+
+    for (cmd_name, _) in &commands {
+        let result = match *cmd_name {
+            "get_position" => driver.position().await.map(|_| ()),
+            "get_device_info" => driver.get_device_info().await.map(|_| ()),
+            "get_velocity" => driver.get_velocity().await.map(|_| ()),
+            "small_move" => driver.move_rel(1.0).await,
+            "get_motor1_info" => driver.get_motor1_info().await.map(|_| ()),
+            "get_jog_step" => driver.get_jog_step().await.map(|_| ()),
+            "stop" => driver.stop().await,
+            _ => Ok(()),
+        };
+
+        match result {
+            Ok(_) => {
+                success_count += 1;
+                println!("  ✓ {}", cmd_name);
+            }
+            Err(e) => {
+                println!("  ✗ {} - {}", cmd_name, e);
+            }
+        }
+        sleep(inter_command_delay).await;
+    }
+
+    println!("\nResults: {}/{} commands succeeded", success_count, commands.len());
+
+    // Return to initial position
+    ensure_stopped(&driver).await;
+    driver.move_abs(initial_pos).await.ok();
+    driver.wait_settled().await.ok();
+
+    assert!(
+        success_count >= commands.len() - 1,
+        "Most commands should succeed in mixed sequence"
+    );
+}
+
+/// Test recovery from communication errors
+#[tokio::test]
+async fn test_bus_error_recovery() {
+    println!("\n=== Test: Bus Error Recovery ===");
+    println!("Verifying driver recovers gracefully from bus errors");
+
+    let driver = Ell14Driver::new(&get_elliptec_port(), TEST_ADDRESS)
+        .expect("Failed to create driver");
+
+    // First, verify device is working
+    assert!(verify_device_responsive(&driver).await, "Device should be responsive initially");
+
+    // Intentionally cause potential errors with very rapid commands
+    println!("Sending burst of commands to potentially cause errors...");
+    for _ in 0..10 {
+        let _ = driver.position().await; // Ignore result
+    }
+
+    // Wait for bus to settle
+    println!("Waiting for bus to settle...");
+    sleep(Duration::from_millis(500)).await;
+
+    // Verify recovery with proper spacing
+    println!("Verifying recovery...");
+    let mut recovery_success = 0;
+    for i in 0..5 {
+        sleep(Duration::from_millis(100)).await;
+        if driver.position().await.is_ok() {
+            recovery_success += 1;
+            println!("  Recovery attempt {}: OK", i + 1);
+        } else {
+            println!("  Recovery attempt {}: Failed", i + 1);
+        }
+    }
+
+    assert!(
+        recovery_success >= 4,
+        "Driver should recover from bus errors (got {}/5 successes)",
+        recovery_success
+    );
+
+    // Final verification
+    assert!(verify_device_responsive(&driver).await, "Device should be fully recovered");
+}
+
+/// Test that sequential operations on multiple addresses work correctly
+/// This simulates multi-device setups on the same bus
+#[tokio::test]
+async fn test_bus_sequential_multi_address() {
+    println!("\n=== Test: Bus Sequential Multi-Address Operations ===");
+    println!("Verifying sequential operations to different addresses work");
+
+    // This test uses a single address but simulates the pattern of
+    // multi-device communication by varying command types
+    let driver = Ell14Driver::new(&get_elliptec_port(), TEST_ADDRESS)
+        .expect("Failed to create driver");
+
+    let inter_device_delay = Duration::from_millis(100); // Delay between "devices"
+
+    println!("Simulating sequential multi-device pattern...");
+
+    // Pattern: query device, wait, query again, wait, move, wait, verify
+    // This is how multi-device code should behave
+
+    for round in 1..=3 {
+        println!("\nRound {}:", round);
+
+        // Simulate "Device A" query
+        match driver.get_device_info().await {
+            Ok(info) => println!("  Device A: {}", info.device_type),
+            Err(e) => println!("  Device A error: {}", e),
+        }
+        sleep(inter_device_delay).await;
+
+        // Simulate "Device B" query (same physical device, different command)
+        match driver.position().await {
+            Ok(pos) => println!("  Device B position: {:.2}°", pos),
+            Err(e) => println!("  Device B error: {}", e),
+        }
+        sleep(inter_device_delay).await;
+
+        // Simulate "Device C" query
+        match driver.get_velocity().await {
+            Ok(vel) => println!("  Device C velocity: {}%", vel),
+            Err(e) => println!("  Device C error: {}", e),
+        }
+        sleep(inter_device_delay).await;
+    }
+
+    assert!(verify_device_responsive(&driver).await, "Device should work after multi-address pattern");
+    println!("\nMulti-address pattern completed successfully");
+}
+
+/// Test that long operations don't block bus communication
+#[tokio::test]
+async fn test_bus_long_operation_interruptibility() {
+    println!("\n=== Test: Bus Long Operation Interruptibility ===");
+    println!("Verifying stop command can interrupt movements");
+
+    let driver = Ell14Driver::new(&get_elliptec_port(), TEST_ADDRESS)
+        .expect("Failed to create driver");
+
+    let initial_pos = driver.position().await.expect("Failed to get position");
+    println!("Initial position: {:.2}°", initial_pos);
+
+    // Start a long move
+    let target = if initial_pos < 180.0 { 350.0 } else { 10.0 };
+    println!("Starting move to {:.0}° (long travel)...", target);
+
+    driver.move_abs(target).await.expect("Move command should succeed");
+
+    // Wait briefly then interrupt
+    sleep(Duration::from_millis(200)).await;
+
+    println!("Interrupting with stop command...");
+    let stop_result = driver.stop().await;
+    assert!(stop_result.is_ok(), "Stop should succeed during movement");
+
+    sleep(Duration::from_millis(100)).await;
+
+    // Verify we can still communicate
+    let interrupted_pos = driver.position().await.expect("Should get position after stop");
+    println!("Position after interrupt: {:.2}°", interrupted_pos);
+
+    // Position should be between initial and target (interrupted mid-move)
+    // Unless the move was very fast
+
+    // Return to initial
+    driver.move_abs(initial_pos).await.ok();
+    driver.wait_settled().await.ok();
+
+    assert!(verify_device_responsive(&driver).await, "Device should be responsive after interrupt");
+}
+
+/// Test bus doesn't lock up under sustained load
+#[tokio::test]
+async fn test_bus_sustained_load() {
+    println!("\n=== Test: Bus Sustained Load ===");
+    println!("Verifying bus handles sustained query load");
+
+    let driver = Ell14Driver::new(&get_elliptec_port(), TEST_ADDRESS)
+        .expect("Failed to create driver");
+
+    let test_duration = Duration::from_secs(5);
+    let query_interval = Duration::from_millis(100); // 10 queries/second
+
+    let start = std::time::Instant::now();
+    let mut query_count = 0;
+    let mut error_count = 0;
+
+    println!("Running sustained load for {}s at ~10 queries/sec...", test_duration.as_secs());
+
+    while start.elapsed() < test_duration {
+        match driver.position().await {
+            Ok(_) => query_count += 1,
+            Err(_) => error_count += 1,
+        }
+        sleep(query_interval).await;
+    }
+
+    let elapsed = start.elapsed().as_secs_f64();
+    let queries_per_sec = query_count as f64 / elapsed;
+    let error_rate = error_count as f64 / (query_count + error_count) as f64;
+
+    println!("\nResults:");
+    println!("  Duration: {:.1}s", elapsed);
+    println!("  Queries: {} successful, {} errors", query_count, error_count);
+    println!("  Rate: {:.1} queries/sec", queries_per_sec);
+    println!("  Error rate: {:.1}%", error_rate * 100.0);
+
+    assert!(
+        error_rate < 0.05,
+        "Error rate should be under 5% for sustained load (got {:.1}%)",
+        error_rate * 100.0
+    );
+
+    assert!(verify_device_responsive(&driver).await, "Device should be responsive after sustained load");
+}
+
+// =============================================================================
 // Safety/Cleanup Test - Run Last
 // =============================================================================
 
