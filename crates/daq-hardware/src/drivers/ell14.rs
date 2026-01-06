@@ -60,9 +60,9 @@
 //!
 //! # Example Usage
 //!
-//! ```no_run
-//! use rust_daq::hardware::ell14::Ell14Driver;
-//! use rust_daq::hardware::capabilities::Movable;
+//! ```ignore
+//! use daq_hardware::drivers::ell14::Ell14Driver;
+//! use daq_hardware::capabilities::Movable;
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
