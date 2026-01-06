@@ -721,12 +721,10 @@ async fn test_all_velocities() {
         match driver.get_velocity().await {
             Ok(velocity) => {
                 let status = if velocity >= 60 { "OK" } else { "SLOW!" };
+                let percent = (velocity as u32 * 100) / 64;
                 println!(
                     "Rotator {}: velocity = {} ({}% of max) - {}",
-                    addr,
-                    velocity,
-                    velocity * 100 / 64,
-                    status
+                    addr, velocity, percent, status
                 );
             }
             Err(e) => println!("Rotator {}: Error getting velocity - {}", addr, e),
