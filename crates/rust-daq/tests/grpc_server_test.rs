@@ -1,24 +1,37 @@
 #![cfg(not(target_arch = "wasm32"))]
 //! Integration tests for the gRPC server implementation
-//! Requires 'networking' feature
+//! Requires 'server' (which includes networking) and 'scripting' features
 
-#![cfg(feature = "networking")]
+#![cfg(all(feature = "server", feature = "scripting"))]
 
+use daq_experiment::RunEngine;
+use daq_hardware::registry::DeviceRegistry;
 use daq_server::grpc::server::DaqServer;
-use daq_server::grpc::{ControlService, StartRequest, StatusRequest, UploadRequest};
+use daq_server::grpc::{
+    ControlService, ScriptStatus, StartRequest, StartResponse, StatusRequest, UploadRequest,
+    UploadResponse,
+};
 use std::collections::HashMap;
-use tonic::Request;
+use std::sync::Arc;
+use tonic::{Request, Response, Status};
+
+/// Create a test DaqServer with a mock RunEngine (bd-si2c)
+fn create_test_server() -> DaqServer {
+    let registry = Arc::new(DeviceRegistry::new());
+    let run_engine = Arc::new(RunEngine::new(registry));
+    DaqServer::new(run_engine).expect("failed to create test DaqServer")
+}
 
 #[tokio::test]
 async fn test_grpc_upload_valid_script() {
-    let server = DaqServer::new().unwrap();
+    let server = create_test_server();
     let request = Request::new(UploadRequest {
         script_content: "let x = 42; x + 1".to_string(),
         name: "test_script".to_string(),
         metadata: HashMap::new(),
     });
 
-    let response = server.upload_script(request).await.unwrap();
+    let response: Response<UploadResponse> = server.upload_script(request).await.unwrap();
     let resp = response.into_inner();
 
     assert!(resp.success, "Script upload should succeed");
@@ -28,14 +41,14 @@ async fn test_grpc_upload_valid_script() {
 
 #[tokio::test]
 async fn test_grpc_upload_invalid_script() {
-    let server = DaqServer::new().unwrap();
+    let server = create_test_server();
     let request = Request::new(UploadRequest {
         script_content: "this is not valid rhai {{{".to_string(),
         name: "bad_script".to_string(),
         metadata: HashMap::new(),
     });
 
-    let response = server.upload_script(request).await.unwrap();
+    let response: Response<UploadResponse> = server.upload_script(request).await.unwrap();
     let resp = response.into_inner();
 
     assert!(!resp.success, "Invalid script should fail");
@@ -44,13 +57,13 @@ async fn test_grpc_upload_invalid_script() {
 
 #[tokio::test]
 async fn test_grpc_start_script_not_found() {
-    let server = DaqServer::new().unwrap();
+    let server = create_test_server();
     let request = Request::new(StartRequest {
         script_id: "nonexistent_id".to_string(),
         parameters: HashMap::new(),
     });
 
-    let response = server.start_script(request).await;
+    let response: Result<Response<StartResponse>, Status> = server.start_script(request).await;
 
     // Server returns NotFound status for nonexistent scripts
     assert!(response.is_err(), "Starting nonexistent script should fail");
@@ -65,12 +78,13 @@ async fn test_grpc_start_script_not_found() {
 
 #[tokio::test]
 async fn test_grpc_status_no_execution() {
-    let server = DaqServer::new().unwrap();
+    let server = create_test_server();
     let request = Request::new(StatusRequest {
         execution_id: "nonexistent_execution".to_string(),
     });
 
-    let response = server.get_script_status(request).await;
+    let response: Result<Response<ScriptStatus>, Status> =
+        server.get_script_status(request).await;
 
     // Server returns NotFound status for nonexistent executions
     assert!(
@@ -83,7 +97,7 @@ async fn test_grpc_status_no_execution() {
 
 #[tokio::test]
 async fn test_grpc_full_workflow() {
-    let server = DaqServer::new().unwrap();
+    let server = create_test_server();
 
     // Upload script
     let upload_request = Request::new(UploadRequest {
@@ -92,7 +106,8 @@ async fn test_grpc_full_workflow() {
         metadata: HashMap::new(),
     });
 
-    let upload_response = server.upload_script(upload_request).await.unwrap();
+    let upload_response: Response<UploadResponse> =
+        server.upload_script(upload_request).await.unwrap();
     let upload_resp = upload_response.into_inner();
     assert!(upload_resp.success);
     let script_id = upload_resp.script_id;
@@ -103,7 +118,8 @@ async fn test_grpc_full_workflow() {
         parameters: HashMap::new(),
     });
 
-    let start_response = server.start_script(start_request).await.unwrap();
+    let start_response: Response<StartResponse> =
+        server.start_script(start_request).await.unwrap();
     let start_resp = start_response.into_inner();
     assert!(start_resp.started, "Script should start successfully");
     let execution_id = start_resp.execution_id;
@@ -112,7 +128,8 @@ async fn test_grpc_full_workflow() {
     let status_request = Request::new(StatusRequest {
         execution_id: execution_id.clone(),
     });
-    let status_response = server.get_script_status(status_request).await.unwrap();
+    let status_response: Response<ScriptStatus> =
+        server.get_script_status(status_request).await.unwrap();
     let status = status_response.into_inner();
 
     // Script may be running or completed

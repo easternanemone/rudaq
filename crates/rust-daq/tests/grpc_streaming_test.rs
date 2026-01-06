@@ -2,22 +2,33 @@
 //! Integration test for gRPC streaming functionality
 //!
 //! Tests the stream_measurements RPC to verify real-time data streaming works correctly.
+//! Requires 'server' (which includes networking) and 'scripting' features (bd-si2c)
 
-#[cfg(feature = "networking")]
+#![cfg(all(feature = "server", feature = "scripting"))]
+
 mod streaming_tests {
     use chrono::Utc;
     use daq_core::core::Measurement;
+    use daq_experiment::RunEngine;
+    use daq_hardware::registry::DeviceRegistry;
     use daq_proto::daq::MeasurementRequest;
+    use daq_server::grpc::server::DaqServer;
     use daq_server::grpc::ControlService;
-    use daq_server::DaqServer;
-
+    use std::sync::Arc;
     use tokio_stream::StreamExt;
     use tonic::Request;
+
+    /// Create a test DaqServer with a mock RunEngine (bd-si2c)
+    fn create_test_server() -> DaqServer {
+        let registry = Arc::new(DeviceRegistry::new());
+        let run_engine = Arc::new(RunEngine::new(registry));
+        DaqServer::new(run_engine).expect("failed to create test DaqServer")
+    }
 
     #[tokio::test]
     async fn test_stream_receives_broadcast_data() {
         // Create server
-        let server = DaqServer::default();
+        let server = create_test_server();
 
         // Get sender for hardware simulation
         let data_sender = server.data_sender();
@@ -63,7 +74,7 @@ mod streaming_tests {
 
     #[tokio::test]
     async fn test_channel_filtering() {
-        let server = DaqServer::default();
+        let server = create_test_server();
         let data_sender = server.data_sender();
 
         // Request only "temperature" channel
@@ -109,7 +120,7 @@ mod streaming_tests {
 
     #[tokio::test]
     async fn test_multiple_concurrent_clients() {
-        let server = DaqServer::default();
+        let server = create_test_server();
         let data_sender = server.data_sender();
 
         // Create two concurrent clients

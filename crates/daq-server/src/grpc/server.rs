@@ -19,6 +19,10 @@ use daq_scripting::ScriptEngine; // Trait import
 use daq_proto::daq::{UploadRequest, UploadResponse};
 #[cfg(feature = "scripting")]
 use daq_scripting::RhaiEngine;
+#[cfg(feature = "scripting")]
+use daq_scripting::ScriptPlanRunner;
+#[cfg(feature = "scripting")]
+use daq_experiment::RunEngine;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -250,6 +254,11 @@ pub struct DaqServer {
     /// JoinHandles for running script tasks, keyed by execution_id.
     /// Used for cancellation - calling abort() on the handle stops the script.
     running_tasks: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
+    #[cfg(feature = "scripting")]
+    /// Shared RunEngine for executing yielded plans from scripts (bd-si2c)
+    /// Scripts use ScriptPlanRunner which executes plans through this engine,
+    /// ensuring all script operations emit Documents and coordinate with gRPC services.
+    run_engine: Arc<RunEngine>,
     start_time: SystemTime,
 
     /// Broadcast channel for distributing hardware measurements to multiple consumers.
@@ -266,23 +275,25 @@ impl DaqServer {
     ///
     /// # Arguments
     /// * `ring_buffer` - Optional RingBuffer for persistent data storage (when storage features enabled)
+    /// * `run_engine` - Shared RunEngine for coordinating script execution with gRPC services (bd-si2c)
     ///
     /// # Example
     /// ```ignore
+    /// // Create shared RunEngine first
+    /// let registry = DeviceRegistry::new();
+    /// let run_engine = Arc::new(RunEngine::new(Arc::new(registry)));
+    ///
     /// // Without storage
-    /// let server = DaqServer::new(None);
+    /// let server = DaqServer::new(None, run_engine.clone())?;
     ///
     /// // With storage (requires storage_hdf5 + storage_arrow features)
     /// let ring_buffer = Arc::new(RingBuffer::create(Path::new("/tmp/daq_ring"), 100)?);
-    /// let server = DaqServer::new(Some(ring_buffer));
+    /// let server = DaqServer::new(Some(ring_buffer), run_engine)?;
     /// ```
-    /// Create a new DAQ server instance.
-    ///
-    /// # Arguments
-    /// * `ring_buffer` - Optional RingBuffer for persistent data storage (when storage features enabled)
-    #[cfg(feature = "storage_hdf5")]
+    #[cfg(all(feature = "storage_hdf5", feature = "scripting"))]
     pub fn new(
         ring_buffer: Option<Arc<daq_storage::ring_buffer::RingBuffer>>,
+        run_engine: Arc<RunEngine>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         // Create broadcast channel for data distribution (capacity 1000 in-flight messages)
         let (data_tx, mut data_rx) = broadcast::channel(1000);
@@ -371,6 +382,8 @@ impl DaqServer {
             executions: Arc::new(RwLock::new(HashMap::new())),
             #[cfg(feature = "scripting")]
             running_tasks: Arc::new(RwLock::new(HashMap::new())),
+            #[cfg(feature = "scripting")]
+            run_engine,
             start_time: SystemTime::now(),
             data_tx,
             #[cfg(feature = "storage_hdf5")]
@@ -379,28 +392,54 @@ impl DaqServer {
     }
 
     /// Create a new DAQ server instance without storage features.
-    #[cfg(not(feature = "storage_hdf5"))]
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    /// Requires `run_engine` when scripting feature is enabled (bd-si2c).
+    #[cfg(all(not(feature = "storage_hdf5"), feature = "scripting"))]
+    pub fn new(run_engine: Arc<RunEngine>) -> Result<Self, Box<dyn std::error::Error>> {
         // Create broadcast channel for data distribution
         let (data_tx, _rx) = broadcast::channel(1000);
         let data_tx = Arc::new(data_tx);
 
         Ok(Self {
-            #[cfg(feature = "scripting")]
             script_engine: Arc::new(RwLock::new(RhaiEngine::with_hardware().map_err(|e| {
                 format!(
                     "failed to initialize RhaiEngine with hardware bindings: {}",
                     e
                 )
             })?)),
-            #[cfg(feature = "scripting")]
             scripts: Arc::new(RwLock::new(HashMap::new())),
-            #[cfg(feature = "scripting")]
             script_metadata: Arc::new(RwLock::new(HashMap::new())),
-            #[cfg(feature = "scripting")]
             executions: Arc::new(RwLock::new(HashMap::new())),
-            #[cfg(feature = "scripting")]
             running_tasks: Arc::new(RwLock::new(HashMap::new())),
+            run_engine,
+            start_time: SystemTime::now(),
+            data_tx,
+        })
+    }
+
+    /// Create a new DAQ server instance with storage but no scripting support.
+    #[cfg(all(feature = "storage_hdf5", not(feature = "scripting")))]
+    pub fn new(
+        ring_buffer: Option<Arc<daq_storage::ring_buffer::RingBuffer>>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        // Create broadcast channel for data distribution (capacity 1000 in-flight messages)
+        let (data_tx, _rx) = broadcast::channel(1000);
+        let data_tx = Arc::new(data_tx);
+
+        Ok(Self {
+            start_time: SystemTime::now(),
+            data_tx,
+            ring_buffer,
+        })
+    }
+
+    /// Create a new DAQ server instance without storage or scripting features.
+    #[cfg(all(not(feature = "storage_hdf5"), not(feature = "scripting")))]
+    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        // Create broadcast channel for data distribution
+        let (data_tx, _rx) = broadcast::channel(1000);
+        let data_tx = Arc::new(data_tx);
+
+        Ok(Self {
             start_time: SystemTime::now(),
             data_tx,
         })
@@ -475,6 +514,10 @@ impl std::fmt::Debug for DaqServer {
     }
 }
 
+/// Default is only available when scripting is disabled (bd-si2c)
+/// When scripting is enabled, you must create a DaqServer with a shared RunEngine
+/// using DaqServer::new(run_engine) or DaqServer::new(ring_buffer, run_engine)
+#[cfg(not(feature = "scripting"))]
 impl Default for DaqServer {
     #[cfg(feature = "storage_hdf5")]
     fn default() -> Self {
@@ -578,22 +621,35 @@ impl ControlService for DaqServer {
             },
         );
 
-        // Execute script in background (non-blocking)
+        // Execute script via ScriptPlanRunner using shared RunEngine (bd-si2c)
+        // This ensures all yielded plans emit Documents and coordinate with gRPC services
         let script_clone = script.clone();
-        let engine_clone = self.script_engine.clone();
+        let run_engine_clone = self.run_engine.clone();
         let executions_clone = self.executions.clone();
         let exec_id_clone = execution_id.clone();
         let running_tasks_clone = self.running_tasks.clone();
         let exec_id_for_cleanup = execution_id.clone();
 
         let handle = tokio::spawn(async move {
-            let mut engine = engine_clone.write().await;
-            let result = engine.execute_script(&script_clone).await;
+            // Create a ScriptPlanRunner with the shared RunEngine
+            let runner = ScriptPlanRunner::new(run_engine_clone);
+            let result = runner.run(&script_clone).await;
 
             // Update execution state with result
             let mut executions = executions_clone.write().await;
             if let Some(exec) = executions.get_mut(&exec_id_clone) {
-                exec.state = if result.is_ok() { "COMPLETED" } else { "ERROR" }.to_string();
+                match &result {
+                    Ok(report) => {
+                        exec.state = if report.success { "COMPLETED" } else { "ERROR" }.to_string();
+                        if let Some(ref error_msg) = report.error {
+                            exec.error = Some(error_msg.clone());
+                        }
+                    }
+                    Err(e) => {
+                        exec.state = "ERROR".to_string();
+                        exec.error = Some(e.to_string());
+                    }
+                }
                 exec.end_time = Some(
                     SystemTime::now()
                         .duration_since(UNIX_EPOCH)
@@ -601,9 +657,6 @@ impl ControlService for DaqServer {
                         .as_nanos() as u64,
                 );
                 exec.progress_percent = 100;
-                if let Err(e) = result {
-                    exec.error = Some(e.to_string());
-                }
             }
 
             // Remove from running_tasks now that we're done
@@ -1011,11 +1064,16 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
         );
     }
 
-    let server = DaqServer::new()?;
-
-    // Create RunEngine with empty registry (bd-w14j.2.2)
+    // Create shared RunEngine FIRST (bd-si2c)
     let registry = std::sync::Arc::new(daq_hardware::registry::DeviceRegistry::new());
     let run_engine_instance = std::sync::Arc::new(daq_experiment::RunEngine::new(registry));
+
+    // Create DaqServer with shared RunEngine when scripting enabled (bd-si2c)
+    #[cfg(feature = "scripting")]
+    let server = DaqServer::new(run_engine_instance.clone())?;
+    #[cfg(not(feature = "scripting"))]
+    let server = DaqServer::new()?;
+
     let run_engine = RunEngineServiceImpl::new(run_engine_instance);
 
     let health_service = HealthServiceImpl::new();
@@ -1177,10 +1235,18 @@ pub async fn start_server_with_hardware(
         }
     }
 
+    // Create shared RunEngine FIRST - used by both RunEngineService and ControlService/scripts (bd-si2c)
+    let run_engine = std::sync::Arc::new(daq_experiment::RunEngine::new(registry.clone()));
+
     // Initialize control server WITHOUT internal RingBuffer logic (we wire it manually)
-    #[cfg(feature = "storage_hdf5")]
+    // Pass shared run_engine for script execution (bd-si2c)
+    #[cfg(all(feature = "storage_hdf5", feature = "scripting"))]
+    let control_server = DaqServer::new(None, run_engine.clone())?;
+    #[cfg(all(feature = "storage_hdf5", not(feature = "scripting")))]
     let control_server = DaqServer::new(None)?;
-    #[cfg(not(feature = "storage_hdf5"))]
+    #[cfg(all(not(feature = "storage_hdf5"), feature = "scripting"))]
+    let control_server = DaqServer::new(run_engine.clone())?;
+    #[cfg(all(not(feature = "storage_hdf5"), not(feature = "scripting")))]
     let control_server = DaqServer::new()?;
 
     // Setup Reliable Sink (RingBuffer Writer)
@@ -1341,9 +1407,8 @@ pub async fn start_server_with_hardware(
         }
     }
 
-    // Create RunEngine from registry (bd-w14j.2.2)
-    let run_engine = std::sync::Arc::new(daq_experiment::RunEngine::new(registry.clone()));
-    let run_engine_server = RunEngineServiceImpl::new(run_engine);
+    // RunEngine was already created above (bd-si2c) - shared between RunEngineService and scripts
+    let run_engine_server = RunEngineServiceImpl::new(run_engine.clone());
 
     let hardware_server = HardwareServiceImpl::new(registry.clone());
     let module_server = ModuleServiceImpl::new(registry.clone());
@@ -1524,10 +1589,18 @@ mod tests {
     use super::*;
     use chrono::Utc;
 
+    /// Create a test DaqServer with a mock RunEngine (bd-si2c)
+    #[cfg(feature = "scripting")]
+    fn create_test_server() -> DaqServer {
+        let registry = std::sync::Arc::new(daq_hardware::registry::DeviceRegistry::new());
+        let run_engine = std::sync::Arc::new(daq_experiment::RunEngine::new(registry));
+        DaqServer::new(run_engine).expect("failed to create test DaqServer")
+    }
+
     #[tokio::test]
     #[cfg(feature = "scripting")]
     async fn test_upload_valid_script() {
-        let server = DaqServer::default();
+        let server = create_test_server();
         let request = Request::new(UploadRequest {
             script_content: "let x = 42;".to_string(),
             name: "test".to_string(),
@@ -1545,7 +1618,7 @@ mod tests {
     #[tokio::test]
     #[cfg(feature = "scripting")]
     async fn test_upload_invalid_script() {
-        let server = DaqServer::default();
+        let server = create_test_server();
         let request = Request::new(UploadRequest {
             script_content: "this is not valid rhai syntax {{{".to_string(),
             name: "test".to_string(),
@@ -1563,7 +1636,7 @@ mod tests {
     #[tokio::test]
     #[cfg(feature = "scripting")]
     async fn test_start_nonexistent_script() {
-        let server = DaqServer::default();
+        let server = create_test_server();
         let request = Request::new(StartRequest {
             script_id: "nonexistent-id".to_string(),
             parameters: HashMap::new(),
@@ -1577,7 +1650,7 @@ mod tests {
     #[tokio::test]
     #[cfg(feature = "scripting")]
     async fn test_script_execution_lifecycle() {
-        let server = DaqServer::default();
+        let server = create_test_server();
 
         // Upload script
         let upload_req = Request::new(UploadRequest {
@@ -1617,7 +1690,7 @@ mod tests {
     async fn test_stream_measurements_basic() {
         use tokio_stream::StreamExt;
 
-        let server = DaqServer::default();
+        let server = create_test_server();
 
         // Get sender to simulate hardware
         let data_sender = server.data_sender();
@@ -1666,7 +1739,7 @@ mod tests {
     async fn test_stream_measurements_channel_filter() {
         use tokio_stream::StreamExt;
 
-        let server = DaqServer::default();
+        let server = create_test_server();
         let data_sender = server.data_sender();
 
         // Request only "channel_a" measurements
@@ -1720,7 +1793,7 @@ mod tests {
         use std::time::Instant;
         use tokio_stream::StreamExt;
 
-        let server = DaqServer::default();
+        let server = create_test_server();
         let data_sender = server.data_sender();
 
         // Request max 10 Hz rate
@@ -1776,7 +1849,7 @@ mod tests {
     async fn test_stream_measurements_multiple_clients() {
         use tokio_stream::StreamExt;
 
-        let server = DaqServer::default();
+        let server = create_test_server();
         let data_sender = server.data_sender();
 
         // Start two concurrent streams
