@@ -82,7 +82,13 @@ impl ScriptRunReport {
     }
 
     /// Create a failure report
-    fn failure(error: impl Into<String>, plans: u32, events: u32, duration: Duration, run_uids: Vec<String>) -> Self {
+    fn failure(
+        error: impl Into<String>,
+        plans: u32,
+        events: u32,
+        duration: Duration,
+        run_uids: Vec<String>,
+    ) -> Self {
         Self {
             plans_executed: plans,
             total_events: events,
@@ -178,7 +184,10 @@ impl ScriptPlanRunner {
             if plans_executed as usize >= self.config.max_plans {
                 error!("Script exceeded maximum plan limit");
                 return Ok(ScriptRunReport::failure(
-                    format!("Script exceeded maximum plan limit of {}", self.config.max_plans),
+                    format!(
+                        "Script exceeded maximum plan limit of {}",
+                        self.config.max_plans
+                    ),
                     plans_executed,
                     total_events,
                     start_time.elapsed(),
@@ -187,10 +196,8 @@ impl ScriptPlanRunner {
             }
 
             // Wait for next yielded value with timeout
-            let receive_result = tokio::time::timeout(
-                Duration::from_millis(100),
-                yield_rx.recv(),
-            ).await;
+            let receive_result =
+                tokio::time::timeout(Duration::from_millis(100), yield_rx.recv()).await;
 
             match receive_result {
                 Ok(Some(yielded)) => {
@@ -210,11 +217,8 @@ impl ScriptPlanRunner {
                                 }
                                 Err(e) => {
                                     error!("Plan execution failed: {}", e);
-                                    let error_result = YieldResult::fail(
-                                        String::new(),
-                                        e.to_string(),
-                                        0,
-                                    );
+                                    let error_result =
+                                        YieldResult::fail(String::new(), e.to_string(), 0);
                                     let _ = result_tx.send(Some(error_result));
 
                                     if !self.config.continue_on_error {
@@ -245,11 +249,8 @@ impl ScriptPlanRunner {
                                 }
                                 Err(e) => {
                                     error!("Command execution failed: {}", e);
-                                    let error_result = YieldResult::fail(
-                                        String::new(),
-                                        e.to_string(),
-                                        0,
-                                    );
+                                    let error_result =
+                                        YieldResult::fail(String::new(), e.to_string(), 0);
                                     let _ = result_tx.send(Some(error_result));
 
                                     if !self.config.continue_on_error {

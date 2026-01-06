@@ -764,7 +764,11 @@ impl PlanBuilder for TimeSeriesBuilder {
     }
 
     fn categories(&self) -> Vec<String> {
-        vec!["time_series".to_string(), "1d".to_string(), "daq".to_string()]
+        vec![
+            "time_series".to_string(),
+            "1d".to_string(),
+            "daq".to_string(),
+        ]
     }
 }
 

@@ -83,8 +83,7 @@ async fn test_grpc_status_no_execution() {
         execution_id: "nonexistent_execution".to_string(),
     });
 
-    let response: Result<Response<ScriptStatus>, Status> =
-        server.get_script_status(request).await;
+    let response: Result<Response<ScriptStatus>, Status> = server.get_script_status(request).await;
 
     // Server returns NotFound status for nonexistent executions
     assert!(
@@ -118,8 +117,7 @@ async fn test_grpc_full_workflow() {
         parameters: HashMap::new(),
     });
 
-    let start_response: Response<StartResponse> =
-        server.start_script(start_request).await.unwrap();
+    let start_response: Response<StartResponse> = server.start_script(start_request).await.unwrap();
     let start_resp = start_response.into_inner();
     assert!(start_resp.started, "Script should start successfully");
     let execution_id = start_resp.execution_id;

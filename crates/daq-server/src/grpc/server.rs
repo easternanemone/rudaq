@@ -16,13 +16,13 @@ use daq_core::limits;
 #[cfg(feature = "scripting")]
 use daq_scripting::ScriptEngine; // Trait import
 // use daq_core::error::DaqError; // Unused
+#[cfg(feature = "scripting")]
+use daq_experiment::RunEngine;
 use daq_proto::daq::{UploadRequest, UploadResponse};
 #[cfg(feature = "scripting")]
 use daq_scripting::RhaiEngine;
 #[cfg(feature = "scripting")]
 use daq_scripting::ScriptPlanRunner;
-#[cfg(feature = "scripting")]
-use daq_experiment::RunEngine;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;

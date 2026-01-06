@@ -1094,13 +1094,13 @@ impl ImageViewerPanel {
                                 frames_received += 1;
                                 if frames_received % 30 == 0 {
                                     tracing::debug!(
-                                        device_id = %device_id_clone, 
-                                        frame = frames_received, 
+                                        device_id = %device_id_clone,
+                                        frame = frames_received,
                                         bytes = frame_data.data.len(),
                                         "Received frame from gRPC"
                                     );
                                 }
-                                
+
                                 let update = FrameUpdate::from(frame_data);
                                 // Use try_send to avoid blocking when queue is full
                                 // Dropping frames is preferred over blocking the stream
@@ -1110,7 +1110,7 @@ impl ImageViewerPanel {
                                         frames_dropped += 1;
                                         if frames_dropped % 10 == 0 {
                                             tracing::warn!(
-                                                device_id = %device_id_clone, 
+                                                device_id = %device_id_clone,
                                                 dropped = frames_dropped,
                                                 "Frame dropped - UI queue full (slow render loop?)"
                                             );
@@ -1142,7 +1142,7 @@ impl ImageViewerPanel {
                     }
                 }
             }
-            
+
             // Cleanup: Ensure server-side stream is stopped when subscriber task exits
             let _ = client.stop_stream(&device_id_clone).await;
         });

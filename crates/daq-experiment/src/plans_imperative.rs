@@ -220,7 +220,11 @@ impl Plan for ImperativePlan {
 
     fn num_points(&self) -> usize {
         // Imperative plans are typically single-shot
-        if self.emit_event { 1 } else { 0 }
+        if self.emit_event {
+            1
+        } else {
+            0
+        }
     }
 
     fn next_command(&mut self) -> Option<PlanCommand> {
@@ -240,9 +244,10 @@ impl Plan for ImperativePlan {
                 .commands
                 .iter()
                 .filter_map(|cmd| match cmd {
-                    PlanCommand::MoveTo { device_id, position } => {
-                        Some((device_id.clone(), *position))
-                    }
+                    PlanCommand::MoveTo {
+                        device_id,
+                        position,
+                    } => Some((device_id.clone(), *position)),
                     _ => None,
                 })
                 .collect();
@@ -321,8 +326,7 @@ mod tests {
 
     #[test]
     fn test_imperative_reset() {
-        let mut plan = ImperativePlan::move_to("stage_x", 10.0)
-            .with_emit_event(true);
+        let mut plan = ImperativePlan::move_to("stage_x", 10.0).with_emit_event(true);
 
         // Run through once
         while plan.next_command().is_some() {}

@@ -73,8 +73,8 @@
 //! ```
 
 use daq_core::capabilities::{
-    Commandable, EmissionControl, ExposureControl, FrameProducer, Movable, Parameterized,
-    Readable, Settable, ShutterControl, Stageable, Triggerable, WavelengthTunable,
+    Commandable, EmissionControl, ExposureControl, FrameProducer, Movable, Parameterized, Readable,
+    Settable, ShutterControl, Stageable, Triggerable, WavelengthTunable,
 };
 use daq_core::data::Frame;
 use daq_core::pipeline::MeasurementSource;
@@ -83,7 +83,7 @@ use daq_core::pipeline::MeasurementSource;
 use crate::plugin::driver::GenericDriver;
 // use crate::plugin::driver::{Connection, GenericDriver};
 // use crate::plugin::schema::{DriverType, InstrumentConfig, PluginMetadata, ScriptType};
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -1861,22 +1861,18 @@ mod tests {
     #[tokio::test]
     async fn test_validate_driver_config_mock_devices_always_valid() {
         // Mock devices should always pass validation
-        assert!(
-            validate_driver_config(&DriverType::MockStage {
-                initial_position: 0.0
-            })
-            .is_ok()
-        );
+        assert!(validate_driver_config(&DriverType::MockStage {
+            initial_position: 0.0
+        })
+        .is_ok());
 
         assert!(validate_driver_config(&DriverType::MockPowerMeter { reading: 1e-6 }).is_ok());
 
-        assert!(
-            validate_driver_config(&DriverType::MockCamera {
-                width: 640,
-                height: 480
-            })
-            .is_ok()
-        );
+        assert!(validate_driver_config(&DriverType::MockCamera {
+            width: 640,
+            height: 480
+        })
+        .is_ok());
     }
 
     #[tokio::test]
@@ -1929,17 +1925,13 @@ mod tests {
 
         // Verify device info includes all capabilities
         let device_info = registry.get_device_info("mock_camera").unwrap();
-        assert!(
-            device_info
-                .capabilities
-                .contains(&Capability::FrameProducer)
-        );
+        assert!(device_info
+            .capabilities
+            .contains(&Capability::FrameProducer));
         assert!(device_info.capabilities.contains(&Capability::Triggerable));
-        assert!(
-            device_info
-                .capabilities
-                .contains(&Capability::ExposureControl)
-        );
+        assert!(device_info
+            .capabilities
+            .contains(&Capability::ExposureControl));
         assert_eq!(device_info.driver_type, "mock_camera");
 
         // Test that we can get parameters (bd-pf31: use get_parameterized)

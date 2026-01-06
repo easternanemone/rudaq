@@ -159,7 +159,11 @@ impl RunEngine {
 
     /// Get the start time (Unix nanoseconds) of the current run, if any
     pub async fn current_run_start_ns(&self) -> Option<u64> {
-        self.run_context.lock().await.as_ref().map(|ctx| ctx.run_start_ns)
+        self.run_context
+            .lock()
+            .await
+            .as_ref()
+            .map(|ctx| ctx.run_start_ns)
     }
 
     /// Get the run_uids of all queued plans

@@ -1808,11 +1808,7 @@ impl HardwareService for HardwareServiceImpl {
                         if let Some(observable) = param_set.get_typed::<Observable<f64>>(obs_name) {
                             let rx = observable.subscribe();
                             let initial_value = *rx.borrow();
-                            let units = observable
-                                .metadata()
-                                .units
-                                .clone()
-                                .unwrap_or_default();
+                            let units = observable.metadata().units.clone().unwrap_or_default();
                             subscriptions.push((
                                 device_id.clone(),
                                 obs_name.clone(),

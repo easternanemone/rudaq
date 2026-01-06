@@ -68,7 +68,12 @@ pub struct YieldResult {
 
 impl YieldResult {
     /// Create a successful result
-    pub fn success(run_uid: String, data: HashMap<String, f64>, positions: HashMap<String, f64>, num_events: u32) -> Self {
+    pub fn success(
+        run_uid: String,
+        data: HashMap<String, f64>,
+        positions: HashMap<String, f64>,
+        num_events: u32,
+    ) -> Self {
         Self {
             run_uid,
             exit_status: "success".to_string(),
@@ -206,7 +211,8 @@ impl YieldHandle {
 
     /// Check if currently waiting for a result
     pub fn is_waiting(&self) -> bool {
-        self.waiting_for_result.load(std::sync::atomic::Ordering::SeqCst)
+        self.waiting_for_result
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -244,7 +250,13 @@ impl YieldChannelBuilder {
     /// - YieldHandle for the script side
     /// - mpsc::Receiver for receiving yielded values
     /// - watch::Sender for sending results back
-    pub fn build(self) -> (Arc<YieldHandle>, mpsc::Receiver<YieldedValue>, watch::Sender<Option<YieldResult>>) {
+    pub fn build(
+        self,
+    ) -> (
+        Arc<YieldHandle>,
+        mpsc::Receiver<YieldedValue>,
+        watch::Sender<Option<YieldResult>>,
+    ) {
         let (plan_tx, plan_rx) = mpsc::channel(self.plan_buffer_size);
         let (result_tx, result_rx) = watch::channel(None);
 
@@ -263,12 +275,7 @@ mod tests {
         let mut data = HashMap::new();
         data.insert("power".to_string(), 42.0);
 
-        let result = YieldResult::success(
-            "run_123".to_string(),
-            data,
-            HashMap::new(),
-            10,
-        );
+        let result = YieldResult::success("run_123".to_string(), data, HashMap::new(), 10);
 
         assert!(result.is_success());
         assert!(!result.is_fail());
@@ -287,9 +294,7 @@ mod tests {
 
     #[test]
     fn test_yield_channel_builder() {
-        let (handle, _rx, _tx) = YieldChannelBuilder::new()
-            .with_buffer_size(32)
-            .build();
+        let (handle, _rx, _tx) = YieldChannelBuilder::new().with_buffer_size(32).build();
 
         assert!(!handle.is_waiting());
     }
