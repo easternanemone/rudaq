@@ -26,7 +26,8 @@ runs:
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libudev-dev pkg-config libhdf5-dev protobuf-compiler
+        sudo apt-get install -y libudev-dev pkg-config libhdf5-dev protobuf-compiler \
+          libxkbcommon-dev libwayland-dev libxcb-shape0-dev libxcb-xfixes0-dev
 
     - name: Set up Rust toolchain
       uses: dtolnay/rust-toolchain@master
