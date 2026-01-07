@@ -5,6 +5,7 @@
 //! Requires 'server' (which includes networking) and 'scripting' features (bd-si2c)
 
 #![cfg(all(feature = "server", feature = "scripting"))]
+#![allow(clippy::expect_used, clippy::unwrap_used)]
 
 mod streaming_tests {
     use chrono::Utc;
