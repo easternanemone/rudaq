@@ -1,4 +1,6 @@
 pub mod custom_health_service;
+#[cfg(test)]
+mod error_mapping_tests;
 pub mod hardware_service;
 pub mod health_service;
 #[cfg(feature = "metrics")]

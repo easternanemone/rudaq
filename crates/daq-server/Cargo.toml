@@ -76,6 +76,7 @@ all_hardware = [
 ]
 
 [dev-dependencies]
+config = "0.14.1"
 tempfile = "3.10"
 
 [package.metadata.cargo-machete]
