@@ -75,7 +75,7 @@ pub enum TriggerSource {
 }
 
 impl TriggerSource {
-    fn to_raw(&self) -> u32 {
+    fn to_raw(self) -> u32 {
         match self {
             Self::Internal => TRIG_TIMER,
             Self::External { .. } => TRIG_EXT,
@@ -84,9 +84,9 @@ impl TriggerSource {
         }
     }
 
-    fn to_arg(&self) -> u32 {
+    fn to_arg(self) -> u32 {
         match self {
-            Self::External { input } => *input,
+            Self::External { input } => input,
             _ => 0,
         }
     }

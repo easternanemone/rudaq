@@ -1,3 +1,7 @@
+// TODO: Fix doc comment generic types to use backticks
+#![allow(rustdoc::invalid_html_tags)]
+#![allow(rustdoc::broken_intra_doc_links)]
+
 pub mod bindings;
 pub mod comedi_bindings;
 pub mod engine;

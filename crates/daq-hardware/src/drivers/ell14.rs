@@ -2985,10 +2985,10 @@ mod tests {
         assert_eq!(format!("{:?}", MoveDirection::Forward), "Forward");
         assert_eq!(format!("{:?}", MoveDirection::Backward), "Backward");
 
-        // Test clone
+        // Test copy
         let dir = MoveDirection::Forward;
-        let cloned = dir.clone();
-        assert_eq!(dir, cloned);
+        let copied = dir;
+        assert_eq!(dir, copied);
     }
 
     #[test]

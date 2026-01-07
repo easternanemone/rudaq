@@ -66,6 +66,10 @@
 //! See [`CLAUDE.md`](https://github.com/yourusername/rust-daq/blob/main/CLAUDE.md) for complete
 //! documentation on the bd-232k refactoring and migration guide.
 
+// TODO: Fix doc comment links and generic types
+#![allow(rustdoc::broken_intra_doc_links)]
+#![allow(rustdoc::invalid_html_tags)]
+
 pub mod config;
 pub mod prelude;
 

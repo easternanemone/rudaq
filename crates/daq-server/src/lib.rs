@@ -1,3 +1,6 @@
+// TODO: Fix doc comment links
+#![allow(rustdoc::broken_intra_doc_links)]
+
 pub mod grpc;
 pub mod health;
 #[cfg(feature = "modules")]

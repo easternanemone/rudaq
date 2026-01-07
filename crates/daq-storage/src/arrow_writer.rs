@@ -32,7 +32,7 @@ use std::sync::{Arc, Mutex};
 #[cfg(feature = "storage_arrow")]
 use anyhow::{anyhow, Result};
 #[cfg(feature = "storage_arrow")]
-use arrow::array::{ArrayRef, Float64Builder, StringBuilder, UInt64Builder};
+use arrow::array::{ArrayRef, Float64Builder, UInt64Builder};
 #[cfg(feature = "storage_arrow")]
 use arrow::datatypes::{DataType, Field, Schema};
 #[cfg(feature = "storage_arrow")]

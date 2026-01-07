@@ -61,7 +61,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[cfg(feature = "storage_arrow")]
-use arrow::array::{ArrayRef, Float64Array, Int64Array, UInt32Array};
+use arrow::array::{ArrayRef, Float64Array};
 #[cfg(feature = "storage_arrow")]
 use arrow::datatypes::{DataType, Field, Schema};
 #[cfg(feature = "storage_arrow")]

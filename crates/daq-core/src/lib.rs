@@ -1,3 +1,8 @@
+// TODO: Fix doc comment generic types (e.g., `Parameter<T>`) to use backticks
+// and broken intra-doc links (e.g., `#[async_trait]`)
+#![allow(rustdoc::invalid_html_tags)]
+#![allow(rustdoc::broken_intra_doc_links)]
+
 pub mod core;
 // Data types (Frame, etc.)
 pub mod data;

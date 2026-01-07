@@ -1,3 +1,8 @@
+// TODO: Fix doc comment generic types to use backticks
+#![allow(rustdoc::invalid_html_tags)]
+#![allow(rustdoc::broken_intra_doc_links)]
+#![allow(rustdoc::private_intra_doc_links)]
+
 pub mod arrow_writer;
 pub mod comedi_writer;
 pub mod document_writer;

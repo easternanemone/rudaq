@@ -18,9 +18,7 @@
 
 use daq_core::capabilities::{ExposureControl, FrameProducer, Parameterized, Triggerable};
 use daq_driver_pvcam::PvcamDriver;
-use serde_json::json;
 use std::time::Duration;
-use tracing_subscriber::EnvFilter;
 
 // =============================================================================
 // Mock Mode Driver Tests
