@@ -16,6 +16,7 @@ use super::CounterMode;
 enum ActionResult {
     CountValue { counter: u32, count: u64 },
     ResetSuccess { counter: u32 },
+    PulseStopped { counter: u32 },
     Error { counter: u32, error: String },
 }
 
@@ -226,6 +227,7 @@ impl CounterPanel {
         // Actions to execute after UI rendering
         let mut read_action = false;
         let mut reset_action = false;
+        let mut stop_action = false;
 
         ui.group(|ui| {
             ui.label(RichText::new(format!("Counter {}", counter_idx)).strong());
@@ -370,7 +372,7 @@ impl CounterPanel {
                             self.status = Some("Pulse generation not yet implemented".to_string());
                         }
                         if ui.button("Stop").clicked() {
-                            // TODO: Implement
+                            stop_action = true;
                         }
                     });
                 }
@@ -417,9 +419,20 @@ impl CounterPanel {
         if reset_action {
             self.reset_counter(counter_idx as u32, runtime);
         }
+        if stop_action {
+            self.stop_pulse_generation(counter_idx as u32, runtime);
+        }
     }
 
     // Async operations
+    fn stop_pulse_generation(&self, counter: u32, runtime: &Runtime) {
+        let tx = self.action_tx.clone();
+        runtime.spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            let _ = tx.send(ActionResult::PulseStopped { counter }).await;
+        });
+    }
+
     fn read_counter(&self, counter: u32, runtime: &Runtime) {
         let tx = self.action_tx.clone();
         runtime.spawn(async move {
@@ -471,6 +484,10 @@ impl CounterPanel {
                         c.count = 0;
                     }
                     self.status = Some(format!("CTR{} reset", counter));
+                    self.error = None;
+                }
+                ActionResult::PulseStopped { counter } => {
+                    self.status = Some(format!("CTR{} pulse generation stopped", counter));
                     self.error = None;
                 }
                 ActionResult::Error { counter, error } => {
