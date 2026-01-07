@@ -1,0 +1,15 @@
+id: no-blocking-in-async
+language: rust
+severity: warning
+message: "Blocking call detected inside an async function. This can block the runtime executor. Use `tokio::task::spawn_blocking` or the async equivalent (e.g., `tokio::fs`, `tokio::time`)."
+rule:
+  any:
+    - pattern: std::thread::sleep($$$)
+    - pattern: std::fs::read($$$)
+    - pattern: std::fs::read_to_string($$$)
+    - pattern: std::fs::write($$$)
+    - pattern: std::fs::File::open($$$)
+    - pattern: std::fs::create_dir($$$)
+  inside:
+    kind: function_item
+    pattern: async fn $NAME($$$) { $$$ }

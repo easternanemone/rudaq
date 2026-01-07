@@ -1,0 +1,19 @@
+id: enforce-daq-error-test
+rule:
+  id: enforce-daq-error
+cases:
+  - code: |
+      fn do_something() -> anyhow::Result<()> {
+        Ok(())
+      }
+    errors: 1
+  - code: |
+      fn fail() {
+        let e = anyhow::anyhow!("failed");
+      }
+    errors: 1
+  - code: |
+      fn standard_result() -> Result<(), String> {
+        Ok(())
+      }
+    errors: 0

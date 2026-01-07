@@ -1,0 +1,14 @@
+id: suggest-tracing-instrument
+language: rust
+severity: hint
+message: "Consider adding `#[tracing::instrument]` to public async methods to improve observability in distributed traces."
+rule:
+  kind: function_item
+  pattern: pub async fn $NAME($$$) { $$$ }
+  not:
+    has:
+      kind: attribute_item
+      pattern: "#[instrument($$$)]"
+files:
+  - "crates/daq-hardware/src/drivers/"
+  - "crates/daq-server/src/services/"

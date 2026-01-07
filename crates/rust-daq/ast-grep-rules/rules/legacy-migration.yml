@@ -1,0 +1,52 @@
+id: use-v2-instrument-trait
+language: rust
+rule:
+  pattern: "impl crate::core::Instrument for $NAME"
+message: "The V1 `crate::core::Instrument` trait is deprecated. Please use the V2 `daq_core::Instrument` trait instead."
+severity: warning
+files:
+  - "crates/daq-hardware/src/"
+---
+id: use-v2-measurement
+language: rust
+rule:
+  pattern: "InstrumentMeasurement"
+message: "The V1 `InstrumentMeasurement` is deprecated. Please use `daq_core::Measurement` instead."
+files:
+  - "crates/**"
+ignores:
+  - "src/instrument/v2_adapter.rs"
+---
+id: no-v2-adapter
+language: rust
+rule:
+  pattern: "V2InstrumentAdapter"
+message: "The `V2InstrumentAdapter` is a temporary compatibility layer and should be removed. Migrate the instrument to use the V2 API directly."
+severity: info
+files:
+  - "src/"
+---
+id: use-daq-core-result
+language: rust
+rule:
+  pattern: "fn $NAME($$$) -> anyhow::Result<$TYPE>"
+message: "Prefer using `daq_core::Result<T>` (which is a type alias for `Result<T, DaqError>`) over `anyhow::Result<T>` for more specific error handling."
+severity: hint
+---
+id: incomplete-migration-todo
+language: rust
+rule:
+  any:
+    - pattern: 'todo!("V2")'
+    - pattern: 'todo!("V3")'
+    - pattern: 'unimplemented!("V2")'
+    - pattern: 'unimplemented!("V3")'
+message: "Incomplete V2/V3 migration task found."
+severity: warning
+---
+id: v1-feature-flag
+language: rust
+rule:
+  pattern: '#[cfg(feature = "v1-instruments")]'
+message: "This code is part of the V1 architecture and is gated by the `v1-instruments` feature. It can be removed after the V2 migration is complete."
+severity: info

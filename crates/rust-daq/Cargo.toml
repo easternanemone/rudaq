@@ -162,7 +162,7 @@ full = ["storage_csv", "storage_arrow", "storage_matlab", "instrument_serial", "
 # Storage backends
 storage_csv = ["dep:csv"]
 storage_hdf5 = ["dep:hdf5", "daq-storage/storage_hdf5"]
-storage_arrow = ["dep:arrow", "daq-storage/storage_arrow"]
+storage_arrow = ["dep:arrow", "daq-storage/storage_arrow", "daq-core/storage_arrow"]
 storage_matlab = ["dep:matrw"]
 # storage_netcdf = ["dep:netcdf"]
 

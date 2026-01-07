@@ -30,7 +30,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "storage_arrow")]
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+#[cfg(feature = "storage_arrow")]
+use daq_core::experiment::document::Document;
 #[cfg(feature = "storage_arrow")]
 use arrow::array::{ArrayRef, Float64Builder, StringBuilder, UInt64Builder};
 #[cfg(feature = "storage_arrow")]

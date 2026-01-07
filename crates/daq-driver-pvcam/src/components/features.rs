@@ -116,6 +116,7 @@ impl FanSpeed {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "High" => FanSpeed::High,
@@ -229,6 +230,7 @@ impl SmartStreamMode {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "Exposures" => SmartStreamMode::Exposures,
@@ -293,6 +295,7 @@ impl ShutterMode {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "Normal" => ShutterMode::Normal,
@@ -418,6 +421,7 @@ impl ExposureMode {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "Timed" => ExposureMode::Timed,
@@ -491,6 +495,7 @@ impl ClearMode {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "Never" => ClearMode::Never,
@@ -580,6 +585,7 @@ impl FrameRotate {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "None" => FrameRotate::None,
@@ -637,6 +643,7 @@ impl FrameFlip {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "None" => FrameFlip::None,
@@ -698,6 +705,7 @@ impl ExposeOutMode {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "FirstRow" => ExposeOutMode::FirstRow,

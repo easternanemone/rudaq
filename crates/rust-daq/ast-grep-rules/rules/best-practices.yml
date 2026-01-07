@@ -1,0 +1,98 @@
+id: find-blocking-gui-calls
+language: rust
+rule:
+  any:
+    - pattern: $X.blocking_send($$$)
+    - pattern: $X.blocking_recv($$$)
+message: "Avoid blocking calls in the GUI. Use async methods instead."
+severity: error
+files:
+  - "crates/daq-egui/src/"
+---
+id: no-unwrap-expect
+language: rust
+rule:
+  any:
+    - pattern: $X.unwrap()
+    - pattern: $X.expect($$$)
+message: "Avoid using .unwrap() and .expect() outside of tests. Handle the Result properly."
+severity: warning
+ignores:
+  - "tests/"
+---
+id: no-hardcoded-device-paths
+language: rust
+rule:
+  pattern: '"/dev/ttyUSB$S"'
+message: "Avoid hardcoded device paths. Move them to a configuration file."
+severity: warning
+---
+id: no-hardcoded-timeouts
+language: rust
+rule:
+  pattern: Duration::from_secs($N)
+message: "Avoid hardcoded timeouts. Make them configurable."
+severity: warning
+---
+id: incomplete-implementation
+language: rust
+rule:
+  pattern: "// Real implementation would..."
+message: "Incomplete implementation detected. Please complete the implementation."
+severity: info
+---
+id: no-debug-macros
+language: rust
+rule:
+  any:
+    - pattern: println!($$$)
+    - pattern: dbg!($$$)
+message: "Debugging macros like println! and dbg! should not be committed to production code."
+severity: warning
+ignores:
+  - "tests/"
+---
+id: redundant-else
+language: rust
+rule:
+  pattern: |
+    if $COND {
+      $$$
+      return $$$;
+    } else {
+      $$$
+    }
+message: "This `else` is redundant. The code can be simplified by removing the `else` block and un-indenting the code inside it."
+severity: hint
+---
+id: manual-shutdown-logic
+language: rust
+rule:
+  all:
+    - pattern: "tokio::time::timeout($$$).await"
+    - inside:
+        kind: function_item
+        has:
+          any:
+            - pattern: "stop_instrument"
+            - pattern: "stop_recording"
+message: "This function appears to have manual shutdown logic. Consider using the `shutdown_task` helper function to simplify the code and ensure consistency."
+severity: hint
+---
+id: string-to-string
+language: rust
+rule:
+  pattern: "$S.to_string()"
+message: "Review .to_string() usage: if called on a string literal, it creates unnecessary allocation. Consider String::from() or ensure conversion from &str is needed."
+severity: hint
+ignores:
+  - "tests/"
+---
+id: unnecessary-to-owned
+language: rust
+rule:
+  pattern: "$S.to_owned()"
+message: "Review .to_owned() usage: if called on a string literal, consider String::from() or .to_string() for clarity."
+severity: hint
+ignores:
+  - "tests/"

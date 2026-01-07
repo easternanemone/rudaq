@@ -1,36 +1,21 @@
-- id: std-thread-sleep-in-async-test
-  rule:
-    id: std-thread-sleep-in-async
-  cases:
-    - code: |
-        async fn my_async_function() {
-          std::thread::sleep(std::time::Duration::from_secs(1));
-        }
-      errors: 1
-    - code: |
-        fn my_sync_function() {
-          std::thread::sleep(std::time::Duration::from_secs(1));
-        }
-      errors: 0
-
-- id: redundant-else-test
-  rule:
-    id: redundant-else
-  cases:
-    - code: |
-        if true {
-          return 1;
-        } else {
-          return 2;
-        }
-      errors: 1
-    - code: |
-        if true {
-          let x = 1;
-        } else {
-          let y = 2;
-        }
-      errors: 0
+id: redundant-else-test
+rule:
+  id: redundant-else
+cases:
+  - code: |
+      if true {
+        return 1;
+      } else {
+        return 2;
+      }
+    errors: 1
+  - code: |
+      if true {
+        let x = 1;
+      } else {
+        let y = 2;
+      }
+    errors: 0
 
 - id: manual-shutdown-logic-test
   rule:

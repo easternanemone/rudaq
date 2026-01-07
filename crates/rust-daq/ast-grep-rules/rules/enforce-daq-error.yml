@@ -1,0 +1,12 @@
+id: enforce-daq-error
+language: rust
+severity: warning
+message: "Avoid using `anyhow::Result` in core libraries and hardware drivers. Use `DaqError` (or `crate::Result`) to ensure semantic errors can be mapped to gRPC status codes."
+rule:
+  any:
+    - pattern: anyhow::Result<$T>
+    - pattern: anyhow::anyhow!($$$)
+    - pattern: anyhow::bail!($$$)
+files:
+  - "crates/daq-core/"
+  - "crates/daq-hardware/"

@@ -1,0 +1,19 @@
+id: no-blocking-in-async-test
+rule:
+  id: no-blocking-in-async
+cases:
+  - code: |
+      async fn my_async_function() {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+      }
+    errors: 1
+  - code: |
+      async fn read_file() {
+        let content = std::fs::read_to_string("config.toml").unwrap();
+      }
+    errors: 1
+  - code: |
+      fn my_sync_function() {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+      }
+    errors: 0

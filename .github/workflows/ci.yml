@@ -70,7 +70,7 @@ jobs:
         id: ast-grep-scan
         run: |
           # Run ast-grep and capture JSON output
-          ast-grep scan --config rust_daq_ast_grep_rules.yml --json > ast-grep-results.json || true
+          ast-grep scan --config crates/rust-daq/ast-grep-rules/sgconfig.yml --json > ast-grep-results.json || true
           
           # Check for ERROR severity violations
           ERROR_COUNT=$(jq '[.[] | select(.severity == "error")] | length' ast-grep-results.json)
