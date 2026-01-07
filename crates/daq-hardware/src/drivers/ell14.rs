@@ -2471,7 +2471,7 @@ impl Ell14Driver {
 
 impl Parameterized for Ell14Driver {
     fn parameters(&self) -> &ParameterSet {
-        &*self.params
+        &self.params
     }
 }
 

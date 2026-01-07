@@ -5,10 +5,10 @@
 //!
 //! # Implemented Traits
 //!
-//! - [`Readable`] for analog input channels
-//! - [`Settable`] for analog output channels
-//! - [`Switchable`] for digital I/O channels
-//! - [`Readable`] for counter/timer channels
+//! - `Readable` for analog input channels
+//! - `Settable` for analog output channels
+//! - `Switchable` for digital I/O channels
+//! - `Readable` for counter/timer channels
 //!
 //! # Example
 //!
