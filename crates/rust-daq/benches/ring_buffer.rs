@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::new_without_default,
+    clippy::must_use_candidate,
+    missing_docs
+)]
 //! Criterion benchmarks for ring buffer hot paths.
 //!
 //! These benchmarks establish performance baselines for the memory-mapped ring buffer,

@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::new_without_default,
+    clippy::must_use_candidate,
+    missing_docs
+)]
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
