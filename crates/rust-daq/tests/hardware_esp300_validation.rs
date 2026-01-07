@@ -1,4 +1,10 @@
 #![cfg(not(target_arch = "wasm32"))]
+#![allow(
+    clippy::unwrap_used,
+    clippy::new_without_default,
+    clippy::must_use_candidate,
+    missing_docs
+)]
 //! Comprehensive Hardware Validation Tests for ESP300 Newport Motion Controller
 //!
 //! This test suite provides end-to-end validation of the ESP300 driver including:

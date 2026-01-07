@@ -1,4 +1,10 @@
 #![cfg(feature = "gui_egui")]
+#![allow(
+    clippy::unwrap_used,
+    clippy::new_without_default,
+    clippy::must_use_candidate,
+    missing_docs
+)]
 #![cfg(not(target_arch = "wasm32"))]
 use egui_kittest::kittest::Queryable;
 use egui_kittest::Harness;

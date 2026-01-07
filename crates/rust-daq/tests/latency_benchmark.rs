@@ -1,3 +1,9 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::new_without_default,
+    clippy::must_use_candidate,
+    missing_docs
+)]
 //! Latency benchmark for gRPC server under async/blocking load (bd-z5s9).
 //!
 //! This test demonstrates the catastrophic effect of blocking code (std::thread::sleep)

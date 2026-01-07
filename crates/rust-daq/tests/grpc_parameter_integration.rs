@@ -1,4 +1,10 @@
 #![cfg(not(target_arch = "wasm32"))]
+#![allow(
+    clippy::unwrap_used,
+    clippy::new_without_default,
+    clippy::must_use_candidate,
+    missing_docs
+)]
 //! Comprehensive gRPC Parameter Integration Tests (bd-0hk1)
 //!
 //! This test suite verifies the complete end-to-end flow:

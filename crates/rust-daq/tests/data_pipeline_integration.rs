@@ -1,4 +1,10 @@
 #![cfg(not(target_arch = "wasm32"))]
+#![allow(
+    clippy::unwrap_used,
+    clippy::new_without_default,
+    clippy::must_use_candidate,
+    missing_docs
+)]
 //! Data pipeline integration tests
 //!
 //! Tests for HDF5, Arrow, and ring buffer data flow.

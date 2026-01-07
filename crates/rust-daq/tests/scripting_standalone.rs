@@ -2,7 +2,9 @@
 #![allow(
     clippy::unwrap_used,
     clippy::unwrap_err_used,
-    clippy::missing_docs_in_private_items
+    clippy::new_without_default,
+    clippy::must_use_candidate,
+    missing_docs
 )]
 //! Standalone test to verify scripting engine works correctly.
 //! This test is independent of the rest of the codebase.

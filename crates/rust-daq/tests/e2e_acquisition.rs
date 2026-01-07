@@ -2,7 +2,8 @@
 #![allow(
     clippy::unwrap_used,
     clippy::new_without_default,
-    clippy::must_use_candidate
+    clippy::must_use_candidate,
+    missing_docs
 )]
 //! End-to-End Acquisition Tests
 //!

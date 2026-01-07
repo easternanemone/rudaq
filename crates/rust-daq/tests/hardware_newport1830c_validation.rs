@@ -1,4 +1,10 @@
 #![cfg(not(target_arch = "wasm32"))]
+#![allow(
+    clippy::unwrap_used,
+    clippy::new_without_default,
+    clippy::must_use_candidate,
+    missing_docs
+)]
 //! Newport 1830-C Hardware Validation Test Suite
 //!
 //! Comprehensive hardware validation tests for the Newport 1830-C optical power meter driver.

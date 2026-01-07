@@ -1,3 +1,9 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::new_without_default,
+    clippy::must_use_candidate,
+    missing_docs
+)]
 use daq_experiment::run_engine::RunEngine;
 use daq_hardware::registry::{DeviceConfig, DeviceRegistry, DriverType};
 use std::sync::Arc;

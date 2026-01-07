@@ -1,4 +1,10 @@
 #![cfg(not(target_arch = "wasm32"))]
+#![allow(
+    clippy::unwrap_used,
+    clippy::new_without_default,
+    clippy::must_use_candidate,
+    missing_docs
+)]
 //! Elliptec ELL14 Hardware Validation Tests
 //!
 //! Tests for Thorlabs Elliptec ELL14 rotation mounts on shared RS-485 bus.

@@ -1,4 +1,10 @@
 #![cfg(all(feature = "instrument_photometrics", not(target_arch = "wasm32")))]
+#![allow(
+    clippy::unwrap_used,
+    clippy::new_without_default,
+    clippy::must_use_candidate,
+    missing_docs
+)]
 
 use daq_core::experiment::document::Document;
 use daq_experiment::plans::Count;

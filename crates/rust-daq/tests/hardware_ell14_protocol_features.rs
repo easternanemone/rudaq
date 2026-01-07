@@ -1,4 +1,10 @@
 #![cfg(not(target_arch = "wasm32"))]
+#![allow(
+    clippy::unwrap_used,
+    clippy::new_without_default,
+    clippy::must_use_candidate,
+    missing_docs
+)]
 //! ELL14 Extended Protocol Features Hardware Validation Tests
 //!
 //! Tests for new ELL14 protocol commands:
