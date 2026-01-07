@@ -72,18 +72,19 @@
 //! }
 //! ```
 
+use anyhow::{anyhow, Result};
 use daq_core::capabilities::{
     Commandable, EmissionControl, ExposureControl, FrameProducer, Movable, Parameterized, Readable,
     Settable, ShutterControl, Stageable, Triggerable, WavelengthTunable,
 };
 use daq_core::data::Frame;
+use daq_core::error::DaqError;
 use daq_core::pipeline::MeasurementSource;
 
 #[cfg(feature = "tokio_serial")]
 use crate::plugin::driver::GenericDriver;
 // use crate::plugin::driver::{Connection, GenericDriver};
 // use crate::plugin::schema::{DriverType, InstrumentConfig, PluginMetadata, ScriptType};
-use anyhow::{anyhow, Result};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -104,7 +105,7 @@ use tokio::sync::RwLock;
 /// - Missing required fields
 ///
 /// Returns Ok(()) if configuration is valid, or an error with helpful diagnostics.
-pub fn validate_driver_config(driver: &DriverType) -> Result<()> {
+pub fn validate_driver_config(driver: &DriverType) -> Result<(), DaqError> {
     match driver {
         #[cfg(feature = "serial")]
         DriverType::Newport1830C { port } => {
@@ -126,23 +127,32 @@ pub fn validate_driver_config(driver: &DriverType) -> Result<()> {
         DriverType::Esp300 { port, axis } => {
             validate_serial_port(port, "ESP300 Motion Controller")?;
             if *axis < 1 || *axis > 3 {
-                anyhow::bail!("Invalid ESP300 axis: {}. Must be 1-3", axis);
+                return Err(DaqError::Configuration(format!(
+                    "Invalid ESP300 axis: {}. Must be 1-3",
+                    axis
+                )));
             }
         }
 
         #[cfg(feature = "driver_pvcam")]
         DriverType::Pvcam { camera_name } => {
             if camera_name.is_empty() {
-                anyhow::bail!("PVCAM camera name cannot be empty");
+                return Err(DaqError::Configuration(
+                    "PVCAM camera name cannot be empty".to_string(),
+                ));
             }
         }
         #[cfg(feature = "tokio_serial")]
         DriverType::Plugin { plugin_id, address } => {
             if plugin_id.is_empty() {
-                anyhow::bail!("Plugin ID cannot be empty");
+                return Err(DaqError::Configuration(
+                    "Plugin ID cannot be empty".to_string(),
+                ));
             }
             if address.is_empty() {
-                anyhow::bail!("Plugin address cannot be empty");
+                return Err(DaqError::Configuration(
+                    "Plugin address cannot be empty".to_string(),
+                ));
             }
             // Address can be serial port or network address
             // Don't validate serial port here as it might be network
@@ -152,11 +162,10 @@ pub fn validate_driver_config(driver: &DriverType) -> Result<()> {
         DriverType::MockStage { .. } | DriverType::MockPowerMeter { .. } => {}
         DriverType::MockCamera { width, height } => {
             if *width == 0 || *height == 0 {
-                anyhow::bail!(
+                return Err(DaqError::Configuration(format!(
                     "Invalid MockCamera resolution: {}x{}. Width/height must be > 0",
-                    width,
-                    height
-                );
+                    width, height
+                )));
             }
         }
     }
@@ -168,7 +177,7 @@ pub fn validate_driver_config(driver: &DriverType) -> Result<()> {
 ///
 /// Provides helpful error messages listing available ports if the requested port is not found.
 #[cfg(feature = "serial")]
-fn validate_serial_port(port: &str, device_name: &str) -> Result<()> {
+fn validate_serial_port(port: &str, device_name: &str) -> Result<(), DaqError> {
     // Check if port path exists (basic check)
     let port_path = std::path::Path::new(port);
 
@@ -191,7 +200,7 @@ fn validate_serial_port(port: &str, device_name: &str) -> Result<()> {
             }
         };
 
-        anyhow::bail!(
+        return Err(DaqError::Configuration(format!(
             "Serial port '{}' does not exist for device '{}'.\n\n{}\n\n\
              Troubleshooting:\n\
              - Verify device is connected and powered on\n\
@@ -199,10 +208,8 @@ fn validate_serial_port(port: &str, device_name: &str) -> Result<()> {
              - On Linux, ensure you have permissions (add user to 'dialout' group)\n\
              - On macOS, check /dev/tty.* and /dev/cu.* devices\n\
              - Run 'ls /dev/tty*' or 'ls /dev/cu*' to list available ports",
-            port,
-            device_name,
-            available
-        );
+            port, device_name, available
+        )));
     }
 
     Ok(())
@@ -210,7 +217,7 @@ fn validate_serial_port(port: &str, device_name: &str) -> Result<()> {
 
 /// Stub validator when serial support is disabled.
 #[cfg(not(feature = "serial"))]
-fn validate_serial_port(_port: &str, _device_name: &str) -> Result<()> {
+fn validate_serial_port(_port: &str, _device_name: &str) -> Result<(), DaqError> {
     // Serial devices are not available without the instrument_serial feature enabled.
     // Validation is a no-op so builds without serialport dependency succeed.
     Ok(())
@@ -219,20 +226,20 @@ fn validate_serial_port(_port: &str, _device_name: &str) -> Result<()> {
 /// Validate ELL14 device address
 ///
 /// ELL14 addresses must be hex digits 0-F
-fn validate_ell14_address(address: &str) -> Result<()> {
+fn validate_ell14_address(address: &str) -> Result<(), DaqError> {
     if address.len() != 1 {
-        anyhow::bail!(
+        return Err(DaqError::Configuration(format!(
             "Invalid ELL14 address '{}': must be a single hex digit (0-F)",
             address
-        );
+        )));
     }
 
     let addr_char = address.chars().next().unwrap();
     if !addr_char.is_ascii_hexdigit() {
-        anyhow::bail!(
+        return Err(DaqError::Configuration(format!(
             "Invalid ELL14 address '{}': must be a hex digit (0-9, A-F)",
             address
-        );
+        )));
     }
 
     Ok(())
@@ -608,9 +615,12 @@ impl DeviceRegistry {
     /// # Errors
     /// Returns error if path is not a directory or if any plugin fails to load
     #[cfg(feature = "tokio_serial")]
-    pub async fn load_plugins(&self, path: &std::path::Path) -> Result<()> {
+    pub async fn load_plugins(&self, path: &std::path::Path) -> Result<(), DaqError> {
         let mut factory = self.plugin_factory.write().await;
-        factory.load_plugins(path).await
+        factory
+            .load_plugins(path)
+            .await
+            .map_err(|e| DaqError::Configuration(e.to_string()))
     }
 
     /// Register a device from configuration
@@ -629,22 +639,28 @@ impl DeviceRegistry {
     /// # Thread Safety (bd-pf31)
     /// This method is thread-safe and can be called concurrently. Registration of
     /// the same device ID from multiple threads will fail for all but one caller.
-    pub async fn register(&self, config: DeviceConfig) -> Result<()> {
+    pub async fn register(&self, config: DeviceConfig) -> Result<(), DaqError> {
         if self.devices.contains_key(&config.id) {
-            return Err(anyhow!("Device '{}' is already registered", config.id));
+            return Err(DaqError::Configuration(format!(
+                "Device '{}' is already registered",
+                config.id
+            )));
         }
 
         // Validate configuration before attempting to instantiate
         validate_driver_config(&config.driver).map_err(|e| {
-            anyhow!(
+            DaqError::Configuration(format!(
                 "Configuration validation failed for device '{}' ({}): {}",
                 config.id,
                 config.driver.driver_name(),
                 e
-            )
+            ))
         })?;
 
-        let registered = self.instantiate_device(config).await?;
+        let registered = self
+            .instantiate_device(config)
+            .await
+            .map_err(|e| DaqError::Instrument(e.to_string()))?;
         self.devices
             .insert(registered.config.id.clone(), registered);
         Ok(())
@@ -669,12 +685,18 @@ impl DeviceRegistry {
         &self,
         config: DeviceConfig,
         driver: Arc<GenericDriver>,
-    ) -> Result<()> {
+    ) -> Result<(), DaqError> {
         if self.devices.contains_key(&config.id) {
-            return Err(anyhow!("Device '{}' is already registered", config.id));
+            return Err(DaqError::Configuration(format!(
+                "Device '{}' is already registered",
+                config.id
+            )));
         }
 
-        let registered = self.create_registered_plugin(config, driver).await?;
+        let registered = self
+            .create_registered_plugin(config, driver)
+            .await
+            .map_err(|e| DaqError::Instrument(e.to_string()))?;
         self.devices
             .insert(registered.config.id.clone(), registered);
         Ok(())
@@ -1337,10 +1359,13 @@ pub struct HardwareConfig {
 
 impl HardwareConfig {
     /// Load hardware configuration from a TOML file
-    pub fn from_file(path: &std::path::Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| anyhow!("Failed to read hardware config file: {}", e))?;
-        toml::from_str(&content).map_err(|e| anyhow!("Failed to parse hardware config file: {}", e))
+    pub fn from_file(path: &std::path::Path) -> Result<Self, DaqError> {
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            DaqError::Configuration(format!("Failed to read hardware config file: {}", e))
+        })?;
+        toml::from_str(&content).map_err(|e| {
+            DaqError::Configuration(format!("Failed to parse hardware config file: {}", e))
+        })
     }
 }
 
@@ -1370,7 +1395,7 @@ impl HardwareConfig {
 /// plugin_id = "my-sensor-v1"
 /// address = "/dev/ttyUSB2"
 /// ```
-pub async fn create_registry_from_config(config: &HardwareConfig) -> Result<DeviceRegistry> {
+pub async fn create_registry_from_config(config: &HardwareConfig) -> Result<DeviceRegistry, DaqError> {
     let registry = DeviceRegistry::new();
 
     // Validate all device configurations first (fail fast)
@@ -1387,10 +1412,10 @@ pub async fn create_registry_from_config(config: &HardwareConfig) -> Result<Devi
     }
 
     if !validation_errors.is_empty() {
-        anyhow::bail!(
+        return Err(DaqError::Configuration(format!(
             "Hardware configuration validation failed:\n  - {}",
             validation_errors.join("\n  - ")
-        );
+        )));
     }
 
     // Load plugins from configured search paths
@@ -1439,7 +1464,7 @@ pub async fn create_registry_from_config(config: &HardwareConfig) -> Result<Devi
 }
 
 /// Load hardware configuration from a file and create a DeviceRegistry
-pub async fn create_registry_from_file(path: &std::path::Path) -> Result<DeviceRegistry> {
+pub async fn create_registry_from_file(path: &std::path::Path) -> Result<DeviceRegistry, DaqError> {
     let config = HardwareConfig::from_file(path)?;
     create_registry_from_config(&config).await
 }
@@ -1456,7 +1481,7 @@ pub async fn create_registry_from_file(path: &std::path::Path) -> Result<DeviceR
 /// - ELL14 Rotators on /dev/ttyUSB0 (addresses 2, 3, 8)
 /// - ESP300 on /dev/ttyUSB1 (if available)
 #[cfg(feature = "serial")]
-pub async fn create_lab_registry() -> Result<DeviceRegistry> {
+pub async fn create_lab_registry() -> Result<DeviceRegistry, DaqError> {
     let registry = DeviceRegistry::new();
 
     // Newport 1830-C Power Meter
@@ -1542,12 +1567,12 @@ pub async fn create_lab_registry() -> Result<DeviceRegistry> {
 }
 
 #[cfg(not(feature = "serial"))]
-pub async fn create_lab_registry() -> Result<DeviceRegistry> {
+pub async fn create_lab_registry() -> Result<DeviceRegistry, DaqError> {
     Ok(DeviceRegistry::new())
 }
 
 /// Create a DeviceRegistry with mock devices for testing
-pub async fn create_mock_registry() -> Result<DeviceRegistry> {
+pub async fn create_mock_registry() -> Result<DeviceRegistry, DaqError> {
     let registry = DeviceRegistry::new();
 
     registry
