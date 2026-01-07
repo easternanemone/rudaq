@@ -1165,6 +1165,7 @@ pub async fn start_server_with_hardware(
     use crate::grpc::proto::preset_service_server::PresetServiceServer;
     use crate::grpc::proto::scan_service_server::ScanServiceServer;
     use crate::grpc::proto::storage_service_server::StorageServiceServer;
+    #[allow(deprecated)] // ScanService kept for backwards compatibility until v0.8.0
     use crate::grpc::scan_service::ScanServiceImpl;
     use crate::grpc::storage_service::StorageServiceImpl;
 
@@ -1422,6 +1423,8 @@ pub async fn start_server_with_hardware(
     };
 
     // Wire ScanService with optional data persistence
+    // Note: ScanService is deprecated in favor of RunEngineService but kept for backwards compatibility
+    #[allow(deprecated)]
     let scan_server = if let Some(rb) = ring_buffer.clone() {
         ScanServiceImpl::new(registry.clone()).with_ring_buffer(rb)
     } else {

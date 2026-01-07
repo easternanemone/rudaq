@@ -72,6 +72,7 @@ pub use module_service::ModuleServiceImpl;
 pub use plugin_service::PluginServiceImpl;
 pub use preset_service::{PresetServiceImpl, default_preset_storage_path};
 pub use run_engine_service::RunEngineServiceImpl;
+#[allow(deprecated)] // ScanService kept for backwards compatibility until v0.8.0
 pub use scan_service::ScanServiceImpl;
 #[cfg(feature = "server")]
 pub use server::{DaqServer, start_server, start_server_with_hardware};

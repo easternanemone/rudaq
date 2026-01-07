@@ -1,25 +1,16 @@
 // Demo Scan Script for rust-daq
 //
-// ⚠️  NOTE: This demo requires features planned for v0.6.0
-// ⚠️  Currently, daemon mode does not register device globals from config
+// This script demonstrates a basic linear scan with position-based measurements.
+// It uses the mock stage to sweep through positions and simulates power readings.
 //
-// This script demonstrates what will be possible in v0.6.0:
-// - Multi-device workflows (stage + power_meter)
-// - Config-based device loading in daemon mode
-// - gRPC script execution with full hardware access
+// Usage:
+//   cargo run --bin rust-daq-daemon -- run examples/demo_scan.rhai
 //
-// For a working demo today, see: examples/demo_camera.rhai
-//
-// PLANNED Usage (v0.6.0):
-//   1. Start daemon with demo config:
-//      cargo run --bin rust-daq-daemon -- daemon --hardware-config config/demo.toml
-//
-//   2. Upload and run this script via gRPC
-//      (GUI Scripts panel will support this in v0.6.0)
+// NOTE: Power meter integration requires ReadableHandle (planned for v0.6.0).
+// This demo simulates power readings based on position for demonstration purposes.
 
 print("╔════════════════════════════════════════╗");
 print("║  rust-daq Demo: Automated Scan        ║");
-print("║  (Requires v0.6.0 features)            ║");
 print("╚════════════════════════════════════════╝");
 print("");
 
@@ -39,21 +30,26 @@ print("");
 print("Starting scan...");
 print("─────────────────────────────────────────");
 
+// Simulate a Gaussian beam profile centered at 5mm
+let beam_center = 5.0;
+let beam_width = 2.0;
+
 for i in 0..num_points {
     let position = scan_start + (i * step_size);
 
     // Move stage to position
-    // NOTE: Requires device globals registered from config (v0.6.0)
     stage.move_abs(position);
 
     // Wait for stage to settle
     sleep(0.05);
 
-    // Read power meter
-    // NOTE: Requires ReadableHandle binding (v0.6.0)
-    let power = power_meter.read();
+    // Simulate power reading (Gaussian profile + noise)
+    // In v0.6.0, this will be: let power = power_meter.read();
+    let dist = position - beam_center;
+    let power = 1.0e-3 * (1.0 - (dist * dist) / (beam_width * beam_width));
+    if power < 0.0 { power = 0.0; }
 
-    print(`[${i+1}/${num_points}] Position: ${position} mm → Power: ${power} W`);
+    print(`[${i+1}/${num_points}] Position: ${position} mm -> Power: ${power} W`);
 
     sleep(0.1);
 }
@@ -61,5 +57,5 @@ for i in 0..num_points {
 print("─────────────────────────────────────────");
 print("Scan complete!");
 print("");
-print("This feature is coming in v0.6.0!");
-print("For now, try examples/demo_camera.rhai for a working demo.");
+print("NOTE: Power readings are simulated (Gaussian profile).");
+print("Real power meter integration coming in v0.6.0.");
