@@ -333,6 +333,7 @@ enum GridScanStep {
 }
 
 impl GridScan {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         axis_outer: &str,
         outer_start: f64,
