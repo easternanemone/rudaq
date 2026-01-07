@@ -57,12 +57,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install ast-grep
-        run: |
-          curl -L https://github.com/ast-grep/ast-grep/releases/latest/download/ast-grep-x86_64-unknown-linux-gnu.zip -o ast-grep.zip
-          unzip ast-grep.zip
-          chmod +x ast-grep
-          sudo mv ast-grep /usr/local/bin/
+        uses: taiki-e/install-action@v2
+        with:
+          tool: ast-grep
 
       - name: Run ast-grep scan
         id: ast-grep-scan
