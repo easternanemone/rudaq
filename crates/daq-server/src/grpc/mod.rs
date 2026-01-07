@@ -1,4 +1,5 @@
 pub mod custom_health_service;
+pub mod error_mapping;
 #[cfg(test)]
 mod error_mapping_tests;
 pub mod hardware_service;
@@ -75,6 +76,9 @@ pub use scan_service::ScanServiceImpl;
 #[cfg(feature = "server")]
 pub use server::{DaqServer, start_server, start_server_with_hardware};
 pub use storage_service::StorageServiceImpl;
+
+// Error mapping (bd-cxvg)
+pub use error_mapping::{map_daq_error_to_status, DaqResultExt};
 
 // Re-export commonly used proto types - ControlService
 pub use proto::control_service_client::ControlServiceClient;
