@@ -1,4 +1,7 @@
 #![cfg(not(target_arch = "wasm32"))]
+#![allow(clippy::unwrap_used, clippy::new_without_default, missing_docs)]
+//! Integration test for Elliptec and Newport hardware
+
 use anyhow::Result;
 use async_trait::async_trait;
 use rust_daq::hardware::capabilities::{Movable, Readable};
