@@ -5,10 +5,10 @@
 //! - Starting/pausing/resuming/aborting execution
 //! - Monitoring engine status and queue length
 
+use crate::client::DaqClient;
 use eframe::egui;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
-use crate::client::DaqClient;
 
 /// Result of an async action
 enum ActionResult {
@@ -133,12 +133,7 @@ impl PlanRunnerPanel {
     }
 
     /// Render the Plan Runner panel
-    pub fn ui(
-        &mut self,
-        ui: &mut egui::Ui,
-        client: Option<&mut DaqClient>,
-        runtime: &Runtime,
-    ) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, client: Option<&mut DaqClient>, runtime: &Runtime) {
         self.poll_async_results(ui.ctx());
 
         // Clear pending action at start of frame

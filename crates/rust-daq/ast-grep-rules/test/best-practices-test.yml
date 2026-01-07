@@ -16,8 +16,8 @@ cases:
         let y = 2;
       }
     errors: 0
-
-- id: manual-shutdown-logic-test
+---
+id: manual-shutdown-logic-test
   rule:
     id: manual-shutdown-logic
   cases:
@@ -36,8 +36,8 @@ cases:
           tokio::time::timeout(std::time::Duration::from_secs(5), async {}).await;
         }
       errors: 0
-
-- id: string-to-string-test
+---
+id: string-to-string-test
   rule:
     id: string-to-string
   cases:
@@ -49,8 +49,8 @@ cases:
         let s = "hello";
         let s2 = s.to_string();
       errors: 0
-
-- id: unnecessary-to-owned-test
+---
+id: unnecessary-to-owned-test
   rule:
     id: unnecessary-to-owned
   cases:

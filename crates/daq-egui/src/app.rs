@@ -754,7 +754,11 @@ impl<'a> TabViewer for DaqTabViewer<'a> {
                     .modules_panel
                     .ui(ui, self.app.client.as_mut(), &self.app.runtime)
             }
-            Panel::PlanRunner => self.app.plan_runner_panel.ui(ui, self.app.client.as_mut(), &self.app.runtime),
+            Panel::PlanRunner => {
+                self.app
+                    .plan_runner_panel
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+            }
             Panel::DocumentViewer => self
                 .app
                 .document_viewer_panel
