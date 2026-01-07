@@ -53,12 +53,14 @@ struct ActiveArrowRun {
     /// Data key info from descriptor
     data_keys: HashMap<String, DataKeyInfo>,
     /// Metadata from start document
+    #[allow(dead_code)]
     metadata: HashMap<String, String>,
 }
 
 #[cfg(feature = "storage_arrow")]
 #[derive(Clone)]
 struct DataKeyInfo {
+    #[allow(dead_code)]
     dtype: String,
     #[allow(dead_code)]
     source: String,
@@ -265,7 +267,6 @@ fn flush_arrow_buffer(run: &mut ActiveArrowRun) -> Result<()> {
     // Write to file (append if exists)
     let file = OpenOptions::new()
         .create(true)
-        .write(true)
         .append(true)
         .open(&run.file_path)?;
 
