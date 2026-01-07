@@ -15,6 +15,8 @@ use std::sync::Arc;
 use tokio::time::{interval, Duration};
 
 use super::ring_buffer::RingBuffer;
+#[cfg(feature = "storage_hdf5")]
+use daq_core::observable::ParameterSet;
 
 /// Background HDF5 writer that persists ring buffer data
 ///

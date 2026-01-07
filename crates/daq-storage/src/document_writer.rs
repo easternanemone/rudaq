@@ -81,7 +81,15 @@ impl DocumentWriter {
                     write_group_attr(&group, "plan_type", &start.plan_type)?;
                     write_group_attr(&group, "plan_name", &start.plan_name)?;
 
-                    // TODO: Write detailed parameters
+                    // Write detailed parameters (plan_args)
+                    for (key, value) in &start.plan_args {
+                        write_group_attr(&group, key, value)?;
+                    }
+
+                    // Write user metadata
+                    for (key, value) in &start.metadata {
+                        write_group_attr(&group, key, value)?;
+                    }
 
                     *guard = Some(ActiveRun {
                         run_uid: start.uid,
@@ -319,13 +327,20 @@ mod tests {
         let writer = DocumentWriter::new(temp_dir.path().to_path_buf());
 
         // 1. Start
+        let mut plan_args = HashMap::new();
+        plan_args.insert("exposure".to_string(), "0.1".to_string());
+        plan_args.insert("num".to_string(), "5".to_string());
+
+        let mut metadata = HashMap::new();
+        metadata.insert("user".to_string(), "tester".to_string());
+
         let start = StartDoc {
             uid: "test_run_1".to_string(),
             time_ns: 1000,
             plan_type: "count".to_string(),
             plan_name: "Count".to_string(),
-            plan_args: HashMap::new(),
-            metadata: HashMap::new(),
+            plan_args,
+            metadata,
             hints: vec![],
         };
         writer.write(Document::Start(start)).await.unwrap();

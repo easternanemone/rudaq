@@ -494,7 +494,7 @@ impl ComediStreamWriter {
                 } else {
                     ds_builder
                 };
-                ds_builder.shape(0..).create(&ch.label)?;
+                ds_builder.shape(0..).create(ch.label.as_str())?;
             }
 
             Ok(())
