@@ -119,8 +119,8 @@ impl AnalogInputPanel {
         if self.auto_refresh {
             let elapsed = self.last_refresh.elapsed();
             if elapsed.as_millis() >= self.refresh_interval_ms as u128 {
-                if client.is_some() {
-                    self.read_all_channels(runtime);
+                if let Some(c) = client.as_deref() {
+                    self.read_all_channels(runtime, c);
                 }
                 self.last_refresh = std::time::Instant::now();
             }
@@ -183,8 +183,8 @@ impl AnalogInputPanel {
 
             // Read all button
             if ui.button("Read All").clicked() {
-                if client.is_some() {
-                    self.read_all_channels(runtime);
+                if let Some(c) = client.as_deref() {
+                    self.read_all_channels(runtime, c);
                 }
             }
         });
@@ -341,7 +341,7 @@ impl AnalogInputPanel {
     }
 
     /// Read all enabled channels.
-    fn read_all_channels(&self, runtime: &Runtime) {
+    fn read_all_channels(&self, runtime: &Runtime, client: &DaqClient) {
         let tx = self.action_tx.clone();
         let channels: Vec<u32> = self
             .channels
@@ -350,16 +350,32 @@ impl AnalogInputPanel {
             .map(|(ch, _)| *ch)
             .collect();
 
+        let mut client = client.clone();
+        let device_id_base = self.device_id.clone();
+
         runtime.spawn(async move {
-            // TODO: Implement actual gRPC call
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            use futures::future::join_all;
 
-            let voltages: Vec<(u32, f64)> = channels
-                .into_iter()
-                .map(|ch| (ch, (ch as f64 * 0.1) + rand_voltage()))
-                .collect();
+            // Create futures for concurrent execution
+            let futures = channels.iter().map(|&ch| {
+                let mut client = client.clone();
+                let device_id = format!("{}/ai{}", device_id_base, ch);
+                async move {
+                    match client.read_value(&device_id).await {
+                        Ok(response) if response.success => Some((ch, response.value)),
+                        _ => None,
+                    }
+                }
+            });
 
-            let _ = tx.send(ActionResult::AllReadings { voltages }).await;
+            // Wait for all reads to complete
+            let results = join_all(futures).await;
+
+            let voltages: Vec<(u32, f64)> = results.into_iter().flatten().collect();
+
+            if !voltages.is_empty() {
+                let _ = tx.send(ActionResult::AllReadings { voltages }).await;
+            }
         });
     }
 
