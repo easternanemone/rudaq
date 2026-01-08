@@ -5,6 +5,7 @@
     clippy::new_without_default,
     clippy::must_use_candidate,
     clippy::panic,
+    deprecated,
     unsafe_code,
     clippy::single_match,
     unused_mut,
