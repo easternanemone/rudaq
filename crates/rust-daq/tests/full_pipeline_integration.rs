@@ -3,6 +3,8 @@
     clippy::unwrap_used,
     clippy::new_without_default,
     clippy::must_use_candidate,
+    clippy::panic,
+    clippy::single_match,
     missing_docs
 )]
 //! Full Pipeline Integration Tests
