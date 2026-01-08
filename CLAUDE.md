@@ -20,7 +20,7 @@ Legacy V1-V4 code has been removed.
 
 ## Quick Start
 
-**Documentation:** See docs/getting_started/ for setup, docs/architecture/ for design decisions.
+**Documentation:** See [DEMO.md](DEMO.md) for quick start, [docs/architecture/](docs/architecture/) for design decisions.
 
 **Build & Test:**
 
@@ -324,15 +324,17 @@ Re-index after updating docs: `python cocoindex_flows/comprehensive_docs_index.p
 
 **Crate Structure:**
 
-- `crates/daq-core/` — Domain types, parameters/observables, error handling, and module domain types.
-- `crates/daq-hardware/` — Hardware Abstraction Layer (HAL), capability traits (`Movable`, `Readable`, `FrameProducer`, etc.), and drivers.
-- `crates/daq-driver-pvcam/` — PVCAM camera driver (requires SDK on target machine).
+- `crates/daq-core/` — Domain types, parameters/observables, error handling, size limits, and module domain types.
+- `crates/daq-hardware/` — Hardware Abstraction Layer (HAL), capability traits (`Movable`, `Readable`, `FrameProducer`, etc.), and serial drivers.
+- `crates/daq-driver-pvcam/` — PVCAM camera driver (requires SDK on target machine). Includes `pvcam-sys` FFI bindings.
+- `crates/daq-driver-comedi/` — Comedi DAQ driver for Linux data acquisition boards.
+- `crates/comedi-sys/` — Raw FFI bindings to the Linux Comedi library.
 - `crates/daq-proto/` — Protobuf definitions and tonic build; proto sources in `proto/` with domain↔proto conversions.
-- `crates/daq-server/` — gRPC server implementation (optional dependency).
+- `crates/daq-server/` — gRPC server implementation with token auth and CORS (optional dependency).
 - `crates/daq-experiment/` — RunEngine and Plan definitions for experiment orchestration.
-- `crates/daq-scripting/` — Rhai scripting engine integration (optional dependency).
-- `crates/daq-storage/` — Data persistence (CSV, HDF5, Arrow formats), ring buffers.
-- `crates/daq-egui/` — GUI application using egui.
+- `crates/daq-scripting/` — Rhai scripting engine integration with optional Python bindings (optional dependency).
+- `crates/daq-storage/` — Data persistence (CSV, HDF5, Arrow, MATLAB formats), ring buffers (sync and async).
+- `crates/daq-egui/` — GUI application using egui with auto-reconnect, health monitoring, and logging panel.
 - `crates/rust-daq/` — **Integration layer** providing `prelude` module for organized imports. Feature-gates optional components (server, scripting). Import directly from focused crates (bd-232k refactoring complete).
 - `crates/daq-bin/` — Binaries and CLI entrypoints.
 - `crates/daq-examples/` — Example code and usage patterns.
@@ -345,7 +347,8 @@ Re-index after updating docs: `python cocoindex_flows/comprehensive_docs_index.p
                 ┌──────────────┼──────────────┬─────────────┐
                 │              │              │             │
          daq-driver-pvcam  daq-proto    daq-storage   daq-experiment
-                │                            ↑             ↑
+         daq-driver-comedi                   ↑             ↑
+                │                            │             │
                 └────────→ daq-hardware ─────┴─────────────┤
                                ↑                           │
                 ┌──────────────┼───────────────────────────┘
@@ -364,15 +367,17 @@ Re-index after updating docs: `python cocoindex_flows/comprehensive_docs_index.p
 
 **Legend:**
 
-- `daq-core`: Foundation types, errors, parameters, observables
-- `daq-hardware`: HAL + drivers (depends on daq-driver-pvcam conditionally)
+- `daq-core`: Foundation types, errors, parameters, observables, size limits
+- `daq-hardware`: HAL + serial drivers (depends on daq-driver-pvcam, daq-driver-comedi conditionally)
+- `daq-driver-pvcam`: PVCAM camera driver (uses pvcam-sys FFI bindings)
+- `daq-driver-comedi`: Comedi DAQ driver (uses comedi-sys FFI bindings)
 - `daq-experiment`: RunEngine and Plans (depends on daq-core, daq-hardware)
-- `daq-scripting` (optional): Rhai integration (depends on daq-core, daq-experiment, daq-hardware)
-- `daq-server` (optional): gRPC server (depends on daq-core, daq-hardware, daq-proto, daq-scripting, daq-storage)
-- `daq-storage`: Data persistence (depends on daq-core, daq-proto)
+- `daq-scripting` (optional): Rhai integration with Python bindings (depends on daq-core, daq-experiment, daq-hardware)
+- `daq-server` (optional): gRPC server with auth (depends on daq-core, daq-hardware, daq-proto, daq-scripting, daq-storage)
+- `daq-storage`: Data persistence with ring buffers (depends on daq-core, daq-proto)
 - `daq-proto`: Protobuf definitions (depends on daq-core)
 - `daq-bin`: CLI binaries (depends on daq-hardware, daq-proto, daq-server)
-- `daq-egui`: GUI application (depends on daq-core, daq-driver-pvcam, daq-proto)
+- `daq-egui`: GUI application with auto-reconnect (depends on daq-core, daq-driver-pvcam, daq-proto)
 - `rust-daq`: Integration layer with `prelude` module for organized re-exports; feature-gates optional dependencies
 
 **Key Components (by crate):**
@@ -806,11 +811,15 @@ bd ready              # See unblocked work
 
 ```
 docs/
-├── architecture/       # ADRs, architectural decisions
-├── getting_started/    # Setup and onboarding
-├── guides/            # How-to guides (deployment, testing, CI/CD)
-├── instruments/       # Hardware-specific protocols
-└── project_management/# Project planning
+├── architecture/         # ADRs, architectural decisions, feature matrix
+├── benchmarks/           # Performance documentation (tee pipeline)
+├── project_management/   # Roadmaps, release validation, V6 planning
+├── troubleshooting/      # Platform notes, PVCAM setup
+└── MAITAI_SETUP.md       # MaiTai laser hardware setup
+
+crates/rust-daq/docs/
+├── guides/               # How-to guides (CLI, scripting, driver development)
+└── reference/            # API reference, hardware inventory, instrument protocols
 ```
 
 ---

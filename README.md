@@ -41,14 +41,18 @@ The system is built as a collection of crates:
 
 | Crate | Description |
 |-------|-------------|
-| **`daq-core`** | Common types, traits, and data models used across the system. |
-| **`daq-hardware`** | Hardware Abstraction Layer (HAL). Contains drivers (Thorlabs, Newport, etc.) and capability traits. |
-| **`daq-experiment`** | The RunEngine and Plan definitions. Orchestrates experiment execution. |
-| **`daq-server`** | gRPC server exposing control and data streams to the network. |
-| **`daq-storage`** | Data persistence handling CSV, HDF5, and Arrow formats. |
-| **`daq-scripting`** | Scripting engine integrations (Rhai, Python). |
-| **`daq-proto`** | Protocol Buffer definitions and generated code for the gRPC API. |
-| **`daq-bin`** | Application entry points (CLI, Daemon). |
+| **`daq-core`** | Foundation types, error handling, parameters, observables, and size limits. |
+| **`daq-hardware`** | Hardware Abstraction Layer (HAL) with capability traits (`Movable`, `Readable`, `FrameProducer`, etc.) and drivers. |
+| **`daq-driver-pvcam`** | PVCAM camera driver for Photometrics cameras (requires PVCAM SDK). |
+| **`daq-driver-comedi`** | Comedi DAQ driver for Linux data acquisition boards. |
+| **`daq-experiment`** | RunEngine and Plan definitions for experiment orchestration. |
+| **`daq-server`** | gRPC server implementation exposing control and data streams. |
+| **`daq-storage`** | Data persistence with ring buffers, CSV, HDF5, and Arrow formats. |
+| **`daq-scripting`** | Rhai scripting engine integration with Python bindings. |
+| **`daq-proto`** | Protocol Buffer definitions and domain↔proto conversions. |
+| **`daq-egui`** | Desktop GUI application with docking panels, auto-reconnect, and real-time logging. |
+| **`daq-bin`** | CLI binaries and daemon entry points. |
+| **`rust-daq`** | Integration layer providing `prelude` module for convenient imports. |
 
 For a deep dive, see [Architecture Documentation](docs/architecture/ARCHITECTURE.md).
 
