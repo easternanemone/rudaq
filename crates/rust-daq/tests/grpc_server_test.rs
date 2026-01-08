@@ -1,5 +1,5 @@
 #![cfg(not(target_arch = "wasm32"))]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::unwrap_err_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Integration tests for the gRPC server implementation
 //! Requires 'server' (which includes networking) and 'scripting' features
 
