@@ -65,10 +65,10 @@ fn generate_test_pattern(width: u32, height: u32, frame_num: u64) -> Vec<u16> {
 
     // Size parameters scaled to image dimensions
     let checker_size = (width.min(height) / 32) as usize; // ~20 pixels for 640x480
-    let corner_size = (width.min(height) / 8) as usize;   // ~60 pixels for 640x480
+    let corner_size = (width.min(height) / 8) as usize; // ~60 pixels for 640x480
     let crosshair_thickness = 3usize;
     let crosshair_length = (width.min(height) / 6) as usize; // ~80 pixels for 640x480
-    let gradient_height = (height / 10) as usize;          // 10% of height for gradient bars
+    let gradient_height = (height / 10) as usize; // 10% of height for gradient bars
 
     // Center coordinates
     let cx = w / 2;
@@ -129,8 +129,11 @@ fn generate_test_pattern(width: u32, height: u32, frame_num: u64) -> Vec<u16> {
                 let local_x = x - (w - corner_size);
                 let local_y = y;
                 let border = 5;
-                if local_x < border || local_x >= corner_size - border ||
-                   local_y < border || local_y >= corner_size - border {
+                if local_x < border
+                    || local_x >= corner_size - border
+                    || local_y < border
+                    || local_y >= corner_size - border
+                {
                     pixel_value = 52428; // ~80% intensity
                 }
             }
@@ -154,19 +157,22 @@ fn generate_test_pattern(width: u32, height: u32, frame_num: u64) -> Vec<u16> {
                 // Diagonal from top-left to bottom-right
                 let diff1 = (local_x as i32 - local_y as i32).unsigned_abs() as usize;
                 // Diagonal from top-right to bottom-left
-                let diff2 = (local_x as i32 - (corner_size as i32 - 1 - local_y as i32)).unsigned_abs() as usize;
+                let diff2 = (local_x as i32 - (corner_size as i32 - 1 - local_y as i32))
+                    .unsigned_abs() as usize;
                 if diff1 < thickness || diff2 < thickness {
                     pixel_value = 39321; // ~60% intensity
                 }
             }
 
             // Layer 4: Center crosshair
-            let in_horizontal = y >= cy - crosshair_thickness / 2 &&
-                               y <= cy + crosshair_thickness / 2 &&
-                               x >= cx - crosshair_length && x <= cx + crosshair_length;
-            let in_vertical = x >= cx - crosshair_thickness / 2 &&
-                             x <= cx + crosshair_thickness / 2 &&
-                             y >= cy - crosshair_length && y <= cy + crosshair_length;
+            let in_horizontal = y >= cy - crosshair_thickness / 2
+                && y <= cy + crosshair_thickness / 2
+                && x >= cx - crosshair_length
+                && x <= cx + crosshair_length;
+            let in_vertical = x >= cx - crosshair_thickness / 2
+                && x <= cx + crosshair_thickness / 2
+                && y >= cy - crosshair_length
+                && y <= cy + crosshair_length;
             if in_horizontal || in_vertical {
                 pixel_value = 65535; // Full white
             }
@@ -177,7 +183,9 @@ fn generate_test_pattern(width: u32, height: u32, frame_num: u64) -> Vec<u16> {
             let dist_sq_center = dx_center * dx_center + dy_center * dy_center;
             let inner_radius = (crosshair_length / 3) as i32;
             let outer_radius = inner_radius + 4;
-            if dist_sq_center >= inner_radius * inner_radius && dist_sq_center <= outer_radius * outer_radius {
+            if dist_sq_center >= inner_radius * inner_radius
+                && dist_sq_center <= outer_radius * outer_radius
+            {
                 pixel_value = ring_intensity as u16; // Pulsing intensity
             }
 
