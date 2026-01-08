@@ -41,7 +41,7 @@ rerun = { version = "0.27.3", features = ["server"] }
 daq-experiment = { version = "0.1.0", path = "../daq-experiment" }
 
 # Metrics and monitoring (bd-v299)
-prometheus = { version = "0.13", optional = true }
+prometheus = { version = "0.14", optional = true }
 lazy_static = { version = "1.4", optional = true }
 hyper = { version = "0.14", features = ["server", "http1", "tcp"], optional = true }
 
