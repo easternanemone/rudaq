@@ -4,6 +4,7 @@
 
 pub mod client;
 pub mod connection;
+pub mod daemon_launcher;
 pub mod reconnect;
 
 #[cfg(feature = "standalone")]

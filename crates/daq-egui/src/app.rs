@@ -48,8 +48,11 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for UiLogMakeWriter {
 static UI_LOG_BUFFER: Lazy<Arc<Mutex<Vec<String>>>> =
     Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
 
+use std::time::Instant;
+
 use crate::client::DaqClient;
 use crate::connection::{resolve_address, save_to_storage, AddressSource, DaemonAddress};
+use crate::daemon_launcher::{AutoConnectState, DaemonLauncher, DaemonMode};
 use crate::panels::{
     ConnectionDiagnostics, ConnectionStatus as LogConnectionStatus, DevicesPanel,
     DocumentViewerPanel, GettingStartedPanel, ImageViewerPanel, InstrumentManagerPanel,
@@ -115,6 +118,19 @@ pub struct DaqApp {
     /// Channel for health check results
     health_tx: mpsc::Sender<HealthCheckResult>,
     health_rx: mpsc::Receiver<HealthCheckResult>,
+
+    /// Previous connection state (for detecting transitions)
+    was_connected: bool,
+
+    /// Daemon mode configuration (local auto-start, remote, or lab hardware)
+    daemon_mode: DaemonMode,
+
+    /// Daemon process launcher (for LocalAuto mode)
+    daemon_launcher: Option<DaemonLauncher>,
+
+    /// Auto-connect lifecycle state
+    auto_connect_state: AutoConnectState,
+
     /// PVCAM live view streaming state (requires rerun_viewer + instrument_photometrics)
     /// Works in mock mode without pvcam_hardware, or with real SDK when pvcam_hardware enabled
     #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
@@ -147,8 +163,8 @@ pub enum Panel {
 }
 
 impl DaqApp {
-    /// Create a new application instance
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    /// Create a new application instance with the specified daemon mode
+    pub fn new(cc: &eframe::CreationContext<'_>, daemon_mode: DaemonMode) -> Self {
         // Configure egui style
         let mut style = (*cc.egui_ctx.style()).clone();
         style.spacing.item_spacing = egui::vec2(8.0, 6.0);
@@ -176,8 +192,38 @@ impl DaqApp {
                 .try_init();
         });
 
-        // Resolve daemon address from storage, env var, or default
-        let daemon_address = resolve_address(None, cc.storage);
+        // Start daemon launcher if in LocalAuto mode
+        let daemon_launcher = if daemon_mode.should_auto_start() {
+            let port = daemon_mode.port().unwrap_or(50051);
+            let mut launcher = DaemonLauncher::new(port);
+            if let Err(e) = launcher.start() {
+                tracing::error!("Failed to start daemon: {}", e);
+            }
+            Some(launcher)
+        } else {
+            None
+        };
+
+        // Determine auto-connect state based on mode
+        let auto_connect_state = if daemon_mode.should_auto_start() {
+            AutoConnectState::WaitingForDaemon {
+                since: Instant::now(),
+            }
+        } else {
+            // For remote mode, we can try to connect immediately
+            AutoConnectState::ReadyToConnect
+        };
+
+        // Use daemon mode URL as the address, or fall back to stored/env/default
+        let daemon_address = if matches!(daemon_mode, DaemonMode::Remote { .. }) {
+            // For remote mode, use the provided URL directly
+            DaemonAddress::parse(&daemon_mode.daemon_url(), AddressSource::UserInput)
+                .unwrap_or_else(|_| resolve_address(None, cc.storage))
+        } else {
+            // For local modes, use the generated URL
+            DaemonAddress::parse(&daemon_mode.daemon_url(), AddressSource::Default)
+                .unwrap_or_else(|_| resolve_address(None, cc.storage))
+        };
         let address_input = daemon_address.original().to_string();
 
         // Create health check channel
@@ -215,6 +261,10 @@ impl DaqApp {
             runtime,
             health_tx,
             health_rx,
+            was_connected: false,
+            daemon_mode,
+            daemon_launcher,
+            auto_connect_state,
             #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
             pvcam_streaming: false,
             #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
@@ -280,6 +330,51 @@ impl DaqApp {
             .info("Connection", "Disconnected from daemon");
     }
 
+    /// Switch to a different daemon mode
+    fn switch_daemon_mode(&mut self, mode: DaemonMode) {
+        tracing::info!("Switching daemon mode to: {}", mode.label());
+
+        // Stop existing daemon if we're switching away from LocalAuto
+        if let Some(ref mut launcher) = self.daemon_launcher {
+            launcher.stop();
+        }
+        self.daemon_launcher = None;
+
+        // Disconnect current connection
+        self.disconnect();
+
+        // Update daemon mode
+        self.daemon_mode = mode.clone();
+
+        // Update address
+        if let Ok(addr) =
+            DaemonAddress::parse(&mode.daemon_url(), AddressSource::Default)
+        {
+            self.daemon_address = addr;
+            self.address_input = self.daemon_address.original().to_string();
+        }
+
+        // Start new daemon if needed
+        if mode.should_auto_start() {
+            let port = mode.port().unwrap_or(50051);
+            let mut launcher = DaemonLauncher::new(port);
+            if let Err(e) = launcher.start() {
+                self.logging_panel
+                    .error("Daemon", &format!("Failed to start: {}", e));
+            }
+            self.daemon_launcher = Some(launcher);
+            self.auto_connect_state = AutoConnectState::WaitingForDaemon {
+                since: Instant::now(),
+            };
+        } else {
+            // For remote mode, try to connect immediately
+            self.auto_connect_state = AutoConnectState::ReadyToConnect;
+        }
+
+        self.logging_panel
+            .info("Daemon", &format!("Switched to {} mode", mode.label()));
+    }
+
     /// Render the top menu bar
     fn render_menu_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
@@ -287,6 +382,72 @@ impl DaqApp {
                 ui.menu_button("File", |ui| {
                     if ui.button("Quit").clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+
+                // Daemon menu for mode selection and control
+                ui.menu_button("Daemon", |ui| {
+                    // Current mode indicator
+                    ui.label(format!("Mode: {}", self.daemon_mode.label()));
+                    ui.separator();
+
+                    // Mode selection buttons
+                    if ui.button("Local (Mock)").clicked() {
+                        self.switch_daemon_mode(DaemonMode::LocalAuto { port: 50051 });
+                        ui.close_menu();
+                    }
+
+                    // Remote connection - use the address input
+                    if ui.button("Use Remote Address").clicked() {
+                        // Parse current address input as remote URL
+                        if let Ok(addr) =
+                            DaemonAddress::parse(&self.address_input, AddressSource::UserInput)
+                        {
+                            self.switch_daemon_mode(DaemonMode::Remote {
+                                url: addr.to_string(),
+                            });
+                        }
+                        ui.close_menu();
+                    }
+
+                    // Lab Hardware - placeholder for future implementation
+                    ui.add_enabled_ui(false, |ui| {
+                        ui.button("Lab Hardware (TODO)")
+                            .on_hover_text("Not yet implemented");
+                    });
+
+                    ui.separator();
+
+                    // Daemon status
+                    if let Some(ref mut launcher) = self.daemon_launcher {
+                        if launcher.is_running() {
+                            ui.colored_label(egui::Color32::GREEN, "● Local daemon running");
+                            if let Some(uptime) = launcher.uptime() {
+                                ui.small(format!("Uptime: {}s", uptime.as_secs()));
+                            }
+                            if ui.button("Stop Daemon").clicked() {
+                                launcher.stop();
+                                self.disconnect();
+                                ui.close_menu();
+                            }
+                        } else {
+                            ui.colored_label(egui::Color32::RED, "● Local daemon stopped");
+                            if let Some(err) = launcher.last_error() {
+                                ui.small(err);
+                            }
+                            if ui.button("Restart Daemon").clicked() {
+                                if let Err(e) = launcher.start() {
+                                    self.logging_panel.error("Daemon", &e);
+                                } else {
+                                    self.auto_connect_state = AutoConnectState::WaitingForDaemon {
+                                        since: Instant::now(),
+                                    };
+                                }
+                                ui.close_menu();
+                            }
+                        }
+                    } else {
+                        ui.label("Remote mode - no local daemon");
                     }
                 });
 
@@ -349,6 +510,30 @@ impl DaqApp {
     fn render_status_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
+                // Show auto-connect status if active
+                match &self.auto_connect_state {
+                    AutoConnectState::WaitingForDaemon { since } => {
+                        ui.spinner();
+                        ui.label(format!(
+                            "Starting daemon... ({:.0}s)",
+                            since.elapsed().as_secs_f64()
+                        ));
+                        ui.separator();
+                        ui.label(format!("Mode: {}", self.daemon_mode.label()));
+                        return; // Don't show rest of status bar during startup
+                    }
+                    AutoConnectState::ReadyToConnect => {
+                        ui.spinner();
+                        ui.label("Connecting...");
+                        ui.separator();
+                        ui.label(format!("Mode: {}", self.daemon_mode.label()));
+                        return; // Don't show rest of status bar during startup
+                    }
+                    AutoConnectState::Complete | AutoConnectState::Skipped => {
+                        // Continue with normal status bar
+                    }
+                }
+
                 // Extract state info upfront to avoid borrow conflicts
                 let state_color = self.connection.state().color();
                 let state_label = self.connection.state().label();
@@ -750,6 +935,73 @@ impl DaqApp {
             consecutive_failures: health_status.consecutive_failures,
         };
     }
+
+    /// Process auto-connect state machine
+    fn process_auto_connect(&mut self, ctx: &egui::Context) {
+        use std::time::Duration;
+
+        match &self.auto_connect_state {
+            AutoConnectState::WaitingForDaemon { since } => {
+                let elapsed = since.elapsed();
+
+                // Check if daemon process has started
+                if let Some(ref mut launcher) = self.daemon_launcher {
+                    if launcher.is_running() && elapsed > Duration::from_millis(500) {
+                        // Give daemon time to start listening
+                        tracing::info!("Daemon is running, initiating auto-connect");
+                        self.auto_connect_state = AutoConnectState::ReadyToConnect;
+                    } else if elapsed > Duration::from_secs(10) {
+                        // Timeout - daemon didn't start
+                        tracing::error!("Timeout waiting for daemon to start");
+                        self.auto_connect_state = AutoConnectState::Skipped;
+                        self.logging_panel
+                            .error("Daemon", "Timeout waiting for daemon to start");
+                    }
+                } else {
+                    // No launcher but in WaitingForDaemon - shouldn't happen, skip
+                    self.auto_connect_state = AutoConnectState::Skipped;
+                }
+                ctx.request_repaint_after(Duration::from_millis(100));
+            }
+            AutoConnectState::ReadyToConnect => {
+                if !self.connection.is_busy() {
+                    tracing::info!("Auto-connecting to daemon at {}", self.daemon_address);
+                    self.connect();
+                    self.auto_connect_state = AutoConnectState::Complete;
+                }
+            }
+            AutoConnectState::Complete | AutoConnectState::Skipped => {
+                // No action needed
+            }
+        }
+    }
+
+    /// Called when connection is established - trigger panel refreshes
+    fn on_connection_established(&mut self) {
+        tracing::info!("Connection established - triggering panel refreshes");
+
+        // Reset panels to force them to refresh their data
+        // This clears cached data and triggers new loads on next render
+        self.devices_panel = DevicesPanel::default();
+        self.scripts_panel = ScriptsPanel::default();
+        self.modules_panel = ModulesPanel::default();
+        self.storage_panel = StoragePanel::default();
+
+        self.logging_panel
+            .info("Connection", "Connected - panels will refresh data");
+    }
+
+    /// Detect connection state transitions and handle them
+    fn detect_connection_transitions(&mut self) {
+        let is_connected = self.connection.state().is_connected();
+
+        if is_connected && !self.was_connected {
+            // Just connected - trigger panel refreshes
+            self.on_connection_established();
+        }
+
+        self.was_connected = is_connected;
+    }
 }
 
 struct DaqTabViewer<'a> {
@@ -969,6 +1221,13 @@ impl eframe::App for DaqApp {
         self.maybe_spawn_health_check();
         self.poll_health_checks();
         self.update_connection_diagnostics(); // bd-j3xz.3.3
+
+        // Process auto-connect state machine
+        self.process_auto_connect(ctx);
+
+        // Detect connection state transitions (for panel refresh on connect)
+        self.detect_connection_transitions();
+
         self.render_menu_bar(ctx);
         self.render_version_warning(ctx);
         self.render_status_bar(ctx);
