@@ -1,54 +1,10 @@
 //! Main application state and UI logic.
 
+use std::time::Instant;
+
 use eframe::egui;
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
-use once_cell::sync::Lazy;
-use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use tracing_subscriber::fmt::writer::MakeWriterExt;
-use tracing_subscriber::EnvFilter;
-
-struct UiLogWriter {
-    buf: Arc<Mutex<Vec<String>>>,
-    cur: String,
-}
-
-impl std::io::Write for UiLogWriter {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        for &b in bytes {
-            if b == b'\n' {
-                let mut guard = self.buf.lock().unwrap();
-                guard.push(self.cur.clone());
-                self.cur.clear();
-            } else {
-                self.cur.push(b as char);
-            }
-        }
-        Ok(bytes.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-struct UiLogMakeWriter {
-    buf: Arc<Mutex<Vec<String>>>,
-}
-
-impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for UiLogMakeWriter {
-    type Writer = UiLogWriter;
-    fn make_writer(&'a self) -> Self::Writer {
-        UiLogWriter {
-            buf: self.buf.clone(),
-            cur: String::new(),
-        }
-    }
-}
-
-static UI_LOG_BUFFER: Lazy<Arc<Mutex<Vec<String>>>> =
-    Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
-
-use std::time::Instant;
 
 use crate::client::DaqClient;
 use crate::connection::{resolve_address, save_to_storage, AddressSource, DaemonAddress};
@@ -131,6 +87,9 @@ pub struct DaqApp {
     /// Auto-connect lifecycle state
     auto_connect_state: AutoConnectState,
 
+    /// Receiver for tracing log events (forwarded to logging panel)
+    log_receiver: std::sync::mpsc::Receiver<crate::gui_log_layer::GuiLogEvent>,
+
     /// PVCAM live view streaming state (requires rerun_viewer + instrument_photometrics)
     /// Works in mock mode without pvcam_hardware, or with real SDK when pvcam_hardware enabled
     #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
@@ -164,7 +123,11 @@ pub enum Panel {
 
 impl DaqApp {
     /// Create a new application instance with the specified daemon mode
-    pub fn new(cc: &eframe::CreationContext<'_>, daemon_mode: DaemonMode) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        daemon_mode: DaemonMode,
+        log_receiver: std::sync::mpsc::Receiver<crate::gui_log_layer::GuiLogEvent>,
+    ) -> Self {
         // Configure egui style
         let mut style = (*cc.egui_ctx.style()).clone();
         style.spacing.item_spacing = egui::vec2(8.0, 6.0);
@@ -176,22 +139,6 @@ impl DaqApp {
             .enable_all()
             .build()
             .expect("Failed to create tokio runtime");
-        // Install tracing subscriber that also feeds the UI log buffer (only once).
-        static SUB_INIT: std::sync::Once = std::sync::Once::new();
-        SUB_INIT.call_once(|| {
-            let writer = UiLogMakeWriter {
-                buf: UI_LOG_BUFFER.clone(),
-            }
-            .and(std::io::stdout);
-
-            let _ = tracing_subscriber::fmt()
-                .with_env_filter(
-                    EnvFilter::from_default_env().add_directive(tracing::Level::DEBUG.into()),
-                )
-                .with_writer(writer)
-                .try_init();
-        });
-
         // Start daemon launcher if in LocalAuto mode
         let daemon_launcher = if daemon_mode.should_auto_start() {
             let port = daemon_mode.port().unwrap_or(50051);
@@ -265,6 +212,7 @@ impl DaqApp {
             daemon_mode,
             daemon_launcher,
             auto_connect_state,
+            log_receiver,
             #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
             pvcam_streaming: false,
             #[cfg(all(feature = "rerun_viewer", feature = "instrument_photometrics"))]
@@ -703,85 +651,12 @@ impl DaqApp {
     }
 
     fn poll_logs(&mut self) {
-        if let Ok(mut buf) = UI_LOG_BUFFER.lock() {
-            for line in buf.drain(..) {
-                // Strip ANSI escape codes: \x1b[...m
-                let stripped = strip_ansi_codes(&line);
-
-                // Parse tracing format: "2026-01-08T08:51:10.101171Z INFO rust_daq_gui: message"
-                // Or simpler: "INFO rust_daq_gui: message"
-                let (level, source, message) = parse_tracing_log(&stripped);
-                self.logging_panel.log(level, source, message);
-            }
+        // Drain all pending log events from the channel
+        while let Ok(event) = self.log_receiver.try_recv() {
+            self.logging_panel
+                .log(event.level, &event.target, &event.message);
         }
     }
-}
-
-/// Strip ANSI escape codes from a string
-fn strip_ansi_codes(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            // Skip until we hit 'm' (end of ANSI sequence)
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                while let Some(nc) = chars.next() {
-                    if nc == 'm' {
-                        break;
-                    }
-                }
-            }
-        } else {
-            result.push(c);
-        }
-    }
-    result
-}
-
-/// Parse a tracing log line into (level, source, message)
-fn parse_tracing_log(line: &str) -> (crate::panels::LogLevel, &str, &str) {
-    use crate::panels::LogLevel;
-
-    // Try to find level keyword in the line
-    let line = line.trim();
-
-    // Handle format with timestamp: "2026-01-08T... INFO source: message"
-    // Or without: "INFO source: message"
-    let level_keywords = [
-        ("ERROR", LogLevel::Error),
-        ("WARN", LogLevel::Warn),
-        ("INFO", LogLevel::Info),
-        ("DEBUG", LogLevel::Debug),
-        ("TRACE", LogLevel::Trace),
-    ];
-
-    for (keyword, level) in level_keywords {
-        // Find the keyword, potentially preceded by timestamp
-        if let Some(idx) = line.find(keyword) {
-            let after_level = &line[idx + keyword.len()..].trim_start();
-
-            // Parse "source: message" or just "message"
-            if let Some(colon_idx) = after_level.find(':') {
-                let source = after_level[..colon_idx].trim();
-                let message = after_level[colon_idx + 1..].trim();
-
-                // Clean up source (remove common prefixes)
-                let source = source
-                    .strip_prefix("rust_daq_gui::")
-                    .or_else(|| source.strip_prefix("daq_egui::"))
-                    .unwrap_or(source);
-
-                return (level, source, message);
-            } else {
-                return (level, "tracing", after_level);
-            }
-        }
-    }
-
-    // Fallback: couldn't parse, return as-is
-    (LogLevel::Info, "tracing", line)
 }
 
 /// Additional DaqApp methods in a separate impl block (split for helper functions)

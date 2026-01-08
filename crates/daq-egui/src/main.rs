@@ -22,6 +22,8 @@ mod client;
 mod connection;
 mod daemon_launcher;
 #[cfg(feature = "standalone")]
+mod gui_log_layer;
+#[cfg(feature = "standalone")]
 mod panels;
 mod reconnect;
 #[cfg(feature = "standalone")]
@@ -33,6 +35,10 @@ use clap::Parser;
 use daemon_launcher::DaemonMode;
 #[cfg(feature = "standalone")]
 use eframe::egui;
+#[cfg(feature = "standalone")]
+use tracing_subscriber::layer::SubscriberExt;
+#[cfg(feature = "standalone")]
+use tracing_subscriber::util::SubscriberInitExt;
 
 /// DAQ Control Panel - GUI for controlling the rust-daq daemon
 #[cfg(feature = "standalone")]
@@ -73,12 +79,17 @@ fn main() -> eframe::Result<()> {
         DaemonMode::LocalAuto { port: cli.port }
     };
 
-    // Initialize logging
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive(tracing::Level::INFO.into()),
-        )
+    // Create channel for GUI log events
+    let (log_sender, log_receiver) = gui_log_layer::create_log_channel();
+
+    // Initialize logging with GUI layer
+    let env_filter = tracing_subscriber::EnvFilter::from_default_env()
+        .add_directive(tracing::Level::INFO.into());
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(tracing_subscriber::fmt::layer())
+        .with(gui_log_layer::GuiLogLayer::new(log_sender))
         .init();
 
     tracing::info!(
@@ -98,7 +109,7 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "DAQ Control Panel",
         options,
-        Box::new(move |cc| Ok(Box::new(app::DaqApp::new(cc, daemon_mode)))),
+        Box::new(move |cc| Ok(Box::new(app::DaqApp::new(cc, daemon_mode, log_receiver)))),
     )
 }
 

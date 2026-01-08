@@ -5,6 +5,8 @@
 pub mod client;
 pub mod connection;
 pub mod daemon_launcher;
+#[cfg(feature = "standalone")]
+pub mod gui_log_layer;
 pub mod reconnect;
 
 #[cfg(feature = "standalone")]
