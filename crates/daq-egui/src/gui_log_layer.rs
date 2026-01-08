@@ -49,7 +49,8 @@ impl Visit for MessageVisitor {
             if !self.message.is_empty() {
                 self.message.push(' ');
             }
-            self.message.push_str(&format!("{}={:?}", field.name(), value));
+            self.message
+                .push_str(&format!("{}={:?}", field.name(), value));
         }
     }
 

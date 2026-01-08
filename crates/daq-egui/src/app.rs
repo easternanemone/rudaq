@@ -295,9 +295,7 @@ impl DaqApp {
         self.daemon_mode = mode.clone();
 
         // Update address
-        if let Ok(addr) =
-            DaemonAddress::parse(&mode.daemon_url(), AddressSource::Default)
-        {
+        if let Ok(addr) = DaemonAddress::parse(&mode.daemon_url(), AddressSource::Default) {
             self.daemon_address = addr;
             self.address_input = self.daemon_address.original().to_string();
         }
