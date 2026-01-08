@@ -85,6 +85,7 @@ use daq_proto::daq::{
     PauseScanRequest,
     QueuePlanRequest,
     QueuePlanResponse,
+    StreamDocumentsRequest,
     ReadValueRequest,
     ResumeScanRequest,
     ScanConfig,
@@ -766,6 +767,19 @@ impl DaqClient {
                 device_mapping,
                 metadata,
             })
+            .await?;
+        Ok(response.into_inner())
+    }
+
+    /// Stream documents from plan execution
+    pub async fn stream_documents(
+        &mut self,
+        run_uid: Option<String>,
+        doc_types: Vec<i32>,
+    ) -> Result<impl futures::Stream<Item = Result<daq_proto::daq::Document, tonic::Status>>> {
+        let response = self
+            .run_engine
+            .stream_documents(StreamDocumentsRequest { run_uid, doc_types })
             .await?;
         Ok(response.into_inner())
     }

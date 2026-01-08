@@ -945,10 +945,11 @@ impl<'a> TabViewer for DaqTabViewer<'a> {
                     .plan_runner_panel
                     .ui(ui, self.app.client.as_mut(), &self.app.runtime)
             }
-            Panel::DocumentViewer => self
-                .app
-                .document_viewer_panel
-                .ui(ui, self.app.client.as_mut()),
+            Panel::DocumentViewer => self.app.document_viewer_panel.ui(
+                ui,
+                self.app.client.as_mut(),
+                &self.app.runtime,
+            ),
             Panel::SignalPlotter => {
                 self.app.signal_plotter_panel.drain_updates();
                 self.app.signal_plotter_panel.ui(ui);
