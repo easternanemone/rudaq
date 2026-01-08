@@ -101,6 +101,134 @@ impl LogLevel {
     }
 }
 
+/// Log category for filtering by subsystem
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum LogCategory {
+    /// Show all log entries
+    #[default]
+    All,
+    /// Daemon connection and health checks
+    Connection,
+    /// Device operations, hardware control
+    Devices,
+    /// Frame streaming, image viewer
+    Streaming,
+    /// Scan operations
+    Scans,
+    /// Data storage operations
+    Storage,
+    /// Script execution
+    Scripts,
+    /// Module system
+    Modules,
+    /// General system/GUI events
+    System,
+}
+
+impl LogCategory {
+    /// Get display label for the category
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::Connection => "Connection",
+            Self::Devices => "Devices",
+            Self::Streaming => "Streaming",
+            Self::Scans => "Scans",
+            Self::Storage => "Storage",
+            Self::Scripts => "Scripts",
+            Self::Modules => "Modules",
+            Self::System => "System",
+        }
+    }
+
+    /// Get color for the category (for visual distinction)
+    pub fn color(&self) -> egui::Color32 {
+        match self {
+            Self::All => egui::Color32::WHITE,
+            Self::Connection => egui::Color32::from_rgb(100, 200, 255),  // Blue
+            Self::Devices => egui::Color32::from_rgb(255, 180, 100),     // Orange
+            Self::Streaming => egui::Color32::from_rgb(180, 100, 255),   // Purple
+            Self::Scans => egui::Color32::from_rgb(100, 255, 180),       // Cyan
+            Self::Storage => egui::Color32::from_rgb(255, 255, 100),     // Yellow
+            Self::Scripts => egui::Color32::from_rgb(255, 100, 180),     // Pink
+            Self::Modules => egui::Color32::from_rgb(180, 255, 100),     // Lime
+            Self::System => egui::Color32::from_rgb(180, 180, 180),      // Gray
+        }
+    }
+
+    /// All categories for iteration (excluding All)
+    pub fn all_categories() -> &'static [LogCategory] {
+        &[
+            LogCategory::All,
+            LogCategory::Connection,
+            LogCategory::Devices,
+            LogCategory::Streaming,
+            LogCategory::Scans,
+            LogCategory::Storage,
+            LogCategory::Scripts,
+            LogCategory::Modules,
+            LogCategory::System,
+        ]
+    }
+
+    /// Determine category from log source name
+    pub fn from_source(source: &str) -> Self {
+        let source_lower = source.to_lowercase();
+
+        // Connection-related
+        if source_lower.contains("connection")
+            || source_lower.contains("reconnect")
+            || source_lower.contains("health")
+        {
+            return Self::Connection;
+        }
+
+        // Streaming-related (image viewer, signal plotter)
+        if source_lower.contains("image_viewer")
+            || source_lower.contains("signal_plotter")
+            || source_lower.contains("stream")
+            || source_lower.contains("frame")
+        {
+            return Self::Streaming;
+        }
+
+        // Device-related
+        if source_lower.contains("device")
+            || source_lower.contains("hardware")
+            || source_lower.contains("instrument")
+            || source_lower.contains("driver")
+        {
+            return Self::Devices;
+        }
+
+        // Scan-related
+        if source_lower.contains("scan") {
+            return Self::Scans;
+        }
+
+        // Storage-related
+        if source_lower.contains("storage")
+            || source_lower.contains("hdf5")
+            || source_lower.contains("ring_buffer")
+        {
+            return Self::Storage;
+        }
+
+        // Script-related
+        if source_lower.contains("script") || source_lower.contains("rhai") {
+            return Self::Scripts;
+        }
+
+        // Module-related
+        if source_lower.contains("module") {
+            return Self::Modules;
+        }
+
+        // Default to System
+        Self::System
+    }
+}
+
 /// A single log entry
 #[derive(Debug, Clone)]
 pub struct LogEntry {
@@ -111,6 +239,8 @@ pub struct LogEntry {
     pub timestamp_secs: f64,
     /// Severity level
     pub level: LogLevel,
+    /// Log category (subsystem)
+    pub category: LogCategory,
     /// Source module/component
     pub source: String,
     /// Log message
@@ -118,12 +248,14 @@ pub struct LogEntry {
 }
 
 impl LogEntry {
-    /// Create a new log entry
+    /// Create a new log entry (auto-assigns category from source)
     pub fn new(id: u64, timestamp_secs: f64, level: LogLevel, source: &str, message: &str) -> Self {
+        let category = LogCategory::from_source(source);
         Self {
             id,
             timestamp_secs,
             level,
+            category,
             source: source.to_string(),
             message: message.to_string(),
         }
@@ -142,9 +274,10 @@ impl LogEntry {
     /// Format for export
     pub fn to_export_line(&self) -> String {
         format!(
-            "[{}] {} [{}] {}",
+            "[{}] {} [{}] [{}] {}",
             self.formatted_timestamp(),
             self.level.label(),
+            self.category.label(),
             self.source,
             self.message
         )
@@ -280,10 +413,14 @@ pub struct LoggingPanel {
     // Filter settings
     /// Minimum level to display
     pub min_level: LogLevel,
+    /// Selected category filter
+    pub selected_category: LogCategory,
     /// Text search filter
     pub search_filter: String,
     /// Level toggles (which levels to show)
     pub level_enabled: [bool; 5],
+    /// Show category column
+    pub show_category: bool,
 
     // Display settings
     /// Auto-scroll to bottom
@@ -325,9 +462,11 @@ impl Default for LoggingPanel {
             entries: VecDeque::with_capacity(MAX_LOG_ENTRIES),
             next_id: 0,
             start_time: Instant::now(),
-            min_level: LogLevel::Info,
+            min_level: LogLevel::Debug, // Default to Debug to show streaming events
+            selected_category: LogCategory::All,
             search_filter: String::new(),
             level_enabled: [true; 5], // All levels enabled
+            show_category: true,
             auto_scroll: true,
             scroll_paused: false,
             show_source: true,
@@ -411,6 +550,13 @@ impl LoggingPanel {
         self.entries
             .iter()
             .filter(|e| {
+                // Category filter (All shows everything)
+                if self.selected_category != LogCategory::All
+                    && e.category != self.selected_category
+                {
+                    return false;
+                }
+
                 // Level filter
                 let level_idx = e.level as usize;
                 if !self.level_enabled[level_idx] {
@@ -444,7 +590,8 @@ impl LoggingPanel {
         output.push_str("# rust-daq Log Export\n");
         output.push_str(&format!("# Entries: {}\n", filtered.len()));
         output.push_str(&format!(
-            "# Filter: level>={}, search='{}'\n",
+            "# Filter: category={}, level>={}, search='{}'\n",
+            self.selected_category.label(),
             self.min_level.label(),
             self.search_filter
         ));
@@ -677,6 +824,27 @@ impl LoggingPanel {
     /// Render the filter controls
     fn show_filter_controls(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
+            // Category dropdown (most important filter)
+            ui.label("Category:");
+            let cat_color = self.selected_category.color();
+            egui::ComboBox::from_id_salt("log_category")
+                .selected_text(
+                    egui::RichText::new(self.selected_category.label())
+                        .color(cat_color),
+                )
+                .show_ui(ui, |ui| {
+                    for category in LogCategory::all_categories() {
+                        let color = category.color();
+                        ui.selectable_value(
+                            &mut self.selected_category,
+                            *category,
+                            egui::RichText::new(category.label()).color(color),
+                        );
+                    }
+                });
+
+            ui.separator();
+
             ui.label("Level:");
             for level in LogLevel::all() {
                 let idx = *level as usize;
@@ -744,6 +912,15 @@ impl LoggingPanel {
                                     ui.colored_label(entry.level.color(), entry.level.label());
                                 }
 
+                                // Category (colored badge)
+                                if self.show_category {
+                                    ui.label(
+                                        egui::RichText::new(format!("[{}]", entry.category.label()))
+                                            .color(entry.category.color())
+                                            .small(),
+                                    );
+                                }
+
                                 // Source
                                 if self.show_source && !entry.source.is_empty() {
                                     ui.label(
@@ -789,6 +966,7 @@ impl LoggingPanel {
 
             // Column toggles
             ui.checkbox(&mut self.show_level, "Level");
+            ui.checkbox(&mut self.show_category, "Category");
             ui.checkbox(&mut self.show_source, "Source");
 
             ui.separator();

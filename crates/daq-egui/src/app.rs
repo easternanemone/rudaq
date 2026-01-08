@@ -170,7 +170,7 @@ impl DaqApp {
 
             let _ = tracing_subscriber::fmt()
                 .with_env_filter(
-                    EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()),
+                    EnvFilter::from_default_env().add_directive(tracing::Level::DEBUG.into()),
                 )
                 .with_writer(writer)
                 .try_init();

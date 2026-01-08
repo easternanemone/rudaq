@@ -982,12 +982,17 @@ impl DevicesPanel {
         let tx = self.action_tx.clone();
         self.action_in_flight = self.action_in_flight.saturating_add(1);
 
+        tracing::info!("Refreshing device list from daemon");
         runtime.spawn(async move {
             let result = async {
                 let devices = client.list_devices().await?;
+                let device_count = devices.len();
+                tracing::info!(device_count, "Discovered devices from daemon");
+
                 let mut cached = Vec::new();
 
                 for info in devices {
+                    tracing::debug!(device_id = %info.id, device_name = %info.name, "Loading device state");
                     let state = client.get_device_state(&info.id).await.ok();
                     cached.push(DeviceCache {
                         info,

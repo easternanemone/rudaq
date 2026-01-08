@@ -1079,6 +1079,12 @@ impl ImageViewerPanel {
 
             tokio::pin!(stream);
 
+            tracing::info!(
+                device_id = %device_id_clone,
+                max_fps = max_fps,
+                "Frame streaming started"
+            );
+
             let mut frames_received = 0u64;
             let mut frames_dropped = 0u64;
 
@@ -1142,6 +1148,14 @@ impl ImageViewerPanel {
                     }
                 }
             }
+
+            // Log stream statistics
+            tracing::info!(
+                device_id = %device_id_clone,
+                frames_received = frames_received,
+                frames_dropped = frames_dropped,
+                "Frame streaming stopped"
+            );
 
             // Cleanup: Ensure server-side stream is stopped when subscriber task exits
             let _ = client.stop_stream(&device_id_clone).await;
