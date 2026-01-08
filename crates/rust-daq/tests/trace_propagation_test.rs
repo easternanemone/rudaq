@@ -1,9 +1,4 @@
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    missing_docs,
-    unused_imports
-)]
+#![allow(clippy::unwrap_used, clippy::expect_used, missing_docs, unused_imports)]
 //! TDD Test: Verify Trace Context Propagation (bd-nz1j)
 //!
 //! This test verifies that a Request ID header passed to gRPC is propagated
@@ -38,8 +33,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::mpsc;
-use tonic::transport::Server;
 use tonic::metadata::MetadataValue;
+use tonic::transport::Server;
 use tonic::Request;
 use tracing::{info_span, Instrument};
 use tracing_subscriber::layer::SubscriberExt;
@@ -107,7 +102,8 @@ struct FieldVisitor<'a>(&'a mut Vec<(String, String)>);
 
 impl<'a> tracing::field::Visit for FieldVisitor<'a> {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        self.0.push((field.name().to_string(), format!("{:?}", value)));
+        self.0
+            .push((field.name().to_string(), format!("{:?}", value)));
     }
 
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
@@ -200,7 +196,10 @@ async fn test_request_id_propagates_to_spans() {
         })
         .collect();
 
-    println!("\n=== Hardware Service Spans ({}) ===", hardware_spans.len());
+    println!(
+        "\n=== Hardware Service Spans ({}) ===",
+        hardware_spans.len()
+    );
     for span in &hardware_spans {
         println!("  {}: {:?}", span.name, span.fields);
     }
@@ -208,12 +207,10 @@ async fn test_request_id_propagates_to_spans() {
     // TDD ASSERTION: The request ID should appear in at least one span
     // This will FAIL until trace context propagation is implemented
     let request_id_found = captured_spans.iter().any(|span| {
-        span.fields
-            .iter()
-            .any(|(key, value)| {
-                (key == "request_id" || key == "trace_id" || key == "x-request-id")
-                    && value.contains(&request_id)
-            })
+        span.fields.iter().any(|(key, value)| {
+            (key == "request_id" || key == "trace_id" || key == "x-request-id")
+                && value.contains(&request_id)
+        })
     });
 
     // SOFT ASSERTION: Print status but don't fail the test yet
@@ -221,7 +218,10 @@ async fn test_request_id_propagates_to_spans() {
     if request_id_found {
         println!("\n[PASS] Request ID {} found in spans", request_id);
     } else {
-        println!("\n[TDD] Request ID {} NOT found in spans - trace propagation not yet implemented", request_id);
+        println!(
+            "\n[TDD] Request ID {} NOT found in spans - trace propagation not yet implemented",
+            request_id
+        );
         println!("      To implement: Extract '{}' header in gRPC interceptor and inject into span context", REQUEST_ID_HEADER);
     }
 
@@ -267,9 +267,9 @@ async fn test_hardware_service_creates_spans() {
     }
 
     // Check that we have spans from the hardware service
-    let has_hardware_span = captured_spans.iter().any(|s| {
-        s.target.contains("hardware") || s.name.contains("list_devices")
-    });
+    let has_hardware_span = captured_spans
+        .iter()
+        .any(|s| s.target.contains("hardware") || s.name.contains("list_devices"));
 
     println!("\n=== Span Creation Test ===");
     println!("Total spans captured: {}", captured_spans.len());
