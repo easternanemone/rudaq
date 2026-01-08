@@ -23,6 +23,8 @@ eframe = { version = "0.31", default-features = false, features = [
     "default_fonts",
     "glow",
     "persistence",
+    "wayland",
+    "x11",
 ], optional = true }
 egui = "0.31"
 egui_extras = { version = "0.31", features = ["all_loaders"], optional = true }
