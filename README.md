@@ -8,6 +8,24 @@
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)
 
+## ⚡ Try It Now (No Hardware Required)
+
+Get a complete DAQ system running in under 30 seconds using mock devices:
+
+```bash
+# Terminal 1: Start daemon with demo hardware
+cargo run --bin rust-daq-daemon -- daemon --hardware-config config/demo.toml
+
+# Terminal 2: Run a demo scan
+cargo run --bin rust-daq-daemon -- run examples/demo_scan.rhai
+```
+
+**That's it!** You just ran an automated scan with mock stage, power meter, and camera.
+
+Want the GUI? See [**Demo Mode Guide**](DEMO.md) for interactive control, custom scripts, and transitioning to real hardware.
+
+---
+
 ## 🚀 Key Features
 
 *   **Headless-First Design**: The core system runs as a lightweight daemon, controllable via gRPC or local scripts. Perfect for long-running experiments or embedded controllers.
@@ -81,9 +99,11 @@ Drivers are included for:
 
 ## 📚 Documentation
 
+-   [**Demo Mode Guide**](DEMO.md): Try rust-daq without hardware in 30 seconds.
 -   [**System Architecture**](docs/architecture/ARCHITECTURE.md): Detailed breakdown of system design.
 -   [**Feature Matrix**](docs/architecture/FEATURE_MATRIX.md): Guide to cargo features and build profiles.
 -   [**Benchmarks**](docs/benchmarks/tee.md): Tee pipeline throughput/latency numbers and how to run `tee_bench` (see CI artifact `tee-bench-*` for latest sample outputs).
+-   [**Platform Notes**](docs/troubleshooting/PLATFORM_NOTES.md): Linux (Wayland/X11), macOS, and Windows-specific setup.
 
 ## 📄 License
 
