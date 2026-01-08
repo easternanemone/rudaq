@@ -3,6 +3,7 @@
     clippy::expect_used,
     clippy::new_without_default,
     clippy::must_use_candidate,
+    clippy::manual_div_ceil,
     missing_docs
 )]
 //! Criterion benchmarks for ring buffer hot paths.

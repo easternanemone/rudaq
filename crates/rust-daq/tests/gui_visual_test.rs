@@ -1,4 +1,5 @@
 #![cfg(feature = "gui_egui")]
+#![cfg(not(target_arch = "wasm32"))]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -11,7 +12,7 @@
     unused_imports,
     missing_docs
 )]
-#![cfg(not(target_arch = "wasm32"))]
+//! GUI visual tests using egui_kittest
 use egui_kittest::kittest::Queryable;
 use egui_kittest::Harness;
 use rust_daq::gui::{app::DaqGuiApp, create_channels};
