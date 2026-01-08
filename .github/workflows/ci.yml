@@ -7,6 +7,17 @@ on:
       - "v*"
   pull_request:
 
+# Explicit permissions for GitHub integration features
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+# Cancel stale runs when new commits are pushed
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -26,6 +37,7 @@ jobs:
         uses: ./.github/actions/setup-daq
         with:
           components: rustfmt, clippy
+          cache-key: ci-ubuntu
 
       - name: Install SARIF tools
         run: cargo install clippy-sarif sarif-fmt
@@ -228,6 +240,8 @@ jobs:
 
       - name: Setup Environment
         uses: ./.github/actions/setup-daq
+        with:
+          cache-key: ci-${{ matrix.os }}
 
       - name: Unit and integration tests
         run: cargo test --workspace --all-targets
