@@ -1,4 +1,6 @@
+//! GUI camera stream logic tests
 #![cfg(feature = "gui_egui")]
+#![cfg(not(target_arch = "wasm32"))]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -11,7 +13,6 @@
     unused_imports,
     missing_docs
 )]
-#![cfg(not(target_arch = "wasm32"))]
 
 use rust_daq::gui::{app::DaqGuiApp, create_channels, BackendEvent};
 

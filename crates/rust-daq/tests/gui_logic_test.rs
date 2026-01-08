@@ -1,3 +1,4 @@
+//! GUI logic tests
 #![cfg(feature = "gui_egui")]
 #![cfg(not(target_arch = "wasm32"))]
 #![allow(
@@ -12,7 +13,6 @@
     unused_imports,
     missing_docs
 )]
-//! GUI logic tests
 
 use rust_daq::gui::{
     app::DaqGuiApp, create_channels, BackendCommand, BackendEvent, ConnectionStatus, DeviceInfo,

@@ -1,3 +1,12 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::clone_on_copy,
+    clippy::panic,
+    unused_mut,
+    unused_imports,
+    missing_docs
+)]
 //! Comprehensive test suite for PVCAM driver features
 //!
 //! ## Test Categories
