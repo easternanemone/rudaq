@@ -518,28 +518,89 @@ impl DaqApp {
     }
 
     fn poll_logs(&mut self) {
-        use crate::panels::LogLevel;
         if let Ok(mut buf) = UI_LOG_BUFFER.lock() {
             for line in buf.drain(..) {
-                // Parse log level from tracing format (e.g., "INFO daq_egui: message")
-                let (level, source, message) = if let Some(rest) = line.strip_prefix("ERROR ") {
-                    (LogLevel::Error, "tracing", rest)
-                } else if let Some(rest) = line.strip_prefix("WARN ") {
-                    (LogLevel::Warn, "tracing", rest)
-                } else if let Some(rest) = line.strip_prefix("INFO ") {
-                    (LogLevel::Info, "tracing", rest)
-                } else if let Some(rest) = line.strip_prefix("DEBUG ") {
-                    (LogLevel::Debug, "tracing", rest)
-                } else if let Some(rest) = line.strip_prefix("TRACE ") {
-                    (LogLevel::Trace, "tracing", rest)
-                } else {
-                    (LogLevel::Info, "tracing", line.as_str())
-                };
+                // Strip ANSI escape codes: \x1b[...m
+                let stripped = strip_ansi_codes(&line);
+
+                // Parse tracing format: "2026-01-08T08:51:10.101171Z INFO rust_daq_gui: message"
+                // Or simpler: "INFO rust_daq_gui: message"
+                let (level, source, message) = parse_tracing_log(&stripped);
                 self.logging_panel.log(level, source, message);
             }
         }
     }
+}
 
+/// Strip ANSI escape codes from a string
+fn strip_ansi_codes(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            // Skip until we hit 'm' (end of ANSI sequence)
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(nc) = chars.next() {
+                    if nc == 'm' {
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
+/// Parse a tracing log line into (level, source, message)
+fn parse_tracing_log(line: &str) -> (crate::panels::LogLevel, &str, &str) {
+    use crate::panels::LogLevel;
+
+    // Try to find level keyword in the line
+    let line = line.trim();
+
+    // Handle format with timestamp: "2026-01-08T... INFO source: message"
+    // Or without: "INFO source: message"
+    let level_keywords = [
+        ("ERROR", LogLevel::Error),
+        ("WARN", LogLevel::Warn),
+        ("INFO", LogLevel::Info),
+        ("DEBUG", LogLevel::Debug),
+        ("TRACE", LogLevel::Trace),
+    ];
+
+    for (keyword, level) in level_keywords {
+        // Find the keyword, potentially preceded by timestamp
+        if let Some(idx) = line.find(keyword) {
+            let after_level = &line[idx + keyword.len()..].trim_start();
+
+            // Parse "source: message" or just "message"
+            if let Some(colon_idx) = after_level.find(':') {
+                let source = after_level[..colon_idx].trim();
+                let message = after_level[colon_idx + 1..].trim();
+
+                // Clean up source (remove common prefixes)
+                let source = source
+                    .strip_prefix("rust_daq_gui::")
+                    .or_else(|| source.strip_prefix("daq_egui::"))
+                    .unwrap_or(source);
+
+                return (level, source, message);
+            } else {
+                return (level, "tracing", after_level);
+            }
+        }
+    }
+
+    // Fallback: couldn't parse, return as-is
+    (LogLevel::Info, "tracing", line)
+}
+
+/// Additional DaqApp methods in a separate impl block (split for helper functions)
+impl DaqApp {
     fn poll_connect_results(&mut self, ctx: &egui::Context) {
         // Poll connection manager for results
         if let Some((client, daemon_version)) =
