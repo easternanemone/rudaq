@@ -242,27 +242,26 @@ impl PlanRunnerPanel {
             if ui.button("Queue Plan").clicked() {
                 let mut parameters = std::collections::HashMap::new();
                 let mut device_mapping = std::collections::HashMap::new();
-                let mut plan_type_str = String::new();
 
-                match self.selected_plan_type {
+                let plan_type_str = match self.selected_plan_type {
                     PlanType::Count => {
-                        plan_type_str = "count".to_string();
                         parameters.insert("num_points".to_string(), self.num_points.clone());
                         device_mapping.insert("detector".to_string(), self.detector_name.clone());
+                        "count".to_string()
                     }
                     PlanType::LineScan => {
-                        plan_type_str = "line_scan".to_string();
                         parameters.insert("start_position".to_string(), self.start_pos.clone());
                         parameters.insert("stop_position".to_string(), self.end_pos.clone());
                         parameters.insert("num_points".to_string(), self.num_points.clone());
                         device_mapping.insert("motor".to_string(), self.motor_name.clone());
                         device_mapping.insert("detector".to_string(), self.detector_name.clone());
+                        "line_scan".to_string()
                     }
                     PlanType::GridScan => {
-                        plan_type_str = "grid_scan".to_string();
                         // TODO: Add grid scan parameters
+                        "grid_scan".to_string()
                     }
-                }
+                };
 
                 self.pending_action = Some(PendingAction::QueuePlan {
                     plan_type: plan_type_str,

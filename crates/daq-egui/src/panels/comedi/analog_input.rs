@@ -350,7 +350,7 @@ impl AnalogInputPanel {
             .map(|(ch, _)| *ch)
             .collect();
 
-        let mut client = client.clone();
+        let client = client.clone();
         let device_id_base = self.device_id.clone();
 
         runtime.spawn(async move {

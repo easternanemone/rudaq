@@ -28,6 +28,165 @@ use tokio::sync::{Mutex, RwLock};
 use tokio::time::{sleep, Duration};
 
 // =============================================================================
+// Test Pattern Generator
+// =============================================================================
+
+/// Generates a diagnostic test pattern for camera validation.
+///
+/// The pattern includes:
+/// - Checkerboard background for pixel alignment verification
+/// - Corner markers (triangles) for orientation detection
+/// - Center crosshair for centering verification
+/// - Gradient regions for colormap/intensity testing
+/// - Frame number encoded in the pattern
+///
+/// # Arguments
+/// * `width` - Frame width in pixels
+/// * `height` - Frame height in pixels
+/// * `frame_num` - Frame number (for animation/identification)
+///
+/// # Returns
+/// A Vec<u16> containing the test pattern pixel data
+fn generate_test_pattern(width: u32, height: u32, frame_num: u64) -> Vec<u16> {
+    let mut buffer = vec![0u16; (width * height) as usize];
+    let w = width as usize;
+    let h = height as usize;
+
+    // Size parameters scaled to image dimensions
+    let checker_size = (width.min(height) / 32) as usize; // ~20 pixels for 640x480
+    let corner_size = (width.min(height) / 8) as usize;   // ~60 pixels for 640x480
+    let crosshair_thickness = 3usize;
+    let crosshair_length = (width.min(height) / 6) as usize; // ~80 pixels for 640x480
+    let gradient_height = (height / 10) as usize;          // 10% of height for gradient bars
+
+    // Center coordinates
+    let cx = w / 2;
+    let cy = h / 2;
+
+    for y in 0..h {
+        for x in 0..w {
+            let idx = y * w + x;
+
+            // Layer 1: Checkerboard background (alternating ~25% and ~30% intensity)
+            let checker_x = x / checker_size;
+            let checker_y = y / checker_size;
+            let mut pixel_value: u16 = if (checker_x + checker_y).is_multiple_of(2) {
+                16384 // ~25% of 65535
+            } else {
+                19660 // ~30% of 65535
+            };
+
+            // Layer 2: Gradient regions at top and bottom
+            // Top gradient: 0% to 100% intensity (left to right)
+            if y < gradient_height {
+                pixel_value = ((x as u32 * 65535) / width) as u16;
+            }
+            // Bottom gradient: 100% to 0% intensity (left to right)
+            if y >= h - gradient_height {
+                pixel_value = (((w - 1 - x) as u32 * 65535) / width) as u16;
+            }
+
+            // Layer 3: Corner markers for orientation detection
+            // Top-left: Solid bright triangle (identifies origin)
+            if x < corner_size && y < corner_size && x + y < corner_size {
+                pixel_value = 65535; // Full white
+            }
+            // Top-right: Hollow rectangle outline
+            if x >= w - corner_size && y < corner_size {
+                let local_x = x - (w - corner_size);
+                let local_y = y;
+                let border = 5;
+                if local_x < border || local_x >= corner_size - border ||
+                   local_y < border || local_y >= corner_size - border {
+                    pixel_value = 52428; // ~80% intensity
+                }
+            }
+            // Bottom-left: Filled circle
+            if x < corner_size && y >= h - corner_size {
+                let local_x = x as i32;
+                let local_y = (y - (h - corner_size)) as i32;
+                let center = (corner_size / 2) as i32;
+                let radius = (corner_size / 3) as i32;
+                let dx = local_x - center;
+                let dy = local_y - center;
+                if dx * dx + dy * dy <= radius * radius {
+                    pixel_value = 45875; // ~70% intensity
+                }
+            }
+            // Bottom-right: X mark
+            if x >= w - corner_size && y >= h - corner_size {
+                let local_x = x - (w - corner_size);
+                let local_y = y - (h - corner_size);
+                let thickness = 6;
+                // Diagonal from top-left to bottom-right
+                let diff1 = (local_x as i32 - local_y as i32).unsigned_abs() as usize;
+                // Diagonal from top-right to bottom-left
+                let diff2 = (local_x as i32 - (corner_size as i32 - 1 - local_y as i32)).unsigned_abs() as usize;
+                if diff1 < thickness || diff2 < thickness {
+                    pixel_value = 39321; // ~60% intensity
+                }
+            }
+
+            // Layer 4: Center crosshair
+            let in_horizontal = y >= cy - crosshair_thickness / 2 &&
+                               y <= cy + crosshair_thickness / 2 &&
+                               x >= cx - crosshair_length && x <= cx + crosshair_length;
+            let in_vertical = x >= cx - crosshair_thickness / 2 &&
+                             x <= cx + crosshair_thickness / 2 &&
+                             y >= cy - crosshair_length && y <= cy + crosshair_length;
+            if in_horizontal || in_vertical {
+                pixel_value = 65535; // Full white
+            }
+
+            // Layer 5: Center circle (distinguishable marker)
+            let dx = (x as i32 - cx as i32).abs();
+            let dy = (y as i32 - cy as i32).abs();
+            let dist_sq = dx * dx + dy * dy;
+            let inner_radius = (crosshair_length / 3) as i32;
+            let outer_radius = inner_radius + 4;
+            if dist_sq >= inner_radius * inner_radius && dist_sq <= outer_radius * outer_radius {
+                pixel_value = 58982; // ~90% intensity for ring
+            }
+
+            // Layer 6: Frame number indicator (small dots in top-left area below corner marker)
+            // Encode low 4 bits of frame_num as 4 dots
+            let dot_y_start = corner_size + 10;
+            let dot_spacing = 15usize;
+            let dot_radius = 5i32;
+            if y >= dot_y_start && y < dot_y_start + 20 && x < corner_size + 10 {
+                for bit in 0usize..4 {
+                    let dot_x = (10 + bit * dot_spacing) as i32;
+                    let dot_y = (dot_y_start + 10) as i32;
+                    let dx = (x as i32 - dot_x).abs();
+                    let dy = (y as i32 - dot_y).abs();
+                    if dx * dx + dy * dy <= dot_radius * dot_radius {
+                        if (frame_num >> bit) & 1 == 1 {
+                            pixel_value = 65535; // On = white
+                        } else {
+                            pixel_value = 6553; // Off = ~10% (visible but dim)
+                        }
+                    }
+                }
+            }
+
+            // Layer 7: Intensity test patches (stepped grayscale) on right edge
+            let patch_height = h / 8;
+            let patch_width = 40;
+            if x >= w - patch_width && y >= gradient_height && y < h - gradient_height {
+                let patch_idx = (y - gradient_height) / patch_height;
+                // 8 levels from ~12.5% to 100%
+                let intensity = ((patch_idx + 1) as u32 * 65535) / 8;
+                pixel_value = intensity as u16;
+            }
+
+            buffer[idx] = pixel_value;
+        }
+    }
+
+    buffer
+}
+
+// =============================================================================
 // MockStage - Simulated Motion Stage
 // =============================================================================
 
@@ -311,9 +470,7 @@ impl MockCamera {
                             while flag_for_task.load(Ordering::SeqCst) {
                                 let frame_num = count.fetch_add(1, Ordering::SeqCst) + 1;
                                 let (w, h) = res;
-                                let buffer: Vec<u16> = (0..(w * h))
-                                    .map(|i| ((i + frame_num as u32) % 65536) as u16)
-                                    .collect();
+                                let buffer = generate_test_pattern(w, h, frame_num);
 
                                 let frame = Arc::new(Frame::from_u16(w, h, &buffer));
 
@@ -464,12 +621,9 @@ impl Triggerable for MockCamera {
         // Simulate 30fps frame readout time
         sleep(Duration::from_millis(33)).await;
 
-        // Generate and emit frame
+        // Generate and emit frame with diagnostic test pattern
         let (w, h) = self.resolution;
-        // Create simple pattern data
-        let buffer: Vec<u16> = (0..(w * h))
-            .map(|i| ((i + count as u32) % 65536) as u16)
-            .collect();
+        let buffer = generate_test_pattern(w, h, count);
         let frame = Arc::new(Frame::from_u16(w, h, &buffer));
 
         let _ = self.frame_tx.send(frame);
