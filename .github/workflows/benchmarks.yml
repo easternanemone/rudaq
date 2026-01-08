@@ -6,13 +6,15 @@ on:
     branches:
       - main
     paths:
-      - 'crates/rust-daq/clients/python/**'
-      - 'crates/**'
+      - 'crates/**/benches/**'
+      - 'crates/rust-daq/Cargo.toml'
+      - 'crates/daq-storage/**'
       - '.github/workflows/benchmarks.yml'
   pull_request:
     paths:
-      - 'crates/rust-daq/clients/python/**'
-      - 'crates/**'
+      - 'crates/**/benches/**'
+      - 'crates/rust-daq/Cargo.toml'
+      - 'crates/daq-storage/**'
       - '.github/workflows/benchmarks.yml'
 
 jobs:
@@ -38,53 +40,23 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            crates/rust-daq/clients/python/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('crates/rust-daq/clients/python/Cargo.lock', 'Cargo.lock') }}
+            target
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
+            ${{ runner.os }}-cargo-bench-
             ${{ runner.os }}-cargo-
 
-      - name: Install Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install maturin
-        run: pip install maturin
-
       - name: Rust micro-benchmarks
-        run: cargo bench --release
-        working-directory: crates/rust-daq/clients/python
-
-      - name: Build Python extension
-        run: maturin develop --release
-        working-directory: crates/rust-daq/clients/python
-
-      - name: Python comparison benchmarks
-        run: |
-          python benchmarks/compare_alternatives.py \
-            --samples 30000 \
-            --repeats 5 \
-            --runs 3 \
-            --rate 1000 \
-            --duration 12 \
-            --json benchmarks/results/ci.json
-        working-directory: crates/rust-daq/clients/python
+        run: cargo bench --package rust_daq
 
       - name: Upload Criterion report
         uses: actions/upload-artifact@v4
         with:
           name: criterion-report
-          path: crates/rust-daq/clients/python/target/criterion
-
-      - name: Upload benchmark summary
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-benchmark-summary
-          path: crates/rust-daq/clients/python/benchmarks/results
+          path: target/criterion
+        if: always()
 
       - name: Publish summary
         run: |
-          echo "## Python binding benchmark summary" >> $GITHUB_STEP_SUMMARY
-          echo "Artifacts:" >> $GITHUB_STEP_SUMMARY
-          echo "- Criterion report: artifact \`criterion-report\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Python results: artifact \`python-benchmark-summary\`" >> $GITHUB_STEP_SUMMARY
+          echo "## Benchmark Summary" >> $GITHUB_STEP_SUMMARY
+          echo "Criterion report uploaded as artifact \`criterion-report\`" >> $GITHUB_STEP_SUMMARY
