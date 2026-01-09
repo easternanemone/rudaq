@@ -1,0 +1,1128 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DeviceConfig",
+  "description": "Complete device configuration loaded from TOML.\n\nThis is the top-level struct that contains all device protocol definitions.",
+  "type": "object",
+  "required": [
+    "connection",
+    "device"
+  ],
+  "properties": {
+    "commands": {
+      "description": "Command definitions",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/CommandConfig"
+      }
+    },
+    "connection": {
+      "description": "Connection/communication settings",
+      "allOf": [
+        {
+          "$ref": "#/definitions/ConnectionConfig"
+        }
+      ]
+    },
+    "conversions": {
+      "description": "Unit conversion formulas",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/ConversionConfig"
+      }
+    },
+    "device": {
+      "description": "Device identity and metadata",
+      "allOf": [
+        {
+          "$ref": "#/definitions/DeviceIdentity"
+        }
+      ]
+    },
+    "error_codes": {
+      "description": "Error code mapping (optional)",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/ErrorCodeConfig"
+      }
+    },
+    "parameters": {
+      "description": "Device-specific parameters",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/ParameterConfig"
+      }
+    },
+    "responses": {
+      "description": "Response parsing definitions",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/ResponseConfig"
+      }
+    },
+    "trait_mapping": {
+      "description": "Trait method to command mapping",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/TraitMappingConfig"
+      }
+    },
+    "validation": {
+      "description": "Validation rules for parameters",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/ValidationRuleConfig"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "AddressFormat": {
+      "description": "Address format in commands.",
+      "oneOf": [
+        {
+          "description": "Single hex character (0-9, A-F)",
+          "type": "string",
+          "enum": [
+            "hex_char"
+          ]
+        },
+        {
+          "description": "Decimal integer",
+          "type": "string",
+          "enum": [
+            "decimal"
+          ]
+        },
+        {
+          "description": "Two-character hex (00-FF)",
+          "type": "string",
+          "enum": [
+            "hex_byte"
+          ]
+        }
+      ]
+    },
+    "BusConfig": {
+      "description": "Bus configuration for multidrop protocols.",
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "address_format": {
+          "description": "Address format (how addresses are encoded in commands)",
+          "default": "hex_char",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AddressFormat"
+            }
+          ]
+        },
+        "default_address": {
+          "description": "Default device address on the bus",
+          "default": "0",
+          "type": "string"
+        },
+        "type": {
+          "description": "Bus type",
+          "allOf": [
+            {
+              "$ref": "#/definitions/BusType"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "BusType": {
+      "description": "Bus type for multidrop protocols.",
+      "type": "string",
+      "enum": [
+        "rs485",
+        "gpib",
+        "can"
+      ]
+    },
+    "CapabilityType": {
+      "description": "Capability traits that a device can implement.",
+      "oneOf": [
+        {
+          "description": "Single-axis motion control",
+          "type": "string",
+          "enum": [
+            "Movable"
+          ]
+        },
+        {
+          "description": "Read scalar values",
+          "type": "string",
+          "enum": [
+            "Readable"
+          ]
+        },
+        {
+          "description": "Set parameter values",
+          "type": "string",
+          "enum": [
+            "Settable"
+          ]
+        },
+        {
+          "description": "Control shutter state",
+          "type": "string",
+          "enum": [
+            "ShutterControl"
+          ]
+        },
+        {
+          "description": "Tune wavelength",
+          "type": "string",
+          "enum": [
+            "WavelengthTunable"
+          ]
+        },
+        {
+          "description": "Produce image frames",
+          "type": "string",
+          "enum": [
+            "FrameProducer"
+          ]
+        },
+        {
+          "description": "External triggering",
+          "type": "string",
+          "enum": [
+            "Triggerable"
+          ]
+        },
+        {
+          "description": "Exposure control",
+          "type": "string",
+          "enum": [
+            "ExposureControl"
+          ]
+        },
+        {
+          "description": "Emission control (on/off)",
+          "type": "string",
+          "enum": [
+            "EmissionControl"
+          ]
+        },
+        {
+          "description": "Stage lifecycle (stage/unstage)",
+          "type": "string",
+          "enum": [
+            "Stageable"
+          ]
+        },
+        {
+          "description": "Direct command interface",
+          "type": "string",
+          "enum": [
+            "Commandable"
+          ]
+        },
+        {
+          "description": "Parameter observation/subscription",
+          "type": "string",
+          "enum": [
+            "Parameterized"
+          ]
+        }
+      ]
+    },
+    "CommandConfig": {
+      "description": "Definition of a device command.",
+      "type": "object",
+      "required": [
+        "template"
+      ],
+      "properties": {
+        "delay_ms": {
+          "description": "Delay after sending this command (milliseconds)",
+          "default": 0,
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "description": {
+          "description": "Human-readable description",
+          "default": "",
+          "type": "string"
+        },
+        "expects_response": {
+          "description": "Whether this command expects a response",
+          "default": true,
+          "type": "boolean"
+        },
+        "parameters": {
+          "description": "Parameter definitions for this command",
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/CommandParameterType"
+          }
+        },
+        "response": {
+          "description": "Name of the response definition to use for parsing",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "template": {
+          "description": "Command template with parameter placeholders.\n\nUse `${param_name}` for substitution. Use `${param_name:format}` for formatted output (e.g., `${value:08X}` for hex).",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CommandParameterType": {
+      "description": "Parameter type for command templates.",
+      "oneOf": [
+        {
+          "description": "String value",
+          "type": "string",
+          "enum": [
+            "string"
+          ]
+        },
+        {
+          "description": "32-bit signed integer",
+          "type": "string",
+          "enum": [
+            "int32"
+          ]
+        },
+        {
+          "description": "64-bit signed integer",
+          "type": "string",
+          "enum": [
+            "int64"
+          ]
+        },
+        {
+          "description": "32-bit unsigned integer",
+          "type": "string",
+          "enum": [
+            "uint32"
+          ]
+        },
+        {
+          "description": "64-bit unsigned integer",
+          "type": "string",
+          "enum": [
+            "uint64"
+          ]
+        },
+        {
+          "description": "Floating point value",
+          "type": "string",
+          "enum": [
+            "float"
+          ]
+        },
+        {
+          "description": "Boolean value",
+          "type": "string",
+          "enum": [
+            "bool"
+          ]
+        }
+      ]
+    },
+    "ConnectionConfig": {
+      "description": "Communication settings for the device.",
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "baud_rate": {
+          "description": "Serial baud rate (300-921600)",
+          "default": 9600,
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "bus": {
+          "description": "Bus configuration for multidrop protocols (RS-485)",
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BusConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "data_bits": {
+          "description": "Data bits (5, 6, 7, or 8)",
+          "default": 8,
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0.0
+        },
+        "flow_control": {
+          "description": "Flow control setting",
+          "default": "none",
+          "allOf": [
+            {
+              "$ref": "#/definitions/FlowControlSetting"
+            }
+          ]
+        },
+        "parity": {
+          "description": "Parity setting",
+          "default": "none",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ParitySetting"
+            }
+          ]
+        },
+        "port_path": {
+          "description": "Optional serial port path (can be set at runtime)",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stop_bits": {
+          "description": "Stop bits (1 or 2)",
+          "default": 1,
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0.0
+        },
+        "terminator_rx": {
+          "description": "Response terminator (expected in responses)",
+          "default": "\r\n",
+          "type": "string"
+        },
+        "terminator_tx": {
+          "description": "Command terminator (sent after commands)",
+          "default": "",
+          "type": "string"
+        },
+        "timeout_ms": {
+          "description": "Read/write timeout in milliseconds (1-60000)",
+          "default": 1000,
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "type": {
+          "description": "Connection type",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ConnectionType"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ConnectionType": {
+      "description": "Connection type enumeration.",
+      "oneOf": [
+        {
+          "description": "Serial port (RS-232 or USB-serial)",
+          "type": "string",
+          "enum": [
+            "serial"
+          ]
+        },
+        {
+          "description": "RS-485 multidrop serial",
+          "type": "string",
+          "enum": [
+            "rs485"
+          ]
+        },
+        {
+          "description": "TCP/IP socket",
+          "type": "string",
+          "enum": [
+            "tcp"
+          ]
+        },
+        {
+          "description": "UDP socket",
+          "type": "string",
+          "enum": [
+            "udp"
+          ]
+        }
+      ]
+    },
+    "ConversionConfig": {
+      "description": "Unit conversion formula configuration.\n\nUses `evalexpr` syntax for expression evaluation.",
+      "type": "object",
+      "required": [
+        "formula"
+      ],
+      "properties": {
+        "description": {
+          "description": "Human-readable description",
+          "default": "",
+          "type": "string"
+        },
+        "formula": {
+          "description": "Conversion formula expression.\n\nSupports arithmetic: `+`, `-`, `*`, `/`, `%` Supports functions: `round()`, `floor()`, `ceil()`, `abs()` Supports variables from parameters.\n\nExample: `round(degrees * pulses_per_degree)`",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "DeviceCategory": {
+      "description": "Device category classification.",
+      "oneOf": [
+        {
+          "description": "Motion control stages, rotators, actuators",
+          "type": "string",
+          "enum": [
+            "stage"
+          ]
+        },
+        {
+          "description": "Power meters, thermometers, voltmeters",
+          "type": "string",
+          "enum": [
+            "sensor"
+          ]
+        },
+        {
+          "description": "Lasers, LEDs, lamps",
+          "type": "string",
+          "enum": [
+            "source"
+          ]
+        },
+        {
+          "description": "Cameras, detectors",
+          "type": "string",
+          "enum": [
+            "detector"
+          ]
+        },
+        {
+          "description": "Shutters, filter wheels, beam blocks",
+          "type": "string",
+          "enum": [
+            "modulator"
+          ]
+        },
+        {
+          "description": "Lock-in amplifiers, oscilloscopes, analyzers",
+          "type": "string",
+          "enum": [
+            "analyzer"
+          ]
+        },
+        {
+          "description": "DAQ boards, digitizers",
+          "type": "string",
+          "enum": [
+            "data_acquisition"
+          ]
+        },
+        {
+          "description": "Unspecified or custom device",
+          "type": "string",
+          "enum": [
+            "other"
+          ]
+        }
+      ]
+    },
+    "DeviceIdentity": {
+      "description": "Device identity and metadata.\n\nDefines what the device is and what capabilities it supports.",
+      "type": "object",
+      "required": [
+        "name",
+        "protocol"
+      ],
+      "properties": {
+        "capabilities": {
+          "description": "List of capability traits this device implements",
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CapabilityType"
+          }
+        },
+        "category": {
+          "description": "Device category",
+          "default": "other",
+          "allOf": [
+            {
+              "$ref": "#/definitions/DeviceCategory"
+            }
+          ]
+        },
+        "description": {
+          "description": "Device description",
+          "default": "",
+          "type": "string"
+        },
+        "manufacturer": {
+          "description": "Manufacturer name",
+          "default": "",
+          "type": "string"
+        },
+        "model": {
+          "description": "Model number/name",
+          "default": "",
+          "type": "string"
+        },
+        "name": {
+          "description": "Human-readable device name",
+          "type": "string"
+        },
+        "protocol": {
+          "description": "Protocol identifier (e.g., \"elliptec\", \"scpi\", \"esp300\")",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ErrorCodeConfig": {
+      "description": "Error code definition.",
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "description": {
+          "description": "Human-readable description",
+          "default": "",
+          "type": "string"
+        },
+        "name": {
+          "description": "Short error name/identifier",
+          "type": "string"
+        },
+        "recoverable": {
+          "description": "Whether this error is recoverable",
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "FieldType": {
+      "description": "Data types for response fields.",
+      "oneOf": [
+        {
+          "description": "String value (default)",
+          "type": "string",
+          "enum": [
+            "string"
+          ]
+        },
+        {
+          "description": "Signed integer (parsed from decimal)",
+          "type": "string",
+          "enum": [
+            "int"
+          ]
+        },
+        {
+          "description": "Unsigned integer (parsed from decimal)",
+          "type": "string",
+          "enum": [
+            "uint"
+          ]
+        },
+        {
+          "description": "Floating point number",
+          "type": "string",
+          "enum": [
+            "float"
+          ]
+        },
+        {
+          "description": "Boolean value",
+          "type": "string",
+          "enum": [
+            "bool"
+          ]
+        },
+        {
+          "description": "8-bit unsigned from hex string",
+          "type": "string",
+          "enum": [
+            "hex_u8"
+          ]
+        },
+        {
+          "description": "16-bit unsigned from hex string",
+          "type": "string",
+          "enum": [
+            "hex_u16"
+          ]
+        },
+        {
+          "description": "32-bit unsigned from hex string",
+          "type": "string",
+          "enum": [
+            "hex_u32"
+          ]
+        },
+        {
+          "description": "64-bit unsigned from hex string",
+          "type": "string",
+          "enum": [
+            "hex_u64"
+          ]
+        },
+        {
+          "description": "32-bit signed from hex string (two's complement)",
+          "type": "string",
+          "enum": [
+            "hex_i32"
+          ]
+        },
+        {
+          "description": "64-bit signed from hex string (two's complement)",
+          "type": "string",
+          "enum": [
+            "hex_i64"
+          ]
+        }
+      ]
+    },
+    "FixedFieldConfig": {
+      "description": "Fixed-position field for fixed-width protocols.",
+      "type": "object",
+      "required": [
+        "end",
+        "name",
+        "start",
+        "type"
+      ],
+      "properties": {
+        "end": {
+          "description": "End position (exclusive)",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "expected": {
+          "description": "Expected value (for validation)",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Field name",
+          "type": "string"
+        },
+        "start": {
+          "description": "Start position (0-based, inclusive)",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "type": {
+          "description": "Field data type",
+          "allOf": [
+            {
+              "$ref": "#/definitions/FieldType"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "FlowControlSetting": {
+      "description": "Flow control setting.",
+      "type": "string",
+      "enum": [
+        "none",
+        "software",
+        "hardware"
+      ]
+    },
+    "ParameterConfig": {
+      "description": "Device parameter definition.",
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "choices": {
+          "description": "Allowed discrete values (for enum-like parameters)",
+          "default": [],
+          "type": "array",
+          "items": true
+        },
+        "default": {
+          "description": "Default value (as JSON value for flexibility)",
+          "default": null
+        },
+        "description": {
+          "description": "Human-readable description",
+          "default": "",
+          "type": "string"
+        },
+        "max": {
+          "description": "Maximum value (for numeric types)",
+          "default": null,
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "min": {
+          "description": "Minimum value (for numeric types)",
+          "default": null,
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "pattern": {
+          "description": "Regex pattern for string validation",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "range": {
+          "description": "Valid range [min, max] (shorthand for min/max)",
+          "default": null,
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": [
+            {
+              "type": "number",
+              "format": "double"
+            },
+            {
+              "type": "number",
+              "format": "double"
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "read_only": {
+          "description": "Whether this parameter is read-only",
+          "default": false,
+          "type": "boolean"
+        },
+        "type": {
+          "description": "Parameter data type",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ParameterType"
+            }
+          ]
+        },
+        "unit": {
+          "description": "Unit of measurement",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ParameterType": {
+      "description": "Parameter data types.",
+      "oneOf": [
+        {
+          "description": "String value",
+          "type": "string",
+          "enum": [
+            "string"
+          ]
+        },
+        {
+          "description": "Signed integer",
+          "type": "string",
+          "enum": [
+            "int"
+          ]
+        },
+        {
+          "description": "Unsigned integer",
+          "type": "string",
+          "enum": [
+            "uint"
+          ]
+        },
+        {
+          "description": "Floating point number",
+          "type": "string",
+          "enum": [
+            "float"
+          ]
+        },
+        {
+          "description": "Boolean value",
+          "type": "string",
+          "enum": [
+            "bool"
+          ]
+        }
+      ]
+    },
+    "ParitySetting": {
+      "description": "Parity bit setting.",
+      "type": "string",
+      "enum": [
+        "none",
+        "odd",
+        "even"
+      ]
+    },
+    "ResponseConfig": {
+      "description": "Definition of a response parsing pattern.",
+      "type": "object",
+      "properties": {
+        "delimiter": {
+          "description": "Delimiter for delimiter-based parsing (alternative to regex)",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fields": {
+          "description": "Field definitions for parsing",
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/ResponseFieldConfig"
+          }
+        },
+        "fixed_fields": {
+          "description": "Fixed-position field definitions (alternative to regex)",
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/FixedFieldConfig"
+          }
+        },
+        "pattern": {
+          "description": "Regex pattern with named capture groups.\n\nExample: `^(?P<addr>[0-9A-Fa-f])PO(?P<pulses>[0-9A-Fa-f]{8})$`",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ResponseFieldConfig": {
+      "description": "Field configuration for response parsing.",
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "index": {
+          "description": "Index for delimiter-based parsing (0-based)",
+          "default": null,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "signed": {
+          "description": "For hex integer types, whether to interpret as signed",
+          "default": false,
+          "type": "boolean"
+        },
+        "type": {
+          "description": "Field data type",
+          "allOf": [
+            {
+              "$ref": "#/definitions/FieldType"
+            }
+          ]
+        },
+        "unit": {
+          "description": "Unit of measurement (informational)",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "TraitMappingConfig": {
+      "description": "Mapping from capability trait methods to device commands.\n\nThis struct uses `#[serde(flatten)]` to capture trait method mappings, so we cannot use `deny_unknown_fields`.",
+      "type": "object"
+    },
+    "TraitMethodMapping": {
+      "description": "Mapping for a single trait method.",
+      "type": "object",
+      "required": [
+        "command"
+      ],
+      "properties": {
+        "command": {
+          "description": "Name of the command to execute",
+          "type": "string"
+        },
+        "from_param": {
+          "description": "Name of the trait method parameter (input)",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "input_conversion": {
+          "description": "Conversion to apply to input value",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "input_param": {
+          "description": "Name of the command parameter to set with converted input",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output_conversion": {
+          "description": "Conversion to apply to output value",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output_field": {
+          "description": "Name of the response field to extract",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "poll_command": {
+          "description": "For polling operations: command to poll",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "poll_interval_ms": {
+          "description": "For polling: interval between polls (milliseconds)",
+          "default": null,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "success_condition": {
+          "description": "For polling: success condition expression",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timeout_ms": {
+          "description": "For polling: timeout (milliseconds)",
+          "default": null,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ValidationRuleConfig": {
+      "description": "Validation rule for a parameter.",
+      "type": "object",
+      "properties": {
+        "error_message": {
+          "description": "Custom error message",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pattern": {
+          "description": "Regex pattern for validation",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "range": {
+          "description": "Valid range [min, max]",
+          "default": null,
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": [
+            {
+              "type": "number",
+              "format": "double"
+            },
+            {
+              "type": "number",
+              "format": "double"
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "unit": {
+          "description": "Unit of measurement",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
