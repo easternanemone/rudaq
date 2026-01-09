@@ -276,12 +276,22 @@ async fn test_streaming_stability() {
     println!("Errors: {}", errors);
     println!("Camera frame counter: {}", camera.frame_count());
 
-    assert!(errors == 0, "Should have no errors during stability test");
-    // bd-3gnv TEST: With 10ms exposure over 10s, expect ~500+ frames if no stall.
-    // If we get ~85 frames, it's frame-count based stall.
-    // If we get ~170 frames, it's time-based stall (~1.7s).
-    // Temporarily relaxed to diagnose the stall point.
-    assert!(frame_count > 50, "Should have captured some frames (diagnostic test)");
+    // bd-3gnv: The Prime BSI stalls after 85 frames due to SDK limitation.
+    // Auto-restart workaround restores streaming, but stall detection takes ~1s,
+    // which causes 1 timeout error per restart cycle. Allow up to 5 recoverable errors.
+    assert!(
+        errors <= 5,
+        "Too many errors ({}) during stability test - auto-restart may be failing",
+        errors
+    );
+
+    // bd-3gnv: With auto-restart working, expect >200 frames over 10s at 10ms exposure.
+    // Without auto-restart, stall occurs at 85 frames.
+    assert!(
+        frame_count > 200,
+        "Frame count ({}) too low - auto-restart may not be recovering from stalls",
+        frame_count
+    );
 
     println!("Stability test PASSED");
 }
