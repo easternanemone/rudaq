@@ -1231,9 +1231,10 @@ impl GenericSerialDriver {
             .get(script_name)
             .ok_or_else(|| anyhow!("Script '{}' not found", script_name))?;
 
-        // Build script context with shared parameters (Arc<HashMap> - zero-copy)
-        let params = Arc::new(self.parameters.lock().await.clone());
-        let context = ScriptContext::with_shared_params(&self.address, input_value, params);
+        // Build script context with current parameter snapshot
+        // Note: Parameters are cloned to ensure consistent values during script execution
+        let params = self.parameters.lock().await.clone();
+        let context = ScriptContext::new(&self.address, input_value, params);
 
         // Get script timeout from config
         let timeout = self

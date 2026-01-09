@@ -115,46 +115,42 @@ impl CompiledScripts {
     }
 }
 
-/// Script execution context with driver bindings.
+/// Script execution context providing input values and parameters to scripts.
 ///
-/// This struct is passed to scripts providing access to device parameters
-/// and input values. Uses `Arc<HashMap>` for efficient zero-copy sharing
-/// of parameters across multiple script invocations.
+/// This struct is passed to Rhai scripts, giving them access to:
+/// - `input` - The input value for the operation
+/// - `address` - Device address string
+/// - `parameters` - Device parameters from TOML config
+///
+/// The context is cloned when passed to `spawn_blocking`, so parameters are
+/// wrapped in `Arc` to make cloning cheap (pointer copy vs data copy).
 #[derive(Clone)]
 pub struct ScriptContext {
     /// Device address
     pub address: String,
     /// Input value passed to the script
     pub input: Option<f64>,
-    /// Current parameter values (Arc for zero-copy sharing)
+    /// Current parameter values (Arc for cheap cloning across threads)
     pub parameters: Arc<HashMap<String, f64>>,
 }
 
 impl ScriptContext {
-    /// Create a new script context with owned parameters.
+    /// Create a new script context.
     ///
-    /// This will wrap the parameters in an Arc for efficient sharing.
+    /// The parameters HashMap is wrapped in Arc internally, making subsequent
+    /// context clones cheap (only the Arc pointer is copied, not the data).
+    ///
+    /// # Example
+    /// ```ignore
+    /// let mut params = HashMap::new();
+    /// params.insert("scale".to_string(), 2.5);
+    /// let context = ScriptContext::new("0", Some(45.0), params);
+    /// ```
     pub fn new(address: &str, input: Option<f64>, parameters: HashMap<String, f64>) -> Self {
         Self {
             address: address.to_string(),
             input,
             parameters: Arc::new(parameters),
-        }
-    }
-
-    /// Create a new script context with shared parameters.
-    ///
-    /// This is more efficient when calling multiple scripts with the same
-    /// parameters, as it avoids cloning the HashMap for each call.
-    pub fn with_shared_params(
-        address: &str,
-        input: Option<f64>,
-        parameters: Arc<HashMap<String, f64>>,
-    ) -> Self {
-        Self {
-            address: address.to_string(),
-            input,
-            parameters,
         }
     }
 }
@@ -217,8 +213,11 @@ pub fn create_sandboxed_engine(config: &ScriptEngineConfig) -> Engine {
     engine.register_fn("clamp", |x: f64, min: f64, max: f64| x.clamp(min, max));
 
     // Register hex parsing utilities
+    // NOTE: Panics on invalid input - caught by execute_script_async and converted to error
     engine.register_fn("parse_hex", |s: &str| -> i64 {
-        i64::from_str_radix(s.trim_start_matches("0x"), 16).unwrap_or(0)
+        let trimmed = s.trim_start_matches("0x").trim_start_matches("0X");
+        i64::from_str_radix(trimmed, 16)
+            .unwrap_or_else(|_| panic!("parse_hex: invalid hex string '{}'", s))
     });
 
     engine.register_fn("to_hex", |n: i64| -> String { format!("{:X}", n) });
@@ -376,6 +375,28 @@ pub fn execute_script_sync(
 /// # Returns
 /// The script result, or an error if execution fails or times out.
 ///
+/// # Errors
+///
+/// Returns an error if:
+/// - **Timeout**: Script execution exceeds the `timeout` parameter. This can happen
+///   with infinite loops, very long sleeps, or CPU-intensive operations.
+/// - **Panic**: Script causes a panic (e.g., calling `parse_hex` with invalid input).
+///   The panic is caught and converted to an error; the blocking thread pool is not
+///   poisoned and subsequent executions will work normally.
+/// - **Operation limit**: Script exceeds [`ScriptEngineConfig::max_operations`],
+///   which protects against infinite loops even within the timeout window.
+/// - **Runtime error**: Script has a runtime error (undefined variable, type mismatch).
+///
+/// # Panics
+///
+/// This function does NOT panic. Script panics are caught by `spawn_blocking`
+/// and converted to errors. However, the following script operations will cause
+/// errors (caught as panics):
+///
+/// - `parse_hex("invalid")` - Invalid hex string
+/// - Division by zero (in some Rhai configurations)
+/// - Stack overflow from deep recursion
+///
 /// # Example
 /// ```ignore
 /// let result = execute_script_async(
@@ -405,13 +426,20 @@ pub async fn execute_script_async(
     match result {
         Ok(Ok(script_result)) => script_result,
         Ok(Err(join_error)) => {
-            // spawn_blocking task panicked
-            Err(anyhow!("Script execution panicked: {}", join_error))
+            // spawn_blocking task panicked - convert to error
+            warn!("Script execution panicked: {}", join_error);
+            Err(anyhow!(
+                "Script execution panicked. This may indicate invalid input to a \
+                 function (e.g., parse_hex with non-hex string) or a stack overflow. \
+                 Error: {}",
+                join_error
+            ))
         }
         Err(_timeout_elapsed) => {
             warn!(timeout_ms = %timeout.as_millis(), "Script execution timed out");
             Err(anyhow!(
-                "Script execution timed out after {}ms",
+                "Script execution timed out after {}ms. The script may contain \
+                 infinite loops, long sleeps, or CPU-intensive operations.",
                 timeout.as_millis()
             ))
         }
@@ -566,21 +594,19 @@ mod tests {
     }
 
     #[test]
-    fn test_script_context_with_shared_params() {
-        let params = Arc::new({
-            let mut m = HashMap::new();
-            m.insert("scale".to_string(), 2.0);
-            m
-        });
+    fn test_script_context_clone_shares_params() {
+        let mut params = HashMap::new();
+        params.insert("scale".to_string(), 2.0);
 
-        // Create multiple contexts sharing the same params
-        let ctx1 = ScriptContext::with_shared_params("0", Some(10.0), params.clone());
-        let ctx2 = ScriptContext::with_shared_params("0", Some(20.0), params.clone());
+        let ctx1 = ScriptContext::new("0", Some(10.0), params);
 
-        // Both contexts share the same Arc (no clone)
+        // Clone shares the Arc (cheap copy)
+        let ctx2 = ctx1.clone();
+
+        // Both contexts share the same Arc (parameter data not duplicated)
         assert!(Arc::ptr_eq(&ctx1.parameters, &ctx2.parameters));
         assert_eq!(ctx1.input, Some(10.0));
-        assert_eq!(ctx2.input, Some(20.0));
+        assert_eq!(ctx2.input, Some(10.0)); // Clone has same input
     }
 
     #[tokio::test]
@@ -630,20 +656,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_execute_script_async_with_shared_params() {
+    async fn test_execute_script_async_with_params() {
         let config = ScriptEngineConfig::default();
         let engine = Arc::new(create_sandboxed_engine(&config));
 
         let script = "input * scale";
         let ast = Arc::new(engine.compile(script).unwrap());
 
-        let params = Arc::new({
-            let mut m = HashMap::new();
-            m.insert("scale".to_string(), 3.0);
-            m
-        });
+        let mut params = HashMap::new();
+        params.insert("scale".to_string(), 3.0);
 
-        let context = ScriptContext::with_shared_params("0", Some(7.0), params);
+        let context = ScriptContext::new("0", Some(7.0), params);
         let result = execute_script_async(engine, ast, &context, Duration::from_secs(5))
             .await
             .unwrap();
@@ -696,5 +719,45 @@ mod tests {
             "sleep_ms(-100) should complete instantly, took {}ms",
             elapsed.as_millis()
         );
+    }
+
+    #[tokio::test]
+    async fn test_parse_hex_invalid_input_returns_error() {
+        let config = ScriptEngineConfig::default();
+        let engine = Arc::new(create_sandboxed_engine(&config));
+
+        // Script that calls parse_hex with invalid input
+        let script = r#"parse_hex("not_hex")"#;
+        let ast = Arc::new(engine.compile(script).unwrap());
+
+        let context = ScriptContext::new("0", None, HashMap::new());
+
+        // The panic should be caught by execute_script_async and converted to error
+        let result = execute_script_async(engine, ast, &context, Duration::from_secs(5)).await;
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("panicked") || err_msg.contains("parse_hex"),
+            "Expected panic error mentioning parse_hex, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_parse_hex_valid_with_prefix() {
+        let config = ScriptEngineConfig::default();
+        let engine = create_sandboxed_engine(&config);
+
+        // Test 0x prefix handling (both cases)
+        let result: i64 = engine.eval(r#"parse_hex("0xFF")"#).unwrap();
+        assert_eq!(result, 255);
+
+        let result: i64 = engine.eval(r#"parse_hex("0XFF")"#).unwrap();
+        assert_eq!(result, 255);
+
+        // Test lowercase hex
+        let result: i64 = engine.eval(r#"parse_hex("ff")"#).unwrap();
+        assert_eq!(result, 255);
     }
 }
