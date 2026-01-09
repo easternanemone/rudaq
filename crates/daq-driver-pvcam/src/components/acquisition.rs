@@ -516,6 +516,32 @@ mod ffi_safe {
         }
     }
 
+    /// Register EOF callback for frame notifications (bd-3gnv).
+    ///
+    /// Used to re-register callback after full restart.
+    ///
+    /// # Safety Contract
+    /// - `hcam` must be a valid, open camera handle
+    /// - `callback_ctx_ptr` must point to a valid, pinned CallbackContext
+    ///
+    /// # Returns
+    /// `true` if registration succeeded, `false` otherwise
+    pub fn register_eof_callback(hcam: i16, callback_ctx_ptr: *const CallbackContext) -> bool {
+        debug_assert!(hcam >= 0, "Invalid camera handle: {}", hcam);
+        debug_assert!(!callback_ctx_ptr.is_null(), "Callback context pointer is null");
+
+        // SAFETY: Caller guarantees hcam is valid, callback_ctx_ptr points to valid pinned context
+        let result = unsafe {
+            pl_cam_register_callback_ex3(
+                hcam,
+                PL_CALLBACK_EOF,
+                super::pvcam_eof_callback as *mut std::ffi::c_void,
+                callback_ctx_ptr as *mut std::ffi::c_void,
+            )
+        };
+        result != 0
+    }
+
     /// Check continuous acquisition status.
     ///
     /// # Safety Contract
@@ -1716,7 +1742,19 @@ impl PvcamAcquisition {
                             circ_size_bytes,
                         ) {
                             Ok(new_frame_bytes) => {
-                                eprintln!("[PVCAM DEBUG] Full auto-restart SUCCEEDED (frame_bytes={}) - resuming acquisition", new_frame_bytes);
+                                eprintln!("[PVCAM DEBUG] Full auto-restart SUCCEEDED (frame_bytes={}) - re-registering callback", new_frame_bytes);
+
+                                // Step 4: Re-register EOF callback (setup may invalidate it)
+                                if use_callback {
+                                    let callback_ctx_ptr = &**callback_ctx as *const CallbackContext;
+                                    if ffi_safe::register_eof_callback(hcam, callback_ctx_ptr) {
+                                        eprintln!("[PVCAM DEBUG] EOF callback re-registered successfully");
+                                    } else {
+                                        eprintln!("[PVCAM DEBUG] WARNING: Failed to re-register EOF callback");
+                                        tracing::warn!("Failed to re-register EOF callback after restart (bd-3gnv)");
+                                    }
+                                }
+
                                 tracing::info!("PVCAM full auto-restart succeeded (bd-3gnv)");
 
                                 // Reset state for new acquisition cycle
