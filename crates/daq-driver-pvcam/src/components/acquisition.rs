@@ -425,6 +425,84 @@ mod ffi_safe {
         }
     }
 
+    /// Full restart: setup + start continuous acquisition (bd-3gnv).
+    ///
+    /// Used when simple restart fails - camera may require full re-setup.
+    /// This calls pl_exp_setup_cont followed by pl_exp_start_cont.
+    ///
+    /// # Parameters
+    /// - `hcam`: Valid, open camera handle
+    /// - `roi_x`, `roi_y`: ROI offset
+    /// - `width`, `height`: ROI dimensions
+    /// - `binning`: (x_bin, y_bin) factors
+    /// - `exposure_ms`: Exposure time in milliseconds
+    /// - `circ_ptr`: Page-aligned circular buffer
+    /// - `circ_size_bytes`: Buffer size in bytes
+    ///
+    /// # Returns
+    /// `Ok(frame_bytes)` on success, `Err(String)` on failure
+    #[allow(clippy::too_many_arguments)]
+    pub fn full_restart_acquisition(
+        hcam: i16,
+        roi_x: u32,
+        roi_y: u32,
+        width: u32,
+        height: u32,
+        binning: (u16, u16),
+        exposure_ms: f64,
+        circ_ptr: *mut u8,
+        circ_size_bytes: u32,
+    ) -> Result<uns32, String> {
+        debug_assert!(hcam >= 0, "Invalid camera handle: {}", hcam);
+        debug_assert!(!circ_ptr.is_null(), "Circular buffer pointer is null");
+        debug_assert!(circ_size_bytes > 0, "Circular buffer size must be > 0");
+
+        let (x_bin, y_bin) = binning;
+
+        // Setup region (same as initial setup)
+        let region = unsafe {
+            let mut rgn: rgn_type = std::mem::zeroed();
+            rgn.s1 = roi_x as uns16;
+            rgn.s2 = (roi_x + width - 1) as uns16;
+            rgn.sbin = x_bin;
+            rgn.p1 = roi_y as uns16;
+            rgn.p2 = (roi_y + height - 1) as uns16;
+            rgn.pbin = y_bin;
+            rgn
+        };
+
+        // Use same constants as initial setup
+        let exp_mode = TIMED_MODE;
+        let buffer_mode = CIRC_NO_OVERWRITE;
+        let mut frame_bytes: uns32 = 0;
+
+        // Step 1: pl_exp_setup_cont
+        let setup_result = unsafe {
+            pl_exp_setup_cont(
+                hcam,
+                1,
+                &region as *const _,
+                exp_mode,
+                exposure_ms as uns32,
+                &mut frame_bytes,
+                buffer_mode,
+            )
+        };
+        if setup_result == 0 {
+            let err_msg = super::get_pvcam_error();
+            return Err(format!("pl_exp_setup_cont failed: {}", err_msg));
+        }
+
+        // Step 2: pl_exp_start_cont
+        let start_result = unsafe { pl_exp_start_cont(hcam, circ_ptr as *mut _, circ_size_bytes) };
+        if start_result == 0 {
+            let err_msg = super::get_pvcam_error();
+            return Err(format!("pl_exp_start_cont failed: {}", err_msg));
+        }
+
+        Ok(frame_bytes)
+    }
+
     /// Deregister a callback from a camera.
     ///
     /// # Safety Contract
@@ -1623,13 +1701,23 @@ impl PvcamAcquisition {
                         ffi_safe::stop_acquisition(hcam, CCS_HALT);
 
                         // Step 2: Brief delay for camera to settle
-                        std::thread::sleep(std::time::Duration::from_millis(10));
+                        std::thread::sleep(std::time::Duration::from_millis(50));
 
-                        // Step 3: Restart acquisition with same buffer
-                        match ffi_safe::restart_acquisition(hcam, circ_ptr, circ_size_bytes) {
-                            Ok(()) => {
-                                eprintln!("[PVCAM DEBUG] Auto-restart SUCCEEDED - resuming acquisition");
-                                tracing::info!("PVCAM auto-restart succeeded (bd-3gnv)");
+                        // Step 3: Full restart with setup + start (camera may need re-setup)
+                        match ffi_safe::full_restart_acquisition(
+                            hcam,
+                            roi_x,
+                            roi_y,
+                            width,
+                            height,
+                            binning,
+                            exposure_ms,
+                            circ_ptr,
+                            circ_size_bytes,
+                        ) {
+                            Ok(new_frame_bytes) => {
+                                eprintln!("[PVCAM DEBUG] Full auto-restart SUCCEEDED (frame_bytes={}) - resuming acquisition", new_frame_bytes);
+                                tracing::info!("PVCAM full auto-restart succeeded (bd-3gnv)");
 
                                 // Reset state for new acquisition cycle
                                 callback_ctx.pending_frames.store(0, Ordering::Release);
@@ -1638,8 +1726,8 @@ impl PvcamAcquisition {
                                 continue; // Resume waiting for frames
                             }
                             Err(err_msg) => {
-                                eprintln!("[PVCAM DEBUG] Auto-restart FAILED: {}", err_msg);
-                                tracing::error!("PVCAM auto-restart failed: {} (bd-3gnv)", err_msg);
+                                eprintln!("[PVCAM DEBUG] Full auto-restart FAILED: {}", err_msg);
+                                tracing::error!("PVCAM full auto-restart failed: {} (bd-3gnv)", err_msg);
                                 // Continue to max_consecutive_timeouts check - will eventually timeout
                             }
                         }
