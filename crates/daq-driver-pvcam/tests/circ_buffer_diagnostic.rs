@@ -191,7 +191,16 @@ async fn test_circ_buffer_capabilities() {
     if is_param_available(hcam, PARAM_CIRC_BUFFER) {
         println!("[OK] PARAM_CIRC_BUFFER is available");
         if let Some(value) = get_bool_param(hcam, PARAM_CIRC_BUFFER) {
-            println!("     Current value: {}", value);
+            println!("     Current value: {} (true=supported)", value);
+        }
+        // Also try to read as an enum to see if it indicates which modes are supported
+        if let Some(count) = get_enum_count(hcam, PARAM_CIRC_BUFFER) {
+            println!("     Enum count: {}", count);
+            for i in 0..count {
+                if let Some((value, name)) = get_enum_entry(hcam, PARAM_CIRC_BUFFER, i) {
+                    println!("       [{}] {} = {}", i, name, value);
+                }
+            }
         }
     } else {
         println!("[WARN] PARAM_CIRC_BUFFER is NOT available");
