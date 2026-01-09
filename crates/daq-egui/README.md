@@ -2,10 +2,12 @@
 
 The egui-based GUI for rust-daq, providing a desktop control panel for the headless daemon.
 
+**egui Version:** 0.33 | **Rerun Version:** 0.27.3
+
 ## Binaries
 
 - `rust-daq-gui` (default): Main control panel for daemon interaction
-- `daq-rerun` (feature `rerun_viewer`): Embeds Rerun viewer for live data visualization
+- `daq-rerun` (feature `rerun_viewer`): Integrated control panel with embedded Rerun viewer for live camera streaming
 
 ## Quick Start
 
@@ -184,6 +186,35 @@ match client.my_method("test").await {
     }
 }
 ```
+
+## daq-rerun: Integrated Rerun Viewer
+
+The `daq-rerun` binary provides a single integrated GUI combining DAQ controls with an embedded Rerun viewer for live camera visualization. This uses the "Mullet Architecture": gRPC for control plane, Rerun for data plane.
+
+### Remote Hardware Streaming
+
+To stream camera data from a remote daemon (e.g., maitai):
+
+```bash
+# On remote machine: start daemon with camera
+ssh maitai@100.117.5.12
+source /etc/profile.d/pvcam.sh
+export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH
+cd ~/rust-daq
+cargo run --bin rust-daq-daemon --features pvcam_hardware -- daemon --port 50051 --lab-hardware
+
+# On local machine: run integrated GUI
+RERUN_URL=rerun+http://100.117.5.12:9876/proxy \
+DAQ_DAEMON_URL=http://100.117.5.12:50051 \
+cargo run --bin daq-rerun --features rerun_viewer
+```
+
+### Architecture
+
+- **Control Plane (gRPC :50051):** Device commands, script execution, status
+- **Data Plane (Rerun :9876):** Camera frames, measurements, visualizations
+
+The daemon logs camera frames directly to its Rerun server, which the embedded viewer connects to. This avoids the bandwidth issues of streaming 8MB frames over gRPC.
 
 ## PVCAM Live View
 

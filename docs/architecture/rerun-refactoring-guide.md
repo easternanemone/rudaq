@@ -1,8 +1,9 @@
 # Rerun SDK Refactoring Guide
 
-**Date:** December 2025
+**Date:** December 2025 (Updated: January 2026)
 **Status:** Implementation Complete (Phase 4 blocked waiting for stable Rust Blueprint API)
 **Rerun Version:** 0.27.3
+**egui Version:** 0.33 (upgraded from 0.31 for Rerun compatibility)
 
 ## Executive Summary
 
@@ -836,6 +837,48 @@ If you see `read_snapshot timed out` warnings during camera streaming, increase 
 export DAQ_RINGBUFFER_TIMEOUT_MS=1000  # Increase to 1 second for very high frame rates
 ```
 The default is 500ms which handles most scenarios. For 30+ fps with 2048x2048 frames, consider 1000ms or higher.
+
+## egui 0.33 Upgrade (January 2026)
+
+The daq-rerun binary was blocked by egui version conflicts. Rerun 0.27.3 requires egui 0.33, but our codebase was on egui 0.31. This was resolved by upgrading the entire egui ecosystem:
+
+### Dependency Changes
+
+| Package | Old Version | New Version |
+|---------|-------------|-------------|
+| eframe | 0.31 | 0.33 |
+| egui | 0.31 | 0.33 |
+| egui_extras | 0.31 | 0.33 |
+| egui_dock | 0.16 | 0.18 |
+| egui_plot | 0.31 | 0.34 |
+
+**Note:** egui_plot 0.33 uses egui 0.32 (not 0.33), so we had to use egui_plot 0.34.
+
+### API Breaking Changes
+
+18 mechanical changes were required across 6 files:
+
+1. **`close_menu()` → `close()`** (14 occurrences)
+   - app.rs, main_rerun.rs, analog_input.rs, instrument_manager.rs
+
+2. **`Line/VLine/HLine::new(data)` → `Line/VLine/HLine::new(name, data)`** (4 occurrences)
+   - oscilloscope.rs, signal_plotter.rs
+
+3. **`menu::bar()` deprecated** (2 occurrences, kept as-is)
+   - app.rs, main_rerun.rs - works but shows deprecation warning
+
+### Verification
+
+Both binaries build and run successfully:
+```bash
+# Standalone GUI
+cargo build --bin rust-daq-gui --features standalone
+
+# Integrated Rerun GUI
+cargo build --bin daq-rerun --features rerun_viewer
+```
+
+Verified on remote hardware (maitai) with Prime BSI camera streaming via Rerun gRPC.
 
 ## References
 
