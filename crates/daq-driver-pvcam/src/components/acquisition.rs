@@ -1103,6 +1103,11 @@ impl PvcamAcquisition {
             // to avoid internal driver copies (double buffering).
             let mut circ_buf = PageAlignedBuffer::new(circ_buf_size);
             let circ_ptr = circ_buf.as_mut_ptr();
+            // bd-3gnv: Convert raw pointer to usize BEFORE any await points.
+            // Raw pointers are not Send, but usize is. Convert early to avoid
+            // "future cannot be sent between threads" errors from holding raw
+            // pointers across await boundaries.
+            let circ_ptr_usize = circ_ptr as usize;
             tracing::debug!(
                 "Allocated {}KB page-aligned circular buffer",
                 circ_buf_size / 1024
@@ -1181,11 +1186,8 @@ impl PvcamAcquisition {
                 *guard = Some(done_tx.clone());
             }
 
-            // bd-3gnv: Convert raw pointer to usize for cross-thread transfer.
-            // Raw pointers are not Send, but usize is. The pointer remains valid
-            // because the PageAlignedBuffer is stored in self.circ_buffer for the
-            // entire acquisition lifetime.
-            let circ_ptr_usize = circ_ptr as usize;
+            // bd-3gnv: circ_ptr_usize was converted from raw pointer at line 1110,
+            // BEFORE any await points. We use it here for cross-thread transfer.
 
             let poll_handle = tokio::task::spawn_blocking(move || {
                 // bd-3gnv: Convert usize back to raw pointer inside the closure.
