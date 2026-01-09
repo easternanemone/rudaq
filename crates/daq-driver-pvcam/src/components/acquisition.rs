@@ -745,8 +745,12 @@ impl PvcamAcquisition {
     /// * `exposure_ms` - Exposure time in milliseconds (for frame rate calculation)
     #[cfg(feature = "pvcam_hardware")]
     fn calculate_buffer_count(hcam: i16, frame_bytes: usize, exposure_ms: f64) -> usize {
-        const MIN_BUFFER_FRAMES: usize = 16;
-        const MAX_BUFFER_FRAMES: usize = 256;
+        // bd-3gnv TEST: Force larger buffer to test if stall point changes proportionally.
+        // If stall happens at buffer_count + X, then it's buffer cycling related.
+        // If stall still happens at ~85, then it's something else.
+        // Using 128 frames = 1GB buffer (safer than 256 = 2GB)
+        const MIN_BUFFER_FRAMES: usize = 128; // TEST: Force 128 frames
+        const MAX_BUFFER_FRAMES: usize = 128;
         const ONE_SECOND_MS: f64 = 1000.0;
 
         // Try to query PARAM_FRAME_BUFFER_SIZE from SDK
