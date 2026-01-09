@@ -76,6 +76,18 @@ use pvcam_sys::*;
 #[cfg(feature = "pvcam_hardware")]
 use tokio::task::JoinHandle;
 
+/// bd-3gnv Phase 5A: Test CIRC_OVERWRITE with polling (no callbacks).
+///
+/// When enabled:
+/// - Uses CIRC_OVERWRITE buffer mode instead of CIRC_NO_OVERWRITE
+/// - Skips EOF callback registration (callbacks may conflict with CIRC_OVERWRITE)
+/// - Relies purely on polling via pl_exp_check_cont_status
+///
+/// The hypothesis is that Prime BSI error 185 occurs when CIRC_OVERWRITE is used
+/// WITH callbacks registered. DynExp uses CIRC_OVERWRITE + polling successfully.
+#[cfg(feature = "pvcam_hardware")]
+const USE_CIRC_OVERWRITE_POLLING_MODE: bool = true;
+
 /// Callback context for EOF notifications (bd-ek9n.2)
 ///
 /// This structure is passed to the PVCAM callback and shared with the frame
@@ -916,7 +928,18 @@ impl PvcamAcquisition {
             // PVCAM Best Practices: Use actual frame_bytes from pl_exp_setup_cont
             // rather than assuming pixels * 2 - metadata/alignment can change frame size.
             let mut frame_bytes: uns32 = 0;
+            // bd-3gnv Phase 5A: Select buffer mode based on polling flag.
+            // CIRC_OVERWRITE: oldest frame overwritten when buffer full (no pause)
+            // CIRC_NO_OVERWRITE: camera pauses when buffer fills until frames unlocked
+            let buffer_mode = if USE_CIRC_OVERWRITE_POLLING_MODE {
+                CIRC_OVERWRITE
+            } else {
+                CIRC_NO_OVERWRITE
+            };
+            let mode_name = if USE_CIRC_OVERWRITE_POLLING_MODE { "CIRC_OVERWRITE" } else { "CIRC_NO_OVERWRITE" };
+            eprintln!("[PVCAM DEBUG] Using buffer mode: {} (polling_mode={})", mode_name, USE_CIRC_OVERWRITE_POLLING_MODE);
             unsafe {
+
                 // SAFETY: h is a valid camera handle; region points to initialized rgn_type; frame_bytes is writable.
                 if pl_exp_setup_cont(
                     h,
@@ -925,10 +948,7 @@ impl PvcamAcquisition {
                     TIMED_MODE,
                     exposure_ms as uns32,
                     &mut frame_bytes,
-                    // bd-3gnv: CIRC_OVERWRITE not supported by Prime BSI (error 185).
-                    // CIRC_NO_OVERWRITE: camera pauses when buffer fills until frames unlocked.
-                    // Frame unlocking happens in drain loop via ffi_safe::release_oldest_frame().
-                    CIRC_NO_OVERWRITE,
+                    buffer_mode,
                 ) == 0
                 {
                     // bd-3gnv: Log SDK error with full message for diagnostics
@@ -938,7 +958,7 @@ impl PvcamAcquisition {
                     return Err(anyhow!("Failed to setup continuous acquisition: {}", err_msg));
                 }
             }
-            eprintln!("[PVCAM DEBUG] pl_exp_setup_cont succeeded with CIRC_NO_OVERWRITE, frame_bytes={}", frame_bytes);
+            eprintln!("[PVCAM DEBUG] pl_exp_setup_cont succeeded with {}, frame_bytes={}", mode_name, frame_bytes);
 
             // Calculate dimensions for frame construction
             let binned_width = roi.width / x_bin as u32;
@@ -973,27 +993,36 @@ impl PvcamAcquisition {
                 (actual_frame_bytes * buffer_count) as f64 / (1024.0 * 1024.0)
             );
 
-            // PVCAM Best Practices (bd-ek9n.2): Register EOF callback before starting acquisition
-            // The callback signals frame readiness, eliminating polling overhead.
-            // Get raw pointer to pinned CallbackContext for FFI
-            // Deref Arc -> Pin<Box<T>> -> T, then take address
-            let callback_ctx_ptr = &**self.callback_context as *const CallbackContext;
-            let use_callback = unsafe {
-                // Use bindgen-generated function, cast callback to *mut c_void
-                let result = pl_cam_register_callback_ex3(
-                    h,
-                    PL_CALLBACK_EOF,
-                    pvcam_eof_callback as *mut std::ffi::c_void,
-                    callback_ctx_ptr as *mut std::ffi::c_void,
-                );
-                if result == 0 {
-                    tracing::warn!("Failed to register EOF callback, falling back to polling mode");
-                    false
-                } else {
-                    tracing::info!("PVCAM EOF callback registered successfully");
-                    // Store callback state for Drop cleanup
-                    self.callback_registered.store(true, Ordering::Release);
-                    true
+            // bd-3gnv Phase 5A: Skip callback registration when using CIRC_OVERWRITE polling mode.
+            // Hypothesis: Callbacks conflict with CIRC_OVERWRITE on Prime BSI (error 185).
+            // DynExp uses CIRC_OVERWRITE + polling successfully.
+            let use_callback = if USE_CIRC_OVERWRITE_POLLING_MODE {
+                eprintln!("[PVCAM DEBUG] Skipping callback registration (CIRC_OVERWRITE polling mode)");
+                tracing::info!("CIRC_OVERWRITE polling mode: skipping EOF callback registration");
+                false
+            } else {
+                // PVCAM Best Practices (bd-ek9n.2): Register EOF callback before starting acquisition
+                // The callback signals frame readiness, eliminating polling overhead.
+                // Get raw pointer to pinned CallbackContext for FFI
+                // Deref Arc -> Pin<Box<T>> -> T, then take address
+                let callback_ctx_ptr = &**self.callback_context as *const CallbackContext;
+                unsafe {
+                    // Use bindgen-generated function, cast callback to *mut c_void
+                    let result = pl_cam_register_callback_ex3(
+                        h,
+                        PL_CALLBACK_EOF,
+                        pvcam_eof_callback as *mut std::ffi::c_void,
+                        callback_ctx_ptr as *mut std::ffi::c_void,
+                    );
+                    if result == 0 {
+                        tracing::warn!("Failed to register EOF callback, falling back to polling mode");
+                        false
+                    } else {
+                        tracing::info!("PVCAM EOF callback registered successfully");
+                        // Store callback state for Drop cleanup
+                        self.callback_registered.store(true, Ordering::Release);
+                        true
+                    }
                 }
             };
 
