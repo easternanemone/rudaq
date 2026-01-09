@@ -478,11 +478,22 @@ mod ffi_safe {
     /// # Safety Contract
     /// - `hcam` must be a valid, open camera handle
     /// - A frame must have been retrieved with `get_oldest_frame`
-    pub fn release_oldest_frame(hcam: i16) {
+    ///
+    /// # Returns
+    /// true if unlock succeeded, false if it failed
+    pub fn release_oldest_frame(hcam: i16) -> bool {
         debug_assert!(hcam >= 0, "Invalid camera handle: {}", hcam);
         // SAFETY: Caller guarantees hcam is valid and a frame was retrieved
-        unsafe {
-            pl_exp_unlock_oldest_frame(hcam);
+        // bd-3gnv: Check return value - silent unlock failures would stall CIRC_NO_OVERWRITE mode
+        let result = unsafe { pl_exp_unlock_oldest_frame(hcam) };
+        if result == 0 {
+            // Unlock failed - this is critical for continuous acquisition
+            let err_msg = super::get_pvcam_error();
+            eprintln!("[PVCAM DEBUG] WARNING: pl_exp_unlock_oldest_frame FAILED: {}", err_msg);
+            tracing::error!("pl_exp_unlock_oldest_frame failed: {} (bd-3gnv)", err_msg);
+            false
+        } else {
+            true
         }
     }
 
@@ -745,12 +756,11 @@ impl PvcamAcquisition {
     /// * `exposure_ms` - Exposure time in milliseconds (for frame rate calculation)
     #[cfg(feature = "pvcam_hardware")]
     fn calculate_buffer_count(hcam: i16, frame_bytes: usize, exposure_ms: f64) -> usize {
-        // bd-3gnv TEST: Force larger buffer to test if stall point changes proportionally.
-        // If stall happens at buffer_count + X, then it's buffer cycling related.
-        // If stall still happens at ~85, then it's something else.
-        // Using 128 frames = 1GB buffer (safer than 256 = 2GB)
-        const MIN_BUFFER_FRAMES: usize = 128; // TEST: Force 128 frames
-        const MAX_BUFFER_FRAMES: usize = 128;
+        // bd-3gnv: Buffer size test complete - stall at 85 frames regardless of buffer size.
+        // This proves the issue is NOT buffer cycling related.
+        // Reverting to normal buffer calculation.
+        const MIN_BUFFER_FRAMES: usize = 16;
+        const MAX_BUFFER_FRAMES: usize = 256;
         const ONE_SECOND_MS: f64 = 1000.0;
 
         // Try to query PARAM_FRAME_BUFFER_SIZE from SDK
@@ -1569,6 +1579,7 @@ impl PvcamAcquisition {
             let mut frames_processed_in_drain: u32 = 0;
             let mut consecutive_duplicates: u32 = 0;
             let mut fatal_error = false;
+            let mut unlock_failures: u32 = 0; // bd-3gnv: Track unlock failures
 
             // bd-3gnv: Duplicate detection is handled by immediate exit on any duplicate.
             // The drain loop breaks as soon as a duplicate is detected, returning to
@@ -1710,7 +1721,9 @@ impl PvcamAcquisition {
                             }
 
                             // Release the duplicate back to SDK
-                            ffi_safe::release_oldest_frame(hcam);
+                            if !ffi_safe::release_oldest_frame(hcam) {
+                                unlock_failures += 1;
+                            }
                             if use_callback {
                                 callback_ctx.consume_one();
                             }
@@ -1798,7 +1811,9 @@ impl PvcamAcquisition {
                             current_frame_nr
                         );
                         // Still need to release and consume before skipping
-                        ffi_safe::release_oldest_frame(hcam);
+                        if !ffi_safe::release_oldest_frame(hcam) {
+                            unlock_failures += 1;
+                        }
                         if use_callback {
                             callback_ctx.consume_one();
                         }
@@ -1807,7 +1822,10 @@ impl PvcamAcquisition {
 
                     // Unlock ASAP to free SDK buffer for next frame
                     // bd-g9gq: Use FFI safe wrapper with explicit safety contract
-                    ffi_safe::release_oldest_frame(hcam);
+                    // bd-3gnv: Track unlock failures - critical for CIRC_NO_OVERWRITE mode
+                    if !ffi_safe::release_oldest_frame(hcam) {
+                        unlock_failures += 1;
+                    }
 
                     // Decrement pending frame counter (callback mode)
                     if use_callback {
@@ -1924,11 +1942,16 @@ impl PvcamAcquisition {
                 }
             }
 
-            // bd-3gnv: Debug output after drain loop
+            // bd-3gnv: Debug output after drain loop (include unlock failures)
             eprintln!(
-                "[PVCAM DEBUG] Drain loop done: frames_processed={}, fatal_error={}, iter={}, total_elapsed={:?}",
-                frames_processed_in_drain, fatal_error, loop_iteration, drain_start.elapsed()
+                "[PVCAM DEBUG] Drain loop done: frames_processed={}, fatal_error={}, unlock_failures={}, iter={}, total_elapsed={:?}",
+                frames_processed_in_drain, fatal_error, unlock_failures, loop_iteration, drain_start.elapsed()
             );
+            // bd-3gnv: Critical warning if unlocks are failing - this causes buffer starvation
+            if unlock_failures > 0 {
+                eprintln!("[PVCAM DEBUG] *** CRITICAL: {} unlock failures in drain loop - camera may stall!", unlock_failures);
+                tracing::error!("PVCAM unlock failures: {} in drain loop (bd-3gnv)", unlock_failures);
+            }
 
             // Gemini SDK review: Exit outer loop on fatal error to prevent zombie streaming
             if fatal_error {
