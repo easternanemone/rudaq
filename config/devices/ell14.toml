@@ -38,6 +38,19 @@ address_format = "hex_char"   # 0-9, A-F
 default_address = "0"
 
 # ==============================================================================
+# Retry Configuration (Phase 4)
+# ==============================================================================
+
+[default_retry]
+max_retries = 3
+initial_delay_ms = 100
+max_delay_ms = 2000
+backoff_multiplier = 2.0
+# Retry on communication and busy errors, but not hardware failures
+retry_on_errors = ["0x01", "0x09"]
+no_retry_on_errors = ["0x07", "0x08", "0x0A", "0x0B", "0x0D"]
+
+# ==============================================================================
 # Device Parameters
 # ==============================================================================
 
@@ -78,18 +91,29 @@ template = "${address}ma${position_pulses:08X}"
 description = "Move to absolute position (pulses as 8-char hex)"
 parameters = { position_pulses = "int32" }
 expects_response = true
+timeout_ms = 5000  # Movement can take up to 5s for full rotation
+
+[commands.move_absolute.retry]
+max_retries = 2
+initial_delay_ms = 500
 
 [commands.move_relative]
 template = "${address}mr${distance_pulses:08X}"
 description = "Move relative distance (pulses as 8-char signed hex)"
 parameters = { distance_pulses = "int32" }
 expects_response = true
+timeout_ms = 5000  # Movement can take up to 5s
+
+[commands.move_relative.retry]
+max_retries = 2
+initial_delay_ms = 500
 
 [commands.home]
 template = "${address}ho${direction}"
 description = "Home to mechanical zero (direction: 0=CW, 1=CCW)"
 parameters = { direction = "string" }
 expects_response = false
+timeout_ms = 10000  # Homing can take longer
 
 [commands.stop]
 template = "${address}st"
@@ -278,71 +302,120 @@ description = "Convert pulse counts to degrees"
 name = "OK"
 description = "No error"
 recoverable = true
+severity = "info"
 
 [error_codes."0x01"]
 name = "CommunicationTimeout"
 description = "Communication timeout"
 recoverable = true
+severity = "warning"
 
 [error_codes."0x02"]
 name = "MechanicalTimeout"
 description = "Motor didn't reach target position"
 recoverable = true
+severity = "error"
+
+[error_codes."0x02".recovery_action]
+command = "home"
+auto_recover = false
+manual_instructions = "Home the device to recalibrate position"
 
 [error_codes."0x03"]
 name = "CommandError"
 description = "Invalid command"
 recoverable = true
+severity = "error"
 
 [error_codes."0x04"]
 name = "ValueOutOfRange"
 description = "Value out of range"
 recoverable = true
+severity = "error"
 
 [error_codes."0x05"]
 name = "ModuleIsolated"
 description = "Module isolated"
 recoverable = true
+severity = "warning"
 
 [error_codes."0x06"]
 name = "ModuleOutOfIsolation"
 description = "Module out of isolation"
 recoverable = true
+severity = "info"
 
 [error_codes."0x07"]
 name = "InitializationError"
 description = "Initialization error"
 recoverable = false
+severity = "critical"
+
+[error_codes."0x07".recovery_action]
+auto_recover = false
+manual_instructions = "Power cycle the device"
 
 [error_codes."0x08"]
 name = "ThermalError"
 description = "Overtemperature"
 recoverable = false
+severity = "critical"
+
+[error_codes."0x08".recovery_action]
+auto_recover = false
+delay_ms = 30000
+manual_instructions = "Allow device to cool for 30+ seconds"
 
 [error_codes."0x09"]
 name = "Busy"
 description = "Device busy"
 recoverable = true
+severity = "info"
+
+[error_codes."0x09".recovery_action]
+auto_recover = true
+delay_ms = 200
 
 [error_codes."0x0A"]
 name = "SensorError"
 description = "Sensor error"
 recoverable = false
+severity = "critical"
+
+[error_codes."0x0A".recovery_action]
+auto_recover = false
+manual_instructions = "Check sensor connections and power cycle"
 
 [error_codes."0x0B"]
 name = "MotorError"
 description = "Motor error"
 recoverable = false
+severity = "critical"
+
+[error_codes."0x0B".recovery_action]
+auto_recover = false
+manual_instructions = "Check for mechanical obstructions and power cycle"
 
 [error_codes."0x0C"]
 name = "OutOfRange"
 description = "Position out of range"
 recoverable = true
+severity = "error"
+
+[error_codes."0x0C".recovery_action]
+command = "home"
+auto_recover = false
+manual_instructions = "Home the device or move to a valid position"
 
 [error_codes."0x0D"]
 name = "OverCurrentError"
 description = "Over current"
 recoverable = false
+severity = "fatal"
+
+[error_codes."0x0D".recovery_action]
+auto_recover = false
+manual_instructions = "Check for mechanical obstructions, power cycle, and contact support if issue persists"
 
 # ==============================================================================
 # Validation Rules
@@ -388,3 +461,27 @@ poll_command = "get_status"
 success_condition = "code == 0"
 poll_interval_ms = 50
 timeout_ms = 10000
+
+# ==============================================================================
+# Initialization Sequence (Phase 4)
+# ==============================================================================
+
+# Query device info to verify communication and get calibration
+[[init_sequence]]
+command = "get_info"
+description = "Query device information and calibration"
+required = true
+
+# Check device status
+[[init_sequence]]
+command = "get_status"
+description = "Verify device is ready"
+required = true
+expect = "GS00"  # Expect status OK
+
+# Query current position to initialize state
+[[init_sequence]]
+command = "get_position"
+description = "Get current position"
+required = false
+delay_ms = 100

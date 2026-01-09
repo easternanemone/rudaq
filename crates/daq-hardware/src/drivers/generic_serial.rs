@@ -31,17 +31,17 @@
 //! ```
 
 use crate::capabilities::{Movable, Readable, ShutterControl, WavelengthTunable};
-use crate::config::schema::{DeviceConfig, FieldType};
+use crate::config::schema::{DeviceConfig, ErrorSeverity, FieldType, RetryConfig};
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use evalexpr::{ContextWithMutableVariables, eval_number_with_context, HashMapContext, Value};
+use evalexpr::{eval_number_with_context, ContextWithMutableVariables, HashMapContext, Value};
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::Mutex;
-use tracing::{debug, instrument, trace};
+use tracing::{debug, instrument, trace, warn};
 
 // Re-use the serial port types from ell14 driver
 pub trait SerialPortIO: AsyncRead + AsyncWrite + Unpin + Send {}
@@ -99,6 +99,40 @@ impl ResponseValue {
             ResponseValue::Bool(b) => b.to_string(),
         }
     }
+}
+
+/// Device-specific error with code and recovery information.
+#[derive(Debug, Clone)]
+pub struct DeviceError {
+    /// Error code from the device
+    pub code: String,
+    /// Error name/identifier
+    pub name: String,
+    /// Human-readable description
+    pub description: String,
+    /// Severity level
+    pub severity: ErrorSeverity,
+    /// Whether this error is recoverable
+    pub recoverable: bool,
+}
+
+impl std::fmt::Display for DeviceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} ({}): {}", self.name, self.code, self.description)
+    }
+}
+
+impl std::error::Error for DeviceError {}
+
+/// Result of a command execution with retry tracking.
+#[derive(Debug)]
+pub struct CommandResult {
+    /// The response (if successful)
+    pub response: String,
+    /// Number of retry attempts made
+    pub retries: u8,
+    /// Total time taken (including retries)
+    pub duration: Duration,
 }
 
 /// Generic serial driver that interprets TOML device configurations.
@@ -217,7 +251,8 @@ impl GenericSerialDriver {
             .get(command_name)
             .ok_or_else(|| anyhow!("Unknown command: {}", command_name))?;
 
-        self.interpolate_template(&cmd_config.template, params).await
+        self.interpolate_template(&cmd_config.template, params)
+            .await
     }
 
     /// Interpolate a template string with parameters.
@@ -369,8 +404,11 @@ impl GenericSerialDriver {
                 for (field_name, field_config) in &response_config.fields {
                     if let Some(captured) = captures.name(field_name) {
                         let raw_value = captured.as_str();
-                        let value =
-                            self.parse_field_value(raw_value, &field_config.field_type, field_config.signed)?;
+                        let value = self.parse_field_value(
+                            raw_value,
+                            &field_config.field_type,
+                            field_config.signed,
+                        )?;
                         fields.insert(field_name.clone(), value);
                     }
                 }
@@ -622,6 +660,311 @@ impl GenericSerialDriver {
     }
 
     // =========================================================================
+    // Error Detection and Retry
+    // =========================================================================
+
+    /// Check if a response contains a device error code.
+    ///
+    /// Returns `Some(DeviceError)` if an error is detected, `None` otherwise.
+    pub fn check_for_error(&self, response: &str) -> Option<DeviceError> {
+        // Check each configured error code
+        for (code, error_config) in &self.config.error_codes {
+            // Simple check: see if the response contains this error code
+            // More sophisticated matching could be added based on device protocol
+            if response.contains(code) {
+                return Some(DeviceError {
+                    code: code.clone(),
+                    name: error_config.name.clone(),
+                    description: error_config.description.clone(),
+                    severity: error_config.severity,
+                    recoverable: error_config.recoverable,
+                });
+            }
+        }
+        None
+    }
+
+    /// Determine if an error should trigger a retry.
+    fn should_retry(&self, error: &DeviceError, retry_config: &RetryConfig) -> bool {
+        // Check no_retry_on_errors first (takes precedence)
+        if retry_config.no_retry_on_errors.contains(&error.code) {
+            return false;
+        }
+
+        // If retry_on_errors is empty, retry on all recoverable errors
+        if retry_config.retry_on_errors.is_empty() {
+            return error.recoverable;
+        }
+
+        // Otherwise, only retry on specified errors
+        retry_config.retry_on_errors.contains(&error.code)
+    }
+
+    /// Execute a command with retry logic.
+    ///
+    /// Uses per-command timeout if configured, otherwise falls back to connection timeout.
+    /// Applies exponential backoff between retries.
+    #[instrument(skip(self), fields(address = %self.address, command_name), err)]
+    pub async fn execute_with_retry(
+        &self,
+        command_name: &str,
+        params: &HashMap<String, f64>,
+    ) -> Result<CommandResult> {
+        let start = std::time::Instant::now();
+
+        // Get command config
+        let cmd_config = self
+            .config
+            .commands
+            .get(command_name)
+            .ok_or_else(|| anyhow!("Unknown command: {}", command_name))?;
+
+        // Format the command
+        let cmd = self.format_command(command_name, params).await?;
+
+        // Get retry config (command-specific or default)
+        let retry_config = cmd_config
+            .retry
+            .clone()
+            .or_else(|| self.config.default_retry.clone())
+            .unwrap_or_default();
+
+        let max_retries = retry_config.max_retries;
+        let mut current_delay = retry_config.initial_delay_ms;
+        let mut retries = 0u8;
+
+        loop {
+            // Execute the transaction
+            let result = if cmd_config.expects_response {
+                self.transaction_with_timeout(&cmd, cmd_config.timeout_ms)
+                    .await
+            } else {
+                self.send_command(&cmd).await.map(|_| String::new())
+            };
+
+            match result {
+                Ok(response) => {
+                    // Check for device error in response
+                    if let Some(device_error) = self.check_for_error(&response) {
+                        if retries < max_retries && self.should_retry(&device_error, &retry_config)
+                        {
+                            warn!(
+                                command = %cmd,
+                                error = %device_error,
+                                retry = retries + 1,
+                                "Device error, retrying"
+                            );
+                            retries += 1;
+                            tokio::time::sleep(Duration::from_millis(current_delay as u64)).await;
+                            current_delay = (current_delay as f64 * retry_config.backoff_multiplier)
+                                .min(retry_config.max_delay_ms as f64)
+                                as u32;
+                            continue;
+                        }
+                        return Err(anyhow!("Device error: {}", device_error));
+                    }
+
+                    return Ok(CommandResult {
+                        response,
+                        retries,
+                        duration: start.elapsed(),
+                    });
+                }
+                Err(e) => {
+                    if retries < max_retries {
+                        warn!(
+                            command = %cmd,
+                            error = %e,
+                            retry = retries + 1,
+                            "Command failed, retrying"
+                        );
+                        retries += 1;
+                        tokio::time::sleep(Duration::from_millis(current_delay as u64)).await;
+                        current_delay = (current_delay as f64 * retry_config.backoff_multiplier)
+                            .min(retry_config.max_delay_ms as f64)
+                            as u32;
+                        continue;
+                    }
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    /// Execute transaction with custom timeout (or default if None).
+    async fn transaction_with_timeout(
+        &self,
+        command: &str,
+        timeout_ms: Option<u32>,
+    ) -> Result<String> {
+        let timeout =
+            Duration::from_millis(timeout_ms.unwrap_or(self.config.connection.timeout_ms) as u64);
+        let mut port = self.port.lock().await;
+
+        trace!(command = %command, timeout_ms = ?timeout.as_millis(), "Sending command with timeout");
+
+        // Write command
+        port.write_all(command.as_bytes())
+            .await
+            .context("Failed to write command")?;
+
+        // Add TX terminator if configured
+        if !self.config.connection.terminator_tx.is_empty() {
+            port.write_all(self.config.connection.terminator_tx.as_bytes())
+                .await
+                .context("Failed to write terminator")?;
+        }
+
+        // Small delay for device to process
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Read response with timeout
+        let mut response_buf = Vec::with_capacity(64);
+        let mut buf = [0u8; 64];
+        let deadline = tokio::time::Instant::now() + timeout;
+
+        loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+
+            match tokio::time::timeout(
+                remaining.min(Duration::from_millis(100)),
+                port.read(&mut buf),
+            )
+            .await
+            {
+                Ok(Ok(n)) if n > 0 => {
+                    response_buf.extend_from_slice(&buf[..n]);
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                Ok(Ok(_)) => {
+                    if !response_buf.is_empty() {
+                        break;
+                    }
+                }
+                Ok(Err(_)) | Err(_) => {
+                    if !response_buf.is_empty() {
+                        break;
+                    }
+                }
+            }
+
+            if !response_buf.is_empty() {
+                tokio::time::sleep(Duration::from_millis(30)).await;
+                if let Ok(Ok(n)) =
+                    tokio::time::timeout(Duration::from_millis(50), port.read(&mut buf)).await
+                {
+                    if n > 0 {
+                        response_buf.extend_from_slice(&buf[..n]);
+                    }
+                }
+                break;
+            }
+        }
+
+        let response = std::str::from_utf8(&response_buf)
+            .context("Invalid UTF-8 in response")?
+            .trim()
+            .to_string();
+
+        debug!(command = %command, response = %response, "Transaction complete");
+
+        Ok(response)
+    }
+
+    // =========================================================================
+    // Initialization Sequence
+    // =========================================================================
+
+    /// Run the device initialization sequence.
+    ///
+    /// Executes each step in the `init_sequence` configuration, validating
+    /// responses against expected patterns if specified.
+    #[instrument(skip(self), fields(address = %self.address), err)]
+    pub async fn run_init_sequence(&self) -> Result<()> {
+        if self.config.init_sequence.is_empty() {
+            debug!("No initialization sequence configured");
+            return Ok(());
+        }
+
+        debug!(
+            steps = self.config.init_sequence.len(),
+            "Running initialization sequence"
+        );
+
+        for (i, step) in self.config.init_sequence.iter().enumerate() {
+            debug!(
+                step = i + 1,
+                command = %step.command,
+                description = %step.description,
+                "Running init step"
+            );
+
+            // Convert params from JSON values to f64
+            let mut params = HashMap::new();
+            for (name, value) in &step.params {
+                if let Some(num) = value.as_f64() {
+                    params.insert(name.clone(), num);
+                }
+            }
+
+            // Execute the command
+            let result = self.execute_with_retry(&step.command, &params).await;
+
+            match result {
+                Ok(cmd_result) => {
+                    // Validate expected response if configured
+                    if let Some(ref expect) = step.expect {
+                        if !cmd_result.response.contains(expect) {
+                            if step.required {
+                                return Err(anyhow!(
+                                    "Init step {} failed: expected '{}' in response, got '{}'",
+                                    i + 1,
+                                    expect,
+                                    cmd_result.response
+                                ));
+                            } else {
+                                warn!(
+                                    step = i + 1,
+                                    expected = %expect,
+                                    got = %cmd_result.response,
+                                    "Init step validation failed (non-required)"
+                                );
+                            }
+                        }
+                    }
+
+                    // Apply post-step delay
+                    if step.delay_ms > 0 {
+                        tokio::time::sleep(Duration::from_millis(step.delay_ms as u64)).await;
+                    }
+                }
+                Err(e) => {
+                    if step.required {
+                        return Err(e.context(format!(
+                            "Required init step {} ('{}') failed",
+                            i + 1,
+                            step.command
+                        )));
+                    } else {
+                        warn!(
+                            step = i + 1,
+                            command = %step.command,
+                            error = %e,
+                            "Optional init step failed, continuing"
+                        );
+                    }
+                }
+            }
+        }
+
+        debug!("Initialization sequence complete");
+        Ok(())
+    }
+
+    // =========================================================================
     // Trait Method Execution
     // =========================================================================
 
@@ -646,10 +989,13 @@ impl GenericSerialDriver {
             .get(trait_name)
             .ok_or_else(|| anyhow!("Trait '{}' not mapped in config", trait_name))?;
 
-        let method = trait_mapping
-            .methods
-            .get(method_name)
-            .ok_or_else(|| anyhow!("Method '{}' not mapped for trait '{}'", method_name, trait_name))?;
+        let method = trait_mapping.methods.get(method_name).ok_or_else(|| {
+            anyhow!(
+                "Method '{}' not mapped for trait '{}'",
+                method_name,
+                trait_name
+            )
+        })?;
 
         // Build command parameters
         let mut params = HashMap::new();
@@ -671,14 +1017,21 @@ impl GenericSerialDriver {
         }
 
         // Get command name (required for non-polling methods)
-        let command_name = method.command.as_ref()
-            .ok_or_else(|| anyhow!("Method '{}' has no command (use execute_poll_method for polling)", method_name))?;
+        let command_name = method.command.as_ref().ok_or_else(|| {
+            anyhow!(
+                "Method '{}' has no command (use execute_poll_method for polling)",
+                method_name
+            )
+        })?;
 
         // Format command
         let cmd = self.format_command(command_name, &params).await?;
 
         // Get command config
-        let cmd_config = self.config.commands.get(command_name)
+        let cmd_config = self
+            .config
+            .commands
+            .get(command_name)
             .ok_or_else(|| anyhow!("Command '{}' not found", command_name))?;
 
         // Send command and get response
@@ -698,7 +1051,9 @@ impl GenericSerialDriver {
                     if let Some(raw_value) = value.as_f64() {
                         // Apply output conversion if specified
                         if let Some(ref conv_name) = method.output_conversion {
-                            let converted = self.apply_conversion(conv_name, output_field, raw_value).await?;
+                            let converted = self
+                                .apply_conversion(conv_name, output_field, raw_value)
+                                .await?;
                             return Ok(Some(converted));
                         }
                         return Ok(Some(raw_value));
@@ -711,21 +1066,20 @@ impl GenericSerialDriver {
     }
 
     /// Execute a polling wait operation (e.g., wait_settled).
-    pub async fn execute_poll_method(
-        &self,
-        trait_name: &str,
-        method_name: &str,
-    ) -> Result<()> {
+    pub async fn execute_poll_method(&self, trait_name: &str, method_name: &str) -> Result<()> {
         let trait_mapping = self
             .config
             .trait_mapping
             .get(trait_name)
             .ok_or_else(|| anyhow!("Trait '{}' not mapped", trait_name))?;
 
-        let method = trait_mapping
-            .methods
-            .get(method_name)
-            .ok_or_else(|| anyhow!("Method '{}' not mapped for trait '{}'", method_name, trait_name))?;
+        let method = trait_mapping.methods.get(method_name).ok_or_else(|| {
+            anyhow!(
+                "Method '{}' not mapped for trait '{}'",
+                method_name,
+                trait_name
+            )
+        })?;
 
         let poll_command = method
             .poll_command
@@ -752,7 +1106,10 @@ impl GenericSerialDriver {
             let response = self.transaction(&cmd).await?;
 
             // Get command's response definition
-            let cmd_config = self.config.commands.get(poll_command)
+            let cmd_config = self
+                .config
+                .commands
+                .get(poll_command)
                 .ok_or_else(|| anyhow!("Poll command '{}' not found", poll_command))?;
 
             if let Some(ref response_name) = cmd_config.response {
@@ -847,9 +1204,7 @@ impl Movable for GenericSerialDriver {
 impl Readable for GenericSerialDriver {
     #[instrument(skip(self), fields(address = %self.address), err)]
     async fn read(&self) -> Result<f64> {
-        let result = self
-            .execute_trait_method("Readable", "read", None)
-            .await?;
+        let result = self.execute_trait_method("Readable", "read", None).await?;
         result.ok_or_else(|| anyhow!("Read returned no value"))
     }
 }
@@ -877,10 +1232,16 @@ impl WavelengthTunable for GenericSerialDriver {
 
     fn wavelength_range(&self) -> (f64, f64) {
         // Try to read from config parameters, fall back to defaults
-        let min = self.config.parameters.get("wavelength_min")
+        let min = self
+            .config
+            .parameters
+            .get("wavelength_min")
             .and_then(|p| p.default.as_f64())
             .unwrap_or(700.0);
-        let max = self.config.parameters.get("wavelength_max")
+        let max = self
+            .config
+            .parameters
+            .get("wavelength_max")
             .and_then(|p| p.default.as_f64())
             .unwrap_or(1000.0);
         (min, max)
@@ -1097,7 +1458,10 @@ timeout_ms = 5000
         let mut params = HashMap::new();
         params.insert("position_pulses".to_string(), 17920.0);
 
-        let cmd = driver.format_command("move_absolute", &params).await.unwrap();
+        let cmd = driver
+            .format_command("move_absolute", &params)
+            .await
+            .unwrap();
         assert_eq!(cmd, "2ma00004600");
     }
 
@@ -1108,11 +1472,17 @@ timeout_ms = 5000
         let driver = GenericSerialDriver::new(config, port, "2").unwrap();
 
         // degrees_to_pulses: 45 * 398.2222 = 17920
-        let pulses = driver.apply_conversion("degrees_to_pulses", "degrees", 45.0).await.unwrap();
+        let pulses = driver
+            .apply_conversion("degrees_to_pulses", "degrees", 45.0)
+            .await
+            .unwrap();
         assert!((pulses - 17920.0).abs() < 1.0);
 
         // pulses_to_degrees: 17920 / 398.2222 = 45
-        let degrees = driver.apply_conversion("pulses_to_degrees", "pulses", 17920.0).await.unwrap();
+        let degrees = driver
+            .apply_conversion("pulses_to_degrees", "pulses", 17920.0)
+            .await
+            .unwrap();
         assert!((degrees - 45.0).abs() < 0.1);
     }
 
