@@ -1,0 +1,211 @@
+# config/devices/maitai.toml
+# Spectra-Physics MaiTai Ti:Sapphire Laser - Protocol Definition
+#
+# This configuration defines the MaiTai protocol for config-driven
+# driver instantiation. It enables creating a GenericSerialDriver that
+# behaves identically to the hand-coded MaiTaiDriver.
+#
+# Reference: MaiTai HP/MaiTai XF User's Manual
+#
+# Protocol Notes:
+# - Format: ASCII command/response over RS-232
+# - Baud: 9600, 8N1, software flow control (XON/XOFF)
+# - Command terminator: CR+LF (\r\n)
+# - Response terminator: LF (\n)
+# - Response format: "820nm" for wavelength, "0"/"1" for shutter
+
+[device]
+name = "Spectra-Physics MaiTai"
+description = "Tunable Ti:Sapphire laser (690-1040 nm)"
+manufacturer = "Spectra-Physics"
+model = "MaiTai"
+protocol = "maitai"
+category = "source"
+capabilities = ["Readable", "WavelengthTunable", "ShutterControl", "Parameterized"]
+
+# ==============================================================================
+# Connection Settings
+# ==============================================================================
+
+[connection]
+type = "serial"
+baud_rate = 9600
+data_bits = 8
+parity = "none"
+stop_bits = 1
+flow_control = "software"     # XON/XOFF required for MaiTai
+timeout_ms = 5000
+terminator_tx = "\r\n"        # CR+LF for commands
+terminator_rx = "\n"          # LF for responses
+
+# ==============================================================================
+# Device Parameters
+# ==============================================================================
+
+[parameters.wavelength_nm]
+type = "float"
+default = 800.0
+range = [690.0, 1040.0]
+unit = "nm"
+description = "Tunable laser wavelength"
+
+[parameters.wavelength_min]
+type = "float"
+default = 690.0
+unit = "nm"
+description = "Minimum tuning wavelength"
+read_only = true
+
+[parameters.wavelength_max]
+type = "float"
+default = 1040.0
+unit = "nm"
+description = "Maximum tuning wavelength"
+read_only = true
+
+[parameters.shutter_open]
+type = "bool"
+default = false
+description = "Shutter state (true=open, false=closed)"
+
+[parameters.emission_enabled]
+type = "bool"
+default = false
+description = "Laser emission state"
+
+# ==============================================================================
+# Command Definitions
+# ==============================================================================
+
+# --- Wavelength Commands ---
+
+[commands.set_wavelength]
+template = "WAVELENGTH:${wavelength}"
+description = "Set output wavelength (nm)"
+parameters = { wavelength = "float" }
+expects_response = false
+
+[commands.get_wavelength]
+template = "WAVELENGTH?"
+description = "Query current wavelength"
+response = "wavelength"
+
+# --- Shutter Commands ---
+
+[commands.open_shutter]
+template = "SHUTter:1"
+description = "Open the beam shutter"
+expects_response = false
+
+[commands.close_shutter]
+template = "SHUTter:0"
+description = "Close the beam shutter"
+expects_response = false
+
+[commands.get_shutter]
+template = "SHUTTER?"
+description = "Query shutter state"
+response = "shutter_state"
+
+# --- Emission Commands ---
+
+[commands.emission_on]
+template = "ON"
+description = "Enable laser emission"
+expects_response = false
+
+[commands.emission_off]
+template = "OFF"
+description = "Disable laser emission"
+expects_response = false
+
+# --- Power Query ---
+
+[commands.get_power]
+template = "POWER?"
+description = "Query laser output power"
+response = "power"
+
+# --- Identity Query ---
+
+[commands.identify]
+template = "*IDN?"
+description = "Query device identity"
+response = "identity"
+
+# ==============================================================================
+# Response Definitions
+# ==============================================================================
+
+# Wavelength response: "820nm" or "820NM"
+[responses.wavelength]
+pattern = "^\\s*(?P<wavelength>\\d+\\.?\\d*)[nN][mM]?\\s*$"
+
+[responses.wavelength.fields.wavelength]
+type = "float"
+
+# Shutter state response: "0" or "1"
+[responses.shutter_state]
+pattern = "^\\s*(?P<state>[01])\\s*$"
+
+[responses.shutter_state.fields.state]
+type = "int"
+
+# Power response: may include units like "3.00W", "100mW", "50%"
+# Strip units and parse numeric value
+[responses.power]
+pattern = "^\\s*(?P<value>\\d+\\.?\\d*)[mM]?[wW%]?\\s*$"
+
+[responses.power.fields.value]
+type = "float"
+
+# Identity response: free-form string
+[responses.identity]
+pattern = "^(?P<identity>.+)$"
+
+[responses.identity.fields.identity]
+type = "string"
+
+# ==============================================================================
+# Error Code Mapping
+# ==============================================================================
+
+[error_codes."ERR"]
+name = "Error"
+description = "General error"
+recoverable = true
+
+# ==============================================================================
+# Trait Mapping: Readable
+# ==============================================================================
+
+[trait_mapping.Readable.read]
+command = "get_power"
+output_field = "value"
+
+# ==============================================================================
+# Trait Mapping: WavelengthTunable
+# ==============================================================================
+
+[trait_mapping.WavelengthTunable.set_wavelength]
+command = "set_wavelength"
+input_param = "wavelength"
+from_param = "wavelength"
+
+[trait_mapping.WavelengthTunable.get_wavelength]
+command = "get_wavelength"
+output_field = "wavelength"
+
+# ==============================================================================
+# Trait Mapping: ShutterControl
+# ==============================================================================
+
+[trait_mapping.ShutterControl.open_shutter]
+command = "open_shutter"
+
+[trait_mapping.ShutterControl.close_shutter]
+command = "close_shutter"
+
+[trait_mapping.ShutterControl.is_shutter_open]
+command = "get_shutter"
+output_field = "state"

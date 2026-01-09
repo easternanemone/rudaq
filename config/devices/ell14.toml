@@ -1,0 +1,390 @@
+# config/devices/ell14.toml
+# Thorlabs ELL14 Rotation Mount - Complete Protocol Definition
+#
+# This configuration defines the Elliptec ELL14 protocol for config-driven
+# driver instantiation. It enables creating a GenericSerialDriver that
+# behaves identically to the hand-coded Ell14Driver.
+#
+# Reference: ELLx modules protocol manual Issue 10
+
+[device]
+name = "Thorlabs ELL14"
+description = "Elliptec rotation mount with RS-485 multidrop support"
+manufacturer = "Thorlabs"
+model = "ELL14"
+protocol = "elliptec"
+category = "stage"
+capabilities = ["Movable", "Parameterized"]
+
+# ==============================================================================
+# Connection Settings
+# ==============================================================================
+
+[connection]
+type = "serial"
+baud_rate = 9600
+data_bits = 8
+parity = "none"
+stop_bits = 1
+flow_control = "none"
+timeout_ms = 1000
+terminator_tx = ""          # ELL14 uses no terminator for commands
+terminator_rx = ""          # Response ends after expected bytes
+
+# RS-485 multidrop configuration
+[connection.bus]
+type = "rs485"
+address_format = "hex_char"   # 0-9, A-F
+default_address = "0"
+
+# ==============================================================================
+# Device Parameters
+# ==============================================================================
+
+[parameters.address]
+type = "string"
+default = "0"
+description = "Device address on RS-485 bus (0-F)"
+pattern = "^[0-9A-Fa-f]$"
+
+[parameters.pulses_per_degree]
+type = "float"
+default = 398.2222
+description = "Calibration factor (nominal: 143360 pulses / 360 degrees)"
+read_only = true
+
+[parameters.position_deg]
+type = "float"
+default = 0.0
+range = [0.0, 360.0]
+unit = "degrees"
+description = "Current rotation position"
+
+[parameters.jog_step_deg]
+type = "float"
+default = 5.0
+range = [0.001, 360.0]
+unit = "degrees"
+description = "Jog step size for fw/bw commands"
+
+# ==============================================================================
+# Command Definitions
+# ==============================================================================
+
+# --- Movement Commands ---
+
+[commands.move_absolute]
+template = "${address}ma${position_pulses:08X}"
+description = "Move to absolute position (pulses as 8-char hex)"
+parameters = { position_pulses = "int32" }
+expects_response = true
+
+[commands.move_relative]
+template = "${address}mr${distance_pulses:08X}"
+description = "Move relative distance (pulses as 8-char signed hex)"
+parameters = { distance_pulses = "int32" }
+expects_response = true
+
+[commands.home]
+template = "${address}ho${direction}"
+description = "Home to mechanical zero (direction: 0=CW, 1=CCW)"
+parameters = { direction = "string" }
+expects_response = false
+
+[commands.stop]
+template = "${address}st"
+description = "Stop motion immediately"
+expects_response = false
+
+# --- Query Commands ---
+
+[commands.get_position]
+template = "${address}gp"
+description = "Query current position"
+response = "position"
+
+[commands.get_status]
+template = "${address}gs"
+description = "Query device status"
+response = "status"
+
+[commands.get_info]
+template = "${address}in"
+description = "Query device information (type, serial, calibration)"
+response = "device_info"
+
+# --- Jog Commands ---
+
+[commands.jog_forward]
+template = "${address}fw"
+description = "Jog forward by jog step size"
+expects_response = false
+
+[commands.jog_backward]
+template = "${address}bw"
+description = "Jog backward by jog step size"
+expects_response = false
+
+[commands.set_jog_step]
+template = "${address}sj${step_pulses:08X}"
+description = "Set jog step size (pulses as 8-char hex)"
+parameters = { step_pulses = "int32" }
+response = "jog_step"
+
+[commands.get_jog_step]
+template = "${address}gj"
+description = "Query jog step size"
+response = "jog_step"
+
+# --- Configuration Commands ---
+
+[commands.get_velocity]
+template = "${address}gv"
+description = "Query velocity percentage (60-100%)"
+response = "velocity"
+
+[commands.set_velocity]
+template = "${address}sv${percent:02X}"
+description = "Set velocity percentage (60-100%)"
+parameters = { percent = "uint32" }
+
+[commands.get_home_offset]
+template = "${address}go"
+description = "Query home offset"
+response = "home_offset"
+
+[commands.set_home_offset]
+template = "${address}so${offset_pulses:08X}"
+description = "Set home offset (pulses as 8-char signed hex)"
+parameters = { offset_pulses = "int32" }
+
+[commands.save_user_data]
+template = "${address}us"
+description = "Save parameters to EEPROM"
+expects_response = true
+
+# ==============================================================================
+# Response Definitions
+# ==============================================================================
+
+# Position response: {addr}PO{pulses:8hex}
+# Example: "0PO00004650" -> address 0, position 0x4650 = 17744 pulses
+[responses.position]
+pattern = "^(?P<addr>[0-9A-Fa-f])PO(?P<pulses>[0-9A-Fa-f]{1,8})$"
+
+[responses.position.fields.addr]
+type = "string"
+
+[responses.position.fields.pulses]
+type = "hex_i32"
+signed = true
+
+# Status response: {addr}GS{code:2hex}
+# Example: "0GS00" -> status OK, "0GS02" -> mechanical timeout
+[responses.status]
+pattern = "^(?P<addr>[0-9A-Fa-f])GS(?P<code>[0-9A-Fa-f]{2})$"
+
+[responses.status.fields.addr]
+type = "string"
+
+[responses.status.fields.code]
+type = "hex_u8"
+
+# Jog step response: {addr}GJ{pulses:8hex}
+# Example: "0GJ00001F4" -> jog step = 500 pulses
+[responses.jog_step]
+pattern = "^(?P<addr>[0-9A-Fa-f])GJ(?P<pulses>[0-9A-Fa-f]{1,8})$"
+
+[responses.jog_step.fields.addr]
+type = "string"
+
+[responses.jog_step.fields.pulses]
+type = "hex_i32"
+signed = true
+
+# Velocity response: {addr}GV{percent:2hex}
+# Example: "0GV64" -> velocity = 100%
+[responses.velocity]
+pattern = "^(?P<addr>[0-9A-Fa-f])GV(?P<percent>[0-9A-Fa-f]{2})$"
+
+[responses.velocity.fields.addr]
+type = "string"
+
+[responses.velocity.fields.percent]
+type = "hex_u8"
+
+# Home offset response: {addr}HO{pulses:8hex}
+[responses.home_offset]
+pattern = "^(?P<addr>[0-9A-Fa-f])HO(?P<pulses>[0-9A-Fa-f]{1,8})$"
+
+[responses.home_offset.fields.addr]
+type = "string"
+
+[responses.home_offset.fields.pulses]
+type = "hex_i32"
+signed = true
+
+# Device info response (30 or 33 chars depending on firmware):
+# Format: {addr}IN{type:2}{serial:8}{year:4}{fw:2}{hw:1}{travel:5/8}{pulses:8}
+# Example: "2IN0E1140051720231701016800023000"
+[responses.device_info]
+pattern = "^(?P<addr>[0-9A-Fa-f])IN(?P<type>[0-9A-Fa-f]{2})(?P<serial>[0-9A-Za-z]{8})(?P<year>[0-9]{4})(?P<firmware>[0-9]{2})(?P<rest>.*)$"
+
+[responses.device_info.fields.addr]
+type = "string"
+
+[responses.device_info.fields.type]
+type = "string"
+
+[responses.device_info.fields.serial]
+type = "string"
+
+[responses.device_info.fields.year]
+type = "int"
+
+[responses.device_info.fields.firmware]
+type = "string"
+
+[responses.device_info.fields.rest]
+type = "string"
+
+# Error response (same format as status)
+[responses.error]
+pattern = "^(?P<addr>[0-9A-Fa-f])GS(?P<code>[0-9A-Fa-f]{2})$"
+
+[responses.error.fields.addr]
+type = "string"
+
+[responses.error.fields.code]
+type = "hex_u8"
+
+# ==============================================================================
+# Unit Conversions
+# ==============================================================================
+
+[conversions.degrees_to_pulses]
+formula = "round(degrees * pulses_per_degree)"
+description = "Convert degrees to pulse counts"
+
+[conversions.pulses_to_degrees]
+formula = "pulses / pulses_per_degree"
+description = "Convert pulse counts to degrees"
+
+# ==============================================================================
+# Error Code Mapping
+# ==============================================================================
+
+[error_codes."0x00"]
+name = "OK"
+description = "No error"
+recoverable = true
+
+[error_codes."0x01"]
+name = "CommunicationTimeout"
+description = "Communication timeout"
+recoverable = true
+
+[error_codes."0x02"]
+name = "MechanicalTimeout"
+description = "Motor didn't reach target position"
+recoverable = true
+
+[error_codes."0x03"]
+name = "CommandError"
+description = "Invalid command"
+recoverable = true
+
+[error_codes."0x04"]
+name = "ValueOutOfRange"
+description = "Value out of range"
+recoverable = true
+
+[error_codes."0x05"]
+name = "ModuleIsolated"
+description = "Module isolated"
+recoverable = true
+
+[error_codes."0x06"]
+name = "ModuleOutOfIsolation"
+description = "Module out of isolation"
+recoverable = true
+
+[error_codes."0x07"]
+name = "InitializationError"
+description = "Initialization error"
+recoverable = false
+
+[error_codes."0x08"]
+name = "ThermalError"
+description = "Overtemperature"
+recoverable = false
+
+[error_codes."0x09"]
+name = "Busy"
+description = "Device busy"
+recoverable = true
+
+[error_codes."0x0A"]
+name = "SensorError"
+description = "Sensor error"
+recoverable = false
+
+[error_codes."0x0B"]
+name = "MotorError"
+description = "Motor error"
+recoverable = false
+
+[error_codes."0x0C"]
+name = "OutOfRange"
+description = "Position out of range"
+recoverable = true
+
+[error_codes."0x0D"]
+name = "OverCurrentError"
+description = "Over current"
+recoverable = false
+
+# ==============================================================================
+# Validation Rules
+# ==============================================================================
+
+[validation.position_deg]
+range = [0.0, 360.0]
+unit = "degrees"
+
+[validation.jog_step_deg]
+range = [0.001, 360.0]
+unit = "degrees"
+
+[validation.address]
+pattern = "^[0-9A-Fa-f]$"
+
+# ==============================================================================
+# Trait Mapping: Movable
+# ==============================================================================
+
+[trait_mapping.Movable.move_abs]
+command = "move_absolute"
+input_conversion = "degrees_to_pulses"
+input_param = "position_pulses"
+from_param = "position"
+
+[trait_mapping.Movable.move_rel]
+command = "move_relative"
+input_conversion = "degrees_to_pulses"
+input_param = "distance_pulses"
+from_param = "distance"
+
+[trait_mapping.Movable.position]
+command = "get_position"
+output_conversion = "pulses_to_degrees"
+output_field = "pulses"
+
+[trait_mapping.Movable.stop]
+command = "stop"
+
+[trait_mapping.Movable.wait_settled]
+poll_command = "get_status"
+success_condition = "code == 0"
+poll_interval_ms = 50
+timeout_ms = 10000

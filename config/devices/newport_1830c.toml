@@ -1,0 +1,197 @@
+# config/devices/newport_1830c.toml
+# Newport 1830-C Optical Power Meter - Protocol Definition
+#
+# This configuration defines the Newport 1830-C protocol for config-driven
+# driver instantiation. It enables creating a GenericSerialDriver that
+# behaves identically to the hand-coded Newport1830CDriver.
+#
+# Reference: Newport 1830-C User's Manual
+#
+# Protocol Notes:
+# - Uses simple ASCII commands (NOT SCPI)
+# - Response format: Scientific notation (e.g., "+.11E-9" for 0.11 nW)
+# - No hardware flow control required
+
+[device]
+name = "Newport 1830-C"
+description = "Optical power meter with wavelength compensation"
+manufacturer = "Newport"
+model = "1830-C"
+protocol = "newport_1830c"
+category = "sensor"
+capabilities = ["Readable", "WavelengthTunable", "Parameterized"]
+
+# ==============================================================================
+# Connection Settings
+# ==============================================================================
+
+[connection]
+type = "serial"
+baud_rate = 9600
+data_bits = 8
+parity = "none"
+stop_bits = 1
+flow_control = "none"
+timeout_ms = 500
+terminator_tx = "\n"          # LF terminator for commands
+terminator_rx = "\n"
+
+# ==============================================================================
+# Device Parameters
+# ==============================================================================
+
+[parameters.wavelength_nm]
+type = "float"
+default = 800.0
+range = [300.0, 1100.0]
+unit = "nm"
+description = "Detector calibration wavelength"
+
+[parameters.attenuator]
+type = "bool"
+default = false
+description = "Attenuator state (true=enabled, false=disabled)"
+
+[parameters.filter]
+type = "int"
+default = 2
+range = [1, 3]
+description = "Filter setting (1=Slow, 2=Medium, 3=Fast)"
+
+# ==============================================================================
+# Command Definitions
+# ==============================================================================
+
+# --- Measurement Commands ---
+
+[commands.read_power]
+template = "D?"
+description = "Query power measurement (returns Watts in scientific notation)"
+response = "power"
+
+# --- Configuration Commands ---
+
+[commands.get_wavelength]
+template = "W?"
+description = "Query wavelength setting"
+response = "wavelength"
+
+[commands.set_wavelength]
+template = "W${wavelength_nm:04d}"
+description = "Set wavelength for accurate measurement (4-digit format)"
+parameters = { wavelength_nm = "int32" }
+expects_response = false
+
+[commands.get_range]
+template = "R?"
+description = "Query range setting (1-8)"
+response = "range"
+
+[commands.get_units]
+template = "U?"
+description = "Query units setting (0=W, 1=dBm, 2=dB)"
+response = "units"
+
+[commands.set_attenuator_on]
+template = "A1"
+description = "Enable attenuator"
+expects_response = false
+
+[commands.set_attenuator_off]
+template = "A0"
+description = "Disable attenuator"
+expects_response = false
+
+[commands.set_filter_slow]
+template = "F1"
+description = "Set filter to Slow (longest integration time)"
+expects_response = false
+
+[commands.set_filter_medium]
+template = "F2"
+description = "Set filter to Medium"
+expects_response = false
+
+[commands.set_filter_fast]
+template = "F3"
+description = "Set filter to Fast (shortest integration time)"
+expects_response = false
+
+[commands.clear_status]
+template = "CS"
+description = "Clear status (zero power reading)"
+expects_response = false
+
+# ==============================================================================
+# Response Definitions
+# ==============================================================================
+
+# Power response: scientific notation
+# Examples: "5E-9", "1.234E-6", "+.75E-9", "-1.5E-3"
+[responses.power]
+pattern = "^\\s*(?P<value>[+-]?\\.?\\d+\\.?\\d*[Ee][+-]?\\d+|[+-]?\\d+\\.?\\d*)\\s*$"
+
+[responses.power.fields.value]
+type = "float"
+
+# Wavelength response: 4-digit nm value
+# Example: "0780" for 780nm
+[responses.wavelength]
+pattern = "^\\s*(?P<wavelength>\\d+)\\s*$"
+
+[responses.wavelength.fields.wavelength]
+type = "int"
+
+# Range response: single digit 1-8
+[responses.range]
+pattern = "^\\s*(?P<range>[1-8])\\s*$"
+
+[responses.range.fields.range]
+type = "int"
+
+# Units response: 0=W, 1=dBm, 2=dB
+[responses.units]
+pattern = "^\\s*(?P<units>[012])\\s*$"
+
+[responses.units.fields.units]
+type = "int"
+
+# ==============================================================================
+# Error Code Mapping
+# ==============================================================================
+
+[error_codes."ERR"]
+name = "Error"
+description = "General error"
+recoverable = true
+
+[error_codes."OVER"]
+name = "Overrange"
+description = "Power reading above range"
+recoverable = true
+
+[error_codes."UNDER"]
+name = "Underrange"
+description = "Power reading below range"
+recoverable = true
+
+# ==============================================================================
+# Trait Mapping: Readable
+# ==============================================================================
+
+[trait_mapping.Readable.read]
+command = "read_power"
+output_field = "value"
+
+# ==============================================================================
+# Trait Mapping: WavelengthTunable
+# ==============================================================================
+
+[trait_mapping.WavelengthTunable.set_wavelength]
+command = "set_wavelength"
+input_param = "wavelength_nm"
+from_param = "wavelength"
+
+[trait_mapping.WavelengthTunable.get_wavelength]
+command = "get_wavelength"
+output_field = "wavelength"

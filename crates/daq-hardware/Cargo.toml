@@ -20,6 +20,11 @@ dirs = "5.0"
 rand = "0.8.5"
 toml = "0.9.8"
 dashmap = "6.1"
+serde_valid = "0.24"
+schemars = "0.8"
+evalexpr = "11"
+figment = { version = "0.10", features = ["toml"] }
+enum_dispatch = "0.3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1.36", features = ["sync", "time", "macros", "fs", "io-util"] }
@@ -53,6 +58,7 @@ default = ["tokio_serial", "serial"]
 serial = ["dep:serialport"]
 tokio_serial = ["dep:tokio-serial", "serial"]
 driver-thorlabs = ["tokio_serial"]
+driver-thorlabs-config = ["driver-thorlabs"]  # Config-based ELL14 driver
 driver-newport = ["tokio_serial"]
 driver-spectra-physics = ["tokio_serial"]
 full = ["driver-thorlabs", "driver-newport", "driver-spectra-physics", "instrument_photometrics", "simulator"]

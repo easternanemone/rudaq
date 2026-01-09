@@ -1,0 +1,203 @@
+# config/devices/esp300.toml
+# Newport ESP300 Universal Motion Controller - Protocol Definition
+#
+# This configuration defines the ESP300 SCPI-like protocol for config-driven
+# driver instantiation. It enables creating a GenericSerialDriver that
+# behaves identically to the hand-coded Esp300Driver.
+#
+# Reference: ESP300 Universal Motion Controller/Driver User's Manual
+
+[device]
+name = "Newport ESP300"
+description = "Multi-axis motion controller (up to 3 axes)"
+manufacturer = "Newport"
+model = "ESP300"
+protocol = "esp300"
+category = "stage"
+capabilities = ["Movable", "Parameterized"]
+
+# ==============================================================================
+# Connection Settings
+# ==============================================================================
+
+[connection]
+type = "serial"
+baud_rate = 19200
+data_bits = 8
+parity = "none"
+stop_bits = 1
+flow_control = "none"
+timeout_ms = 5000
+terminator_tx = "\r\n"        # ESP300 uses CR+LF
+terminator_rx = "\r\n"
+
+# ==============================================================================
+# Device Parameters
+# ==============================================================================
+
+[parameters.axis]
+type = "int"
+default = 1
+range = [1, 3]
+description = "Axis number (1-3)"
+
+[parameters.position_mm]
+type = "float"
+default = 0.0
+unit = "mm"
+description = "Current position"
+
+[parameters.velocity_mm_s]
+type = "float"
+default = 10.0
+unit = "mm/s"
+description = "Motion velocity"
+
+[parameters.acceleration_mm_s2]
+type = "float"
+default = 100.0
+unit = "mm/s^2"
+description = "Motion acceleration"
+
+# ==============================================================================
+# Command Definitions
+# ==============================================================================
+
+# --- Movement Commands ---
+
+[commands.move_absolute]
+template = "${address}PA${position}"
+description = "Move to absolute position (mm)"
+parameters = { position = "float" }
+expects_response = false
+
+[commands.move_relative]
+template = "${address}PR${distance}"
+description = "Move relative distance (mm)"
+parameters = { distance = "float" }
+expects_response = false
+
+[commands.home]
+template = "${address}OR"
+description = "Home axis (find mechanical zero)"
+expects_response = false
+
+[commands.stop]
+template = "${address}ST"
+description = "Stop motion immediately"
+expects_response = false
+
+# --- Query Commands ---
+
+[commands.get_position]
+template = "${address}TP?"
+description = "Query current position"
+response = "position"
+
+[commands.get_motion_done]
+template = "${address}MD?"
+description = "Query motion status (0=stationary, 1=moving)"
+response = "motion_status"
+
+# --- Configuration Commands ---
+
+[commands.get_velocity]
+template = "${address}VA?"
+description = "Query velocity"
+response = "velocity"
+
+[commands.set_velocity]
+template = "${address}VA${velocity}"
+description = "Set velocity (mm/s)"
+parameters = { velocity = "float" }
+expects_response = false
+
+[commands.get_acceleration]
+template = "${address}AC?"
+description = "Query acceleration"
+response = "acceleration"
+
+[commands.set_acceleration]
+template = "${address}AC${acceleration}"
+description = "Set acceleration (mm/s^2)"
+parameters = { acceleration = "float" }
+expects_response = false
+
+# ==============================================================================
+# Response Definitions
+# ==============================================================================
+
+# Position response: numeric value (may have whitespace)
+# Example: "12.345" or "  12.345  "
+[responses.position]
+pattern = "^\\s*(?P<value>[+-]?\\d+\\.?\\d*)\\s*$"
+
+[responses.position.fields.value]
+type = "float"
+
+# Motion status: 0=stationary, 1=moving
+[responses.motion_status]
+pattern = "^\\s*(?P<status>[01])\\s*$"
+
+[responses.motion_status.fields.status]
+type = "int"
+
+# Velocity response
+[responses.velocity]
+pattern = "^\\s*(?P<value>[+-]?\\d+\\.?\\d*)\\s*$"
+
+[responses.velocity.fields.value]
+type = "float"
+
+# Acceleration response
+[responses.acceleration]
+pattern = "^\\s*(?P<value>[+-]?\\d+\\.?\\d*)\\s*$"
+
+[responses.acceleration.fields.value]
+type = "float"
+
+# ==============================================================================
+# Error Code Mapping
+# ==============================================================================
+
+[error_codes."0"]
+name = "OK"
+description = "No error"
+recoverable = true
+
+[error_codes."1"]
+name = "AxisNotFound"
+description = "Axis not found"
+recoverable = false
+
+[error_codes."2"]
+name = "CommandNotAllowed"
+description = "Command not allowed in current state"
+recoverable = true
+
+# ==============================================================================
+# Trait Mapping: Movable
+# ==============================================================================
+
+[trait_mapping.Movable.move_abs]
+command = "move_absolute"
+input_param = "position"
+from_param = "position"
+
+[trait_mapping.Movable.move_rel]
+command = "move_relative"
+input_param = "distance"
+from_param = "distance"
+
+[trait_mapping.Movable.position]
+command = "get_position"
+output_field = "value"
+
+[trait_mapping.Movable.stop]
+command = "stop"
+
+[trait_mapping.Movable.wait_settled]
+poll_command = "get_motion_done"
+success_condition = "status == 0"
+poll_interval_ms = 100
+timeout_ms = 60000
