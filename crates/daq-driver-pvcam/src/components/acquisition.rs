@@ -1723,11 +1723,13 @@ impl PvcamAcquisition {
                             frame_count.load(Ordering::Relaxed)
                         );
 
-                        // Step 1: Stop acquisition
-                        ffi_safe::stop_acquisition(hcam, CCS_HALT);
+                        // Step 1: Stop acquisition with CCS_CLEAR to fully reset camera state
+                        // CCS_CLEAR may reset more internal state than CCS_HALT
+                        ffi_safe::stop_acquisition(hcam, CCS_CLEAR);
 
-                        // Step 2: Brief delay for camera to settle
-                        std::thread::sleep(std::time::Duration::from_millis(50));
+                        // Step 2: Extended delay for camera to fully reset
+                        // The camera may need more time after CCS_CLEAR
+                        std::thread::sleep(std::time::Duration::from_millis(200));
 
                         // Step 3: Full restart with setup + start (camera may need re-setup)
                         match ffi_safe::full_restart_acquisition(
