@@ -119,7 +119,9 @@ fn get_default_i32_param(hcam: i16, param_id: u32) -> Option<i32> {
 /// Set an i32 parameter value
 fn set_i32_param(hcam: i16, param_id: u32, value: i32) -> bool {
     unsafe {
-        pl_set_param(hcam, param_id, &value as *const i32 as *const c_void) != 0
+        // pl_set_param takes *mut c_void - cast through raw pointer
+        let value_ptr = &value as *const i32 as *mut c_void;
+        pl_set_param(hcam, param_id, value_ptr) != 0
     }
 }
 
