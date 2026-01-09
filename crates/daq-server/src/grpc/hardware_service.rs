@@ -1234,6 +1234,8 @@ impl HardwareService for HardwareServiceImpl {
 
         // Spawn task to forward frames from broadcast to gRPC stream
         let device_id_clone = device_id.clone();
+        // Clone frame_producer for graceful disconnect (bd-cckz)
+        let frame_producer_clone = frame_producer.clone();
         tokio::spawn(async move {
             // Initialize to allow first frame through immediately
             let mut last_frame_time = match min_interval {
@@ -1360,6 +1362,19 @@ impl HardwareService for HardwareServiceImpl {
 
                         if tx.send(Ok(frame_data)).await.is_err() {
                             tracing::info!(device_id = %device_id_clone, "Client disconnected from frame stream");
+                            // Graceful disconnect: stop acquisition when client disconnects (bd-cckz)
+                            if let Err(e) = frame_producer_clone.stop_stream().await {
+                                tracing::warn!(
+                                    device_id = %device_id_clone,
+                                    error = %e,
+                                    "Failed to stop stream on client disconnect"
+                                );
+                            } else {
+                                tracing::info!(
+                                    device_id = %device_id_clone,
+                                    "Stopped acquisition after client disconnect"
+                                );
+                            }
                             break;
                         }
 

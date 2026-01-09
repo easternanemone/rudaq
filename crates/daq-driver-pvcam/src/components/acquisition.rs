@@ -1384,6 +1384,11 @@ impl PvcamAcquisition {
             std::ptr::null_mut()
         };
 
+        // Track when receiver count became zero for graceful disconnect (bd-cckz)
+        // Auto-stop acquisition after 5 seconds of no subscribers
+        let mut no_subscribers_since: Option<std::time::Instant> = None;
+        const NO_SUBSCRIBER_TIMEOUT: Duration = Duration::from_secs(5);
+
         // Check both streaming flag and shutdown signal (bd-z8q8).
         // Shutdown is set in Drop to ensure the loop exits before SDK uninit.
         // Use Acquire ordering to synchronize with Release store in Drop (bd-nfk6).
@@ -1616,16 +1621,41 @@ impl PvcamAcquisition {
                     // first ensures GUI streaming gets frames regardless.
                     let receiver_count = frame_tx.receiver_count();
                     if receiver_count == 0 {
+                        // Track when we lost all subscribers (bd-cckz)
+                        if no_subscribers_since.is_none() {
+                            no_subscribers_since = Some(std::time::Instant::now());
+                            tracing::info!(
+                                "No broadcast subscribers, starting {} second disconnect timer",
+                                NO_SUBSCRIBER_TIMEOUT.as_secs()
+                            );
+                        } else if let Some(since) = no_subscribers_since {
+                            if since.elapsed() >= NO_SUBSCRIBER_TIMEOUT {
+                                tracing::info!(
+                                    "No subscribers for {} seconds, stopping acquisition (bd-cckz)",
+                                    NO_SUBSCRIBER_TIMEOUT.as_secs()
+                                );
+                                break;
+                            }
+                        }
                         tracing::warn!(
                             "Dropping frame {}: no active broadcast subscribers",
                             current_frame_nr
                         );
-                    } else if current_frame_nr % 30 == 1 {
-                        tracing::debug!(
-                            "Sending frame {} to {} broadcast subscribers",
-                            current_frame_nr,
-                            receiver_count
-                        );
+                    } else {
+                        // Reset timer when subscribers reconnect
+                        if no_subscribers_since.is_some() {
+                            tracing::info!(
+                                "Subscriber reconnected, canceling disconnect timer"
+                            );
+                            no_subscribers_since = None;
+                        }
+                        if current_frame_nr % 30 == 1 {
+                            tracing::debug!(
+                                "Sending frame {} to {} broadcast subscribers",
+                                current_frame_nr,
+                                receiver_count
+                            );
+                        }
                     }
                     let _ = frame_tx.send(frame_arc.clone());
 
