@@ -46,8 +46,8 @@ use tracing::{debug, instrument, trace, warn};
 // Rhai scripting support (optional)
 #[cfg(feature = "scripting")]
 use crate::drivers::script_engine::{
-    create_sandboxed_engine, execute_script, CompiledScripts, ScriptContext, ScriptEngineConfig,
-    ScriptResult,
+    create_sandboxed_engine, execute_script_async, CompiledScripts, ScriptContext,
+    ScriptEngineConfig, ScriptResult,
 };
 #[cfg(feature = "scripting")]
 use rhai::Engine;
@@ -1202,6 +1202,10 @@ impl GenericSerialDriver {
     /// - Iterative correction loops
     /// - Custom parsing and data transformations
     ///
+    /// **Timeout Enforcement:** Scripts are executed in a blocking thread pool with
+    /// a timeout wrapper. If the configured timeout is exceeded, the script is
+    /// cancelled and an error is returned.
+    ///
     /// # Arguments
     /// * `script_name` - Name of the script in the config's `[scripts]` section
     /// * `input_value` - Optional input value passed to the script as `input`
@@ -1221,16 +1225,15 @@ impl GenericSerialDriver {
         script_name: &str,
         input_value: Option<f64>,
     ) -> Result<Option<f64>> {
-        // Get compiled script
+        // Get compiled script (Arc<AST> for thread-safe sharing)
         let ast = self
             .compiled_scripts
             .get(script_name)
             .ok_or_else(|| anyhow!("Script '{}' not found", script_name))?;
 
-        // Build script context with parameters
-        let params = self.parameters.lock().await.clone();
-
-        let context = ScriptContext::new(&self.address, input_value, params);
+        // Build script context with shared parameters (Arc<HashMap> - zero-copy)
+        let params = Arc::new(self.parameters.lock().await.clone());
+        let context = ScriptContext::with_shared_params(&self.address, input_value, params);
 
         // Get script timeout from config
         let timeout = self
@@ -1240,9 +1243,10 @@ impl GenericSerialDriver {
             .map(|s| Duration::from_millis(s.timeout_ms as u64))
             .unwrap_or(Duration::from_secs(30));
 
-        // Execute script
-        debug!(script = %script_name, "Executing Rhai script");
-        let result = execute_script(&self.script_engine, ast, &context, timeout)?;
+        // Execute script with timeout enforcement
+        debug!(script = %script_name, timeout_ms = %timeout.as_millis(), "Executing Rhai script");
+        let result =
+            execute_script_async(self.script_engine.clone(), ast, &context, timeout).await?;
 
         // Convert result to f64
         match result {

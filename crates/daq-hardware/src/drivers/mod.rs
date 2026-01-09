@@ -19,8 +19,8 @@ pub use generic_serial::{DynSerial, GenericSerialDriver, SharedPort};
 // Re-export scripting types when enabled
 #[cfg(feature = "scripting")]
 pub use script_engine::{
-    create_sandboxed_engine, execute_script, validate_script, CompiledScripts, ScriptContext,
-    ScriptEngineConfig, ScriptResult,
+    create_sandboxed_engine, execute_script_async, execute_script_sync, validate_script,
+    CompiledScripts, ScriptContext, ScriptEngineConfig, ScriptResult,
 };
 
 #[cfg(feature = "driver-newport")]
