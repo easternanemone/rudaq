@@ -47,6 +47,7 @@ const PARAM_PAR_SIZE: u32 = 100794425;         // from bindings.rs
 const ATTR_AVAIL: i16 = 8;
 const ATTR_CURRENT: i16 = 0;
 const ATTR_COUNT: i16 = 1;
+const ATTR_DEFAULT: i16 = 5;  // Key for getting camera's default value!
 
 /// Get PVCAM error message
 fn get_error_message() -> String {
@@ -90,6 +91,19 @@ fn get_enum_count(hcam: i16, param_id: u32) -> Option<u32> {
     unsafe {
         if pl_get_param(hcam, param_id, ATTR_COUNT, &mut count as *mut _ as *mut c_void) != 0 {
             Some(count)
+        } else {
+            None
+        }
+    }
+}
+
+/// Get default value of an i32 parameter (uses ATTR_DEFAULT)
+/// This is what PVCamTestCli uses for "<camera default>" values!
+fn get_default_i32_param(hcam: i16, param_id: u32) -> Option<i32> {
+    let mut value: i32 = 0;
+    unsafe {
+        if pl_get_param(hcam, param_id, ATTR_DEFAULT, &mut value as *mut _ as *mut c_void) != 0 {
+            Some(value)
         } else {
             None
         }
@@ -210,16 +224,33 @@ async fn test_circ_buffer_capabilities() {
     // Query PARAM_EXPOSURE_MODE
     // ========================================
     println!("\n--- Querying PARAM_EXPOSURE_MODE ---");
+    let mut default_exp_mode: Option<i32> = None;
     if is_param_available(hcam, PARAM_EXPOSURE_MODE) {
         println!("[OK] PARAM_EXPOSURE_MODE is available");
+
+        // Get the DEFAULT value - this is what PVCamTestCli uses!
+        if let Some(def_val) = get_default_i32_param(hcam, PARAM_EXPOSURE_MODE) {
+            println!("     ATTR_DEFAULT = {} (0x{:04X})", def_val, def_val);
+            default_exp_mode = Some(def_val);
+            if def_val == TIMED_MODE as i32 {
+                println!("     ^ Default is TIMED_MODE");
+            } else if def_val == EXT_TRIG_INTERNAL as i32 {
+                println!("     ^ Default is EXT_TRIG_INTERNAL");
+            } else {
+                println!("     ^ Default is an extended mode (not TIMED_MODE)");
+            }
+        }
+
         if let Some(count) = get_enum_count(hcam, PARAM_EXPOSURE_MODE) {
             println!("     {} modes available:", count);
             for i in 0..count {
                 if let Some((value, name)) = get_enum_entry(hcam, PARAM_EXPOSURE_MODE, i) {
-                    println!("       [{}] {} = {}", i, name, value);
+                    let is_default = default_exp_mode == Some(value);
+                    let marker = if is_default { " <-- DEFAULT" } else { "" };
+                    println!("       [{}] {} = {}{}", i, name, value, marker);
                     // Check if this is TIMED_MODE or EXT_TRIG_INTERNAL
                     if value == TIMED_MODE as i32 {
-                        println!("           ^ This is TIMED_MODE");
+                        println!("           ^ This is TIMED_MODE (not the default!)");
                     }
                     if value == EXT_TRIG_INTERNAL as i32 {
                         println!("           ^ This is EXT_TRIG_INTERNAL");
@@ -564,6 +595,122 @@ async fn test_circ_buffer_capabilities() {
         unsafe {
             pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
         }
+    }
+
+    // ========================================
+    // Test 6: Camera DEFAULT exposure mode + CIRC_OVERWRITE (like PVCamTestCli!)
+    // ========================================
+    println!("\n--- Test 6: Camera DEFAULT exposure mode + CIRC_OVERWRITE ---");
+    println!("     This is what PVCamTestCli uses with '<camera default>'!");
+
+    if let Some(def_mode) = default_exp_mode {
+        println!("     Using exp_mode = {} (camera's ATTR_DEFAULT value)", def_mode);
+
+        // Register callback first (like SDK example)
+        callback_registered = false;
+        unsafe {
+            let result = pl_cam_register_callback_ex3(
+                hcam,
+                PL_CALLBACK_EOF,
+                test_eof_callback as *mut c_void,
+                ptr::null_mut(),
+            );
+            if result != 0 {
+                callback_registered = true;
+                println!("[OK] Callback registered");
+            }
+        }
+
+        unsafe {
+            let result = pl_exp_setup_cont(
+                hcam,
+                1,
+                &region as *const _,
+                def_mode as i16,  // Use camera's default mode!
+                exposure_ms,
+                &mut frame_bytes,
+                CIRC_OVERWRITE,
+            );
+            if result != 0 {
+                println!("[OK] pl_exp_setup_cont with DEFAULT mode + CIRC_OVERWRITE succeeded");
+
+                let buffer_count = 20usize;
+                let buffer_size = (frame_bytes as usize) * buffer_count;
+                let mut buffer = vec![0u8; buffer_size];
+
+                let start_result = pl_exp_start_cont(
+                    hcam,
+                    buffer.as_mut_ptr() as *mut c_void,
+                    buffer_size as uns32,
+                );
+                if start_result != 0 {
+                    println!("[OK] pl_exp_start_cont with DEFAULT mode + CIRC_OVERWRITE succeeded!");
+                    println!("\n*** CAMERA DEFAULT MODE + CIRC_OVERWRITE WORKS! ***");
+                    println!("*** This is the solution - use camera's default exposure mode! ***\n");
+                    pl_exp_abort(hcam, CCS_HALT);
+                } else {
+                    println!("[FAIL] pl_exp_start_cont failed: {}", get_error_message());
+                    let err_code = pl_error_code();
+                    println!("       Error code: {}", err_code);
+                }
+            } else {
+                println!("[FAIL] pl_exp_setup_cont failed: {}", get_error_message());
+            }
+        }
+
+        if callback_registered {
+            unsafe {
+                pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
+            }
+        }
+    } else {
+        println!("[SKIP] Could not get default exposure mode");
+    }
+
+    // ========================================
+    // Test 7: Camera DEFAULT mode WITHOUT callback + CIRC_OVERWRITE
+    // ========================================
+    println!("\n--- Test 7: Camera DEFAULT mode WITHOUT callback + CIRC_OVERWRITE ---");
+
+    if let Some(def_mode) = default_exp_mode {
+        println!("     Using exp_mode = {} (camera's ATTR_DEFAULT value), NO callback", def_mode);
+
+        unsafe {
+            let result = pl_exp_setup_cont(
+                hcam,
+                1,
+                &region as *const _,
+                def_mode as i16,
+                exposure_ms,
+                &mut frame_bytes,
+                CIRC_OVERWRITE,
+            );
+            if result != 0 {
+                println!("[OK] pl_exp_setup_cont succeeded");
+
+                let buffer_count = 20usize;
+                let buffer_size = (frame_bytes as usize) * buffer_count;
+                let mut buffer = vec![0u8; buffer_size];
+
+                let start_result = pl_exp_start_cont(
+                    hcam,
+                    buffer.as_mut_ptr() as *mut c_void,
+                    buffer_size as uns32,
+                );
+                if start_result != 0 {
+                    println!("[OK] DEFAULT mode WITHOUT callback + CIRC_OVERWRITE succeeded!");
+                    pl_exp_abort(hcam, CCS_HALT);
+                } else {
+                    println!("[FAIL] pl_exp_start_cont failed: {}", get_error_message());
+                    let err_code = pl_error_code();
+                    println!("       Error code: {}", err_code);
+                }
+            } else {
+                println!("[FAIL] pl_exp_setup_cont failed: {}", get_error_message());
+            }
+        }
+    } else {
+        println!("[SKIP] Could not get default exposure mode");
     }
 
     // ========================================
