@@ -923,7 +923,11 @@ impl PvcamAcquisition {
                     TIMED_MODE,
                     exposure_ms as uns32,
                     &mut frame_bytes,
-                    CIRC_NO_OVERWRITE,
+                    // bd-3gnv: Use CIRC_OVERWRITE to prevent camera stalling when buffer fills.
+                    // With CIRC_NO_OVERWRITE, if host can't unlock frames fast enough, the camera
+                    // pauses and may not resume. CIRC_OVERWRITE overwrites oldest frames instead,
+                    // ensuring continuous acquisition. Frame loss is detected via FrameNr discontinuities.
+                    CIRC_OVERWRITE,
                 ) == 0
                 {
                     let _ = self.streaming.set(false).await;
