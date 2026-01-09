@@ -1394,7 +1394,12 @@ impl PvcamAcquisition {
         // Check both streaming flag and shutdown signal (bd-z8q8).
         // Shutdown is set in Drop to ensure the loop exits before SDK uninit.
         // Use Acquire ordering to synchronize with Release store in Drop (bd-nfk6).
+        // bd-3gnv: Debug output for frame loop entry
+        eprintln!("[PVCAM DEBUG] Frame loop starting: use_callback={}, exposure_ms={}", use_callback, exposure_ms);
+        let mut loop_iteration: u64 = 0;
+
         while streaming.get() && !shutdown.load(Ordering::Acquire) {
+            loop_iteration += 1;
             // Wait for frame notification (callback mode) or poll (fallback mode)
             // bd-g9gq: Use FFI safe wrapper with explicit safety contract
             let has_frames = if use_callback {
@@ -1429,12 +1434,22 @@ impl PvcamAcquisition {
                 }
                 consecutive_timeouts += 1;
 
-                // DIAGNOSTIC PROBE: Warn every 1 second
+                // DIAGNOSTIC PROBE: Warn every 1 second (bd-3gnv debug)
                 if consecutive_timeouts % 10 == 0 {
                     let (st, bytes, cnt) = match ffi_safe::check_cont_status(hcam) {
                         Ok(vals) => vals,
                         Err(_) => (-999, 0, 0),
                     };
+                    // bd-3gnv: Use eprintln for guaranteed output during debugging
+                    eprintln!(
+                        "[PVCAM DEBUG] Timeouts: {}, Status: {}, Bytes: {}, BufferCnt: {}, streaming: {}, callback_pending: {}",
+                        consecutive_timeouts,
+                        st,
+                        bytes,
+                        cnt,
+                        streaming.get(),
+                        callback_ctx.pending_frames.load(Ordering::Acquire)
+                    );
                     tracing::warn!(
                         "DIAGNOSTIC: Timeouts: {}, Status: {}, Bytes: {}, BufferCnt: {}",
                         consecutive_timeouts,
@@ -1667,6 +1682,9 @@ impl PvcamAcquisition {
                     frame = frame.with_metadata(ext_metadata);
 
                     frame_count.fetch_add(1, Ordering::Relaxed);
+                    // bd-3gnv: Debug output for frame processed
+                    let current_count = frame_count.load(Ordering::Relaxed);
+                    eprintln!("[PVCAM DEBUG] Frame {} processed, FrameNr={}, iter={}", current_count, current_frame_nr, loop_iteration);
                     let frame_arc = Arc::new(frame);
 
                     // Deliver to channels
