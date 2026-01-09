@@ -578,6 +578,47 @@ if script_content.len() > MAX_SCRIPT_SIZE {
 - `hardware_tests` - Hardware-in-the-loop tests
 - `plugins_hot_reload` - Hot reload for plugin configs
 
+## Declarative Driver Plugin System
+
+Add new serial instruments without writing Rust code using TOML configuration files.
+
+**Quick Start:**
+
+```bash
+# Create a device config in config/devices/
+cat > config/devices/my_device.toml << 'EOF'
+[device]
+name = "My Device"
+protocol = "my_protocol"
+capabilities = ["Movable"]
+
+[connection]
+baud_rate = 9600
+timeout_ms = 1000
+
+[commands.move_absolute]
+template = "MA${position}"
+timeout_ms = 5000
+
+[responses.position]
+pattern = "^POS(?P<value>\\d+)$"
+EOF
+
+# Use the driver
+let driver = DriverFactory::create_from_config("config/devices/my_device.toml", port).await?;
+```
+
+**Key Features:**
+- Command templating with parameter interpolation
+- Response parsing with regex capture groups
+- Unit conversions (e.g., degrees to pulses)
+- Trait mapping for capability implementation
+- Production hardening: per-command timeout, retry with backoff, error detection, init sequences
+
+**Reference Configurations:** See `config/devices/ell14.toml` for a complete example.
+
+**Documentation:** See `.prompts/006-driver-plugins-phase4/SUMMARY.md` for implementation details.
+
 ## Thorlabs ELL14 Rotator Setup
 
 **Use the Bus-Centric API (Ell14Bus)**
@@ -612,6 +653,13 @@ for dev in devices {
 - `bus.device(addr)` - Gets a calibrated device handle (queries firmware for pulses/degree)
 - `bus.device_uncalibrated(addr)` - Gets device with default calibration (faster)
 - `bus.discover()` - Scans all 16 addresses to enumerate devices
+
+**Driver Methods:**
+- `driver.home()` - Home to mechanical zero (default direction)
+- `driver.home_with_direction(Some(HomeDirection::Clockwise))` - Home with specific direction
+- `driver.skip_frequency_search()` - Bypass 15s startup frequency search
+- `driver.enable_frequency_search()` - Restore default frequency search
+- `driver.optimize_motors_fine()` - Fine-tune motor resonance (long operation, ~5 min)
 
 **Deprecated Constructors:** The following are deprecated and will be removed in 0.3.0:
 - `Ell14Driver::new()` - Opens dedicated port (fails on multidrop)
