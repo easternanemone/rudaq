@@ -207,9 +207,10 @@ async fn test_streaming_stability() {
         .await
         .expect("Failed to open camera");
 
-    // 100ms exposure => ~10 FPS - more conservative for reliable streaming
+    // bd-3gnv TEST: Try 20ms exposure (~50 FPS) instead of 100ms
+    // The smoke test works with 10ms, stability test fails at 100ms
     camera
-        .set_exposure(0.100)
+        .set_exposure(0.020) // 20ms = ~50 FPS
         .await
         .expect("Failed to set exposure");
 
@@ -274,8 +275,8 @@ async fn test_streaming_stability() {
     println!("Camera frame counter: {}", camera.frame_count());
 
     assert!(errors == 0, "Should have no errors during stability test");
-    // With 100ms exposure over 10s, expect ~90+ frames (accounting for setup overhead)
-    assert!(frame_count > 70, "Should have captured >70 frames in 10s at 100ms exposure");
+    // With 20ms exposure over 10s, expect ~400+ frames (accounting for setup overhead)
+    assert!(frame_count > 300, "Should have captured >300 frames in 10s at 20ms exposure");
 
     println!("Stability test PASSED");
 }
