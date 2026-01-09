@@ -1400,11 +1400,9 @@ impl PvcamAcquisition {
 
         while streaming.get() && !shutdown.load(Ordering::Acquire) {
             loop_iteration += 1;
-            // bd-3gnv: Debug outer loop entry
-            if loop_iteration <= 5 {
-                eprintln!("[PVCAM DEBUG] Outer loop iter={}, streaming={}, shutdown={}",
-                    loop_iteration, streaming.get(), shutdown.load(Ordering::Acquire));
-            }
+            // bd-3gnv: Debug outer loop entry (every iteration)
+            eprintln!("[PVCAM DEBUG] Outer loop iter={}, streaming={}, shutdown={}",
+                loop_iteration, streaming.get(), shutdown.load(Ordering::Acquire));
             // Wait for frame notification (callback mode) or poll (fallback mode)
             // bd-g9gq: Use FFI safe wrapper with explicit safety contract
             let has_frames = if use_callback {
