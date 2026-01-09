@@ -1566,10 +1566,9 @@ impl PvcamAcquisition {
             let mut consecutive_duplicates: u32 = 0;
             let mut fatal_error = false;
 
-            // bd-3gnv: Maximum consecutive duplicates before exiting drain loop.
-            // When the camera stops producing frames, the SDK returns stale frames.
-            // This limit prevents the drain loop from spinning indefinitely.
-            const MAX_CONSECUTIVE_DUPLICATES: u32 = 10;
+            // bd-3gnv: Duplicate detection is handled by immediate exit on any duplicate.
+            // The drain loop breaks as soon as a duplicate is detected, returning to
+            // the outer loop to wait for the next callback signal.
 
             // Stack-allocated FRAME_INFO for pl_exp_get_oldest_frame_ex (bd-ek9n.3)
             // Using zeroed struct as PVCAM will fill in the fields on frame retrieval.
@@ -1691,45 +1690,31 @@ impl PvcamAcquisition {
                             );
                         } else if current_frame_nr == prev_frame_nr {
                             // Duplicate frame detected (bd-ha3w): same FrameNr as previous
-                            // This can happen due to race between callback and frame retrieval
-                            // Skip this frame to prevent duplicates in output stream
+                            // This happens when the SDK returns the same buffer before new data arrives.
+                            // bd-3gnv FIX: Exit drain loop IMMEDIATELY on duplicate.
+                            // Continuing would just get the same stale frame again.
+                            // Return to outer loop to wait for next callback signal.
                             discontinuity_events.fetch_add(1, Ordering::Relaxed);
                             consecutive_duplicates += 1;
 
-                            // bd-3gnv: Log duplicate detection (rate-limited)
-                            if consecutive_duplicates <= 3 {
+                            // Log first duplicate (subsequent ones are expected)
+                            if consecutive_duplicates == 1 {
                                 eprintln!(
-                                    "[PVCAM DEBUG] Duplicate frame detected: FrameNr {} (consecutive={}, elapsed={:?})",
-                                    current_frame_nr, consecutive_duplicates, drain_start.elapsed()
+                                    "[PVCAM DEBUG] Duplicate frame {} - waiting for next callback (elapsed={:?})",
+                                    current_frame_nr, drain_start.elapsed()
                                 );
                             }
-                            tracing::warn!(
-                                "Duplicate frame detected: FrameNr {} already processed, skipping (bd-ha3w)",
-                                current_frame_nr
-                            );
-                            // Release the frame back to SDK without processing
+
+                            // Release the duplicate back to SDK
                             ffi_safe::release_oldest_frame(hcam);
                             if use_callback {
                                 callback_ctx.consume_one();
                             }
 
-                            // bd-3gnv: Exit drain loop after too many consecutive duplicates.
-                            // This indicates the camera has stopped producing new frames but
-                            // the SDK keeps returning stale frames. Go back to outer loop to wait.
-                            if consecutive_duplicates >= MAX_CONSECUTIVE_DUPLICATES {
-                                // Enhanced diagnostics: check SDK state when duplicates detected
-                                let (dup_status, dup_bytes, dup_cnt) = match ffi_safe::check_cont_status(hcam) {
-                                    Ok(result) => result,
-                                    Err(()) => (-999, 0, 0),
-                                };
-                                let dup_err_code = unsafe { pl_error_code() };
-                                eprintln!(
-                                    "[PVCAM DEBUG] Exiting drain loop: {} consecutive duplicates, status={}, bytes={}, buffer_cnt={}, err_code={}, elapsed={:?}",
-                                    consecutive_duplicates, dup_status, dup_bytes, dup_cnt, dup_err_code, drain_start.elapsed()
-                                );
-                                break;
-                            }
-                            continue; // Skip to next frame in drain loop
+                            // bd-3gnv: Exit drain loop immediately on ANY duplicate.
+                            // The SDK is returning stale data because no new frame is ready.
+                            // Waiting in outer loop for next callback is more efficient than spinning.
+                            break; // Exit drain loop, wait for next callback
                         } else if current_frame_nr < expected_frame_nr && current_frame_nr != 1 {
                             // Frame number went backwards (not due to wrap to 1)
                             // This is unexpected but log it as discontinuity
