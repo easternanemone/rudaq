@@ -1606,6 +1606,44 @@ impl PvcamAcquisition {
                         cnt,
                         err_code
                     );
+
+                    // bd-3gnv: Detect 85-frame stall and auto-restart
+                    // Signature: 20+ timeouts (2s), status is READOUT_NOT_ACTIVE (0), 80+ frames received
+                    if consecutive_timeouts >= 20 && st == 0 && frame_count.load(Ordering::Relaxed) >= 80 {
+                        eprintln!(
+                            "[PVCAM DEBUG] Detected 85-frame stall (timeouts={}, status={}, frames={}) - attempting auto-restart",
+                            consecutive_timeouts, st, frame_count.load(Ordering::Relaxed)
+                        );
+                        tracing::info!(
+                            "PVCAM stall detected at {} frames - attempting auto-restart (bd-3gnv)",
+                            frame_count.load(Ordering::Relaxed)
+                        );
+
+                        // Step 1: Stop acquisition
+                        ffi_safe::stop_acquisition(hcam, CCS_HALT);
+
+                        // Step 2: Brief delay for camera to settle
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+
+                        // Step 3: Restart acquisition with same buffer
+                        match ffi_safe::restart_acquisition(hcam, circ_ptr, circ_size_bytes) {
+                            Ok(()) => {
+                                eprintln!("[PVCAM DEBUG] Auto-restart SUCCEEDED - resuming acquisition");
+                                tracing::info!("PVCAM auto-restart succeeded (bd-3gnv)");
+
+                                // Reset state for new acquisition cycle
+                                callback_ctx.pending_frames.store(0, Ordering::Release);
+                                last_hw_frame_nr.store(-1, Ordering::Release);
+                                consecutive_timeouts = 0;
+                                continue; // Resume waiting for frames
+                            }
+                            Err(err_msg) => {
+                                eprintln!("[PVCAM DEBUG] Auto-restart FAILED: {}", err_msg);
+                                tracing::error!("PVCAM auto-restart failed: {} (bd-3gnv)", err_msg);
+                                // Continue to max_consecutive_timeouts check - will eventually timeout
+                            }
+                        }
+                    }
                 }
 
                 if consecutive_timeouts >= max_consecutive_timeouts {
