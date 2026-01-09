@@ -127,6 +127,86 @@ Added comprehensive module-level documentation to `src/hardware/mod.rs` covering
 5. **Flow Control** - Simulate realistic device response delays
 6. **Error Coverage** - Test malformed responses and edge cases
 
+## Timing Tests: Deterministic Patterns
+
+Tests that measure timing behavior should use Tokio's time mocking with `start_paused = true` to avoid flakiness in CI environments.
+
+### The Problem with Wall-Clock Time
+
+```rust
+// BAD: Flaky due to system load variations
+#[tokio::test]
+async fn test_timing_flaky() {
+    let start = std::time::Instant::now();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let elapsed = start.elapsed();
+    // May fail under load: actual could be 150ms+
+    assert!(elapsed.as_millis() >= 95 && elapsed.as_millis() <= 105);
+}
+```
+
+### The Solution: Paused Time
+
+```rust
+// GOOD: Deterministic with simulated time
+#[tokio::test(start_paused = true)]
+async fn test_timing_deterministic() {
+    use tokio::time::Instant;  // Use tokio's Instant, not std!
+
+    let start = Instant::now();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let elapsed = start.elapsed();
+
+    // Always exactly 100ms in simulated time
+    assert_eq!(elapsed.as_millis(), 100);
+}
+```
+
+### How `start_paused` Works
+
+1. Time starts frozen at a virtual epoch
+2. Time only advances during `tokio::time::sleep()` or `timeout()`
+3. All sleeps complete "instantly" in wall-clock time
+4. **Must use `tokio::time::Instant`**, not `std::time::Instant`
+
+### When to Use Each Approach
+
+| Scenario | Approach |
+|----------|----------|
+| Testing mock device timing | `start_paused = true` |
+| Testing async state machines | `start_paused = true` |
+| Benchmarking real performance | Wall-clock (with relaxed tolerance) |
+| Testing hardware timeouts | Wall-clock (hardware profile) |
+
+### Tolerance Helpers for Wall-Clock Tests
+
+For tests that must use wall-clock time (e.g., hardware interaction), use the tolerance helpers from `tests/common/mod.rs`:
+
+```rust
+use crate::common::{assert_duration_near, TimingTolerance, env_timing_tolerance};
+
+#[tokio::test]
+async fn test_with_tolerance() {
+    let start = std::time::Instant::now();
+    // ... operation ...
+    let elapsed = start.elapsed();
+
+    assert_duration_near(
+        elapsed,
+        Duration::from_millis(100),
+        env_timing_tolerance(),  // Relaxed in CI, Normal locally
+        "operation timing"
+    );
+}
+```
+
+**Tolerance Levels:**
+- `Exact` (0%) - Only for simulated time
+- `Tight` (5%) - Stable, controlled environments
+- `Normal` (20%) - Default for local development
+- `Relaxed` (50%) - CI environments with variable load
+- `VeryRelaxed` (100%) - Resource-constrained environments
+
 ## Usage for New Drivers
 
 When adding a new hardware driver:

@@ -29,6 +29,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,7 +41,10 @@ jobs:
           cache-key: ci-ubuntu
 
       - name: Install SARIF tools
-        run: cargo install clippy-sarif sarif-fmt
+        run: |
+          cargo install clippy-sarif sarif-fmt --locked
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
       - name: cargo fmt --check
         run: cargo fmt --all --check
@@ -76,6 +80,7 @@ jobs:
   ast-grep:
     name: AST-Grep Quality Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -123,6 +128,7 @@ jobs:
           name: ast-grep-results-${{ github.sha }}
           path: ast-grep-results.json
           if-no-files-found: error
+          retention-days: 14
 
       - name: Fail on ERROR violations
         if: steps.ast-grep-scan.outputs.error_count > 0
@@ -137,9 +143,29 @@ jobs:
           echo "::warning::Found ${{ steps.ast-grep-scan.outputs.warning_count }} warnings and ${{ steps.ast-grep-scan.outputs.hint_count }} hints"
           echo "These are informational and do not block the build."
 
+  msrv:
+    name: MSRV Check (1.75)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-daq
+        with:
+          rust-toolchain: "1.75"
+          cache-key: msrv
+
+      - name: Check MSRV compatibility
+        run: |
+          # Exclude daq-server which uses edition 2024 (requires Rust 1.85+)
+          cargo check --workspace --exclude daq-server --exclude daq-egui
+
   security:
     name: Security Audit
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -156,6 +182,7 @@ jobs:
   docs:
     name: Documentation
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -176,10 +203,12 @@ jobs:
           name: docs-${{ github.sha }}
           path: target/doc
           if-no-files-found: error
+          retention-days: 30
 
   blueprints:
     name: Rerun Blueprints
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -199,10 +228,12 @@ jobs:
           path: |
             crates/daq-server/blueprints/*.rbl
           if-no-files-found: error
+          retention-days: 30
 
   tee-bench:
     name: Tee Bench Sample
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [lint, ast-grep]
     if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'tee-bench')
     steps:
@@ -234,10 +265,12 @@ jobs:
           name: tee-bench-${{ github.sha }}
           path: tee_bench_output.txt
           if-no-files-found: error
+          retention-days: 14
 
   test:
     name: Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     needs: [lint, ast-grep]
     strategy:
       fail-fast: false
@@ -252,15 +285,28 @@ jobs:
         with:
           cache-key: ci-${{ matrix.os }}
 
-      - name: Unit and integration tests
-        run: cargo test --workspace --all-targets
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Unit and integration tests (nextest)
+        run: |
+          cargo nextest run --workspace --profile ci 2>&1 | tee test-output.txt
+          # Extract test summary for GitHub step summary
+          echo "### Test Results (${{ matrix.os }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          tail -30 test-output.txt >> "$GITHUB_STEP_SUMMARY" || true
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Documentation tests
+        # Doctests are not supported by nextest, run with cargo test
         run: cargo test --workspace --doc
 
   hardware-tests:
     name: Hardware Tests (Tailnet)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [lint, ast-grep]
     # Only run on main branch pushes (OAuth creates ephemeral nodes with tag:ci)
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -319,6 +365,7 @@ jobs:
   features:
     name: Feature Builds (${{ matrix.feature-set }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: lint
     strategy:
       fail-fast: false
@@ -355,6 +402,7 @@ jobs:
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [test, features, security, docs]
     steps:
       - name: Checkout
@@ -384,10 +432,12 @@ jobs:
           name: coverage-${{ github.sha }}
           path: coverage
           if-no-files-found: error
+          retention-days: 30
 
   release:
     name: Release (${{ matrix.os }})
     if: startsWith(github.ref, 'refs/tags/')
+    timeout-minutes: 45
     needs: [lint, test, features, coverage]
     runs-on: ${{ matrix.os }}
     strategy:
@@ -428,10 +478,12 @@ jobs:
           name: ${{ matrix.os }}-release-${{ github.ref_name }}
           path: artifacts
           if-no-files-found: error
+          retention-days: 90
 
   publish-release:
     name: Publish Release
     if: startsWith(github.ref, 'refs/tags/')
+    timeout-minutes: 10
     needs: release
     runs-on: ubuntu-latest
     steps:
@@ -441,7 +493,7 @@ jobs:
           path: release-artifacts
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: release-artifacts/**/*
           generate_release_notes: true
@@ -451,6 +503,7 @@ jobs:
   sync-public:
     name: Sync to Public Repository
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    timeout-minutes: 10
     needs: [lint, test, features, security, docs, coverage]
     runs-on: ubuntu-latest
     steps:

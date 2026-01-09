@@ -515,8 +515,10 @@ async fn test_graceful_shutdown() {
 // E2E Test: High-Throughput Acquisition
 // =============================================================================
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_high_throughput_acquisition() {
+    use tokio::time::Instant;
+
     let camera = MockCamera::new(640, 480);
     let power_meter = MockPowerMeter::new(1.0);
 
@@ -533,16 +535,22 @@ async fn test_high_throughput_acquisition() {
     let samples_per_sec = num_samples as f64 / elapsed.as_secs_f64();
 
     println!(
-        "High-throughput test: {} samples in {:?} ({:.1} samples/sec)",
+        "High-throughput test: {} samples in {:?} ({:.1} samples/sec, simulated time)",
         num_samples, elapsed, samples_per_sec
     );
 
-    // Should achieve at least 20 samples/sec with mock hardware (relaxed for CI)
-    assert!(
-        samples_per_sec > 20.0,
-        "Throughput too low: {:.1} samples/sec",
-        samples_per_sec
+    // With start_paused, time is deterministic:
+    // - MockCamera trigger takes 33ms (30fps simulation)
+    // - MockPowerMeter read is near-instant
+    // - 100 samples * 33ms = 3300ms total
+    // - Expected throughput: ~30.3 samples/sec
+    assert_eq!(
+        elapsed.as_millis(),
+        3300,
+        "Expected 3300ms for 100 samples at 33ms each, got {}ms",
+        elapsed.as_millis()
     );
+    assert_eq!(camera.frame_count(), 100, "Should have captured 100 frames");
 }
 
 // =============================================================================

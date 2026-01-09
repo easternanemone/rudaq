@@ -31,16 +31,32 @@ cargo build
 # Build with all features (requires native deps - see note below)
 cargo build --all-features
 
-# Run all tests (excludes hardware tests)
-cargo test
+# === Testing with cargo-nextest (recommended) ===
+# Install nextest: cargo install cargo-nextest --locked
+
+# Run all tests with nextest
+cargo nextest run
 
 # Run a single test by name
-cargo test test_name -- --nocapture
+cargo nextest run test_name
 
 # Run tests for a specific crate
-cargo test -p daq-core
-cargo test -p daq-hardware
-cargo test -p daq-storage
+cargo nextest run -p daq-core
+cargo nextest run -p daq-hardware
+cargo nextest run -p daq-storage
+
+# Run with filter expression
+cargo nextest run -E 'test(/grpc/)'
+
+# Run with CI profile (more retries, stricter)
+cargo nextest run --profile ci
+
+# Run doctests (not supported by nextest)
+cargo test --doc
+
+# === Legacy cargo test (still works) ===
+cargo test                           # All tests
+cargo test test_name -- --nocapture  # Single test with output
 
 # Format and lint
 cargo fmt --all
@@ -51,8 +67,8 @@ cargo clippy --all-targets  # For specific features only
 # Set environment first: export PVCAM_SDK_DIR=/opt/pvcam/sdk
 cargo clippy --all-targets --all-features
 
-# Run with hardware connected
-cargo test --features hardware_tests
+# Run with hardware connected (use hardware profile)
+cargo nextest run --profile hardware --features hardware_tests
 
 # Run Rhai script (headless mode)
 cargo run --bin rust-daq-daemon -- run examples/simple_scan.rhai
@@ -62,8 +78,10 @@ cargo run --bin rust-daq-daemon --features networking -- daemon --port 50051
 
 # Run PVCAM Streaming Integration Test (on maitai)
 # Requires PVCAM_SDK_DIR and LD_LIBRARY_PATH
-cargo test --test pvcam_streaming_test --features pvcam_hardware
+cargo nextest run --profile hardware --features pvcam_hardware --test pvcam_streaming_test
 ```
+
+**Testing Guide:** See [docs/guides/testing.md](docs/guides/testing.md) for comprehensive testing documentation including timing test patterns, hardware test setup, and CI integration.
 
 ## Development Tools: Rust Ecosystem Integration
 

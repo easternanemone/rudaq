@@ -41,42 +41,49 @@ async fn test_mock_stage_movement() {
     assert_eq!(stage.position().await.unwrap(), 12.0);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_mock_stage_timing() {
+    use tokio::time::Instant;
+
     let stage = MockStage::new();
 
-    // Measure time to move 20mm at 10mm/sec (should take ~2 seconds)
+    // Measure time to move 20mm at 10mm/sec with paused time for determinism
     let start = Instant::now();
     stage.move_abs(20.0).await.unwrap();
     let elapsed = start.elapsed();
 
-    println!("20mm move took: {:?}", elapsed);
+    println!("20mm move took: {:?} (simulated time)", elapsed);
 
-    // Should take approximately 2000ms (allow 100ms tolerance)
-    assert!(
-        elapsed.as_millis() >= 1900 && elapsed.as_millis() <= 2100,
-        "Expected ~2000ms, got {}ms",
+    // With start_paused, time is deterministic: 20mm at 10mm/sec = exactly 2000ms
+    assert_eq!(
+        elapsed.as_millis(),
+        2000,
+        "Expected exactly 2000ms for 20mm move at 10mm/sec, got {}ms",
         elapsed.as_millis()
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_mock_stage_settle_timing() {
+    use tokio::time::Instant;
+
     let stage = MockStage::new();
 
-    // Measure settle time (should be ~50ms)
-    stage.move_abs(1.0).await.unwrap(); // Quick move
+    // Quick move first (100ms simulated for 1mm at 10mm/sec)
+    stage.move_abs(1.0).await.unwrap();
 
+    // Measure settle time with paused time for determinism
     let start = Instant::now();
     stage.wait_settled().await.unwrap();
     let elapsed = start.elapsed();
 
-    println!("Settle took: {:?}", elapsed);
+    println!("Settle took: {:?} (simulated time)", elapsed);
 
-    // Should take approximately 50ms (allow 10ms tolerance)
-    assert!(
-        elapsed.as_millis() >= 40 && elapsed.as_millis() <= 60,
-        "Expected ~50ms, got {}ms",
+    // With start_paused, time is deterministic: settle time is exactly 50ms
+    assert_eq!(
+        elapsed.as_millis(),
+        50,
+        "Expected exactly 50ms settle time, got {}ms",
         elapsed.as_millis()
     );
 }
@@ -133,23 +140,26 @@ async fn test_mock_camera_frame_count() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_mock_camera_trigger_timing() {
+    use tokio::time::Instant;
+
     let camera = MockCamera::new(1920, 1080);
 
     camera.arm().await.unwrap();
 
-    // Measure trigger time (should be ~33ms for 30fps simulation)
+    // Measure trigger time with paused time for deterministic results
     let start = Instant::now();
     camera.trigger().await.unwrap();
     let elapsed = start.elapsed();
 
-    println!("Frame readout took: {:?}", elapsed);
+    println!("Frame readout took: {:?} (simulated time)", elapsed);
 
-    // Should take approximately 33ms (allow 10ms tolerance)
-    assert!(
-        elapsed.as_millis() >= 25 && elapsed.as_millis() <= 45,
-        "Expected ~33ms, got {}ms",
+    // With start_paused, time is deterministic - MockCamera uses 33ms frame readout
+    assert_eq!(
+        elapsed.as_millis(),
+        33,
+        "Expected exactly 33ms frame readout in simulated time, got {}ms",
         elapsed.as_millis()
     );
 }

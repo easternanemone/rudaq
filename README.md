@@ -101,9 +101,30 @@ Drivers are included for:
 -   **Lasers**: Spectra-Physics MaiTai.
 -   **Sensors**: Newport 1830-C Power Meter.
 
+## 🧪 Testing
+
+We use [cargo-nextest](https://nexte.st/) as the primary test runner:
+
+```bash
+# Install nextest
+cargo install cargo-nextest --locked
+
+# Run all tests
+cargo nextest run
+
+# Run with CI profile (includes retries)
+cargo nextest run --profile ci
+
+# Run documentation tests (not supported by nextest)
+cargo test --doc
+```
+
+See [**Testing Guide**](docs/guides/testing.md) for comprehensive testing documentation including timing tests, hardware tests, and CI integration.
+
 ## 📚 Documentation
 
 -   [**Demo Mode Guide**](DEMO.md): Try rust-daq without hardware in 30 seconds.
+-   [**Testing Guide**](docs/guides/testing.md): Test runner setup, timing tests, hardware validation.
 -   [**System Architecture**](docs/architecture/ARCHITECTURE.md): Detailed breakdown of system design.
 -   [**Feature Matrix**](docs/architecture/FEATURE_MATRIX.md): Guide to cargo features and build profiles.
 -   [**Benchmarks**](docs/benchmarks/tee.md): Tee pipeline throughput/latency numbers and how to run `tee_bench` (see CI artifact `tee-bench-*` for latest sample outputs).

@@ -1,0 +1,103 @@
+# rust-daq nextest configuration
+# See https://nexte.st/docs/configuration/ for documentation
+
+# =============================================================================
+# Default Profile (Local Development)
+# =============================================================================
+[profile.default]
+# Retry flaky tests automatically
+retries = 2
+# Slow test warning threshold (also acts as timeout when terminate-after is set)
+slow-timeout = { period = "30s", terminate-after = 4 }
+# Show pass/fail status
+status-level = "pass"
+# Output for failures
+failure-output = "immediate"
+
+# =============================================================================
+# CI Profile (GitHub Actions)
+# =============================================================================
+[profile.ci]
+# More retries in CI where environment is less predictable
+retries = 3
+# Stricter timeout for CI resources (period * terminate-after = max time)
+slow-timeout = { period = "60s", terminate-after = 3 }
+# Continue running all tests even on failure
+fail-fast = false
+# Show all test output on failure
+failure-output = "immediate-final"
+
+# =============================================================================
+# Hardware Test Profile
+# =============================================================================
+[profile.hardware]
+# Single-threaded for serial port access
+test-threads = 1
+# Hardware tests are inherently slower (120s period * 3 terminate = 6min max)
+slow-timeout = { period = "120s", terminate-after = 3 }
+# More retries for hardware flakiness
+retries = 3
+# Don't fail fast - want to see all hardware test results
+fail-fast = false
+failure-output = "immediate-final"
+
+# =============================================================================
+# Coverage Profile
+# =============================================================================
+[profile.coverage]
+# No retries for coverage - want accurate failure counts
+retries = 0
+# Longer timeout for instrumented code (90s * 4 = 6min max)
+slow-timeout = { period = "90s", terminate-after = 4 }
+# Run all tests even on failure
+fail-fast = false
+
+# =============================================================================
+# Test Groups (Serialization for shared resources)
+# =============================================================================
+
+# Hardware tests that share serial ports must run sequentially
+[test-groups.serial-hardware]
+max-threads = 1
+
+# PVCAM tests require exclusive camera access
+[test-groups.pvcam-hardware]
+max-threads = 1
+
+# ELL14/Elliptec tests share RS-485 bus
+[test-groups.elliptec-hardware]
+max-threads = 1
+
+# =============================================================================
+# Per-Test Overrides
+# =============================================================================
+
+# Timing-sensitive tests get extra retries and longer timeout
+[[profile.default.overrides]]
+filter = "test(/timing/) | test(/throughput/) | test(/latency/)"
+retries = 3
+slow-timeout = { period = "15s", terminate-after = 3 }
+
+# gRPC integration tests need network setup time
+[[profile.default.overrides]]
+filter = "test(/grpc/) | test(/grpc_integration/) | test(/grpc_streaming/)"
+slow-timeout = { period = "60s", terminate-after = 3 }
+retries = 2
+
+# Hardware tests - assign to test groups for serialization
+[[profile.default.overrides]]
+filter = "test(/elliptec/) | test(/ell14/)"
+test-group = "elliptec-hardware"
+
+[[profile.default.overrides]]
+filter = "test(/pvcam/)"
+test-group = "pvcam-hardware"
+
+[[profile.default.overrides]]
+filter = "test(/hardware_esp300/) | test(/hardware_maitai/) | test(/hardware_newport/)"
+test-group = "serial-hardware"
+
+# Long-running benchmark tests
+[[profile.default.overrides]]
+filter = "test(/benchmark/)"
+slow-timeout = { period = "60s", terminate-after = 5 }

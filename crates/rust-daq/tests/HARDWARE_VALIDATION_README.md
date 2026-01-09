@@ -16,6 +16,31 @@ Comprehensive hardware validation test suite for the Newport 1830-C optical powe
 
 ### Build & Run
 
+We use [cargo-nextest](https://nexte.st/) as the primary test runner. Install it with:
+
+```bash
+cargo install cargo-nextest --locked
+```
+
+**Using nextest (recommended):**
+
+```bash
+# Run all functional tests (default, no hardware required)
+cargo nextest run --test hardware_newport1830c_validation --features instrument_newport_power_meter
+
+# Run with hardware tests (requires physical Newport 1830-C and laser setup)
+# Uses hardware profile which sets test-threads=1 automatically
+cargo nextest run --profile hardware --test hardware_newport1830c_validation \
+  --features "instrument_newport_power_meter,hardware_tests" \
+  --run-ignored all
+
+# Run specific test
+cargo nextest run --test hardware_newport1830c_validation test_parse_scientific_notation \
+  --features instrument_newport_power_meter
+```
+
+**Using cargo test (fallback):**
+
 ```bash
 # Run all functional tests (default, no hardware required)
 cargo test --test hardware_newport1830c_validation --features instrument_newport_power_meter
@@ -29,6 +54,11 @@ cargo test --test hardware_newport1830c_validation \
 cargo test --test hardware_newport1830c_validation test_parse_scientific_notation \
   --features instrument_newport_power_meter
 ```
+
+**Nextest profiles** (configured in `.config/nextest.toml`):
+- `default` - Local development with 2 retries
+- `ci` - GitHub Actions with 3 retries
+- `hardware` - Single-threaded for hardware tests with 3 retries
 
 ## Test Categories
 
