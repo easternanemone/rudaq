@@ -2834,7 +2834,7 @@ impl<'a> Ell14GroupController<'a> {
         }
 
         tracing::info!("Homing group");
-        self.master.home(None).await?;
+        self.master.home().await?;
 
         // Wait for all rotators to settle
         self.wait_group_settled().await?;

@@ -324,7 +324,7 @@ impl DaqApp {
     /// Render the top menu bar
     fn render_menu_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Quit").clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);

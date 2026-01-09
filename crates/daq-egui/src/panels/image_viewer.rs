@@ -32,7 +32,10 @@ const MAX_QUEUED_FRAMES: usize = 4;
 const EXPOSURE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(200);
 
 /// Streaming metrics from server (bd-7rk0: gRPC improvements)
+///
+/// Note: Some fields populated from proto but not yet displayed in UI.
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct StreamMetrics {
     /// Current frames per second
     pub current_fps: f64,
@@ -54,6 +57,7 @@ pub struct FrameUpdate {
     pub data: Vec<u8>,
     pub frame_number: u64,
     /// Timestamp in nanoseconds (for frame timing analysis)
+    #[allow(dead_code)]
     pub timestamp_ns: u64,
     /// Streaming metrics from server (bd-7rk0)
     pub metrics: Option<StreamMetrics>,
@@ -150,12 +154,6 @@ impl Colormap {
         // Convert to 8-bit index (0-255)
         let idx = (value.clamp(0.0, 1.0) * 255.0) as usize;
         self.lut()[idx]
-    }
-
-    /// Apply colormap directly from 8-bit intensity (faster path)
-    #[inline]
-    pub fn apply_u8(&self, intensity: u8) -> [u8; 3] {
-        self.lut()[intensity as usize]
     }
 
     /// Get the pre-computed LUT for this colormap (256 RGB entries)
@@ -1127,6 +1125,7 @@ impl ImageViewerPanel {
     ///
     /// Allows external code to push frames directly without going through gRPC.
     /// Useful for local frame sources or testing.
+    #[allow(dead_code)]
     pub fn get_sender(&self) -> Option<FrameUpdateSender> {
         self.frame_tx.clone()
     }
@@ -2337,16 +2336,19 @@ impl ImageViewerPanel {
     ///
     /// This allows programmatic selection of which camera to stream.
     /// Use in automated workflows or scripted interactions.
+    #[allow(dead_code)]
     pub fn set_device(&mut self, device_id: &str, client: &mut DaqClient, runtime: &Runtime) {
         self.start_stream(device_id, client, runtime);
     }
 
     /// Check if currently streaming
+    #[allow(dead_code)]
     pub fn is_streaming(&self) -> bool {
         self.subscription.is_some()
     }
 
     /// Get current device ID being streamed
+    #[allow(dead_code)]
     pub fn device_id(&self) -> Option<&str> {
         self.device_id.as_deref()
     }
