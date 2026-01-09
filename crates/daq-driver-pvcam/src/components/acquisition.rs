@@ -930,10 +930,14 @@ impl PvcamAcquisition {
                     CIRC_OVERWRITE,
                 ) == 0
                 {
+                    // bd-3gnv: Log SDK error code for diagnostics
+                    let err_code = pl_error_code();
+                    eprintln!("[PVCAM DEBUG] pl_exp_setup_cont failed: err_code={}", err_code);
                     let _ = self.streaming.set(false).await;
-                    return Err(anyhow!("Failed to setup continuous acquisition"));
+                    return Err(anyhow!("Failed to setup continuous acquisition (SDK error {})", err_code));
                 }
             }
+            eprintln!("[PVCAM DEBUG] pl_exp_setup_cont succeeded with CIRC_OVERWRITE, frame_bytes={}", frame_bytes);
 
             // Calculate dimensions for frame construction
             let binned_width = roi.width / x_bin as u32;
@@ -1022,6 +1026,9 @@ impl PvcamAcquisition {
             unsafe {
                 // SAFETY: circ_ptr points to page-aligned contiguous buffer; SDK expects byte size.
                 if pl_exp_start_cont(h, circ_ptr as *mut _, circ_size_bytes) == 0 {
+                    // bd-3gnv: Log SDK error code for diagnostics
+                    let err_code = pl_error_code();
+                    eprintln!("[PVCAM DEBUG] pl_exp_start_cont failed: err_code={}", err_code);
                     // Deregister callback on failure
                     if use_callback {
                         pl_cam_deregister_callback(h, PL_CALLBACK_EOF);
@@ -1029,7 +1036,7 @@ impl PvcamAcquisition {
                     }
                     self.active_hcam.store(-1, Ordering::Release); // -1 = no active handle
                     let _ = self.streaming.set(false).await;
-                    return Err(anyhow!("Failed to start continuous acquisition"));
+                    return Err(anyhow!("Failed to start continuous acquisition (SDK error {})", err_code));
                 }
             }
 
