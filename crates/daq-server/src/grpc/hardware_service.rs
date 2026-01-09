@@ -1340,7 +1340,9 @@ impl HardwareService for HardwareServiceImpl {
 
                         // Apply LZ4 compression to reduce bandwidth (bd-7rk0: gRPC improvements)
                         // This typically achieves 3-5x compression on camera data
+                        let uncompressed_size = frame_data.data.len();
                         crate::grpc::compression::compress_frame(&mut frame_data);
+                        let compressed_size = frame_data.data.len();
 
                         if tx.send(Ok(frame_data)).await.is_err() {
                             tracing::info!(device_id = %device_id_clone, "Client disconnected from frame stream");
@@ -1349,7 +1351,19 @@ impl HardwareService for HardwareServiceImpl {
 
                         frames_sent += 1;
                         if frames_sent.is_multiple_of(30) {
-                            tracing::debug!(device_id = %device_id_clone, frames = frames_sent, "Sent frame to client");
+                            let ratio = if compressed_size > 0 {
+                                uncompressed_size as f64 / compressed_size as f64
+                            } else {
+                                1.0
+                            };
+                            tracing::debug!(
+                                device_id = %device_id_clone,
+                                frames = frames_sent,
+                                uncompressed_kb = uncompressed_size / 1024,
+                                compressed_kb = compressed_size / 1024,
+                                compression_ratio = format!("{:.1}x", ratio),
+                                "Sent frame to client (LZ4 compressed)"
+                            );
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
