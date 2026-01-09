@@ -575,6 +575,12 @@ message StreamingMetrics {
   double avg_latency_ms = 4;
 }
 
+// Compression algorithm for frame data (bd-7rk0: gRPC improvements)
+enum CompressionType {
+  COMPRESSION_NONE = 0;      // Uncompressed data
+  COMPRESSION_LZ4 = 1;       // LZ4 fast compression (recommended for camera data)
+}
+
 // Single frame of image data (bd-183h: extended metadata)
 message FrameData {
   string device_id = 1;
@@ -599,6 +605,10 @@ message FrameData {
   optional uint32 binning_y = 25;        // Vertical binning factor
   map<string, string> metadata = 30;     // Extensible key-value metadata
   optional StreamingMetrics metrics = 40; // Streaming performance metrics
+
+  // Compression support (bd-7rk0: gRPC improvements from Rerun analysis)
+  CompressionType compression = 50;      // Compression algorithm used for 'data' field
+  uint32 uncompressed_size = 51;         // Original size before compression (for decompression buffer)
 }
 
 // Arrow Flight ticket for zero-copy bulk data transfer

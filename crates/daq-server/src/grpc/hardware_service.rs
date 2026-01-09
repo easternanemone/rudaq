@@ -7,6 +7,7 @@
 use crate::grpc::proto::{
     ArmRequest,
     ArmResponse,
+    CompressionType,
     DeviceCommandRequest,
     DeviceCommandResponse,
     DeviceInfo,
@@ -1294,7 +1295,7 @@ impl HardwareService for HardwareServiceImpl {
 
                         // Convert Arc<Frame> to FrameData proto (bd-183h: propagate driver metadata)
                         // Use driver-provided timestamps and frame numbers for accurate timing
-                        let frame_data = FrameData {
+                        let mut frame_data = FrameData {
                             device_id: device_id_clone.clone(),
                             width: frame.width,
                             height: frame.height,
@@ -1332,7 +1333,14 @@ impl HardwareService for HardwareServiceImpl {
                                 .map(|m| m.extra.clone())
                                 .unwrap_or_default(),
                             metrics: Some(metrics),
+                            // Compression fields initialized as uncompressed (bd-7rk0)
+                            compression: CompressionType::CompressionNone as i32,
+                            uncompressed_size: 0,
                         };
+
+                        // Apply LZ4 compression to reduce bandwidth (bd-7rk0: gRPC improvements)
+                        // This typically achieves 3-5x compression on camera data
+                        crate::grpc::compression::compress_frame(&mut frame_data);
 
                         if tx.send(Ok(frame_data)).await.is_err() {
                             tracing::info!(device_id = %device_id_clone, "Client disconnected from frame stream");

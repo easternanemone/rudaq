@@ -22,6 +22,7 @@
 
 #![allow(missing_docs)] // Generated code doesn't have docs
 
+pub mod compression;
 pub mod convert;
 
 /// Generated DAQ protocol buffer types.

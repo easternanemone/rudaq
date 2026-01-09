@@ -64,6 +64,9 @@ pub mod proto {
     }
 }
 
+/// Re-export compression helpers for frame streaming (bd-7rk0)
+pub use daq_proto::compression;
+
 pub use hardware_service::HardwareServiceImpl;
 pub use health_service::HealthServiceImpl;
 #[cfg(feature = "metrics")]

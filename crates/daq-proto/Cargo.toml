@@ -7,6 +7,8 @@ description = "Protocol buffer definitions and conversions for rust-daq"
 [dependencies]
 daq-core = { path = "../daq-core" }
 prost = "0.12"
+# LZ4 compression for frame streaming (bd-7rk0: gRPC improvements)
+lz4_flex = "0.11"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tonic = { version = "0.10", default-features = false, features = ["transport", "prost", "codegen"] }

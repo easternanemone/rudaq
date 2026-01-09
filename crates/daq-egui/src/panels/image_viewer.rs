@@ -20,6 +20,7 @@ use tokio::runtime::Runtime;
 
 use crate::client::DaqClient;
 use crate::widgets::{Histogram, HistogramPosition, ParameterCache, RoiSelector};
+use daq_proto::compression::decompress_frame;
 use daq_proto::daq::FrameData;
 
 /// Maximum frame queue depth (prevents memory buildup if GUI is slow)
@@ -27,6 +28,19 @@ const MAX_QUEUED_FRAMES: usize = 32;
 
 /// Debounce interval for live exposure updates (200ms)
 const EXPOSURE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// Streaming metrics from server (bd-7rk0: gRPC improvements)
+#[derive(Debug, Clone, Default)]
+pub struct StreamMetrics {
+    /// Current frames per second
+    pub current_fps: f64,
+    /// Total frames sent by server
+    pub frames_sent: u64,
+    /// Frames dropped by server (slow client)
+    pub frames_dropped: u64,
+    /// Average latency from capture to send (server-side)
+    pub avg_latency_ms: f64,
+}
 
 /// Frame update message for async integration
 #[derive(Debug)]
@@ -37,13 +51,21 @@ pub struct FrameUpdate {
     pub bit_depth: u32,
     pub data: Vec<u8>,
     pub frame_number: u64,
-    /// Timestamp in nanoseconds (for future frame timing analysis)
-    #[allow(dead_code)]
+    /// Timestamp in nanoseconds (for frame timing analysis)
     pub timestamp_ns: u64,
+    /// Streaming metrics from server (bd-7rk0)
+    pub metrics: Option<StreamMetrics>,
 }
 
 impl From<FrameData> for FrameUpdate {
     fn from(frame: FrameData) -> Self {
+        let metrics = frame.metrics.map(|m| StreamMetrics {
+            current_fps: m.current_fps,
+            frames_sent: m.frames_sent,
+            frames_dropped: m.frames_dropped,
+            avg_latency_ms: m.avg_latency_ms,
+        });
+
         Self {
             device_id: frame.device_id,
             width: frame.width,
@@ -52,6 +74,7 @@ impl From<FrameData> for FrameUpdate {
             data: frame.data,
             frame_number: frame.frame_number,
             timestamp_ns: frame.timestamp_ns,
+            metrics,
         }
     }
 }
@@ -414,6 +437,10 @@ pub struct ImageViewerPanel {
     /// Enable automatic reconnection attempts
     auto_reconnect: bool,
 
+    // -- Stream Metrics (bd-7rk0: gRPC improvements) --
+    /// Latest streaming metrics from server
+    stream_metrics: Option<StreamMetrics>,
+
     // -- Recording Fields (bd-3pdi.5.3) --
     /// Current recording state
     recording_state: RecordingState,
@@ -480,6 +507,9 @@ impl Default for ImageViewerPanel {
             retry_count: 0,
             last_disconnect: None,
             auto_reconnect: true,
+
+            // Stream metrics (bd-7rk0)
+            stream_metrics: None,
 
             // Recording (bd-3pdi.5.3)
             recording_state: RecordingState::Idle,
@@ -1096,8 +1126,19 @@ impl ImageViewerPanel {
                     }
                     frame_result = stream.next() => {
                         match frame_result {
-                            Some(Ok(frame_data)) => {
+                            Some(Ok(mut frame_data)) => {
                                 frames_received += 1;
+
+                                // Decompress frame if compressed (bd-7rk0: gRPC improvements)
+                                if let Err(e) = decompress_frame(&mut frame_data) {
+                                    tracing::warn!(
+                                        device_id = %device_id_clone,
+                                        error = %e,
+                                        "Frame decompression failed, skipping frame"
+                                    );
+                                    continue;
+                                }
+
                                 if frames_received % 30 == 0 {
                                     tracing::debug!(
                                         device_id = %device_id_clone,
@@ -1345,6 +1386,11 @@ impl ImageViewerPanel {
         self.frame_count = frame.frame_number;
         self.error = None;
 
+        // bd-7rk0: Update stream metrics from server
+        if frame.metrics.is_some() {
+            self.stream_metrics = frame.metrics.clone();
+        }
+
         // bd-12qt: Update connection state when receiving frames
         if self.connection_state != ConnectionState::Connected {
             self.connection_state = ConnectionState::Connected;
@@ -1533,18 +1579,27 @@ impl ImageViewerPanel {
             ui.ctx().request_repaint();
         }
 
-        // bd-12qt: Auto-reconnect logic with exponential backoff
+        // bd-12qt + bd-7rk0: Auto-reconnect logic with exponential backoff
+        // Pattern inspired by Rerun's well-tested gRPC implementation:
+        // - Initial delay: 100ms
+        // - Max delay: 10 seconds
+        // - Backoff factor: 2x per retry
         let mut should_auto_reconnect = false;
         if self.auto_reconnect
             && self.connection_state == ConnectionState::Disconnected
             && self.device_id.is_some()
             && self.subscription.is_none()
         {
-            // Exponential backoff: 2^retry_count seconds, capped at 60 seconds
-            let backoff_secs = (2u64.pow(self.retry_count.min(6))).min(60);
+            // Exponential backoff: 100ms * 2^retry_count, capped at 10 seconds
+            let backoff_ms = (100u64 * 2u64.pow(self.retry_count.min(7))).min(10_000);
             if let Some(last_disconnect) = self.last_disconnect {
-                if last_disconnect.elapsed().as_secs() >= backoff_secs {
+                if last_disconnect.elapsed().as_millis() as u64 >= backoff_ms {
                     should_auto_reconnect = true;
+                    tracing::debug!(
+                        retry_count = self.retry_count,
+                        backoff_ms = backoff_ms,
+                        "Auto-reconnecting with exponential backoff"
+                    );
                 }
             }
         }
@@ -1901,6 +1956,19 @@ impl ImageViewerPanel {
                 ui.label(format!("Frame: {}", self.frame_count));
                 ui.separator();
                 ui.label(format!("{:.1} FPS", self.fps_counter.fps()));
+
+                // bd-7rk0: Display stream metrics from server
+                if let Some(ref metrics) = self.stream_metrics {
+                    ui.separator();
+                    ui.label(format!("{:.1}ms latency", metrics.avg_latency_ms));
+                    if metrics.frames_dropped > 0 {
+                        ui.separator();
+                        ui.colored_label(
+                            egui::Color32::YELLOW,
+                            format!("{} dropped", metrics.frames_dropped),
+                        );
+                    }
+                }
             }
 
             if let Some(err) = &self.error {
