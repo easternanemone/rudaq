@@ -76,17 +76,20 @@ use pvcam_sys::*;
 #[cfg(feature = "pvcam_hardware")]
 use tokio::task::JoinHandle;
 
-/// bd-3gnv: Use CIRC_OVERWRITE mode like DynExp/acquire-driver-pvcam.
+/// bd-3gnv: Buffer mode selection for continuous streaming.
 ///
-/// CIRC_OVERWRITE is the correct mode for indefinite streaming:
+/// CIRC_OVERWRITE is the ideal mode for indefinite streaming (used by DynExp):
 /// - Camera overwrites oldest frame when buffer is full (no stall)
 /// - Use pl_exp_get_latest_frame to get most recent frame
-/// - NO unlock calls needed (pl_exp_unlock_oldest_frame is for CIRC_NO_OVERWRITE only)
+/// - NO unlock calls needed
 ///
-/// Previous error 185 was due to using EXT_TRIG_INTERNAL mode; DynExp uses TIMED_MODE.
+/// However, Prime BSI returns error 185 (Invalid Configuration) with CIRC_OVERWRITE,
+/// even with TIMED_MODE and callbacks. This may be a camera/firmware limitation.
+/// Fallback to CIRC_NO_OVERWRITE with auto-restart on stall.
+///
 /// Reference: https://github.com/jbopp/dynexp/blob/main/src/DynExpManager/HardwareAdapters/HardwareAdapterPVCam.cpp
 #[cfg(feature = "pvcam_hardware")]
-const USE_CIRC_OVERWRITE_MODE: bool = true;
+const USE_CIRC_OVERWRITE_MODE: bool = false;
 
 /// Callback context for EOF notifications (bd-ek9n.2)
 ///
