@@ -1445,13 +1445,13 @@ async fn test_circ_buffer_capabilities() {
     }
 
     // ========================================
-    // Test 15: SEQUENCE MODE (alternative to circular buffer)
-    // Per SDK documentation and best practices, sequence mode may be more
-    // reliable for controlled streaming vs circular buffer mode.
+    // Test 15: SEQUENCE MODE with EXT_TRIG_INTERNAL (camera default)
+    // Camera default is EXT_TRIG_INTERNAL (1792), not TIMED_MODE (0).
+    // Internal trigger should self-fire exposures automatically.
     // ========================================
-    println!("\n--- Test 15: SEQUENCE MODE (pl_exp_setup_seq + pl_exp_start_seq) ---");
-    println!("     Testing sequence mode as alternative to circular buffer");
-    println!("     This is the SDK-recommended approach for simpler streaming\n");
+    println!("\n--- Test 15: SEQUENCE MODE with EXT_TRIG_INTERNAL (camera default) ---");
+    println!("     Testing sequence mode with camera's default exposure mode");
+    println!("     EXT_TRIG_INTERNAL = 1792 (should auto-trigger exposures)\n");
 
     // Reopen camera for clean state
     let mut hcam_seq: i16 = -1;
@@ -1465,36 +1465,36 @@ async fn test_circ_buffer_capabilities() {
             let mut frame_info: *mut FRAME_INFO = ptr::null_mut();
             let _ = pl_create_frame_info_struct(&mut frame_info);
 
-            const FRAME_COUNT: uns16 = 5;  // Capture 5 frames in sequence
-            const EXPOSURE_MS: uns32 = 20;
+            const FRAME_COUNT: uns16 = 3;  // Capture 3 frames
+            const EXPOSURE_MS: uns32 = 100;  // Longer exposure to ensure completion
 
             let region = rgn_type {
                 s1: 0,
-                s2: 511,  // 512x512 for quick test
+                s2: 255,  // 256x256 for quick test
                 sbin: 1,
                 p1: 0,
-                p2: 511,
+                p2: 255,
                 pbin: 1,
             };
 
-            println!("     Region: 512x512");
+            println!("     Region: 256x256");
             println!("     Frame count: {}", FRAME_COUNT);
             println!("     Exposure: {}ms", EXPOSURE_MS);
 
-            // Setup sequence acquisition
+            // Setup sequence acquisition with EXT_TRIG_INTERNAL (camera's default)
             let mut buffer_bytes: uns32 = 0;
             let setup_result = pl_exp_setup_seq(
                 hcam_seq,
                 FRAME_COUNT,
                 1,  // region count
                 &region as *const _,
-                TIMED_MODE,
+                EXT_TRIG_INTERNAL,  // Camera's default mode (1792)
                 EXPOSURE_MS,
                 &mut buffer_bytes,
             );
 
             if setup_result != 0 {
-                println!("[OK] pl_exp_setup_seq succeeded, buffer_bytes = {}", buffer_bytes);
+                println!("[OK] pl_exp_setup_seq with EXT_TRIG_INTERNAL succeeded, buffer_bytes = {}", buffer_bytes);
 
                 // Allocate buffer for all frames
                 let mut buffer = vec![0u8; buffer_bytes as usize];
@@ -1508,12 +1508,13 @@ async fn test_circ_buffer_capabilities() {
                 if start_result != 0 {
                     println!("[OK] pl_exp_start_seq succeeded!");
 
-                    // Poll for completion
+                    // Poll for completion with status monitoring
                     let mut status: i16 = 0;
                     let mut bytes_arrived: uns32 = 0;
+                    let mut last_status: i16 = -1;
                     let mut frame_count = 0;
                     let start_time = std::time::Instant::now();
-                    let timeout = std::time::Duration::from_secs(10);
+                    let timeout = std::time::Duration::from_secs(5);
 
                     loop {
                         pl_exp_check_status(hcam_seq, &mut status, &mut bytes_arrived);
@@ -1524,13 +1525,17 @@ async fn test_circ_buffer_capabilities() {
                         const READOUT_FAILED: i16 = 5;
                         const READOUT_NOT_ACTIVE: i16 = 0;
 
+                        if status != last_status {
+                            println!("     Status changed: {} -> {} (bytes: {})", last_status, status, bytes_arrived);
+                            last_status = status;
+                        }
+
                         if status == READOUT_COMPLETE {
                             frame_count = FRAME_COUNT;
                             println!("[OK] Sequence complete! {} frames captured", frame_count);
                             println!("     bytes_arrived = {}", bytes_arrived);
                             println!("\n*********************************************");
-                            println!("*** SEQUENCE MODE WORKS! ***");
-                            println!("*** This is a viable alternative to CIRC_OVERWRITE ***");
+                            println!("*** SEQUENCE MODE with EXT_TRIG_INTERNAL WORKS! ***");
                             println!("*********************************************\n");
                             break;
                         } else if status == READOUT_FAILED {
@@ -1542,7 +1547,7 @@ async fn test_circ_buffer_capabilities() {
                         }
 
                         if start_time.elapsed() > timeout {
-                            println!("[FAIL] Sequence acquisition timed out after 10s");
+                            println!("[FAIL] Sequence acquisition timed out after 5s");
                             println!("       Last status: {}, bytes: {}", status, bytes_arrived);
                             break;
                         }
@@ -1569,6 +1574,232 @@ async fn test_circ_buffer_capabilities() {
                 pl_release_frame_info_struct(frame_info);
             }
             pl_cam_close(hcam_seq);
+        }
+    }
+
+    // ========================================
+    // Test 16: SEQUENCE MODE with TIMED_MODE (software-triggered)
+    // TIMED_MODE (0) means software starts exposure immediately.
+    // ========================================
+    println!("\n--- Test 16: SEQUENCE MODE with TIMED_MODE ---");
+    println!("     Testing sequence mode with TIMED_MODE = 0");
+    println!("     TIMED_MODE should start exposure immediately without external trigger\n");
+
+    let mut hcam_seq2: i16 = -1;
+    unsafe {
+        if pl_cam_open(cam_name.as_mut_ptr(), &mut hcam_seq2, 0) == 0 {
+            println!("[FAIL] Failed to reopen camera: {}", get_error_message());
+        } else {
+            println!("[OK] Camera opened for TIMED_MODE sequence test, handle = {}", hcam_seq2);
+
+            // Create frame_info_struct
+            let mut frame_info: *mut FRAME_INFO = ptr::null_mut();
+            let _ = pl_create_frame_info_struct(&mut frame_info);
+
+            const FRAME_COUNT: uns16 = 1;  // Single frame for simplicity
+            const EXPOSURE_MS: uns32 = 200;  // 200ms single exposure
+
+            let region = rgn_type {
+                s1: 0,
+                s2: 255,  // 256x256
+                sbin: 1,
+                p1: 0,
+                p2: 255,
+                pbin: 1,
+            };
+
+            println!("     Region: 256x256");
+            println!("     Frame count: {}", FRAME_COUNT);
+            println!("     Exposure: {}ms", EXPOSURE_MS);
+
+            // Setup sequence acquisition with TIMED_MODE
+            let mut buffer_bytes: uns32 = 0;
+            let setup_result = pl_exp_setup_seq(
+                hcam_seq2,
+                FRAME_COUNT,
+                1,  // region count
+                &region as *const _,
+                TIMED_MODE,  // 0 = immediate software-triggered
+                EXPOSURE_MS,
+                &mut buffer_bytes,
+            );
+
+            if setup_result != 0 {
+                println!("[OK] pl_exp_setup_seq with TIMED_MODE succeeded, buffer_bytes = {}", buffer_bytes);
+
+                // Allocate buffer
+                let mut buffer = vec![0u8; buffer_bytes as usize];
+
+                // Start sequence acquisition
+                let start_result = pl_exp_start_seq(
+                    hcam_seq2,
+                    buffer.as_mut_ptr() as *mut c_void,
+                );
+
+                if start_result != 0 {
+                    println!("[OK] pl_exp_start_seq succeeded!");
+
+                    // Poll for completion with detailed status
+                    let mut status: i16 = 0;
+                    let mut bytes_arrived: uns32 = 0;
+                    let mut last_status: i16 = -1;
+                    let start_time = std::time::Instant::now();
+                    let timeout = std::time::Duration::from_secs(3);
+
+                    loop {
+                        pl_exp_check_status(hcam_seq2, &mut status, &mut bytes_arrived);
+
+                        const READOUT_COMPLETE: i16 = 3;
+                        const READOUT_FAILED: i16 = 5;
+                        const READOUT_NOT_ACTIVE: i16 = 0;
+
+                        if status != last_status {
+                            let status_name = match status {
+                                0 => "READOUT_NOT_ACTIVE",
+                                1 => "EXPOSURE_IN_PROGRESS",
+                                2 => "READOUT_IN_PROGRESS",
+                                3 => "READOUT_COMPLETE",
+                                5 => "READOUT_FAILED",
+                                _ => "UNKNOWN",
+                            };
+                            println!("     Status: {} ({}) - elapsed: {:?}, bytes: {}",
+                                status, status_name, start_time.elapsed(), bytes_arrived);
+                            last_status = status;
+                        }
+
+                        if status == READOUT_COMPLETE {
+                            println!("[OK] Single frame captured!");
+                            println!("     bytes_arrived = {}", bytes_arrived);
+
+                            // Check if buffer has non-zero data
+                            let non_zero = buffer.iter().filter(|&&b| b != 0).count();
+                            println!("     Non-zero bytes in buffer: {}", non_zero);
+
+                            println!("\n*********************************************");
+                            println!("*** SEQUENCE MODE with TIMED_MODE WORKS! ***");
+                            println!("*********************************************\n");
+                            break;
+                        } else if status == READOUT_FAILED {
+                            println!("[FAIL] Sequence readout failed");
+                            break;
+                        } else if status == READOUT_NOT_ACTIVE {
+                            println!("[WARN] Acquisition not active");
+                            break;
+                        }
+
+                        if start_time.elapsed() > timeout {
+                            println!("[FAIL] Sequence acquisition timed out after 3s");
+                            println!("       Last status: {}, bytes: {}", status, bytes_arrived);
+                            break;
+                        }
+
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+
+                    // Abort and finish
+                    pl_exp_abort(hcam_seq2, CCS_HALT);
+                    pl_exp_finish_seq(hcam_seq2, buffer.as_mut_ptr() as *mut c_void, 0);
+                } else {
+                    println!("[FAIL] pl_exp_start_seq failed: {}", get_error_message());
+                    let err_code = pl_error_code();
+                    println!("       Error code: {}", err_code);
+                }
+            } else {
+                println!("[FAIL] pl_exp_setup_seq failed: {}", get_error_message());
+                let err_code = pl_error_code();
+                println!("       Error code: {}", err_code);
+            }
+
+            // Cleanup
+            if !frame_info.is_null() {
+                pl_release_frame_info_struct(frame_info);
+            }
+            pl_cam_close(hcam_seq2);
+        }
+    }
+
+    // ========================================
+    // Test 17: SINGLE FRAME with pl_exp_start_seq (simplest case)
+    // Try the absolute simplest acquisition: 1 frame, full sensor, long exposure
+    // ========================================
+    println!("\n--- Test 17: SINGLE FRAME ACQUISITION (simplest case) ---");
+    println!("     1 frame, 256x256, 500ms exposure, TIMED_MODE\n");
+
+    let mut hcam_seq3: i16 = -1;
+    unsafe {
+        if pl_cam_open(cam_name.as_mut_ptr(), &mut hcam_seq3, 0) == 0 {
+            println!("[FAIL] Failed to reopen camera: {}", get_error_message());
+        } else {
+            println!("[OK] Camera opened, handle = {}", hcam_seq3);
+
+            let region = rgn_type {
+                s1: 0,
+                s2: 255,
+                sbin: 1,
+                p1: 0,
+                p2: 255,
+                pbin: 1,
+            };
+
+            let mut buffer_bytes: uns32 = 0;
+
+            // Setup for single frame
+            if pl_exp_setup_seq(hcam_seq3, 1, 1, &region, TIMED_MODE, 500, &mut buffer_bytes) != 0 {
+                println!("[OK] Setup for single frame, buffer_bytes = {}", buffer_bytes);
+
+                let mut buffer = vec![0u8; buffer_bytes as usize];
+
+                if pl_exp_start_seq(hcam_seq3, buffer.as_mut_ptr() as *mut c_void) != 0 {
+                    println!("[OK] Acquisition started");
+
+                    // Wait longer for 500ms exposure
+                    let mut status: i16 = 0;
+                    let mut bytes_arrived: uns32 = 0;
+                    let mut last_status: i16 = -1;
+                    let start_time = std::time::Instant::now();
+
+                    for _ in 0..200 {  // 2 seconds max
+                        pl_exp_check_status(hcam_seq3, &mut status, &mut bytes_arrived);
+
+                        if status != last_status {
+                            let status_name = match status {
+                                0 => "NOT_ACTIVE",
+                                1 => "EXPOSING",
+                                2 => "READING",
+                                3 => "COMPLETE",
+                                5 => "FAILED",
+                                _ => "???",
+                            };
+                            println!("     {:?}: status={} ({}) bytes={}",
+                                start_time.elapsed(), status, status_name, bytes_arrived);
+                            last_status = status;
+                        }
+
+                        if status == 3 {  // READOUT_COMPLETE
+                            let non_zero = buffer.iter().filter(|&&b| b != 0).count();
+                            println!("\n*********************************************");
+                            println!("*** SINGLE FRAME CAPTURE SUCCESSFUL! ***");
+                            println!("*** Non-zero bytes: {} ***", non_zero);
+                            println!("*********************************************\n");
+                            break;
+                        } else if status == 5 || status == 0 {
+                            println!("[FAIL] status = {}", status);
+                            break;
+                        }
+
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+
+                    pl_exp_abort(hcam_seq3, CCS_HALT);
+                    pl_exp_finish_seq(hcam_seq3, buffer.as_mut_ptr() as *mut c_void, 0);
+                } else {
+                    println!("[FAIL] start_seq failed: {}", get_error_message());
+                }
+            } else {
+                println!("[FAIL] setup_seq failed: {}", get_error_message());
+            }
+
+            pl_cam_close(hcam_seq3);
         }
     }
 
