@@ -98,6 +98,24 @@ fn try_read_u16(hcam: i16, param_id: u32) -> Option<u16> {
     }
 }
 
+/// Try to read a parameter as signed i16 (for temperature values), return None if fails
+fn try_read_i16(hcam: i16, param_id: u32) -> Option<i16> {
+    let mut value: i16 = 0;
+    unsafe {
+        if pl_get_param(
+            hcam,
+            param_id,
+            ATTR_CURRENT as i16,
+            &mut value as *mut _ as *mut c_void,
+        ) != 0
+        {
+            Some(value)
+        } else {
+            None
+        }
+    }
+}
+
 /// Open the first available camera
 fn open_first_camera() -> Option<i16> {
     unsafe {
@@ -143,6 +161,7 @@ fn close_camera(hcam: i16) {
 #[derive(Debug)]
 struct ParamTestResult {
     name: &'static str,
+    #[allow(dead_code)]
     param_id: u32,
     available: bool,
     read_value: Option<String>,
@@ -265,34 +284,45 @@ fn test_parameter_availability_reporting() {
         } else {
             unavailable_count += 1;
             println!("[NOT AVAIL] {} - UNEXPECTED for core param!", result.name);
-            warn!(param = result.name, "Core parameter unexpectedly unavailable");
+            warn!(
+                param = result.name,
+                "Core parameter unexpectedly unavailable"
+            );
         }
     }
 
     // Test thermal parameters
+    // Note: Temperature values in PVCAM are stored as signed int16 in centidegrees Celsius
     println!("\n--- Thermal Parameters (expected on Prime BSI) ---");
     for (name, param_id) in &thermal_params {
-        let result = test_parameter(hcam, name, *param_id);
+        let avail = is_param_available(hcam, *param_id);
 
-        if result.available {
+        if avail {
             available_count += 1;
-            if let Some(value) = &result.read_value {
-                // Temperature values are in centidegrees
-                if result.name.contains("TEMP") && !result.name.contains("SETPOINT") {
-                    let temp_c: f64 = value.parse::<i32>().unwrap_or(0) as f64 / 100.0;
-                    println!("[AVAILABLE] {} = {} ({:.2}°C)", result.name, value, temp_c);
+            // For temperature params, read as signed i16 for correct negative values
+            if name.contains("TEMP") {
+                if let Some(temp_raw) = try_read_i16(hcam, *param_id) {
+                    let temp_c = temp_raw as f64 / 100.0;
+                    println!("[AVAILABLE] {} = {:.2}°C (raw: {})", name, temp_c, temp_raw);
+                    debug!(param = name, value = temp_raw, "Thermal param available");
                 } else {
-                    println!("[AVAILABLE] {} = {}", result.name, value);
+                    read_errors += 1;
+                    println!("[AVAILABLE] {} (read error: {})", name, get_error_message());
                 }
-                debug!(param = result.name, value = %value, "Thermal param available");
-            } else if let Some(err) = &result.read_error {
-                read_errors += 1;
-                println!("[AVAILABLE] {} (read error: {})", result.name, err);
+            } else {
+                // Non-temperature params (COOLING_MODE, FAN_SPEED) read as i32
+                if let Some(value) = try_read_i32(hcam, *param_id) {
+                    println!("[AVAILABLE] {} = {}", name, value);
+                    debug!(param = name, value = value, "Thermal param available");
+                } else {
+                    read_errors += 1;
+                    println!("[AVAILABLE] {} (read error: {})", name, get_error_message());
+                }
             }
         } else {
             unavailable_count += 1;
-            println!("[NOT AVAIL] {}", result.name);
-            debug!(param = result.name, "Thermal param not available");
+            println!("[NOT AVAIL] {}", name);
+            debug!(param = name, "Thermal param not available");
         }
     }
 
@@ -427,12 +457,13 @@ fn test_thermal_param_availability() {
         }
     };
 
-    // Test PARAM_TEMP
+    // Test PARAM_TEMP - Note: temperature is stored as signed int16 in centidegrees
     let temp_avail = is_param_available(hcam, PARAM_TEMP);
     println!("PARAM_TEMP available: {}", temp_avail);
 
     if temp_avail {
-        if let Some(temp_raw) = try_read_i32(hcam, PARAM_TEMP) {
+        // Use int16 reading for temperature (signed centidegrees)
+        if let Some(temp_raw) = try_read_i16(hcam, PARAM_TEMP) {
             let temp_c = temp_raw as f64 / 100.0;
             println!("  Current temperature: {:.2}°C (raw: {})", temp_c, temp_raw);
         } else {
@@ -440,12 +471,12 @@ fn test_thermal_param_availability() {
         }
     }
 
-    // Test PARAM_TEMP_SETPOINT
+    // Test PARAM_TEMP_SETPOINT - also signed int16 in centidegrees
     let setpoint_avail = is_param_available(hcam, PARAM_TEMP_SETPOINT);
     println!("PARAM_TEMP_SETPOINT available: {}", setpoint_avail);
 
     if setpoint_avail {
-        if let Some(setpoint_raw) = try_read_i32(hcam, PARAM_TEMP_SETPOINT) {
+        if let Some(setpoint_raw) = try_read_i16(hcam, PARAM_TEMP_SETPOINT) {
             let setpoint_c = setpoint_raw as f64 / 100.0;
             println!(
                 "  Current setpoint: {:.2}°C (raw: {})",
@@ -485,7 +516,10 @@ fn test_advanced_feature_availability() {
     // Centroids feature
     let centroids_enabled_avail = is_param_available(hcam, PARAM_CENTROIDS_ENABLED);
     println!("Centroids Feature:");
-    println!("  PARAM_CENTROIDS_ENABLED available: {}", centroids_enabled_avail);
+    println!(
+        "  PARAM_CENTROIDS_ENABLED available: {}",
+        centroids_enabled_avail
+    );
 
     if centroids_enabled_avail {
         let mode_avail = is_param_available(hcam, PARAM_CENTROIDS_MODE);
