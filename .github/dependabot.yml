@@ -1,0 +1,79 @@
+# Dependabot configuration for rust-daq
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # Rust dependencies (Cargo)
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    # Group minor/patch updates to reduce PR noise
+    groups:
+      rust-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      rust-major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+    # Limit open PRs to avoid overwhelming reviewers
+    open-pull-requests-limit: 5
+    # Labels for easier filtering
+    labels:
+      - "dependencies"
+      - "rust"
+    # Commit message format
+    commit-message:
+      prefix: "deps(rust)"
+    # Reviewers (optional - uncomment and customize)
+    # reviewers:
+    #   - "bsquires-lab/rust-daq-maintainers"
+    # Allow specific dependencies to be ignored
+    ignore:
+      # Ignore pre-release versions
+      - dependency-name: "*"
+        update-types: ["version-update:semver-prerelease"]
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci(deps)"
+
+  # Python dependencies (if using pip/requirements.txt)
+  - package-ecosystem: "pip"
+    directory: "/crates/rust-daq/python"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      python-deps:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(python)"

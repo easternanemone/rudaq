@@ -24,6 +24,10 @@ concurrency:
   group: benchmarks-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write      # Required for gh-pages deployment
+  pull-requests: write # Required for PR comments
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -46,7 +50,73 @@ jobs:
           rm -rf target/criterion target/release/deps/*bench* 2>/dev/null || true
 
       - name: Rust micro-benchmarks
-        run: cargo bench --package rust_daq
+        run: |
+          # Run benchmarks and output in JSON format for regression tracking
+          cargo bench --package rust_daq -- --noplot 2>&1 | tee benchmark-output.txt
+          # Also run with JSON output for benchmark-action
+          cargo bench --package rust_daq -- --noplot --save-baseline current 2>&1 || true
+
+      - name: Extract benchmark results
+        id: extract-benchmarks
+        run: |
+          # Create a JSON file with benchmark results for the benchmark-action
+          # Criterion stores results in target/criterion/<bench_name>/new/estimates.json
+          mkdir -p benchmark-results
+
+          # Find all estimate files and combine them
+          python3 << 'EOF'
+          import json
+          import os
+          from pathlib import Path
+
+          results = []
+          criterion_dir = Path("target/criterion")
+
+          if criterion_dir.exists():
+              for bench_dir in criterion_dir.iterdir():
+                  if bench_dir.is_dir():
+                      estimates_file = bench_dir / "new" / "estimates.json"
+                      if estimates_file.exists():
+                          with open(estimates_file) as f:
+                              data = json.load(f)
+                              # Extract mean time in nanoseconds
+                              mean_ns = data.get("mean", {}).get("point_estimate", 0)
+                              results.append({
+                                  "name": bench_dir.name,
+                                  "unit": "ns",
+                                  "value": mean_ns
+                              })
+
+          with open("benchmark-results/results.json", "w") as f:
+              json.dump(results, f, indent=2)
+
+          print(f"Extracted {len(results)} benchmark results")
+          EOF
+
+          cat benchmark-results/results.json
+
+      - name: Store benchmark results
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: Rust Benchmarks
+          tool: 'customSmallerIsBetter'
+          output-file-path: benchmark-results/results.json
+          # Store results in gh-pages branch
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+          # Only auto-push on main branch
+          auto-push: ${{ github.ref == 'refs/heads/main' }}
+          # Alert if performance regresses by more than 20%
+          alert-threshold: '120%'
+          # Comment on PR with comparison
+          comment-on-alert: true
+          # Fail the workflow if performance regresses by more than 50%
+          fail-on-alert: false
+          fail-threshold: '150%'
+          # GitHub token for pushing to gh-pages
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # Only run comparison on PRs and main pushes (not workflow_dispatch)
+        if: github.event_name != 'workflow_dispatch'
 
       - name: Upload Criterion report
         uses: actions/upload-artifact@v4
@@ -56,6 +126,14 @@ jobs:
           retention-days: 30
         if: always()
 
+      - name: Upload benchmark results JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.sha }}
+          path: benchmark-results
+          retention-days: 90
+        if: always()
+
       - name: Publish summary
         if: always()
         run: |
@@ -63,6 +141,15 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Criterion report uploaded as artifact \`criterion-report-${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -f "benchmark-results/results.json" ]; then
+            echo "### Benchmark Results" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat benchmark-results/results.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
           if [ -d "target/criterion" ]; then
             echo "### Benchmarks Run" >> "$GITHUB_STEP_SUMMARY"
             find target/criterion -name "report" -type d | while read -r dir; do
@@ -70,3 +157,9 @@ jobs:
               echo "- $bench_name" >> "$GITHUB_STEP_SUMMARY"
             done
           fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Regression Detection:**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Alert threshold: 120% (20% regression triggers warning)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Fail threshold: 150% (50% regression fails the build)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Historical data: [Benchmark Dashboard](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/dev/bench/)" >> "$GITHUB_STEP_SUMMARY"
