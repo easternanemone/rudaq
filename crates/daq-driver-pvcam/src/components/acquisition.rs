@@ -1011,11 +1011,12 @@ impl PvcamAcquisition {
     /// * `exposure_ms` - Exposure time in milliseconds (for frame rate calculation)
     #[cfg(feature = "pvcam_hardware")]
     fn calculate_buffer_count(hcam: i16, frame_bytes: usize, exposure_ms: f64) -> usize {
-        // bd-3gnv: Buffer size test complete - stall at 85 frames regardless of buffer size.
-        // This proves the issue is NOT buffer cycling related.
-        // Reverting to normal buffer calculation.
+        // bd-circ: Reduced buffer size to avoid DMA limit issues on Prime BSI.
+        // Full sensor (2048x2048 @ 8MB/frame) stalls at ~85 frames (~780MB).
+        // Limiting to 32 frames (256MB) forces earlier wrap-around within safe DMA limits.
+        // Smaller ROIs (256x256 @ 128KB) can handle more frames (200+) successfully.
         const MIN_BUFFER_FRAMES: usize = 16;
-        const MAX_BUFFER_FRAMES: usize = 256;
+        const MAX_BUFFER_FRAMES: usize = 32;
         const ONE_SECOND_MS: f64 = 1000.0;
 
         // Try to query PARAM_FRAME_BUFFER_SIZE from SDK
