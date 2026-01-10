@@ -19,6 +19,7 @@ use pvcam_sys::*;
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::ffi::CStr;
 use std::time::Instant;
+use tracing::{debug, trace};
 use tracing_subscriber::EnvFilter;
 
 const TARGET_FRAMES: usize = 200;
@@ -231,6 +232,7 @@ fn fast_streaming_equivalent() {
     let mut last_nr: i32 = 0;
     let mut acquired: usize = 0;
     let mut gap_events: u32 = 0;
+    let mut last_status: Option<i16> = None;
     let mut first_frame_wait_logged = false;
     let deadline = Instant::now() + std::time::Duration::from_secs(20);
 
@@ -246,6 +248,11 @@ fn fast_streaming_equivalent() {
             if pl_exp_check_cont_status(hcam, &mut status, &mut byte_cnt, &mut buf_cnt) == 0 {
                 panic!("status check failed: {}", get_error_message());
             }
+        }
+
+        if last_status != Some(status) {
+            trace!(status, buf_cnt, byte_cnt, "status change");
+            last_status = Some(status);
         }
 
         if !first_frame_wait_logged
@@ -283,6 +290,17 @@ fn fast_streaming_equivalent() {
         }
         last_nr = current;
         acquired += 1;
+
+        debug!(
+            frame_nr = current,
+            timestamp_bof = frame_info.timestampBOF,
+            timestamp_eof = frame_info.timestampEOF,
+            roi_count = frame_info.roiCount,
+            status,
+            buf_cnt,
+            byte_cnt,
+            "frame received"
+        );
 
         // Release oldest frame if not overwrite mode
         if circ_mode == CIRC_NO_OVERWRITE {

@@ -65,6 +65,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicI16;
 #[cfg(feature = "pvcam_hardware")]
 use std::sync::atomic::AtomicI32;
+#[cfg(feature = "pvcam_hardware")]
+use std::sync::atomic::AtomicPtr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -130,17 +132,38 @@ pub struct CallbackContext {
     pub mutex: std::sync::Mutex<bool>, // bool indicates "notified" state
     /// Shutdown signal to exit the wait loop
     pub shutdown: AtomicBool,
+
+    // === SDK Pattern Fields (bd-ffi-sdk-match) ===
+    // These fields enable calling pl_exp_get_latest_frame INSIDE the callback,
+    // matching the SDK examples (LiveImage.cpp, FastStreamingToDisk.cpp).
+
+    /// Camera handle for callback to call pl_exp_get_latest_frame
+    pub hcam: AtomicI16,
+    /// Frame pointer retrieved in callback (SDK pattern: ctx->eofFrame)
+    /// AtomicPtr provides lock-free access from callback thread
+    pub frame_ptr: AtomicPtr<std::ffi::c_void>,
+    /// Frame info from callback (SDK pattern: ctx->eofFrameInfo = *pFrameInfo)
+    /// Uses std::sync::Mutex (not tokio) because callback runs on PVCAM thread
+    pub frame_info: std::sync::Mutex<FRAME_INFO>,
 }
 
 #[cfg(feature = "pvcam_hardware")]
 impl CallbackContext {
-    pub fn new() -> Self {
+    /// Create a new CallbackContext with camera handle for SDK pattern frame retrieval.
+    ///
+    /// # Arguments
+    /// * `hcam` - Camera handle from pl_cam_open, used by callback to call pl_exp_get_latest_frame
+    pub fn new(hcam: i16) -> Self {
         Self {
             pending_frames: std::sync::atomic::AtomicU32::new(0),
             latest_frame_nr: AtomicI32::new(-1),
             condvar: std::sync::Condvar::new(),
             mutex: std::sync::Mutex::new(false),
             shutdown: AtomicBool::new(false),
+            // SDK pattern fields
+            hcam: AtomicI16::new(hcam),
+            frame_ptr: AtomicPtr::new(std::ptr::null_mut()),
+            frame_info: std::sync::Mutex::new(unsafe { std::mem::zeroed() }),
         }
     }
 
@@ -232,27 +255,100 @@ impl CallbackContext {
         if let Ok(mut guard) = self.mutex.lock() {
             *guard = false;
         }
+        // Reset SDK pattern fields
+        self.frame_ptr.store(std::ptr::null_mut(), Ordering::SeqCst);
+        if let Ok(mut guard) = self.frame_info.lock() {
+            *guard = unsafe { std::mem::zeroed() };
+        }
+    }
+
+    // === SDK Pattern Methods (bd-ffi-sdk-match) ===
+    // These methods enable the callback to store frame data and the main thread to retrieve it,
+    // matching the SDK examples (LiveImage.cpp, FastStreamingToDisk.cpp).
+
+    /// Store frame info from callback (called from PVCAM thread).
+    ///
+    /// Uses try_lock to avoid blocking the callback. If the lock is held by the
+    /// main thread, we skip storing this frame's info (the frame pointer is still
+    /// stored atomically and the main thread can still process the frame).
+    #[inline]
+    pub fn store_frame_info(&self, info: FRAME_INFO) {
+        if let Ok(mut guard) = self.frame_info.try_lock() {
+            *guard = info;
+        }
+        // If lock fails, we're in contention - skip this frame's info
+        // Main thread will still get the pointer via store_frame_ptr
+    }
+
+    /// Store frame pointer from callback (called from PVCAM thread).
+    ///
+    /// This is lock-free and always succeeds. The frame pointer is retrieved
+    /// immediately in the callback using pl_exp_get_latest_frame (SDK pattern).
+    #[inline]
+    pub fn store_frame_ptr(&self, ptr: *mut std::ffi::c_void) {
+        self.frame_ptr.store(ptr, Ordering::Release);
+    }
+
+    /// Take stored frame pointer (called from main thread).
+    ///
+    /// Returns the frame pointer and resets it to null. This ensures each frame
+    /// pointer is only consumed once. Returns null if no frame is available.
+    #[inline]
+    pub fn take_frame_ptr(&self) -> *mut std::ffi::c_void {
+        self.frame_ptr.swap(std::ptr::null_mut(), Ordering::Acquire)
+    }
+
+    /// Take stored frame info (called from main thread).
+    ///
+    /// Returns a copy of the FRAME_INFO stored by the callback.
+    /// Note: This does NOT reset the stored info (unlike take_frame_ptr).
+    #[inline]
+    pub fn take_frame_info(&self) -> FRAME_INFO {
+        match self.frame_info.lock() {
+            Ok(guard) => *guard,
+            Err(poisoned) => *poisoned.into_inner(),
+        }
+    }
+
+    /// Update the camera handle (called before callback registration).
+    ///
+    /// The CallbackContext is created with -1 (invalid) as initial hcam.
+    /// This method must be called with the real camera handle before
+    /// registering the EOF callback, so pl_exp_get_latest_frame can work.
+    #[inline]
+    pub fn set_hcam(&self, hcam: i16) {
+        self.hcam.store(hcam, Ordering::Release);
     }
 }
 
-/// FFI-safe EOF callback function (bd-ek9n.2)
+/// FFI-safe EOF callback function matching SDK examples (bd-ffi-sdk-match).
 ///
-/// This function is called by PVCAM when a frame is ready. It must:
-/// 1. Be `extern "system"` for cross-platform ABI safety (stdcall on Windows, cdecl on Unix)
-/// 2. Do minimal work (just signal, no heavy processing)
-/// 3. Not block or perform I/O
+/// This callback matches the pattern from LiveImage.cpp and FastStreamingToDisk.cpp:
+/// 1. Store FRAME_INFO from the callback parameter
+/// 2. Call pl_exp_get_latest_frame to get the frame pointer INSIDE the callback
+/// 3. Store the frame pointer for the main thread
+/// 4. Signal the main thread
 ///
-/// Uses `extern "system"` instead of `extern "C"` for Windows compatibility:
-/// - On Unix: both ABIs are equivalent (cdecl)
-/// - On Windows: `extern "system"` uses __stdcall as PVCAM SDK expects
-/// - On Windows x64: both ABIs are unified, so either works
+/// # SDK Pattern Reference (LiveImage.cpp)
+/// ```cpp
+/// void PV_DECL CustomEofHandler(FRAME_INFO* pFrameInfo, void* pContext) {
+///     ctx->eofFrameInfo = *pFrameInfo;
+///     if (PV_OK != pl_exp_get_latest_frame(ctx->hcam, &ctx->eofFrame)) {
+///         ctx->eofFrame = nullptr;
+///     }
+///     ctx->eofEvent.cond.notify_all();
+/// }
+/// ```
 ///
-/// The callback is cast to `*mut c_void` when registered with PVCAM.
+/// Uses `extern "system"` for cross-platform ABI safety:
+/// - On Unix: equivalent to cdecl
+/// - On Windows: uses __stdcall as PVCAM SDK expects
 ///
 /// # Safety
 ///
 /// - `p_frame_info` must be a valid pointer to FRAME_INFO or null
 /// - `p_context` must be a valid pointer to CallbackContext
+/// - The callback runs on PVCAM's internal thread, not the Rust async runtime
 #[cfg(feature = "pvcam_hardware")]
 pub unsafe extern "system" fn pvcam_eof_callback(
     p_frame_info: *const FRAME_INFO,
@@ -264,14 +360,32 @@ pub unsafe extern "system" fn pvcam_eof_callback(
 
     let ctx = &*(p_context as *const CallbackContext);
 
-    // Extract frame number for loss detection
+    // SDK Pattern Step 1: Store FRAME_INFO (ctx->eofFrameInfo = *pFrameInfo)
+    if !p_frame_info.is_null() {
+        ctx.store_frame_info(*p_frame_info);
+    }
+
+    // SDK Pattern Step 2: Get frame pointer INSIDE callback
+    // This is the critical difference from the old implementation!
+    // SDK: pl_exp_get_latest_frame(ctx->hcam, &ctx->eofFrame)
+    let hcam = ctx.hcam.load(Ordering::Acquire);
+    let mut frame_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+    let result = pl_exp_get_latest_frame(hcam, &mut frame_ptr);
+
+    if result != 0 && !frame_ptr.is_null() {
+        // SDK Pattern Step 3: Store frame pointer for main thread
+        ctx.store_frame_ptr(frame_ptr);
+    } else {
+        // Frame retrieval failed - store null to signal error to main thread
+        ctx.store_frame_ptr(std::ptr::null_mut());
+    }
+
+    // SDK Pattern Step 4: Signal main thread (ctx->eofEvent.cond.notify_all())
     let frame_nr = if !p_frame_info.is_null() {
         (*p_frame_info).FrameNr
     } else {
         -1
     };
-
-    // Signal frame ready - minimal work in callback
     ctx.signal_frame_ready(frame_nr);
 }
 
@@ -859,9 +973,10 @@ impl PvcamAcquisition {
             // Error channel for involuntary stop signaling (Gemini SDK review)
             #[cfg(feature = "pvcam_hardware")]
             error_tx: Arc::new(Mutex::new(None)),
-            // Pinned callback context for EOF notifications (bd-ek9n.2)
+            // Pinned callback context for EOF notifications (bd-ek9n.2, bd-ffi-sdk-match)
+            // Initially created with -1 (invalid handle); hcam is updated before callback registration
             #[cfg(feature = "pvcam_hardware")]
-            callback_context: Arc::new(Box::pin(CallbackContext::new())),
+            callback_context: Arc::new(Box::pin(CallbackContext::new(-1))),
             // Camera handle and callback state for Drop cleanup
             // -1 is sentinel for "no active handle"
             #[cfg(feature = "pvcam_hardware")]
@@ -1324,6 +1439,11 @@ impl PvcamAcquisition {
             // bd-3gnv: Register EOF callback before starting acquisition.
             // PVCAM Best Practices (bd-ek9n.2): Register EOF callback to avoid polling overhead.
             // The callback signals frame readiness, eliminating polling overhead.
+
+            // bd-ffi-sdk-match: Set camera handle in CallbackContext BEFORE registering callback.
+            // The callback needs hcam to call pl_exp_get_latest_frame (SDK pattern).
+            self.callback_context.set_hcam(h);
+
             // Get raw pointer to pinned CallbackContext for FFI
             // Deref Arc -> Pin<Box<T>> -> T, then take address
             let callback_ctx_ptr = &**self.callback_context as *const CallbackContext;
@@ -2344,15 +2464,32 @@ impl PvcamAcquisition {
                     break;
                 }
 
-                // bd-circ: FIFO-only strategy using get_oldest_frame + unlock_oldest_frame.
-                // This ensures every frame is drained in order and prevents buffer leaks.
-                let frame_ptr = match ffi_safe::get_oldest_frame(hcam, &mut frame_info) {
-                    Ok(ptr) => ptr,
-                    Err(()) => {
-                        // No more frames available - exit drain loop normally
-                        break;
+                // bd-ffi-sdk-match: Retrieve frame pointer from callback context.
+                // The callback has already called pl_exp_get_latest_frame and stored the
+                // result. This matches the SDK example pattern (LiveImage.cpp).
+                //
+                // Primary path: Use callback-stored frame (SDK pattern)
+                // Fallback path: Use get_oldest_frame for CIRC_NO_OVERWRITE FIFO draining
+                let callback_frame_ptr = callback_ctx.take_frame_ptr();
+
+                let frame_ptr = if !callback_frame_ptr.is_null() {
+                    // Got frame from callback - retrieve the stored FRAME_INFO
+                    frame_info = callback_ctx.take_frame_info();
+                    callback_frame_ptr
+                } else if !circ_overwrite {
+                    // Fallback for CIRC_NO_OVERWRITE: try FIFO drain with get_oldest_frame
+                    match ffi_safe::get_oldest_frame(hcam, &mut frame_info) {
+                        Ok(ptr) => ptr,
+                        Err(()) => {
+                            // No more frames available - exit drain loop normally
+                            break;
+                        }
                     }
+                } else {
+                    // CIRC_OVERWRITE mode with no callback frame - exit drain loop
+                    break;
                 };
+
                 frames_processed_in_drain += 1;
 
                 // Remaining frame processing is in an unsafe block for pointer operations

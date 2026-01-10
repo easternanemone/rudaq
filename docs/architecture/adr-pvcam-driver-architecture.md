@@ -113,11 +113,13 @@ static SDK_INIT_MUTEX: Mutex<()> = Mutex::new(());
 
 ---
 
-### 3. EOF Callback Architecture (bd-ek9n.2)
+### 3. EOF Callback Architecture (bd-ek9n.2, bd-ffi-sdk-match)
 
-**Decision:** Use PVCAM EOF callbacks with condvar signaling instead of polling.
+**Decision:** Use PVCAM EOF callbacks with in-callback frame retrieval, matching SDK examples.
 
 **Location:** `components/acquisition.rs:93-200`
+
+**Update 2025-01 (bd-ffi-sdk-match):** The callback now calls `pl_exp_get_latest_frame` internally to match official SDK examples (`LiveImage.cpp`, `FastStreamingToDisk.cpp`).
 
 ```rust
 pub struct CallbackContext {
@@ -126,17 +128,41 @@ pub struct CallbackContext {
     pub mutex: Mutex<bool>,             // Condvar pairing
     pub shutdown: AtomicBool,           // Graceful exit
     pub latest_frame_nr: AtomicI32,     // Frame tracking
+
+    // SDK Pattern Fields (bd-ffi-sdk-match)
+    pub hcam: AtomicI16,                // Camera handle for SDK calls
+    pub frame_ptr: AtomicPtr<c_void>,   // Frame pointer (lock-free)
+    pub frame_info: Mutex<FRAME_INFO>,  // Frame metadata
+}
+```
+
+**Callback Pattern (matching SDK):**
+```rust
+pub unsafe extern "system" fn pvcam_eof_callback(...) {
+    // Store FRAME_INFO from callback parameter
+    ctx.store_frame_info(*p_frame_info);
+
+    // CRITICAL: Retrieve frame pointer INSIDE callback (SDK pattern)
+    let result = pl_exp_get_latest_frame(hcam, &mut frame_ptr);
+    ctx.store_frame_ptr(frame_ptr);
+
+    // Signal main thread
+    ctx.signal_frame_ready(frame_nr);
 }
 ```
 
 **Justification:**
+- **SDK Alignment:** Matches official examples (LiveImage.cpp, FastStreamingToDisk.cpp)
+- **Timing Precision:** Frame pointer captured at exact moment of EOF signal
 - **CPU Efficiency:** Callbacks use <1% CPU vs 15-30% for polling with sleep
 - **Latency:** Microsecond-precision notification vs millisecond polling intervals
-- **PVCAM Best Practice:** Official SDK documentation recommends callback-based acquisition
-- **Event Coalescence:** `AtomicU32` counter prevents lost events when multiple callbacks fire during processing
+- **Thread Safety:** `AtomicPtr` provides lock-free storage from callback thread
+- **Event Coalescence:** `AtomicU32` counter prevents lost events when multiple callbacks fire
 
 **Alternative Considered:** Polling with `pl_exp_check_cont_status()` in a loop.
 **Why Rejected:** Wastes CPU cycles; adds latency; doesn't scale to high frame rates.
+
+**Previous Pattern (pre-bd-ffi-sdk-match):** Callback only signaled; frame retrieval happened outside in drain loop. This caused ~85-frame stalls and duplicate frame issues on Prime BSI.
 
 ---
 
@@ -406,3 +432,4 @@ If code reduction is desired, these optional features could be feature-gated:
 | Date | Author | Description |
 |------|--------|-------------|
 | 2025-01-09 | Architecture Review | Initial analysis and documentation |
+| 2025-01-10 | bd-ffi-sdk-match | Updated EOF callback to match SDK examples (pl_exp_get_latest_frame inside callback) |

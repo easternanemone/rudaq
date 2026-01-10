@@ -142,47 +142,103 @@ Timeline:
 
 ## Implementation
 
-### Constants (acquisition.rs)
+### SDK-Matching Callback Pattern (bd-ffi-sdk-match)
 
-```rust
-/// Set to false to use continuous mode (recommended for Prime BSI).
-/// Sequence mode works but requires re-setup between batches.
-#[cfg(feature = "pvcam_hardware")]
-const USE_SEQUENCE_MODE: bool = false;
+**Update 2025-01:** The implementation now matches the official SDK examples (`LiveImage.cpp`, `FastStreamingToDisk.cpp`) by retrieving frame pointers **inside** the EOF callback.
 
-/// Use get_latest_frame for continuous acquisition.
-/// - true: get_latest_frame (no unlock needed, always newest frame)
-/// - false: get_oldest_frame + unlock (FIFO, may stall at high FPS)
-#[cfg(feature = "pvcam_hardware")]
-const USE_GET_LATEST_FRAME: bool = true;
-```
+#### SDK Example Pattern (from `LiveImage.cpp`)
 
-### Frame Retrieval Logic
+```cpp
+void PV_DECL CustomEofHandler(FRAME_INFO* pFrameInfo, void* pContext) {
+    auto ctx = static_cast<CameraContext*>(pContext);
+    ctx->eofFrameInfo = *pFrameInfo;
 
-```rust
-let frame_ptr = if USE_GET_LATEST_FRAME {
-    // Get most recent frame - no unlock needed
-    match ffi_safe::get_latest_frame(hcam, &mut frame_info) {
-        Ok(ptr) => ptr,
-        Err(()) => { break; }
+    // CRITICAL: Frame retrieval happens INSIDE the callback
+    if (PV_OK != pl_exp_get_latest_frame(ctx->hcam, &ctx->eofFrame)) {
+        PrintErrorMessage(pl_error_code(), "pl_exp_get_latest_frame() error");
+        ctx->eofFrame = nullptr;
     }
-} else {
-    // Get oldest frame in buffer - requires unlock after processing
-    match ffi_safe::get_oldest_frame(hcam, &mut frame_info) {
-        Ok(ptr) => ptr,
-        Err(()) => { break; }
-    }
-};
 
-// Process frame...
-
-// Only unlock if using get_oldest_frame strategy
-if !USE_GET_LATEST_FRAME {
-    if !ffi_safe::release_oldest_frame(hcam) {
-        unlock_failures += 1;
-    }
+    // Signal main thread
+    ctx->eofEvent.cond.notify_all();
 }
 ```
+
+#### Rust Implementation (matching SDK)
+
+```rust
+pub unsafe extern "system" fn pvcam_eof_callback(
+    p_frame_info: *const FRAME_INFO,
+    p_context: *mut std::ffi::c_void,
+) {
+    let ctx = &*(p_context as *const CallbackContext);
+
+    // SDK Pattern Step 1: Store FRAME_INFO
+    if !p_frame_info.is_null() {
+        ctx.store_frame_info(*p_frame_info);
+    }
+
+    // SDK Pattern Step 2: Retrieve frame pointer INSIDE callback
+    let hcam = ctx.hcam.load(Ordering::Acquire);
+    let mut frame_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+    let result = pl_exp_get_latest_frame(hcam, &mut frame_ptr);
+
+    if result != 0 && !frame_ptr.is_null() {
+        ctx.store_frame_ptr(frame_ptr);
+    }
+
+    // SDK Pattern Step 3: Signal main thread
+    ctx.signal_frame_ready(frame_nr);
+}
+```
+
+### CallbackContext Structure
+
+The `CallbackContext` stores frame data captured by the callback:
+
+```rust
+pub struct CallbackContext {
+    pub pending_frames: AtomicU32,
+    pub latest_frame_nr: AtomicI32,
+    pub condvar: Condvar,
+    pub mutex: Mutex<bool>,
+    pub shutdown: AtomicBool,
+
+    // SDK Pattern Fields (bd-ffi-sdk-match)
+    pub hcam: AtomicI16,                    // Camera handle for SDK calls
+    pub frame_ptr: AtomicPtr<c_void>,       // Frame pointer (lock-free)
+    pub frame_info: Mutex<FRAME_INFO>,      // Frame metadata
+}
+```
+
+### Frame Retrieval in Drain Loop
+
+The main thread retrieves the stored frame from the callback context:
+
+```rust
+// Primary path: Use callback-stored frame (SDK pattern)
+let callback_frame_ptr = callback_ctx.take_frame_ptr();
+
+let frame_ptr = if !callback_frame_ptr.is_null() {
+    frame_info = callback_ctx.take_frame_info();
+    callback_frame_ptr
+} else if !circ_overwrite {
+    // Fallback for CIRC_NO_OVERWRITE: FIFO drain
+    match ffi_safe::get_oldest_frame(hcam, &mut frame_info) {
+        Ok(ptr) => ptr,
+        Err(()) => break,
+    }
+} else {
+    break;
+};
+```
+
+### Why This Pattern Works
+
+1. **Timing Precision:** Frame pointer is captured at the exact moment PVCAM signals EOF
+2. **Thread Safety:** `AtomicPtr` provides lock-free storage from callback thread
+3. **SDK Alignment:** Matches official examples (LiveImage.cpp, FastStreamingToDisk.cpp)
+4. **Fallback Support:** CIRC_NO_OVERWRITE mode can still use FIFO draining if needed
 
 ## PyVCAM Reference
 
