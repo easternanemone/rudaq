@@ -1,7 +1,7 @@
 //! Tier 1: Core Functional Tests for PVCAM Continuous Acquisition
 //!
 //! These tests validate the fundamental continuous acquisition functionality:
-//! - Single frame capture with get_latest_frame
+//! - Single frame capture via FIFO (get_oldest_frame + unlock)
 //! - Multi-frame sustained streaming
 //! - Frame data integrity (dimensions, non-zero data)
 //! - Frame numbering sequence validation
@@ -45,7 +45,7 @@ const TEST_ROI_HEIGHT: u32 = 256;
 // Tier 1 Test 1: Basic Frame Acquisition
 // =============================================================================
 
-/// Test single frame acquisition using continuous mode with get_latest_frame.
+/// Test single frame acquisition using continuous mode with FIFO retrieval.
 ///
 /// Validates:
 /// - Camera initialization and setup
@@ -123,16 +123,34 @@ async fn test_continuous_streaming() {
         .await
         .expect("Failed to create PVCAM driver");
 
+    // Get sensor resolution to determine realistic FPS expectations
+    // Full sensor (2048x2048) has ~23ms readout time, limiting max FPS to ~30
+    // Smaller ROIs can achieve higher frame rates
+    let (sensor_width, sensor_height) = camera.resolution();
+    let is_full_sensor = sensor_width >= 2048 && sensor_height >= 2048;
+
     // Set fast exposure for higher frame rate
     camera
         .set_exposure(exposures::FAST_SEC)
         .await
         .expect("Failed to set exposure");
 
-    println!(
-        "Exposure: {:.1}ms (theoretical max FPS: {:.0})",
-        exposures::FAST_MS,
+    // For full sensor: readout ~23ms + exposure 10ms = 33ms/frame = ~30 FPS
+    // For small ROI: readout negligible, ~100 FPS possible
+    let expected_fps = if is_full_sensor {
+        // Full sensor limited by readout time (~23ms for Prime BSI)
+        let readout_ms = 23.0;
+        1000.0 / (exposures::FAST_MS + readout_ms)
+    } else {
         1000.0 / exposures::FAST_MS
+    };
+
+    println!(
+        "Exposure: {:.1}ms, Sensor: {}x{}, Expected FPS: {:.0}",
+        exposures::FAST_MS,
+        sensor_width,
+        sensor_height,
+        expected_fps
     );
 
     // Subscribe before starting stream
@@ -178,7 +196,13 @@ async fn test_continuous_streaming() {
     stats.duration = start.elapsed();
     tracker.export_to_stats(&mut stats);
     stats.calculate_fps();
-    stats.calculate_expected(exposures::FAST_MS);
+    // Calculate expected frames using actual frame time (exposure + readout)
+    let frame_time_ms = if is_full_sensor {
+        exposures::FAST_MS + 23.0 // Include readout time for full sensor
+    } else {
+        exposures::FAST_MS
+    };
+    stats.calculate_expected(frame_time_ms);
 
     // Stop streaming
     camera
@@ -189,9 +213,9 @@ async fn test_continuous_streaming() {
     // Print results
     stats.print_summary("Continuous Streaming");
 
-    // Assertions
-    let expected_fps = 1000.0 / exposures::FAST_MS;
-    assert_fps_near(stats.fps, expected_fps, 30.0, "Continuous streaming");
+    // Assertions - use sensor-aware expected FPS calculated above
+    // Allow 40% tolerance to account for sequence mode batch transitions
+    assert_fps_near(stats.fps, expected_fps, 40.0, "Continuous streaming");
     assert_frame_count_min(stats.frame_count, 10, "Continuous streaming");
     assert_no_duplicate_frames(stats.duplicate_frames, "Continuous streaming");
 
@@ -324,7 +348,7 @@ async fn test_frame_data_integrity() {
 /// Validates:
 /// - Frame numbers are monotonically increasing
 /// - No duplicate frame numbers (would indicate buffer issues)
-/// - Frame number gaps are tracked (skipped frames with get_latest_frame)
+/// - Frame number gaps are tracked (unexpected under FIFO)
 #[tokio::test]
 async fn test_frame_numbering_sequence() {
     println!("\n=== Tier 1 Test: Frame Numbering Sequence ===\n");
@@ -414,13 +438,11 @@ async fn test_frame_numbering_sequence() {
     assert_eq!(out_of_order, 0, "Frame numbers should be monotonically increasing");
     assert_no_duplicate_frames(stats.duplicate_frames, "Frame numbering");
 
-    // Note: skipped frames are EXPECTED with get_latest_frame - it's not an error
-    if stats.skipped_frames > 0 {
-        println!(
-            "\n  Note: {} skipped frames detected - this is expected with get_latest_frame",
-            stats.skipped_frames
-        );
-    }
+    // Under FIFO semantics we expect zero skipped frames.
+    assert_eq!(
+        stats.skipped_frames, 0,
+        "No skipped frames expected in FIFO retrieval"
+    );
 
     println!("\n=== Frame Numbering Sequence PASSED ===\n");
 }

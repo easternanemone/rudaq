@@ -162,7 +162,7 @@ impl FrameTracker {
             if frame_nr == last {
                 self.duplicates += 1;
             } else if frame_nr > last + 1 {
-                // Frames were skipped (expected with get_latest_frame)
+                // Frames were skipped (unexpected under FIFO retrieval)
                 self.skipped += (frame_nr - last - 1) as u64;
             }
             // Note: frame_nr < last would be a serious error (out of order)

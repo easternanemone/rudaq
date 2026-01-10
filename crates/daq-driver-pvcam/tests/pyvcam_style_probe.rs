@@ -1,18 +1,15 @@
-//! PyVCAM-style CIRC_OVERWRITE probe test
+//! CIRC_OVERWRITE rejection probe (FIFO required)
 //!
-//! This test mimics PyVCAM's exact approach to continuous acquisition:
-//! 1. 4096-byte aligned buffer allocation
-//! 2. pl_exp_setup_cont with CIRC_OVERWRITE
-//! 3. Callback registration AFTER setup
-//! 4. pl_exp_get_latest_frame_ex for frame retrieval (no unlock needed)
+//! Verifies Prime BSI rejects CIRC_OVERWRITE (error 185) and that
+//! CIRC_NO_OVERWRITE + FIFO retrieval works for a single frame.
 //!
-//! Run with:
+//! Run with hardware profile on maitai:
 //! ```bash
 //! ssh maitai@100.117.5.12 'source /etc/profile.d/pvcam.sh && \
 //!   export PVCAM_SDK_DIR=/opt/pvcam/sdk && \
 //!   export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH && \
 //!   export LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:$LD_LIBRARY_PATH && \
-//!   cd ~/rust-daq && git pull && \
+//!   cd ~/rust-daq && \
 //!   cargo test --release -p daq-driver-pvcam --features pvcam_hardware \
 //!     --test pyvcam_style_probe -- --nocapture --test-threads=1'
 //! ```
@@ -22,19 +19,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, unused_imports, dead_code)]
 
 use pvcam_sys::*;
-use std::alloc::{alloc, dealloc, Layout};
-use std::ffi::{c_void, CStr};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::ffi::CStr;
+use std::time::Duration;
 
-// Use constants from pvcam_sys (CIRC_OVERWRITE, CIRC_NO_OVERWRITE, CCS_HALT,
-// PL_CALLBACK_EOF, EXT_TRIG_INTERNAL, EXPOSE_OUT_FIRST_ROW)
-
-/// PyVCAM uses 4096-byte alignment for DMA buffers
-const ALIGNMENT_BOUNDARY: usize = 4096;
-
-/// Get PVCAM error message
 fn get_error_message() -> String {
     let mut msg = [0i8; 256];
     unsafe {
@@ -44,197 +31,13 @@ fn get_error_message() -> String {
     }
 }
 
-/// Allocate 4096-byte aligned buffer (like PyVCAM)
-fn allocate_aligned_buffer(size: usize) -> *mut u8 {
-    let layout = Layout::from_size_align(size, ALIGNMENT_BOUNDARY).expect("Invalid layout");
-    unsafe { alloc(layout) }
-}
-
-/// Deallocate aligned buffer
-unsafe fn deallocate_aligned_buffer(ptr: *mut u8, size: usize) {
-    let layout = Layout::from_size_align(size, ALIGNMENT_BOUNDARY).expect("Invalid layout");
-    dealloc(ptr, layout);
-}
-
-// Global state for callback
-static FRAME_COUNT: AtomicU32 = AtomicU32::new(0);
-static CALLBACK_ERRORS: AtomicU32 = AtomicU32::new(0);
-static STOP_FLAG: AtomicBool = AtomicBool::new(false);
-
-/// PyVCAM-style EOF callback
-/// Uses pl_exp_get_latest_frame_ex like PyVCAM does
-extern "system" fn pyvcam_eof_callback(frame_info: *const FRAME_INFO, _context: *mut c_void) {
-    if STOP_FLAG.load(Ordering::Relaxed) {
-        return;
-    }
-
-    let hcam = unsafe { (*frame_info).hCam };
-
-    // PyVCAM calls pl_exp_get_latest_frame_ex inside the callback
-    let mut address: *mut c_void = std::ptr::null_mut();
-    // Use zeroed memory for FRAME_INFO to ensure all fields are initialized
-    let mut fi: FRAME_INFO = unsafe { std::mem::zeroed() };
-
-    let result = unsafe { pl_exp_get_latest_frame_ex(hcam, &mut address, &mut fi) };
-
-    if result != 0 && !address.is_null() {
-        FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
-    } else {
-        CALLBACK_ERRORS.fetch_add(1, Ordering::Relaxed);
-    }
-}
-
-/// Test CIRC_OVERWRITE with PyVCAM-style setup
-fn test_pyvcam_style(hcam: i16, exp_mode: i16, buffer_frames: u32) -> (bool, bool, u32, String) {
-    // Reset counters
-    FRAME_COUNT.store(0, Ordering::Relaxed);
-    CALLBACK_ERRORS.store(0, Ordering::Relaxed);
-    STOP_FLAG.store(false, Ordering::Relaxed);
-
-    // Small ROI for fast testing (256x256)
-    let region = rgn_type {
-        s1: 0,
-        s2: 255,
-        sbin: 1,
-        p1: 0,
-        p2: 255,
-        pbin: 1,
-    };
-    let exposure_ms: uns32 = 10;
-    let mut frame_bytes: uns32 = 0;
-
-    // Step 1: pl_exp_setup_cont with CIRC_OVERWRITE (like PyVCAM)
-    let setup_ok = unsafe {
-        pl_exp_setup_cont(
-            hcam,
-            1,
-            &region as *const _,
-            exp_mode,
-            exposure_ms,
-            &mut frame_bytes,
-            CIRC_OVERWRITE,
-        ) != 0
-    };
-
-    if !setup_ok {
-        let err = get_error_message();
-        return (false, false, 0, format!("setup_cont failed: {}", err));
-    }
-
-    println!(
-        "  [OK] pl_exp_setup_cont succeeded, frame_bytes = {}",
-        frame_bytes
-    );
-
-    // Step 2: Register callback AFTER setup (like PyVCAM)
-    let callback_ok = unsafe {
-        pl_cam_register_callback_ex3(
-            hcam,
-            PL_CALLBACK_EOF,
-            pyvcam_eof_callback as *mut c_void,
-            std::ptr::null_mut(),
-        ) != 0
-    };
-
-    if !callback_ok {
-        let err = get_error_message();
-        return (
-            true,
-            false,
-            0,
-            format!("callback registration failed: {}", err),
-        );
-    }
-
-    println!("  [OK] Callback registered");
-
-    // Step 3: Allocate 4096-byte aligned buffer (like PyVCAM)
-    let buffer_size = (frame_bytes as usize) * (buffer_frames as usize);
-    let buffer_ptr = allocate_aligned_buffer(buffer_size);
-
-    if buffer_ptr.is_null() {
-        unsafe {
-            pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
-        }
-        return (
-            true,
-            false,
-            0,
-            "Failed to allocate aligned buffer".to_string(),
-        );
-    }
-
-    println!(
-        "  [OK] Allocated {} bytes with 4096-byte alignment",
-        buffer_size
-    );
-
-    // Step 4: pl_exp_start_cont
-    let start_ok =
-        unsafe { pl_exp_start_cont(hcam, buffer_ptr as *mut c_void, buffer_size as uns32) != 0 };
-
-    if !start_ok {
-        let err_code = unsafe { pl_error_code() };
-        let err = get_error_message();
-        unsafe {
-            pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
-            deallocate_aligned_buffer(buffer_ptr, buffer_size);
-        }
-        return (
-            true,
-            false,
-            0,
-            format!("start_cont failed (err {}): {}", err_code, err),
-        );
-    }
-
-    println!("  [OK] pl_exp_start_cont succeeded!");
-
-    // Step 5: Run for 2 seconds and count frames
-    let start = Instant::now();
-    let run_duration = Duration::from_secs(2);
-
-    while start.elapsed() < run_duration {
-        std::thread::sleep(Duration::from_millis(100));
-        let frames = FRAME_COUNT.load(Ordering::Relaxed);
-        let errors = CALLBACK_ERRORS.load(Ordering::Relaxed);
-        print!("\r    Frames: {}, Errors: {}", frames, errors);
-    }
-    println!();
-
-    // Stop acquisition
-    STOP_FLAG.store(true, Ordering::Relaxed);
-    unsafe {
-        pl_exp_abort(hcam, CCS_HALT);
-        pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
-        deallocate_aligned_buffer(buffer_ptr, buffer_size);
-    }
-
-    let final_frames = FRAME_COUNT.load(Ordering::Relaxed);
-    let final_errors = CALLBACK_ERRORS.load(Ordering::Relaxed);
-
-    (
-        true,
-        true,
-        final_frames,
-        format!("frames={}, errors={}", final_frames, final_errors),
-    )
-}
-
-#[tokio::test]
-async fn test_pyvcam_style_circ_overwrite() {
-    println!("\n=== PYVCAM-STYLE CIRC_OVERWRITE PROBE ===\n");
-    println!("Testing with 4096-byte aligned buffers (like PyVCAM)\n");
-
-    // Initialize PVCAM
+fn open_first_camera() -> i16 {
     unsafe {
         if pl_pvcam_init() == 0 {
             panic!("Failed to initialize PVCAM: {}", get_error_message());
         }
     }
-    println!("[OK] PVCAM initialized");
 
-    // Get camera count
     let mut cam_count: i16 = 0;
     unsafe {
         if pl_cam_get_total(&mut cam_count) == 0 || cam_count == 0 {
@@ -242,9 +45,7 @@ async fn test_pyvcam_style_circ_overwrite() {
             panic!("No cameras found");
         }
     }
-    println!("[OK] Found {} camera(s)", cam_count);
 
-    // Get camera name and open
     let mut cam_name = [0i8; 32];
     unsafe {
         pl_cam_get_name(0, cam_name.as_mut_ptr());
@@ -261,53 +62,23 @@ async fn test_pyvcam_style_circ_overwrite() {
             panic!("Failed to open camera: {}", get_error_message());
         }
     }
-    println!("[OK] Camera opened, handle = {}\n", hcam);
+    println!("[OK] Camera opened, handle = {}", hcam);
+    hcam
+}
 
-    // Test configurations
-    let test_configs = [
-        (
-            EXT_TRIG_INTERNAL | EXPOSE_OUT_FIRST_ROW,
-            "Internal+FirstRow",
-            10u32,
-        ),
-        (
-            EXT_TRIG_INTERNAL | EXPOSE_OUT_FIRST_ROW,
-            "Internal+FirstRow",
-            20u32,
-        ),
-        (EXT_TRIG_INTERNAL | 3, "Internal+Rolling", 10u32), // Rolling Shutter = 3
-    ];
-
-    println!("=== Testing CIRC_OVERWRITE with PyVCAM-style setup ===\n");
-
-    for (exp_mode, name, buffer_frames) in test_configs.iter() {
-        println!(
-            "Test: exp_mode={} ({}) buffer_frames={}",
-            exp_mode, name, buffer_frames
-        );
-
-        let (setup_ok, start_ok, frames, msg) = test_pyvcam_style(hcam, *exp_mode, *buffer_frames);
-
-        if start_ok && frames > 0 {
-            println!("  [SUCCESS] Acquired {} frames! {}\n", frames, msg);
-        } else if setup_ok && !start_ok {
-            println!("  [FAIL] Setup OK but start failed: {}\n", msg);
-        } else {
-            println!("  [FAIL] {}\n", msg);
-        }
-
-        // Small delay between tests
-        std::thread::sleep(Duration::from_millis(500));
+fn close_camera(hcam: i16) {
+    unsafe {
+        pl_cam_close(hcam);
+        pl_pvcam_uninit();
     }
+}
 
-    // Also test CIRC_NO_OVERWRITE for comparison
-    println!("\n=== Testing CIRC_NO_OVERWRITE for comparison ===\n");
+#[tokio::test]
+async fn test_circ_overwrite_rejected_and_fifo_single_frame() {
+    println!("\n=== CIRC_OVERWRITE REJECTION + FIFO SMOKE ===\n");
+    let hcam = open_first_camera();
 
-    // Reset counters
-    FRAME_COUNT.store(0, Ordering::Relaxed);
-    CALLBACK_ERRORS.store(0, Ordering::Relaxed);
-    STOP_FLAG.store(false, Ordering::Relaxed);
-
+    // Small ROI for speed
     let region = rgn_type {
         s1: 0,
         s2: 255,
@@ -319,14 +90,33 @@ async fn test_pyvcam_style_circ_overwrite() {
     let exposure_ms: uns32 = 10;
     let mut frame_bytes: uns32 = 0;
     let exp_mode = EXT_TRIG_INTERNAL | EXPOSE_OUT_FIRST_ROW;
-    let buffer_frames = 20u32;
 
-    println!(
-        "Test: CIRC_NO_OVERWRITE with aligned buffer, exp_mode={}",
-        exp_mode
-    );
+    // Attempt CIRC_OVERWRITE (expected to fail on Prime BSI)
+    let overwrite_ok = unsafe {
+        pl_exp_setup_cont(
+            hcam,
+            1,
+            &region as *const _,
+            exp_mode,
+            exposure_ms,
+            &mut frame_bytes,
+            CIRC_OVERWRITE,
+        ) != 0
+    };
 
-    let setup_ok = unsafe {
+    if overwrite_ok {
+        println!(
+            "[WARN] CIRC_OVERWRITE unexpectedly succeeded (frame_bytes={})",
+            frame_bytes
+        );
+    } else {
+        let code = unsafe { pl_error_code() };
+        println!("[OK] CIRC_OVERWRITE rejected (err code {}): {}", code, get_error_message());
+    }
+
+    // Now confirm FIFO path works: setup NO_OVERWRITE and grab one frame
+    frame_bytes = 0;
+    let fifo_setup = unsafe {
         pl_exp_setup_cont(
             hcam,
             1,
@@ -337,73 +127,37 @@ async fn test_pyvcam_style_circ_overwrite() {
             CIRC_NO_OVERWRITE,
         ) != 0
     };
+    assert!(fifo_setup, "CIRC_NO_OVERWRITE setup should succeed");
 
-    if setup_ok {
-        println!("  [OK] setup_cont succeeded");
+    let buffer_frames: usize = 8;
+    let buffer_size = (frame_bytes as usize) * buffer_frames;
+    let mut buffer = vec![0u8; buffer_size];
 
-        let callback_ok = unsafe {
-            pl_cam_register_callback_ex3(
-                hcam,
-                PL_CALLBACK_EOF,
-                pyvcam_eof_callback as *mut c_void,
-                std::ptr::null_mut(),
-            ) != 0
-        };
+    let start_ok = unsafe {
+        pl_exp_start_cont(
+            hcam,
+            buffer.as_mut_ptr() as *mut std::ffi::c_void,
+            buffer_size as uns32,
+        ) != 0
+    };
+    assert!(start_ok, "pl_exp_start_cont should succeed for FIFO path");
 
-        if callback_ok {
-            let buffer_size = (frame_bytes as usize) * (buffer_frames as usize);
-            let buffer_ptr = allocate_aligned_buffer(buffer_size);
+    // Wait briefly for a frame, then retrieve oldest and unlock
+    std::thread::sleep(Duration::from_millis(200));
 
-            if !buffer_ptr.is_null() {
-                let start_ok = unsafe {
-                    pl_exp_start_cont(hcam, buffer_ptr as *mut c_void, buffer_size as uns32) != 0
-                };
+    let mut address: *mut std::ffi::c_void = std::ptr::null_mut();
+    let mut fi: FRAME_INFO = unsafe { std::mem::zeroed() };
+    let get_ok = unsafe { pl_exp_get_oldest_frame_ex(hcam, &mut address, &mut fi) } != 0;
+    assert!(get_ok && !address.is_null(), "Should retrieve oldest frame under FIFO");
 
-                if start_ok {
-                    println!("  [OK] start_cont succeeded");
+    // Unlock to drain
+    let unlock_ok = unsafe { pl_exp_unlock_oldest_frame(hcam) } != 0;
+    assert!(unlock_ok, "Unlock of oldest frame should succeed");
 
-                    // Run for 2 seconds
-                    let start = Instant::now();
-                    while start.elapsed() < Duration::from_secs(2) {
-                        std::thread::sleep(Duration::from_millis(100));
-                        print!(
-                            "\r    Frames: {}, Errors: {}",
-                            FRAME_COUNT.load(Ordering::Relaxed),
-                            CALLBACK_ERRORS.load(Ordering::Relaxed)
-                        );
-                    }
-                    println!();
-
-                    STOP_FLAG.store(true, Ordering::Relaxed);
-                    unsafe {
-                        pl_exp_abort(hcam, CCS_HALT);
-                    }
-
-                    let frames = FRAME_COUNT.load(Ordering::Relaxed);
-                    println!("  [RESULT] CIRC_NO_OVERWRITE got {} frames", frames);
-                } else {
-                    let err = get_error_message();
-                    println!("  [FAIL] start_cont failed: {}", err);
-                }
-
-                unsafe {
-                    deallocate_aligned_buffer(buffer_ptr, buffer_size);
-                }
-            }
-
-            unsafe {
-                pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
-            }
-        }
-    } else {
-        println!("  [FAIL] setup_cont failed: {}", get_error_message());
-    }
-
-    // Cleanup
-    println!("\n--- Cleanup ---");
     unsafe {
-        pl_cam_close(hcam);
-        pl_pvcam_uninit();
+        pl_exp_abort(hcam, CCS_HALT);
     }
-    println!("[OK] Done\n");
+
+    close_camera(hcam);
+    println!("[OK] FIFO single-frame smoke passed\n");
 }

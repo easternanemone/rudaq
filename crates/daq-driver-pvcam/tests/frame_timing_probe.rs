@@ -1,8 +1,7 @@
-//! Frame timing probe to understand get_oldest_frame vs get_latest_frame semantics
+//! Frame timing probe to validate FIFO (get_oldest_frame + unlock) semantics.
 //!
-//! Tests whether "oldest" and "latest" refer to:
-//! - Chronological capture time (oldest = captured first)
-//! - Stack/buffer position (oldest = first slot, latest = last slot)
+//! Confirms that `pl_exp_get_oldest_frame_ex` returns frames in chronological order
+//! and that unlocking advances the buffer pointer without skips.
 //!
 //! Run with:
 //! ```bash
@@ -48,8 +47,8 @@ struct FrameMetadata {
 
 #[tokio::test]
 async fn test_frame_timing_semantics() {
-    println!("\n=== FRAME TIMING PROBE: get_oldest_frame vs get_latest_frame ===\n");
-    println!("Goal: Determine if 'oldest'/'latest' refers to capture time or buffer position\n");
+    println!("\n=== FRAME TIMING PROBE: FIFO get_oldest_frame ===\n");
+    println!("Goal: Confirm get_oldest_frame returns chronological frames and unlock advances FIFO\n");
 
     // Initialize PVCAM
     unsafe {
@@ -158,16 +157,13 @@ async fn test_frame_timing_semantics() {
 
     let test_start = Instant::now();
     let mut oldest_frames: Vec<FrameMetadata> = Vec::new();
-    let mut latest_frames: Vec<FrameMetadata> = Vec::new();
 
     println!("=== Phase 1: Let buffer fill with frames (waiting 3 seconds) ===\n");
 
     // Wait for buffer to fill with several frames
     std::thread::sleep(Duration::from_secs(3));
 
-    println!("=== Phase 2: Retrieve frames using BOTH methods ===\n");
-
-    // Try get_oldest_frame multiple times
+    println!("=== Phase 2: Retrieve frames via FIFO ===\n");
     println!("--- Testing pl_exp_get_oldest_frame_ex ---");
     for i in 0..5 {
         let mut address: *mut c_void = std::ptr::null_mut();
@@ -202,36 +198,6 @@ async fn test_frame_timing_semantics() {
         std::thread::sleep(Duration::from_millis(100));
     }
 
-    println!("\n--- Testing pl_exp_get_latest_frame_ex ---");
-    for i in 0..5 {
-        let mut address: *mut c_void = std::ptr::null_mut();
-        let mut fi: FRAME_INFO = unsafe { std::mem::zeroed() };
-
-        let result = unsafe { pl_exp_get_latest_frame_ex(hcam, &mut address, &mut fi) };
-
-        if result != 0 && !address.is_null() {
-            let meta = FrameMetadata {
-                frame_nr: fi.FrameNr,
-                timestamp: fi.TimeStamp as u64,
-                timestamp_bof: fi.TimeStampBOF as u64,
-                readout_time: fi.ReadoutTime,
-                retrieval_method: "get_latest_frame",
-                wall_clock_ms: test_start.elapsed().as_millis(),
-            };
-            println!(
-                "  [{}] FrameNr={}, TimeStamp={}, TimeStampBOF={}, ReadoutTime={}",
-                i, meta.frame_nr, meta.timestamp, meta.timestamp_bof, meta.readout_time
-            );
-            latest_frames.push(meta);
-            // Note: get_latest_frame doesn't need unlock
-        } else {
-            println!("  [{}] No frame available", i);
-            break;
-        }
-
-        std::thread::sleep(Duration::from_millis(100));
-    }
-
     // Stop acquisition
     unsafe {
         pl_exp_abort(hcam, CCS_HALT);
@@ -239,77 +205,31 @@ async fn test_frame_timing_semantics() {
 
     // Analysis
     println!("\n=== ANALYSIS ===\n");
-
-    if !oldest_frames.is_empty() && !latest_frames.is_empty() {
-        let oldest_first = &oldest_frames[0];
-        let latest_first = &latest_frames[0];
-
-        println!("First frame from get_oldest_frame:");
-        println!(
-            "  FrameNr: {}, TimeStamp: {}",
-            oldest_first.frame_nr, oldest_first.timestamp
-        );
-
-        println!("\nFirst frame from get_latest_frame:");
-        println!(
-            "  FrameNr: {}, TimeStamp: {}",
-            latest_first.frame_nr, latest_first.timestamp
-        );
-
-        println!("\n--- INTERPRETATION ---");
-
-        if oldest_first.frame_nr < latest_first.frame_nr {
-            println!(
-                "✓ get_oldest_frame returns LOWER FrameNr ({} < {})",
-                oldest_first.frame_nr, latest_first.frame_nr
-            );
-            println!("  → 'oldest' = chronologically older (captured earlier)");
-            println!("  → 'latest' = chronologically newer (captured later)");
-            println!("\n  NAMING IS CHRONOLOGICAL (as expected)");
-        } else if oldest_first.frame_nr > latest_first.frame_nr {
-            println!(
-                "✗ get_oldest_frame returns HIGHER FrameNr ({} > {})",
-                oldest_first.frame_nr, latest_first.frame_nr
-            );
-            println!("  → 'oldest' = newest in capture time!");
-            println!("  → 'latest' = oldest in capture time!");
-            println!("\n  *** NAMING IS INVERTED (stack position, not time) ***");
-        } else {
-            println!("? Same FrameNr - inconclusive (only one frame in buffer?)");
-        }
-
-        if oldest_first.timestamp != latest_first.timestamp {
-            println!("\nTimestamp comparison:");
-            if oldest_first.timestamp < latest_first.timestamp {
-                println!(
-                    "  oldest.TimeStamp ({}) < latest.TimeStamp ({})",
-                    oldest_first.timestamp, latest_first.timestamp
-                );
-                println!("  → Confirms: 'oldest' = earlier capture time");
-            } else {
-                println!(
-                    "  oldest.TimeStamp ({}) > latest.TimeStamp ({})",
-                    oldest_first.timestamp, latest_first.timestamp
-                );
-                println!("  → Confirms: NAMING IS INVERTED!");
+    if oldest_frames.len() >= 3 {
+        // Assert monotonic frame numbers and non-decreasing timestamps
+        let mut monotonic_ok = true;
+        let mut ts_ok = true;
+        for win in oldest_frames.windows(2) {
+            if win[1].frame_nr <= win[0].frame_nr {
+                monotonic_ok = false;
+            }
+            if win[1].timestamp < win[0].timestamp {
+                ts_ok = false;
             }
         }
-    } else {
-        println!("Insufficient data for comparison.");
-        println!("oldest_frames collected: {}", oldest_frames.len());
-        println!("latest_frames collected: {}", latest_frames.len());
-    }
 
-    // Print all frame numbers for debugging
-    println!("\n--- All collected frame numbers ---");
-    println!(
-        "get_oldest_frame: {:?}",
-        oldest_frames.iter().map(|f| f.frame_nr).collect::<Vec<_>>()
-    );
-    println!(
-        "get_latest_frame: {:?}",
-        latest_frames.iter().map(|f| f.frame_nr).collect::<Vec<_>>()
-    );
+        println!("Collected frame numbers: {:?}", oldest_frames.iter().map(|f| f.frame_nr).collect::<Vec<_>>());
+        println!("Monotonic frame numbers: {}", monotonic_ok);
+        println!("Non-decreasing timestamps: {}", ts_ok);
+
+        assert!(monotonic_ok, "Frame numbers must increase under FIFO retrieval");
+        assert!(ts_ok, "Timestamps must be non-decreasing under FIFO retrieval");
+    } else {
+        panic!(
+            "Insufficient frames collected for FIFO timing probe ({} < 3)",
+            oldest_frames.len()
+        );
+    }
 
     // Cleanup
     println!("\n--- Cleanup ---");

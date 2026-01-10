@@ -78,14 +78,9 @@ use tokio::task::JoinHandle;
 
 /// bd-3gnv: Buffer mode selection for continuous streaming.
 ///
-/// CIRC_OVERWRITE is the ideal mode for indefinite streaming (used by DynExp):
-/// - Camera overwrites oldest frame when buffer is full (no stall)
-/// - Use pl_exp_get_latest_frame to get most recent frame
-/// - NO unlock calls needed
-///
-/// However, Prime BSI returns error 185 (Invalid Configuration) with CIRC_OVERWRITE,
-/// even with TIMED_MODE and callbacks. This may be a camera/firmware limitation.
-/// Fallback to CIRC_NO_OVERWRITE with auto-restart on stall.
+/// CIRC_OVERWRITE would avoid stalls by overwriting the oldest frame, but Prime BSI
+/// returns error 185 (Invalid Configuration). We therefore run CIRC_NO_OVERWRITE and
+/// drain the buffer strictly FIFO (get_oldest_frame + unlock_oldest_frame).
 ///
 /// Reference: https://github.com/jbopp/dynexp/blob/main/src/DynExpManager/HardwareAdapters/HardwareAdapterPVCam.cpp
 #[cfg(feature = "pvcam_hardware")]
@@ -102,23 +97,15 @@ const USE_CIRC_OVERWRITE_MODE: bool = false;
 /// |------|--------|
 /// | CIRC_OVERWRITE | Error 185 (NOT supported by Prime BSI hardware) |
 /// | CIRC_NO_OVERWRITE + get_oldest_frame + unlock | **Correct FIFO pattern** |
-/// | CIRC_NO_OVERWRITE + get_latest_frame | Buffer leak → stalls at ~85 frames |
 ///
 /// ## Buffer Management (Gemini/PVCAM SDK analysis)
 ///
 /// In CIRC_NO_OVERWRITE mode:
 /// - `get_oldest_frame`: Returns oldest frame and LOCKS the buffer slot
-/// - `get_latest_frame`: Returns newest frame but does NOT lock (also doesn't advance read pointer)
 /// - `unlock_oldest_frame`: Releases lock AND advances read pointer, freeing slot for camera
 ///
 /// The buffer fills if frames aren't properly released via unlock_oldest_frame.
 /// Camera stops (READOUT_NOT_ACTIVE) when buffer is full (~100 frames).
-///
-/// ## Why get_latest_frame causes stalls
-///
-/// When using get_latest_frame, frames can be skipped (e.g., get frame 5, skip 1-4).
-/// Each unlock_oldest_frame only releases ONE frame. If we skip 4 frames but only
-/// unlock 1, the skipped frames accumulate until buffer fills at ~85 frames.
 ///
 /// ## Correct FIFO Pattern
 ///
@@ -131,32 +118,6 @@ const USE_CIRC_OVERWRITE_MODE: bool = false;
 /// Set to true to use sequence mode (recommended for Prime BSI to avoid DMA stalls).
 #[cfg(feature = "pvcam_hardware")]
 const USE_SEQUENCE_MODE: bool = true;
-
-/// Use FIFO pattern with `get_oldest_frame` for continuous acquisition.
-///
-/// # Frame Retrieval Strategies
-///
-/// | Method | Behavior | Unlock Required | Buffer Drain |
-/// |--------|----------|-----------------|--------------|
-/// | `get_oldest_frame` | FIFO - sequential processing | Yes | Automatic |
-/// | `get_latest_frame` | Newest-wins - skips old frames | No | Manual (complex) |
-///
-/// When false (RECOMMENDED): Uses `pl_exp_get_oldest_frame_ex` + `pl_exp_unlock_oldest_frame`.
-/// This is the correct FIFO pattern that properly drains the buffer.
-///
-/// When true: Uses `pl_exp_get_latest_frame_ex` which can skip frames, causing
-/// buffer accumulation and stalls at ~85 frames unless all skipped frames are
-/// explicitly released (complex and error-prone).
-///
-/// # Key Requirement
-///
-/// With get_oldest_frame, the processing loop MUST be faster than the camera
-/// frame rate on average. If processing falls behind, the buffer will fill
-/// and acquisition will stop.
-///
-/// See: `docs/architecture/adr-pvcam-continuous-acquisition.md` for full investigation.
-#[cfg(feature = "pvcam_hardware")]
-const USE_GET_LATEST_FRAME: bool = false;
 
 /// Batch size for sequence mode streaming (bd-3gnv).
 ///
@@ -678,47 +639,6 @@ mod ffi_safe {
             let err_code = unsafe { pl_error_code() };
             eprintln!(
                 "[PVCAM DEBUG] get_oldest_frame failed: result={}, err_code={}, frame_ptr_null={}",
-                result,
-                err_code,
-                frame_ptr.is_null()
-            );
-            Err(())
-        } else {
-            Ok(frame_ptr)
-        }
-    }
-
-    /// Get the latest frame from the circular buffer with frame info.
-    ///
-    /// Returns the most recent frame rather than the oldest unretrieved frame.
-    /// Unlike get_oldest_frame, this function does NOT lock the frame.
-    ///
-    /// NOTE: In CIRC_NO_OVERWRITE mode, you must STILL call release_oldest_frame()
-    /// to drain old frames from the buffer and prevent stalls. The unlock removes
-    /// frames from the buffer, not just releases a lock.
-    ///
-    /// # Safety Contract
-    /// - `hcam` must be a valid, open camera handle
-    /// - Acquisition must be active with frames available
-    /// - `frame_info` must be a valid pointer to a FRAME_INFO struct
-    ///
-    /// # Returns
-    /// - `Ok(frame_ptr)` - pointer to the frame data in the circular buffer
-    /// - `Err(())` if no frame available or error
-    pub fn get_latest_frame(
-        hcam: i16,
-        frame_info: &mut FRAME_INFO,
-    ) -> Result<*mut std::ffi::c_void, ()> {
-        debug_assert!(hcam >= 0, "Invalid camera handle: {}", hcam);
-        let mut frame_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-
-        // SAFETY: hcam is valid, frame_info and frame_ptr are valid stack allocations
-        let result = unsafe { pl_exp_get_latest_frame_ex(hcam, &mut frame_ptr, frame_info) };
-
-        if result == 0 || frame_ptr.is_null() {
-            let err_code = unsafe { pl_error_code() };
-            eprintln!(
-                "[PVCAM DEBUG] get_latest_frame failed: result={}, err_code={}, frame_ptr_null={}",
                 result,
                 err_code,
                 frame_ptr.is_null()
@@ -1284,9 +1204,8 @@ impl PvcamAcquisition {
                 (actual_frame_bytes * buffer_count) as f64 / (1024.0 * 1024.0)
             );
 
-            // bd-3gnv: Register EOF callback - works with both CIRC_OVERWRITE and CIRC_NO_OVERWRITE.
-            // The SDK example (pvcam.h line 3346) shows using callbacks with pl_exp_get_latest_frame.
-            // PVCAM Best Practices (bd-ek9n.2): Register EOF callback before starting acquisition.
+            // bd-3gnv: Register EOF callback before starting acquisition.
+            // PVCAM Best Practices (bd-ek9n.2): Register EOF callback to avoid polling overhead.
             // The callback signals frame readiness, eliminating polling overhead.
             // Get raw pointer to pinned CallbackContext for FFI
             // Deref Arc -> Pin<Box<T>> -> T, then take address
@@ -2260,25 +2179,13 @@ impl PvcamAcquisition {
                     break;
                 }
 
-                // bd-circ: Frame retrieval strategy
-                // - get_oldest_frame (FIFO): Sequential processing, requires unlock_oldest_frame
-                // - get_latest_frame (newest-wins): Skips frames, causes buffer leak → stalls
-                // See USE_GET_LATEST_FRAME documentation for details.
-                let frame_ptr = if USE_GET_LATEST_FRAME {
-                    match ffi_safe::get_latest_frame(hcam, &mut frame_info) {
-                        Ok(ptr) => ptr,
-                        Err(()) => {
-                            // No frame available - exit drain loop normally
-                            break;
-                        }
-                    }
-                } else {
-                    match ffi_safe::get_oldest_frame(hcam, &mut frame_info) {
-                        Ok(ptr) => ptr,
-                        Err(()) => {
-                            // No more frames available - exit drain loop normally
-                            break;
-                        }
+                // bd-circ: FIFO-only strategy using get_oldest_frame + unlock_oldest_frame.
+                // This ensures every frame is drained in order and prevents buffer leaks.
+                let frame_ptr = match ffi_safe::get_oldest_frame(hcam, &mut frame_info) {
+                    Ok(ptr) => ptr,
+                    Err(()) => {
+                        // No more frames available - exit drain loop normally
+                        break;
                     }
                 };
                 frames_processed_in_drain += 1;
@@ -2304,17 +2211,6 @@ impl PvcamAcquisition {
                                 current_frame_nr,
                                 frames_lost
                             );
-
-                            // bd-circ FIX: When using get_latest_frame, skipped frames still
-                            // occupy buffer space. Release them all to prevent buffer fill.
-                            if USE_GET_LATEST_FRAME && !USE_CIRC_OVERWRITE_MODE {
-                                for _ in 0..frames_lost {
-                                    if !ffi_safe::release_oldest_frame(hcam) {
-                                        unlock_failures += 1;
-                                        break; // Stop if unlock fails (no more frames)
-                                    }
-                                }
-                            }
                         } else if current_frame_nr == prev_frame_nr {
                             // Duplicate frame detected (bd-ha3w): same FrameNr as previous
                             // This happens when the SDK returns the same buffer before new data arrives.
@@ -2430,10 +2326,8 @@ impl PvcamAcquisition {
                     }
 
                     // bd-circ: In CIRC_NO_OVERWRITE mode, ALWAYS release frames to drain
-                    // the buffer, regardless of which get function was used.
-                    // get_latest_frame reads the latest data but doesn't remove frames.
-                    // unlock_oldest_frame removes the oldest frame from the buffer.
-                    // Without this, the buffer fills and acquisition stalls (~85 frames).
+                    // the buffer. unlock_oldest_frame removes the oldest frame; without it
+                    // the buffer fills and acquisition stalls (~85 frames).
                     if !USE_CIRC_OVERWRITE_MODE {
                         if !ffi_safe::release_oldest_frame(hcam) {
                             unlock_failures += 1;

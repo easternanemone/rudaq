@@ -45,7 +45,8 @@ pub const READOUT_FAILED: i16 = 4;
 // Circular buffer modes for pl_exp_setup_cont
 //
 // IMPORTANT: Prime BSI does NOT support CIRC_OVERWRITE (error 185).
-// Use CIRC_NO_OVERWRITE with pl_exp_get_latest_frame_ex instead.
+// Use CIRC_NO_OVERWRITE with FIFO draining (pl_exp_get_oldest_frame_ex +
+// pl_exp_unlock_oldest_frame) to prevent buffer stalls.
 // See: docs/architecture/adr-pvcam-continuous-acquisition.md
 
 /// Circular buffer mode: Overwrite oldest frames when buffer is full.
@@ -54,7 +55,8 @@ pub const READOUT_FAILED: i16 = 4;
 pub const CIRC_OVERWRITE: i16 = 0;
 
 /// Circular buffer mode: Stop acquisition when buffer is full.
-/// Use with `pl_exp_get_latest_frame_ex` for ~100 FPS streaming.
+/// Use with FIFO retrieval (`pl_exp_get_oldest_frame_ex` +
+/// `pl_exp_unlock_oldest_frame`) to drain buffers safely.
 #[cfg(feature = "pvcam-sdk")]
 pub const CIRC_NO_OVERWRITE: i16 = 1;
 
