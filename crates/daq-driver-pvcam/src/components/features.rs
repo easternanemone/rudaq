@@ -746,13 +746,82 @@ pub struct PvcamFeatures;
 
 impl PvcamFeatures {
     // =========================================================================
+    // Parameter Availability Check (SDK Pattern - bd-ng5p)
+    // =========================================================================
+
+    /// Check if a parameter is available on the connected camera.
+    ///
+    /// This implements the SDK's `IsParamAvailable` pattern. The PVCAM SDK
+    /// documentation emphasizes checking parameter availability before access
+    /// because not all cameras support all parameters.
+    ///
+    /// # SDK Reference
+    /// From PVCAM SDK Common.cpp:
+    /// ```cpp
+    /// bool IsParamAvailable(int16 hcam, uns32 paramID, const char* paramName)
+    /// {
+    ///     rs_bool isAvailable;
+    ///     if (PV_OK != pl_get_param(hcam, paramID, ATTR_AVAIL, (void*)&isAvailable))
+    ///         return false;
+    ///     return isAvailable != FALSE;
+    /// }
+    /// ```
+    ///
+    /// # Returns
+    /// - `true` if the parameter is available on this camera
+    /// - `false` if the parameter is unavailable or the check failed
+    #[cfg(feature = "pvcam_hardware")]
+    pub fn is_param_available(hcam: i16, param_id: u32) -> bool {
+        let mut avail: rs_bool = 0;
+        unsafe {
+            if pl_get_param(
+                hcam,
+                param_id,
+                ATTR_AVAIL as i16,
+                &mut avail as *mut _ as *mut std::ffi::c_void,
+            ) != 0
+            {
+                avail != 0
+            } else {
+                false
+            }
+        }
+    }
+
+    /// Check if a parameter is available, returning an error with context if not.
+    ///
+    /// Use this variant when parameter unavailability should produce an error
+    /// rather than a silent fallback.
+    #[cfg(feature = "pvcam_hardware")]
+    pub fn require_param_available(hcam: i16, param_id: u32, param_name: &str) -> Result<()> {
+        if Self::is_param_available(hcam, param_id) {
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "Parameter {} (0x{:08X}) is not available on this camera",
+                param_name,
+                param_id
+            ))
+        }
+    }
+
+    // =========================================================================
     // Temperature Control
     // =========================================================================
 
     /// Get current sensor temperature in Celsius
+    ///
+    /// # SDK Pattern (bd-ng5p)
+    /// Checks PARAM_TEMP availability before access, matching SDK pattern
+    /// from FanSpeedAndTemperature.cpp example.
     pub fn get_temperature(_conn: &PvcamConnection) -> Result<f64> {
         #[cfg(feature = "pvcam_hardware")]
         if let Some(h) = _conn.handle() {
+            // SDK Pattern: Check availability before access
+            if !Self::is_param_available(h, PARAM_TEMP) {
+                return Err(anyhow!("PARAM_TEMP is not available on this camera"));
+            }
+
             let mut temp_raw: i16 = 0;
             unsafe {
                 // SAFETY: h is a valid open handle; temp_raw is a writable i16 on the stack.
@@ -776,9 +845,19 @@ impl PvcamFeatures {
     }
 
     /// Set temperature setpoint in Celsius
+    ///
+    /// # SDK Pattern (bd-ng5p)
+    /// Checks PARAM_TEMP_SETPOINT availability before access.
     pub fn set_temperature_setpoint(_conn: &PvcamConnection, _celsius: f64) -> Result<()> {
         #[cfg(feature = "pvcam_hardware")]
         if let Some(h) = _conn.handle() {
+            // SDK Pattern: Check availability before access
+            if !Self::is_param_available(h, PARAM_TEMP_SETPOINT) {
+                return Err(anyhow!(
+                    "PARAM_TEMP_SETPOINT is not available on this camera"
+                ));
+            }
+
             let temp_raw = (_celsius * 100.0) as i16;
             unsafe {
                 // SAFETY: h is a valid open handle; temp_raw pointer valid for duration of call.
