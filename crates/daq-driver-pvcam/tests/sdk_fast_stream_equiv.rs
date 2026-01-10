@@ -133,7 +133,16 @@ fn fast_streaming_equivalent() {
         );
     }
 
-    let circ_size = frame_bytes as usize * BUFFER_FRAMES;
+    // Avoid allocating multi-GB buffers for full-frame Prime BSI. Cap at 512MB while
+    // keeping at least 32 frames to exercise overwrite/lock semantics.
+    let mut buffer_frames = BUFFER_FRAMES;
+    let max_bytes: usize = 512 * 1024 * 1024;
+    let frame_bytes_usize = frame_bytes as usize;
+    if frame_bytes_usize.saturating_mul(buffer_frames) > max_bytes {
+        buffer_frames = (max_bytes / frame_bytes_usize).max(32);
+    }
+
+    let circ_size = frame_bytes_usize * buffer_frames;
     let layout = Layout::from_size_align(circ_size, 4096).expect("layout");
     let circ_ptr = unsafe { alloc_zeroed(layout) };
     assert!(!circ_ptr.is_null(), "alloc circ buffer");
