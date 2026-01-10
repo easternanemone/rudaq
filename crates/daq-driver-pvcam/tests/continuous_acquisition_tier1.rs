@@ -23,8 +23,9 @@
 mod common;
 
 use common::{
-    assert_fps_near, assert_frame_count_min, assert_no_duplicate_frames, durations, exposures,
-    Frame, FrameTracker, FrameValidator, TestStats,
+    assert_errors_within_limit, assert_fps_near, assert_frame_count_min,
+    assert_no_duplicate_frames, durations, exposures, Frame, FrameTracker, FrameValidator,
+    TestStats,
 };
 use daq_core::capabilities::{ExposureControl, FrameProducer};
 use daq_driver_pvcam::PvcamDriver;
@@ -67,10 +68,7 @@ async fn test_basic_frame_acquisition() {
         .await
         .expect("Failed to set exposure");
 
-    let exposure = camera
-        .get_exposure()
-        .await
-        .expect("Failed to get exposure");
+    let exposure = camera.get_exposure().await.expect("Failed to get exposure");
     println!("Exposure set to: {:.1}ms", exposure * 1000.0);
 
     // Acquire single frame
@@ -223,6 +221,110 @@ async fn test_continuous_streaming() {
 }
 
 // =============================================================================
+// Tier 1 Test 2b: Sustained Full-Sensor Streaming (500+ frames)
+// =============================================================================
+
+/// Exercise the full-sensor path long enough to validate sustained throughput.
+/// Targets 500+ frames on Prime BSI at ~30 FPS (10ms exposure + ~23ms readout).
+#[tokio::test]
+async fn test_sustained_full_sensor_streaming() {
+    println!("\n=== Tier 1 Test: Sustained Full-Sensor Streaming ===\n");
+
+    let camera = PvcamDriver::new_async(CAMERA_NAME.to_string())
+        .await
+        .expect("Failed to create PVCAM driver");
+
+    let (sensor_width, sensor_height) = camera.resolution();
+    assert!(
+        sensor_width >= 2048 && sensor_height >= 2048,
+        "Expected Prime BSI full sensor"
+    );
+
+    // Fast exposure to hit ~30 FPS with full readout time included
+    camera
+        .set_exposure(exposures::FAST_SEC)
+        .await
+        .expect("Failed to set exposure");
+
+    let expected_fps = {
+        let readout_ms = 23.0; // Prime BSI full-sensor readout time
+        1000.0 / (exposures::FAST_MS + readout_ms)
+    };
+
+    println!(
+        "Exposure: {:.1}ms, Sensor: {}x{}, Expected FPS: {:.1}",
+        exposures::FAST_MS,
+        sensor_width,
+        sensor_height,
+        expected_fps
+    );
+
+    let mut rx = camera
+        .subscribe_frames()
+        .await
+        .expect("Failed to subscribe to frames");
+
+    camera
+        .start_stream()
+        .await
+        .expect("Failed to start streaming");
+
+    let mut stats = TestStats::new();
+    let mut tracker = FrameTracker::new();
+    let test_duration = durations::SUSTAINED;
+    let start = Instant::now();
+
+    println!(
+        "Streaming for {:?} (sustained) with frame timeout {:?}...",
+        test_duration,
+        durations::FRAME_TIMEOUT
+    );
+
+    while start.elapsed() < test_duration {
+        match tokio::time::timeout(durations::FRAME_TIMEOUT, rx.recv()).await {
+            Ok(Ok(frame)) => {
+                tracker.record_frame(&frame);
+            }
+            Ok(Err(e)) => {
+                stats.channel_errors += 1;
+                println!("Channel error: {}", e);
+            }
+            Err(_) => {
+                stats.timeout_errors += 1;
+                println!("Timeout waiting for frame at {:?}", start.elapsed());
+            }
+        }
+    }
+
+    stats.duration = start.elapsed();
+    tracker.export_to_stats(&mut stats);
+    stats.calculate_fps();
+
+    // Full-sensor timing: exposure + readout dominate expected frame time
+    let frame_time_ms = exposures::FAST_MS + 23.0;
+    stats.calculate_expected(frame_time_ms);
+
+    camera
+        .stop_stream()
+        .await
+        .expect("Failed to stop streaming");
+
+    stats.print_summary("Sustained Full-Sensor Streaming");
+
+    // Expect ~600 frames over 20s; require at least 500 to catch regressions
+    assert_frame_count_min(stats.frame_count, 500, "Sustained streaming");
+    assert_fps_near(stats.fps, expected_fps, 35.0, "Sustained streaming");
+    assert_no_duplicate_frames(stats.duplicate_frames, "Sustained streaming");
+    assert_errors_within_limit(
+        stats.timeout_errors + stats.channel_errors,
+        1,
+        "Sustained streaming",
+    );
+
+    println!("\n=== Sustained Full-Sensor Streaming PASSED ===\n");
+}
+
+// =============================================================================
 // Tier 1 Test 3: Frame Data Integrity
 // =============================================================================
 
@@ -330,10 +432,7 @@ async fn test_frame_data_integrity() {
     println!("  Zero frames: {}", zero_frames);
 
     // Assertions
-    assert_eq!(
-        valid_frames, frames_to_check,
-        "All frames should be valid"
-    );
+    assert_eq!(valid_frames, frames_to_check, "All frames should be valid");
     assert_eq!(zero_frames, 0, "No frames should be all zeros");
 
     println!("\n=== Frame Data Integrity PASSED ===\n");
@@ -424,18 +523,15 @@ async fn test_frame_numbering_sequence() {
 
     // Print first 10 frame numbers for debugging
     if frame_numbers.len() >= 10 {
-        println!(
-            "  First 10 frame numbers: {:?}",
-            &frame_numbers[..10]
-        );
+        println!("  First 10 frame numbers: {:?}", &frame_numbers[..10]);
     }
 
     // Assertions
-    assert!(
-        frame_numbers.len() >= 5,
-        "Should receive at least 5 frames"
+    assert!(frame_numbers.len() >= 5, "Should receive at least 5 frames");
+    assert_eq!(
+        out_of_order, 0,
+        "Frame numbers should be monotonically increasing"
     );
-    assert_eq!(out_of_order, 0, "Frame numbers should be monotonically increasing");
     assert_no_duplicate_frames(stats.duplicate_frames, "Frame numbering");
 
     // Under FIFO semantics we expect zero skipped frames.

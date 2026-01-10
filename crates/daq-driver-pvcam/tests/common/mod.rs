@@ -95,8 +95,11 @@ impl TestStats {
         println!("Frames received: {}", self.frame_count);
         println!("FPS: {:.1}", self.fps);
         if self.expected_frames > 0 {
-            println!("Expected frames: {} ({:.1}% loss)",
-                     self.expected_frames, self.frame_loss_pct());
+            println!(
+                "Expected frames: {} ({:.1}% loss)",
+                self.expected_frames,
+                self.frame_loss_pct()
+            );
         }
         if self.skipped_frames > 0 {
             println!("Skipped frames: {}", self.skipped_frames);
@@ -249,7 +252,10 @@ impl FrameValidator {
         if frame.data.len() != expected_bytes {
             return Err(format!(
                 "Data size mismatch: expected {} bytes ({} pixels × {} bytes/pixel), got {} bytes",
-                expected_bytes, self.expected_pixel_count, self.bytes_per_pixel, frame.data.len()
+                expected_bytes,
+                self.expected_pixel_count,
+                self.bytes_per_pixel,
+                frame.data.len()
             ));
         }
 
@@ -387,6 +393,9 @@ pub mod durations {
 
     /// Standard performance test (5 seconds)
     pub const STANDARD: Duration = Duration::from_secs(5);
+
+    /// Sustained throughput test (20 seconds)
+    pub const SUSTAINED: Duration = Duration::from_secs(20);
 
     /// Extended stability test (10 seconds)
     pub const EXTENDED: Duration = Duration::from_secs(10);

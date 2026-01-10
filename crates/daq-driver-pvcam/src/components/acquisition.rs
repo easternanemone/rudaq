@@ -86,38 +86,16 @@ use tokio::task::JoinHandle;
 #[cfg(feature = "pvcam_hardware")]
 const USE_CIRC_OVERWRITE_MODE: bool = false;
 
-/// bd-3gnv: Use sequence mode for streaming (fallback option).
+/// bd-3gnv: Prefer continuous FIFO streaming; keep sequence mode as a last-resort fallback.
 ///
-/// When true: Uses `pl_exp_setup_seq` + `pl_exp_start_seq` to acquire batches of frames.
-/// When false: Uses `pl_exp_setup_cont` + `pl_exp_start_cont` with CIRC_NO_OVERWRITE.
+/// When false: Use `pl_exp_setup_cont` + `pl_exp_start_cont` with CIRC_NO_OVERWRITE and the
+/// FIFO drain path (get_oldest_frame + unlock_oldest_frame). This delivers higher sustained
+/// throughput on Prime BSI when the buffer is drained correctly.
 ///
-/// # Prime BSI Continuous Acquisition Modes
-///
-/// | Mode | Result |
-/// |------|--------|
-/// | CIRC_OVERWRITE | Error 185 (NOT supported by Prime BSI hardware) |
-/// | CIRC_NO_OVERWRITE + get_oldest_frame + unlock | **Correct FIFO pattern** |
-///
-/// ## Buffer Management (Gemini/PVCAM SDK analysis)
-///
-/// In CIRC_NO_OVERWRITE mode:
-/// - `get_oldest_frame`: Returns oldest frame and LOCKS the buffer slot
-/// - `unlock_oldest_frame`: Releases lock AND advances read pointer, freeing slot for camera
-///
-/// The buffer fills if frames aren't properly released via unlock_oldest_frame.
-/// Camera stops (READOUT_NOT_ACTIVE) when buffer is full (~100 frames).
-///
-/// ## Correct FIFO Pattern
-///
-/// Use get_oldest_frame + unlock_oldest_frame for proper sequential processing.
-/// This ensures every frame is retrieved and released in order, preventing buffer fill.
-/// Processing loop must be faster than camera frame rate on average.
-///
-/// See: `docs/architecture/adr-pvcam-continuous-acquisition.md` for full investigation.
-///
-/// Set to true to use sequence mode (recommended for Prime BSI to avoid DMA stalls).
+/// When true: Force sequence mode (`pl_exp_setup_seq` + `pl_exp_start_seq`) in batches. This
+/// is slower but can be toggled for diagnostics if continuous mode regresses.
 #[cfg(feature = "pvcam_hardware")]
-const USE_SEQUENCE_MODE: bool = true;
+const USE_SEQUENCE_MODE: bool = false;
 
 /// Batch size for sequence mode streaming (bd-3gnv).
 ///
