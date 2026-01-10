@@ -669,9 +669,12 @@ mod ffi_safe {
 
     /// Get the latest frame from the circular buffer with frame info.
     ///
-    /// This function is used with CIRC_OVERWRITE mode where we want the most
-    /// recent frame rather than the oldest unretrieved frame. Unlike get_oldest_frame,
-    /// there is no need to call release_oldest_frame after using this function.
+    /// Returns the most recent frame rather than the oldest unretrieved frame.
+    /// Unlike get_oldest_frame, this function does NOT lock the frame.
+    ///
+    /// NOTE: In CIRC_NO_OVERWRITE mode, you must STILL call release_oldest_frame()
+    /// to drain old frames from the buffer and prevent stalls. The unlock removes
+    /// frames from the buffer, not just releases a lock.
     ///
     /// # Safety Contract
     /// - `hcam` must be a valid, open camera handle
@@ -2287,9 +2290,9 @@ impl PvcamAcquisition {
                             discontinuity_events.fetch_add(1, Ordering::Relaxed);
                             consecutive_duplicates += 1;
 
-                            // bd-circ: Only release frame when using get_oldest_frame.
-                            // get_latest_frame doesn't require unlock.
-                            if !USE_GET_LATEST_FRAME {
+                            // bd-circ: In CIRC_NO_OVERWRITE mode, ALWAYS release frames
+                            // to drain the buffer, regardless of which get function was used.
+                            if !USE_CIRC_OVERWRITE_MODE {
                                 if !ffi_safe::release_oldest_frame(hcam) {
                                     unlock_failures += 1;
                                 }
@@ -2380,8 +2383,8 @@ impl PvcamAcquisition {
                             "Zero-frame detected for FrameNr {}: buffer appears uninitialized, skipping (bd-ha3w)",
                             current_frame_nr
                         );
-                        // bd-circ: Only release frame when using get_oldest_frame.
-                        if !USE_GET_LATEST_FRAME {
+                        // bd-circ: In CIRC_NO_OVERWRITE mode, ALWAYS release frames to drain buffer
+                        if !USE_CIRC_OVERWRITE_MODE {
                             if !ffi_safe::release_oldest_frame(hcam) {
                                 unlock_failures += 1;
                             }
@@ -2392,9 +2395,12 @@ impl PvcamAcquisition {
                         continue; // Skip to next frame
                     }
 
-                    // bd-circ: Only release frame when using get_oldest_frame.
-                    // get_latest_frame doesn't require unlock.
-                    if !USE_GET_LATEST_FRAME {
+                    // bd-circ: In CIRC_NO_OVERWRITE mode, ALWAYS release frames to drain
+                    // the buffer, regardless of which get function was used.
+                    // get_latest_frame reads the latest data but doesn't remove frames.
+                    // unlock_oldest_frame removes the oldest frame from the buffer.
+                    // Without this, the buffer fills and acquisition stalls (~85 frames).
+                    if !USE_CIRC_OVERWRITE_MODE {
                         if !ffi_safe::release_oldest_frame(hcam) {
                             unlock_failures += 1;
                         }
