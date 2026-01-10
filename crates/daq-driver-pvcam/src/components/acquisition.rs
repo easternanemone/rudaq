@@ -1773,22 +1773,18 @@ impl PvcamAcquisition {
                         total_frames += 1;
                         frame_count.store(total_frames, Ordering::SeqCst);
 
-                        // Build frame
+                        // Build frame (matching mock and hardware path patterns)
+                        let ext_metadata = daq_core::data::FrameMetadata {
+                            binning: Some(binning),
+                            ..Default::default()
+                        };
                         let frame = Arc::new(
-                            Frame::builder(width, height)
-                                .with_pixels(pixel_data)
-                                .with_sequence_number(total_frames)
+                            Frame::from_u16(width, height, &pixel_data)
+                                .with_frame_number(total_frames)
                                 .with_timestamp(Frame::timestamp_now())
                                 .with_exposure(exposure_ms)
                                 .with_roi_offset(roi_x, roi_y)
-                                .with_metadata(FrameExtendedMetadata {
-                                    hardware_timestamp_ns: None,
-                                    time_stamp_bof: None,
-                                    time_stamp_eof: None,
-                                    exp_time_us: None,
-                                    read_out_time_us: None,
-                                    binning: Some(binning),
-                                }),
+                                .with_metadata(ext_metadata),
                         );
 
                         // Send to channels
