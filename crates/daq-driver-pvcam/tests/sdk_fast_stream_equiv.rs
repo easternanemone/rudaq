@@ -214,8 +214,6 @@ fn fast_streaming_equivalent() {
 
     // Drain frames
     let mut frame_info: FRAME_INFO = unsafe { std::mem::zeroed() };
-    // PVCAM requires FrameInfoGUID to be pre-set so pl_exp_get_oldest_frame_ex populates fields
-    frame_info.FrameInfoGUID = unsafe { FRAME_INFO_GUID };
     frame_info.hCam = hcam;
     let mut last_nr: i32 = 0;
     let mut acquired: usize = 0;
