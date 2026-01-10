@@ -17,7 +17,6 @@
 use pvcam_sys::*;
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::ffi::CStr;
-use std::ptr;
 use std::time::Instant;
 
 const TARGET_FRAMES: usize = 200;
@@ -39,13 +38,13 @@ fn open_first_camera() -> Option<i16> {
             eprintln!("pl_pvcam_init failed: {}", get_error_message());
             return None;
         }
-        let mut name = [0i8; CAM_NAME_LEN as usize];
+        let mut name = [0i8; PARAM_NAME_LEN as usize];
         if pl_cam_get_name(0, name.as_mut_ptr()) == 0 {
             eprintln!("pl_cam_get_name failed: {}", get_error_message());
             return None;
         }
         let mut hcam: i16 = 0;
-        if pl_cam_open(name.as_ptr(), &mut hcam, OPEN_EXCLUSIVE as i16) == 0 {
+        if pl_cam_open(name.as_ptr(), &mut hcam, 0) == 0 {
             eprintln!("pl_cam_open failed: {}", get_error_message());
             return None;
         }
@@ -168,8 +167,10 @@ fn fast_streaming_equivalent() {
             continue;
         }
 
-        let frame_ptr = unsafe { pl_exp_get_oldest_frame_ex(hcam, &mut frame_info) };
-        if frame_ptr.is_null() {
+        let mut address: *mut std::ffi::c_void = std::ptr::null_mut();
+        let got_frame =
+            unsafe { pl_exp_get_oldest_frame_ex(hcam, &mut address, &mut frame_info) } != 0;
+        if !got_frame || address.is_null() {
             continue;
         }
 
