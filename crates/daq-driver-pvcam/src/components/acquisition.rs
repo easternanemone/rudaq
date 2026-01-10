@@ -110,9 +110,9 @@ const USE_SEQUENCE_MODE: bool = true;
 /// Smaller batches = lower latency, more restarts
 /// Larger batches = higher throughput, less restart overhead
 ///
-/// 5 frames at 10ms exposure = ~100ms batch time (better first-frame latency)
+/// 10 frames at 10ms exposure = ~150ms batch time (balances latency + throughput)
 #[cfg(feature = "pvcam_hardware")]
-const SEQUENCE_BATCH_SIZE: u16 = 5;
+const SEQUENCE_BATCH_SIZE: u16 = 10;
 
 /// Callback context for EOF notifications (bd-ek9n.2)
 ///
