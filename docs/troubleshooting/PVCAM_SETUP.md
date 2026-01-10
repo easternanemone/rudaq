@@ -147,6 +147,53 @@ sudo systemctl start pvcam-usb-buffer
 - **Buffer Size**: When verifying frame data manually, remember `buffer_size_bytes = width * height * 2`.
 - **Binning**: Some cameras support flexible binning (3x3, 5x5) even if not officially advertised in simple spec sheets. The driver typically queries the hardware for validity.
 
+### Error 185: PL_ERR_CONFIGURATION_INVALID with CIRC_OVERWRITE
+
+**Symptoms:**
+- `pl_exp_setup_cont()` succeeds
+- `pl_exp_start_cont()` fails with error 185
+- Occurs when using `CIRC_OVERWRITE` buffer mode
+
+**Cause:**
+Prime BSI cameras do NOT support `CIRC_OVERWRITE` buffer mode. This is a hardware/firmware limitation, not a configuration error. We tested all 9 combinations of exposure mode × expose-out mode - all fail with error 185.
+
+**Solution:**
+Use `CIRC_NO_OVERWRITE` mode with `pl_exp_get_latest_frame_ex()`:
+
+```rust
+// Use CIRC_NO_OVERWRITE (value 1) instead of CIRC_OVERWRITE (value 0)
+pl_exp_setup_cont(hcam, 1, &region, exp_mode, exposure_ms, &mut frame_bytes, CIRC_NO_OVERWRITE);
+
+// Use get_latest_frame instead of get_oldest_frame
+pl_exp_get_latest_frame_ex(hcam, &mut address, &mut frame_info);
+// No unlock call needed with get_latest_frame
+```
+
+See [ADR: PVCAM Continuous Acquisition](../architecture/adr-pvcam-continuous-acquisition.md) for full investigation details.
+
+### Continuous Acquisition Stalls After ~85 Frames
+
+**Symptoms:**
+- Continuous acquisition starts successfully
+- Works for first ~85 frames
+- Then stalls or stops receiving new frames
+- Using `CIRC_NO_OVERWRITE` with `get_oldest_frame` + `unlock_oldest_frame`
+
+**Cause:**
+At high frame rates, the `get_oldest_frame` + `unlock_oldest_frame` cycle can fall behind. The buffer fills and acquisition pauses waiting for frames to be consumed.
+
+**Solution:**
+Switch to `get_latest_frame` which doesn't require unlock calls:
+
+| Method | Behavior | Unlock Required |
+|--------|----------|-----------------|
+| `get_oldest_frame` | FIFO queue, may stall | Yes |
+| `get_latest_frame` | Newest-wins, auto-advances | No |
+
+The `get_latest_frame` approach achieves ~100 FPS sustained. This matches PyVCAM's implementation.
+
+See [ADR: PVCAM Continuous Acquisition](../architecture/adr-pvcam-continuous-acquisition.md) for detailed analysis.
+
 ## Verification
 
 Run the hardware validation suite:

@@ -96,27 +96,44 @@ const USE_CIRC_OVERWRITE_MODE: bool = false;
 /// When true: Uses `pl_exp_setup_seq` + `pl_exp_start_seq` to acquire batches of frames.
 /// When false: Uses `pl_exp_setup_cont` + `pl_exp_start_cont` with CIRC_NO_OVERWRITE.
 ///
-/// Status (Prime BSI):
-/// - CIRC_OVERWRITE: Error 185 (NOT supported by Prime BSI hardware)
-/// - CIRC_NO_OVERWRITE + get_latest_frame: WORKS at ~100 FPS!
+/// # Prime BSI Continuous Acquisition Modes
+///
+/// | Mode | Result |
+/// |------|--------|
+/// | CIRC_OVERWRITE | Error 185 (NOT supported by Prime BSI hardware) |
+/// | CIRC_NO_OVERWRITE + get_oldest_frame | Stalls after ~85 frames |
+/// | CIRC_NO_OVERWRITE + get_latest_frame | **WORKS at ~100 FPS** |
 ///
 /// Previous issue: CIRC_NO_OVERWRITE stalled after ~85 frames when using
 /// `get_oldest_frame` + `unlock_oldest_frame`. Fixed by switching to
 /// `get_latest_frame` which doesn't require unlocking.
 ///
+/// See: `docs/architecture/adr-pvcam-continuous-acquisition.md` for full investigation.
+///
 /// Set to false to use continuous mode (recommended for Prime BSI).
 #[cfg(feature = "pvcam_hardware")]
 const USE_SEQUENCE_MODE: bool = false;
 
-/// bd-circ: Use get_latest_frame for continuous acquisition.
+/// Use `get_latest_frame` for continuous acquisition (bd-circ).
+///
+/// # Frame Retrieval Strategies
+///
+/// | Method | Behavior | Unlock Required |
+/// |--------|----------|-----------------|
+/// | `get_oldest_frame` | FIFO queue - returns frame waiting longest | Yes |
+/// | `get_latest_frame` | Newest-wins - always returns most recent frame | No |
 ///
 /// When true: Uses `pl_exp_get_latest_frame_ex` which returns the most recent frame
-/// and does NOT require unlocking. This is how PyVCAM handles continuous acquisition.
+/// and does NOT require unlocking. This matches PyVCAM's implementation.
 ///
 /// When false: Uses `pl_exp_get_oldest_frame_ex` + `pl_exp_unlock_oldest_frame` which
 /// requires proper unlock timing and caused the ~85 frame stall issue.
 ///
+/// # Performance
+///
 /// Tested: 199 frames in 2 seconds (~100 FPS) with CIRC_NO_OVERWRITE mode.
+///
+/// See: `docs/architecture/adr-pvcam-continuous-acquisition.md` for full investigation.
 #[cfg(feature = "pvcam_hardware")]
 const USE_GET_LATEST_FRAME: bool = true;
 
