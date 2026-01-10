@@ -56,6 +56,7 @@ use tempfile::TempDir;
 // =============================================================================
 
 /// Create a scalar measurement for testing
+#[allow(dead_code)]
 fn create_test_scalar(name: &str, value: f64) -> Measurement {
     Measurement::Scalar {
         name: name.to_string(),
@@ -66,6 +67,7 @@ fn create_test_scalar(name: &str, value: f64) -> Measurement {
 }
 
 /// Create a vector measurement for testing
+#[allow(dead_code)]
 fn create_test_vector(name: &str, values: Vec<f64>) -> Measurement {
     Measurement::Vector {
         name: name.to_string(),
@@ -76,6 +78,7 @@ fn create_test_vector(name: &str, values: Vec<f64>) -> Measurement {
 }
 
 /// Create a spectrum measurement for testing
+#[allow(dead_code)]
 fn create_test_spectrum(name: &str, n_bins: usize) -> Measurement {
     let frequencies: Vec<f64> = (0..n_bins).map(|i| i as f64 * 100.0).collect();
     let amplitudes: Vec<f64> = frequencies
