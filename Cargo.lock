@@ -2490,6 +2490,7 @@ dependencies = [
  "criterion",
  "daq-core",
  "lazy_static",
+ "once_cell",
  "pvcam-sys",
  "serde_json",
  "tokio",

@@ -1,0 +1,228 @@
+# cargo-deny configuration for rust-daq
+# https://embarkstudios.github.io/cargo-deny/
+#
+# Run locally: cargo deny check
+# Run specific check: cargo deny check licenses
+
+# ============================================================================
+# GRAPH - Configure dependency graph construction
+# ============================================================================
+[graph]
+# Targets to consider when checking dependencies
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+
+# ============================================================================
+# OUTPUT - Configure diagnostic output
+# ============================================================================
+[output]
+feature-depth = 1
+
+# ============================================================================
+# ADVISORIES - Check for known security vulnerabilities
+# ============================================================================
+[advisories]
+# Ignore specific advisories (with justification)
+ignore = [
+    # rustls-pemfile is unmaintained but no safe upgrade exists yet
+    # Tracked via tonic dependency - will be resolved when tonic updates
+    { id = "RUSTSEC-2025-0134", reason = "Transitive via tonic, awaiting upstream fix" },
+    # bincode 1.x is unmaintained - transitive dependency via rerun
+    { id = "RUSTSEC-2025-0141", reason = "Transitive via rerun ecosystem, awaiting upstream" },
+    # paste macro - widely used, no security impact
+    { id = "RUSTSEC-2024-0436", reason = "Widely used proc-macro, no security vulnerability" },
+    # proc-macro-error - transitive via clap/structopt ecosystem
+    { id = "RUSTSEC-2024-0370", reason = "Transitive via clap, awaiting ecosystem update" },
+]
+
+# ============================================================================
+# LICENSES - Ensure all dependencies have acceptable licenses
+# ============================================================================
+[licenses]
+# The confidence threshold for detecting a license from license text.
+confidence-threshold = 0.93
+
+# List of explicitly allowed licenses
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "CC0-1.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "MPL-2.0",              # Weak copyleft, acceptable for linking
+    "BSL-1.0",              # Boost Software License
+    "Unlicense",
+    # Font licenses (used by egui)
+    "OFL-1.1",              # SIL Open Font License (fonts only)
+    "Ubuntu-font-1.0",      # Ubuntu Font License
+    # Data licenses
+    "CDLA-Permissive-2.0",  # Community Data License (webpki-roots certificates)
+]
+
+# Per-crate license exceptions (for external crates with unusual licenses)
+exceptions = [
+    # Example: { allow = ["LGPL-3.0"], crate = "some-lgpl-crate" }
+]
+
+# Clarifications for crates with complex license situations
+[[licenses.clarify]]
+crate = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+# Workspace crates - assign MIT license (matching intended license for publication)
+# These crates are internal and not published to crates.io yet
+[[licenses.clarify]]
+crate = "daq-bin"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+crate = "daq-core"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+crate = "daq-driver-comedi"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+crate = "daq-driver-pvcam"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+crate = "daq-egui"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+crate = "daq-experiment"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+crate = "daq-hardware"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+crate = "daq-proto"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+crate = "daq-scripting"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+crate = "daq-server"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+crate = "daq-storage"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+crate = "rust_daq"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+crate = "pvcam-sys"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+crate = "comedi-sys"
+expression = "MIT"
+license-files = []
+
+# External crates with deprecated/non-standard license expressions
+[[licenses.clarify]]
+crate = "unescaper"
+# The crate uses deprecated "GPL-3.0/MIT" syntax, but MIT is acceptable
+expression = "MIT OR GPL-3.0-only"
+license-files = []
+
+[licenses.private]
+# Ignore workspace crates that aren't published to crates.io
+ignore = true
+
+# ============================================================================
+# BANS - Prevent unwanted dependencies
+# ============================================================================
+[bans]
+# Lint level for multiple versions of the same crate
+multiple-versions = "warn"
+# Lint level for crates that use wildcard version requirements
+# Set to warn since workspace path dependencies often use wildcards
+wildcards = "warn"
+# Graph highlighting for duplicate crates
+highlight = "all"
+
+# Crates that can have multiple versions without warning
+skip = [
+    # Common crates that often have multiple versions in dependency trees
+    { crate = "syn", reason = "Proc-macro ecosystem version fragmentation" },
+    { crate = "hashbrown", reason = "Common transitive dependency" },
+    { crate = "indexmap", reason = "Common transitive dependency" },
+    { crate = "bitflags", reason = "1.x and 2.x coexist in ecosystem" },
+    { crate = "windows-sys", reason = "Windows SDK version differences" },
+    { crate = "windows-targets", reason = "Windows SDK version differences" },
+    { crate = "windows_x86_64_msvc", reason = "Windows SDK" },
+    { crate = "windows_x86_64_gnu", reason = "Windows SDK" },
+    { crate = "windows_aarch64_msvc", reason = "Windows SDK" },
+    { crate = "windows_i686_msvc", reason = "Windows SDK" },
+    { crate = "windows_i686_gnu", reason = "Windows SDK" },
+]
+
+# Tree of crates to skip (skip-tree is more efficient for large dep trees)
+skip-tree = [
+    # egui ecosystem often has version mismatches
+    { crate = "egui", reason = "egui ecosystem version complexity" },
+]
+
+# Crates to deny
+deny = [
+    # Outdated/deprecated crates - prefer rustls for TLS
+    { crate = "openssl", reason = "Prefer rustls for TLS" },
+    # We don't want these in a scientific instrumentation project
+    { crate = "instant", reason = "Use web-time instead for WASM compatibility" },
+]
+
+# ============================================================================
+# SOURCES - Ensure dependencies come from trusted sources
+# ============================================================================
+[sources]
+# Lint level for crates not from crates.io
+unknown-registry = "deny"
+# Lint level for crates from git repositories
+unknown-git = "warn"
+
+# Allowed crate registries
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+# Allowed git repositories
+allow-git = [
+    # Internal dependencies if needed
+    # "https://github.com/your-org/private-crate"
+]
+
+[sources.allow-org]
+# Allow crates from your GitHub organization
+github = ["bsquires-lab"]

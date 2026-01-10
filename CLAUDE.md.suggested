@@ -200,15 +200,15 @@ ssh maitai@100.117.5.12 'source /etc/profile.d/pvcam.sh && \
 |--------|------|--------|
 | Newport 1830-C Power Meter | `/dev/ttyS0` | `Newport1830CDriver` |
 | MaiTai Laser | `/dev/ttyUSB5` | `MaiTaiDriver` |
-| ELL14 Rotators (addr 2,3,8) | `/dev/ttyUSB1` | `Ell14Driver` |
-| ESP300 Motion Controller | `/dev/ttyUSB0` | `Esp300Driver` |
+| ELL14 Rotators (addr 2,3,8) | `/dev/ttyUSB0` | `Ell14Driver` |
+| ESP300 Motion Controller | `/dev/ttyUSB1` | `Esp300Driver` |
 
 ### ELL14 Rotator (RS-485 Bus)
 
 ```rust
 use daq_hardware::drivers::ell14::Ell14Bus;
 
-let bus = Ell14Bus::open("/dev/ttyUSB1").await?;
+let bus = Ell14Bus::open("/dev/ttyUSB0").await?;
 let rotator = bus.device("2").await?;  // Gets calibrated device
 rotator.move_abs(45.0).await?;
 ```
@@ -246,12 +246,10 @@ Default config in `config/config.v4.toml`:
 
 ```toml
 [grpc]
-bind_address = "0.0.0.0"  # All interfaces (change to "127.0.0.1" for loopback-only)
+bind_address = "127.0.0.1"  # Loopback only (secure default)
 auth_enabled = false
-allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+allowed_origins = ["http://localhost:3000"]
 ```
-
-**Security Note:** For production, consider `bind_address = "127.0.0.1"` (loopback only) and enabling `auth_enabled`.
 
 ## Development Tools
 
@@ -276,8 +274,6 @@ cargo modules structure --package daq-hardware --max-depth 3
 - [DEMO.md](DEMO.md) - Quick start with mock devices
 - [docs/guides/testing.md](docs/guides/testing.md) - Testing guide
 - [docs/architecture/](docs/architecture/) - ADRs and design decisions
-  - `adr-pvcam-continuous-acquisition.md` - PVCAM buffer modes (CIRC_OVERWRITE vs CIRC_NO_OVERWRITE)
-  - `adr-pvcam-driver-architecture.md` - Multi-layer driver architecture decisions
 
 ## Import Conventions
 

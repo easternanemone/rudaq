@@ -28,6 +28,7 @@ criterion = { version = "0.5", default-features = false }
 arrow = "56"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 lazy_static = "1.4"
+once_cell = "1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 # Examples and benchmarks that require specific features (bd-h7wh)

@@ -23,34 +23,21 @@ use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::ffi::{c_void, CStr, CString};
 use std::ptr;
 
-// Buffer mode constants (not exported by bindgen, need manual definition)
-const CIRC_OVERWRITE: i16 = 0;
-const CIRC_NO_OVERWRITE: i16 = 1;
-const TIMED_MODE: i16 = 0;
-const EXT_TRIG_INTERNAL: i16 = (7 + 0) << 8; // 1792
-const EXPOSE_OUT_FIRST_ROW: i16 = 0;
-const CCS_HALT: i16 = 1;
-const PL_CALLBACK_EOF: i32 = 1;
+// Use constants from pvcam_sys (CIRC_OVERWRITE, CIRC_NO_OVERWRITE, TIMED_MODE,
+// EXT_TRIG_INTERNAL, EXPOSE_OUT_FIRST_ROW, CCS_HALT, PL_CALLBACK_EOF,
+// ATTR_AVAIL, ATTR_CURRENT, ATTR_COUNT, ATTR_DEFAULT)
 
-// PARAM IDs - use actual values from SDK bindings (verified from generated bindings.rs)
-const PARAM_CIRC_BUFFER: u32 = 184746283; // from bindings.rs
-const PARAM_EXPOSURE_MODE: u32 = 151126551; // from bindings.rs
-const PARAM_EXPOSE_OUT_MODE: u32 = 151126576; // Verified from bindings.rs on maitai (was 151126585)
-const PARAM_SER_SIZE: u32 = 100794426; // from bindings.rs
-const PARAM_PAR_SIZE: u32 = 100794425; // from bindings.rs
-                                       // BuildSpeedTable parameters - SDK sets these to defaults before acquisition
-const PARAM_READOUT_PORT: u32 = 151126263; // Verified on maitai
-const PARAM_SPDTAB_INDEX: u32 = 16908801; // Verified on maitai
-const PARAM_GAIN_INDEX: u32 = 16908800; // Verified on maitai
-const PARAM_BIT_DEPTH: u32 = 16908799; // Verified on maitai
-                                       // PARAM_FRAME_BUFFER_SIZE - available AFTER setup_cont, gives min/max/recommended buffer sizes
-const PARAM_FRAME_BUFFER_SIZE: u32 = 184746284; // ((3<<16) + (11<<24) + 300) = 184746284
-
-// Attribute constants for pl_get_param
-const ATTR_AVAIL: i16 = 8;
-const ATTR_CURRENT: i16 = 0;
-const ATTR_COUNT: i16 = 1;
-const ATTR_DEFAULT: i16 = 5; // Key for getting camera's default value!
+// PARAM IDs - camera-specific values verified on maitai (not in pvcam_sys)
+const PARAM_CIRC_BUFFER: u32 = 184746283;
+const PARAM_EXPOSURE_MODE: u32 = 151126551;
+const PARAM_EXPOSE_OUT_MODE: u32 = 151126576;
+const PARAM_SER_SIZE: u32 = 100794426;
+const PARAM_PAR_SIZE: u32 = 100794425;
+const PARAM_READOUT_PORT: u32 = 151126263;
+const PARAM_SPDTAB_INDEX: u32 = 16908801;
+const PARAM_GAIN_INDEX: u32 = 16908800;
+const PARAM_BIT_DEPTH: u32 = 16908799;
+const PARAM_FRAME_BUFFER_SIZE: u32 = 184746284;
 
 /// Get PVCAM error message
 fn get_error_message() -> String {
