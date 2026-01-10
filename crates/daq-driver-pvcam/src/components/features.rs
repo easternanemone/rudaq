@@ -1019,9 +1019,18 @@ impl PvcamFeatures {
     // =========================================================================
 
     /// Get current speed table index (bd-v54z)
+    ///
+    /// # SDK Pattern (bd-sk6z)
+    /// Checks PARAM_SPDTAB_INDEX availability before access.
     pub fn get_speed_index(_conn: &PvcamConnection) -> Result<u16> {
         #[cfg(feature = "pvcam_hardware")]
         if let Some(h) = _conn.handle() {
+            // SDK Pattern: Check availability before access
+            if !Self::is_param_available(h, PARAM_SPDTAB_INDEX) {
+                return Err(anyhow!(
+                    "PARAM_SPDTAB_INDEX is not available on this camera"
+                ));
+            }
             return Self::get_u16_param_impl(h, PARAM_SPDTAB_INDEX)
                 .map_err(|e| anyhow!("Failed to get speed index: {}", e));
         }
@@ -1035,9 +1044,18 @@ impl PvcamFeatures {
     /// Set speed table index (bd-v54z)
     ///
     /// Changes the readout speed. Valid indices can be obtained from `list_speed_modes()`.
+    ///
+    /// # SDK Pattern (bd-sk6z)
+    /// Checks PARAM_SPDTAB_INDEX availability before access.
     pub fn set_speed_index(_conn: &PvcamConnection, _index: u16) -> Result<()> {
         #[cfg(feature = "pvcam_hardware")]
         if let Some(h) = _conn.handle() {
+            // SDK Pattern: Check availability before access
+            if !Self::is_param_available(h, PARAM_SPDTAB_INDEX) {
+                return Err(anyhow!(
+                    "PARAM_SPDTAB_INDEX is not available on this camera"
+                ));
+            }
             let value = _index as i32;
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
@@ -1055,9 +1073,18 @@ impl PvcamFeatures {
     }
 
     /// Get current readout port index (bd-v54z)
+    ///
+    /// # SDK Pattern (bd-sk6z)
+    /// Checks PARAM_READOUT_PORT availability before access.
     pub fn get_readout_port(_conn: &PvcamConnection) -> Result<u16> {
         #[cfg(feature = "pvcam_hardware")]
         if let Some(h) = _conn.handle() {
+            // SDK Pattern: Check availability before access
+            if !Self::is_param_available(h, PARAM_READOUT_PORT) {
+                return Err(anyhow!(
+                    "PARAM_READOUT_PORT is not available on this camera"
+                ));
+            }
             return Self::get_u16_param_impl(h, PARAM_READOUT_PORT)
                 .map_err(|e| anyhow!("Failed to get readout port: {}", e));
         }
@@ -1071,9 +1098,18 @@ impl PvcamFeatures {
     /// Set readout port (bd-v54z)
     ///
     /// Valid ports can be obtained from `list_readout_ports()`.
+    ///
+    /// # SDK Pattern (bd-sk6z)
+    /// Checks PARAM_READOUT_PORT availability before access.
     pub fn set_readout_port(_conn: &PvcamConnection, _port: u16) -> Result<()> {
         #[cfg(feature = "pvcam_hardware")]
         if let Some(h) = _conn.handle() {
+            // SDK Pattern: Check availability before access
+            if !Self::is_param_available(h, PARAM_READOUT_PORT) {
+                return Err(anyhow!(
+                    "PARAM_READOUT_PORT is not available on this camera"
+                ));
+            }
             let value = _port as i32;
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
@@ -1093,9 +1129,18 @@ impl PvcamFeatures {
     /// List available speed modes (bd-v54z)
     ///
     /// Returns all speed table entries with their properties.
+    ///
+    /// # SDK Pattern (bd-sk6z)
+    /// Checks PARAM_SPDTAB_INDEX availability before access.
     pub fn list_speed_modes(_conn: &PvcamConnection) -> Result<Vec<SpeedMode>> {
         #[cfg(feature = "pvcam_hardware")]
         if let Some(h) = _conn.handle() {
+            // SDK Pattern: Check availability before access
+            if !Self::is_param_available(h, PARAM_SPDTAB_INDEX) {
+                return Err(anyhow!(
+                    "PARAM_SPDTAB_INDEX is not available on this camera"
+                ));
+            }
             let count = Self::get_enum_count_impl(h, PARAM_SPDTAB_INDEX)?;
             let mut modes = Vec::with_capacity(count as usize);
 
@@ -1150,9 +1195,18 @@ impl PvcamFeatures {
     }
 
     /// List available readout ports (bd-v54z)
+    ///
+    /// # SDK Pattern (bd-sk6z)
+    /// Checks PARAM_READOUT_PORT availability before access.
     pub fn list_readout_ports(_conn: &PvcamConnection) -> Result<Vec<ReadoutPort>> {
         #[cfg(feature = "pvcam_hardware")]
         if let Some(h) = _conn.handle() {
+            // SDK Pattern: Check availability before access
+            if !Self::is_param_available(h, PARAM_READOUT_PORT) {
+                return Err(anyhow!(
+                    "PARAM_READOUT_PORT is not available on this camera"
+                ));
+            }
             let count = Self::get_enum_count_impl(h, PARAM_READOUT_PORT)?;
             let mut ports = Vec::with_capacity(count as usize);
 
@@ -1200,9 +1254,16 @@ impl PvcamFeatures {
     // =========================================================================
 
     /// Get current gain index (bd-doju)
+    ///
+    /// # SDK Pattern (bd-sk6z)
+    /// Checks PARAM_GAIN_INDEX availability before access.
     pub fn get_gain_index(_conn: &PvcamConnection) -> Result<u16> {
         #[cfg(feature = "pvcam_hardware")]
         if let Some(h) = _conn.handle() {
+            // SDK Pattern: Check availability before access
+            if !Self::is_param_available(h, PARAM_GAIN_INDEX) {
+                return Err(anyhow!("PARAM_GAIN_INDEX is not available on this camera"));
+            }
             return Self::get_u16_param_impl(h, PARAM_GAIN_INDEX)
                 .map_err(|e| anyhow!("Failed to get gain index: {}", e));
         }
@@ -1214,9 +1275,16 @@ impl PvcamFeatures {
     }
 
     /// Set gain index (bd-doju)
+    ///
+    /// # SDK Pattern (bd-sk6z)
+    /// Checks PARAM_GAIN_INDEX availability before access.
     pub fn set_gain_index(_conn: &PvcamConnection, _index: u16) -> Result<()> {
         #[cfg(feature = "pvcam_hardware")]
         if let Some(h) = _conn.handle() {
+            // SDK Pattern: Check availability before access
+            if !Self::is_param_available(h, PARAM_GAIN_INDEX) {
+                return Err(anyhow!("PARAM_GAIN_INDEX is not available on this camera"));
+            }
             let value = _index as i32;
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
@@ -1234,9 +1302,16 @@ impl PvcamFeatures {
     }
 
     /// List available gain modes (bd-doju)
+    ///
+    /// # SDK Pattern (bd-sk6z)
+    /// Checks PARAM_GAIN_INDEX availability before access.
     pub fn list_gain_modes(_conn: &PvcamConnection) -> Result<Vec<GainMode>> {
         #[cfg(feature = "pvcam_hardware")]
         if let Some(h) = _conn.handle() {
+            // SDK Pattern: Check availability before access
+            if !Self::is_param_available(h, PARAM_GAIN_INDEX) {
+                return Err(anyhow!("PARAM_GAIN_INDEX is not available on this camera"));
+            }
             let count = Self::get_enum_count_impl(h, PARAM_GAIN_INDEX)?;
             let mut modes = Vec::with_capacity(count as usize);
 
@@ -2666,8 +2741,17 @@ impl PvcamFeatures {
         }
     }
 
+    /// # SDK Pattern (bd-sk6z)
+    /// Checks PARAM_CAM_FW_VERSION availability before access.
     #[cfg(feature = "pvcam_hardware")]
     fn get_firmware_version_impl(h: i16) -> Result<String> {
+        // SDK Pattern: Check availability before access
+        if !Self::is_param_available(h, PARAM_CAM_FW_VERSION) {
+            return Err(anyhow!(
+                "PARAM_CAM_FW_VERSION is not available on this camera"
+            ));
+        }
+
         let mut version: uns16 = 0;
         unsafe {
             // SAFETY: h is valid; version is writable uns16 on stack.
@@ -2690,8 +2774,15 @@ impl PvcamFeatures {
         Ok(format!("{}.{}", major, minor))
     }
 
+    /// # SDK Pattern (bd-sk6z)
+    /// Checks PARAM_CHIP_NAME availability before access.
     #[cfg(feature = "pvcam_hardware")]
     fn get_chip_name_impl(h: i16) -> Result<String> {
+        // SDK Pattern: Check availability before access
+        if !Self::is_param_available(h, PARAM_CHIP_NAME) {
+            return Err(anyhow!("PARAM_CHIP_NAME is not available on this camera"));
+        }
+
         let mut buf = [0i8; 256];
         unsafe {
             // SAFETY: h is valid; buf is writable array for string parameter.
@@ -2702,8 +2793,15 @@ impl PvcamFeatures {
         }
     }
 
+    /// # SDK Pattern (bd-sk6z)
+    /// Checks PARAM_BIT_DEPTH availability before access.
     #[cfg(feature = "pvcam_hardware")]
     fn get_bit_depth_impl(h: i16) -> Result<u16> {
+        // SDK Pattern: Check availability before access
+        if !Self::is_param_available(h, PARAM_BIT_DEPTH) {
+            return Err(anyhow!("PARAM_BIT_DEPTH is not available on this camera"));
+        }
+
         let mut value: i16 = 0;
         unsafe {
             // SAFETY: h is valid; value is writable i16 on stack.
@@ -2720,8 +2818,15 @@ impl PvcamFeatures {
         Ok(value as u16)
     }
 
+    /// # SDK Pattern (bd-sk6z)
+    /// Checks PARAM_PIX_TIME availability before access.
     #[cfg(feature = "pvcam_hardware")]
     fn get_pixel_time_impl(h: i16) -> Result<u32> {
+        // SDK Pattern: Check availability before access
+        if !Self::is_param_available(h, PARAM_PIX_TIME) {
+            return Err(anyhow!("PARAM_PIX_TIME is not available on this camera"));
+        }
+
         let mut value: uns16 = 0;
         unsafe {
             // SAFETY: h is valid; value is writable uns16 on stack.
@@ -2767,8 +2872,18 @@ impl PvcamFeatures {
         Ok((width as u32 * 10, height as u32 * 10))
     }
 
+    /// # SDK Pattern (bd-sk6z)
+    /// Checks PARAM_SER_SIZE and PARAM_PAR_SIZE availability before access.
     #[cfg(feature = "pvcam_hardware")]
     fn get_sensor_size_impl(h: i16) -> Result<(u32, u32)> {
+        // SDK Pattern: Check availability before access
+        if !Self::is_param_available(h, PARAM_SER_SIZE) {
+            return Err(anyhow!("PARAM_SER_SIZE is not available on this camera"));
+        }
+        if !Self::is_param_available(h, PARAM_PAR_SIZE) {
+            return Err(anyhow!("PARAM_PAR_SIZE is not available on this camera"));
+        }
+
         let mut width: uns16 = 0;
         let mut height: uns16 = 0;
         unsafe {

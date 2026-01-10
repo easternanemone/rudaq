@@ -195,7 +195,10 @@ impl CallbackContext {
         // Check if frames already pending (fast path)
         let pending = self.pending_frames.load(Ordering::Acquire);
         if pending > 0 {
-            tracing::trace!(pending, "wait_for_frames: frames already pending (fast path)");
+            tracing::trace!(
+                pending,
+                "wait_for_frames: frames already pending (fast path)"
+            );
             return pending;
         }
 
