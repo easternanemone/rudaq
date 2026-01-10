@@ -883,9 +883,9 @@ mod hardware_features {
 
     #[test]
     fn hardware_list_available_cameras() {
-        // Initialize SDK first
+        // Initialize SDK first by opening a camera connection
+        // We keep the connection alive since dropping it uninitializes the SDK
         let conn = open_camera();
-        drop(conn); // Don't need the connection, just SDK init
 
         let cameras = PvcamConnection::list_available_cameras().unwrap();
         println!("Available PVCAM cameras:");
@@ -894,6 +894,9 @@ mod hardware_features {
         }
         println!("Total cameras: {}", cameras.len());
         assert!(!cameras.is_empty(), "Should find at least one camera");
+
+        // Keep conn alive until end of test
+        drop(conn);
     }
 
     #[test]
