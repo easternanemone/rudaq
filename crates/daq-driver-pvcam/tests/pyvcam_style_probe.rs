@@ -81,14 +81,8 @@ extern "system" fn pyvcam_eof_callback(frame_info: *const FRAME_INFO, _context: 
 
     // PyVCAM calls pl_exp_get_latest_frame_ex inside the callback
     let mut address: *mut c_void = std::ptr::null_mut();
-    let mut fi = FRAME_INFO {
-        FrameInfoGUID: PVCAM_FRAME_INFO_GUID { f1: 0, f2: 0, f3: 0 },
-        hCam: 0,
-        FrameNr: 0,
-        TimeStamp: 0,
-        ReadoutTime: 0,
-        TimeStampBOF: 0,
-    };
+    // Use zeroed memory for FRAME_INFO to ensure all fields are initialized
+    let mut fi: FRAME_INFO = unsafe { std::mem::zeroed() };
 
     let result = unsafe { pl_exp_get_latest_frame_ex(hcam, &mut address, &mut fi) };
 
