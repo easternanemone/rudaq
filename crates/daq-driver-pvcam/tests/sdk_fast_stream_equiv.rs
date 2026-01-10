@@ -137,19 +137,68 @@ fn fast_streaming_equivalent() {
     // keeping at least 32 frames to exercise overwrite/lock semantics.
     let mut buffer_frames = BUFFER_FRAMES;
     let max_bytes: usize = 512 * 1024 * 1024;
-    let frame_bytes_usize = frame_bytes as usize;
+    let mut frame_bytes_usize = frame_bytes as usize;
     if frame_bytes_usize.saturating_mul(buffer_frames) > max_bytes {
         buffer_frames = (max_bytes / frame_bytes_usize).max(32);
     }
 
-    let circ_size = frame_bytes_usize * buffer_frames;
-    let layout = Layout::from_size_align(circ_size, 4096).expect("layout");
-    let circ_ptr = unsafe { alloc_zeroed(layout) };
+    let mut circ_size = frame_bytes_usize * buffer_frames;
+    let mut layout = Layout::from_size_align(circ_size, 4096).expect("layout");
+    let mut circ_ptr = unsafe { alloc_zeroed(layout) };
     assert!(!circ_ptr.is_null(), "alloc circ buffer");
 
-    // Start acquisition
-    let start_ok = unsafe { pl_exp_start_cont(hcam, circ_ptr as *mut _, circ_size as uns32) } != 0;
-    assert!(start_ok, "pl_exp_start_cont: {}", get_error_message());
+    // Start acquisition (fallback to CIRC_NO_OVERWRITE if start fails in overwrite mode)
+    let mut start_ok =
+        unsafe { pl_exp_start_cont(hcam, circ_ptr as *mut _, circ_size as uns32) } != 0;
+    if !start_ok && circ_mode == CIRC_OVERWRITE {
+        eprintln!(
+            "CIRC_OVERWRITE start failed ({}), retrying no-overwrite",
+            get_error_message()
+        );
+        unsafe { dealloc(circ_ptr, layout) };
+
+        circ_mode = CIRC_NO_OVERWRITE;
+        frame_bytes = 0;
+        let setup_retry = unsafe {
+            pl_exp_setup_cont(
+                hcam,
+                1,
+                &region as *const _,
+                TIMED_MODE,
+                EXPOSURE_MS,
+                &mut frame_bytes,
+                circ_mode,
+            )
+        } != 0;
+        assert!(
+            setup_retry,
+            "pl_exp_setup_cont (retry) failed: {}",
+            get_error_message()
+        );
+
+        frame_bytes_usize = frame_bytes as usize;
+        buffer_frames = BUFFER_FRAMES;
+        if frame_bytes_usize.saturating_mul(buffer_frames) > max_bytes {
+            buffer_frames = (max_bytes / frame_bytes_usize).max(32);
+        }
+        circ_size = frame_bytes_usize * buffer_frames;
+        layout = Layout::from_size_align(circ_size, 4096).expect("layout");
+        circ_ptr = unsafe { alloc_zeroed(layout) };
+        assert!(!circ_ptr.is_null(), "alloc circ buffer (retry)");
+
+        start_ok = unsafe { pl_exp_start_cont(hcam, circ_ptr as *mut _, circ_size as uns32) } != 0;
+    }
+
+    assert!(
+        start_ok,
+        "pl_exp_start_cont (mode {}): {}",
+        if circ_mode == CIRC_OVERWRITE {
+            "overwrite"
+        } else {
+            "no-overwrite"
+        },
+        get_error_message()
+    );
 
     // Drain frames
     let mut frame_info: FRAME_INFO = unsafe { std::mem::zeroed() };
