@@ -147,6 +147,18 @@ fn fast_streaming_equivalent() {
     let mut circ_ptr = unsafe { alloc_zeroed(layout) };
     assert!(!circ_ptr.is_null(), "alloc circ buffer");
 
+    eprintln!(
+        "setup: mode={}, frame_bytes={}, buffer_frames={}, circ_size={} bytes",
+        if circ_mode == CIRC_OVERWRITE {
+            "overwrite"
+        } else {
+            "no-overwrite"
+        },
+        frame_bytes_usize,
+        buffer_frames,
+        circ_size
+    );
+
     // Start acquisition (fallback to CIRC_NO_OVERWRITE if start fails in overwrite mode)
     let mut start_ok =
         unsafe { pl_exp_start_cont(hcam, circ_ptr as *mut _, circ_size as uns32) } != 0;
@@ -205,6 +217,7 @@ fn fast_streaming_equivalent() {
     let mut last_nr: i32 = 0;
     let mut acquired: usize = 0;
     let mut gap_events: u32 = 0;
+    let mut first_frame_wait_logged = false;
     let deadline = Instant::now() + std::time::Duration::from_secs(20);
 
     while acquired < TARGET_FRAMES {
@@ -219,6 +232,21 @@ fn fast_streaming_equivalent() {
             if pl_exp_check_cont_status(hcam, &mut status, &mut byte_cnt, &mut buf_cnt) == 0 {
                 panic!("status check failed: {}", get_error_message());
             }
+        }
+
+        if !first_frame_wait_logged
+            && acquired == 0
+            && Instant::now() + std::time::Duration::from_secs(0)
+                > deadline - std::time::Duration::from_secs(19)
+        {
+            first_frame_wait_logged = true;
+            eprintln!(
+                "waiting for first frame: status={}, buf_cnt={}, byte_cnt={}, last_error={}",
+                status,
+                buf_cnt,
+                byte_cnt,
+                get_error_message()
+            );
         }
 
         if status == READOUT_IN_PROGRESS || buf_cnt == 0 {
@@ -254,6 +282,17 @@ fn fast_streaming_equivalent() {
     unsafe {
         pl_exp_stop_cont(hcam, CCS_HALT);
     }
+
+    eprintln!(
+        "completed: acquired {}, gap_events {}, mode {}",
+        acquired,
+        gap_events,
+        if circ_mode == CIRC_OVERWRITE {
+            "overwrite"
+        } else {
+            "no-overwrite"
+        }
+    );
 
     unsafe {
         dealloc(circ_ptr, layout);
