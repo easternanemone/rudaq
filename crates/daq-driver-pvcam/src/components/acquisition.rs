@@ -2599,20 +2599,24 @@ impl PvcamAcquisition {
                     break;
                 }
 
-                // bd-ffi-sdk-match: Retrieve frame pointer from callback context.
-                // The callback has already called pl_exp_get_latest_frame and stored the
-                // result. This matches the SDK example pattern (LiveImage.cpp).
+                // bd-circ-no-overwrite-fifo: Frame retrieval strategy depends on buffer mode.
                 //
-                // Primary path: Use callback-stored frame (SDK pattern)
-                // Fallback path: Use get_oldest_frame for CIRC_NO_OVERWRITE FIFO draining
+                // CIRC_NO_OVERWRITE mode (SDK pvcam.h line 4294):
+                //   - MUST use get_oldest_frame + unlock_oldest_frame for FIFO ordering
+                //   - SDK warns: "some cameras cannot return the latest frame in CIRC_NO_OVERWRITE mode"
+                //   - Callback's get_latest_frame may fail or return wrong data!
+                //   - Ignore callback frame pointer entirely to maintain FIFO consistency
+                //
+                // CIRC_OVERWRITE mode:
+                //   - Use callback's get_latest_frame result (SDK LiveImage.cpp pattern)
+                //   - No unlock needed; camera overwrites oldest frames automatically
                 let callback_frame_ptr = callback_ctx.take_frame_ptr();
 
-                let frame_ptr = if !callback_frame_ptr.is_null() {
-                    // Got frame from callback - retrieve the stored FRAME_INFO
-                    frame_info = callback_ctx.take_frame_info();
-                    callback_frame_ptr
-                } else if !circ_overwrite {
-                    // Fallback for CIRC_NO_OVERWRITE: try FIFO drain with get_oldest_frame
+                let frame_ptr = if !circ_overwrite {
+                    // CIRC_NO_OVERWRITE: ALWAYS use get_oldest_frame for proper FIFO order.
+                    // The callback signals frame availability, but we MUST use get_oldest_frame
+                    // to maintain FIFO consistency with unlock_oldest_frame (SDK requirement).
+                    // Ignoring callback's get_latest_frame pointer prevents frame/unlock mismatch.
                     match ffi_safe::get_oldest_frame(hcam, &mut frame_info) {
                         Ok(ptr) => ptr,
                         Err(()) => {
@@ -2620,6 +2624,10 @@ impl PvcamAcquisition {
                             break;
                         }
                     }
+                } else if !callback_frame_ptr.is_null() {
+                    // CIRC_OVERWRITE: Use callback's frame (SDK LiveImage.cpp pattern)
+                    frame_info = callback_ctx.take_frame_info();
+                    callback_frame_ptr
                 } else {
                     // CIRC_OVERWRITE mode with no callback frame - consume pending and exit.
                     // This prevents hot-spinning when callback fires but pl_exp_get_latest_frame
