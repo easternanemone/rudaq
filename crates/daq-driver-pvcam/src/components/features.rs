@@ -1443,6 +1443,62 @@ impl PvcamFeatures {
         Ok(())
     }
 
+    /// List available exposure modes from hardware (bd-q4wz)
+    ///
+    /// Dynamically queries the camera to discover which exposure modes are supported.
+    /// Returns a list of (value, name) pairs for all available modes.
+    ///
+    /// # SDK Pattern (bd-sk6z)
+    /// Checks PARAM_EXPOSURE_MODE availability before access.
+    pub fn list_exposure_modes(_conn: &PvcamConnection) -> Result<Vec<(i32, String)>> {
+        #[cfg(feature = "pvcam_hardware")]
+        if let Some(h) = _conn.handle() {
+            // SDK Pattern: Check availability before access
+            if !Self::is_param_available(h, PARAM_EXPOSURE_MODE) {
+                return Err(anyhow!(
+                    "PARAM_EXPOSURE_MODE is not available on this camera"
+                ));
+            }
+            let count = Self::get_enum_count_impl(h, PARAM_EXPOSURE_MODE)?;
+            let mut modes = Vec::with_capacity(count as usize);
+
+            for idx in 0..count {
+                unsafe {
+                    let mut value: i32 = 0;
+                    let mut name = [0i8; 256];
+                    let mut name_len: uns32 = 256;
+
+                    // Get string length first
+                    if pl_enum_str_length(h, PARAM_EXPOSURE_MODE, idx, &mut name_len) != 0 {
+                        // Get the enum entry with value and name
+                        if pl_get_enum_param(
+                            h,
+                            PARAM_EXPOSURE_MODE,
+                            idx,
+                            &mut value,
+                            name.as_mut_ptr(),
+                            name_len.min(256),
+                        ) != 0
+                        {
+                            let name_str =
+                                CStr::from_ptr(name.as_ptr()).to_string_lossy().into_owned();
+                            modes.push((value, name_str));
+                        }
+                    }
+                }
+            }
+            return Ok(modes);
+        }
+        // Mock mode: return standard exposure modes
+        Ok(vec![
+            (0, "Timed".to_string()),
+            (1, "Strobe".to_string()),
+            (2, "Bulb".to_string()),
+            (3, "TriggerFirst".to_string()),
+            (4, "EdgeTrigger".to_string()),
+        ])
+    }
+
     /// Get current clear mode (bd-iai9)
     pub fn get_clear_mode(_conn: &PvcamConnection) -> Result<ClearMode> {
         #[cfg(feature = "pvcam_hardware")]
@@ -1490,6 +1546,63 @@ impl PvcamFeatures {
             state.clear_mode = _mode.to_pvcam();
         }
         Ok(())
+    }
+
+    /// List available clear modes from hardware (bd-q4wz)
+    ///
+    /// Dynamically queries the camera to discover which clear modes are supported.
+    /// Returns a list of (value, name) pairs for all available modes.
+    ///
+    /// # SDK Pattern (bd-sk6z)
+    /// Checks PARAM_CLEAR_MODE availability before access.
+    pub fn list_clear_modes(_conn: &PvcamConnection) -> Result<Vec<(i32, String)>> {
+        #[cfg(feature = "pvcam_hardware")]
+        if let Some(h) = _conn.handle() {
+            // SDK Pattern: Check availability before access
+            if !Self::is_param_available(h, PARAM_CLEAR_MODE) {
+                return Err(anyhow!(
+                    "PARAM_CLEAR_MODE is not available on this camera"
+                ));
+            }
+            let count = Self::get_enum_count_impl(h, PARAM_CLEAR_MODE)?;
+            let mut modes = Vec::with_capacity(count as usize);
+
+            for idx in 0..count {
+                unsafe {
+                    let mut value: i32 = 0;
+                    let mut name = [0i8; 256];
+                    let mut name_len: uns32 = 256;
+
+                    // Get string length first
+                    if pl_enum_str_length(h, PARAM_CLEAR_MODE, idx, &mut name_len) != 0 {
+                        // Get the enum entry with value and name
+                        if pl_get_enum_param(
+                            h,
+                            PARAM_CLEAR_MODE,
+                            idx,
+                            &mut value,
+                            name.as_mut_ptr(),
+                            name_len.min(256),
+                        ) != 0
+                        {
+                            let name_str =
+                                CStr::from_ptr(name.as_ptr()).to_string_lossy().into_owned();
+                            modes.push((value, name_str));
+                        }
+                    }
+                }
+            }
+            return Ok(modes);
+        }
+        // Mock mode: return standard clear modes
+        Ok(vec![
+            (0, "Never".to_string()),
+            (1, "PreExposure".to_string()),
+            (2, "PreSequence".to_string()),
+            (3, "PostSequence".to_string()),
+            (4, "PrePostSequence".to_string()),
+            (5, "PreExposurePostSequence".to_string()),
+        ])
     }
 
     /// Get the number of sensor clearing cycles (bd-0yho)
@@ -1676,6 +1789,60 @@ impl PvcamFeatures {
             state.expose_out_mode = _mode.to_pvcam();
         }
         Ok(())
+    }
+
+    /// List available expose out modes from hardware (bd-q4wz)
+    ///
+    /// Dynamically queries the camera to discover which expose out modes are supported.
+    /// Returns a list of (value, name) pairs for all available modes.
+    ///
+    /// # SDK Pattern (bd-sk6z)
+    /// Checks PARAM_EXPOSE_OUT_MODE availability before access.
+    pub fn list_expose_out_modes(_conn: &PvcamConnection) -> Result<Vec<(i32, String)>> {
+        #[cfg(feature = "pvcam_hardware")]
+        if let Some(h) = _conn.handle() {
+            // SDK Pattern: Check availability before access
+            if !Self::is_param_available(h, PARAM_EXPOSE_OUT_MODE) {
+                return Err(anyhow!(
+                    "PARAM_EXPOSE_OUT_MODE is not available on this camera"
+                ));
+            }
+            let count = Self::get_enum_count_impl(h, PARAM_EXPOSE_OUT_MODE)?;
+            let mut modes = Vec::with_capacity(count as usize);
+
+            for idx in 0..count {
+                unsafe {
+                    let mut value: i32 = 0;
+                    let mut name = [0i8; 256];
+                    let mut name_len: uns32 = 256;
+
+                    // Get string length first
+                    if pl_enum_str_length(h, PARAM_EXPOSE_OUT_MODE, idx, &mut name_len) != 0 {
+                        // Get the enum entry with value and name
+                        if pl_get_enum_param(
+                            h,
+                            PARAM_EXPOSE_OUT_MODE,
+                            idx,
+                            &mut value,
+                            name.as_mut_ptr(),
+                            name_len.min(256),
+                        ) != 0
+                        {
+                            let name_str =
+                                CStr::from_ptr(name.as_ptr()).to_string_lossy().into_owned();
+                            modes.push((value, name_str));
+                        }
+                    }
+                }
+            }
+            return Ok(modes);
+        }
+        // Mock mode: return standard expose out modes
+        Ok(vec![
+            (0, "First Row".to_string()),
+            (1, "All Rows".to_string()),
+            (2, "Any Row".to_string()),
+        ])
     }
 
     // =========================================================================

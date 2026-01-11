@@ -8,8 +8,11 @@
 //! the entire process. To support multiple `PvcamDriver` instances, we use a global
 //! reference counter. The SDK is only uninitialized when the last connection closes.
 
+// Common imports for all configurations
+use anyhow::Result;
+
 #[cfg(feature = "pvcam_hardware")]
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Context};
 #[cfg(feature = "pvcam_hardware")]
 use std::ffi::CString;
 #[cfg(feature = "pvcam_hardware")]
@@ -267,6 +270,66 @@ impl PvcamConnection {
     #[cfg(feature = "pvcam_hardware")]
     pub fn handle(&self) -> Option<i16> {
         self.handle
+    }
+
+    /// List all available PVCAM cameras connected to the system.
+    ///
+    /// Returns a vector of camera names that can be used to open connections.
+    /// The SDK must be initialized before calling this function.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let conn = PvcamConnection::new();
+    /// conn.initialize()?;
+    /// let cameras = PvcamConnection::list_available_cameras()?;
+    /// for name in cameras {
+    ///     println!("Found camera: {}", name);
+    /// }
+    /// ```
+    #[cfg(feature = "pvcam_hardware")]
+    pub fn list_available_cameras() -> Result<Vec<String>> {
+        // Note: SDK must be initialized before calling this
+        // We check if ref count > 0 to verify SDK is ready
+        let ref_count = SDK_REF_COUNT.load(Ordering::SeqCst);
+        if ref_count == 0 {
+            return Err(anyhow!("PVCAM SDK not initialized. Call initialize() first."));
+        }
+
+        let mut total_cameras: i16 = 0;
+        unsafe {
+            // SAFETY: total_cameras is a valid out pointer; SDK already initialized.
+            if pl_cam_get_total(&mut total_cameras) == 0 {
+                return Err(anyhow!("Failed to get camera count: {}", get_pvcam_error()));
+            }
+        }
+
+        let mut cameras = Vec::with_capacity(total_cameras as usize);
+
+        for i in 0..total_cameras {
+            let mut name_buffer = vec![0i8; 256];
+            unsafe {
+                // SAFETY: name_buffer is writable and sized per SDK requirement (256 bytes).
+                if pl_cam_get_name(i, name_buffer.as_mut_ptr()) != 0 {
+                    let name = std::ffi::CStr::from_ptr(name_buffer.as_ptr())
+                        .to_string_lossy()
+                        .into_owned();
+                    cameras.push(name);
+                } else {
+                    tracing::warn!("Failed to get name for camera {}: {}", i, get_pvcam_error());
+                }
+            }
+        }
+
+        Ok(cameras)
+    }
+
+    /// List all available PVCAM cameras (mock mode).
+    #[cfg(not(feature = "pvcam_hardware"))]
+    pub fn list_available_cameras() -> Result<Vec<String>> {
+        Ok(vec![
+            "MockCamera".to_string(),
+            "PrimeBSI".to_string(),
+        ])
     }
 }
 

@@ -157,6 +157,19 @@ Based on SDK examples, these parameters MUST have availability checks:
 - **Phase 4 (bd-aowg missing functions):** 6 ✅ (23%)
 - **Complete:** 26 of 26 (100%)
 
+### Dynamic Discovery Functions (bd-q4wz)
+
+The following dynamic discovery functions were added using the SDK pattern:
+
+| Function | Parameter | Status |
+|----------|-----------|--------|
+| `list_available_cameras()` | N/A (camera enumeration) | ✅ SDK checked |
+| `list_exposure_modes()` | `PARAM_EXPOSURE_MODE` | ✅ Availability checked |
+| `list_clear_modes()` | `PARAM_CLEAR_MODE` | ✅ Availability checked |
+| `list_expose_out_modes()` | `PARAM_EXPOSE_OUT_MODE` | ✅ Availability checked |
+
+All list functions follow the SDK pattern by calling `is_param_available()` before accessing the parameter enumeration.
+
 ---
 
 ## FFI Layer Separation

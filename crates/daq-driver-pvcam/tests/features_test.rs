@@ -685,6 +685,68 @@ mod mock_features {
         let count = PvcamAcquisition::get_roi_count(&conn).unwrap();
         assert_eq!(count, 1, "Mock ROI count default should be 1");
     }
+
+    // =========================================================================
+    // Dynamic Discovery Functions (bd-q4wz)
+    // =========================================================================
+
+    #[test]
+    fn list_available_cameras_mock() {
+        let cameras = PvcamConnection::list_available_cameras().unwrap();
+        assert!(
+            !cameras.is_empty(),
+            "Mock mode should return at least one camera"
+        );
+        assert!(
+            cameras.contains(&"MockCamera".to_string()),
+            "Mock mode should include MockCamera"
+        );
+    }
+
+    #[test]
+    fn list_exposure_modes_mock() {
+        let conn = mock_connection();
+        let modes = PvcamFeatures::list_exposure_modes(&conn).unwrap();
+        assert!(
+            !modes.is_empty(),
+            "Mock mode should return exposure modes"
+        );
+        // Check that Timed mode (value 0) is present
+        assert!(
+            modes.iter().any(|(v, _)| *v == 0),
+            "Timed mode (value 0) should be in the list"
+        );
+    }
+
+    #[test]
+    fn list_clear_modes_mock() {
+        let conn = mock_connection();
+        let modes = PvcamFeatures::list_clear_modes(&conn).unwrap();
+        assert!(
+            !modes.is_empty(),
+            "Mock mode should return clear modes"
+        );
+        // Check that PreExposure mode (value 1) is present
+        assert!(
+            modes.iter().any(|(v, _)| *v == 1),
+            "PreExposure mode (value 1) should be in the list"
+        );
+    }
+
+    #[test]
+    fn list_expose_out_modes_mock() {
+        let conn = mock_connection();
+        let modes = PvcamFeatures::list_expose_out_modes(&conn).unwrap();
+        assert!(
+            !modes.is_empty(),
+            "Mock mode should return expose out modes"
+        );
+        // Check that First Row mode (value 0) is present
+        assert!(
+            modes.iter().any(|(v, _)| *v == 0),
+            "First Row mode (value 0) should be in the list"
+        );
+    }
 }
 
 // =============================================================================
@@ -813,6 +875,82 @@ mod hardware_features {
         }
 
         println!("Total gain modes: {}", modes.len());
+    }
+
+    // =========================================================================
+    // Dynamic Discovery Hardware Tests (bd-q4wz)
+    // =========================================================================
+
+    #[test]
+    fn hardware_list_available_cameras() {
+        // Initialize SDK first by opening a camera connection
+        // We keep the connection alive since dropping it uninitializes the SDK
+        let conn = open_camera();
+
+        let cameras = PvcamConnection::list_available_cameras().unwrap();
+        println!("Available PVCAM cameras:");
+        for (i, name) in cameras.iter().enumerate() {
+            println!("  [{}] {}", i, name);
+        }
+        println!("Total cameras: {}", cameras.len());
+        assert!(!cameras.is_empty(), "Should find at least one camera");
+
+        // Keep conn alive until end of test
+        drop(conn);
+    }
+
+    #[test]
+    fn hardware_list_exposure_modes() {
+        let conn = open_camera();
+
+        match PvcamFeatures::list_exposure_modes(&conn) {
+            Ok(modes) => {
+                println!("Available exposure modes:");
+                for (value, name) in &modes {
+                    println!("  [{}] {}", value, name);
+                }
+                println!("Total exposure modes: {}", modes.len());
+            }
+            Err(e) => {
+                println!("PARAM_EXPOSURE_MODE not enumerable: {}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn hardware_list_clear_modes() {
+        let conn = open_camera();
+
+        match PvcamFeatures::list_clear_modes(&conn) {
+            Ok(modes) => {
+                println!("Available clear modes:");
+                for (value, name) in &modes {
+                    println!("  [{}] {}", value, name);
+                }
+                println!("Total clear modes: {}", modes.len());
+            }
+            Err(e) => {
+                println!("PARAM_CLEAR_MODE not enumerable: {}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn hardware_list_expose_out_modes() {
+        let conn = open_camera();
+
+        match PvcamFeatures::list_expose_out_modes(&conn) {
+            Ok(modes) => {
+                println!("Available expose out modes:");
+                for (value, name) in &modes {
+                    println!("  [{}] {}", value, name);
+                }
+                println!("Total expose out modes: {}", modes.len());
+            }
+            Err(e) => {
+                println!("PARAM_EXPOSE_OUT_MODE not enumerable: {}", e);
+            }
+        }
     }
 
     #[test]
