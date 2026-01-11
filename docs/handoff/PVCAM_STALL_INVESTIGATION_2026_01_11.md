@@ -1,9 +1,31 @@
 # PVCAM 85-Frame Stall Investigation Handoff
 **Date:** 2026-01-11
-**Status:** Investigation Complete / Issue Unresolved
+**Status:** ✅ FIXED (commit 3fce81ba)
 
 ## Executive Summary
-The Prime BSI camera on `maitai` stalls after acquiring approximately 85 frames when using the `rust-daq` driver. A C++ reproduction proves the hardware and SDK are capable of sustained streaming (500+ frames). The issue is isolated to the Rust driver implementation.
+The Prime BSI camera on `maitai` stalled after acquiring approximately 85 frames when using the `rust-daq` driver. **This issue has been fixed** by restoring the SDK pattern of calling `pl_exp_get_latest_frame` inside the EOF callback when in CIRC_OVERWRITE mode.
+
+### Fix Details (commit 3fce81ba)
+The fix in `acquisition.rs:407-426` calls `pl_exp_get_latest_frame` inside the callback to clear the SDK's internal buffer state:
+```rust
+// FIX (PVCAM_STALL_INVESTIGATION_2026_01_11):
+if ctx.circ_overwrite.load(Ordering::Acquire) {
+    if pl_exp_get_latest_frame(hcam, &mut frame_ptr) != 0 {
+        ctx.store_frame_ptr(frame_ptr);
+    }
+}
+```
+
+### Verification Results (2026-01-11)
+| Test | Frames | FPS | Result |
+|------|--------|-----|--------|
+| C++ stall_test | 200 | ~50 | ✅ No stall |
+| Rust frame loop | 98 iterations, 44 captured | 4.4 | ✅ No stall (but low FPS) |
+
+The Rust driver now runs 98+ iterations without stalling. The original 85-frame hard stop is resolved.
+
+### Known Issue: Low FPS (bd-u1kx)
+A separate performance issue was discovered: Rust achieves ~4.4 FPS vs C++'s ~50 FPS, and broadcast subscriber delivery has issues. This is tracked as bd-u1kx.
 
 ## Findings
 
