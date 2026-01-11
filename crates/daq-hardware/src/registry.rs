@@ -142,6 +142,16 @@ pub fn validate_driver_config(driver: &DriverType) -> Result<(), DaqError> {
                 ));
             }
         }
+        #[cfg(feature = "comedi")]
+        DriverType::Comedi { device_path } => {
+            if device_path.is_empty() {
+                return Err(DaqError::Configuration(
+                    "Comedi device path cannot be empty".to_string(),
+                ));
+            }
+            // Note: We don't check device existence here since the driver may not be
+            // running on the machine with the hardware (remote development)
+        }
         #[cfg(feature = "serial")]
         DriverType::Plugin { plugin_id, address } => {
             if plugin_id.is_empty() {
@@ -351,6 +361,12 @@ pub enum DriverType {
         /// Camera name reported by PVCAM (e.g., "PrimeBSI")
         camera_name: String,
     },
+    /// Comedi DAQ board (Linux)
+    #[cfg(feature = "comedi")]
+    Comedi {
+        /// Device path (e.g., "/dev/comedi0")
+        device_path: String,
+    },
     /// Plugin-based device loaded from YAML configuration
     #[cfg(feature = "serial")]
     Plugin {
@@ -396,6 +412,11 @@ impl DriverType {
                 Capability::Triggerable,
                 Capability::ExposureControl,
             ],
+            #[cfg(feature = "comedi")]
+            DriverType::Comedi { .. } => vec![
+                Capability::Readable,  // Analog input
+                Capability::Settable,  // Analog output
+            ],
             #[cfg(feature = "serial")]
             DriverType::Plugin { .. } => {
                 // Note: Plugin capabilities are determined at runtime from YAML
@@ -422,6 +443,8 @@ impl DriverType {
             DriverType::MockCamera { .. } => "mock_camera",
             #[cfg(feature = "pvcam")]
             DriverType::Pvcam { .. } => "pvcam",
+            #[cfg(feature = "comedi")]
+            DriverType::Comedi { .. } => "comedi",
             #[cfg(feature = "serial")]
             DriverType::Plugin { .. } => {
                 // Note: This is a generic name; actual plugin name is stored in plugin_id
@@ -997,6 +1020,41 @@ impl DeviceRegistry {
                     metadata: DeviceMetadata {
                         frame_width: Some(width),
                         frame_height: Some(height),
+                        ..Default::default()
+                    },
+                })
+            }
+
+            #[cfg(feature = "comedi")]
+            DriverType::Comedi { device_path } => {
+                let device =
+                    crate::drivers::comedi::ComediDevice::open(&device_path).map_err(|e| {
+                        DaqError::Instrument(format!("Failed to open Comedi device: {}", e))
+                    })?;
+                let _info = device.info().map_err(|e| {
+                    DaqError::Instrument(format!("Failed to get Comedi device info: {}", e))
+                })?;
+                // Note: Comedi doesn't implement full HAL traits directly;
+                // subsystems (AnalogInput, AnalogOutput, etc.) need to be accessed separately.
+                // For registry purposes, we register the device as having Readable/Settable capabilities.
+                // TODO: Implement HAL trait wrappers for Comedi subsystems
+                Ok(RegisteredDevice {
+                    config,
+                    movable: None,
+                    readable: None,
+                    triggerable: None,
+                    frame_producer: None,
+                    source_frame: None,
+                    exposure_control: None,
+                    settable: None,
+                    stageable: None,
+                    commandable: None,
+                    parameterized: None,
+                    shutter_control: None,
+                    emission_control: None,
+                    wavelength_tunable: None,
+                    metadata: DeviceMetadata {
+                        measurement_units: Some("V".to_string()), // Voltage
                         ..Default::default()
                     },
                 })

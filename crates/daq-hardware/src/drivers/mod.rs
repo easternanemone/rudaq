@@ -43,3 +43,5 @@ pub mod mock_serial;
 pub mod newport_1830c;
 #[cfg(feature = "pvcam")]
 pub use daq_driver_pvcam as pvcam;
+#[cfg(feature = "comedi")]
+pub use daq_driver_comedi as comedi;

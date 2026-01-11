@@ -47,6 +47,10 @@ optional = true
 path = "../daq-driver-pvcam"
 optional = true
 
+[dependencies.daq-driver-comedi]
+path = "../daq-driver-comedi"
+optional = true
+
 [dev-dependencies]
 tempfile = "3.10"
 
@@ -78,8 +82,12 @@ pvcam = ["dep:daq-driver-pvcam"]                           # Mock driver (fast c
 pvcam_sdk = ["pvcam", "daq-driver-pvcam/pvcam_sdk"]        # Real SDK (requires installation)
 pvcam_arrow = ["pvcam", "daq-driver-pvcam/arrow_tap"]      # Arrow data format
 
-# Convenience feature: all hardware drivers (with mock PVCAM)
-all_hardware = ["thorlabs", "newport", "spectra_physics", "newport_power_meter", "pvcam"]
+# Comedi DAQ support (Linux only)
+comedi = ["dep:daq-driver-comedi"]                         # Mock driver (fast compile)
+comedi_hardware = ["comedi", "daq-driver-comedi/hardware"] # Real hardware (requires comedilib)
+
+# Convenience feature: all hardware drivers (with mock PVCAM and Comedi)
+all_hardware = ["thorlabs", "newport", "spectra_physics", "newport_power_meter", "pvcam", "comedi"]
 
 # Full feature set
 full = ["all_hardware", "simulator"]

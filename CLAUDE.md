@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Rust-based data acquisition system with V5 headless-first architecture for scientific instrumentation.
 
+**Rust Version:** 1.75+ (stable toolchain)
+
 **Note**: This project uses [bd (beads)](https://github.com/steveyegge/beads) for issue tracking. Use `bd` commands instead of markdown TODOs.
 
 **Hardware Location:** Remote machine at `maitai@100.117.5.12`
@@ -18,6 +20,7 @@ cargo build                              # Default features
 cargo nextest run                        # Run all tests (recommended)
 cargo nextest run test_name              # Single test
 cargo nextest run -p daq-core            # Specific crate
+cargo nextest run -E 'test(/grpc/)'      # Filter expression (regex)
 cargo test --doc                         # Doctests (not in nextest)
 
 # Quality Checks
@@ -35,6 +38,20 @@ cargo nextest run --profile hardware --features hardware_tests
 bd ready                                 # Find available work
 bd update <id> --status in_progress      # Claim work
 bd close <id> --reason "Done"            # Complete work
+```
+
+### Nextest Profiles
+
+| Profile | Use Case | Retries | Max Timeout |
+|---------|----------|---------|-------------|
+| `default` | Local development | 2 | 2 min |
+| `ci` | GitHub Actions | 3 | 3 min |
+| `hardware` | Physical hardware (single-threaded) | 3 | 6 min |
+| `coverage` | Code coverage runs | 0 | 6 min |
+
+```bash
+cargo nextest run --profile ci           # Use CI profile
+cargo nextest run --profile hardware     # Hardware tests (serial)
 ```
 
 ## Architecture Overview
@@ -97,7 +114,7 @@ bd close <id> --reason "Done"            # Complete work
 
 **Storage:** `storage_csv` (default), `storage_hdf5`, `storage_arrow`, `storage_matlab`
 
-**Hardware (daq-hardware):** `serial`, `driver-thorlabs`, `driver-newport`, `driver-spectra-physics`, `driver_pvcam`, `pvcam_hardware`
+**Hardware (daq-hardware):** `serial`, `driver-thorlabs`, `driver-newport`, `driver-spectra-physics`, `driver_pvcam`, `pvcam_hardware`, `comedi`, `comedi_hardware`
 
 **System:** `scripting`, `server`, `networking`, `hardware_tests`
 
@@ -181,6 +198,17 @@ let frame_size = validate_frame_size(width, height, bytes_per_pixel)?;
 
 6. **Ring Buffer Blocking:** `RingBuffer::read_snapshot()` blocks. Use `AsyncRingBuffer` or `spawn_blocking`.
 
+7. **Timing Tests:** Use `start_paused = true` for deterministic timing in tests:
+   ```rust
+   #[tokio::test(start_paused = true)]
+   async fn test_timing() {
+       use tokio::time::Instant;  // Must use tokio's Instant, not std!
+       let start = Instant::now();
+       tokio::time::sleep(Duration::from_millis(100)).await;
+       assert_eq!(start.elapsed().as_millis(), 100);  // Always exact
+   }
+   ```
+
 ## Hardware Testing
 
 ### Remote Machine Setup
@@ -221,6 +249,24 @@ export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH
 export PVCAM_SMOKE_TEST=1
 cargo test --features pvcam_hardware --test pvcam_hardware_smoke -- --nocapture
 ```
+
+### Comedi DAQ Setup (Linux)
+
+**Target Hardware:** NI PCI-MIO-16XE-10 with BNC 2110 breakout on maitai
+
+```bash
+# Verify device exists
+ls -la /dev/comedi0
+
+# Run Comedi hardware tests
+cargo nextest run --profile hardware --features comedi_hardware -p daq-driver-comedi
+
+# Feature flags:
+# - comedi: Mock driver for development (no SDK required)
+# - comedi_hardware: Real hardware (requires comedilib-dev)
+```
+
+**Note:** The `comedi_hardware` feature requires comedilib-dev to be installed on the build machine for bindgen to generate FFI bindings.
 
 ## Declarative Driver Plugins
 
