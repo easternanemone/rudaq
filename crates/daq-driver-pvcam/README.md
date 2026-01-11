@@ -5,7 +5,7 @@ PVCAM camera driver for rust-daq. Defaults to mock mode; hardware mode uses the 
 ## Features
 
 - `mock` (default): build without PVCAM SDK, uses synthetic frames.
-- `pvcam_hardware`: enable PVCAM SDK bindings (requires env vars + libraries).
+- `pvcam_sdk`: enable PVCAM SDK bindings (requires env vars + libraries).
 - `arrow_tap`: stream frames as Arrow `UInt16Array` for downstream consumers.
 
 ## Dynamic Discovery
@@ -67,7 +67,7 @@ let expose_out_modes = PvcamFeatures::list_expose_out_modes(&conn)?;
 
 ## Environment (hardware)
 
-Set before building or running with `--features pvcam_hardware`:
+Set before building or running with `--features pvcam_sdk`:
 
 ```bash
 # Required at runtime (Error 151 if missing)
@@ -123,22 +123,22 @@ source /etc/profile.d/pvcam.sh
 export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH
 
 # Quick smoke
-cargo test -p daq-driver-pvcam --test hardware_smoke --features pvcam_hardware -- --nocapture --test-threads=1
+cargo test -p daq-driver-pvcam --test hardware_smoke --features pvcam_sdk -- --nocapture --test-threads=1
 
 # Continuous streaming suite (includes sustained run)
-cargo test -p daq-driver-pvcam --features pvcam_hardware --test continuous_acquisition_tier1 -- --nocapture --test-threads=1
+cargo test -p daq-driver-pvcam --features pvcam_sdk --test continuous_acquisition_tier1 -- --nocapture --test-threads=1
 ```
 
 Notes:
 - Set `PVCAM_SMOKE_TEST=1` to enable the full smoke battery.
-- Continuous tests exercise FIFO drain, stall restart, and sustained 20s streaming.
+- Continuous tests exercise FIFO drain, auto-restart recovery from hardware stalls, and sustained 20s streaming.
 
 ## Examples
 
 - Arrow tap (hardware + Arrow):
 
   ```bash
-  cargo run -p daq-driver-pvcam --example arrow_tap --features "pvcam_hardware,arrow_tap" -- PrimeBSI
+  cargo run -p daq-driver-pvcam --example arrow_tap --features "pvcam_sdk,arrow_tap" -- PrimeBSI
   ```
 
 - SDK reference binaries: run via `scripts/pvcam_sdk_examples.sh` (see above) when comparing driver behavior to the vendor samples.

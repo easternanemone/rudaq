@@ -155,51 +155,36 @@ sudo systemctl start pvcam-usb-buffer
 - Occurs when using `CIRC_OVERWRITE` buffer mode
 
 **Cause:**
-Prime BSI cameras do NOT support `CIRC_OVERWRITE` buffer mode. This is a hardware/firmware limitation, not a configuration error. We tested all 9 combinations of exposure mode × expose-out mode - all fail with error 185.
+Prime BSI cameras often reject `CIRC_OVERWRITE` buffer mode on certain firmware versions.
 
 **Solution:**
-Use `CIRC_NO_OVERWRITE` mode with `pl_exp_get_latest_frame_ex()`:
-
-```rust
-// Use CIRC_NO_OVERWRITE (value 1) instead of CIRC_OVERWRITE (value 0)
-pl_exp_setup_cont(hcam, 1, &region, exp_mode, exposure_ms, &mut frame_bytes, CIRC_NO_OVERWRITE);
-
-// Use get_latest_frame instead of get_oldest_frame
-pl_exp_get_latest_frame_ex(hcam, &mut address, &mut frame_info);
-// No unlock call needed with get_latest_frame
-```
-
-See [ADR: PVCAM Continuous Acquisition](../architecture/adr-pvcam-continuous-acquisition.md) for full investigation details.
+The `rust-daq` driver automatically detects this error and falls back to `CIRC_NO_OVERWRITE` mode. No user intervention is required.
 
 ### Continuous Acquisition Stalls After ~85 Frames
 
 **Symptoms:**
 - Continuous acquisition starts successfully
 - Works for first ~85 frames
-- Then stalls or stops receiving new frames
-- Using `CIRC_NO_OVERWRITE` with `get_oldest_frame` + `unlock_oldest_frame`
+- Then stalls or stops receiving new frames (status `READOUT_NOT_ACTIVE`)
 
 **Cause:**
-At high frame rates, the `get_oldest_frame` + `unlock_oldest_frame` cycle can fall behind. The buffer fills and acquisition pauses waiting for frames to be consumed.
+Hardware/Firmware Errata. The Prime BSI camera stops producing frames after ~85 frames in continuous mode, regardless of buffer size or drain speed.
 
 **Solution:**
-Switch to `get_latest_frame` which doesn't require unlock calls:
+The driver implements an automatic stall detection and recovery mechanism:
+1.  Detects stall (2 consecutive timeouts + status 0).
+2.  Stops acquisition (`CCS_CLEAR`).
+3.  Restarts acquisition transparently.
+4.  Maintains monotonic frame numbering to hide the reset from downstream consumers.
 
-| Method | Behavior | Unlock Required |
-|--------|----------|-----------------|
-| `get_oldest_frame` | FIFO queue, may stall | Yes |
-| `get_latest_frame` | Newest-wins, auto-advances | No |
-
-The `get_latest_frame` approach achieves ~100 FPS sustained. This matches PyVCAM's implementation.
-
-See [ADR: PVCAM Continuous Acquisition](../architecture/adr-pvcam-continuous-acquisition.md) for detailed analysis.
+This allows sustained streaming indefinitely despite the hardware limitation.
 
 ## Verification
 
 Run the hardware validation suite:
 
 ```bash
-cargo test --test hardware_pvcam_validation --features "pvcam_hardware,hardware_tests" -- --test-threads=1
+cargo test --test hardware_pvcam_validation --features "pvcam_sdk,hardware_tests" -- --test-threads=1
 ```
 
 (Note: `--test-threads=1` is recommended to avoid resource contention on the USB bus during tests).
