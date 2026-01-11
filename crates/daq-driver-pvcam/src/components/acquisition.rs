@@ -1579,17 +1579,76 @@ impl PvcamAcquisition {
                 if pl_exp_start_cont(h, circ_ptr as *mut _, circ_size_bytes) == 0 {
                     // bd-3gnv: Log SDK error with full message for diagnostics
                     let err_msg = get_pvcam_error();
-                    // Deregister callback on failure
-                    if use_callback {
-                        pl_cam_deregister_callback(h, PL_CALLBACK_EOF);
-                        self.callback_registered.store(false, Ordering::Release);
+
+                    // bd-circ-start-fallback: Prime BSI cameras accept CIRC_OVERWRITE at setup
+                    // but fail at start with error 185 (Invalid Configuration). When this happens,
+                    // re-setup and re-start with CIRC_NO_OVERWRITE.
+                    if circ_overwrite {
+                        tracing::warn!(
+                            "pl_exp_start_cont failed with CIRC_OVERWRITE ({}), retrying with CIRC_NO_OVERWRITE",
+                            err_msg
+                        );
+
+                        // Re-setup with NO_OVERWRITE
+                        let mut retry_frame_bytes: uns32 = 0;
+                        if pl_exp_setup_cont(
+                            h,
+                            1,
+                            &region as *const _,
+                            exp_mode,
+                            exposure_ms as uns32,
+                            &mut retry_frame_bytes,
+                            CIRC_NO_OVERWRITE,
+                        ) == 0
+                        {
+                            let setup_err = get_pvcam_error();
+                            // Deregister callback on failure
+                            if use_callback {
+                                pl_cam_deregister_callback(h, PL_CALLBACK_EOF);
+                                self.callback_registered.store(false, Ordering::Release);
+                            }
+                            self.active_hcam.store(-1, Ordering::Release);
+                            let _ = self.streaming.set(false).await;
+                            return Err(anyhow!(
+                                "Fallback setup with CIRC_NO_OVERWRITE also failed: {}",
+                                setup_err
+                            ));
+                        }
+
+                        // CRITICAL: Update circ_overwrite flag for frame loop FIFO drain path
+                        circ_overwrite = false;
+
+                        // Retry start with NO_OVERWRITE
+                        if pl_exp_start_cont(h, circ_ptr as *mut _, circ_size_bytes) == 0 {
+                            let start_err = get_pvcam_error();
+                            // Deregister callback on failure
+                            if use_callback {
+                                pl_cam_deregister_callback(h, PL_CALLBACK_EOF);
+                                self.callback_registered.store(false, Ordering::Release);
+                            }
+                            self.active_hcam.store(-1, Ordering::Release);
+                            let _ = self.streaming.set(false).await;
+                            return Err(anyhow!(
+                                "Fallback start with CIRC_NO_OVERWRITE also failed: {}",
+                                start_err
+                            ));
+                        }
+
+                        tracing::info!("Successfully fell back to CIRC_NO_OVERWRITE mode at start");
+                    } else {
+                        // Already using NO_OVERWRITE, no fallback available
+                        // Deregister callback on failure
+                        if use_callback {
+                            pl_cam_deregister_callback(h, PL_CALLBACK_EOF);
+                            self.callback_registered.store(false, Ordering::Release);
+                        }
+                        self.active_hcam.store(-1, Ordering::Release);
+                        let _ = self.streaming.set(false).await;
+                        return Err(anyhow!(
+                            "Failed to start continuous acquisition: {}",
+                            err_msg
+                        ));
                     }
-                    self.active_hcam.store(-1, Ordering::Release); // -1 = no active handle
-                    let _ = self.streaming.set(false).await;
-                    return Err(anyhow!(
-                        "Failed to start continuous acquisition: {}",
-                        err_msg
-                    ));
                 }
             }
 
