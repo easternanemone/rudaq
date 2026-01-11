@@ -1410,6 +1410,33 @@ impl PvcamAcquisition {
             }
             let exp_mode = TIMED_MODE; // EXT_TRIG_* are encoded as PL_EXPOSURE_MODES (see pvcam.h)
 
+            // bd-ffi-sdk-match: Register EOF callback BEFORE pl_exp_setup_cont (SDK pattern).
+            // The LiveImage.cpp example shows: 1) register callback, 2) setup_cont, 3) start_cont.
+            // Registering after setup causes callbacks to never fire on some cameras.
+            self.callback_context.set_hcam(h);
+
+            // Get raw pointer to pinned CallbackContext for FFI
+            // Deref Arc -> Pin<Box<T>> -> T, then take address
+            let callback_ctx_ptr = &**self.callback_context as *const CallbackContext;
+            let use_callback = unsafe {
+                // Use bindgen-generated function, cast callback to *mut c_void
+                let result = pl_cam_register_callback_ex3(
+                    h,
+                    PL_CALLBACK_EOF,
+                    pvcam_eof_callback as *mut std::ffi::c_void,
+                    callback_ctx_ptr as *mut std::ffi::c_void,
+                );
+                if result == 0 {
+                    tracing::warn!("Failed to register EOF callback, falling back to polling mode");
+                    false
+                } else {
+                    tracing::info!("PVCAM EOF callback registered successfully (before setup)");
+                    // Store callback state for Drop cleanup
+                    self.callback_registered.store(true, Ordering::Release);
+                    true
+                }
+            };
+
             unsafe {
                 // Try overwrite first
                 if pl_exp_setup_cont(
@@ -1511,36 +1538,6 @@ impl PvcamAcquisition {
                 buffer_count,
                 (actual_frame_bytes * buffer_count) as f64 / (1024.0 * 1024.0)
             );
-
-            // bd-3gnv: Register EOF callback before starting acquisition.
-            // PVCAM Best Practices (bd-ek9n.2): Register EOF callback to avoid polling overhead.
-            // The callback signals frame readiness, eliminating polling overhead.
-
-            // bd-ffi-sdk-match: Set camera handle in CallbackContext BEFORE registering callback.
-            // The callback needs hcam to call pl_exp_get_latest_frame (SDK pattern).
-            self.callback_context.set_hcam(h);
-
-            // Get raw pointer to pinned CallbackContext for FFI
-            // Deref Arc -> Pin<Box<T>> -> T, then take address
-            let callback_ctx_ptr = &**self.callback_context as *const CallbackContext;
-            let use_callback = unsafe {
-                // Use bindgen-generated function, cast callback to *mut c_void
-                let result = pl_cam_register_callback_ex3(
-                    h,
-                    PL_CALLBACK_EOF,
-                    pvcam_eof_callback as *mut std::ffi::c_void,
-                    callback_ctx_ptr as *mut std::ffi::c_void,
-                );
-                if result == 0 {
-                    tracing::warn!("Failed to register EOF callback, falling back to polling mode");
-                    false
-                } else {
-                    tracing::info!("PVCAM EOF callback registered successfully");
-                    // Store callback state for Drop cleanup
-                    self.callback_registered.store(true, Ordering::Release);
-                    true
-                }
-            };
 
             // Store camera handle for Drop cleanup (critical: must happen before acquisition starts)
             // Uses atomic store for lock-free access in Drop
