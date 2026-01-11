@@ -7,6 +7,7 @@
 - **OS**: EndeavourOS (Arch Linux rolling)
 - **User**: `maitai`
 - **Camera**: Teledyne Photometrics Prime BSI Express (USB 3.0)
+- **Camera Identifier**: `pvcamUSB_0`
 
 ## PVCAM Installation & Configuration
 
@@ -70,3 +71,20 @@ If the camera is not detecting ("No cameras found" or "Installation Corrupted" e
     ```
 
 5. **Reboot**: If `ExtendedEnumerations` hangs or fails weirdly, reboot `maitai` to reset the USB bus and kernel module state.
+
+## Known Issues & Workarounds
+
+### 85-Frame Stall (Prime BSI Express)
+
+**Symptom**: Continuous acquisition stops receiving frames after approximately 85 frames. The camera status reports `READOUT_NOT_ACTIVE` (0) and no new frames arrive.
+
+**Cause**: This appears to be a firmware or driver quirk specific to the Prime BSI Express on this platform. It occurs regardless of buffer size or drain speed.
+
+**Workaround**: The `rust-daq` PVCAM driver implements an aggressive auto-restart mechanism:
+1.  **Detection**: If 2 consecutive polls (with ~100ms total timeout) return no frames and the status is `READOUT_NOT_ACTIVE`, a stall is declared.
+2.  **Recovery**: The driver automatically:
+    - Stops the acquisition (`CCS_CLEAR`).
+    - Waits for a brief settling period.
+    - Re-runs `pl_exp_setup_cont` and `pl_exp_start_cont`.
+    - Re-registers the EOF callback.
+3.  **Transparency**: The driver maintains a monotonic virtual frame counter, so downstream consumers see a continuous stream of frame numbers despite the internal hardware restarts. There may be a small timing gap (glitch) during the restart, but data flow resumes automatically.
