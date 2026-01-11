@@ -90,7 +90,7 @@ Use these for common build configurations:
 
 | Feature | Description | Requirements |
 |---------|-------------|--------------|
-| `pvcam_hardware` | Real PVCAM hardware support | PVCAM SDK installed, `PVCAM_SDK_DIR` set |
+| `pvcam_sdk` | Real PVCAM hardware support | PVCAM SDK installed, `PVCAM_SDK_DIR` set |
 | `hardware_tests` | Enable hardware-in-the-loop tests | Physical devices connected |
 | `prime_95b_tests` | Prime 95B camera tests (1200x1200) | Alternative to Prime BSI (2048x2048) |
 
@@ -145,7 +145,7 @@ cargo build --release --features "full,storage_hdf5"
 cargo test
 
 # Real hardware on maitai
-cargo test --features "hardware_tests,pvcam_hardware" -- --nocapture
+cargo test --features "hardware_tests,pvcam_sdk" -- --nocapture
 
 # Specific driver tests
 cargo test --features "instrument_thorlabs,hardware_tests"
@@ -187,8 +187,8 @@ scripting
 scripting_python
   └── daq-scripting/python
 
-pvcam_hardware
-  └── daq-hardware/pvcam_hardware
+pvcam_sdk
+  └── daq-hardware/pvcam_sdk
   └── instrument_photometrics
 
 instrument_thorlabs

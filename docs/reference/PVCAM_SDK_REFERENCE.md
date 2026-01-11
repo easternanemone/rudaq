@@ -859,10 +859,10 @@ export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH
 
 # Smoke test
 export PVCAM_SMOKE_TEST=1
-cargo test --features pvcam_hardware --test pvcam_hardware_smoke -- --nocapture
+cargo test --features pvcam_sdk --test pvcam_sdk_smoke -- --nocapture
 
 # Full hardware tests
-cargo test --features 'instrument_photometrics,pvcam_hardware,hardware_tests' \
+cargo test --features 'instrument_photometrics,pvcam_sdk,hardware_tests' \
   --test hardware_pvcam_validation -- --nocapture --test-threads=1
 ```
 

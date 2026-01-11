@@ -30,9 +30,9 @@ pvcam-sys (FFI bindings via bindgen)
 
 | Crate | Import | Purpose |
 |-------|--------|---------|
-| `daq-hardware` | `daq_driver_pvcam::PvcamDriver` | Hardware registry integration |
-| `rust-daq` | `daq_driver_pvcam` | Prelude re-export |
-| `daq-egui` | `daq_driver_pvcam::PvcamDriver` | GUI camera panel |
+| `daq-hardware` | `daq_pvcam::PvcamDriver` | Hardware registry integration |
+| `rust-daq` | `daq_pvcam` | Prelude re-export |
+| `daq-egui` | `daq_pvcam::PvcamDriver` | GUI camera panel |
 
 ## Trait Implementation Matrix
 
@@ -126,8 +126,8 @@ These functions query hardware for available options at runtime, enabling runtim
 ### Usage Examples
 
 ```rust
-use daq_driver_pvcam::{PvcamDriver, PvcamFeatures};
-use daq_driver_pvcam::components::connection::PvcamConnection;
+use daq_pvcam::{PvcamDriver, PvcamFeatures};
+use daq_pvcam::components::connection::PvcamConnection;
 
 // List available cameras before opening
 let mut conn = PvcamConnection::new();
@@ -213,10 +213,10 @@ The new list functions are not yet exposed via gRPC. Potential additions:
 
 | Flag | Effect |
 |------|--------|
-| `pvcam_hardware` | Enable real hardware FFI calls |
+| `pvcam_sdk` | Enable real hardware FFI calls |
 | `pvcam-sdk` (pvcam-sys) | Generate bindgen FFI bindings |
 
-Without `pvcam_hardware`, the driver operates in mock mode with simulated responses.
+Without `pvcam_sdk`, the driver operates in mock mode with simulated responses.
 
 ## SDK Pattern Compliance (bd-sk6z)
 

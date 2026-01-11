@@ -77,7 +77,7 @@ Location: `crates/daq-driver-pvcam/src/components/features.rs`
 
 ```rust
 /// Check if a parameter is available on the connected camera.
-#[cfg(feature = "pvcam_hardware")]
+#[cfg(feature = "pvcam_sdk")]
 pub fn is_param_available(hcam: i16, param_id: u32) -> bool {
     let mut avail: rs_bool = 0;
     unsafe {
@@ -96,7 +96,7 @@ pub fn is_param_available(hcam: i16, param_id: u32) -> bool {
 }
 
 /// Check if a parameter is available, returning an error with context if not.
-#[cfg(feature = "pvcam_hardware")]
+#[cfg(feature = "pvcam_sdk")]
 pub fn require_param_available(hcam: i16, param_id: u32, param_name: &str) -> Result<()> {
     if Self::is_param_available(hcam, param_id) {
         Ok(())
@@ -303,7 +303,7 @@ The availability checks integrate seamlessly with the reactive parameter system:
 ```bash
 ssh maitai@100.117.5.12 'source /etc/profile.d/pvcam.sh && \
   export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH && \
-  cd ~/rust-daq && cargo test --features pvcam_hardware \
+  cd ~/rust-daq && cargo test --features pvcam_sdk \
     test_core_parameters -- --nocapture'
 ```
 
@@ -315,8 +315,8 @@ Run on maitai (Prime BSI) to verify availability checks work correctly:
 ssh maitai@100.117.5.12 'source /etc/profile.d/pvcam.sh && \
   export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH && \
   export LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:$LD_LIBRARY_PATH && \
-  cd ~/rust-daq && cargo test --features pvcam_hardware \
-    --test pvcam_hardware_smoke -- --nocapture'
+  cd ~/rust-daq && cargo test --features pvcam_sdk \
+    --test pvcam_sdk_smoke -- --nocapture'
 ```
 
 ### Expected Behavior

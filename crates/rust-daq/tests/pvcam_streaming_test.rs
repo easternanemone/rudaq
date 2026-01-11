@@ -22,8 +22,8 @@
 //! - LD_LIBRARY_PATH includes /opt/pvcam/library/x86_64
 
 #![cfg(all(
-    feature = "instrument_photometrics",
-    feature = "pvcam_hardware",
+    feature = "pvcam",
+    feature = "pvcam_sdk",
     feature = "hardware_tests"
 ))]
 

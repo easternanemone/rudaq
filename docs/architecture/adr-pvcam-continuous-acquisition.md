@@ -1,8 +1,9 @@
 # ADR: PVCAM Continuous Acquisition Mode Selection
 
 **Status:** Accepted
-**Date:** 2025-01-09
+**Date:** 2025-01-09 (Updated 2026-01-11)
 **Authors:** Investigation by Claude Code with hardware testing on Prime BSI
+**Related Issues:** bd-nzcq, bd-ffi-sdk-match
 
 ## Context
 
@@ -146,6 +147,112 @@ Timeline:
 
 **Update 2025-01:** The implementation now matches the official SDK examples (`LiveImage.cpp`, `FastStreamingToDisk.cpp`) by retrieving frame pointers **inside** the EOF callback.
 
+**Update 2026-01-11 (bd-nzcq):** The callback MUST be buffer-mode aware. LiveImage.cpp uses `CIRC_OVERWRITE`, so it calls `get_latest_frame`. In `CIRC_NO_OVERWRITE` mode (required for Prime BSI), the callback must NOT call `get_latest_frame` because the main loop needs `get_oldest_frame` for proper FIFO order.
+
+---
+
+## LiveImage.cpp SDK Pattern Reference (Single Source of Truth)
+
+This section documents the complete SDK pattern from `LiveImage.cpp` which must be followed exactly.
+
+### 1. Callback Registration Order (CRITICAL)
+
+The SDK registers the callback **BEFORE** `pl_exp_setup_cont`:
+
+```cpp
+// From LiveImage.cpp lines 119-126:
+// FIRST: Register callback
+if (PV_OK != pl_cam_register_callback_ex3(ctx->hcam, PL_CALLBACK_EOF,
+            (void*)CustomEofHandler, ctx))
+{
+    PrintErrorMessage(pl_error_code(), "pl_cam_register_callback() error");
+    return APP_EXIT_ERROR;
+}
+printf("EOF callback handler registered on camera %d\n", ctx->hcam);
+
+// SECOND: Setup acquisition (lines 146-152)
+if (PV_OK != pl_exp_setup_cont(ctx->hcam, 1, &ctx->region, expMode,
+            exposureTime, &exposureBytes, bufferMode))
+// ...
+
+// THIRD: Start acquisition (lines 173-179)
+if (PV_OK != pl_exp_start_cont(ctx->hcam, circBufferInMemory, circBufferBytes))
+```
+
+**WRONG ORDER (causes callbacks to never fire):**
+```
+setup_cont → register_callback → start_cont  ❌
+```
+
+**CORRECT ORDER (SDK pattern):**
+```
+register_callback → setup_cont → start_cont  ✓
+```
+
+### 2. Buffer Mode and Frame Retrieval (CRITICAL)
+
+LiveImage.cpp uses `CIRC_OVERWRITE` mode (line 132):
+
+```cpp
+const int16 bufferMode = CIRC_OVERWRITE;
+```
+
+In `CIRC_OVERWRITE` mode, the callback calls `get_latest_frame` (line 53):
+
+```cpp
+void PV_DECL CustomEofHandler(FRAME_INFO* pFrameInfo, void* pContext) {
+    // ...
+    ctx->eofFrameInfo = *pFrameInfo;
+
+    // Obtain a pointer to the last acquired frame
+    if (PV_OK != pl_exp_get_latest_frame(ctx->hcam, &ctx->eofFrame)) {
+        // ...
+    }
+
+    // Unblock the acquisition thread
+    ctx->eofEvent.cond.notify_all();
+}
+```
+
+### 3. Buffer Mode Differences (bd-nzcq)
+
+| Mode | Callback Behavior | Main Loop | Unlock Required |
+|------|-------------------|-----------|-----------------|
+| `CIRC_OVERWRITE` | Call `get_latest_frame` | Use callback's frame | No |
+| `CIRC_NO_OVERWRITE` | **DO NOT** call `get_latest_frame` | Call `get_oldest_frame` | Yes |
+
+**Why CIRC_NO_OVERWRITE callback must NOT call get_latest_frame:**
+
+```
+Buffer state: [Frame1] [Frame2] [Frame3] [Frame4] [Frame5]
+                 ↑                                    ↑
+              oldest                               latest
+
+If callback calls get_latest_frame:
+  → Returns Frame5 (newest)
+  → Main loop processes Frame5
+  → Main loop calls unlock_oldest_frame
+  → Unlocks Frame1 (NOT Frame5!)
+  → MISMATCH: processed Frame5, unlocked Frame1
+  → Buffer FIFO order broken → stalls after ~85 frames
+```
+
+**Correct CIRC_NO_OVERWRITE behavior:**
+
+```
+Callback:
+  → Just signal frame ready (no get_latest_frame!)
+
+Main loop:
+  → Call get_oldest_frame → returns Frame1
+  → Process Frame1
+  → Call unlock_oldest_frame → unlocks Frame1
+  → MATCH: processed Frame1, unlocked Frame1
+  → Proper FIFO draining → sustained streaming
+```
+
+---
+
 #### SDK Example Pattern (from `LiveImage.cpp`)
 
 ```cpp
@@ -154,6 +261,7 @@ void PV_DECL CustomEofHandler(FRAME_INFO* pFrameInfo, void* pContext) {
     ctx->eofFrameInfo = *pFrameInfo;
 
     // CRITICAL: Frame retrieval happens INSIDE the callback
+    // NOTE: This is ONLY correct for CIRC_OVERWRITE mode!
     if (PV_OK != pl_exp_get_latest_frame(ctx->hcam, &ctx->eofFrame)) {
         PrintErrorMessage(pl_error_code(), "pl_exp_get_latest_frame() error");
         ctx->eofFrame = nullptr;
@@ -164,7 +272,7 @@ void PV_DECL CustomEofHandler(FRAME_INFO* pFrameInfo, void* pContext) {
 }
 ```
 
-#### Rust Implementation (matching SDK)
+#### Rust Implementation (buffer-mode aware)
 
 ```rust
 pub unsafe extern "system" fn pvcam_eof_callback(
@@ -178,13 +286,22 @@ pub unsafe extern "system" fn pvcam_eof_callback(
         ctx.store_frame_info(*p_frame_info);
     }
 
-    // SDK Pattern Step 2: Retrieve frame pointer INSIDE callback
-    let hcam = ctx.hcam.load(Ordering::Acquire);
-    let mut frame_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-    let result = pl_exp_get_latest_frame(hcam, &mut frame_ptr);
+    // SDK Pattern Step 2: Buffer-mode aware frame retrieval (bd-nzcq)
+    let circ_overwrite = ctx.circ_overwrite.load(Ordering::Acquire);
 
-    if result != 0 && !frame_ptr.is_null() {
-        ctx.store_frame_ptr(frame_ptr);
+    if circ_overwrite {
+        // CIRC_OVERWRITE mode: SDK pattern - get frame in callback
+        let hcam = ctx.hcam.load(Ordering::Acquire);
+        let mut frame_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+        let result = pl_exp_get_latest_frame(hcam, &mut frame_ptr);
+
+        if result != 0 && !frame_ptr.is_null() {
+            ctx.store_frame_ptr(frame_ptr);
+        }
+    } else {
+        // CIRC_NO_OVERWRITE mode: DO NOT call get_latest_frame!
+        // Main loop will use get_oldest_frame for proper FIFO order
+        ctx.store_frame_ptr(std::ptr::null_mut());
     }
 
     // SDK Pattern Step 3: Signal main thread
@@ -257,10 +374,11 @@ void callback_handler(FRAME_INFO* frame_info, void* context) {
 ```
 
 Key PyVCAM patterns we adopted:
-1. Use `pl_exp_get_latest_frame_ex()` for frame retrieval
-2. No unlock calls needed with `get_latest_frame`
-3. Register callback AFTER `pl_exp_setup_cont()`
+1. Use `pl_exp_get_latest_frame_ex()` for frame retrieval (CIRC_OVERWRITE only)
+2. No unlock calls needed with `get_latest_frame` in CIRC_OVERWRITE mode
+3. Register callback **BEFORE** `pl_exp_setup_cont()` (SDK pattern from LiveImage.cpp)
 4. 4096-byte aligned buffers (optional optimization)
+5. Buffer-mode aware callback: skip `get_latest_frame` in CIRC_NO_OVERWRITE mode (bd-nzcq)
 
 ## Test Files
 
@@ -279,7 +397,7 @@ ssh maitai@100.117.5.12 'source /etc/profile.d/pvcam.sh && \
   export PVCAM_SDK_DIR=/opt/pvcam/sdk && \
   export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH && \
   export LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:$LD_LIBRARY_PATH && \
-  cd ~/rust-daq && cargo test --release -p daq-driver-pvcam --features pvcam_hardware \
+  cd ~/rust-daq && cargo test --release -p daq-driver-pvcam --features pvcam_sdk \
     --test <test_name> -- --nocapture --test-threads=1'
 ```
 

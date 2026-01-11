@@ -330,16 +330,16 @@ let connection = tokio::task::spawn_blocking({
 
 **Decision:** Feature-gate hardware calls; provide mock implementations.
 
-**Location:** Throughout, controlled by `#[cfg(feature = "pvcam_hardware")]`
+**Location:** Throughout, controlled by `#[cfg(feature = "pvcam_sdk")]`
 
 **Example:**
 ```rust
 pub fn get_temperature(_conn: &PvcamConnection) -> Result<f64> {
-    #[cfg(feature = "pvcam_hardware")]
+    #[cfg(feature = "pvcam_sdk")]
     {
         // Real SDK call
     }
-    #[cfg(not(feature = "pvcam_hardware"))]
+    #[cfg(not(feature = "pvcam_sdk"))]
     {
         Ok(_conn.mock_state.lock().unwrap().temperature_c)
     }

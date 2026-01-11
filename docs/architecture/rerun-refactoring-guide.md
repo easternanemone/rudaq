@@ -776,13 +776,13 @@ sudo iptables -I ts-input 1 -s YOUR_TAILSCALE_IP -j ACCEPT
 
 ### PVCAM Feature Flag Configuration
 
-**Critical:** The `pvcam_hardware` feature must propagate through the entire dependency chain to enable real camera hardware. Without proper propagation, the driver falls back to mock mode (gradient pattern).
+**Critical:** The `pvcam_sdk` feature must propagate through the entire dependency chain to enable real camera hardware. Without proper propagation, the driver falls back to mock mode (gradient pattern).
 
 **Feature Chain (all must be enabled):**
 ```
-rust_daq/pvcam_hardware
-  → daq-hardware/pvcam_hardware
-    → daq-driver-pvcam/pvcam_hardware
+rust_daq/pvcam_sdk
+  → daq-hardware/pvcam_sdk
+    → daq-driver-pvcam/pvcam_sdk
       → pvcam-sys/pvcam-sdk (links to libpvcam.so)
 ```
 
@@ -790,17 +790,17 @@ rust_daq/pvcam_hardware
 
 1. `crates/rust-daq/Cargo.toml`:
    ```toml
-   pvcam_hardware = ["daq-hardware/pvcam_hardware"]
+   pvcam_sdk = ["daq-hardware/pvcam_sdk"]
    ```
 
 2. `crates/daq-hardware/Cargo.toml`:
    ```toml
-   pvcam_hardware = ["driver_pvcam", "daq-driver-pvcam/pvcam_hardware"]
+   pvcam_sdk = ["pvcam", "daq-driver-pvcam/pvcam_sdk"]
    ```
 
 3. `crates/daq-driver-pvcam/Cargo.toml`:
    ```toml
-   pvcam_hardware = ["dep:pvcam-sys", "pvcam-sys/pvcam-sdk"]
+   pvcam_sdk = ["dep:pvcam-sys", "pvcam-sys/pvcam-sdk"]
    ```
 
 **Build Command (Remote Machine):**
@@ -809,16 +809,16 @@ source /etc/profile.d/pvcam.sh
 export LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:$LD_LIBRARY_PATH
 export PVCAM_SDK_DIR=/opt/pvcam/sdk
 cargo build -p rust_daq -p daq-bin --release \
-    --features 'rust_daq/pvcam_hardware,rust_daq/instrument_photometrics'
+    --features 'rust_daq/pvcam_sdk,rust_daq/instrument_photometrics'
 ```
 
 **Verification:**
 
 1. Check feature resolution:
    ```bash
-   cargo metadata --format-version 1 --features 'rust_daq/pvcam_hardware' \
+   cargo metadata --format-version 1 --features 'rust_daq/pvcam_sdk' \
      | jq '.resolve.nodes[] | select(.id | test("daq-driver-pvcam")) | .features'
-   # Should show: ["default", "mock", "pvcam_hardware"]
+   # Should show: ["default", "mock", "pvcam_sdk"]
    ```
 
 2. Verify binary links to PVCAM:
@@ -827,10 +827,10 @@ cargo build -p rust_daq -p daq-bin --release \
    # Should show: libpvcam.so.2 => /opt/pvcam/library/x86_64/libpvcam.so.2
    ```
 
-3. Runtime log check (set `RUST_LOG=info,daq_driver_pvcam=debug`):
+3. Runtime log check (set `RUST_LOG=info,daq_pvcam=debug`):
    ```
    PvcamDriver::new_async called for camera: PMUSBCam00
-   pvcam_hardware feature enabled: true
+   pvcam_sdk feature enabled: true
    Initializing PVCAM SDK...
    PVCAM SDK initialized, opening camera: PMUSBCam00
    Camera opened successfully, handle: Some(0)
