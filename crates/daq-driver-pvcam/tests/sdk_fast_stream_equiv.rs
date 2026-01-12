@@ -293,9 +293,9 @@ fn fast_streaming_equivalent() {
 
         debug!(
             frame_nr = current,
-            timestamp_bof = frame_info.timestampBOF,
-            timestamp_eof = frame_info.timestampEOF,
-            roi_count = frame_info.roiCount,
+            timestamp_bof = frame_info.TimeStampBOF,
+            timestamp = frame_info.TimeStamp,
+            readout_time = frame_info.ReadoutTime,
             status,
             buf_cnt,
             byte_cnt,
