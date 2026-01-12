@@ -2701,6 +2701,22 @@ impl PvcamAcquisition {
                     eprintln!("[PVCAM DEBUG] Frame {} unlocked successfully", unlock_frame_nr);
                 }
 
+                // bd-diag-skip-processing-2026-01-12: DIAGNOSTIC MODE
+                // When PVCAM_SKIP_PROCESSING=1 is set, skip ALL processing after unlock
+                // to match minimal test behavior exactly (get → unlock → continue).
+                // This isolates whether the issue is in processing vs SDK interaction.
+                static SKIP_PROCESSING: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+                let skip_processing = *SKIP_PROCESSING.get_or_init(|| {
+                    std::env::var("PVCAM_SKIP_PROCESSING").map(|v| v == "1").unwrap_or(false)
+                });
+                if skip_processing {
+                    // Exactly like minimal test: get → unlock → continue immediately
+                    frames_this_iteration = frames_processed_in_drain;
+                    total_frames.fetch_add(1, Ordering::Release);
+                    loop_iteration += 1;
+                    continue;
+                }
+
                 // Step 2: Copy pixel data AFTER unlock
                 // In CIRC_NO_OVERWRITE mode, the frame_ptr data is still valid because
                 // the SDK won't reuse this buffer slot until all 20 slots are filled.
