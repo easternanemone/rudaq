@@ -3085,3 +3085,267 @@ async fn test_20_param_query_isolation() {
         frames_acquired
     );
 }
+
+/// Test 21: Metadata Enable/Disable Isolation Test
+///
+/// HYPOTHESIS: The full driver checks and potentially modifies PARAM_METADATA_ENABLED
+/// before streaming. This pl_set_param call might be affecting callback behavior.
+///
+/// This test adds metadata enable/disable logic to test_20's working pattern.
+///
+/// If this test FAILS at ~19 frames: metadata param manipulation is likely causing the issue
+/// If this test PASSES with 200 frames: metadata is NOT the issue
+#[tokio::test]
+async fn test_21_metadata_isolation() {
+    println!("\n=== TEST 21: Metadata Enable/Disable Isolation Test ===");
+    println!("Tests whether PARAM_METADATA_ENABLED manipulation causes the 19-frame cutoff.\n");
+
+    const TARGET_FRAMES: i32 = 200;
+    const TIMEOUT_MS: u64 = 2000;
+    const EXPOSURE_MS: u32 = 100;
+    const BUFFER_FRAMES: usize = 21;
+
+    // Initialize SDK
+    println!("[SETUP] Initializing PVCAM SDK...");
+    unsafe {
+        if pl_pvcam_init() == 0 {
+            println!("ERROR: pl_pvcam_init failed");
+            return;
+        }
+    }
+    println!("[OK] PVCAM SDK initialized");
+
+    // Open camera
+    let mut hcam: i16 = 0;
+    let mut cam_name = [0i8; 32];
+    unsafe {
+        if pl_cam_get_name(0, cam_name.as_mut_ptr()) == 0 {
+            println!("ERROR: pl_cam_get_name failed");
+            pl_pvcam_uninit();
+            return;
+        }
+        if pl_cam_open(cam_name.as_mut_ptr(), &mut hcam, 0) == 0 {
+            println!("ERROR: pl_cam_open failed");
+            pl_pvcam_uninit();
+            return;
+        }
+    }
+    println!("[OK] Camera opened, hcam={}", hcam);
+
+    // === PARAMETER QUERIES (like full driver) ===
+    println!("\n[PARAM QUERIES] Querying camera parameters...");
+    unsafe {
+        let mut ser: uns16 = 0;
+        let mut par: uns16 = 0;
+        if pl_get_param(hcam, PARAM_SER_SIZE, ATTR_CURRENT, &mut ser as *mut _ as *mut _) != 0 {
+            println!("  PARAM_SER_SIZE: {}", ser);
+        }
+        if pl_get_param(hcam, PARAM_PAR_SIZE, ATTR_CURRENT, &mut par as *mut _ as *mut _) != 0 {
+            println!("  PARAM_PAR_SIZE: {}", par);
+        }
+    }
+
+    // === METADATA MANIPULATION (like full driver's start_stream) ===
+    println!("\n[METADATA] Checking and setting PARAM_METADATA_ENABLED (like full driver)...");
+    let use_metadata = false; // Full driver often has this false unless explicitly enabled
+    unsafe {
+        // Check if metadata is available
+        let mut md_avail: rs_bool = 0;
+        if pl_get_param(hcam, PARAM_METADATA_ENABLED, ATTR_AVAIL, &mut md_avail as *mut _ as *mut _) != 0 {
+            println!("  PARAM_METADATA_ENABLED available: {}", md_avail != 0);
+
+            if md_avail != 0 {
+                // Get current value
+                let mut current_md: rs_bool = 0;
+                if pl_get_param(hcam, PARAM_METADATA_ENABLED, ATTR_CURRENT, &mut current_md as *mut _ as *mut _) != 0 {
+                    println!("  PARAM_METADATA_ENABLED current: {}", current_md != 0);
+                }
+
+                // The full driver conditionally enables/disables metadata
+                // Let's mimic the "disable if not using" path (most common)
+                if !use_metadata && current_md != 0 {
+                    println!("  Disabling metadata (like full driver when not decoding)...");
+                    let disable: rs_bool = 0;
+                    if pl_set_param(hcam, PARAM_METADATA_ENABLED, &disable as *const _ as *mut _) == 0 {
+                        println!("  WARNING: Failed to disable metadata: {}", get_error_message());
+                    } else {
+                        println!("  Metadata disabled successfully");
+                    }
+                } else if use_metadata && current_md == 0 {
+                    println!("  Enabling metadata (like full driver when decoding)...");
+                    let enable: rs_bool = 1;
+                    if pl_set_param(hcam, PARAM_METADATA_ENABLED, &enable as *const _ as *mut _) == 0 {
+                        println!("  WARNING: Failed to enable metadata: {}", get_error_message());
+                    } else {
+                        println!("  Metadata enabled successfully");
+                    }
+                } else {
+                    println!("  Metadata already in desired state");
+                }
+            }
+        } else {
+            println!("  PARAM_METADATA_ENABLED not available");
+        }
+    }
+    println!("[OK] Metadata handling complete");
+
+    // === REST OF STREAMING SETUP (same as test_20) ===
+
+    // Create callback context
+    let ctx = std::sync::Arc::new(std::pin::Pin::new(Box::new(FullCallbackContext::new(hcam))));
+    let ctx_ptr = &**ctx as *const FullCallbackContext;
+    FULL_CTX.store(ctx_ptr as *mut FullCallbackContext, Ordering::Release);
+    println!("[OK] Callback context created, ptr={:?}", ctx_ptr);
+
+    // Register callback BEFORE setup
+    println!("[SETUP] Registering EOF callback...");
+    unsafe {
+        let result = pl_cam_register_callback_ex3(
+            hcam,
+            PL_CALLBACK_EOF,
+            full_eof_callback as *mut c_void,
+            ctx_ptr as *mut c_void,
+        );
+        if result == 0 {
+            println!("ERROR: pl_cam_register_callback_ex3 failed: {}", get_error_message());
+            pl_cam_close(hcam);
+            pl_pvcam_uninit();
+            return;
+        }
+    }
+    println!("[OK] EOF callback registered");
+
+    // Setup region
+    let region = rgn_type {
+        s1: 0,
+        s2: 2047,
+        sbin: 1,
+        p1: 0,
+        p2: 2047,
+        pbin: 1,
+    };
+
+    // Setup continuous acquisition
+    let mut frame_bytes: uns32 = 0;
+    println!("[SETUP] Setting up continuous acquisition...");
+    unsafe {
+        let result = pl_exp_setup_cont(
+            hcam,
+            1,
+            &region as *const rgn_type,
+            TIMED_MODE as i16,
+            EXPOSURE_MS,
+            &mut frame_bytes,
+            CIRC_NO_OVERWRITE as i16,
+        );
+        if result == 0 {
+            println!("ERROR: pl_exp_setup_cont failed: {}", get_error_message());
+            pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
+            pl_cam_close(hcam);
+            pl_pvcam_uninit();
+            return;
+        }
+    }
+    println!("[OK] pl_exp_setup_cont succeeded, frame_bytes={}", frame_bytes);
+
+    // Allocate buffer
+    const ALIGN_4K: usize = 4096;
+    let buffer_size = (frame_bytes as usize) * BUFFER_FRAMES;
+    let layout = Layout::from_size_align(buffer_size, ALIGN_4K).unwrap();
+    let buffer = unsafe { alloc(layout) };
+    if buffer.is_null() {
+        println!("ERROR: Failed to allocate buffer");
+        unsafe {
+            pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
+            pl_cam_close(hcam);
+            pl_pvcam_uninit();
+        }
+        return;
+    }
+    println!("[OK] Allocated {} bytes at {:?}", buffer_size, buffer);
+
+    // Start acquisition
+    println!("[SETUP] Starting continuous acquisition...");
+    unsafe {
+        let result = pl_exp_start_cont(hcam, buffer as *mut c_void, buffer_size as uns32);
+        if result == 0 {
+            println!("ERROR: pl_exp_start_cont failed: {}", get_error_message());
+            dealloc(buffer, layout);
+            pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
+            pl_cam_close(hcam);
+            pl_pvcam_uninit();
+            return;
+        }
+    }
+    println!("[OK] Acquisition started");
+
+    // Frame loop
+    let ctx_clone = ctx.clone();
+    let streaming = std::sync::Arc::new(AtomicBool::new(true));
+    let streaming_clone = streaming.clone();
+
+    println!("\n=== FRAME ACQUISITION LOOP (target: {} frames) ===\n", TARGET_FRAMES);
+    let handle = tokio::task::spawn_blocking(move || {
+        let mut frames_acquired: i32 = 0;
+
+        while frames_acquired < TARGET_FRAMES && streaming_clone.load(Ordering::Acquire) {
+            let pending = ctx_clone.wait_for_frames(TIMEOUT_MS);
+            if pending == 0 {
+                println!("[TIMEOUT] No frame after {}ms (acquired {})", TIMEOUT_MS, frames_acquired);
+                continue;
+            }
+
+            let mut frame_ptr: *mut c_void = ptr::null_mut();
+            unsafe {
+                if pl_exp_get_oldest_frame(hcam, &mut frame_ptr) == 0 {
+                    continue;
+                }
+            }
+
+            frames_acquired += 1;
+
+            unsafe {
+                if pl_exp_unlock_oldest_frame(hcam) == 0 {
+                    eprintln!("[ERROR] pl_exp_unlock_oldest_frame failed");
+                }
+            }
+
+            ctx_clone.consume_one();
+
+            if frames_acquired <= 25 || frames_acquired % 50 == 0 {
+                println!("[FRAME {}] acquired", frames_acquired);
+            }
+        }
+
+        frames_acquired
+    });
+
+    let frames_acquired = handle.await.unwrap();
+
+    streaming.store(false, Ordering::Release);
+    ctx.signal_shutdown();
+
+    println!("\n[CLEANUP] Stopping acquisition...");
+    unsafe {
+        pl_exp_abort(hcam, CCS_HALT);
+        dealloc(buffer, layout);
+        pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
+        FULL_CTX.store(std::ptr::null_mut(), Ordering::Release);
+        pl_cam_close(hcam);
+        pl_pvcam_uninit();
+    }
+
+    println!("\n=== TEST 21 COMPLETE ===\n");
+
+    if frames_acquired >= TARGET_FRAMES {
+        println!("RESULT: PARAM_METADATA_ENABLED manipulation is NOT the issue (200 frames achieved)");
+    } else {
+        println!("RESULT: PARAM_METADATA_ENABLED manipulation MAY be causing the issue ({} frames)", frames_acquired);
+    }
+    assert!(
+        frames_acquired >= TARGET_FRAMES,
+        "Expected {} frames, got {}. Metadata param manipulation may be affecting SDK callback state!",
+        TARGET_FRAMES,
+        frames_acquired
+    );
+}
