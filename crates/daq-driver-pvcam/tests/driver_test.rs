@@ -271,17 +271,22 @@ mod hardware_driver {
         // Set short exposure
         driver.set_exposure(0.010).await.unwrap();
 
-        // Ensure clear mode is PreExposure (fix for streaming issue)
-        if let Some(param) = driver.parameters().get("acquisition.clear_mode") {
-            param.set_json(json!("PreExposure")).unwrap();
-        } else {
-            println!("Warning: acquisition.clear_mode not found");
-        }
-
-        // Ensure trigger mode is Timed
-        if let Some(param) = driver.parameters().get("acquisition.trigger_mode") {
-            param.set_json(json!("Timed")).unwrap();
-        }
+        // bd-diag-2026-01-12: DISABLED parameter setting to test hypothesis
+        // Isolation tests don't set these parameters and they work fine.
+        // Hypothesis: setting these via pl_set_param before pl_exp_setup_cont causes issues.
+        //
+        // // Ensure clear mode is PreExposure (fix for streaming issue)
+        // if let Some(param) = driver.parameters().get("acquisition.clear_mode") {
+        //     param.set_json(json!("PreExposure")).unwrap();
+        // } else {
+        //     println!("Warning: acquisition.clear_mode not found");
+        // }
+        //
+        // // Ensure trigger mode is Timed
+        // if let Some(param) = driver.parameters().get("acquisition.trigger_mode") {
+        //     param.set_json(json!("Timed")).unwrap();
+        // }
+        println!("[DIAG] Skipping clear_mode/trigger_mode parameter setting");
 
         // Start streaming
         driver.start_stream().await.unwrap();
