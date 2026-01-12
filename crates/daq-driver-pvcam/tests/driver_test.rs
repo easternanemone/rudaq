@@ -199,7 +199,9 @@ mod mock_driver {
 #[cfg(all(feature = "pvcam_sdk", feature = "hardware_tests"))]
 mod hardware_driver {
     use super::*;
+    use serde_json::json;
     use std::sync::Mutex;
+    use tracing_subscriber::EnvFilter;
 
     lazy_static::lazy_static! {
         static ref CAMERA_LOCK: Mutex<()> = Mutex::new(());
