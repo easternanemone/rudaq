@@ -2211,3 +2211,348 @@ async fn test_17_minimal_sdk_callback() {
         frames_acquired
     );
 }
+
+// =============================================================================
+// TEST 18: spawn_blocking isolation test
+// =============================================================================
+//
+// This test runs the frame loop INSIDE spawn_blocking like the full driver,
+// but uses the minimal loop pattern. This isolates whether the threading model
+// (spawn_blocking) is causing the callback issue.
+//
+// If this test FAILS at ~19 frames: The issue is with spawn_blocking threading
+// If this test PASSES with 200 frames: The issue is in the full driver logic
+
+/// CallbackContext matching the full driver's structure exactly
+#[derive(Debug)]
+struct FullCallbackContext {
+    pending_frames: std::sync::atomic::AtomicU32,
+    latest_frame_nr: AtomicI32,
+    condvar: std::sync::Condvar,
+    mutex: std::sync::Mutex<bool>,
+    shutdown: AtomicBool,
+    hcam: AtomicI16,
+    frame_ptr: std::sync::atomic::AtomicPtr<c_void>,
+    frame_info: std::sync::Mutex<FRAME_INFO>,
+    circ_overwrite: AtomicBool,
+}
+
+impl FullCallbackContext {
+    fn new(hcam: i16) -> Self {
+        Self {
+            pending_frames: std::sync::atomic::AtomicU32::new(0),
+            latest_frame_nr: AtomicI32::new(-1),
+            condvar: std::sync::Condvar::new(),
+            mutex: std::sync::Mutex::new(false),
+            shutdown: AtomicBool::new(false),
+            hcam: AtomicI16::new(hcam),
+            frame_ptr: std::sync::atomic::AtomicPtr::new(std::ptr::null_mut()),
+            frame_info: std::sync::Mutex::new(unsafe { std::mem::zeroed() }),
+            circ_overwrite: AtomicBool::new(false), // CIRC_NO_OVERWRITE
+        }
+    }
+
+    fn signal_frame_ready(&self, frame_nr: i32) {
+        self.latest_frame_nr.store(frame_nr, Ordering::Release);
+        self.pending_frames.fetch_add(1, Ordering::AcqRel);
+        let mut guard = match self.mutex.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *guard = true;
+        self.condvar.notify_one();
+    }
+
+    fn wait_for_frames(&self, timeout_ms: u64) -> u32 {
+        if self.shutdown.load(Ordering::Acquire) {
+            return 0;
+        }
+        let guard = match self.mutex.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let timeout_duration = std::time::Duration::from_millis(timeout_ms);
+        let result = self.condvar.wait_timeout_while(guard, timeout_duration, |notified| {
+            !*notified && !self.shutdown.load(Ordering::Acquire)
+        });
+        match result {
+            Ok((mut guard, timeout_result)) => {
+                *guard = false;
+                if timeout_result.timed_out() { 0 } else {
+                    self.pending_frames.load(Ordering::Acquire).max(1)
+                }
+            }
+            Err(poisoned) => {
+                let (mut guard, _) = poisoned.into_inner();
+                *guard = false;
+                0
+            }
+        }
+    }
+
+    fn consume_one(&self) {
+        let _ = self.pending_frames.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            if n > 0 { Some(n - 1) } else { None }
+        });
+    }
+
+    fn signal_shutdown(&self) {
+        self.shutdown.store(true, Ordering::Release);
+        if let Ok(mut guard) = self.mutex.lock() {
+            *guard = true;
+            self.condvar.notify_all();
+        }
+    }
+}
+
+/// Static global pointer for test 18 callback (like full driver's GLOBAL_CALLBACK_CTX)
+static FULL_CTX: std::sync::atomic::AtomicPtr<FullCallbackContext> =
+    std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+
+/// Callback for test 18 - matches full driver's pvcam_eof_callback
+extern "system" fn full_eof_callback(
+    p_frame_info: *const FRAME_INFO,
+    _p_context: *mut c_void,
+) {
+    static CALLBACK_ENTRY_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let entry_count = CALLBACK_ENTRY_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    let ctx_ptr = FULL_CTX.load(Ordering::Acquire);
+
+    if entry_count <= 25 || entry_count % 50 == 0 {
+        eprintln!("[TEST18 CALLBACK ENTRY] #{}, ctx={:?}", entry_count, ctx_ptr);
+    }
+
+    if ctx_ptr.is_null() { return; }
+    let ctx = unsafe { &*ctx_ptr };
+
+    let frame_nr = if !p_frame_info.is_null() {
+        let info = unsafe { *p_frame_info };
+        if info.FrameNr <= 25 || info.FrameNr % 50 == 0 {
+            eprintln!("[TEST18 CALLBACK] Frame {} ready, timestamp={}", info.FrameNr, info.TimeStamp);
+        }
+        info.FrameNr
+    } else { -1 };
+
+    ctx.signal_frame_ready(frame_nr);
+}
+
+#[tokio::test]
+async fn test_18_spawn_blocking_isolation() {
+    println!("\n=== TEST 18: spawn_blocking Isolation Test ===");
+    println!("Runs frame loop in spawn_blocking like full driver.\n");
+    println!("If this fails at ~19 frames: spawn_blocking is the issue.");
+    println!("If this passes with 200 frames: issue is in full driver logic.\n");
+
+    const TARGET_FRAMES: i32 = 200;
+    const TIMEOUT_MS: u64 = 2000;
+    const EXPOSURE_MS: u32 = 100;
+    const BUFFER_FRAMES: usize = 21; // Match full driver diagnostic
+
+    // Initialize SDK
+    println!("[SETUP] Initializing PVCAM SDK...");
+    unsafe {
+        if pl_pvcam_init() == 0 {
+            println!("ERROR: pl_pvcam_init failed");
+            return;
+        }
+    }
+    println!("[OK] PVCAM SDK initialized");
+
+    // Open camera
+    let mut hcam: i16 = 0;
+    let mut cam_name: [i8; CAM_NAME_LEN as usize] = [0; CAM_NAME_LEN as usize];
+    unsafe {
+        if pl_cam_get_name(0, cam_name.as_mut_ptr()) == 0 {
+            println!("ERROR: pl_cam_get_name failed");
+            pl_pvcam_uninit();
+            return;
+        }
+        if pl_cam_open(cam_name.as_ptr(), &mut hcam, OPEN_EXCLUSIVE as i16) == 0 {
+            println!("ERROR: pl_cam_open failed");
+            pl_pvcam_uninit();
+            return;
+        }
+    }
+    println!("[OK] Camera opened, hcam={}", hcam);
+
+    // Create callback context (like full driver: Arc<Pin<Box<...>>>)
+    let ctx = std::sync::Arc::new(std::pin::Pin::new(Box::new(FullCallbackContext::new(hcam))));
+    let ctx_ptr = &**ctx as *const FullCallbackContext;
+    FULL_CTX.store(ctx_ptr as *mut FullCallbackContext, Ordering::Release);
+    println!("[OK] Callback context created (Arc<Pin<Box>>), ptr={:?}", ctx_ptr);
+
+    // Register callback BEFORE setup (SDK pattern)
+    println!("[SETUP] Registering EOF callback...");
+    unsafe {
+        let result = pl_cam_register_callback_ex3(
+            hcam,
+            PL_CALLBACK_EOF,
+            full_eof_callback as *mut c_void,
+            ctx_ptr as *mut c_void,
+        );
+        if result == 0 {
+            println!("ERROR: pl_cam_register_callback_ex3 failed: {}", get_error_message());
+            pl_cam_close(hcam);
+            pl_pvcam_uninit();
+            return;
+        }
+    }
+    println!("[OK] EOF callback registered");
+
+    // Setup region (full sensor)
+    let region = rgn_type {
+        s1: 0,
+        s2: 2047,
+        sbin: 1,
+        p1: 0,
+        p2: 2047,
+        pbin: 1,
+    };
+
+    // Setup continuous acquisition with CIRC_NO_OVERWRITE
+    let mut frame_bytes: uns32 = 0;
+    println!("[SETUP] Setting up continuous acquisition (CIRC_NO_OVERWRITE)...");
+    unsafe {
+        let result = pl_exp_setup_cont(
+            hcam,
+            1,
+            &region as *const rgn_type,
+            TIMED_MODE as i16,
+            EXPOSURE_MS,
+            &mut frame_bytes,
+            CIRC_NO_OVERWRITE as i16,
+        );
+        if result == 0 {
+            println!("ERROR: pl_exp_setup_cont failed: {}", get_error_message());
+            pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
+            pl_cam_close(hcam);
+            pl_pvcam_uninit();
+            return;
+        }
+    }
+    println!("[OK] pl_exp_setup_cont succeeded, frame_bytes={}", frame_bytes);
+
+    // Allocate 4K-aligned buffer
+    const ALIGN_4K: usize = 4096;
+    let buffer_size = (frame_bytes as usize) * BUFFER_FRAMES;
+    let layout = Layout::from_size_align(buffer_size, ALIGN_4K).unwrap();
+    let buffer = unsafe { alloc(layout) };
+    if buffer.is_null() {
+        println!("ERROR: Failed to allocate buffer");
+        unsafe {
+            pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
+            pl_cam_close(hcam);
+            pl_pvcam_uninit();
+        }
+        return;
+    }
+    println!("[OK] Allocated {} bytes ({} frames) at {:?}", buffer_size, BUFFER_FRAMES, buffer);
+
+    // Start acquisition
+    println!("[SETUP] Starting continuous acquisition...");
+    unsafe {
+        let result = pl_exp_start_cont(hcam, buffer as *mut c_void, buffer_size as uns32);
+        if result == 0 {
+            println!("ERROR: pl_exp_start_cont failed: {}", get_error_message());
+            dealloc(buffer, layout);
+            pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
+            pl_cam_close(hcam);
+            pl_pvcam_uninit();
+            return;
+        }
+    }
+    println!("[OK] Acquisition started");
+
+    // Clone Arc for spawn_blocking
+    let ctx_clone = ctx.clone();
+    let streaming = std::sync::Arc::new(AtomicBool::new(true));
+    let streaming_clone = streaming.clone();
+
+    // Spawn frame loop in blocking thread (like full driver)
+    println!("\n=== FRAME ACQUISITION LOOP (spawn_blocking, target: {} frames) ===\n", TARGET_FRAMES);
+    let handle = tokio::task::spawn_blocking(move || {
+        let mut frames_acquired: i32 = 0;
+        let loop_start = std::time::Instant::now();
+
+        while frames_acquired < TARGET_FRAMES && streaming_clone.load(Ordering::Acquire) {
+            // Wait for callback (like full driver)
+            let pending = ctx_clone.wait_for_frames(TIMEOUT_MS);
+            if pending == 0 {
+                println!("[TIMEOUT] No frame after {}ms (acquired {})", TIMEOUT_MS, frames_acquired);
+                // Check SDK status
+                unsafe {
+                    let mut status: i16 = 0;
+                    let mut bytes_arrived: uns32 = 0;
+                    let mut buffer_cnt: uns32 = 0;
+                    if pl_exp_check_cont_status(hcam, &mut status, &mut bytes_arrived, &mut buffer_cnt) != 0 {
+                        eprintln!("[SDK STATUS] status={}, bytes={}, cnt={}", status, bytes_arrived, buffer_cnt);
+                    }
+                }
+                continue;
+            }
+
+            // Get oldest frame (like full driver's get_oldest_frame)
+            let mut frame_ptr: *mut c_void = ptr::null_mut();
+            unsafe {
+                if pl_exp_get_oldest_frame(hcam, &mut frame_ptr) == 0 {
+                    eprintln!("[ERROR] pl_exp_get_oldest_frame failed: {}", get_error_message());
+                    continue;
+                }
+            }
+
+            frames_acquired += 1;
+
+            // Unlock immediately (like minimal test and full driver's SKIP_PROCESSING)
+            unsafe {
+                if pl_exp_unlock_oldest_frame(hcam) == 0 {
+                    eprintln!("[ERROR] pl_exp_unlock_oldest_frame failed");
+                }
+            }
+
+            // Consume callback notification (like full driver)
+            ctx_clone.consume_one();
+
+            if frames_acquired <= 25 || frames_acquired % 50 == 0 {
+                println!("[FRAME {}] acquired", frames_acquired);
+            }
+        }
+
+        let total_time = loop_start.elapsed().as_millis();
+        println!("\n=== ACQUISITION SUMMARY ===");
+        println!("Frames acquired: {}/{}", frames_acquired, TARGET_FRAMES);
+        println!("Total time: {}ms", total_time);
+        if frames_acquired > 0 && total_time > 0 {
+            println!("Average FPS: {:.2}", frames_acquired as f64 * 1000.0 / total_time as f64);
+        }
+
+        frames_acquired
+    });
+
+    // Wait for frame loop to complete
+    let frames_acquired = handle.await.unwrap();
+
+    // Stop streaming
+    streaming.store(false, Ordering::Release);
+    ctx.signal_shutdown();
+
+    // Cleanup
+    println!("\n[CLEANUP] Stopping acquisition...");
+    unsafe {
+        pl_exp_abort(hcam, CCS_HALT);
+        dealloc(buffer, layout);
+        pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
+        FULL_CTX.store(std::ptr::null_mut(), Ordering::Release);
+        pl_cam_close(hcam);
+        pl_pvcam_uninit();
+    }
+
+    println!("\n=== TEST 18 COMPLETE ===\n");
+
+    // Assert success
+    assert!(
+        frames_acquired >= TARGET_FRAMES,
+        "Expected {} frames, got {}. spawn_blocking may be causing the issue!",
+        TARGET_FRAMES,
+        frames_acquired
+    );
+}
