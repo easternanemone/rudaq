@@ -1914,3 +1914,300 @@ async fn test_circ_buffer_capabilities() {
 
     println!("\n=== Diagnostic Test Complete ===\n");
 }
+
+// ============================================================================
+// TEST 17: Minimal SDK-style callback test (bd-callback-isolation)
+// ============================================================================
+// This test mimics the SDK C++ example exactly to isolate the callback issue.
+// If this test passes for 20+ frames but the daemon fails, the issue is in
+// the daemon's callback/synchronization implementation, not the FFI/SDK.
+
+use std::sync::{Condvar, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+
+/// Minimal callback context matching C++ SDK pattern
+struct MinimalContext {
+    mutex: Mutex<bool>,
+    condvar: Condvar,
+    eof_flag: AtomicBool,
+    frame_nr: AtomicI32,
+    callback_count: AtomicI32,
+}
+
+impl MinimalContext {
+    fn new() -> Self {
+        Self {
+            mutex: Mutex::new(false),
+            condvar: Condvar::new(),
+            eof_flag: AtomicBool::new(false),
+            frame_nr: AtomicI32::new(0),
+            callback_count: AtomicI32::new(0),
+        }
+    }
+
+    fn signal(&self, frame_nr: i32) {
+        self.frame_nr.store(frame_nr, Ordering::Release);
+        self.callback_count.fetch_add(1, Ordering::AcqRel);
+        let mut guard = self.mutex.lock().unwrap();
+        *guard = true;
+        self.eof_flag.store(true, Ordering::Release);
+        self.condvar.notify_one();
+    }
+
+    fn wait(&self, timeout_ms: u64) -> bool {
+        let guard = self.mutex.lock().unwrap();
+        let timeout = std::time::Duration::from_millis(timeout_ms);
+        let result = self.condvar.wait_timeout_while(guard, timeout, |flag| !*flag);
+        match result {
+            Ok((mut guard, timeout_result)) => {
+                *guard = false;
+                self.eof_flag.store(false, Ordering::Release);
+                !timeout_result.timed_out()
+            }
+            Err(_) => false,
+        }
+    }
+}
+
+/// Static context for callback (C++ pattern uses local stack variable + pointer)
+static mut MINIMAL_CTX: Option<*const MinimalContext> = None;
+
+/// Minimal callback - NO catch_unwind, NO extra synchronization
+/// This matches the C++ SDK example exactly
+extern "system" fn minimal_eof_callback(
+    p_frame_info: *const FRAME_INFO,
+    _p_context: *mut c_void,
+) {
+    unsafe {
+        if let Some(ctx_ptr) = MINIMAL_CTX {
+            let ctx = &*ctx_ptr;
+            let frame_nr = if !p_frame_info.is_null() {
+                (*p_frame_info).FrameNr
+            } else {
+                -1
+            };
+            let count = ctx.callback_count.load(Ordering::Acquire) + 1;
+            eprintln!("[CALLBACK {}] Frame {} ready", count, frame_nr);
+            ctx.signal(frame_nr);
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_17_minimal_sdk_callback() {
+    println!("\n=== TEST 17: Minimal SDK-style Callback Test ===");
+    println!("This test mimics the C++ SDK example to isolate callback issues.\n");
+
+    const TARGET_FRAMES: i32 = 30;
+    const TIMEOUT_MS: u64 = 5000;
+
+    // Initialize PVCAM
+    unsafe {
+        if pl_pvcam_init() == 0 {
+            println!("ERROR: pl_pvcam_init failed: {}", get_error_message());
+            return;
+        }
+    }
+    println!("[OK] PVCAM initialized");
+
+    // Get camera
+    let mut cam_count: i16 = 0;
+    unsafe {
+        if pl_cam_get_total(&mut cam_count) == 0 || cam_count == 0 {
+            println!("No cameras found, skipping test");
+            pl_pvcam_uninit();
+            return;
+        }
+    }
+
+    let mut cam_name = [0i8; 32];
+    unsafe {
+        pl_cam_get_name(0, cam_name.as_mut_ptr());
+    }
+    let cam_name_str = unsafe { CStr::from_ptr(cam_name.as_ptr()).to_string_lossy() };
+    println!("[OK] Camera: {}", cam_name_str);
+
+    // Open camera
+    let mut hcam: i16 = 0;
+    unsafe {
+        if pl_cam_open(cam_name.as_mut_ptr(), &mut hcam, 0) == 0 {
+            println!("ERROR: pl_cam_open failed: {}", get_error_message());
+            pl_pvcam_uninit();
+            return;
+        }
+    }
+    println!("[OK] Camera opened, handle={}", hcam);
+
+    // Get sensor size
+    let mut ser_size: u16 = 0;
+    let mut par_size: u16 = 0;
+    unsafe {
+        pl_get_param(hcam, PARAM_SER_SIZE, ATTR_CURRENT as i16, &mut ser_size as *mut _ as *mut c_void);
+        pl_get_param(hcam, PARAM_PAR_SIZE, ATTR_CURRENT as i16, &mut par_size as *mut _ as *mut c_void);
+    }
+    println!("[OK] Sensor size: {}x{}", ser_size, par_size);
+
+    // Create context and set global pointer (C++ pattern)
+    let ctx = Box::new(MinimalContext::new());
+    let ctx_ptr = &*ctx as *const MinimalContext;
+    unsafe {
+        MINIMAL_CTX = Some(ctx_ptr);
+    }
+    println!("[OK] Callback context created");
+
+    // Register callback BEFORE setup (SDK pattern)
+    println!("[SETUP] Registering EOF callback...");
+    unsafe {
+        let result = pl_cam_register_callback_ex3(
+            hcam,
+            PL_CALLBACK_EOF,
+            minimal_eof_callback as *mut c_void,
+            ctx_ptr as *mut c_void,
+        );
+        if result == 0 {
+            println!("ERROR: pl_cam_register_callback_ex3 failed: {}", get_error_message());
+            pl_cam_close(hcam);
+            pl_pvcam_uninit();
+            return;
+        }
+    }
+    println!("[OK] EOF callback registered");
+
+    // Setup region (full sensor)
+    let region = rgn_type {
+        s1: 0,
+        s2: ser_size - 1,
+        sbin: 1,
+        p1: 0,
+        p2: par_size - 1,
+        pbin: 1,
+    };
+
+    // Setup continuous acquisition with CIRC_NO_OVERWRITE
+    let exposure_ms: u32 = 100;
+    let buffer_frames: u16 = 20;
+    let mut frame_bytes: u32 = 0;
+
+    println!("[SETUP] pl_exp_setup_cont with CIRC_NO_OVERWRITE...");
+    unsafe {
+        let result = pl_exp_setup_cont(
+            hcam,
+            1,
+            &region as *const rgn_type,
+            TIMED_MODE,
+            exposure_ms,
+            &mut frame_bytes,
+            CIRC_NO_OVERWRITE,
+        );
+        if result == 0 {
+            println!("ERROR: pl_exp_setup_cont failed: {}", get_error_message());
+            pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
+            pl_cam_close(hcam);
+            pl_pvcam_uninit();
+            return;
+        }
+    }
+    println!("[OK] Setup complete, frame_bytes={}", frame_bytes);
+
+    // Allocate buffer
+    let buffer_size = (frame_bytes as usize) * (buffer_frames as usize);
+    let layout = Layout::from_size_align(buffer_size, 4096).unwrap();
+    let buffer = unsafe { alloc_zeroed(layout) };
+    if buffer.is_null() {
+        println!("ERROR: Buffer allocation failed");
+        unsafe {
+            pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
+            pl_cam_close(hcam);
+            pl_pvcam_uninit();
+        }
+        return;
+    }
+    println!("[OK] Buffer allocated: {} frames, {:.2} MB", buffer_frames, buffer_size as f64 / 1024.0 / 1024.0);
+
+    // Start acquisition
+    println!("[START] pl_exp_start_cont...");
+    unsafe {
+        let result = pl_exp_start_cont(hcam, buffer, buffer_size as u32);
+        if result == 0 {
+            println!("ERROR: pl_exp_start_cont failed: {}", get_error_message());
+            dealloc(buffer, layout);
+            pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
+            pl_cam_close(hcam);
+            pl_pvcam_uninit();
+            return;
+        }
+    }
+    println!("[OK] Acquisition started");
+
+    // Frame loop (SDK pattern)
+    println!("\n=== FRAME ACQUISITION LOOP (target: {} frames) ===\n", TARGET_FRAMES);
+    let mut frames_acquired: i32 = 0;
+    let loop_start = std::time::Instant::now();
+
+    while frames_acquired < TARGET_FRAMES {
+        println!("[MAIN LOOP {}] Waiting for EOF (timeout {}ms)...", frames_acquired + 1, TIMEOUT_MS);
+        let wait_start = std::time::Instant::now();
+
+        if !ctx.wait(TIMEOUT_MS) {
+            println!("[TIMEOUT] No EOF event after {}ms", TIMEOUT_MS);
+            break;
+        }
+
+        let wait_elapsed = wait_start.elapsed().as_millis();
+        let frame_nr = ctx.frame_nr.load(Ordering::Acquire);
+        println!("[MAIN LOOP {}] EOF received after {}ms, FrameNr={}", frames_acquired + 1, wait_elapsed, frame_nr);
+
+        // Retrieve frame using get_oldest_frame
+        let mut frame_ptr: *mut c_void = ptr::null_mut();
+        unsafe {
+            if pl_exp_get_oldest_frame(hcam, &mut frame_ptr) == 0 {
+                println!("[ERROR] pl_exp_get_oldest_frame failed: {}", get_error_message());
+                break;
+            }
+        }
+        println!("[MAIN LOOP {}] Frame retrieved, ptr={:?}", frames_acquired + 1, frame_ptr);
+
+        frames_acquired += 1;
+
+        // Unlock frame (CRITICAL for CIRC_NO_OVERWRITE)
+        unsafe {
+            if pl_exp_unlock_oldest_frame(hcam) == 0 {
+                println!("[ERROR] pl_exp_unlock_oldest_frame failed: {}", get_error_message());
+            } else {
+                println!("[MAIN LOOP {}] Frame unlocked", frames_acquired);
+            }
+        }
+
+        println!("[MAIN LOOP {}] SUCCESS\n", frames_acquired);
+    }
+
+    let total_time = loop_start.elapsed().as_millis();
+    println!("\n=== ACQUISITION SUMMARY ===");
+    println!("Frames acquired: {}/{}", frames_acquired, TARGET_FRAMES);
+    println!("Total callbacks: {}", ctx.callback_count.load(Ordering::Acquire));
+    println!("Total time: {}ms", total_time);
+    if frames_acquired > 0 {
+        println!("Average FPS: {:.2}", frames_acquired as f64 * 1000.0 / total_time as f64);
+    }
+
+    // Cleanup
+    println!("\n[STOP] Cleanup...");
+    unsafe {
+        pl_exp_abort(hcam, CCS_HALT);
+        dealloc(buffer, layout);
+        pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
+        pl_cam_close(hcam);
+        MINIMAL_CTX = None;
+        pl_pvcam_uninit();
+    }
+
+    println!("\n=== TEST 17 COMPLETE ===\n");
+
+    // Assert success
+    assert!(
+        frames_acquired >= TARGET_FRAMES,
+        "Expected {} frames, got {}. Callbacks stopped prematurely!",
+        TARGET_FRAMES,
+        frames_acquired
+    );
+}
