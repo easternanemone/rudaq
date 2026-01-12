@@ -2653,34 +2653,35 @@ impl PvcamAcquisition {
             // Using zeroed struct as PVCAM will fill in the fields on frame retrieval.
             let mut frame_info: FRAME_INFO = unsafe { std::mem::zeroed() };
 
-            // bd-3gnv: Now checking buffer_cnt on every iteration to prevent stale frame loop.
-            // This is necessary because the SDK returns stale frames if we don't verify availability first.
+            // bd-flatten-2026-01-12: CRITICAL FIX - Remove inner drain loop entirely.
+            // The minimal test that works for 200 frames has NO inner loop - just:
+            //   wait → get_oldest_frame → unlock → continue
+            // We were using an inner `loop {}` that breaks after 1 frame, but even that
+            // structure seems to cause issues. Flatten to match minimal test exactly.
 
-            loop {
-                // Check shutdown between frames
-                if !streaming.get() || shutdown.load(Ordering::Acquire) {
-                    break;
-                }
+            // Check shutdown before attempting frame retrieval
+            if !streaming.get() || shutdown.load(Ordering::Acquire) {
+                break;
+            }
 
-                // PURE FIFO: Always use get_oldest_frame.
-                // This works for both modes if we are fast enough, but is required for NO_OVERWRITE.
-                // We rely on the return code to know if we are done.
-                let frame_ptr = match ffi_safe::get_oldest_frame(hcam, &mut frame_info) {
-                    Ok(ptr) => ptr,
-                    Err(()) => {
-                        // No more frames available - exit drain loop
-                        // TRACING: Drain loop exit - no more frames (bd-trace-2026-01-11)
-                        if loop_iteration <= 10 || frames_processed_in_drain > 0 {
-                            tracing::info!(
-                                target: "pvcam_frame_trace",
-                                iter = loop_iteration,
-                                frames_in_drain = frames_processed_in_drain,
-                                "Drain loop exit: no more frames available"
-                            );
-                        }
-                        break;
+            // FLAT STRUCTURE: ONE frame per wait, matching minimal test pattern exactly.
+            // No inner loop - just try to get the frame and process it.
+            let frame_ptr = match ffi_safe::get_oldest_frame(hcam, &mut frame_info) {
+                Ok(ptr) => ptr,
+                Err(()) => {
+                    // No frame available despite callback - this is unusual
+                    // TRACING: No frame available (bd-trace-2026-01-11)
+                    if loop_iteration <= 10 {
+                        tracing::info!(
+                            target: "pvcam_frame_trace",
+                            iter = loop_iteration,
+                            "get_oldest_frame returned no frame despite callback"
+                        );
                     }
-                };
+                    // Continue outer loop to wait for next callback
+                    continue;
+                }
+            };
 
                 frames_processed_in_drain += 1;
 
@@ -2823,10 +2824,9 @@ impl PvcamAcquisition {
                                 callback_ctx.consume_one();
                             }
 
-                            // bd-3gnv: Exit drain loop immediately on ANY duplicate.
-                            // The SDK is returning stale data because no new frame is ready.
-                            // Waiting in outer loop for next callback is more efficient than spinning.
-                            break; // Exit drain loop, wait for next callback
+                            // bd-flatten-2026-01-12: On duplicate frame, skip processing and
+                            // wait for next callback. (No inner loop anymore - just continue.)
+                            continue; // Wait for next callback
                         } else if current_frame_nr < expected_frame_nr && current_frame_nr != 1 {
                             // Frame number went backwards (not due to wrap to 1)
                             // This is unexpected but log it as discontinuity
@@ -2999,27 +2999,16 @@ impl PvcamAcquisition {
                     }
                 }
 
-                // FIX (bd-circ-no-overwrite-2026-01-11): In CIRC_NO_OVERWRITE mode with callbacks,
-                // each EOF callback signals EXACTLY ONE frame. Attempting to drain multiple frames
-                // causes get_oldest_frame to return the same frame twice (because buffer_cnt=0),
-                // triggering duplicate detection and breaking acquisition.
-                //
-                // Solution: In CIRC_NO_OVERWRITE + callback mode, retrieve ONE frame per callback
-                // and exit the drain loop immediately. The outer loop will wait for the next callback.
-                //
-                // In CIRC_OVERWRITE mode or polling mode, continue draining as before.
-                if !circ_overwrite && use_callback && frames_processed_in_drain >= 1 {
-                    // TRACING: Single-frame mode (bd-trace-2026-01-11)
-                    if loop_iteration <= 10 {
-                        tracing::info!(
-                            target: "pvcam_frame_trace",
-                            iter = loop_iteration,
-                            "CIRC_NO_OVERWRITE + callback mode: processed 1 frame, exiting drain loop"
-                        );
-                    }
-                    break; // Exit drain loop, wait for next callback
+                // bd-flatten-2026-01-12: No inner loop anymore - we process ONE frame per callback
+                // and automatically continue to the outer loop to wait for the next callback.
+                // This matches the minimal test pattern exactly.
+                if loop_iteration <= 10 {
+                    tracing::info!(
+                        target: "pvcam_frame_trace",
+                        iter = loop_iteration,
+                        "Flat frame processing: processed 1 frame, continuing to wait for next callback"
+                    );
                 }
-            }
 
             // bd-3gnv: Critical warning if unlocks are failing - this causes buffer starvation
             if unlock_failures > 0 {
@@ -3072,7 +3061,7 @@ impl PvcamAcquisition {
                     }
                 }
             }
-        }
+        }  // end of outer while loop
 
         // bd-3gnv: Debug why we exited the outer loop
         eprintln!(
