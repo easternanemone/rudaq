@@ -1094,38 +1094,36 @@ impl PvcamDriver {
         let readout_port = self.readout_port.clone();
 
         // On speed change -> update gains, read-only fields
-        tokio::spawn(async move {
-            speed_mode
-                .add_change_listener(move |new_speed| {
-                    let table = table.clone();
-                    let gain_mode = gain_mode.clone();
-                    let bit_depth = bit_depth.clone();
-                    let pixel_time_ns = pixel_time_ns.clone();
-                    let readout_port = readout_port.clone();
-                    let new_speed = new_speed.clone();
-                    tokio::spawn(async move {
-                        let current_port = readout_port.get();
-                        if let Some(port) = table.ports.iter().find(|p| p.name == current_port) {
-                            if let Some(speed) =
-                                port.speeds.iter().find(|s| s.name == new_speed).cloned()
-                            {
-                                let gain_names: Vec<String> =
-                                    speed.gains.iter().map(|g| g.name.clone()).collect();
-                                gain_mode.inner().update_choices(gain_names.clone());
-                                if !gain_names.iter().any(|n| *n == gain_mode.get()) {
-                                    if let Some(first) = gain_names.first() {
-                                        let _ = gain_mode.set(first.clone()).await;
-                                    }
+        speed_mode
+            .add_change_listener(move |new_speed| {
+                let table = table.clone();
+                let gain_mode = gain_mode.clone();
+                let bit_depth = bit_depth.clone();
+                let pixel_time_ns = pixel_time_ns.clone();
+                let readout_port = readout_port.clone();
+                let new_speed = new_speed.clone();
+                tokio::spawn(async move {
+                    let current_port = readout_port.get();
+                    if let Some(port) = table.ports.iter().find(|p| p.name == current_port) {
+                        if let Some(speed) =
+                            port.speeds.iter().find(|s| s.name == new_speed).cloned()
+                        {
+                            let gain_names: Vec<String> =
+                                speed.gains.iter().map(|g| g.name.clone()).collect();
+                            gain_mode.inner().update_choices(gain_names.clone());
+                            if !gain_names.iter().any(|n| *n == gain_mode.get()) {
+                                if let Some(first) = gain_names.first() {
+                                    let _ = gain_mode.set(first.clone()).await;
                                 }
-
-                                let _ = bit_depth.set(speed.bit_depth as u16).await;
-                                let _ = pixel_time_ns.set(speed.pix_time_ns as u32).await;
                             }
+
+                            let _ = bit_depth.set(speed.bit_depth as u16).await;
+                            let _ = pixel_time_ns.set(speed.pix_time_ns as u32).await;
                         }
-                    });
-                })
-                .await;
-        });
+                    }
+                });
+            })
+            .await;
     }
 
     /// Apply cached choices from the SpeedTable if available; otherwise query hardware.
