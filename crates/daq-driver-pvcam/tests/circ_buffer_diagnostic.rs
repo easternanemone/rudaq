@@ -19,9 +19,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, unused_imports, dead_code)]
 
 use pvcam_sys::*;
-use std::alloc::{alloc_zeroed, dealloc, Layout};
+use std::alloc::{alloc, alloc_zeroed, dealloc, Layout};
 use std::ffi::{c_void, CStr, CString};
 use std::ptr;
+use std::sync::atomic::AtomicI16;
 
 // Use constants from pvcam_sys (CIRC_OVERWRITE, CIRC_NO_OVERWRITE, TIMED_MODE,
 // EXT_TRIG_INTERNAL, EXPOSE_OUT_FIRST_ROW, CCS_HALT, PL_CALLBACK_EOF,
@@ -2360,14 +2361,14 @@ async fn test_18_spawn_blocking_isolation() {
 
     // Open camera
     let mut hcam: i16 = 0;
-    let mut cam_name: [i8; CAM_NAME_LEN as usize] = [0; CAM_NAME_LEN as usize];
+    let mut cam_name = [0i8; 32];
     unsafe {
         if pl_cam_get_name(0, cam_name.as_mut_ptr()) == 0 {
             println!("ERROR: pl_cam_get_name failed");
             pl_pvcam_uninit();
             return;
         }
-        if pl_cam_open(cam_name.as_ptr(), &mut hcam, OPEN_EXCLUSIVE as i16) == 0 {
+        if pl_cam_open(cam_name.as_mut_ptr(), &mut hcam, 0) == 0 {
             println!("ERROR: pl_cam_open failed");
             pl_pvcam_uninit();
             return;
