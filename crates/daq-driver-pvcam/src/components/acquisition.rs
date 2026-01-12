@@ -2711,8 +2711,8 @@ impl PvcamAcquisition {
                 });
                 if skip_processing {
                     // Exactly like minimal test: get → unlock → continue immediately
-                    frames_this_iteration = frames_processed_in_drain;
-                    total_frames.fetch_add(1, Ordering::Release);
+                    total_frames += 1;
+                    frame_count.store(total_frames, Ordering::SeqCst);
                     loop_iteration += 1;
                     continue;
                 }
