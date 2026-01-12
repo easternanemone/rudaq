@@ -419,10 +419,22 @@ pub unsafe extern "system" fn pvcam_eof_callback(
     p_frame_info: *const FRAME_INFO,
     p_context: *mut std::ffi::c_void,
 ) {
+    // bd-debug-2026-01-12: Trace callback entry BEFORE any checks
+    // to see if SDK stops calling callback entirely, or if p_context becomes invalid
+    static CALLBACK_ENTRY_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let entry_count = CALLBACK_ENTRY_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    if entry_count <= 25 || entry_count % 50 == 0 {
+        eprintln!(
+            "[PVCAM CALLBACK ENTRY] #{}, p_context={:?}",
+            entry_count, p_context
+        );
+    }
+
     // CRITICAL: No catch_unwind - matches C++ SDK pattern.
     // This callback must not panic. All operations below are infallible.
 
     if p_context.is_null() {
+        eprintln!("[PVCAM CALLBACK] p_context is NULL at entry #{}", entry_count);
         return;
     }
 
