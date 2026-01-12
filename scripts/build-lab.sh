@@ -18,7 +18,7 @@ fi
 
 # Parse arguments
 PROFILE=""
-if [ "$1" = "--release" ]; then
+if [ "${1:-}" = "--release" ]; then
     PROFILE="--release"
     echo "Building in RELEASE mode with pvcam_sdk..."
 else
@@ -32,7 +32,7 @@ echo ""
 echo "Build complete!"
 echo ""
 echo "To run with lab hardware:"
-if [ "$1" = "--release" ]; then
+if [ "${1:-}" = "--release" ]; then
     echo "  ./target/release/rust-daq-daemon daemon --port 50051 --lab-hardware"
 else
     echo "  ./target/debug/rust-daq-daemon daemon --port 50051 --lab-hardware"
