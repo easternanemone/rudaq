@@ -1237,10 +1237,10 @@ impl PvcamAcquisition {
             clamped
         );
 
-        // bd-diag-2026-01-12: FORCE 21 frames to test slot loss hypothesis
-        // If we get 20 frames with 21-slot buffer, we're losing one slot somewhere
-        eprintln!("[PVCAM DIAG] Buffer size forced to 21 frames (was {})", clamped);
-        21
+        // bd-diag-2026-01-12: FORCE 11 frames to test slot loss hypothesis
+        // Hypothesis: cutoff = buffer_size - 2, so 11 should give 9 frames
+        eprintln!("[PVCAM DIAG] Buffer size forced to 11 frames (was {})", clamped);
+        11
     }
 
     /// Get the number of ROIs supported by the camera (bd-vcbd)
