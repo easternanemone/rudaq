@@ -505,6 +505,9 @@ impl PvcamDriver {
 
         driver.connect_params();
 
+        // Populate dynamic enum choices from camera (bd-c4hf.2)
+        driver.populate_dynamic_choices().await;
+
         // Background polling for drift values (temperature, shutter status, readout timing)
         let temperature_param = driver.temperature.clone();
         let shutter_status_param = driver.shutter_status.clone();
@@ -903,6 +906,63 @@ impl PvcamDriver {
                 })
             }
         });
+    }
+
+    /// Populate dynamic enum choices from the camera (bd-c4hf.2)
+    ///
+    /// Queries the camera for available options and updates parameter choices.
+    /// This enables dynamic dropdowns in the GUI that reflect actual hardware
+    /// capabilities rather than hardcoded values.
+    async fn populate_dynamic_choices(&self) {
+        let conn_guard = self.connection.lock().await;
+
+        // Populate readout port choices
+        match PvcamFeatures::list_readout_ports(&conn_guard) {
+            Ok(ports) => {
+                let names: Vec<String> = ports.iter().map(|p| p.name.clone()).collect();
+                tracing::debug!("Populating readout port choices: {:?}", names);
+                self.readout_port.inner().update_choices(names);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to query readout ports: {}", e);
+            }
+        }
+
+        // Populate speed mode choices
+        match PvcamFeatures::list_speed_modes(&conn_guard) {
+            Ok(modes) => {
+                let names: Vec<String> = modes.iter().map(|m| m.name.clone()).collect();
+                tracing::debug!("Populating speed mode choices: {:?}", names);
+                self.speed_mode.inner().update_choices(names);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to query speed modes: {}", e);
+            }
+        }
+
+        // Populate gain mode choices
+        match PvcamFeatures::list_gain_modes(&conn_guard) {
+            Ok(modes) => {
+                let names: Vec<String> = modes.iter().map(|m| m.name.clone()).collect();
+                tracing::debug!("Populating gain mode choices: {:?}", names);
+                self.gain_mode.inner().update_choices(names);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to query gain modes: {}", e);
+            }
+        }
+
+        // Populate trigger mode (exposure mode) choices
+        match PvcamFeatures::list_exposure_modes(&conn_guard) {
+            Ok(modes) => {
+                let names: Vec<String> = modes.iter().map(|(_, name)| name.clone()).collect();
+                tracing::debug!("Populating trigger mode choices: {:?}", names);
+                self.trigger_mode.inner().update_choices(names);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to query exposure modes: {}", e);
+            }
+        }
     }
 
     pub async fn acquire_frame(&self) -> Result<Frame> {

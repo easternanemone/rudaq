@@ -226,14 +226,18 @@ where
     }
 
     /// Set the dtype for this parameter (for GUI introspection).
-    pub fn with_dtype(mut self, dtype: impl Into<String>) -> Self {
-        self.inner.metadata_mut().dtype = dtype.into();
+    pub fn with_dtype(self, dtype: impl Into<String>) -> Self {
+        let dtype_str = dtype.into();
+        self.inner.with_metadata(|m| m.dtype = dtype_str);
         self
     }
 
-    /// Access mutable metadata (internal use for constraint population).
-    pub fn metadata_mut(&mut self) -> &mut crate::observable::ObservableMetadata {
-        self.inner.metadata_mut()
+    /// Modify metadata through a closure (for advanced constraint population).
+    pub fn with_metadata<F>(&self, f: F)
+    where
+        F: FnOnce(&mut crate::observable::ObservableMetadata),
+    {
+        self.inner.with_metadata(f)
     }
 
     /// Set discrete choice constraints
@@ -423,13 +427,13 @@ where
     }
 
     /// Get parameter description (delegates to Observable)
-    pub fn description(&self) -> Option<&str> {
-        self.inner.metadata().description.as_deref()
+    pub fn description(&self) -> Option<String> {
+        self.inner.metadata().description
     }
 
     /// Get parameter unit of measurement (delegates to Observable)
-    pub fn unit(&self) -> Option<&str> {
-        self.inner.metadata().units.as_deref()
+    pub fn unit(&self) -> Option<String> {
+        self.inner.metadata().units
     }
 
     /// Check if parameter is read-only (delegates to Observable)
@@ -546,7 +550,7 @@ where
         futures::executor::block_on(self.set(typed_value))
     }
 
-    fn metadata(&self) -> &crate::observable::ObservableMetadata {
+    fn metadata(&self) -> crate::observable::ObservableMetadata {
         self.inner.metadata()
     }
 
@@ -938,8 +942,8 @@ mod tests {
             .build();
 
         assert_eq!(param.name(), "exposure");
-        assert_eq!(param.description(), Some("Camera exposure time"));
-        assert_eq!(param.unit(), Some("ms"));
+        assert_eq!(param.description(), Some("Camera exposure time".to_string()));
+        assert_eq!(param.unit(), Some("ms".to_string()));
         assert_eq!(param.get(), 100.0);
     }
 

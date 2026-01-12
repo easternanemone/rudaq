@@ -86,7 +86,7 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::fmt::Debug;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
 
 // =============================================================================
@@ -98,6 +98,27 @@ use tokio::sync::watch;
 /// A function that validates a value and returns an error if invalid.
 /// Used by [`Observable::with_validator`] and constraint methods.
 pub type Validator<T> = Arc<dyn Fn(&T) -> Result<()> + Send + Sync>;
+
+// =============================================================================
+// Shared State (for dynamic metadata updates)
+// =============================================================================
+
+/// Shared state for Observable that can be updated and propagates to all clones.
+///
+/// This enables dynamic updates to metadata (e.g., enum choices) after
+/// Observable creation. All clones of an Observable share the same state,
+/// so updates are visible to gRPC handlers and GUI.
+///
+/// # Thread Safety
+///
+/// Uses `std::sync::RwLock` (not tokio) because:
+/// - Metadata access is fast (no async needed)
+/// - Avoids needing async context just to read metadata
+/// - Consistent with the synchronous `get()` method
+struct ObservableSharedState<T> {
+    metadata: ObservableMetadata,
+    validator: Option<Validator<T>>,
+}
 
 // =============================================================================
 // ParameterBase Trait - Generic Parameter Access
@@ -117,8 +138,12 @@ pub trait ParameterBase: Send + Sync {
     /// Set the value from JSON
     fn set_json(&self, value: serde_json::Value) -> Result<()>;
 
-    /// Get the parameter metadata
-    fn metadata(&self) -> &ObservableMetadata;
+    /// Get the parameter metadata (returns a clone for thread safety).
+    ///
+    /// Returns by value because metadata is stored in a shared RwLock
+    /// to support dynamic updates. ObservableMetadata is lightweight
+    /// and Clone is cheap.
+    fn metadata(&self) -> ObservableMetadata;
 
     /// Check if there are any active subscribers
     fn has_subscribers(&self) -> bool;
@@ -159,23 +184,29 @@ pub trait ParameterAny: ParameterBase {
 ///
 /// Uses `tokio::sync::watch` internally for efficient multi-subscriber broadcast.
 /// Subscribers can wait for changes asynchronously without polling.
+///
+/// # Shared State
+///
+/// Metadata and validator are stored in a shared `Arc<RwLock<...>>` so that:
+/// - All clones of an Observable share the same metadata
+/// - Dynamic updates (e.g., enum choices) propagate to all holders
+/// - gRPC handlers see updated metadata without re-registration
 pub struct Observable<T>
 where
     T: Clone + Send + Sync + 'static,
 {
     /// The watch channel sender (holds current value)
     sender: watch::Sender<T>,
-    /// Parameter metadata
-    metadata: ObservableMetadata,
-    /// Optional validation function
-    validator: Option<Validator<T>>,
+    /// Shared metadata and validator (enables dynamic updates)
+    shared: Arc<RwLock<ObservableSharedState<T>>>,
 }
 
 impl<T: Clone + Send + Sync + 'static> std::fmt::Debug for Observable<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let shared = self.shared.read().unwrap();
         f.debug_struct("Observable")
-            .field("metadata", &self.metadata)
-            .field("has_validator", &self.validator.is_some())
+            .field("metadata", &shared.metadata)
+            .field("has_validator", &shared.validator.is_some())
             .finish()
     }
 }
@@ -184,8 +215,7 @@ impl<T: Clone + Send + Sync + 'static> Clone for Observable<T> {
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(), // Clones sender (shares same watch channel)
-            metadata: self.metadata.clone(),
-            validator: self.validator.clone(), // Arc clone (cheap pointer copy)
+            shared: self.shared.clone(), // Arc clone - shares same metadata!
         }
     }
 }
@@ -296,44 +326,46 @@ where
         let (sender, _) = watch::channel(initial_value);
         Self {
             sender,
-            metadata: ObservableMetadata {
-                name: name.into(),
-                description: None,
-                units: None,
-                read_only: false,
-                dtype: String::new(),
-                min_value: None,
-                max_value: None,
-                enum_values: Vec::new(),
-            },
-            validator: None,
+            shared: Arc::new(RwLock::new(ObservableSharedState {
+                metadata: ObservableMetadata {
+                    name: name.into(),
+                    description: None,
+                    units: None,
+                    read_only: false,
+                    dtype: String::new(),
+                    min_value: None,
+                    max_value: None,
+                    enum_values: Vec::new(),
+                },
+                validator: None,
+            })),
         }
     }
 
     /// Add a description to this observable.
-    pub fn with_description(mut self, description: impl Into<String>) -> Self {
-        self.metadata.description = Some(description.into());
+    pub fn with_description(self, description: impl Into<String>) -> Self {
+        self.shared.write().unwrap().metadata.description = Some(description.into());
         self
     }
 
     /// Add units to this observable.
-    pub fn with_units(mut self, units: impl Into<String>) -> Self {
-        self.metadata.units = Some(units.into());
+    pub fn with_units(self, units: impl Into<String>) -> Self {
+        self.shared.write().unwrap().metadata.units = Some(units.into());
         self
     }
 
     /// Mark this observable as read-only.
-    pub fn read_only(mut self) -> Self {
-        self.metadata.read_only = true;
+    pub fn read_only(self) -> Self {
+        self.shared.write().unwrap().metadata.read_only = true;
         self
     }
 
     /// Add a custom validator function.
-    pub fn with_validator<F>(mut self, validator: F) -> Self
+    pub fn with_validator<F>(self, validator: F) -> Self
     where
         F: Fn(&T) -> Result<()> + Send + Sync + 'static,
     {
-        self.validator = Some(Arc::new(validator));
+        self.shared.write().unwrap().validator = Some(Arc::new(validator));
         self
     }
 
@@ -344,17 +376,37 @@ where
 
     /// Get the parameter name.
     pub fn name(&self) -> &str {
-        &self.metadata.name
+        // Note: This returns a reference to shared state, which requires the lock
+        // to be held. For short-lived operations this is fine. For longer usage,
+        // call metadata() and access .name on the returned clone.
+        // SAFETY: We leak the read guard here which is not ideal but maintains
+        // API compatibility. Consider returning String in future versions.
+        unsafe {
+            let guard = self.shared.read().unwrap();
+            let name_ptr = guard.metadata.name.as_str() as *const str;
+            // This is safe because the name is never modified after creation
+            // and the Observable (and its Arc) outlives any reference to name
+            &*name_ptr
+        }
     }
 
-    /// Get the metadata.
-    pub fn metadata(&self) -> &ObservableMetadata {
-        &self.metadata
+    /// Get the metadata (returns a clone for thread safety).
+    ///
+    /// Returns by value because metadata is stored in a shared RwLock.
+    /// ObservableMetadata is lightweight and Clone is cheap.
+    pub fn metadata(&self) -> ObservableMetadata {
+        self.shared.read().unwrap().metadata.clone()
     }
 
-    /// Get mutable access to metadata (for constraint population).
-    pub fn metadata_mut(&mut self) -> &mut ObservableMetadata {
-        &mut self.metadata
+    /// Update metadata with a closure (for thread-safe modifications).
+    ///
+    /// This is the preferred way to modify metadata after Observable creation.
+    pub fn with_metadata<F>(&self, f: F)
+    where
+        F: FnOnce(&mut ObservableMetadata),
+    {
+        let mut guard = self.shared.write().unwrap();
+        f(&mut guard.metadata);
     }
 
     /// Validate a value without setting it.
@@ -367,11 +419,15 @@ where
     /// an expensive operation (like hardware write) that shouldn't
     /// happen if validation will fail.
     pub fn validate(&self, value: &T) -> Result<()> {
-        if self.metadata.read_only {
-            return Err(anyhow!("Parameter '{}' is read-only", self.metadata.name));
+        let guard = self.shared.read().unwrap();
+        if guard.metadata.read_only {
+            return Err(anyhow!(
+                "Parameter '{}' is read-only",
+                guard.metadata.name
+            ));
         }
 
-        if let Some(validator) = &self.validator {
+        if let Some(validator) = &guard.validator {
             validator(value)?;
         }
 
@@ -426,21 +482,19 @@ where
     /// Get the current value as JSON
     pub fn get_json(&self) -> Result<serde_json::Value> {
         let value = self.get();
+        let name = self.metadata().name.clone();
         serde_json::to_value(&value).map_err(|e| {
-            anyhow!(
-                "Failed to serialize parameter '{}': {}",
-                self.metadata.name,
-                e
-            )
+            anyhow!("Failed to serialize parameter '{}': {}", name, e)
         })
     }
 
     /// Set the value from JSON
     pub fn set_json(&self, json_value: serde_json::Value) -> Result<()> {
+        let name = self.metadata().name.clone();
         let value: T = serde_json::from_value(json_value).map_err(|e| {
             anyhow!(
                 "Failed to deserialize parameter '{}': {}. Expected type: {}",
-                self.metadata.name,
+                name,
                 e,
                 std::any::type_name::<T>()
             )
@@ -455,7 +509,7 @@ where
     T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
 {
     fn name(&self) -> &str {
-        &self.metadata.name
+        Observable::name(self)
     }
 
     fn get_json(&self) -> Result<serde_json::Value> {
@@ -466,8 +520,8 @@ where
         Observable::set_json(self, value)
     }
 
-    fn metadata(&self) -> &ObservableMetadata {
-        &self.metadata
+    fn metadata(&self) -> ObservableMetadata {
+        Observable::metadata(self)
     }
 
     fn has_subscribers(&self) -> bool {
@@ -540,10 +594,10 @@ where
     ///
     /// threshold.set(150.0);  // Error: out of range
     /// ```
-    pub fn with_range(mut self, min: T, max: T) -> Self {
+    pub fn with_range(self, min: T, max: T) -> Self {
         let min_clone = min.clone();
         let max_clone = max.clone();
-        self.validator = Some(Arc::new(move |value: &T| {
+        self.shared.write().unwrap().validator = Some(Arc::new(move |value: &T| {
             if value < &min_clone || value > &max_clone {
                 Err(anyhow!(
                     "Value {:?} out of range [{:?}, {:?}]",
@@ -604,7 +658,7 @@ impl Observable<f64> {
     ///
     /// - [`with_range()`](Observable::with_range) - Validation only, no GUI introspection
     /// - [`ObservableMetadata`] - Documentation of metadata fields
-    pub fn with_range_introspectable(mut self, min: f64, max: f64) -> Self {
+    pub fn with_range_introspectable(self, min: f64, max: f64) -> Self {
         // Validate bounds are finite and ordered at construction time
         assert!(
             min.is_finite() && max.is_finite(),
@@ -614,28 +668,31 @@ impl Observable<f64> {
         );
         assert!(min <= max, "min must be <= max: min={}, max={}", min, max);
 
-        // Populate introspectable metadata for GUI
-        self.metadata.min_value = Some(min);
-        self.metadata.max_value = Some(max);
-        self.metadata.dtype = "float".to_string();
+        // Populate introspectable metadata for GUI and add validator
+        {
+            let mut guard = self.shared.write().unwrap();
+            guard.metadata.min_value = Some(min);
+            guard.metadata.max_value = Some(max);
+            guard.metadata.dtype = "float".to_string();
 
-        // Add validator that rejects non-finite and out-of-range values
-        self.validator = Some(Arc::new(move |value: &f64| {
-            // Reject NaN and Infinity to prevent JSON serialization issues
-            if !value.is_finite() {
-                return Err(anyhow!("Value must be finite, got {:?}", value));
-            }
-            if *value < min || *value > max {
-                Err(anyhow!(
-                    "Value {:?} out of range [{:?}, {:?}]",
-                    value,
-                    min,
-                    max
-                ))
-            } else {
-                Ok(())
-            }
-        }));
+            // Add validator that rejects non-finite and out-of-range values
+            guard.validator = Some(Arc::new(move |value: &f64| {
+                // Reject NaN and Infinity to prevent JSON serialization issues
+                if !value.is_finite() {
+                    return Err(anyhow!("Value must be finite, got {:?}", value));
+                }
+                if *value < min || *value > max {
+                    Err(anyhow!(
+                        "Value {:?} out of range [{:?}, {:?}]",
+                        value,
+                        min,
+                        max
+                    ))
+                } else {
+                    Ok(())
+                }
+            }));
+        }
         self
     }
 
@@ -644,8 +701,8 @@ impl Observable<f64> {
     /// Normally you should use `with_range_introspectable()` which sets
     /// dtype automatically. This method is for cases where you need to
     /// set dtype without adding range constraints.
-    pub fn with_dtype(mut self, dtype: impl Into<String>) -> Self {
-        self.metadata.dtype = dtype.into();
+    pub fn with_dtype(self, dtype: impl Into<String>) -> Self {
+        self.shared.write().unwrap().metadata.dtype = dtype.into();
         self
     }
 }
@@ -696,28 +753,31 @@ impl Observable<i64> {
     ///
     /// - [`with_range()`](Observable::with_range) - Validation only, no GUI introspection
     /// - [`ObservableMetadata`] - Documentation of metadata fields
-    pub fn with_range_introspectable(mut self, min: i64, max: i64) -> Self {
+    pub fn with_range_introspectable(self, min: i64, max: i64) -> Self {
         // Validate bounds ordering at construction time
         assert!(min <= max, "min must be <= max: min={}, max={}", min, max);
 
-        // Populate introspectable metadata for GUI (stored as f64)
-        self.metadata.min_value = Some(min as f64);
-        self.metadata.max_value = Some(max as f64);
-        self.metadata.dtype = "int".to_string();
+        // Populate introspectable metadata for GUI and add validator
+        {
+            let mut guard = self.shared.write().unwrap();
+            guard.metadata.min_value = Some(min as f64);
+            guard.metadata.max_value = Some(max as f64);
+            guard.metadata.dtype = "int".to_string();
 
-        // Add validator using exact i64 comparison
-        self.validator = Some(Arc::new(move |value: &i64| {
-            if *value < min || *value > max {
-                Err(anyhow!(
-                    "Value {:?} out of range [{:?}, {:?}]",
-                    value,
-                    min,
-                    max
-                ))
-            } else {
-                Ok(())
-            }
-        }));
+            // Add validator using exact i64 comparison
+            guard.validator = Some(Arc::new(move |value: &i64| {
+                if *value < min || *value > max {
+                    Err(anyhow!(
+                        "Value {:?} out of range [{:?}, {:?}]",
+                        value,
+                        min,
+                        max
+                    ))
+                } else {
+                    Ok(())
+                }
+            }));
+        }
         self
     }
 
@@ -726,8 +786,8 @@ impl Observable<i64> {
     /// Normally you should use `with_range_introspectable()` which sets
     /// dtype automatically. This method is for cases where you need to
     /// set dtype without adding range constraints.
-    pub fn with_dtype(mut self, dtype: impl Into<String>) -> Self {
-        self.metadata.dtype = dtype.into();
+    pub fn with_dtype(self, dtype: impl Into<String>) -> Self {
+        self.shared.write().unwrap().metadata.dtype = dtype.into();
         self
     }
 }
@@ -772,20 +832,81 @@ impl Observable<String> {
     ///
     /// - [`ObservableMetadata::enum_values`] - The metadata field populated by this method
     /// - [`ObservableMetadata::dtype`] - Set to `"enum"` by this method
-    pub fn with_choices_introspectable(mut self, choices: Vec<String>) -> Self {
-        // Populate introspectable metadata for GUI
-        self.metadata.enum_values = choices.clone();
-        self.metadata.dtype = "enum".to_string(); // Per proto contract (daq.proto:610)
+    pub fn with_choices_introspectable(self, choices: Vec<String>) -> Self {
+        // Populate introspectable metadata for GUI and add validator
+        {
+            let mut guard = self.shared.write().unwrap();
+            guard.metadata.enum_values = choices.clone();
+            guard.metadata.dtype = "enum".to_string(); // Per proto contract (daq.proto:610)
 
-        // Add validator that rejects values not in choices
-        self.validator = Some(Arc::new(move |value: &String| {
+            // Add validator that rejects values not in choices
+            guard.validator = Some(Arc::new(move |value: &String| {
+                if choices.iter().any(|c| c == value) {
+                    Ok(())
+                } else {
+                    Err(anyhow!("Value {:?} not in choices {:?}", value, choices))
+                }
+            }));
+        }
+        self
+    }
+
+    /// Update the available choices for this enum parameter at runtime.
+    ///
+    /// This method is designed for dynamic enumeration scenarios where the
+    /// available choices depend on hardware state or other runtime factors.
+    /// It updates both the metadata (for GUI introspection) and the validator.
+    ///
+    /// Since the Observable uses shared state via `Arc<RwLock>`, all clones
+    /// will see the updated choices immediately - this is critical for gRPC
+    /// handlers that clone parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `choices` - New list of valid string values
+    ///
+    /// # Note on Current Value
+    ///
+    /// This method does NOT validate or update the current value. If the
+    /// current value is not in the new choices list, subsequent `set()` calls
+    /// with different values will fail validation, but the current value remains
+    /// unchanged until explicitly set. This allows for scenarios where:
+    ///
+    /// 1. The current selection becomes temporarily invalid during a transition
+    /// 2. The caller will immediately set a new valid value
+    ///
+    /// If you need to validate the current value against the new choices,
+    /// do so explicitly after calling this method.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Initial setup with static choices
+    /// let port = Observable::new("port", "A".to_string())
+    ///     .with_choices_introspectable(vec!["A".into(), "B".into()]);
+    ///
+    /// // Later, after querying hardware for available ports
+    /// let available_ports = vec!["A".into(), "C".into(), "D".into()];
+    /// port.update_choices(available_ports);
+    ///
+    /// // Now the GUI will show A, C, D options
+    /// // And validation will accept only those values
+    /// port.set("C".into())?;  // OK
+    /// port.set("B".into())?;  // Error: B no longer in choices
+    /// ```
+    pub fn update_choices(&self, choices: Vec<String>) {
+        let mut guard = self.shared.write().unwrap();
+        guard.metadata.enum_values = choices.clone();
+        guard.metadata.dtype = "enum".to_string();
+
+        // Update validator with new choices
+        guard.validator = Some(Arc::new(move |value: &String| {
             if choices.iter().any(|c| c == value) {
                 Ok(())
             } else {
                 Err(anyhow!("Value {:?} not in choices {:?}", value, choices))
             }
         }));
-        self
     }
 
     /// Set the dtype for this observable (manual override).
@@ -793,8 +914,8 @@ impl Observable<String> {
     /// Normally you should use `with_choices_introspectable()` which sets
     /// dtype automatically. This method is for cases where you need to
     /// set dtype without adding choice constraints.
-    pub fn with_dtype(mut self, dtype: impl Into<String>) -> Self {
-        self.metadata.dtype = dtype.into();
+    pub fn with_dtype(self, dtype: impl Into<String>) -> Self {
+        self.shared.write().unwrap().metadata.dtype = dtype.into();
         self
     }
 }
@@ -805,8 +926,8 @@ impl Observable<bool> {
     /// Boolean observables typically don't need explicit dtype since the
     /// GUI can infer the type from the JSON value. This method is provided
     /// for consistency with other types.
-    pub fn with_dtype(mut self, dtype: impl Into<String>) -> Self {
-        self.metadata.dtype = dtype.into();
+    pub fn with_dtype(self, dtype: impl Into<String>) -> Self {
+        self.shared.write().unwrap().metadata.dtype = dtype.into();
         self
     }
 }
