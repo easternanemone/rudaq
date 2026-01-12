@@ -412,6 +412,26 @@ With `CIRC_NO_OVERWRITE` + `get_latest_frame`:
 - **Errors:** 0
 - **ROI:** 256×256 (test), full sensor supported
 
+## Critical Fix: Drift Polling During Streaming (2026-01-12)
+
+**Root Cause:** Callbacks stopped after exactly 19 frames (with 100ms exposure) while all isolation tests passed.
+
+**Discovery:** The `PvcamDriver` spawns a background drift polling task that calls `pl_get_param()` every 2 seconds to update temperature, shutter status, and readout timing. At 100ms exposure, ~19 frames take ~1.9 seconds—almost exactly when the first drift poll occurs.
+
+**Impact:** Calling `pl_get_param()` during continuous acquisition corrupts the SDK's internal callback state, causing `READOUT_NOT_ACTIVE` status and no further callbacks.
+
+**Solution:** Skip drift polling while streaming is active:
+
+```rust
+// In lib.rs drift polling task:
+if streaming_check.get() {
+    tracing::trace!("Drift polling skipped (streaming active)");
+    continue;  // Skip all pl_get_param calls while streaming
+}
+```
+
+**Key Insight:** This was NOT detected by isolation tests because they don't have the background polling task—they only call the raw FFI functions needed for acquisition. The full driver path includes concurrent SDK calls that interfere with the callback mechanism.
+
 ## Consequences
 
 ### Positive
