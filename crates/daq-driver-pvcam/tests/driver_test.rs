@@ -373,8 +373,8 @@ mod hardware_driver {
                             received += 1;
                             if received <= 25 || received % 50 == 0 {
                                 println!(
-                                    "[FRAME {}] {}x{}, seq={}",
-                                    received, frame.width, frame.height, frame.sequence_number
+                                    "[FRAME {}] {}x{}, frame_nr={}",
+                                    received, frame.width, frame.height, frame.frame_number
                                 );
                             }
                         }
