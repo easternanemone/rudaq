@@ -6,8 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Rust-based data acquisition system with V5 headless-first architecture for scientific instrumentation.
 
-**Rust Version:** 1.75+ (stable toolchain)
-
 **Note**: This project uses [bd (beads)](https://github.com/steveyegge/beads) for issue tracking. Use `bd` commands instead of markdown TODOs.
 
 **Hardware Location:** Remote machine at `maitai@100.117.5.12`
@@ -15,12 +13,15 @@ Rust-based data acquisition system with V5 headless-first architecture for scien
 ## Quick Reference
 
 ```bash
+# Environment Setup (PVCAM machines only)
+source scripts/env-check.sh              # Validate & configure environment
+source config/hosts/maitai.env           # Or use host-specific config
+
 # Build & Test
 cargo build                              # Default features
 cargo nextest run                        # Run all tests (recommended)
 cargo nextest run test_name              # Single test
 cargo nextest run -p daq-core            # Specific crate
-cargo nextest run -E 'test(/grpc/)'      # Filter expression (regex)
 cargo test --doc                         # Doctests (not in nextest)
 
 # Quality Checks
@@ -32,26 +33,12 @@ cargo run --bin rust-daq-daemon -- daemon --port 50051
 cargo run --bin rust-daq-daemon -- run examples/demo_scan.rhai
 
 # Hardware Tests (on remote maitai machine)
-cargo nextest run --profile hardware --features hardware_tests
+source scripts/env-check.sh && cargo nextest run --profile hardware --features hardware_tests
 
 # Issue Tracking (mandatory)
 bd ready                                 # Find available work
 bd update <id> --status in_progress      # Claim work
 bd close <id> --reason "Done"            # Complete work
-```
-
-### Nextest Profiles
-
-| Profile | Use Case | Retries | Max Timeout |
-|---------|----------|---------|-------------|
-| `default` | Local development | 2 | 2 min |
-| `ci` | GitHub Actions | 3 | 3 min |
-| `hardware` | Physical hardware (single-threaded) | 3 | 6 min |
-| `coverage` | Code coverage runs | 0 | 6 min |
-
-```bash
-cargo nextest run --profile ci           # Use CI profile
-cargo nextest run --profile hardware     # Hardware tests (serial)
 ```
 
 ## Architecture Overview
@@ -114,7 +101,7 @@ cargo nextest run --profile hardware     # Hardware tests (serial)
 
 **Storage:** `storage_csv` (default), `storage_hdf5`, `storage_arrow`, `storage_matlab`
 
-**Hardware (daq-hardware):** `serial`, `driver-thorlabs`, `driver-newport`, `driver-spectra-physics`, `driver_pvcam`, `pvcam_hardware`, `comedi`, `comedi_hardware`
+**Hardware (daq-hardware):** `serial`, `driver-thorlabs`, `driver-newport`, `driver-spectra-physics`, `driver_pvcam`, `pvcam_hardware`
 
 **System:** `scripting`, `server`, `networking`, `hardware_tests`
 
@@ -198,16 +185,47 @@ let frame_size = validate_frame_size(width, height, bytes_per_pixel)?;
 
 6. **Ring Buffer Blocking:** `RingBuffer::read_snapshot()` blocks. Use `AsyncRingBuffer` or `spawn_blocking`.
 
-7. **Timing Tests:** Use `start_paused = true` for deterministic timing in tests:
-   ```rust
-   #[tokio::test(start_paused = true)]
-   async fn test_timing() {
-       use tokio::time::Instant;  // Must use tokio's Instant, not std!
-       let start = Instant::now();
-       tokio::time::sleep(Duration::from_millis(100)).await;
-       assert_eq!(start.elapsed().as_millis(), 100);  // Always exact
-   }
-   ```
+## Environment Setup
+
+Building with PVCAM features requires proper environment configuration. Use these tools:
+
+### Quick Setup (Recommended)
+
+```bash
+# On maitai or any PVCAM machine:
+source scripts/env-check.sh
+
+# This validates and sets all required variables:
+# - PVCAM_SDK_DIR, PVCAM_VERSION, LIBRARY_PATH, LD_LIBRARY_PATH
+```
+
+### Host-Specific Configuration
+
+Pre-configured environments for known machines:
+
+```bash
+# On maitai:
+source config/hosts/maitai.env
+```
+
+### With direnv (Automatic)
+
+```bash
+cp .envrc.template .envrc
+# Edit .envrc with your machine's paths
+direnv allow
+```
+
+### Manual Setup
+
+If the scripts don't work, set these manually:
+
+```bash
+export PVCAM_SDK_DIR=/opt/pvcam/sdk
+export PVCAM_VERSION=7.1.1.118  # Check /opt/pvcam/pvcam.ini
+export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH
+export LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:/opt/pvcam/drivers/user-mode:$LD_LIBRARY_PATH
+```
 
 ## Hardware Testing
 
@@ -216,10 +234,13 @@ let frame_size = validate_frame_size(width, height, bytes_per_pixel)?;
 All hardware tests must pass on remote after mock tests pass locally.
 
 ```bash
-# Quick SSH test
-ssh maitai@100.117.5.12 'source /etc/profile.d/pvcam.sh && \
-  export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH && \
-  cd ~/rust-daq && cargo test --features hardware_tests -- --nocapture --test-threads=1'
+# Quick SSH test (using env-check.sh for automatic setup)
+ssh maitai@100.117.5.12 'cd ~/rust-daq && source scripts/env-check.sh && \
+  cargo test --features hardware_tests -- --nocapture --test-threads=1'
+
+# Or with host-specific config:
+ssh maitai@100.117.5.12 'cd ~/rust-daq && source config/hosts/maitai.env && \
+  cargo test --features hardware_tests -- --nocapture --test-threads=1'
 ```
 
 ### Serial Port Inventory (maitai)
@@ -243,53 +264,17 @@ rotator.move_abs(45.0).await?;
 
 ### PVCAM Setup
 
-**⚠️ CRITICAL:** For PVCAM callback patterns and buffer mode behavior, **ALWAYS** refer to the authoritative documentation at:
-- `docs/architecture/adr-pvcam-continuous-acquisition.md` (lines 153-256)
-
-This ADR documents the correct SDK patterns from LiveImage.cpp and explains buffer-mode-specific callback behavior. DO NOT rely on memory or other docs - they may be contradictory or outdated.
-
 ```bash
-source /etc/profile.d/pvcam.sh
-export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH
+# Use the environment validation script (recommended):
+source scripts/env-check.sh
+
+# Or source the host-specific config:
+source config/hosts/maitai.env
+
+# Run hardware smoke tests:
 export PVCAM_SMOKE_TEST=1
 cargo test --features pvcam_hardware --test pvcam_hardware_smoke -- --nocapture
 ```
-
-### Comedi DAQ Setup (Linux)
-
-**Target Hardware:** NI PCI-MIO-16XE-10 with BNC 2110 breakout on maitai
-
-```bash
-# Verify device exists
-ls -la /dev/comedi0
-
-# Run Comedi hardware tests
-export COMEDI_SMOKE_TEST=1
-cargo nextest run --profile hardware --features comedi_hardware -p daq-driver-comedi
-
-# Feature flags:
-# - comedi: Mock driver for development (no SDK required)
-# - comedi_hardware: Real hardware (requires comedilib-dev)
-```
-
-**Building with local comedilib (no sudo):**
-
-If comedilib can't be installed system-wide, extract to `.local/comedilib/`:
-
-```bash
-# Arch/EndeavourOS: Build AUR package, extract instead of install
-cd /tmp && git clone https://aur.archlinux.org/comedilib.git && cd comedilib
-makepkg -sf
-mkdir -p /home/maitai/rust-daq/.local/comedilib
-tar -xf comedilib-*.pkg.tar.zst -C /home/maitai/rust-daq/.local/comedilib
-
-# Build with local headers/libraries
-COMEDI_INCLUDE_DIR=/home/maitai/rust-daq/.local/comedilib/usr/include \
-LIBRARY_PATH=/home/maitai/rust-daq/.local/comedilib/usr/lib \
-cargo check -p daq-hardware --features comedi_hardware
-```
-
-**Note:** The `comedi_hardware` feature requires comedilib headers for bindgen to generate FFI bindings.
 
 ## Declarative Driver Plugins
 

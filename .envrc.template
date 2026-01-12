@@ -1,0 +1,106 @@
+# rust-daq Environment Configuration for direnv
+#
+# This template provides automatic environment setup when entering the project directory.
+#
+# SETUP:
+#   1. Install direnv: https://direnv.net/docs/installation.html
+#      - macOS: brew install direnv
+#      - Arch: pacman -S direnv
+#      - Ubuntu: apt install direnv
+#
+#   2. Add to your shell (~/.bashrc or ~/.zshrc):
+#      eval "$(direnv hook bash)"   # or zsh
+#
+#   3. Copy this template and customize:
+#      cp .envrc.template .envrc
+#      # Edit .envrc with your machine-specific paths
+#      direnv allow
+#
+# NOTE: .envrc is gitignored because paths vary by machine.
+
+# ==============================================================================
+# PVCAM Configuration (for hardware machines like maitai)
+# ==============================================================================
+
+# Uncomment and adjust these for machines with PVCAM installed:
+
+# PVCAM SDK location (required for building with pvcam-sdk feature)
+# export PVCAM_SDK_DIR="/opt/pvcam/sdk"
+
+# PVCAM library location (auto-detected if not set)
+# export PVCAM_LIB_DIR="/opt/pvcam/library/x86_64"
+
+# PVCAM version (CRITICAL: prevents Error 151 at runtime)
+# Check /opt/pvcam/pvcam.ini for the correct version
+# export PVCAM_VERSION="7.1.1.118"
+
+# User-mode driver path (for USB camera support)
+# export PVCAM_UMD_PATH="/opt/pvcam/drivers/user-mode"
+
+# ==============================================================================
+# Library Paths
+# ==============================================================================
+
+# Build-time library search path
+# path_add LIBRARY_PATH "/opt/pvcam/library/x86_64"
+
+# Runtime library search path
+# path_add LD_LIBRARY_PATH "/opt/pvcam/library/x86_64"
+# path_add LD_LIBRARY_PATH "/opt/pvcam/drivers/user-mode"
+
+# ==============================================================================
+# Development Server Configuration
+# ==============================================================================
+
+# Default daemon URL for GUI and examples
+# export DAQ_DAEMON_URL="http://127.0.0.1:50051"
+
+# Rerun visualization server (for remote streaming)
+# export RERUN_URL="rerun+http://100.117.5.12:9876/proxy"
+
+# ==============================================================================
+# Hardware Test Port Overrides
+# ==============================================================================
+
+# Override default serial ports for hardware tests
+# export ESP300_PORT="/dev/ttyUSB0"
+# export ELLIPTEC_PORT="/dev/ttyUSB1"
+# export NEWPORT_1830C_PORT="/dev/ttyS0"
+
+# ==============================================================================
+# Machine-Specific Presets
+# ==============================================================================
+
+# Uncomment ONE of these presets or customize above:
+
+# --- PRESET: maitai (hardware machine) ---
+# source_env_if_exists "/etc/profile.d/pvcam.sh"
+# export PVCAM_SDK_DIR="/opt/pvcam/sdk"
+# path_add LIBRARY_PATH "/opt/pvcam/library/x86_64"
+# path_add LD_LIBRARY_PATH "/opt/pvcam/library/x86_64"
+# path_add LD_LIBRARY_PATH "/opt/pvcam/drivers/user-mode"
+
+# --- PRESET: Development machine (no hardware) ---
+# No PVCAM configuration needed - mock mode works by default
+
+# ==============================================================================
+# Rust Configuration
+# ==============================================================================
+
+# Use sccache for faster rebuilds (if installed)
+# if has sccache; then
+#   export RUSTC_WRAPPER=sccache
+# fi
+
+# Incremental builds (usually enabled by default)
+# export CARGO_INCREMENTAL=1
+
+# ==============================================================================
+# Optional: Source system profile
+# ==============================================================================
+
+# Source PVCAM system profile if it exists
+# source_env_if_exists "/etc/profile.d/pvcam.sh"
+
+# Source local overrides
+# source_env_if_exists ".envrc.local"
