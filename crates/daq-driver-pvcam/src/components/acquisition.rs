@@ -1242,7 +1242,10 @@ impl PvcamAcquisition {
             clamped
         );
 
-        clamped
+        // bd-diag-2026-01-11: FORCE 20 frames to match minimal test exactly
+        // This overrides all calculations to test if buffer size affects callback stopping
+        eprintln!("[PVCAM DIAG] Buffer size forced to 20 frames (was {})", clamped);
+        20
     }
 
     /// Get the number of ROIs supported by the camera (bd-vcbd)
@@ -2568,8 +2571,9 @@ impl PvcamAcquisition {
                 }
                 consecutive_timeouts += 1;
 
-                // DIAGNOSTIC PROBE: Warn every 1 second (bd-3gnv debug)
-                if consecutive_timeouts % 10 == 0 {
+                // DIAGNOSTIC PROBE: Print SDK status on EVERY timeout (bd-diag-2026-01-11)
+                // Changed from % 10 to always print, since we exit after 5 timeouts
+                if true {
                     let (st, bytes, cnt) = match ffi_safe::check_cont_status(hcam) {
                         Ok(vals) => vals,
                         Err(_) => (-999, 0, 0),
