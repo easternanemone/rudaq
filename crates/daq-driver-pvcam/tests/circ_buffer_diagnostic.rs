@@ -4589,3 +4589,307 @@ async fn test_26_watch_channel_loop_condition() {
         frames_acquired
     );
 }
+
+// =============================================================================
+// TEST 27: Callback deregister/re-register during fallback
+// =============================================================================
+//
+// The driver goes through a fallback path on Prime BSI:
+// 1. Register callback
+// 2. Setup with CIRC_OVERWRITE (may fail)
+// 3. Start with CIRC_OVERWRITE → FAILS with error 185
+// 4. Re-setup with CIRC_NO_OVERWRITE
+// 5. DEREGISTER callback (line 1732)
+// 6. RE-REGISTER callback (lines 1738-1752)
+// 7. Re-start with CIRC_NO_OVERWRITE → SUCCEEDS
+//
+// Tests so far skip this fallback and go directly to CIRC_NO_OVERWRITE.
+// This test replicates the EXACT fallback sequence including deregister/re-register.
+
+#[tokio::test]
+async fn test_27_callback_rereg_during_fallback() {
+    println!("\n=== TEST 27: Callback Deregister/Re-register During Fallback ===");
+    println!("Replicates driver's EXACT fallback sequence:");
+    println!("  1. Register callback");
+    println!("  2. Try CIRC_OVERWRITE setup (may fail)");
+    println!("  3. Try CIRC_OVERWRITE start → FAILS on Prime BSI");
+    println!("  4. Re-setup with CIRC_NO_OVERWRITE");
+    println!("  5. DEREGISTER callback");
+    println!("  6. RE-REGISTER callback");
+    println!("  7. Re-start with CIRC_NO_OVERWRITE\n");
+
+    const TARGET_FRAMES: i32 = 200;
+    const TIMEOUT_MS: u64 = 2000;
+    const EXPOSURE_MS: u32 = 100;
+    const BUFFER_FRAMES: usize = 21;
+
+    // Initialize SDK
+    println!("[SETUP] Initializing PVCAM SDK...");
+    unsafe {
+        if pl_pvcam_init() == 0 {
+            println!("ERROR: pl_pvcam_init failed");
+            return;
+        }
+    }
+    println!("[OK] PVCAM SDK initialized");
+
+    // Open camera
+    let mut hcam: i16 = 0;
+    let mut cam_name = [0i8; 32];
+    unsafe {
+        if pl_cam_get_name(0, cam_name.as_mut_ptr()) == 0 {
+            println!("ERROR: pl_cam_get_name failed");
+            pl_pvcam_uninit();
+            return;
+        }
+        if pl_cam_open(cam_name.as_mut_ptr(), &mut hcam, 0) == 0 {
+            println!("ERROR: pl_cam_open failed");
+            pl_pvcam_uninit();
+            return;
+        }
+    }
+    println!("[OK] Camera opened, hcam={}", hcam);
+
+    // Create CallbackContext like driver (with -1, then set_hcam)
+    let callback_ctx = Arc::new(Box::pin(CallbackContext::new(-1)));
+    callback_ctx.set_hcam(hcam);
+    let callback_ctx_ptr = &**callback_ctx as *const CallbackContext;
+    println!("[OK] CallbackContext created (ptr={:?})", callback_ctx_ptr);
+
+    // Set GLOBAL_CALLBACK_CTX
+    set_global_callback_ctx(callback_ctx_ptr);
+
+    // Step 1: Register callback FIRST (like driver)
+    println!("[STEP 1] Registering EOF callback...");
+    let first_reg = unsafe {
+        pl_cam_register_callback_ex3(
+            hcam,
+            PL_CALLBACK_EOF,
+            pvcam_eof_callback as *mut std::ffi::c_void,
+            callback_ctx_ptr as *mut std::ffi::c_void,
+        )
+    };
+    if first_reg == 0 {
+        println!("ERROR: First callback registration failed: {}", get_error_message());
+        unsafe { pl_cam_close(hcam); pl_pvcam_uninit(); }
+        return;
+    }
+    println!("[OK] First callback registered");
+
+    // Query sensor size
+    let (ser_size, par_size) = unsafe {
+        let mut ser: uns16 = 0;
+        let mut par: uns16 = 0;
+        pl_get_param(hcam, PARAM_SER_SIZE, ATTR_CURRENT, &mut ser as *mut _ as *mut _);
+        pl_get_param(hcam, PARAM_PAR_SIZE, ATTR_CURRENT, &mut par as *mut _ as *mut _);
+        (ser, par)
+    };
+    println!("[OK] Sensor size: {}x{}", ser_size, par_size);
+
+    let region = rgn_type {
+        s1: 0,
+        s2: ser_size - 1,
+        sbin: 1,
+        p1: 0,
+        p2: par_size - 1,
+        pbin: 1,
+    };
+
+    // Step 2: Try CIRC_OVERWRITE setup (may fail on some cameras, that's OK)
+    println!("[STEP 2] Trying CIRC_OVERWRITE setup...");
+    let mut frame_bytes: uns32 = 0;
+    let overwrite_setup = unsafe {
+        pl_exp_setup_cont(
+            hcam,
+            1,
+            &region as *const _,
+            TIMED_MODE as i16,
+            EXPOSURE_MS,
+            &mut frame_bytes,
+            CIRC_OVERWRITE as i16,
+        )
+    };
+    if overwrite_setup == 0 {
+        println!("[INFO] CIRC_OVERWRITE setup failed (expected on some cameras): {}", get_error_message());
+    } else {
+        println!("[OK] CIRC_OVERWRITE setup succeeded, frame_bytes={}", frame_bytes);
+    }
+
+    // Allocate buffer
+    let frame_bytes_val = if overwrite_setup != 0 { frame_bytes as usize } else {
+        // Estimate for fallback
+        (ser_size as usize) * (par_size as usize) * 2
+    };
+    let buffer_size = frame_bytes_val * BUFFER_FRAMES;
+    let layout = Layout::from_size_align(buffer_size, 4096).unwrap();
+    let buffer = unsafe { alloc_zeroed(layout) };
+    if buffer.is_null() {
+        println!("ERROR: Failed to allocate buffer");
+        unsafe { pl_cam_close(hcam); pl_pvcam_uninit(); }
+        return;
+    }
+    println!("[OK] Allocated {} bytes at {:?}", buffer_size, buffer);
+
+    // Step 3: Try CIRC_OVERWRITE start (FAILS on Prime BSI with error 185)
+    println!("[STEP 3] Trying CIRC_OVERWRITE start (expected to fail on Prime BSI)...");
+    let overwrite_start = if overwrite_setup != 0 {
+        unsafe { pl_exp_start_cont(hcam, buffer as *mut c_void, buffer_size as u32) }
+    } else {
+        0 // Didn't even try if setup failed
+    };
+
+    if overwrite_start != 0 {
+        println!("[UNEXPECTED] CIRC_OVERWRITE start SUCCEEDED - camera may differ from Prime BSI");
+        // Continue anyway - this is still valid for testing
+    } else {
+        println!("[OK] CIRC_OVERWRITE start failed as expected: {}", get_error_message());
+
+        // Step 4: Re-setup with CIRC_NO_OVERWRITE
+        println!("[STEP 4] Re-setup with CIRC_NO_OVERWRITE...");
+        frame_bytes = 0;
+        let no_overwrite_setup = unsafe {
+            pl_exp_setup_cont(
+                hcam,
+                1,
+                &region as *const _,
+                TIMED_MODE as i16,
+                EXPOSURE_MS,
+                &mut frame_bytes,
+                CIRC_NO_OVERWRITE as i16,
+            )
+        };
+        if no_overwrite_setup == 0 {
+            println!("ERROR: CIRC_NO_OVERWRITE setup failed: {}", get_error_message());
+            unsafe { dealloc(buffer, layout); pl_cam_close(hcam); pl_pvcam_uninit(); }
+            return;
+        }
+        println!("[OK] CIRC_NO_OVERWRITE setup succeeded, frame_bytes={}", frame_bytes);
+
+        // Update callback context (like driver line 1724)
+        callback_ctx.set_circ_overwrite(false);
+
+        // Step 5: DEREGISTER callback (like driver line 1732)
+        println!("[STEP 5] Deregistering callback before re-registration...");
+        unsafe {
+            pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
+        }
+        println!("[OK] Callback deregistered");
+
+        // Step 6: RE-REGISTER callback (like driver lines 1738-1752)
+        println!("[STEP 6] Re-registering callback...");
+        let rereg = unsafe {
+            pl_cam_register_callback_ex3(
+                hcam,
+                PL_CALLBACK_EOF,
+                pvcam_eof_callback as *mut std::ffi::c_void,
+                callback_ctx_ptr as *mut std::ffi::c_void,
+            )
+        };
+        if rereg == 0 {
+            println!("ERROR: Callback re-registration failed: {}", get_error_message());
+            unsafe { dealloc(buffer, layout); pl_cam_close(hcam); pl_pvcam_uninit(); }
+            return;
+        }
+        println!("[OK] Callback re-registered");
+
+        // Step 7: Re-start with CIRC_NO_OVERWRITE
+        println!("[STEP 7] Starting with CIRC_NO_OVERWRITE...");
+        let no_overwrite_start = unsafe {
+            pl_exp_start_cont(hcam, buffer as *mut c_void, buffer_size as u32)
+        };
+        if no_overwrite_start == 0 {
+            println!("ERROR: CIRC_NO_OVERWRITE start failed: {}", get_error_message());
+            unsafe { dealloc(buffer, layout); pl_cam_close(hcam); pl_pvcam_uninit(); }
+            return;
+        }
+        println!("[OK] Acquisition started with CIRC_NO_OVERWRITE");
+    }
+
+    // Frame loop
+    println!("\n=== FRAME ACQUISITION LOOP (after fallback, target: {} frames) ===\n", TARGET_FRAMES);
+
+    let callback_ctx_for_loop = callback_ctx.clone();
+    let loop_start = std::time::Instant::now();
+
+    let frames_acquired = tokio::task::spawn_blocking(move || {
+        let mut frames: i32 = 0;
+        let mut loop_iteration: u64 = 0;
+        let mut consecutive_timeouts: u32 = 0;
+
+        while frames < TARGET_FRAMES {
+            loop_iteration += 1;
+
+            if loop_iteration <= 5 || loop_iteration % 30 == 0 {
+                let mut status: i16 = 0;
+                let mut bytes: uns32 = 0;
+                let mut cnt: uns32 = 0;
+                unsafe {
+                    pl_exp_check_cont_status(hcam, &mut status, &mut bytes, &mut cnt);
+                }
+                let pending = callback_ctx_for_loop.pending_frames.load(Ordering::Acquire);
+                eprintln!(
+                    "[PRE-WAIT STATUS] iter={}, status={}, bytes={}, cnt={}, pending={}",
+                    loop_iteration, status, bytes, cnt, pending
+                );
+            }
+
+            let pending = callback_ctx_for_loop.wait_for_frames(TIMEOUT_MS);
+            if pending == 0 {
+                consecutive_timeouts += 1;
+                eprintln!("[TIMEOUT] #{} at iter={}", consecutive_timeouts, loop_iteration);
+                if consecutive_timeouts >= 5 {
+                    eprintln!("[FATAL] Max timeouts reached");
+                    break;
+                }
+                continue;
+            }
+            consecutive_timeouts = 0;
+
+            let mut frame_ptr: *mut c_void = ptr::null_mut();
+            let get_result = unsafe { pl_exp_get_oldest_frame(hcam, &mut frame_ptr) };
+            if get_result == 0 || frame_ptr.is_null() {
+                continue;
+            }
+
+            frames += 1;
+
+            unsafe { pl_exp_unlock_oldest_frame(hcam); }
+            callback_ctx_for_loop.consume_one();
+
+            if frames <= 25 || frames % 50 == 0 {
+                eprintln!("[FRAME {}] acquired (iter={})", frames, loop_iteration);
+            }
+        }
+
+        frames
+    }).await.unwrap();
+
+    let total_time = loop_start.elapsed().as_millis();
+
+    println!("\n[CLEANUP] Stopping acquisition...");
+    unsafe {
+        pl_exp_abort(hcam, CCS_HALT);
+        dealloc(buffer, layout);
+        pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
+        clear_global_callback_ctx();
+        pl_cam_close(hcam);
+        pl_pvcam_uninit();
+    }
+
+    println!("\n=== TEST 27 COMPLETE ===\n");
+    println!("Frames acquired: {}/{}", frames_acquired, TARGET_FRAMES);
+    println!("Total time: {}ms", total_time);
+
+    if frames_acquired >= TARGET_FRAMES {
+        println!("RESULT: Callback deregister/re-register during fallback is NOT the issue");
+    } else {
+        println!("RESULT: Callback deregister/re-register during fallback MAY be the issue ({} frames)", frames_acquired);
+    }
+
+    assert!(
+        frames_acquired >= TARGET_FRAMES,
+        "Expected {} frames, got {}. Fallback callback re-registration may be the issue!",
+        TARGET_FRAMES,
+        frames_acquired
+    );
+}
