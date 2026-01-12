@@ -225,24 +225,19 @@ impl CallbackContext {
     /// continue operation. This ensures the frame loop doesn't deadlock if the
     /// mutex was poisoned by an earlier panic elsewhere.
     pub fn wait_for_frames(&self, timeout_ms: u64) -> u32 {
+        // bd-simple-wait-2026-01-12: Simplified wait to match minimal test pattern exactly.
+        // The minimal test that works for 200 frames has NO fast path - it always waits
+        // on the condvar and always resets the flag. This avoids subtle race conditions
+        // where the fast path could leave the mutex flag in the wrong state.
+
         // Check if shutdown requested
         if self.shutdown.load(Ordering::Acquire) {
             tracing::trace!("wait_for_frames: shutdown requested, returning 0");
             return 0;
         }
 
-        // Check if frames already pending (fast path)
-        let pending = self.pending_frames.load(Ordering::Acquire);
-        if pending > 0 {
-            tracing::trace!(
-                pending,
-                "wait_for_frames: frames already pending (fast path)"
-            );
-            return pending;
-        }
-
-        // Wait on condvar with timeout
-        // CRITICAL: Handle poisoned mutex by extracting guard with into_inner()
+        // ALWAYS lock mutex and wait on condvar - no fast path
+        // This matches the minimal test's wait() pattern exactly
         let guard = match self.mutex.lock() {
             Ok(g) => g,
             Err(poisoned) => {
@@ -252,32 +247,32 @@ impl CallbackContext {
         };
 
         let timeout_duration = Duration::from_millis(timeout_ms);
+
+        // Simple predicate like minimal test: wait while NOT notified (and not shutdown)
         let result = self
             .condvar
             .wait_timeout_while(guard, timeout_duration, |notified| {
-                // Wait while NOT notified AND no pending frames AND not shutdown
-                !*notified
-                    && self.pending_frames.load(Ordering::Acquire) == 0
-                    && !self.shutdown.load(Ordering::Acquire)
+                !*notified && !self.shutdown.load(Ordering::Acquire)
             });
 
         match result {
             Ok((mut guard, timeout_result)) => {
-                *guard = false; // Reset notified flag
-                let pending = self.pending_frames.load(Ordering::Acquire);
-                if timeout_result.timed_out() && pending == 0 {
-                    tracing::trace!(timeout_ms, "wait_for_frames: timed out with no frames");
+                // ALWAYS reset notified flag (critical - minimal test does this)
+                *guard = false;
+
+                if timeout_result.timed_out() {
+                    tracing::trace!(timeout_ms, "wait_for_frames: timed out");
+                    0 // Return 0 on timeout
+                } else {
+                    // Signal received - return pending count
+                    self.pending_frames.load(Ordering::Acquire).max(1)
                 }
-                pending
             }
             Err(poisoned) => {
-                // Even with poisoned mutex from wait, we can still check pending_frames
-                // into_inner returns a tuple (guard, timeout_result) for condvar wait
                 let (mut guard, _timeout_result) = poisoned.into_inner();
                 *guard = false;
-                let pending = self.pending_frames.load(Ordering::Acquire);
-                tracing::warn!(pending, "wait_for_frames: recovered from poisoned condvar wait");
-                pending
+                tracing::warn!("wait_for_frames: recovered from poisoned condvar wait");
+                0 // Treat poisoned mutex as timeout
             }
         }
     }
