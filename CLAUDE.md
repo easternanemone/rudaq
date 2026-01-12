@@ -243,6 +243,11 @@ rotator.move_abs(45.0).await?;
 
 ### PVCAM Setup
 
+**⚠️ CRITICAL:** For PVCAM callback patterns and buffer mode behavior, **ALWAYS** refer to the authoritative documentation at:
+- `docs/architecture/adr-pvcam-continuous-acquisition.md` (lines 153-256)
+
+This ADR documents the correct SDK patterns from LiveImage.cpp and explains buffer-mode-specific callback behavior. DO NOT rely on memory or other docs - they may be contradictory or outdated.
+
 ```bash
 source /etc/profile.d/pvcam.sh
 export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH
@@ -259,6 +264,7 @@ cargo test --features pvcam_hardware --test pvcam_hardware_smoke -- --nocapture
 ls -la /dev/comedi0
 
 # Run Comedi hardware tests
+export COMEDI_SMOKE_TEST=1
 cargo nextest run --profile hardware --features comedi_hardware -p daq-driver-comedi
 
 # Feature flags:
@@ -266,7 +272,24 @@ cargo nextest run --profile hardware --features comedi_hardware -p daq-driver-co
 # - comedi_hardware: Real hardware (requires comedilib-dev)
 ```
 
-**Note:** The `comedi_hardware` feature requires comedilib-dev to be installed on the build machine for bindgen to generate FFI bindings.
+**Building with local comedilib (no sudo):**
+
+If comedilib can't be installed system-wide, extract to `.local/comedilib/`:
+
+```bash
+# Arch/EndeavourOS: Build AUR package, extract instead of install
+cd /tmp && git clone https://aur.archlinux.org/comedilib.git && cd comedilib
+makepkg -sf
+mkdir -p /home/maitai/rust-daq/.local/comedilib
+tar -xf comedilib-*.pkg.tar.zst -C /home/maitai/rust-daq/.local/comedilib
+
+# Build with local headers/libraries
+COMEDI_INCLUDE_DIR=/home/maitai/rust-daq/.local/comedilib/usr/include \
+LIBRARY_PATH=/home/maitai/rust-daq/.local/comedilib/usr/lib \
+cargo check -p daq-hardware --features comedi_hardware
+```
+
+**Note:** The `comedi_hardware` feature requires comedilib headers for bindgen to generate FFI bindings.
 
 ## Declarative Driver Plugins
 

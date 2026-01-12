@@ -84,9 +84,8 @@ fn generate_bindings() {
         .allowlist_var("SDF_.*")
         .allowlist_var("INSN_.*")
         .allowlist_var("CMDF_.*")
-        // Generate constified enums for cleaner API
-        .constified_enum_module("comedi_subdevice_type")
-        .constified_enum_module("comedi_io_direction")
+        // Use default enum style to keep constants at top level (matches dummy bindings)
+        .default_enum_style(bindgen::EnumVariation::Consts)
         // Derive common traits
         .derive_debug(true)
         .derive_default(true)
@@ -157,20 +156,20 @@ pub struct comedi_cmd {
     pub data_len: c_uint,
 }
 
-// Subdevice types
-pub const COMEDI_SUBD_UNUSED: c_int = 0;
-pub const COMEDI_SUBD_AI: c_int = 1;
-pub const COMEDI_SUBD_AO: c_int = 2;
-pub const COMEDI_SUBD_DI: c_int = 3;
-pub const COMEDI_SUBD_DO: c_int = 4;
-pub const COMEDI_SUBD_DIO: c_int = 5;
-pub const COMEDI_SUBD_COUNTER: c_int = 6;
-pub const COMEDI_SUBD_TIMER: c_int = 7;
-pub const COMEDI_SUBD_MEMORY: c_int = 8;
-pub const COMEDI_SUBD_CALIB: c_int = 9;
-pub const COMEDI_SUBD_PROC: c_int = 10;
-pub const COMEDI_SUBD_SERIAL: c_int = 11;
-pub const COMEDI_SUBD_PWM: c_int = 12;
+// Subdevice types (must match bindgen's c_uint type)
+pub const COMEDI_SUBD_UNUSED: c_uint = 0;
+pub const COMEDI_SUBD_AI: c_uint = 1;
+pub const COMEDI_SUBD_AO: c_uint = 2;
+pub const COMEDI_SUBD_DI: c_uint = 3;
+pub const COMEDI_SUBD_DO: c_uint = 4;
+pub const COMEDI_SUBD_DIO: c_uint = 5;
+pub const COMEDI_SUBD_COUNTER: c_uint = 6;
+pub const COMEDI_SUBD_TIMER: c_uint = 7;
+pub const COMEDI_SUBD_MEMORY: c_uint = 8;
+pub const COMEDI_SUBD_CALIB: c_uint = 9;
+pub const COMEDI_SUBD_PROC: c_uint = 10;
+pub const COMEDI_SUBD_SERIAL: c_uint = 11;
+pub const COMEDI_SUBD_PWM: c_uint = 12;
 
 // Analog reference types
 pub const AREF_GROUND: c_uint = 0;

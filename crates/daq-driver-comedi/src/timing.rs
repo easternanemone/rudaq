@@ -35,7 +35,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use daq_driver_comedi::{ComediDevice, TimingConfig, ClockSource};
+//! use daq_driver_comedi::{ComediDevice, TimingConfig, TimingCapabilities, ClockSource};
 //!
 //! # fn example() -> anyhow::Result<()> {
 //! let device = ComediDevice::open("/dev/comedi0")?;

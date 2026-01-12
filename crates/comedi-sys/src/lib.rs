@@ -47,6 +47,81 @@
 // Include the generated bindings
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
+// Re-export constants with standard names when using SDK feature
+// (bindgen prefixes enum variants with the enum name, but dummy bindings use flat names)
+#[cfg(feature = "comedi-sdk")]
+pub use comedi_subdevice_type_COMEDI_SUBD_UNUSED as COMEDI_SUBD_UNUSED;
+#[cfg(feature = "comedi-sdk")]
+pub use comedi_subdevice_type_COMEDI_SUBD_AI as COMEDI_SUBD_AI;
+#[cfg(feature = "comedi-sdk")]
+pub use comedi_subdevice_type_COMEDI_SUBD_AO as COMEDI_SUBD_AO;
+#[cfg(feature = "comedi-sdk")]
+pub use comedi_subdevice_type_COMEDI_SUBD_DI as COMEDI_SUBD_DI;
+#[cfg(feature = "comedi-sdk")]
+pub use comedi_subdevice_type_COMEDI_SUBD_DO as COMEDI_SUBD_DO;
+#[cfg(feature = "comedi-sdk")]
+pub use comedi_subdevice_type_COMEDI_SUBD_DIO as COMEDI_SUBD_DIO;
+#[cfg(feature = "comedi-sdk")]
+pub use comedi_subdevice_type_COMEDI_SUBD_COUNTER as COMEDI_SUBD_COUNTER;
+#[cfg(feature = "comedi-sdk")]
+pub use comedi_subdevice_type_COMEDI_SUBD_TIMER as COMEDI_SUBD_TIMER;
+#[cfg(feature = "comedi-sdk")]
+pub use comedi_subdevice_type_COMEDI_SUBD_MEMORY as COMEDI_SUBD_MEMORY;
+#[cfg(feature = "comedi-sdk")]
+pub use comedi_subdevice_type_COMEDI_SUBD_CALIB as COMEDI_SUBD_CALIB;
+#[cfg(feature = "comedi-sdk")]
+pub use comedi_subdevice_type_COMEDI_SUBD_PROC as COMEDI_SUBD_PROC;
+#[cfg(feature = "comedi-sdk")]
+pub use comedi_subdevice_type_COMEDI_SUBD_SERIAL as COMEDI_SUBD_SERIAL;
+#[cfg(feature = "comedi-sdk")]
+pub use comedi_subdevice_type_COMEDI_SUBD_PWM as COMEDI_SUBD_PWM;
+
+#[cfg(feature = "comedi-sdk")]
+pub use comedi_io_direction_COMEDI_INPUT as COMEDI_INPUT;
+#[cfg(feature = "comedi-sdk")]
+pub use comedi_io_direction_COMEDI_OUTPUT as COMEDI_OUTPUT;
+
+// CR_* helper functions for channel/range/aref packing
+// These are C macros that bindgen cannot translate, so we implement them in Rust.
+// Only provide these when using SDK feature (dummy bindings already have them).
+#[cfg(feature = "comedi-sdk")]
+use std::os::raw::c_uint;
+
+/// Pack channel, range, and analog reference into a single value
+#[cfg(feature = "comedi-sdk")]
+#[inline]
+pub fn CR_PACK(chan: c_uint, rng: c_uint, aref: c_uint) -> c_uint {
+    ((aref & 0x03) << 24) | ((rng & 0xff) << 16) | (chan & 0xffff)
+}
+
+/// Pack channel, range, analog reference, and flags into a single value
+#[cfg(feature = "comedi-sdk")]
+#[inline]
+pub fn CR_PACK_FLAGS(chan: c_uint, rng: c_uint, aref: c_uint, flags: c_uint) -> c_uint {
+    CR_PACK(chan, rng, aref) | ((flags & 0x0f) << 26)
+}
+
+/// Extract channel from packed value
+#[cfg(feature = "comedi-sdk")]
+#[inline]
+pub fn CR_CHAN(a: c_uint) -> c_uint {
+    a & 0xffff
+}
+
+/// Extract range from packed value
+#[cfg(feature = "comedi-sdk")]
+#[inline]
+pub fn CR_RANGE(a: c_uint) -> c_uint {
+    (a >> 16) & 0xff
+}
+
+/// Extract analog reference from packed value
+#[cfg(feature = "comedi-sdk")]
+#[inline]
+pub fn CR_AREF(a: c_uint) -> c_uint {
+    (a >> 24) & 0x03
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

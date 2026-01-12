@@ -21,7 +21,7 @@ use crate::subsystem::digital_io::DigitalIO;
 
 /// Type of a Comedi subdevice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(i32)]
+#[repr(u32)]
 pub enum SubdeviceType {
     Unused = comedi_sys::COMEDI_SUBD_UNUSED,
     AnalogInput = comedi_sys::COMEDI_SUBD_AI,
@@ -40,21 +40,30 @@ pub enum SubdeviceType {
 
 impl SubdeviceType {
     /// Convert from raw Comedi subdevice type value.
+    ///
+    /// Note: The Comedi API returns subdevice types as i32, but the constants
+    /// are u32. This function accepts i32 and safely converts negative values
+    /// to None.
     pub fn from_raw(raw: i32) -> Option<Self> {
+        // Handle negative values (error codes) by returning None
+        if raw < 0 {
+            return None;
+        }
+        let raw = raw as u32;
         match raw {
-            comedi_sys::COMEDI_SUBD_UNUSED => Some(Self::Unused),
-            comedi_sys::COMEDI_SUBD_AI => Some(Self::AnalogInput),
-            comedi_sys::COMEDI_SUBD_AO => Some(Self::AnalogOutput),
-            comedi_sys::COMEDI_SUBD_DI => Some(Self::DigitalInput),
-            comedi_sys::COMEDI_SUBD_DO => Some(Self::DigitalOutput),
-            comedi_sys::COMEDI_SUBD_DIO => Some(Self::DigitalIO),
-            comedi_sys::COMEDI_SUBD_COUNTER => Some(Self::Counter),
-            comedi_sys::COMEDI_SUBD_TIMER => Some(Self::Timer),
-            comedi_sys::COMEDI_SUBD_MEMORY => Some(Self::Memory),
-            comedi_sys::COMEDI_SUBD_CALIB => Some(Self::Calibration),
-            comedi_sys::COMEDI_SUBD_PROC => Some(Self::Processor),
-            comedi_sys::COMEDI_SUBD_SERIAL => Some(Self::Serial),
-            comedi_sys::COMEDI_SUBD_PWM => Some(Self::Pwm),
+            x if x == comedi_sys::COMEDI_SUBD_UNUSED => Some(Self::Unused),
+            x if x == comedi_sys::COMEDI_SUBD_AI => Some(Self::AnalogInput),
+            x if x == comedi_sys::COMEDI_SUBD_AO => Some(Self::AnalogOutput),
+            x if x == comedi_sys::COMEDI_SUBD_DI => Some(Self::DigitalInput),
+            x if x == comedi_sys::COMEDI_SUBD_DO => Some(Self::DigitalOutput),
+            x if x == comedi_sys::COMEDI_SUBD_DIO => Some(Self::DigitalIO),
+            x if x == comedi_sys::COMEDI_SUBD_COUNTER => Some(Self::Counter),
+            x if x == comedi_sys::COMEDI_SUBD_TIMER => Some(Self::Timer),
+            x if x == comedi_sys::COMEDI_SUBD_MEMORY => Some(Self::Memory),
+            x if x == comedi_sys::COMEDI_SUBD_CALIB => Some(Self::Calibration),
+            x if x == comedi_sys::COMEDI_SUBD_PROC => Some(Self::Processor),
+            x if x == comedi_sys::COMEDI_SUBD_SERIAL => Some(Self::Serial),
+            x if x == comedi_sys::COMEDI_SUBD_PWM => Some(Self::Pwm),
             _ => None,
         }
     }
@@ -505,15 +514,18 @@ mod tests {
 
     #[test]
     fn test_subdevice_type_from_raw() {
+        // Note: from_raw takes i32 (what FFI returns), but constants are u32
         assert_eq!(
-            SubdeviceType::from_raw(comedi_sys::COMEDI_SUBD_AI),
+            SubdeviceType::from_raw(comedi_sys::COMEDI_SUBD_AI as i32),
             Some(SubdeviceType::AnalogInput)
         );
         assert_eq!(
-            SubdeviceType::from_raw(comedi_sys::COMEDI_SUBD_COUNTER),
+            SubdeviceType::from_raw(comedi_sys::COMEDI_SUBD_COUNTER as i32),
             Some(SubdeviceType::Counter)
         );
         assert_eq!(SubdeviceType::from_raw(999), None);
+        // Test negative value handling
+        assert_eq!(SubdeviceType::from_raw(-1), None);
     }
 
     #[test]
