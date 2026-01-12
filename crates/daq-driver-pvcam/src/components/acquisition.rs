@@ -414,39 +414,69 @@ impl CallbackContext {
 ///
 /// The fix removes `catch_unwind` and keeps only essential signaling logic.
 /// The callback MUST NOT panic - all operations are infallible.
+///
+/// # bd-static-ctx-2026-01-12: Static Global Context Fix
+///
+/// The SDK stops calling callbacks after ~19 frames when using p_context parameter.
+/// The minimal test works for 200+ frames by using a static global pointer instead
+/// of the p_context parameter. This fix adopts the same pattern.
+///
+/// NOTE: This means only ONE PvcamAcquisition instance can use callbacks at a time.
+/// Since we typically only have one camera, this is acceptable.
+
+/// Static global pointer to callback context (bd-static-ctx-2026-01-12)
+/// This matches the pattern used in the working minimal test.
+/// Must be set before callback registration and cleared after deregistration.
+#[cfg(feature = "pvcam_sdk")]
+pub static GLOBAL_CALLBACK_CTX: std::sync::atomic::AtomicPtr<CallbackContext> =
+    std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+
+/// Set the global callback context pointer (call before registering callback)
+#[cfg(feature = "pvcam_sdk")]
+pub fn set_global_callback_ctx(ctx: *const CallbackContext) {
+    GLOBAL_CALLBACK_CTX.store(ctx as *mut CallbackContext, std::sync::atomic::Ordering::Release);
+}
+
+/// Clear the global callback context pointer (call after deregistering callback)
+#[cfg(feature = "pvcam_sdk")]
+pub fn clear_global_callback_ctx() {
+    GLOBAL_CALLBACK_CTX.store(std::ptr::null_mut(), std::sync::atomic::Ordering::Release);
+}
+
 #[cfg(feature = "pvcam_sdk")]
 pub unsafe extern "system" fn pvcam_eof_callback(
     p_frame_info: *const FRAME_INFO,
-    p_context: *mut std::ffi::c_void,
+    _p_context: *mut std::ffi::c_void, // bd-static-ctx-2026-01-12: IGNORED - use static global instead
 ) {
     // bd-debug-2026-01-12: Trace callback entry BEFORE any checks
-    // to see if SDK stops calling callback entirely, or if p_context becomes invalid
     static CALLBACK_ENTRY_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let entry_count = CALLBACK_ENTRY_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+
+    // bd-static-ctx-2026-01-12: Use static global context like minimal test
+    // This avoids the SDK p_context issue that stops callbacks after ~19 frames
+    let ctx_ptr = GLOBAL_CALLBACK_CTX.load(std::sync::atomic::Ordering::Acquire);
+
     if entry_count <= 25 || entry_count % 50 == 0 {
         eprintln!(
-            "[PVCAM CALLBACK ENTRY] #{}, p_context={:?}",
-            entry_count, p_context
+            "[PVCAM CALLBACK ENTRY] #{}, static_ctx={:?}",
+            entry_count, ctx_ptr
         );
     }
 
-    // CRITICAL: No catch_unwind - matches C++ SDK pattern.
-    // This callback must not panic. All operations below are infallible.
-
-    if p_context.is_null() {
-        eprintln!("[PVCAM CALLBACK] p_context is NULL at entry #{}", entry_count);
+    if ctx_ptr.is_null() {
+        eprintln!("[PVCAM CALLBACK] static context is NULL at entry #{}", entry_count);
         return;
     }
 
-    let ctx = &*(p_context as *const CallbackContext);
+    let ctx = &*ctx_ptr;
 
     // Extract frame number (infallible)
     let frame_nr = if !p_frame_info.is_null() {
         let info = *p_frame_info;
 
         // Trace callbacks (eprintln is thread-safe, no allocation)
-        // Print first 20, then every 50th, plus any after 19 to debug stopping issue
-        if info.FrameNr <= 20 || info.FrameNr % 50 == 0 {
+        // Print first 25, then every 50th
+        if info.FrameNr <= 25 || info.FrameNr % 50 == 0 {
             eprintln!(
                 "[PVCAM CALLBACK] Frame {} ready, timestamp={}",
                 info.FrameNr, info.TimeStamp
@@ -1466,16 +1496,23 @@ impl PvcamAcquisition {
             // Get raw pointer to pinned CallbackContext for FFI
             // Deref Arc -> Pin<Box<T>> -> T, then take address
             let callback_ctx_ptr = &**self.callback_context as *const CallbackContext;
+
+            // bd-static-ctx-2026-01-12: Set global context BEFORE registering callback
+            // The SDK p_context parameter stops working after ~19 frames on Prime BSI.
+            // Using a static global pointer like the minimal test fixes this.
+            set_global_callback_ctx(callback_ctx_ptr);
+
             let use_callback = unsafe {
                 // Use bindgen-generated function, cast callback to *mut c_void
                 let result = pl_cam_register_callback_ex3(
                     h,
                     PL_CALLBACK_EOF,
                     pvcam_eof_callback as *mut std::ffi::c_void,
-                    callback_ctx_ptr as *mut std::ffi::c_void,
+                    callback_ctx_ptr as *mut std::ffi::c_void, // Still passed for SDK, but callback ignores it
                 );
                 if result == 0 {
                     tracing::warn!("Failed to register EOF callback, falling back to polling mode");
+                    clear_global_callback_ctx(); // Clear on failure
                     false
                 } else {
                     tracing::info!("PVCAM EOF callback registered successfully (before setup)");
@@ -1661,6 +1698,7 @@ impl PvcamAcquisition {
                             // Deregister callback on failure
                             if use_callback {
                                 pl_cam_deregister_callback(h, PL_CALLBACK_EOF);
+                                clear_global_callback_ctx(); // bd-static-ctx-2026-01-12
                                 self.callback_registered.store(false, Ordering::Release);
                             }
                             self.active_hcam.store(-1, Ordering::Release);
@@ -1716,6 +1754,7 @@ impl PvcamAcquisition {
                             // Deregister callback on failure
                             if use_callback {
                                 pl_cam_deregister_callback(h, PL_CALLBACK_EOF);
+                                clear_global_callback_ctx(); // bd-static-ctx-2026-01-12
                                 self.callback_registered.store(false, Ordering::Release);
                             }
                             self.active_hcam.store(-1, Ordering::Release);
@@ -1732,6 +1771,7 @@ impl PvcamAcquisition {
                         // Deregister callback on failure
                         if use_callback {
                             pl_cam_deregister_callback(h, PL_CALLBACK_EOF);
+                            clear_global_callback_ctx(); // bd-static-ctx-2026-01-12
                             self.callback_registered.store(false, Ordering::Release);
                         }
                         self.active_hcam.store(-1, Ordering::Release);
@@ -3146,6 +3186,7 @@ impl Drop for PvcamAcquisition {
                     // Deregister callback to prevent use-after-free
                     if self.callback_registered.swap(false, Ordering::AcqRel) {
                         let dereg_result = pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
+                        clear_global_callback_ctx(); // bd-static-ctx-2026-01-12
                         if dereg_result == 0 {
                             tracing::warn!("pl_cam_deregister_callback failed in Drop");
                         } else {
