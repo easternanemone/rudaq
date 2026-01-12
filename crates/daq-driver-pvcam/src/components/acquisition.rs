@@ -189,21 +189,36 @@ impl CallbackContext {
     ///
     /// Increments the pending frame counter and notifies waiting threads.
     /// Must lock the mutex to avoid missed wakeups with condvar.
+    ///
+    /// # PVCAM Callback Reliability Fix (bd-callback-reliability-2026-01-12)
+    ///
+    /// This method MUST always notify, even if the mutex is poisoned.
+    /// Previous implementation silently skipped notification on poisoned mutex,
+    /// causing the main loop to wait forever for frames that were already counted.
     #[inline]
     pub fn signal_frame_ready(&self, frame_nr: i32) {
         self.latest_frame_nr.store(frame_nr, Ordering::Release);
         self.pending_frames.fetch_add(1, Ordering::AcqRel);
-        // Lock mutex to ensure condvar notification is seen
-        if let Ok(mut guard) = self.mutex.lock() {
-            *guard = true; // Set notified flag
-            self.condvar.notify_one();
-        }
+        // CRITICAL: Always notify, even if mutex is poisoned
+        // Use match to handle both Ok and Err cases
+        let mut guard = match self.mutex.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(), // Still get the guard from poisoned mutex
+        };
+        *guard = true; // Set notified flag
+        self.condvar.notify_one();
     }
 
     /// Wait for frames to be available with timeout
     ///
     /// Returns the number of pending frames (0 on shutdown or timeout).
     /// Does NOT decrement the counter - caller should drain frames and call `consume_one()` for each.
+    ///
+    /// # PVCAM Callback Reliability Fix (bd-callback-reliability-2026-01-12)
+    ///
+    /// This method handles poisoned mutex gracefully by using `into_inner()` to
+    /// continue operation. This ensures the frame loop doesn't deadlock if the
+    /// mutex was poisoned by an earlier panic elsewhere.
     pub fn wait_for_frames(&self, timeout_ms: u64) -> u32 {
         // Check if shutdown requested
         if self.shutdown.load(Ordering::Acquire) {
@@ -222,11 +237,12 @@ impl CallbackContext {
         }
 
         // Wait on condvar with timeout
+        // CRITICAL: Handle poisoned mutex by extracting guard with into_inner()
         let guard = match self.mutex.lock() {
             Ok(g) => g,
-            Err(_) => {
-                tracing::trace!("wait_for_frames: mutex poisoned, returning 0");
-                return 0; // Poisoned mutex
+            Err(poisoned) => {
+                tracing::warn!("wait_for_frames: mutex poisoned, continuing with recovered guard");
+                poisoned.into_inner()
             }
         };
 
@@ -249,9 +265,13 @@ impl CallbackContext {
                 }
                 pending
             }
-            Err(_) => {
-                tracing::trace!("wait_for_frames: condvar wait returned poisoned mutex");
-                0 // Poisoned mutex
+            Err(poisoned) => {
+                // Even with poisoned mutex from wait, we can still check pending_frames
+                let mut guard = poisoned.into_inner();
+                *guard = false;
+                let pending = self.pending_frames.load(Ordering::Acquire);
+                tracing::warn!(pending, "wait_for_frames: recovered from poisoned condvar wait");
+                pending
             }
         }
     }
@@ -382,68 +402,51 @@ impl CallbackContext {
 /// - `p_frame_info` must be a valid pointer to FRAME_INFO or null
 /// - `p_context` must be a valid pointer to CallbackContext
 /// - The callback runs on PVCAM's internal thread, not the Rust async runtime
+///
+/// # PVCAM Callback Reliability Fix (bd-callback-reliability-2026-01-12)
+///
+/// This callback is kept minimal to match the C++ SDK pattern (LiveImage.cpp).
+/// Previous implementation had issues:
+/// 1. `catch_unwind` overhead and potential interference with C callback stack
+/// 2. Extra mutex operations (`store_frame_info`) causing contention
+/// 3. Silent notification failures when mutex poisoned
+///
+/// The fix removes `catch_unwind` and keeps only essential signaling logic.
+/// The callback MUST NOT panic - all operations are infallible.
 #[cfg(feature = "pvcam_sdk")]
 pub unsafe extern "system" fn pvcam_eof_callback(
     p_frame_info: *const FRAME_INFO,
     p_context: *mut std::ffi::c_void,
 ) {
-    // FFI SAFETY: Rust code called from C must never panic.
-    let _ = std::panic::catch_unwind(|| {
-        if p_context.is_null() {
-            return;
+    // CRITICAL: No catch_unwind - matches C++ SDK pattern.
+    // This callback must not panic. All operations below are infallible.
+
+    if p_context.is_null() {
+        return;
+    }
+
+    let ctx = &*(p_context as *const CallbackContext);
+
+    // Extract frame number (infallible)
+    let frame_nr = if !p_frame_info.is_null() {
+        let info = *p_frame_info;
+
+        // Trace first 20 callbacks (eprintln is thread-safe, no allocation)
+        if info.FrameNr <= 20 {
+            eprintln!(
+                "[PVCAM CALLBACK] Frame {} ready, timestamp={}",
+                info.FrameNr, info.TimeStamp
+            );
         }
 
-        let ctx = &*(p_context as *const CallbackContext);
+        info.FrameNr
+    } else {
+        -1
+    };
 
-        // Store FRAME_INFO if available
-        let frame_nr = if !p_frame_info.is_null() {
-            let info = *p_frame_info;
-            ctx.store_frame_info(info);
-
-            // TRACING: Callback fired (bd-trace-2026-01-11)
-            // Only trace first 20 callbacks to avoid overhead
-            let current_pending = ctx.pending_frames.load(Ordering::Acquire);
-            if info.FrameNr <= 20 {
-                // Safe to use eprintln in callback (no allocation, thread-safe)
-                eprintln!(
-                    "[PVCAM CALLBACK] Frame {} ready, pending_before={}, timestamp={}",
-                    info.FrameNr, current_pending, info.TimeStamp
-                );
-            }
-
-            info.FrameNr
-        } else {
-            -1
-        };
-
-        // PURE SIGNALING: Do not call SDK functions here.
-        // Let the main loop handle all frame retrieval.
-        // ctx.store_frame_ptr(std::ptr::null_mut());
-
-        // FIX (PVCAM_STALL_INVESTIGATION_2026_01_11):
-        // Restore SDK Pattern: Call pl_exp_get_latest_frame INSIDE callback if in OVERWRITE mode.
-        // This is "crucial" for clearing the internal buffer state in CIRC_OVERWRITE mode.
-        if ctx.circ_overwrite.load(Ordering::Acquire) {
-            let hcam = ctx.hcam.load(Ordering::Acquire);
-            if hcam != -1 {
-                let mut frame_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-                if pl_exp_get_latest_frame(hcam, &mut frame_ptr) != 0 {
-                    ctx.store_frame_ptr(frame_ptr);
-                } else {
-                    ctx.store_frame_ptr(std::ptr::null_mut());
-                }
-            } else {
-                ctx.store_frame_ptr(std::ptr::null_mut());
-            }
-        } else {
-            // In CIRC_NO_OVERWRITE mode, we MUST NOT call get_latest_frame.
-            // Main loop uses get_oldest_frame + unlock to maintain FIFO order.
-            ctx.store_frame_ptr(std::ptr::null_mut());
-        }
-
-        // Signal main thread
-        ctx.signal_frame_ready(frame_nr);
-    });
+    // Signal main thread - this is the ONLY essential operation
+    // In CIRC_NO_OVERWRITE mode, main loop uses get_oldest_frame for retrieval
+    ctx.signal_frame_ready(frame_nr);
 }
 
 /// Acquisition error type for signaling fatal errors from frame loop (Gemini SDK review).
