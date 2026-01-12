@@ -515,12 +515,21 @@ impl PvcamDriver {
         let post_trigger_param = driver.post_trigger_delay_us.clone();
         let frame_time_param = driver.frame_time_us.clone();
         let exposure_param = driver.exposure_ms.clone();
+        let streaming_check = driver.streaming.clone();
 
         let conn_poll = connection.clone();
         tokio::spawn(async move {
             tracing::debug!("Starting PVCAM drift polling task");
             loop {
                 tokio::time::sleep(Duration::from_secs(2)).await;
+
+                // bd-diag-2026-01-12: Skip drift polling while streaming to avoid SDK interference
+                // Hypothesis: pl_get_param calls during continuous acquisition may corrupt callback state
+                if streaming_check.get() {
+                    tracing::trace!("Drift polling skipped (streaming active)");
+                    continue;
+                }
+
                 let conn_guard = conn_poll.lock().await;
 
                 // Poll Temperature
