@@ -1242,10 +1242,10 @@ impl PvcamAcquisition {
             clamped
         );
 
-        // bd-diag-2026-01-11: FORCE 20 frames to match minimal test exactly
-        // This overrides all calculations to test if buffer size affects callback stopping
-        eprintln!("[PVCAM DIAG] Buffer size forced to 20 frames (was {})", clamped);
-        20
+        // bd-diag-2026-01-12: FORCE 21 frames to test slot loss hypothesis
+        // If we get 20 frames with 21-slot buffer, we're losing one slot somewhere
+        eprintln!("[PVCAM DIAG] Buffer size forced to 21 frames (was {})", clamped);
+        21
     }
 
     /// Get the number of ROIs supported by the camera (bd-vcbd)
