@@ -1237,7 +1237,10 @@ impl PvcamAcquisition {
             clamped
         );
 
-        clamped
+        // bd-diag-2026-01-12: Force 21 frames to EXACTLY match working isolation tests
+        // This tests if the 20 vs 21 buffer count difference is causing the 19-frame cutoff
+        eprintln!("[PVCAM DIAG] Buffer count: calculated={}, using=21 (forced to match tests)", clamped);
+        21
     }
 
     /// Get the number of ROIs supported by the camera (bd-vcbd)
