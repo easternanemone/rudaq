@@ -2906,7 +2906,7 @@ async fn test_20_param_query_isolation() {
         }
 
         // Query frame buffer size recommendation
-        let mut frame_buf_size: uns64 = 0;
+        let mut frame_buf_size: u64 = 0;
         if pl_get_param(hcam, PARAM_FRAME_BUFFER_SIZE, ATTR_CURRENT, &mut frame_buf_size as *mut _ as *mut _) != 0 {
             println!("  PARAM_FRAME_BUFFER_SIZE: {}", frame_buf_size);
         }
