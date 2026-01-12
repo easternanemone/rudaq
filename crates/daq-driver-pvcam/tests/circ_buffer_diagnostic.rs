@@ -1998,7 +1998,7 @@ async fn test_17_minimal_sdk_callback() {
     println!("\n=== TEST 17: Minimal SDK-style Callback Test ===");
     println!("This test mimics the C++ SDK example to isolate callback issues.\n");
 
-    const TARGET_FRAMES: i32 = 30;
+    const TARGET_FRAMES: i32 = 200;
     const TIMEOUT_MS: u64 = 5000;
 
     // Initialize PVCAM
