@@ -22,6 +22,7 @@ use pvcam_sys::*;
 use std::alloc::{alloc, alloc_zeroed, dealloc, Layout};
 use std::ffi::{c_void, CStr, CString};
 use std::ptr;
+use std::sync::Arc;
 use std::sync::atomic::AtomicI16;
 
 // Use constants from pvcam_sys (CIRC_OVERWRITE, CIRC_NO_OVERWRITE, TIMED_MODE,
@@ -3858,9 +3859,9 @@ async fn test_24_driver_callback_infrastructure() {
     }
     println!("[OK] Camera opened, hcam={}", hcam);
 
-    // Create CallbackContext using the DRIVER's struct (pinned like driver does)
-    let callback_ctx = Box::pin(CallbackContext::new(hcam));
-    let callback_ctx_ptr = &*callback_ctx as *const CallbackContext;
+    // Create CallbackContext using the DRIVER's struct (Arc<Pin<Box<>>> like driver does)
+    let callback_ctx = Arc::new(Box::pin(CallbackContext::new(hcam)));
+    let callback_ctx_ptr = &**callback_ctx as *const CallbackContext;
     println!("[OK] Driver CallbackContext created, ptr={:?}", callback_ctx_ptr);
 
     // Set GLOBAL_CALLBACK_CTX (exactly like driver does)
