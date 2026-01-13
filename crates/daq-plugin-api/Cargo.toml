@@ -1,0 +1,17 @@
+[package]
+name = "daq-plugin-api"
+version = "0.1.0"
+edition = "2021"
+description = "FFI-stable plugin API for rust-daq modules"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+abi_stable = "0.11"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+
+[features]
+default = []
+# Enable hot-reload support for development
+hot-reload = []
