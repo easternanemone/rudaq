@@ -12,13 +12,13 @@
 use anyhow::Result;
 
 #[cfg(feature = "pvcam_sdk")]
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 #[cfg(feature = "pvcam_sdk")]
 use std::ffi::CString;
 #[cfg(feature = "pvcam_sdk")]
-use std::sync::atomic::{AtomicU32, Ordering};
-#[cfg(feature = "pvcam_sdk")]
 use std::sync::Mutex;
+#[cfg(feature = "pvcam_sdk")]
+use std::sync::atomic::{AtomicU32, Ordering};
 
 #[cfg(feature = "pvcam_sdk")]
 use pvcam_sys::*;
@@ -208,7 +208,9 @@ impl PvcamConnection {
         tracing::info!("pl_cam_get_total returned: {}", total_cameras);
 
         if total_cameras == 0 {
-            tracing::warn!("pl_cam_get_total returned 0, but attempting to open camera by name anyway (diagnostics)");
+            tracing::warn!(
+                "pl_cam_get_total returned 0, but attempting to open camera by name anyway (diagnostics)"
+            );
             // return Err(anyhow!("No PVCAM cameras detected"));
         }
 

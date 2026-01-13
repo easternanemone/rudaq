@@ -12,9 +12,9 @@
 //! - **Temperature**: Sensor temperature monitoring and setpoint
 
 use crate::components::connection::PvcamConnection;
+use anyhow::Result;
 #[cfg(feature = "pvcam_sdk")]
 use anyhow::anyhow;
-use anyhow::Result;
 
 #[cfg(feature = "pvcam_sdk")]
 use crate::components::connection::get_pvcam_error;

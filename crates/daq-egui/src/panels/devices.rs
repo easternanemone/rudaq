@@ -907,11 +907,8 @@ impl DevicesPanel {
                 name,
                 value,
             } => {
-                let needs_refresh = LAYOUT_CHANGING_PARAMS.contains(&name.as_str());
+                let _needs_refresh = LAYOUT_CHANGING_PARAMS.contains(&name.as_str());
                 self.set_parameter(client, runtime, &device_id, &name, &value);
-                if needs_refresh {
-                    self.pending_action = Some(PendingAction::LoadParameters { device_id });
-                }
             }
             PendingAction::ExecuteCommand {
                 device_id,

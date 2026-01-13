@@ -91,8 +91,10 @@ Key parameters exposed via `PvcamFeatures`:
 
 ### Readout Configuration
 - `readout_port` - Port selection (if multiple available)
-- `speed_index` - Readout speed selection
+- `speed_index` - Readout speed selection (choices populated from cached SpeedTable)
 - `gain_index` - Gain/bit-depth selection
+- `pixel_time_ns` - Read-only pixel period from cached SpeedTable
+- `bit_depth` - Read-only ADC bit depth from cached SpeedTable
 - `binning_serial` / `binning_parallel` - Pixel binning
 
 ### Shutter Control

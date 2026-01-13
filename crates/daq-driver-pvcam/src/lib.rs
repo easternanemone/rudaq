@@ -17,8 +17,8 @@ use daq_core::error::DaqError;
 use daq_core::observable::ParameterSet;
 use daq_core::parameter::Parameter;
 use daq_core::pipeline::MeasurementSource;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tokio::sync::Mutex;
 
@@ -33,6 +33,7 @@ pub use crate::components::features::PvcamFeatures;
 
 use crate::components::acquisition::PvcamAcquisition;
 use crate::components::connection::PvcamConnection;
+use crate::components::speed_table::SpeedTable;
 #[cfg(feature = "pvcam_sdk")]
 use pvcam_sys::*;
 
@@ -81,6 +82,7 @@ pub struct PvcamDriver {
 
     // Readout Timing
     readout_time_us: Parameter<u32>,
+    pixel_time_ns: Parameter<u32>,
     clearing_time_us: Parameter<u32>,
     pre_trigger_delay_us: Parameter<u32>,
     post_trigger_delay_us: Parameter<u32>,
@@ -113,6 +115,7 @@ pub struct PvcamDriver {
 
     sensor_width: u32,
     sensor_height: u32,
+    speed_table: Option<Arc<SpeedTable>>,
 }
 
 impl PvcamDriver {
@@ -121,6 +124,7 @@ impl PvcamDriver {
         tracing::info!("pvcam_sdk feature enabled: {}", cfg!(feature = "pvcam_sdk"));
 
         // Run initialization in blocking task
+
         let connection = tokio::task::spawn_blocking({
             #[cfg(feature = "pvcam_sdk")]
             let name = camera_name.clone();
@@ -216,6 +220,78 @@ impl PvcamDriver {
             })
         };
 
+        // Build speed table cache (bd-c4hf.3)
+        let speed_table = {
+            #[cfg(feature = "pvcam_sdk")]
+            {
+                let conn = connection.lock().await;
+                if let Some(h) = conn.handle() {
+                    match SpeedTable::build(h) {
+                        Ok(table) => Some(Arc::new(table)),
+                        Err(e) => {
+                            tracing::warn!("Failed to build speed table: {}", e);
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            }
+            #[cfg(not(feature = "pvcam_sdk"))]
+            {
+                match SpeedTable::build(0) {
+                    Ok(table) => Some(Arc::new(table)),
+                    Err(e) => {
+                        tracing::warn!("Failed to build mock speed table: {}", e);
+                        None
+                    }
+                }
+            }
+        };
+
+        // Select defaults from cached table or fall back
+        let (default_port_name, default_speed_name, default_gain_name) =
+            if let Some(table) = speed_table.as_ref() {
+                let port = table
+                    .ports
+                    .iter()
+                    .find(|p| p.name == info.port_name)
+                    .or_else(|| table.ports.first());
+                let port_name = port
+                    .map(|p| p.name.clone())
+                    .unwrap_or_else(|| "Sensitivity".to_string());
+
+                let speed = port.and_then(|p| {
+                    p.speeds
+                        .iter()
+                        .find(|s| s.index as u32 == info.speed_index as u32)
+                        .or_else(|| p.speeds.iter().find(|s| s.name == info.speed_name))
+                        .or_else(|| p.speeds.first())
+                });
+                let speed_name = speed
+                    .map(|s| s.name.clone())
+                    .unwrap_or_else(|| "100 MHz".to_string());
+
+                let gain = speed.and_then(|s| {
+                    s.gains
+                        .iter()
+                        .find(|g| g.index as u32 == info.gain_index as u32)
+                        .or_else(|| s.gains.iter().find(|g| g.name == info.gain_name))
+                        .or_else(|| s.gains.first())
+                });
+                let gain_name = gain
+                    .map(|g| g.name.clone())
+                    .unwrap_or_else(|| "HDR".to_string());
+
+                (port_name, speed_name, gain_name)
+            } else {
+                (
+                    "Sensitivity".to_string(),
+                    "100 MHz".to_string(),
+                    "HDR".to_string(),
+                )
+            };
+
         let mut params = ParameterSet::new();
 
         // Acquisition Group
@@ -235,7 +311,7 @@ impl PvcamDriver {
             "acquisition.clear_mode",
             ClearMode::PreExposure.as_str().to_string(),
         )
-        .with_description("CCD clear mode")
+        .with_description("Clear mode")
         .with_choices_introspectable(ClearMode::all_choices());
 
         let expose_out_mode = Parameter::new(
@@ -285,13 +361,13 @@ impl PvcamDriver {
             .with_choices_introspectable(FanSpeed::all_choices());
 
         // Readout Group
-        let readout_port = Parameter::new("readout.port", "Sensitivity".to_string())
+        let readout_port = Parameter::new("readout.port", default_port_name)
             .with_description("Readout port selection");
 
-        let speed_mode = Parameter::new("readout.speed_mode", "100 MHz".to_string())
+        let speed_mode = Parameter::new("readout.speed_mode", default_speed_name)
             .with_description("Readout speed selection");
 
-        let gain_mode = Parameter::new("readout.gain_mode", "HDR".to_string())
+        let gain_mode = Parameter::new("readout.gain_mode", default_gain_name)
             .with_description("Gain mode selection");
 
         let adc_offset = Parameter::new("readout.adc_offset", 0i16).with_description("ADC offset");
@@ -320,6 +396,11 @@ impl PvcamDriver {
         let readout_time_us = Parameter::new("acquisition.readout_time_us", 0u32)
             .with_description("Readout time")
             .with_unit("us")
+            .read_only();
+
+        let pixel_time_ns = Parameter::new("acquisition.pixel_time_ns", 0u32)
+            .with_description("Pixel time")
+            .with_unit("ns")
             .read_only();
 
         let clearing_time_us = Parameter::new("acquisition.clearing_time_us", 0u32)
@@ -435,10 +516,12 @@ impl PvcamDriver {
         params.register(pre_scan.clone());
         params.register(post_scan.clone());
         params.register(readout_time_us.clone());
+        params.register(pixel_time_ns.clone());
         params.register(clearing_time_us.clone());
         params.register(pre_trigger_delay_us.clone());
         params.register(post_trigger_delay_us.clone());
         params.register(frame_time_us.clone());
+
         params.register(shutter_mode.clone());
         params.register(shutter_status.clone());
         params.register(shutter_open_delay.clone());
@@ -486,10 +569,12 @@ impl PvcamDriver {
             pre_scan,
             post_scan,
             readout_time_us,
+            pixel_time_ns,
             clearing_time_us,
             pre_trigger_delay_us,
             post_trigger_delay_us,
             frame_time_us,
+
             shutter_mode,
             shutter_status,
             shutter_open_delay,
@@ -508,6 +593,7 @@ impl PvcamDriver {
             params,
             sensor_width: width,
             sensor_height: height,
+            speed_table: speed_table.clone(),
         };
 
         driver.connect_params();
@@ -515,31 +601,26 @@ impl PvcamDriver {
         // Populate dynamic enum choices from camera (bd-c4hf.2)
         driver.populate_dynamic_choices().await;
 
+        // Wire dependent choice updates (bd-c4hf.4)
+        driver.attach_choice_listeners().await;
+
         // Background polling for drift values (temperature, shutter status, readout timing)
         let temperature_param = driver.temperature.clone();
         let shutter_status_param = driver.shutter_status.clone();
 
         let readout_time_param = driver.readout_time_us.clone();
+        let pixel_time_param = driver.pixel_time_ns.clone();
         let clearing_time_param = driver.clearing_time_us.clone();
         let pre_trigger_param = driver.pre_trigger_delay_us.clone();
         let post_trigger_param = driver.post_trigger_delay_us.clone();
         let frame_time_param = driver.frame_time_us.clone();
         let exposure_param = driver.exposure_ms.clone();
-        let streaming_check = driver.streaming.clone();
 
         let conn_poll = connection.clone();
         tokio::spawn(async move {
             tracing::debug!("Starting PVCAM drift polling task");
             loop {
                 tokio::time::sleep(Duration::from_secs(2)).await;
-
-                // bd-diag-2026-01-12: Skip drift polling while streaming to avoid SDK interference
-                // Hypothesis: pl_get_param calls during continuous acquisition may corrupt callback state
-                if streaming_check.get() {
-                    tracing::trace!("Drift polling skipped (streaming active)");
-                    continue;
-                }
-
                 let conn_guard = conn_poll.lock().await;
 
                 // Poll Temperature
@@ -573,6 +654,8 @@ impl PvcamDriver {
                 if let Ok(val) = PvcamFeatures::get_post_trigger_delay_us(&conn_guard) {
                     let _ = post_trigger_param.set(val).await;
                 }
+
+                // Pixel time is driven by cached speed table listeners; no periodic polling needed here.
             }
         });
 
@@ -938,6 +1021,168 @@ impl PvcamDriver {
     /// This enables dynamic dropdowns in the GUI that reflect actual hardware
     /// capabilities rather than hardcoded values.
     async fn populate_dynamic_choices(&self) {
+        self.apply_cached_choices().await;
+    }
+
+    /// Wire reactive dropdown updates using cached SpeedTable (bd-c4hf.4)
+    async fn attach_choice_listeners(&self) {
+        if self.speed_table.is_none() {
+            return;
+        }
+
+        let table = self.speed_table.as_ref().unwrap().clone();
+        let readout_port = self.readout_port.clone();
+        let speed_mode = self.speed_mode.clone();
+        let gain_mode = self.gain_mode.clone();
+        let bit_depth = self.bit_depth.clone();
+        let pixel_time_ns = self.pixel_time_ns.clone();
+
+        // On port change -> update speeds, gain, read-only fields
+        tokio::spawn(async move {
+            readout_port
+                .add_change_listener(move |new_port| {
+                    let table = table.clone();
+                    let speed_mode = speed_mode.clone();
+                    let gain_mode = gain_mode.clone();
+                    let bit_depth = bit_depth.clone();
+                    let pixel_time_ns = pixel_time_ns.clone();
+                    let new_port = new_port.clone();
+                    tokio::spawn(async move {
+                        if let Some(port) = table.ports.iter().find(|p| p.name == new_port) {
+                            let speed_names: Vec<String> =
+                                port.speeds.iter().map(|s| s.name.clone()).collect();
+                            speed_mode.inner().update_choices(speed_names.clone());
+                            if !speed_names.iter().any(|n| *n == speed_mode.get()) {
+                                if let Some(first) = speed_names.first() {
+                                    let _ = speed_mode.set(first.clone()).await;
+                                }
+                            }
+
+                            // Cascade to gain
+                            let selected_speed_name = speed_mode.get();
+                            let selected_speed = port
+                                .speeds
+                                .iter()
+                                .find(|s| s.name == selected_speed_name)
+                                .cloned()
+                                .or_else(|| port.speeds.first().cloned());
+
+                            if let Some(speed) = selected_speed {
+                                let gain_names: Vec<String> =
+                                    speed.gains.iter().map(|g| g.name.clone()).collect();
+                                gain_mode.inner().update_choices(gain_names.clone());
+                                if !gain_names.iter().any(|n| *n == gain_mode.get()) {
+                                    if let Some(first) = gain_names.first() {
+                                        let _ = gain_mode.set(first.clone()).await;
+                                    }
+                                }
+
+                                let _ = bit_depth.set(speed.bit_depth as u16).await;
+                                let _ = pixel_time_ns.set(speed.pix_time_ns as u32).await;
+                            }
+                        }
+                    });
+                })
+                .await;
+        });
+
+        let table = self.speed_table.as_ref().unwrap().clone();
+        let speed_mode = self.speed_mode.clone();
+        let gain_mode = self.gain_mode.clone();
+        let bit_depth = self.bit_depth.clone();
+        let pixel_time_ns = self.pixel_time_ns.clone();
+        let readout_port = self.readout_port.clone();
+
+        // On speed change -> update gains, read-only fields
+        speed_mode
+            .add_change_listener(move |new_speed| {
+                let table = table.clone();
+                let gain_mode = gain_mode.clone();
+                let bit_depth = bit_depth.clone();
+                let pixel_time_ns = pixel_time_ns.clone();
+                let readout_port = readout_port.clone();
+                let new_speed = new_speed.clone();
+                tokio::spawn(async move {
+                    let current_port = readout_port.get();
+                    if let Some(port) = table.ports.iter().find(|p| p.name == current_port) {
+                        if let Some(speed) =
+                            port.speeds.iter().find(|s| s.name == new_speed).cloned()
+                        {
+                            let gain_names: Vec<String> =
+                                speed.gains.iter().map(|g| g.name.clone()).collect();
+                            gain_mode.inner().update_choices(gain_names.clone());
+                            if !gain_names.iter().any(|n| *n == gain_mode.get()) {
+                                if let Some(first) = gain_names.first() {
+                                    let _ = gain_mode.set(first.clone()).await;
+                                }
+                            }
+
+                            let _ = bit_depth.set(speed.bit_depth as u16).await;
+                            let _ = pixel_time_ns.set(speed.pix_time_ns as u32).await;
+                        }
+                    }
+                });
+            })
+            .await;
+    }
+
+    /// Apply cached choices from the SpeedTable if available; otherwise query hardware.
+    async fn apply_cached_choices(&self) {
+        // Fast path: use cached SpeedTable when available.
+        if let Some(table) = self.speed_table.as_ref() {
+            let port_names: Vec<String> = table.ports.iter().map(|p| p.name.clone()).collect();
+            self.readout_port.inner().update_choices(port_names.clone());
+
+            if !port_names.iter().any(|n| *n == self.readout_port.get()) {
+                if let Some(first) = port_names.first() {
+                    let _ = self.readout_port.set(first.clone()).await;
+                }
+            }
+
+            let selected_port_name = self.readout_port.get();
+            let selected_port = table
+                .ports
+                .iter()
+                .find(|p| p.name == selected_port_name)
+                .cloned()
+                .or_else(|| table.ports.first().cloned());
+
+            if let Some(port) = selected_port {
+                let speed_names: Vec<String> = port.speeds.iter().map(|s| s.name.clone()).collect();
+                self.speed_mode.inner().update_choices(speed_names.clone());
+                if !speed_names.iter().any(|n| *n == self.speed_mode.get()) {
+                    if let Some(first) = speed_names.first() {
+                        let _ = self.speed_mode.set(first.clone()).await;
+                    }
+                }
+
+                let selected_speed_name = self.speed_mode.get();
+                let selected_speed = port
+                    .speeds
+                    .iter()
+                    .find(|s| s.name == selected_speed_name)
+                    .cloned()
+                    .or_else(|| port.speeds.first().cloned());
+
+                if let Some(speed) = selected_speed {
+                    let gain_names: Vec<String> =
+                        speed.gains.iter().map(|g| g.name.clone()).collect();
+                    self.gain_mode.inner().update_choices(gain_names.clone());
+                    if !gain_names.iter().any(|n| *n == self.gain_mode.get()) {
+                        if let Some(first) = gain_names.first() {
+                            let _ = self.gain_mode.set(first.clone()).await;
+                        }
+                    }
+
+                    // Update read-only info parameters when available
+                    let _ = self.bit_depth.set(speed.bit_depth as u16).await;
+                    let _ = self.pixel_time_ns.set(speed.pix_time_ns as u32).await;
+                }
+            }
+
+            return;
+        }
+
         let conn_guard = self.connection.lock().await;
 
         // Populate readout port choices
