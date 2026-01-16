@@ -2532,6 +2532,7 @@ dependencies = [
  "anyhow",
  "arrow 57.1.0",
  "async-trait",
+ "bytes",
  "chrono",
  "config",
  "futures",
@@ -2569,10 +2570,11 @@ name = "daq-driver-pvcam"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrow 56.1.0",
  "async-trait",
+ "bytes",
  "criterion",
  "daq-core",
+ "daq-pool",
  "lazy_static",
  "once_cell",
  "pvcam-sys",
@@ -2678,6 +2680,18 @@ version = "0.1.0"
 dependencies = [
  "abi_stable",
  "daq-plugin-api",
+]
+
+[[package]]
+name = "daq-pool"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "crossbeam-queue",
+ "parking_lot 0.12.5",
+ "tokio",
+ "tokio-test",
+ "tracing",
 ]
 
 [[package]]
