@@ -1481,6 +1481,10 @@ impl FrameProducer for PvcamDriver {
         (self.sensor_width, self.sensor_height)
     }
 
+    fn receiver_count(&self) -> usize {
+        self.acquisition.frame_tx.receiver_count()
+    }
+
     async fn subscribe_frames(&self) -> Option<tokio::sync::broadcast::Receiver<Arc<Frame>>> {
         Some(self.acquisition.frame_tx.subscribe())
     }

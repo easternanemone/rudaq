@@ -397,6 +397,17 @@ pub trait FrameProducer: Send + Sync {
         None
     }
 
+    /// Get the number of active frame subscribers
+    ///
+    /// # Returns
+    /// - Number of active receivers subscribed to the broadcast channel
+    ///
+    /// # Default Implementation
+    /// Returns 0 (subscriber tracking not supported)
+    fn receiver_count(&self) -> usize {
+        0
+    }
+
     /// Check if device is currently streaming frames
     ///
     /// # Returns

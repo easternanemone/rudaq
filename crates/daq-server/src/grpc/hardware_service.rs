@@ -1492,19 +1492,34 @@ impl HardwareService for HardwareServiceImpl {
                                 frames_sent = frames_sent,
                                 "Client disconnected from frame stream - gRPC send failed"
                             );
-                            // Graceful disconnect: stop acquisition when client disconnects (bd-cckz)
-                            if let Err(e) = frame_producer_clone.stop_stream().await {
-                                tracing::warn!(
-                                    device_id = %device_id_clone,
-                                    error = %e,
-                                    "Failed to stop stream on client disconnect"
-                                );
+                            
+                            // Graceful disconnect: stop acquisition when LAST client disconnects (bd-cckz)
+                            // Check receiver count to avoid killing stream for other subscribers (bd-race-fix)
+                            let subscriber_count = frame_producer_clone.receiver_count();
+                            
+                            // If count is <= 1 (just us) or 0 (not supported), stop the stream.
+                            // If count > 1, other subscribers exist, so keep streaming.
+                            if subscriber_count <= 1 {
+                                if let Err(e) = frame_producer_clone.stop_stream().await {
+                                    tracing::warn!(
+                                        device_id = %device_id_clone,
+                                        error = %e,
+                                        "Failed to stop stream on client disconnect"
+                                    );
+                                } else {
+                                    tracing::info!(
+                                        device_id = %device_id_clone,
+                                        "Stopped acquisition after last client disconnect"
+                                    );
+                                }
                             } else {
                                 tracing::info!(
                                     device_id = %device_id_clone,
-                                    "Stopped acquisition after client disconnect"
+                                    subscriber_count,
+                                    "Client disconnected but stream continues for other subscribers"
                                 );
                             }
+                            
                             exit_reason = "client_disconnected";
                             break;
                         }

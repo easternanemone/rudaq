@@ -1461,14 +1461,31 @@ impl ImageViewerPanel {
     /// Start streaming frames from a device (public API for external control)
     pub fn start_stream(&mut self, device_id: &str, client: &mut DaqClient, runtime: &Runtime) {
         // Cancel existing subscription and ensure server-side stream is stopped
+        // CRITICAL: Wait for this to complete to avoid duplicate stream subscriptions (bd-streaming-fix)
         if let Some(sub) = self.subscription.take() {
             let cancel_tx = sub.cancel_tx.clone();
             let mut client = client.clone();
             let old_device_id = sub.device_id.clone();
-            runtime.spawn(async move {
+            tracing::info!(
+                old_device = %old_device_id,
+                new_device = %device_id,
+                "Cancelling existing stream before starting new one"
+            );
+            // Block on cancellation to prevent race condition where both old and new
+            // streams coexist, causing the stale stream to trigger stop_stream on disconnect
+            runtime.block_on(async move {
                 let _ = cancel_tx.send(()).await;
-                let _ = client.stop_stream(&old_device_id).await;
+                // Give the streaming task a moment to process the cancel
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                if let Err(e) = client.stop_stream(&old_device_id).await {
+                    tracing::debug!(
+                        device = %old_device_id,
+                        error = %e,
+                        "Error stopping old stream (may already be stopped)"
+                    );
+                }
             });
+            tracing::info!("Old stream cancelled, proceeding with new stream");
         }
 
         self.device_id = Some(device_id.to_string());
