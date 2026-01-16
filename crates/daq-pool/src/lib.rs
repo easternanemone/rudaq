@@ -48,9 +48,13 @@
 //! ```
 
 pub mod buffer_pool;
+pub mod frame_data;
 
 // Re-export buffer pool types for convenience
 pub use buffer_pool::{BufferPool, PooledBuffer};
+
+// Re-export frame data type for use by drivers
+pub use frame_data::FrameData;
 
 use crossbeam_queue::SegQueue;
 use parking_lot::RwLock;

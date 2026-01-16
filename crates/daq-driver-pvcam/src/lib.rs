@@ -10,7 +10,8 @@ pub mod components;
 use anyhow::Result;
 use async_trait::async_trait;
 use daq_core::capabilities::{
-    Commandable, ExposureControl, Frame, FrameProducer, Parameterized, Triggerable,
+    Commandable, ExposureControl, Frame, FrameObserver, FrameProducer, ObserverHandle,
+    Parameterized, Triggerable,
 };
 use daq_core::core::Roi;
 use daq_core::error::DaqError;
@@ -34,6 +35,7 @@ pub use crate::components::features::PvcamFeatures;
 use crate::components::acquisition::PvcamAcquisition;
 use crate::components::connection::PvcamConnection;
 use crate::components::speed_table::SpeedTable;
+use crate::components::taps::ObserverAdapter;
 #[cfg(feature = "pvcam_sdk")]
 use pvcam_sys::*;
 
@@ -609,7 +611,7 @@ impl PvcamDriver {
         let shutter_status_param = driver.shutter_status.clone();
 
         let readout_time_param = driver.readout_time_us.clone();
-        let pixel_time_param = driver.pixel_time_ns.clone();
+        let _pixel_time_param = driver.pixel_time_ns.clone();
         let clearing_time_param = driver.clearing_time_us.clone();
         let pre_trigger_param = driver.pre_trigger_delay_us.clone();
         let post_trigger_param = driver.post_trigger_delay_us.clone();
@@ -1495,6 +1497,29 @@ impl FrameProducer for PvcamDriver {
 
     fn frame_count(&self) -> u64 {
         self.acquisition.frame_count.load(Ordering::SeqCst)
+    }
+
+    // bd-0dax.4: Observer registration for gRPC/external consumers
+    async fn register_observer(
+        &self,
+        observer: Box<dyn FrameObserver>,
+    ) -> Option<ObserverHandle> {
+        // Wrap the generic observer in our adapter to convert to internal FrameTap
+        let adapter = ObserverAdapter::new(observer);
+        let tap_handle = self.acquisition.tap_registry.register(Box::new(adapter));
+
+        // Convert internal TapHandle to generic ObserverHandle
+        Some(ObserverHandle(tap_handle.id()))
+    }
+
+    async fn unregister_observer(&self, handle: ObserverHandle) -> bool {
+        // Convert generic ObserverHandle to internal TapHandle
+        let tap_handle = crate::components::taps::TapHandle::from_id(handle.0);
+        self.acquisition.tap_registry.unregister(tap_handle)
+    }
+
+    fn supports_observers(&self) -> bool {
+        true
     }
 }
 

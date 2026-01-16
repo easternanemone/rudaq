@@ -290,6 +290,103 @@ pub trait ExposureControl: Send + Sync {
     async fn get_exposure(&self) -> Result<f64>;
 }
 
+// ============================================================================
+// Frame Observer Pattern (bd-0dax.4)
+// ============================================================================
+
+/// Handle returned when registering a frame observer, used for unregistration.
+///
+/// This is an opaque handle - the internal ID is implementation-specific.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ObserverHandle(pub u64);
+
+impl ObserverHandle {
+    /// Create a new observer handle with the given ID.
+    #[must_use]
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
+
+    /// Get the internal ID (for debugging/logging).
+    #[must_use]
+    pub fn id(&self) -> u64 {
+        self.0
+    }
+}
+
+/// Trait for synchronous frame observers (bd-0dax.4).
+///
+/// Frame observers receive a reference to each frame during acquisition,
+/// allowing for non-blocking inspection before the frame is delivered to
+/// primary consumers.
+///
+/// # Contract
+///
+/// - `on_frame()` MUST NOT block
+/// - `on_frame()` MUST complete quickly (< 1ms recommended)
+/// - To persist data, implementations MUST copy to their own buffer
+/// - Implementations MUST handle backpressure internally (drop if slow)
+///
+/// # Safety
+///
+/// The frame reference is only valid for the duration of the `on_frame()` call.
+/// Implementations must not store the reference or attempt to extend its lifetime.
+///
+/// # Deadlock Warning
+///
+/// **NEVER call `unregister_observer()` from within `on_frame()`!**
+///
+/// The frame loop holds a read lock while iterating over observers. Calling
+/// `unregister_observer()` from within a callback will attempt to acquire a write
+/// lock, causing a deadlock. If you need to unregister based on frame content:
+///
+/// 1. Set a flag in your observer during `on_frame()`
+/// 2. Check the flag from another task/thread and call `unregister_observer()` there
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use daq_core::capabilities::{FrameObserver, ObserverHandle};
+/// use daq_core::data::Frame;
+///
+/// struct DecimatedObserver {
+///     interval: u64,
+///     count: AtomicU64,
+///     tx: mpsc::Sender<Vec<u8>>,
+/// }
+///
+/// impl FrameObserver for DecimatedObserver {
+///     fn on_frame(&self, frame: &Frame) {
+///         let count = self.count.fetch_add(1, Ordering::Relaxed);
+///         if count % self.interval == 0 {
+///             // Copy pixel data for persistence (required - can't hold reference)
+///             let pixels = frame.pixels().to_vec();
+///             let _ = self.tx.try_send(pixels); // Non-blocking
+///         }
+///     }
+///
+///     fn name(&self) -> &str {
+///         "decimated_observer"
+///     }
+/// }
+/// ```
+pub trait FrameObserver: Send + Sync {
+    /// Called synchronously for each frame during acquisition.
+    ///
+    /// This method is called from the frame loop before the frame is
+    /// delivered to primary consumers. It MUST NOT block.
+    ///
+    /// # Arguments
+    ///
+    /// - `frame`: Reference to the frame (valid only for this call)
+    fn on_frame(&self, frame: &crate::data::Frame);
+
+    /// Optional: Return a descriptive name for this observer (for debugging/logging).
+    fn name(&self) -> &str {
+        "unnamed_observer"
+    }
+}
+
 /// Capability: Frame/Image Production
 ///
 /// Devices that produce 2D image frames (cameras, beam profilers).
@@ -430,6 +527,74 @@ pub trait FrameProducer: Send + Sync {
     /// Returns 0 (no frame count tracking)
     fn frame_count(&self) -> u64 {
         0
+    }
+
+    // ========================================================================
+    // Frame Observer Methods (bd-0dax.4)
+    // ========================================================================
+
+    /// Register a frame observer for synchronous frame inspection.
+    ///
+    /// Observers are called synchronously for each frame before the frame
+    /// is delivered to primary consumers (broadcast channel, storage, etc.).
+    ///
+    /// # Arguments
+    ///
+    /// - `observer`: The observer implementation to register
+    ///
+    /// # Returns
+    ///
+    /// - `Some(handle)` if registration succeeded (device supports observers)
+    /// - `None` if observers are not supported by this device
+    ///
+    /// # Default Implementation
+    ///
+    /// Returns `None` (observers not supported).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let handle = device.register_observer(Box::new(my_observer)).await?;
+    /// // ... streaming ...
+    /// device.unregister_observer(handle).await;
+    /// ```
+    async fn register_observer(
+        &self,
+        _observer: Box<dyn FrameObserver>,
+    ) -> Option<ObserverHandle> {
+        None // Default: observers not supported
+    }
+
+    /// Unregister a previously registered frame observer.
+    ///
+    /// # Arguments
+    ///
+    /// - `handle`: The handle returned from `register_observer()`
+    ///
+    /// # Returns
+    ///
+    /// - `true` if the observer was found and removed
+    /// - `false` if the handle was not found or observers not supported
+    ///
+    /// # Default Implementation
+    ///
+    /// Returns `false` (observers not supported).
+    async fn unregister_observer(&self, _handle: ObserverHandle) -> bool {
+        false // Default: observers not supported
+    }
+
+    /// Check if this device supports frame observers.
+    ///
+    /// # Returns
+    ///
+    /// - `true` if `register_observer()` will return a handle
+    /// - `false` if observers are not supported
+    ///
+    /// # Default Implementation
+    ///
+    /// Returns `false`.
+    fn supports_observers(&self) -> bool {
+        false
     }
 }
 

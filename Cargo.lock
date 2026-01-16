@@ -2648,6 +2648,7 @@ dependencies = [
  "daq-pool",
  "lazy_static",
  "once_cell",
+ "parking_lot 0.12.5",
  "pvcam-sys",
  "serde_json",
  "tokio",

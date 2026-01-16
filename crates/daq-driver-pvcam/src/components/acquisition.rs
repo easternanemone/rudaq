@@ -53,6 +53,7 @@ use crate::components::connection::get_pvcam_error;
 use crate::components::connection::PvcamConnection;
 #[cfg(feature = "pvcam_sdk")]
 use crate::components::features::PvcamFeatures;
+use crate::components::taps::TapRegistry;
 use anyhow::{anyhow, bail, Result};
 #[cfg(feature = "pvcam_sdk")]
 use bytes::Bytes;
@@ -1037,6 +1038,10 @@ pub struct PvcamAcquisition {
     pub frame_tx: tokio::sync::broadcast::Sender<Arc<Frame>>,
     pub reliable_tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<Arc<Frame>>>>>,
 
+    /// Tap registry for synchronous frame observers (bd-0dax.4).
+    /// Taps are called with borrowed frame references before broadcast.
+    pub tap_registry: Arc<TapRegistry>,
+
     /// Optional metadata channel for hardware timestamps (Gemini SDK review).
     /// When enabled, each frame's decoded metadata is sent here alongside the frame data.
     #[cfg(feature = "pvcam_sdk")]
@@ -1111,6 +1116,9 @@ impl PvcamAcquisition {
             frame_count: Arc::new(AtomicU64::new(0)),
             frame_tx,
             reliable_tx: Arc::new(Mutex::new(None)),
+
+            // Tap registry for synchronous frame observers (bd-0dax.4)
+            tap_registry: Arc::new(TapRegistry::new()),
 
             // Metadata channel and state (Gemini SDK review)
             #[cfg(feature = "pvcam_sdk")]
@@ -1998,6 +2006,9 @@ impl PvcamAcquisition {
             let roi_x = roi.x;
             let roi_y = roi.y;
 
+            // bd-0dax.4: Clone tap registry for frame observers
+            let tap_registry = self.tap_registry.clone();
+
             // bd-g6pr: Create completion channel for poll thread synchronization.
             // Drop will wait on this receiver before calling FFI cleanup functions,
             // preventing the race where pl_exp_stop_cont is called while
@@ -2044,7 +2055,8 @@ impl PvcamAcquisition {
                     circ_ptr_restored, // bd-3gnv: Pass buffer for auto-restart
                     circ_size_bytes,   // bd-3gnv: Pass size for auto-restart
                     circ_overwrite,
-                    buffer_pool, // bd-0dax.4: Buffer pool for true zero-allocation
+                    buffer_pool,  // bd-0dax.4: Buffer pool for true zero-allocation
+                    tap_registry, // bd-0dax.4: For synchronous tap observers
                 );
             });
 
@@ -2114,7 +2126,7 @@ impl PvcamAcquisition {
             .map_err(|_| anyhow!("Timed out waiting for frame"))?
             .map_err(|e| anyhow!("Frame channel closed: {e}"))?;
 
-        let _ = self.stop_stream(&**conn).await;
+        let _ = self.stop_stream(conn).await;
         Ok((*frame).clone())
     }
 
@@ -2128,6 +2140,7 @@ impl PvcamAcquisition {
         let streaming = self.streaming.clone();
         let frame_tx = self.frame_tx.clone();
         let frame_count = self.frame_count.clone();
+        let tap_registry = self.tap_registry.clone(); // bd-0dax.4: For tap observers
         let (x_bin, y_bin) = binning;
 
         tokio::spawn(async move {
@@ -2164,6 +2177,9 @@ impl PvcamAcquisition {
                         .with_roi_offset(roi.x, roi.y)
                         .with_metadata(ext_metadata),
                 );
+
+                // bd-0dax.4: Run taps SYNCHRONOUSLY before broadcast (observers get &Frame)
+                tap_registry.apply_frame_with_pixels(&frame);
 
                 // CRITICAL: Broadcast first, then reliable (matches hardware path)
                 // This ensures GUI streaming gets frames regardless of pipeline state
@@ -2309,6 +2325,7 @@ impl PvcamAcquisition {
         let frame_tx = self.frame_tx.clone();
         let frame_count = self.frame_count.clone();
         let lost_frames = self.lost_frames.clone();
+        let tap_registry = self.tap_registry.clone(); // bd-0dax.4: For tap observers
         let width = binned_width;
         let height = binned_height;
         let roi_x = roi.x;
@@ -2342,6 +2359,7 @@ impl PvcamAcquisition {
                 roi_y,
                 binning,
                 done_tx,
+                tap_registry, // bd-0dax.4: For tap observers
             );
         });
 
@@ -2372,6 +2390,7 @@ impl PvcamAcquisition {
         roi_y: u32,
         binning: (u16, u16),
         done_tx: std::sync::mpsc::Sender<()>,
+        tap_registry: Arc<TapRegistry>, // bd-0dax.4: For synchronous tap observers
     ) {
         // Main sequence loop
         let mut total_frames: u64 = 0;
@@ -2461,6 +2480,9 @@ impl PvcamAcquisition {
                                 .with_roi_offset(roi_x, roi_y)
                                 .with_metadata(ext_metadata),
                         );
+
+                        // bd-0dax.4: Run taps SYNCHRONOUSLY before broadcast
+                        tap_registry.apply_frame_with_pixels(&frame);
 
                         // Send to channels
                         let _ = frame_tx.send(frame.clone());
@@ -2588,6 +2610,7 @@ impl PvcamAcquisition {
         _circ_size_bytes: u32,
         circ_overwrite: bool,
         buffer_pool: BufferPool, // bd-0dax.4: Buffer pool for true zero-allocation
+        tap_registry: Arc<TapRegistry>, // bd-0dax.4: For synchronous tap observers
     ) {
         let loop_span = tracing::debug_span!(
             "pvcam_frame_loop",
@@ -3329,6 +3352,10 @@ impl PvcamAcquisition {
                         );
                     }
                 }
+
+                // bd-0dax.4: Run taps SYNCHRONOUSLY before broadcast (observers get &Frame)
+                tap_registry.apply_frame_with_pixels(&*frame_arc);
+
                 let _ = frame_tx.send(frame_arc.clone());
 
                 // Reliable path: use try_send to avoid blocking the frame loop
