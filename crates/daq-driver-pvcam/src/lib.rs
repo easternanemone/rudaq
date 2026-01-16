@@ -617,10 +617,23 @@ impl PvcamDriver {
         let exposure_param = driver.exposure_ms.clone();
 
         let conn_poll = connection.clone();
+        // Critical fix (ADR-pvcam-continuous-acquisition, 2026-01-12):
+        // Skip drift polling while streaming to prevent SDK callback corruption.
+        // pl_get_param() calls during continuous acquisition corrupt callback state.
+        let streaming_check = driver.streaming.clone();
         tokio::spawn(async move {
             tracing::debug!("Starting PVCAM drift polling task");
             loop {
                 tokio::time::sleep(Duration::from_secs(2)).await;
+
+                // CRITICAL: Skip all SDK calls while streaming is active (bd-nzcq)
+                // Calling pl_get_param during acquisition corrupts the SDK's
+                // internal callback state, causing READOUT_NOT_ACTIVE and no further callbacks.
+                if streaming_check.get() {
+                    tracing::trace!("Drift polling skipped (streaming active)");
+                    continue;
+                }
+
                 let conn_guard = conn_poll.lock().await;
 
                 // Poll Temperature
