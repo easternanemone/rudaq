@@ -1362,51 +1362,54 @@ pub async fn start_server_with_hardware(
     }
 
     // Setup Rerun Visualization (gRPC server mode for remote GUI clients)
-    // Port 9876 is the default Rerun gRPC port
-    // same_machine=false enables higher memory limits for remote clients
-    let rerun_bind = std::env::var("RERUN_BIND").unwrap_or_else(|_| "0.0.0.0".to_string());
-    let rerun_port: u16 = std::env::var("RERUN_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(9876);
-    match crate::rerun_sink::RerunSink::new_server(&rerun_bind, rerun_port, false) {
-        Ok(rerun) => {
-            println!(
-                "  - Rerun Visualization: Active (gRPC server on {}:{})",
-                rerun_bind, rerun_port
-            );
-
-            // Optional blueprint: default path or override via RERUN_BLUEPRINT
-            let blueprint_choice = std::env::var("RERUN_BLUEPRINT")
-                .unwrap_or_else(|_| "crates/daq-server/blueprints/daq_default.rbl".to_string());
-            let skip_blueprint = matches!(
-                blueprint_choice.to_ascii_lowercase().as_str(),
-                "none" | "off" | "skip"
-            );
-
-            if skip_blueprint {
+    #[cfg(feature = "rerun_sink")]
+    {
+        // Port 9876 is the default Rerun gRPC port
+        // same_machine=false enables higher memory limits for remote clients
+        let rerun_bind = std::env::var("RERUN_BIND").unwrap_or_else(|_| "0.0.0.0".to_string());
+        let rerun_port: u16 = std::env::var("RERUN_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(9876);
+        match crate::rerun_sink::RerunSink::new_server(&rerun_bind, rerun_port, false) {
+            Ok(rerun) => {
                 println!(
-                    "    - Blueprint: skipped (RERUN_BLUEPRINT={})",
-                    blueprint_choice
+                    "  - Rerun Visualization: Active (gRPC server on {}:{})",
+                    rerun_bind, rerun_port
                 );
-            } else {
-                match rerun.load_blueprint_if_exists(&blueprint_choice) {
-                    Ok(true) => println!("    - Blueprint: {}", blueprint_choice),
-                    Ok(false) => println!(
-                        "    - Blueprint: not found at {} (generate with `python crates/daq-server/blueprints/generate_blueprints.py`)",
-                        blueprint_choice
-                    ),
-                    Err(e) => eprintln!(
-                        "Warning: Failed to load blueprint {}: {}",
-                        blueprint_choice, e
-                    ),
-                }
-            }
 
-            rerun.monitor_broadcast(control_server.data_sender().subscribe());
-        }
-        Err(e) => {
-            eprintln!("Warning: Failed to start Rerun visualization: {}", e);
+                // Optional blueprint: default path or override via RERUN_BLUEPRINT
+                let blueprint_choice = std::env::var("RERUN_BLUEPRINT")
+                    .unwrap_or_else(|_| "crates/daq-server/blueprints/daq_default.rbl".to_string());
+                let skip_blueprint = matches!(
+                    blueprint_choice.to_ascii_lowercase().as_str(),
+                    "none" | "off" | "skip"
+                );
+
+                if skip_blueprint {
+                    println!(
+                        "    - Blueprint: skipped (RERUN_BLUEPRINT={})",
+                        blueprint_choice
+                    );
+                } else {
+                    match rerun.load_blueprint_if_exists(&blueprint_choice) {
+                        Ok(true) => println!("    - Blueprint: {}", blueprint_choice),
+                        Ok(false) => println!(
+                            "    - Blueprint: not found at {} (generate with `python crates/daq-server/blueprints/generate_blueprints.py`)",
+                            blueprint_choice
+                        ),
+                        Err(e) => eprintln!(
+                            "Warning: Failed to load blueprint {}: {}",
+                            blueprint_choice, e
+                        ),
+                    }
+                }
+
+                rerun.monitor_broadcast(control_server.data_sender().subscribe());
+            }
+            Err(e) => {
+                eprintln!("Warning: Failed to start Rerun visualization: {}", e);
+            }
         }
     }
 
