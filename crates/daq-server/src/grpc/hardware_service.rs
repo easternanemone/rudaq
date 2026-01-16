@@ -1287,7 +1287,7 @@ impl HardwareService for HardwareServiceImpl {
                         }
 
                         // Validate frame dimensions to prevent buffer overflows (bd-7rk0)
-                        let bytes_per_pixel = (frame.bit_depth as usize + 7) / 8;
+                        let bytes_per_pixel = (frame.bit_depth as usize).div_ceil(8);
                         let expected_size = (frame.width as usize)
                             .saturating_mul(frame.height as usize)
                             .saturating_mul(bytes_per_pixel);
@@ -1332,68 +1332,100 @@ impl HardwareService for HardwareServiceImpl {
                             avg_latency_ms,
                         };
 
-                        // Apply server-side downsampling based on quality setting
-                        // This reduces bandwidth for preview/fast modes while preserving full resolution when needed
-                        let (frame_data_vec, effective_width, effective_height) = match quality {
-                            StreamQuality::Preview => {
-                                downsample_2x2(&frame.data, frame.width, frame.height)
-                            }
-                            StreamQuality::Fast => {
-                                downsample_4x4(&frame.data, frame.width, frame.height)
-                            }
-                            StreamQuality::Full => (frame.data.to_vec(), frame.width, frame.height),
-                        };
+                        // Extract frame data for CPU-heavy processing (bd-v9v2: spawn_blocking)
+                        // Clone Bytes (cheap ref-count increment) and primitives for move into blocking task
+                        let frame_data_bytes = frame.data.clone();
+                        let frame_width = frame.width;
+                        let frame_height = frame.height;
+                        let frame_bit_depth = frame.bit_depth;
+                        let frame_number = frame.frame_number;
+                        let frame_timestamp_ns = frame.timestamp_ns;
+                        let frame_exposure_ms = frame.exposure_ms;
+                        let frame_roi_x = frame.roi_x;
+                        let frame_roi_y = frame.roi_y;
+                        let frame_metadata = frame.metadata.clone();
+                        let device_id_for_frame = device_id_clone.clone();
 
-                        // Convert Arc<Frame> to FrameData proto (bd-183h: propagate driver metadata)
-                        // Use driver-provided timestamps and frame numbers for accurate timing
-                        let mut frame_data = FrameData {
-                            device_id: device_id_clone.clone(),
-                            width: effective_width,
-                            height: effective_height,
-                            bit_depth: frame.bit_depth,
-                            data: frame_data_vec,
-                            // Use driver-provided frame number and timestamp (bd-183h)
-                            frame_number: frame.frame_number,
-                            timestamp_ns: frame.timestamp_ns,
-                            exposure_ms: frame.exposure_ms,
-                            // ROI offset (bd-183h)
-                            roi_x: frame.roi_x,
-                            roi_y: frame.roi_y,
-                            // Extended metadata (bd-183h)
-                            temperature_c: frame.metadata.as_ref().and_then(|m| m.temperature_c),
-                            gain_mode: frame.metadata.as_ref().and_then(|m| m.gain_mode.clone()),
-                            readout_speed: frame
-                                .metadata
-                                .as_ref()
-                                .and_then(|m| m.readout_speed.clone()),
-                            trigger_mode: frame
-                                .metadata
-                                .as_ref()
-                                .and_then(|m| m.trigger_mode.clone()),
-                            binning_x: frame
-                                .metadata
-                                .as_ref()
-                                .and_then(|m| m.binning.map(|(x, _)| x as u32)),
-                            binning_y: frame
-                                .metadata
-                                .as_ref()
-                                .and_then(|m| m.binning.map(|(_, y)| y as u32)),
-                            metadata: frame
-                                .metadata
-                                .as_ref()
-                                .map(|m| m.extra.clone())
-                                .unwrap_or_default(),
-                            metrics: Some(metrics),
-                            // Compression fields initialized as uncompressed (bd-7rk0)
-                            compression: CompressionType::CompressionNone as i32,
-                            uncompressed_size: 0,
-                        };
+                        // Offload CPU-intensive downsampling and compression to blocking thread pool
+                        // This prevents starving the tokio executor under high frame rates (bd-v9v2)
+                        let processing_result = tokio::task::spawn_blocking(move || {
+                            // Apply server-side downsampling based on quality setting
+                            let (frame_data_vec, effective_width, effective_height) = match quality
+                            {
+                                StreamQuality::Preview => {
+                                    downsample_2x2(&frame_data_bytes, frame_width, frame_height)
+                                }
+                                StreamQuality::Fast => {
+                                    downsample_4x4(&frame_data_bytes, frame_width, frame_height)
+                                }
+                                StreamQuality::Full => {
+                                    (frame_data_bytes.to_vec(), frame_width, frame_height)
+                                }
+                            };
 
-                        // Apply LZ4 compression to reduce bandwidth (bd-7rk0: gRPC improvements)
-                        // This typically achieves 3-5x compression on camera data
-                        let uncompressed_size = frame_data.data.len();
-                        crate::grpc::compression::compress_frame(&mut frame_data);
-                        let compressed_size = frame_data.data.len();
+                            // Build FrameData proto (bd-183h: propagate driver metadata)
+                            let mut frame_data = FrameData {
+                                device_id: device_id_for_frame,
+                                width: effective_width,
+                                height: effective_height,
+                                bit_depth: frame_bit_depth,
+                                data: frame_data_vec,
+                                frame_number,
+                                timestamp_ns: frame_timestamp_ns,
+                                exposure_ms: frame_exposure_ms,
+                                roi_x: frame_roi_x,
+                                roi_y: frame_roi_y,
+                                temperature_c: frame_metadata
+                                    .as_ref()
+                                    .and_then(|m| m.temperature_c),
+                                gain_mode: frame_metadata
+                                    .as_ref()
+                                    .and_then(|m| m.gain_mode.clone()),
+                                readout_speed: frame_metadata
+                                    .as_ref()
+                                    .and_then(|m| m.readout_speed.clone()),
+                                trigger_mode: frame_metadata
+                                    .as_ref()
+                                    .and_then(|m| m.trigger_mode.clone()),
+                                binning_x: frame_metadata
+                                    .as_ref()
+                                    .and_then(|m| m.binning.map(|(x, _)| x as u32)),
+                                binning_y: frame_metadata
+                                    .as_ref()
+                                    .and_then(|m| m.binning.map(|(_, y)| y as u32)),
+                                metadata: frame_metadata
+                                    .as_ref()
+                                    .map(|m| m.extra.clone())
+                                    .unwrap_or_default(),
+                                metrics: Some(metrics),
+                                compression: CompressionType::CompressionNone as i32,
+                                uncompressed_size: 0,
+                            };
+
+                            // Apply LZ4 compression (bd-7rk0: gRPC improvements)
+                            let uncompressed_size = frame_data.data.len();
+                            crate::grpc::compression::compress_frame(&mut frame_data);
+                            let compressed_size = frame_data.data.len();
+
+                            (frame_data, uncompressed_size, compressed_size)
+                        })
+                        .await;
+
+                        // Handle spawn_blocking result (bd-v9v2)
+                        let (frame_data, uncompressed_size, compressed_size) =
+                            match processing_result {
+                                Ok(result) => result,
+                                Err(e) => {
+                                    tracing::error!(
+                                        device_id = %device_id_clone,
+                                        error = %e,
+                                        "Frame processing task panicked or was cancelled"
+                                    );
+                                    // Skip this frame but continue streaming
+                                    frames_dropped = frames_dropped.saturating_add(1);
+                                    continue;
+                                }
+                            };
 
                         if tx.send(Ok(frame_data)).await.is_err() {
                             tracing::info!(device_id = %device_id_clone, "Client disconnected from frame stream");
@@ -1413,7 +1445,7 @@ impl HardwareService for HardwareServiceImpl {
                             break;
                         }
 
-                        frames_sent += 1;
+                        // Log compression stats every 30 frames (frames_sent already incremented above)
                         if frames_sent.is_multiple_of(30) {
                             let ratio = if compressed_size > 0 {
                                 uncompressed_size as f64 / compressed_size as f64

@@ -20,7 +20,7 @@
 /// Returns original data if dimensions are odd or data size doesn't match expected.
 pub fn downsample_2x2(data: &[u8], width: u32, height: u32) -> (Vec<u8>, u32, u32) {
     // Validate dimensions are even (return original if not)
-    if width % 2 != 0 || height % 2 != 0 {
+    if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
         return (data.to_vec(), width, height);
     }
 
@@ -77,7 +77,7 @@ pub fn downsample_2x2(data: &[u8], width: u32, height: u32) -> (Vec<u8>, u32, u3
 /// Returns original data if dimensions aren't divisible by 4 or data size doesn't match.
 pub fn downsample_4x4(data: &[u8], width: u32, height: u32) -> (Vec<u8>, u32, u32) {
     // Validate dimensions are divisible by 4 (return original if not)
-    if width % 4 != 0 || height % 4 != 0 {
+    if !width.is_multiple_of(4) || !height.is_multiple_of(4) {
         return (data.to_vec(), width, height);
     }
 
