@@ -5,6 +5,8 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::client::DaqClient;
+use crate::icons;
+use crate::layout;
 use crate::widgets::{
     filter_parameters, group_parameters_by_prefix, offline_notice, OfflineContext, ParameterCache,
 };
@@ -125,8 +127,10 @@ pub struct DevicesPanel {
     param_errors: std::collections::HashMap<(String, String), String>,
     /// Receiver for async parameter load results
     param_load_rx: Option<mpsc::Receiver<ParamLoadResult>>,
+    /// Sender for async parameter set results (persistent, cloned per request)
+    param_set_tx: mpsc::Sender<ParamSetResult>,
     /// Receiver for async parameter set results
-    param_set_rx: Option<mpsc::Receiver<ParamSetResult>>,
+    param_set_rx: mpsc::Receiver<ParamSetResult>,
     /// Device ID currently loading parameters (for UI indicator)
     loading_params_device: Option<String>,
     /// Parameters currently being set (device_id, param_name) for UI indicator
@@ -142,6 +146,8 @@ pub struct DevicesPanel {
 impl Default for DevicesPanel {
     fn default() -> Self {
         let (action_tx, action_rx) = mpsc::channel(16);
+        // Persistent channel for parameter set results - sender is cloned per request
+        let (param_set_tx, param_set_rx) = mpsc::channel(32);
         Self {
             devices: Vec::new(),
             selected_device: None,
@@ -157,7 +163,8 @@ impl Default for DevicesPanel {
             param_edit_buffers: std::collections::HashMap::new(),
             param_errors: std::collections::HashMap::new(),
             param_load_rx: None,
-            param_set_rx: None,
+            param_set_tx,
+            param_set_rx,
             loading_params_device: None,
             setting_params: std::collections::HashSet::new(),
             show_advanced: false,
@@ -167,8 +174,36 @@ impl Default for DevicesPanel {
     }
 }
 
+fn infer_device_icon(info: &daq_proto::daq::DeviceInfo) -> &'static str {
+    if info.is_frame_producer {
+        return icons::device::CAMERA;
+    }
+    if info.is_movable {
+        return icons::device::MOTOR;
+    }
+
+    let name_lower = info.name.to_lowercase();
+    let driver_lower = info.driver_type.to_lowercase();
+
+    if name_lower.contains("camera") || driver_lower.contains("pvcam") {
+        icons::device::CAMERA
+    } else if name_lower.contains("stage")
+        || name_lower.contains("motor")
+        || driver_lower.contains("esp")
+    {
+        icons::device::MOTOR
+    } else if name_lower.contains("sensor") || name_lower.contains("meter") || info.is_readable {
+        icons::device::SENSOR
+    } else if name_lower.contains("laser") || driver_lower.contains("maitai") {
+        icons::device::LASER
+    } else if name_lower.contains("daq") || driver_lower.contains("comedi") {
+        icons::device::DAQ
+    } else {
+        icons::device::GENERIC
+    }
+}
+
 impl DevicesPanel {
-    /// Poll for completed async operations (non-blocking)
     fn poll_async_results(&mut self, ctx: &egui::Context) {
         // Poll device action results
         let mut updated = false;
@@ -275,9 +310,9 @@ impl DevicesPanel {
             }
         }
 
-        // Poll parameter set results
-        if let Some(rx) = &mut self.param_set_rx {
-            match rx.try_recv() {
+        // Poll parameter set results (persistent channel - drain all available)
+        loop {
+            match self.param_set_rx.try_recv() {
                 Ok(result) => {
                     let key = (result.device_id.clone(), result.param_name.clone());
                     self.setting_params.remove(&key);
@@ -308,15 +343,20 @@ impl DevicesPanel {
                     ctx.request_repaint();
                 }
                 Err(mpsc::error::TryRecvError::Empty) => {
-                    // Still setting, request repaint to poll again
-                    ctx.request_repaint();
+                    // No more results available
+                    break;
                 }
                 Err(mpsc::error::TryRecvError::Disconnected) => {
-                    // Channel closed, clear all setting states
+                    // Channel closed (shouldn't happen with persistent channel)
                     self.setting_params.clear();
-                    self.param_set_rx = None;
+                    break;
                 }
             }
+        }
+
+        // Request repaint if we're waiting for parameter set results
+        if !self.setting_params.is_empty() {
+            ctx.request_repaint();
         }
 
         if self.action_in_flight > 0 || updated {
@@ -373,17 +413,58 @@ impl DevicesPanel {
             columns[0].separator();
 
             if self.devices.is_empty() {
-                columns[0].label("No devices found. Click Refresh to load.");
+                // Empty state with icon (bd-ennc)
+                columns[0].vertical_centered(|ui| {
+                    ui.add_space(layout::SECTION_SPACING);
+                    ui.label(
+                        egui::RichText::new(icons::status::INFO).size(layout::ICON_SIZE_LARGE),
+                    );
+                    ui.add_space(4.0);
+                    ui.label("No devices found");
+                    ui.weak("Click Refresh to load devices");
+                });
             } else {
                 egui::ScrollArea::vertical()
                     .id_salt("device_list")
                     .show(&mut columns[0], |ui| {
-                        for device in &self.devices {
-                            let selected = self.selected_device.as_ref() == Some(&device.info.id);
-                            let label =
-                                format!("{} ({})", device.info.name, device.info.driver_type);
+                        for (idx, device) in self.devices.iter().enumerate() {
+                            if idx > 0 {
+                                ui.add_space(layout::SECTION_SPACING);
+                            }
 
-                            if ui.selectable_label(selected, &label).clicked() {
+                            let selected = self.selected_device.as_ref() == Some(&device.info.id);
+                            let is_online = device.state.as_ref().map_or(false, |s| s.online);
+
+                            let mut frame = layout::card_frame(ui);
+                            if selected {
+                                frame =
+                                    frame.stroke(egui::Stroke::new(2.0, layout::colors::ACCENT));
+                            }
+
+                            let response = frame.show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    let icon = infer_device_icon(&device.info);
+                                    ui.label(
+                                        egui::RichText::new(icon).size(layout::ICON_SIZE_BUTTON),
+                                    );
+
+                                    ui.vertical(|ui| {
+                                        ui.horizontal(|ui| {
+                                            let status_color = if is_online {
+                                                layout::colors::CONNECTED
+                                            } else {
+                                                layout::colors::DISCONNECTED
+                                            };
+                                            let dot = egui::RichText::new("●").color(status_color);
+                                            ui.label(dot);
+                                            ui.strong(&device.info.name);
+                                        });
+                                        ui.weak(&device.info.driver_type);
+                                    });
+                                });
+                            });
+
+                            if response.response.interact(egui::Sense::click()).clicked() {
                                 self.selected_device = Some(device.info.id.clone());
                             }
                         }
@@ -1238,57 +1319,8 @@ impl DevicesPanel {
         // Mark as setting
         self.setting_params.insert(buffer_key);
 
-        // Create or reuse channel for results
-        // Use take() to properly replace the receiver if it exists
-        let tx = if self.param_set_rx.is_some() {
-            // Poll any remaining results before replacing channel
-            // This ensures we don't lose in-flight operations
-            while let Some(rx) = &mut self.param_set_rx {
-                match rx.try_recv() {
-                    Ok(result) => {
-                        // Process any pending result before channel replacement
-                        let key = (result.device_id.clone(), result.param_name.clone());
-                        self.setting_params.remove(&key);
-
-                        if result.success {
-                            if let Some(device) = self
-                                .devices
-                                .iter_mut()
-                                .find(|d| d.info.id == result.device_id)
-                            {
-                                if let Some(param) = device
-                                    .parameters
-                                    .iter_mut()
-                                    .find(|p| p.descriptor.name == result.param_name)
-                                {
-                                    param.update_value(result.actual_value.clone());
-                                }
-                            }
-                            let unquoted = result.actual_value.trim_matches('"').to_string();
-                            self.param_edit_buffers.insert(key.clone(), unquoted);
-                            self.param_errors.remove(&key);
-                        } else if let Some(err) = result.error {
-                            self.param_errors.insert(key, err);
-                        }
-                    }
-                    Err(mpsc::error::TryRecvError::Empty) => break,
-                    Err(mpsc::error::TryRecvError::Disconnected) => {
-                        self.param_set_rx = None;
-                        break;
-                    }
-                }
-            }
-
-            // Now safely replace the channel
-            self.param_set_rx.take();
-            let (new_tx, new_rx) = mpsc::channel(16);
-            self.param_set_rx = Some(new_rx);
-            new_tx
-        } else {
-            let (tx, rx) = mpsc::channel(16);
-            self.param_set_rx = Some(rx);
-            tx
-        };
+        // Clone the persistent sender - this preserves all in-flight responses
+        let tx = self.param_set_tx.clone();
 
         // Spawn async task
         runtime.spawn(async move {

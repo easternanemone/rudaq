@@ -106,7 +106,10 @@ Common connection errors and their meaning:
 | `connection.rs` | `DaemonAddress`, URL normalization, persistence |
 | `reconnect.rs` | `ConnectionManager`, `ConnectionState`, auto-reconnect logic |
 | `app.rs` | Main application, egui integration |
-| `widgets/offline_notice.rs` | Offline mode UI components |
+| `icons.rs` | Phosphor icon constants organized by category |
+| `layout.rs` | Standardized spacing, colors, and frame helpers |
+| `theme.rs` | Light/Dark/System theme switching with persistence |
+| `widgets/` | Reusable UI components (see below) |
 
 ### ConnectionManager
 

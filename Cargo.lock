@@ -187,7 +187,7 @@ checksum = "fcee751cc20d88678c33edaf9c07e8b693cd02819fe89053776f5313492273f5"
 dependencies = [
  "accesskit 0.17.1",
  "accesskit_atspi_common 0.10.1",
- "async-channel",
+ "async-channel 2.5.0",
  "async-executor",
  "async-task",
  "atspi 0.22.0",
@@ -205,7 +205,7 @@ checksum = "301e55b39cfc15d9c48943ce5f572204a551646700d0e8efa424585f94fec528"
 dependencies = [
  "accesskit 0.21.1",
  "accesskit_atspi_common 0.14.2",
- "async-channel",
+ "async-channel 2.5.0",
  "async-executor",
  "async-task",
  "atspi 0.25.0",
@@ -933,6 +933,24 @@ dependencies = [
 
 [[package]]
 name = "ashpd"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de3d60bee1a1d38c2077030f4788e1b4e31058d2e79a8cfc8f2b440bd44db290"
+dependencies = [
+ "async-fs",
+ "async-net",
+ "enumflags2",
+ "futures-channel",
+ "futures-util",
+ "rand 0.8.5",
+ "serde",
+ "serde_repr",
+ "url",
+ "zbus 5.12.0",
+]
+
+[[package]]
+name = "ashpd"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6cbdf310d77fd3aaee6ea2093db7011dc2d35d2eb3481e5607f1f8d942ed99df"
@@ -965,10 +983,21 @@ version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "435a87a52755b8f27fcf321ac4f04b2802e337c8c4872923137471ec39c37532"
 dependencies = [
- "event-listener",
+ "event-listener 5.4.1",
  "event-listener-strategy",
  "futures-core",
  "pin-project-lite",
+]
+
+[[package]]
+name = "async-channel"
+version = "1.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81953c529336010edd6d8e358f886d9581267795c61b19475b71314bffa46d35"
+dependencies = [
+ "concurrent-queue",
+ "event-listener 2.5.3",
+ "futures-core",
 ]
 
 [[package]]
@@ -1009,6 +1038,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-global-executor"
+version = "2.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05b1b633a2115cd122d73b955eadd9916c18c8f510ec9cd1686404c60ad1c29c"
+dependencies = [
+ "async-channel 2.5.0",
+ "async-executor",
+ "async-io",
+ "async-lock",
+ "blocking",
+ "futures-lite",
+ "once_cell",
+]
+
+[[package]]
 name = "async-io"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1032,7 +1076,7 @@ version = "3.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "290f7f2596bd5b78a9fec8088ccd89180d7f9f55b94b0576823bbbdc72ee8311"
 dependencies = [
- "event-listener",
+ "event-listener 5.4.1",
  "event-listener-strategy",
  "pin-project-lite",
 ]
@@ -1054,14 +1098,14 @@ version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc50921ec0055cdd8a16de48773bfeec5c972598674347252c0399676be7da75"
 dependencies = [
- "async-channel",
+ "async-channel 2.5.0",
  "async-io",
  "async-lock",
  "async-signal",
  "async-task",
  "blocking",
  "cfg-if",
- "event-listener",
+ "event-listener 5.4.1",
  "futures-lite",
  "rustix 1.1.3",
 ]
@@ -1093,6 +1137,32 @@ dependencies = [
  "signal-hook-registry",
  "slab",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "async-std"
+version = "1.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c8e079a4ab67ae52b7403632e4618815d6db36d2a010cfe41b02c1b1578f93b"
+dependencies = [
+ "async-channel 1.9.0",
+ "async-global-executor",
+ "async-io",
+ "async-lock",
+ "crossbeam-utils",
+ "futures-channel",
+ "futures-core",
+ "futures-io",
+ "futures-lite",
+ "gloo-timers",
+ "kv-log-macro",
+ "log",
+ "memchr",
+ "once_cell",
+ "pin-project-lite",
+ "pin-utils",
+ "slab",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
@@ -1623,7 +1693,7 @@ version = "1.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e83f8d02be6967315521be875afa792a316e28d57b5a2d401897e2a7921b7f21"
 dependencies = [
- "async-channel",
+ "async-channel 2.5.0",
  "async-task",
  "futures-io",
  "futures-lite",
@@ -2596,8 +2666,11 @@ dependencies = [
  "daq-core",
  "daq-driver-pvcam",
  "daq-proto",
+ "dark-light",
  "eframe 0.33.3",
  "egui 0.33.3",
+ "egui-notify",
+ "egui-phosphor",
  "egui_dock",
  "egui_extras 0.33.3",
  "egui_plot 0.34.0",
@@ -2788,6 +2861,20 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "dark-light"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18e1a09f280e29a8b00bc7e81eca5ac87dca0575639c9422a5fa25a07bb884b8"
+dependencies = [
+ "ashpd 0.10.3",
+ "async-std",
+ "objc2 0.5.2",
+ "objc2-foundation 0.2.2",
+ "web-sys",
+ "winreg",
 ]
 
 [[package]]
@@ -3614,6 +3701,15 @@ dependencies = [
 
 [[package]]
 name = "ecolor"
+version = "0.31.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc4feb366740ded31a004a0e4452fbf84e80ef432ecf8314c485210229672fd1"
+dependencies = [
+ "emath 0.31.1",
+]
+
+[[package]]
+name = "ecolor"
 version = "0.33.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "71ddb8ac7643d1dba1bb02110e804406dd459a838efcb14011ced10556711a8e"
@@ -3728,6 +3824,20 @@ dependencies = [
 
 [[package]]
 name = "egui"
+version = "0.31.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25dd34cec49ab55d85ebf70139cb1ccd29c977ef6b6ba4fe85489d6877ee9ef3"
+dependencies = [
+ "ahash",
+ "bitflags 2.10.0",
+ "emath 0.31.1",
+ "epaint 0.31.1",
+ "nohash-hasher",
+ "profiling",
+]
+
+[[package]]
+name = "egui"
 version = "0.33.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a9b567d356674e9a5121ed3fedfb0a7c31e059fe71f6972b691bcd0bfc284e3"
@@ -3745,6 +3855,24 @@ dependencies = [
  "serde",
  "smallvec",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "egui-notify"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ab6bab52b2ef6d7ba32697da10a2ae7d3e8a245f9da42f62826af3afcd8fdc3"
+dependencies = [
+ "egui 0.31.1",
+]
+
+[[package]]
+name = "egui-phosphor"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3b2838620355debaeb7fa3cc331a1d8ab77e6387d40e65686fa468c229dbf63"
+dependencies = [
+ "egui 0.33.3",
 ]
 
 [[package]]
@@ -4017,7 +4145,7 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59a81c221a1e4dad06cb9c9deb19aea1193a5eea084e8cd42d869068132bf876"
 dependencies = [
- "async-channel",
+ "async-channel 2.5.0",
  "document-features",
  "futures-util",
  "js-sys",
@@ -4059,6 +4187,12 @@ dependencies = [
  "bytemuck",
  "serde",
 ]
+
+[[package]]
+name = "emath"
+version = "0.31.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e4cadcff7a5353ba72b7fea76bf2122b5ebdbc68e8155aa56dfdea90083fe1b"
 
 [[package]]
 name = "emath"
@@ -4220,6 +4354,21 @@ dependencies = [
 
 [[package]]
 name = "epaint"
+version = "0.31.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41fcc0f5a7c613afd2dee5e4b30c3e6acafb8ad6f0edb06068811f708a67c562"
+dependencies = [
+ "ab_glyph",
+ "ahash",
+ "ecolor 0.31.1",
+ "emath 0.31.1",
+ "nohash-hasher",
+ "parking_lot 0.12.5",
+ "profiling",
+]
+
+[[package]]
+name = "epaint"
 version = "0.33.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "009d0dd3c2163823a0abdb899451ecbc78798dec545ee91b43aff1fa790bab62"
@@ -4289,6 +4438,12 @@ checksum = "b6aff27af350e7b53e82aac3e5ab6389abd8f280640ac034508dff0608c4c7e5"
 
 [[package]]
 name = "event-listener"
+version = "2.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0206175f82b8d6bf6652ff7d71a1e27fd2e4efde587fd368662814d6ec1d9ce0"
+
+[[package]]
+name = "event-listener"
 version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13b66accf52311f30a0db42147dadea9850cb48cd070028831ae5f5d4b856ab"
@@ -4304,7 +4459,7 @@ version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
- "event-listener",
+ "event-listener 5.4.1",
  "pin-project-lite",
 ]
 
@@ -6021,6 +6176,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kv-log-macro"
+version = "1.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0de8b303297635ad57c9f5059fd9cee7a47f8e8daa09df0fcd07dd39fb22977f"
+dependencies = [
+ "log",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6207,6 +6371,9 @@ name = "log"
 version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
+dependencies = [
+ "value-bag",
+]
 
 [[package]]
 name = "log-once"
@@ -10683,7 +10850,7 @@ version = "0.15.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ef2bee61e6cffa4635c72d7d81a84294e28f0930db0ddcb0f66d10244674ebed"
 dependencies = [
- "ashpd",
+ "ashpd 0.11.0",
  "block2 0.6.2",
  "dispatch2",
  "js-sys",
@@ -12933,6 +13100,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
+name = "value-bag"
+version = "1.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ba6f5989077681266825251a52748b8c1d8a4ad098cc37e440103d0ea717fc0"
+
+[[package]]
 name = "vec1"
 version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14454,7 +14627,7 @@ dependencies = [
  "async-trait",
  "blocking",
  "enumflags2",
- "event-listener",
+ "event-listener 5.4.1",
  "futures-core",
  "futures-sink",
  "futures-util",
@@ -14491,7 +14664,7 @@ dependencies = [
  "async-trait",
  "blocking",
  "enumflags2",
- "event-listener",
+ "event-listener 5.4.1",
  "futures-core",
  "futures-lite",
  "hex",

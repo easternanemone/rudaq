@@ -19,6 +19,8 @@ use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 
 use crate::client::DaqClient;
+use crate::icons;
+use crate::layout::{self, colors};
 use crate::widgets::{Histogram, HistogramPosition, ParameterCache, RoiSelector};
 use daq_proto::compression::decompress_frame;
 use daq_proto::daq::{FrameData, StreamQuality};
@@ -671,8 +673,10 @@ pub struct ImageViewerPanel {
     show_controls: bool,
     /// Receiver for parameter load results
     param_load_rx: Option<mpsc::Receiver<ParamLoadResult>>,
+    /// Sender for parameter set results (persistent, cloned per request)
+    param_set_tx: mpsc::Sender<ParamSetResult>,
     /// Receiver for parameter set results
-    param_set_rx: Option<mpsc::Receiver<ParamSetResult>>,
+    param_set_rx: mpsc::Receiver<ParamSetResult>,
     /// Parameters currently being set
     setting_params: std::collections::HashSet<(String, String)>,
     /// Pending parameter updates to execute
@@ -729,6 +733,8 @@ impl Default for ImageViewerPanel {
     fn default() -> Self {
         let (tx, rx) = frame_channel();
         let (action_tx, action_rx) = std::sync::mpsc::channel();
+        // Persistent channel for parameter set results - sender is cloned per request
+        let (param_set_tx, param_set_rx) = mpsc::channel();
         Self {
             device_id: None,
             width: 0,
@@ -766,7 +772,8 @@ impl Default for ImageViewerPanel {
             param_errors: std::collections::HashMap::new(),
             show_controls: true,
             param_load_rx: None,
-            param_set_rx: None,
+            param_set_tx,
+            param_set_rx,
             setting_params: std::collections::HashSet::new(),
             pending_param_updates: Vec::new(),
             loading_params_device: None,
@@ -1161,12 +1168,8 @@ impl ImageViewerPanel {
         // Mark as setting
         self.setting_params.insert(buffer_key);
 
-        // Create channel (reuse logic from DevicesPanel: replace if exists)
-        // For simplicity in ImageViewer, we'll just use a new channel each time and poll
-        // NOTE: In production, better to have a persistent channel or queue.
-        // We'll follow the pattern of creating a new one and replacing the stored rx.
-        let (tx, rx) = mpsc::channel();
-        self.param_set_rx = Some(rx);
+        // Clone the persistent sender - this preserves all in-flight responses
+        let tx = self.param_set_tx.clone();
 
         runtime.spawn(async move {
             let result = client
@@ -1218,32 +1221,35 @@ impl ImageViewerPanel {
             }
         }
 
-        // Poll sets
-        if let Some(rx) = &self.param_set_rx {
-            while let Ok(result) = rx.try_recv() {
-                let key = (result.device_id.clone(), result.param_name.clone());
-                self.setting_params.remove(&key);
+        // Poll sets (persistent channel - drain all available)
+        while let Ok(result) = self.param_set_rx.try_recv() {
+            let key = (result.device_id.clone(), result.param_name.clone());
+            self.setting_params.remove(&key);
 
-                if result.success {
-                    // Update cache if device matches
-                    if Some(&result.device_id) == self.device_id.as_ref() {
-                        if let Some(param) = self
-                            .camera_params
-                            .iter_mut()
-                            .find(|p| p.descriptor.name == result.param_name)
-                        {
-                            param.update_value(result.actual_value.clone());
-                        }
+            if result.success {
+                // Update cache if device matches
+                if Some(&result.device_id) == self.device_id.as_ref() {
+                    if let Some(param) = self
+                        .camera_params
+                        .iter_mut()
+                        .find(|p| p.descriptor.name == result.param_name)
+                    {
+                        param.update_value(result.actual_value.clone());
                     }
-                    // Update buffer
-                    let unquoted = result.actual_value.trim_matches('"').to_string();
-                    self.param_edit_buffers.insert(key.clone(), unquoted);
-                    self.param_errors.remove(&key);
-                } else if let Some(err) = result.error {
-                    self.param_errors.insert(key, err);
                 }
-                ctx.request_repaint();
+                // Update buffer
+                let unquoted = result.actual_value.trim_matches('"').to_string();
+                self.param_edit_buffers.insert(key.clone(), unquoted);
+                self.param_errors.remove(&key);
+            } else if let Some(err) = result.error {
+                self.param_errors.insert(key, err);
             }
+            ctx.request_repaint();
+        }
+
+        // Request repaint if we're waiting for parameter set results
+        if !self.setting_params.is_empty() {
+            ctx.request_repaint();
         }
     }
 
@@ -1861,11 +1867,11 @@ impl ImageViewerPanel {
 
     /// Render the image viewer panel
     pub fn ui(&mut self, ui: &mut egui::Ui, mut client: Option<&mut DaqClient>, runtime: &Runtime) {
-        // Poll async action results
+        // Poll for async action results
         self.poll_actions();
         self.poll_param_results(ui.ctx());
 
-        // Drain async updates
+        // Drain pending frame updates
         self.drain_updates(ui.ctx());
 
         // Request continuous repaint while streaming
@@ -1912,259 +1918,338 @@ impl ImageViewerPanel {
         let mut start_recording = false;
         let mut stop_recording = false;
 
-        // Toolbar
+        // Header with connection state indicator
         ui.horizontal(|ui| {
+            // Connection state indicator (colored dot)
+            let (state_color, state_text) = match self.connection_state {
+                ConnectionState::Idle => (colors::MUTED, ""),
+                ConnectionState::Connected => (colors::CONNECTED, ""),
+                ConnectionState::Disconnected => (colors::ERROR, ""),
+                ConnectionState::Reconnecting => (colors::CONNECTING, ""),
+            };
+            if self.connection_state != ConnectionState::Idle {
+                ui.colored_label(state_color, "●");
+            }
+
             ui.heading("Image Viewer");
-            ui.separator();
 
-            // Camera selector combo box
-            let selected_text = self
-                .device_id
-                .clone()
-                .unwrap_or_else(|| "Select camera...".to_string());
+            if !state_text.is_empty() {
+                ui.weak(state_text);
+            }
+        });
 
-            egui::ComboBox::from_id_salt("camera_selector")
-                .selected_text(&selected_text)
-                .show_ui(ui, |ui| {
-                    if self.available_cameras.is_empty() {
-                        ui.label("No cameras found");
-                    } else {
-                        for cam_id in &self.available_cameras.clone() {
-                            let is_selected = self.device_id.as_ref() == Some(cam_id);
-                            if ui.selectable_label(is_selected, cam_id).clicked() {
-                                if self.device_id.as_ref() != Some(cam_id) {
-                                    self.device_id = Some(cam_id.clone());
-                                    self.camera_params.clear(); // Trigger auto-load
+        ui.add_space(layout::SECTION_SPACING / 2.0);
+
+        // Main toolbar in card frame
+        layout::card_frame(ui).show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = layout::ITEM_SPACING;
+
+                // === Camera Selection Group ===
+                ui.label(format!("{} Camera:", icons::device::CAMERA));
+
+                let selected_text = self
+                    .device_id
+                    .clone()
+                    .unwrap_or_else(|| "Select...".to_string());
+
+                egui::ComboBox::from_id_salt("camera_selector")
+                    .selected_text(&selected_text)
+                    .show_ui(ui, |ui| {
+                        if self.available_cameras.is_empty() {
+                            ui.label("No cameras found");
+                        } else {
+                            for cam_id in &self.available_cameras.clone() {
+                                let is_selected = self.device_id.as_ref() == Some(cam_id);
+                                if ui.selectable_label(is_selected, cam_id).clicked() {
+                                    if self.device_id.as_ref() != Some(cam_id) {
+                                        self.device_id = Some(cam_id.clone());
+                                        self.camera_params.clear();
+                                    }
                                 }
                             }
                         }
-                    }
-                });
+                    });
 
-            // Refresh button
-            if ui
-                .button("🔄")
-                .on_hover_text("Refresh camera list")
-                .clicked()
-            {
-                refresh_cameras = true;
-            }
-
-            // Auto-load parameters if needed
-            if let Some(device_id) = &self.device_id {
-                if self.camera_params.is_empty() && self.loading_params_device.is_none() {
-                    let device_id_clone = device_id.clone();
-                    if let Some(client) = client.as_deref_mut() {
-                        self.load_camera_params(client, runtime, &device_id_clone);
-                    }
-                }
-            }
-
-            ui.separator();
-
-            // Stream controls
-            let is_streaming = self.subscription.is_some();
-            if is_streaming {
-                if ui.button("⏹ Stop").clicked() {
-                    stop_stream = true;
-                }
-            } else if self.device_id.is_some() {
-                if ui.button("▶ Start").clicked() {
-                    if let Some(device_id) = &self.device_id {
-                        start_stream_device = Some(device_id.clone());
-                    }
-                }
-            }
-
-            // Reconnect button when disconnected (bd-12qt)
-            if self.connection_state == ConnectionState::Disconnected {
                 if ui
-                    .button("🔄 Reconnect")
-                    .on_hover_text("Attempt to reconnect to camera")
+                    .button(icons::action::REFRESH)
+                    .on_hover_text("Refresh camera list")
                     .clicked()
                 {
-                    if let Some(device_id) = &self.device_id {
-                        start_stream_device = Some(device_id.clone());
-                        self.connection_state = ConnectionState::Reconnecting;
-                    }
+                    refresh_cameras = true;
                 }
 
-                // Auto-reconnect toggle
-                ui.checkbox(&mut self.auto_reconnect, "Auto")
-                    .on_hover_text("Automatically attempt reconnection");
-            }
-
-            // Recording controls (bd-3pdi.5.3)
-            ui.separator();
-            match self.recording_state {
-                RecordingState::Idle => {
-                    // Only show record button when streaming
-                    if is_streaming {
-                        if ui
-                            .button("⏺ Record")
-                            .on_hover_text("Start recording frames to HDF5")
-                            .clicked()
-                        {
-                            start_recording = true;
+                // Auto-load parameters if needed
+                if let Some(device_id) = &self.device_id {
+                    if self.camera_params.is_empty() && self.loading_params_device.is_none() {
+                        let device_id_clone = device_id.clone();
+                        if let Some(client) = client.as_deref_mut() {
+                            self.load_camera_params(client, runtime, &device_id_clone);
                         }
                     }
                 }
-                RecordingState::Recording => {
+
+                ui.separator();
+
+                // === Stream Controls Group ===
+                let is_streaming = self.subscription.is_some();
+                if is_streaming {
                     if ui
-                        .add(egui::Button::new("⏹ Stop Rec").fill(egui::Color32::DARK_RED))
-                        .on_hover_text("Stop recording")
+                        .button(format!("{} Stop", icons::action::STOP))
+                        .on_hover_text("Stop streaming")
                         .clicked()
                     {
-                        stop_recording = true;
+                        stop_stream = true;
                     }
-                    // Show recording indicator
-                    ui.colored_label(egui::Color32::RED, "●");
-                    if let Some(status) = &self.recording_status {
-                        ui.label(format!("{} frames", status.samples_recorded));
+                } else if self.device_id.is_some() {
+                    if ui
+                        .button(format!("{} Start", icons::action::START))
+                        .on_hover_text("Start streaming")
+                        .clicked()
+                    {
+                        if let Some(device_id) = &self.device_id {
+                            start_stream_device = Some(device_id.clone());
+                        }
                     }
                 }
-                RecordingState::Starting => {
-                    ui.add_enabled(false, egui::Button::new("Starting..."));
-                    ui.spinner();
+
+                // Reconnect button when disconnected
+                if self.connection_state == ConnectionState::Disconnected {
+                    if ui
+                        .button(format!("{} Reconnect", icons::action::REFRESH))
+                        .on_hover_text("Attempt to reconnect to camera")
+                        .clicked()
+                    {
+                        if let Some(device_id) = &self.device_id {
+                            start_stream_device = Some(device_id.clone());
+                            self.connection_state = ConnectionState::Reconnecting;
+                        }
+                    }
+                    ui.checkbox(&mut self.auto_reconnect, "Auto")
+                        .on_hover_text("Automatically attempt reconnection");
                 }
-                RecordingState::Stopping => {
-                    ui.add_enabled(false, egui::Button::new("Stopping..."));
-                    ui.spinner();
+
+                // === Recording Controls ===
+                ui.separator();
+                match self.recording_state {
+                    RecordingState::Idle => {
+                        if is_streaming {
+                            if ui
+                                .button(icons::action::RECORD)
+                                .on_hover_text("Start recording frames to HDF5")
+                                .clicked()
+                            {
+                                start_recording = true;
+                            }
+                        }
+                    }
+                    RecordingState::Recording => {
+                        // Pulsing recording indicator
+                        let time = ui.ctx().input(|i| i.time);
+                        let pulse = ((time * 2.0).sin() * 0.5 + 0.5) as f32;
+                        let record_color = egui::Color32::from_rgb(
+                            (200.0 + pulse * 55.0) as u8,
+                            (20.0 + pulse * 20.0) as u8,
+                            (20.0 + pulse * 20.0) as u8,
+                        );
+
+                        if ui
+                            .add(
+                                egui::Button::new(format!("{} Stop", icons::action::STOP))
+                                    .fill(record_color),
+                            )
+                            .on_hover_text("Stop recording")
+                            .clicked()
+                        {
+                            stop_recording = true;
+                        }
+
+                        // Pulsing recording dot
+                        ui.colored_label(record_color, icons::action::RECORD);
+                        if let Some(status) = &self.recording_status {
+                            ui.monospace(format!("{} frames", status.samples_recorded));
+                        }
+
+                        // Request repaint for animation
+                        ui.ctx().request_repaint();
+                    }
+                    RecordingState::Starting => {
+                        ui.add_enabled(false, egui::Button::new("Starting..."));
+                        ui.spinner();
+                    }
+                    RecordingState::Stopping => {
+                        ui.add_enabled(false, egui::Button::new("Stopping..."));
+                        ui.spinner();
+                    }
                 }
-            }
+            });
+        });
 
-            // Colormap selector
-            ui.separator();
-            egui::ComboBox::from_label("")
-                .selected_text(self.colormap.label())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.colormap, Colormap::Grayscale, "Grayscale");
-                    ui.selectable_value(&mut self.colormap, Colormap::Viridis, "Viridis");
-                    ui.selectable_value(&mut self.colormap, Colormap::Inferno, "Inferno");
-                    ui.selectable_value(&mut self.colormap, Colormap::Plasma, "Plasma");
-                    ui.selectable_value(&mut self.colormap, Colormap::Magma, "Magma");
-                });
+        ui.add_space(layout::SECTION_SPACING / 2.0);
 
-            // Scale mode selector
-            egui::ComboBox::from_id_salt("scale_mode")
-                .selected_text(self.scale_mode.label())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.scale_mode, ScaleMode::Linear, "Linear");
-                    ui.selectable_value(&mut self.scale_mode, ScaleMode::Log, "Log");
-                    ui.selectable_value(&mut self.scale_mode, ScaleMode::Sqrt, "Sqrt");
-                });
+        // Display controls toolbar
+        layout::card_frame(ui).show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = layout::ITEM_SPACING;
 
-            // Stream quality selector (server-side downsampling)
-            egui::ComboBox::from_id_salt("stream_quality")
-                .selected_text(stream_quality_label(self.stream_quality))
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.stream_quality, StreamQuality::Full, "Full");
-                    ui.selectable_value(
-                        &mut self.stream_quality,
-                        StreamQuality::Preview,
-                        "Preview (2x)",
+                // Stream quality selector (server-side downsampling)
+                egui::ComboBox::from_id_salt("stream_quality")
+                    .selected_text(stream_quality_label(self.stream_quality))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.stream_quality, StreamQuality::Full, "Full");
+                        ui.selectable_value(
+                            &mut self.stream_quality,
+                            StreamQuality::Preview,
+                            "Preview (2x)",
+                        );
+                        ui.selectable_value(&mut self.stream_quality, StreamQuality::Fast, "Fast (4x)");
+                    });
+
+                ui.separator();
+
+                // === Colormap & Scale ===
+                ui.label("Color:");
+                egui::ComboBox::from_id_salt("colormap_selector")
+                    .width(80.0)
+                    .selected_text(self.colormap.label())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.colormap, Colormap::Grayscale, "Grayscale");
+                        ui.selectable_value(&mut self.colormap, Colormap::Viridis, "Viridis");
+                        ui.selectable_value(&mut self.colormap, Colormap::Inferno, "Inferno");
+                        ui.selectable_value(&mut self.colormap, Colormap::Plasma, "Plasma");
+                        ui.selectable_value(&mut self.colormap, Colormap::Magma, "Magma");
+                    });
+
+                egui::ComboBox::from_id_salt("scale_mode")
+                    .width(60.0)
+                    .selected_text(self.scale_mode.label())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.scale_mode, ScaleMode::Linear, "Linear");
+                        ui.selectable_value(&mut self.scale_mode, ScaleMode::Log, "Log");
+                        ui.selectable_value(&mut self.scale_mode, ScaleMode::Sqrt, "Sqrt");
+                    });
+
+                ui.separator();
+
+                // === Contrast ===
+                ui.checkbox(&mut self.auto_contrast, "Auto Contrast");
+                if !self.auto_contrast {
+                    ui.add(
+                        egui::DragValue::new(&mut self.display_min)
+                            .speed(0.01)
+                            .range(0.0..=1.0)
+                            .prefix("Min: ")
+                            .max_decimals(2),
                     );
-                    ui.selectable_value(&mut self.stream_quality, StreamQuality::Fast, "Fast (4x)");
-                });
-
-            // Contrast controls
-            ui.separator();
-            ui.checkbox(&mut self.auto_contrast, "Auto");
-            if !self.auto_contrast {
-                ui.add(
-                    egui::DragValue::new(&mut self.display_min)
-                        .speed(0.01)
-                        .range(0.0..=1.0)
-                        .prefix("Min: ")
-                        .max_decimals(2),
-                );
-                ui.add(
-                    egui::DragValue::new(&mut self.display_max)
-                        .speed(0.01)
-                        .range(0.0..=1.0)
-                        .prefix("Max: ")
-                        .max_decimals(2),
-                );
-            } else {
-                ui.weak(format!(
-                    "{:.0}%-{:.0}%",
-                    self.display_min * 100.0,
-                    self.display_max * 100.0
-                ));
-            }
-
-            // Zoom controls
-            ui.separator();
-            if ui.button("Fit").clicked() {
-                self.auto_fit = true;
-            }
-            if ui.button("1:1").clicked() {
-                self.zoom = 1.0;
-                self.pan = egui::Vec2::ZERO;
-                self.auto_fit = false;
-            }
-            ui.label(format!("{:.0}%", self.zoom * 100.0));
-
-            // ROI controls
-            ui.separator();
-            let roi_label = if self.roi_selector.selection_mode {
-                "ROI [ON]"
-            } else {
-                "ROI"
-            };
-            if ui
-                .selectable_label(self.roi_selector.selection_mode, roi_label)
-                .clicked()
-            {
-                self.roi_selector.selection_mode = !self.roi_selector.selection_mode;
-            }
-            if self.roi_selector.roi().is_some() {
-                if ui.button("Clear ROI").clicked() {
-                    self.roi_selector.clear();
+                    ui.add(
+                        egui::DragValue::new(&mut self.display_max)
+                            .speed(0.01)
+                            .range(0.0..=1.0)
+                            .prefix("Max: ")
+                            .max_decimals(2),
+                    );
+                } else {
+                    ui.weak(format!(
+                        "{:.0}%-{:.0}%",
+                        self.display_min * 100.0,
+                        self.display_max * 100.0
+                    ));
                 }
-            }
-            ui.checkbox(&mut self.show_roi_panel, "Stats");
-            ui.checkbox(&mut self.show_controls, "Controls");
 
-            // Histogram controls
-            ui.separator();
-            egui::ComboBox::from_id_salt("histogram_pos")
-                .selected_text(format!("Hist: {}", self.histogram_position.label()))
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.histogram_position,
-                        HistogramPosition::Hidden,
-                        "Hidden",
-                    );
-                    ui.selectable_value(
-                        &mut self.histogram_position,
-                        HistogramPosition::BottomRight,
-                        "Bottom Right",
-                    );
-                    ui.selectable_value(
-                        &mut self.histogram_position,
-                        HistogramPosition::BottomLeft,
-                        "Bottom Left",
-                    );
-                    ui.selectable_value(
-                        &mut self.histogram_position,
-                        HistogramPosition::TopRight,
-                        "Top Right",
-                    );
-                    ui.selectable_value(
-                        &mut self.histogram_position,
-                        HistogramPosition::TopLeft,
-                        "Top Left",
-                    );
-                    ui.selectable_value(
-                        &mut self.histogram_position,
-                        HistogramPosition::SidePanel,
-                        "Side Panel",
-                    );
-                });
-            if self.histogram_position.is_visible() {
-                ui.checkbox(&mut self.histogram.log_scale, "Log");
-            }
+                ui.separator();
+
+                // === Zoom Controls with Icons ===
+                if ui
+                    .button(icons::action::FIT)
+                    .on_hover_text("Fit to window")
+                    .clicked()
+                {
+                    self.auto_fit = true;
+                }
+                if ui
+                    .button(icons::action::ZOOM_OUT)
+                    .on_hover_text("Zoom out")
+                    .clicked()
+                {
+                    self.zoom = (self.zoom * 0.8).max(0.1);
+                    self.auto_fit = false;
+                }
+                ui.monospace(format!("{:>3.0}%", self.zoom * 100.0));
+                if ui
+                    .button(icons::action::ZOOM_IN)
+                    .on_hover_text("Zoom in")
+                    .clicked()
+                {
+                    self.zoom = (self.zoom * 1.25).min(10.0);
+                    self.auto_fit = false;
+                }
+
+                ui.separator();
+
+                // === ROI & Panel Controls ===
+                let roi_selected = self.roi_selector.selection_mode;
+                if ui
+                    .selectable_label(roi_selected, if roi_selected { "ROI [ON]" } else { "ROI" })
+                    .on_hover_text("Toggle ROI selection mode")
+                    .clicked()
+                {
+                    self.roi_selector.selection_mode = !self.roi_selector.selection_mode;
+                }
+                if self.roi_selector.roi().is_some() {
+                    if ui
+                        .button(icons::action::DELETE)
+                        .on_hover_text("Clear ROI")
+                        .clicked()
+                    {
+                        self.roi_selector.clear();
+                    }
+                }
+
+                ui.separator();
+
+                ui.checkbox(&mut self.show_roi_panel, "Stats");
+                ui.checkbox(&mut self.show_controls, "Controls");
+
+                // === Histogram Position ===
+                egui::ComboBox::from_id_salt("histogram_pos")
+                    .width(100.0)
+                    .selected_text(format!("Hist: {}", self.histogram_position.label()))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.histogram_position,
+                            HistogramPosition::Hidden,
+                            "Hidden",
+                        );
+                        ui.selectable_value(
+                            &mut self.histogram_position,
+                            HistogramPosition::BottomRight,
+                            "Bottom Right",
+                        );
+                        ui.selectable_value(
+                            &mut self.histogram_position,
+                            HistogramPosition::BottomLeft,
+                            "Bottom Left",
+                        );
+                        ui.selectable_value(
+                            &mut self.histogram_position,
+                            HistogramPosition::TopRight,
+                            "Top Right",
+                        );
+                        ui.selectable_value(
+                            &mut self.histogram_position,
+                            HistogramPosition::TopLeft,
+                            "Top Left",
+                        );
+                        ui.selectable_value(
+                            &mut self.histogram_position,
+                            HistogramPosition::SidePanel,
+                            "Side Panel",
+                        );
+                    });
+                if self.histogram_position.is_visible() {
+                    ui.checkbox(&mut self.histogram.log_scale, "Log");
+                }
+            });
         });
 
         // Execute collected actions after UI rendering
@@ -2230,63 +2315,47 @@ impl ImageViewerPanel {
             self.stop_stream(None, runtime);
         }
 
-        ui.separator();
+        ui.add_space(layout::SECTION_SPACING / 2.0);
 
-        // Status bar with connection indicator (bd-12qt)
+        // Status bar with frame info
         ui.horizontal(|ui| {
-            // Connection state indicator
-            match self.connection_state {
-                ConnectionState::Idle => {}
-                ConnectionState::Connected => {
-                    ui.colored_label(egui::Color32::GREEN, "●");
-                    ui.label("Connected");
-                    ui.separator();
-                }
-                ConnectionState::Disconnected => {
-                    ui.colored_label(egui::Color32::RED, "●");
-                    ui.label("Disconnected");
-                    ui.separator();
-                }
-                ConnectionState::Reconnecting => {
-                    ui.colored_label(egui::Color32::YELLOW, "●");
-                    ui.label("Reconnecting...");
-                    ui.separator();
-                }
-            }
-
             if self.width > 0 {
-                ui.label(format!(
+                ui.monospace(format!(
                     "{}x{} @ {}bit",
                     self.width, self.height, self.bit_depth
                 ));
                 ui.separator();
-                ui.label(format!("Frame: {}", self.frame_count));
+                ui.monospace(format!("Frame: {}", self.frame_count));
                 ui.separator();
-                ui.label(format!("{:.1} FPS", self.fps_counter.fps()));
+                ui.monospace(format!("{:.1} FPS", self.fps_counter.fps()));
 
-                // bd-7rk0: Display stream metrics from server
                 if let Some(ref metrics) = self.stream_metrics {
                     ui.separator();
-                    ui.label(format!("{:.1}ms latency", metrics.avg_latency_ms));
+                    ui.weak(format!("{:.1}ms latency", metrics.avg_latency_ms));
                     if metrics.frames_dropped > 0 {
                         ui.separator();
                         ui.colored_label(
-                            egui::Color32::YELLOW,
+                            colors::WARNING,
                             format!("{} dropped", metrics.frames_dropped),
                         );
                     }
                 }
             }
 
-            if let Some(err) = &self.error {
-                ui.colored_label(egui::Color32::RED, err);
-            }
-            if let Some(status) = &self.status {
-                ui.colored_label(egui::Color32::YELLOW, status);
-            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if let Some(err) = &self.error {
+                    ui.colored_label(colors::ERROR, format!("{} {}", icons::status::ERROR, err));
+                }
+                if let Some(status) = &self.status {
+                    ui.colored_label(
+                        colors::WARNING,
+                        format!("{} {}", icons::status::WARNING, status),
+                    );
+                }
+            });
         });
 
-        ui.separator();
+        ui.add_space(layout::SECTION_SPACING / 2.0);
 
         // Image display area with optional statistics panel
         // Calculate side panel width based on what's visible
@@ -2443,81 +2512,77 @@ impl ImageViewerPanel {
                 });
             }
 
-            // Side panels (ROI stats and/or histogram) in second column if present
             if stats_panel_width > 0.0 && columns.len() > 1 {
                 let side_ui = &mut columns[1];
                 egui::ScrollArea::vertical()
                     .id_salt("side_panel_scroll")
                     .show(side_ui, |ui| {
                         if has_controls_panel {
-                            egui::CollapsingHeader::new("Camera Settings")
+                            layout::card_frame(ui).show(ui, |ui| {
+                                egui::CollapsingHeader::new(format!(
+                                    "{} Camera Settings",
+                                    icons::action::SETTINGS
+                                ))
                                 .default_open(true)
                                 .show(ui, |ui| {
                                     if let Some(device_id_ref) = &self.device_id {
                                         let device_id = device_id_ref.clone();
-                                        // Use Grid for better alignment
-                                        // Note: render_camera_control handles its own row content
-                                        // but we wrap it to ensure layout consistency
                                         for i in 0..self.camera_params.len() {
-                                            ui.group(|ui| {
-                                                self.render_camera_control(ui, &device_id, i);
-                                            });
-                                        }
-                                    }
-                                });
-                            ui.add_space(8.0);
-                        }
-
-                        // ROI statistics
-                        if has_roi_panel {
-                            egui::CollapsingHeader::new("ROI Statistics")
-                                .default_open(true)
-                                .show(ui, |ui| {
-                                    self.roi_selector.show_statistics_panel(ui);
-
-                                    ui.add_space(4.0);
-                                    if ui
-                                        .button("Apply as Hardware ROI")
-                                        .on_hover_text(
-                                            "Update camera acquisition ROI (restarts stream)",
-                                        )
-                                        .clicked()
-                                    {
-                                        if let Some(roi) = self.roi_selector.roi() {
-                                            if let Some(dev_id) = self.device_id.clone() {
-                                                // Queue ROI update (requires custom logic to stop/start stream)
-                                                // For now, just try setting the parameter directly if available.
-                                                // Real implementation requires complex orchestration.
-                                                // We'll queue it as a parameter update for 'roi'
-                                                // The backend/daemon should handle stream restart ideally,
-                                                // or we handle it here.
-                                                // Let's assume setting 'roi' works like any other param for now
-                                                // but add a TODO for stream restart management.
-                                                let roi_json = serde_json::json!({
-                                                    "x": roi.x as u32,
-                                                    "y": roi.y as u32,
-                                                    "width": roi.width as u32,
-                                                    "height": roi.height as u32
-                                                });
-                                                self.pending_param_updates.push((
-                                                    dev_id,
-                                                    "roi".to_string(),
-                                                    roi_json.to_string(),
-                                                ));
+                                            self.render_camera_control(ui, &device_id, i);
+                                            if i < self.camera_params.len() - 1 {
+                                                ui.add_space(4.0);
                                             }
                                         }
                                     }
                                 });
-                            ui.add_space(8.0);
+                            });
+                            ui.add_space(layout::SECTION_SPACING);
                         }
 
-                        // Histogram in side panel
+                        if has_roi_panel {
+                            layout::card_frame(ui).show(ui, |ui| {
+                                egui::CollapsingHeader::new("ROI Statistics")
+                                    .default_open(true)
+                                    .show(ui, |ui| {
+                                        self.roi_selector.show_statistics_panel(ui);
+
+                                        ui.add_space(4.0);
+                                        if ui
+                                            .button("Apply as Hardware ROI")
+                                            .on_hover_text(
+                                                "Update camera acquisition ROI (restarts stream)",
+                                            )
+                                            .clicked()
+                                        {
+                                            if let Some(roi) = self.roi_selector.roi() {
+                                                if let Some(dev_id) = self.device_id.clone() {
+                                                    let roi_json = serde_json::json!({
+                                                        "x": roi.x as u32,
+                                                        "y": roi.y as u32,
+                                                        "width": roi.width as u32,
+                                                        "height": roi.height as u32
+                                                    });
+                                                    self.pending_param_updates.push((
+                                                        dev_id,
+                                                        "roi".to_string(),
+                                                        roi_json.to_string(),
+                                                    ));
+                                                }
+                                            }
+                                        }
+                                    });
+                            });
+                            ui.add_space(layout::SECTION_SPACING);
+                        }
+
                         if has_histogram_panel {
-                            egui::CollapsingHeader::new("Histogram")
-                                .default_open(true)
-                                .show(ui, |ui| {
-                                    self.histogram.show_panel(ui);
-                                });
+                            layout::card_frame(ui).show(ui, |ui| {
+                                egui::CollapsingHeader::new("Histogram")
+                                    .default_open(true)
+                                    .show(ui, |ui| {
+                                        self.histogram.show_panel(ui);
+                                    });
+                            });
                         }
                     });
             }

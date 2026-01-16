@@ -30,6 +30,12 @@ egui = "0.33"
 egui_extras = { version = "0.33", features = ["all_loaders"], optional = true }
 egui_dock = { version = "0.18", optional = true, features = ["serde"] }
 egui_plot = { version = "0.34", optional = true }
+
+# UI enhancement dependencies
+egui-phosphor = { version = "0.11", optional = true }
+egui-notify = { version = "0.19", optional = true }
+dark-light = { version = "2.0", optional = true }
+
 serde = { version = "1.0", features = ["derive"] }
 
 # Rerun for embedded viewer
@@ -72,7 +78,7 @@ daq-driver-pvcam = { path = "../daq-driver-pvcam", optional = true }
 
 [features]
 default = ["standalone"]
-standalone = ["dep:eframe", "dep:egui_extras", "dep:egui_dock", "dep:egui_plot"]
+standalone = ["dep:eframe", "dep:egui_extras", "dep:egui_dock", "dep:egui_plot", "dep:egui-phosphor", "dep:egui-notify", "dep:dark-light"]
 # Embedded Rerun viewer with gRPC camera streaming support
 rerun_viewer = ["dep:rerun", "dep:mimalloc", "dep:bytemuck", "dep:egui_dock", "dep:egui_plot"]
 

@@ -15,7 +15,6 @@
 //! rust-daq-gui --lab-hardware
 //! ```
 
-// Module definitions for standalone mode
 #[cfg(feature = "standalone")]
 mod app;
 mod client;
@@ -24,8 +23,14 @@ mod daemon_launcher;
 #[cfg(feature = "standalone")]
 mod gui_log_layer;
 #[cfg(feature = "standalone")]
+mod icons;
+#[cfg(feature = "standalone")]
+mod layout;
+#[cfg(feature = "standalone")]
 mod panels;
 mod reconnect;
+#[cfg(feature = "standalone")]
+mod theme;
 #[cfg(feature = "standalone")]
 mod widgets;
 

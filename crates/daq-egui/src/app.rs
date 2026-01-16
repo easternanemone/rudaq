@@ -9,6 +9,8 @@ use tokio::sync::mpsc;
 use crate::client::DaqClient;
 use crate::connection::{resolve_address, save_to_storage, AddressSource, DaemonAddress};
 use crate::daemon_launcher::{AutoConnectState, DaemonLauncher, DaemonMode};
+use crate::icons;
+use crate::layout;
 use crate::panels::{
     ConnectionDiagnostics, ConnectionStatus as LogConnectionStatus, DevicesPanel,
     DocumentViewerPanel, GettingStartedPanel, ImageViewerPanel, InstrumentManagerPanel,
@@ -16,6 +18,8 @@ use crate::panels::{
     StoragePanel,
 };
 use crate::reconnect::{friendly_error_message, ConnectionManager, ConnectionState};
+use crate::theme::{self, ThemePreference};
+use crate::widgets::StatusBar;
 
 /// Result of a health check sent through the channel (bd-j3xz.3.3: includes RTT).
 enum HealthCheckResult {
@@ -90,6 +94,12 @@ pub struct DaqApp {
     /// Receiver for tracing log events (forwarded to logging panel)
     log_receiver: std::sync::mpsc::Receiver<crate::gui_log_layer::GuiLogEvent>,
 
+    /// Theme preference (light/dark/system)
+    theme_preference: ThemePreference,
+
+    /// Status bar widget for connection indicator and version display
+    status_bar: StatusBar,
+
     /// PVCAM live view streaming state (requires rerun_viewer + instrument_photometrics)
     /// Works in mock mode without pvcam_hardware, or with real SDK when pvcam_hardware enabled
     #[cfg(all(feature = "rerun_viewer", feature = "pvcam"))]
@@ -128,9 +138,21 @@ impl DaqApp {
         daemon_mode: DaemonMode,
         log_receiver: std::sync::mpsc::Receiver<crate::gui_log_layer::GuiLogEvent>,
     ) -> Self {
-        // Configure egui style
+        // Load phosphor icons into egui fonts
+        let mut fonts = egui::FontDefinitions::default();
+        icons::add_to_fonts(&mut fonts);
+        cc.egui_ctx.set_fonts(fonts);
+
+        // Load or default theme preference
+        let theme_preference: ThemePreference = cc
+            .storage
+            .and_then(|s| eframe::get_value(s, "theme_preference"))
+            .unwrap_or_default();
+        theme::apply_theme(&cc.egui_ctx, theme_preference);
+
+        // Configure egui style with consistent spacing
         let mut style = (*cc.egui_ctx.style()).clone();
-        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+        style.spacing.item_spacing = layout::ITEM_SPACING;
         cc.egui_ctx.set_style(style);
 
         // Create tokio runtime for gRPC calls
@@ -213,6 +235,8 @@ impl DaqApp {
             daemon_launcher,
             auto_connect_state,
             log_receiver,
+            theme_preference,
+            status_bar: StatusBar::new(),
             #[cfg(all(feature = "rerun_viewer", feature = "pvcam"))]
             pvcam_streaming: false,
             #[cfg(all(feature = "rerun_viewer", feature = "pvcam"))]
@@ -397,6 +421,10 @@ impl DaqApp {
                     }
                 });
 
+                if theme::theme_toggle_button(ui, &mut self.theme_preference) {
+                    theme::apply_theme(ctx, self.theme_preference);
+                }
+
                 ui.menu_button("View", |ui| {
                     if ui.button("Getting Started").clicked() {
                         self.ui_actions
@@ -439,7 +467,7 @@ impl DaqApp {
                         .show(ctx, |ui| {
                             ui.horizontal(|ui| {
                                 ui.visuals_mut().override_text_color = Some(egui::Color32::from_rgb(255, 200, 0));
-                                ui.label("⚠");
+                                ui.label(icons::status::WARNING);
                                 ui.label(format!(
                                     "Version mismatch: Daemon {} ≠ GUI {}. Some features may not work correctly.",
                                     daemon_ver, self.gui_version
@@ -887,18 +915,20 @@ impl<'a> TabViewer for DaqTabViewer<'a> {
     fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
         match tab {
             Panel::Nav => "Navigation".into(),
-            Panel::GettingStarted => "🚀 Getting Started".into(),
-            Panel::Instruments => "🔬 Instruments".into(),
-            Panel::Devices => "🔧 Devices".into(),
-            Panel::Scripts => "📜 Scripts".into(),
-            Panel::Scans => "📊 Scans".into(),
-            Panel::Storage => "💾 Storage".into(),
-            Panel::Modules => "🧩 Modules".into(),
-            Panel::PlanRunner => "🎯 Plan Runner".into(),
-            Panel::DocumentViewer => "📄 Documents".into(),
-            Panel::SignalPlotter => "📈 Signal Plotter".into(),
-            Panel::ImageViewer => "🖼 Image Viewer".into(),
-            Panel::Logs => "🪵 Logs".into(),
+            Panel::GettingStarted => {
+                format!("{} Getting Started", icons::nav::GETTING_STARTED).into()
+            }
+            Panel::Instruments => format!("{} Instruments", icons::nav::INSTRUMENT_MANAGER).into(),
+            Panel::Devices => format!("{} Devices", icons::nav::DEVICES).into(),
+            Panel::Scripts => format!("{} Scripts", icons::nav::SCRIPTS).into(),
+            Panel::Scans => format!("{} Scans", icons::nav::SCANS).into(),
+            Panel::Storage => format!("{} Storage", icons::nav::STORAGE).into(),
+            Panel::Modules => format!("{} Modules", icons::nav::MODULES).into(),
+            Panel::PlanRunner => format!("{} Plan Runner", icons::nav::PLAN_RUNNER).into(),
+            Panel::DocumentViewer => format!("{} Documents", icons::nav::DOCUMENT_VIEWER).into(),
+            Panel::SignalPlotter => format!("{} Signal Plotter", icons::nav::SIGNAL_PLOTTER).into(),
+            Panel::ImageViewer => format!("{} Image Viewer", icons::nav::IMAGE_VIEWER).into(),
+            Panel::Logs => format!("{} Logs", icons::nav::LOGGING).into(),
         }
     }
 
@@ -965,115 +995,99 @@ impl<'a> TabViewer for DaqTabViewer<'a> {
 }
 
 impl<'a> DaqTabViewer<'a> {
+    fn nav_button(&mut self, ui: &mut egui::Ui, icon: &str, label: &str, panel: Panel) {
+        let text = format!("{} {}", icon, label);
+        if ui.button(text).clicked() {
+            self.app.ui_actions.push(UiAction::FocusTab(panel));
+        }
+    }
+
+    fn section_label(ui: &mut egui::Ui, text: &str) {
+        ui.add_space(layout::SECTION_SPACING / 2.0);
+        ui.label(
+            egui::RichText::new(text)
+                .small()
+                .color(layout::colors::MUTED),
+        );
+    }
+
     fn render_nav(&mut self, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
             ui.heading("Navigation");
             ui.separator();
 
-            // Getting Started
-            if ui.button("🚀 Getting Started").clicked() {
-                self.app
-                    .ui_actions
-                    .push(UiAction::FocusTab(Panel::GettingStarted));
-            }
-
-            ui.add_space(4.0);
-            ui.label(
-                egui::RichText::new("Hardware")
-                    .small()
-                    .color(egui::Color32::GRAY),
+            self.nav_button(
+                ui,
+                icons::nav::GETTING_STARTED,
+                "Getting Started",
+                Panel::GettingStarted,
             );
-            if ui.button("🔬 Instruments").clicked() {
-                self.app
-                    .ui_actions
-                    .push(UiAction::FocusTab(Panel::Instruments));
-            }
-            if ui.button("🔧 Devices").clicked() {
-                self.app.ui_actions.push(UiAction::FocusTab(Panel::Devices));
-            }
 
-            ui.add_space(4.0);
-            ui.label(
-                egui::RichText::new("Visualization")
-                    .small()
-                    .color(egui::Color32::GRAY),
+            Self::section_label(ui, "Hardware");
+            self.nav_button(
+                ui,
+                icons::nav::INSTRUMENT_MANAGER,
+                "Instruments",
+                Panel::Instruments,
             );
-            if ui.button("📈 Signal Plotter").clicked() {
-                self.app
-                    .ui_actions
-                    .push(UiAction::FocusTab(Panel::SignalPlotter));
-            }
-            if ui.button("🖼 Image Viewer").clicked() {
-                self.app
-                    .ui_actions
-                    .push(UiAction::FocusTab(Panel::ImageViewer));
-            }
+            self.nav_button(ui, icons::nav::DEVICES, "Devices", Panel::Devices);
 
-            ui.add_space(4.0);
-            ui.label(
-                egui::RichText::new("Experiment")
-                    .small()
-                    .color(egui::Color32::GRAY),
+            Self::section_label(ui, "Visualization");
+            self.nav_button(
+                ui,
+                icons::nav::SIGNAL_PLOTTER,
+                "Signal Plotter",
+                Panel::SignalPlotter,
             );
-            if ui.button("📜 Scripts").clicked() {
-                self.app.ui_actions.push(UiAction::FocusTab(Panel::Scripts));
-            }
-            if ui.button("📊 Scans").clicked() {
-                self.app.ui_actions.push(UiAction::FocusTab(Panel::Scans));
-            }
-            if ui.button("🎯 Plan Runner").clicked() {
-                self.app
-                    .ui_actions
-                    .push(UiAction::FocusTab(Panel::PlanRunner));
-            }
+            self.nav_button(
+                ui,
+                icons::nav::IMAGE_VIEWER,
+                "Image Viewer",
+                Panel::ImageViewer,
+            );
 
-            ui.add_space(4.0);
-            ui.label(
-                egui::RichText::new("Data")
-                    .small()
-                    .color(egui::Color32::GRAY),
+            Self::section_label(ui, "Experiment");
+            self.nav_button(ui, icons::nav::SCRIPTS, "Scripts", Panel::Scripts);
+            self.nav_button(ui, icons::nav::SCANS, "Scans", Panel::Scans);
+            self.nav_button(
+                ui,
+                icons::nav::PLAN_RUNNER,
+                "Plan Runner",
+                Panel::PlanRunner,
             );
-            if ui.button("💾 Storage").clicked() {
-                self.app.ui_actions.push(UiAction::FocusTab(Panel::Storage));
-            }
-            if ui.button("📄 Documents").clicked() {
-                self.app
-                    .ui_actions
-                    .push(UiAction::FocusTab(Panel::DocumentViewer));
-            }
 
-            ui.add_space(4.0);
-            ui.label(
-                egui::RichText::new("System")
-                    .small()
-                    .color(egui::Color32::GRAY),
+            Self::section_label(ui, "Data");
+            self.nav_button(ui, icons::nav::STORAGE, "Storage", Panel::Storage);
+            self.nav_button(
+                ui,
+                icons::nav::DOCUMENT_VIEWER,
+                "Documents",
+                Panel::DocumentViewer,
             );
-            if ui.button("🧩 Modules").clicked() {
-                self.app.ui_actions.push(UiAction::FocusTab(Panel::Modules));
-            }
-            if ui.button("🪵 Logs").clicked() {
-                self.app.ui_actions.push(UiAction::FocusTab(Panel::Logs));
-            }
+
+            Self::section_label(ui, "System");
+            self.nav_button(ui, icons::nav::MODULES, "Modules", Panel::Modules);
+            self.nav_button(ui, icons::nav::LOGGING, "Logs", Panel::Logs);
 
             ui.separator();
-            ui.add_space(8.0);
+            ui.add_space(layout::SECTION_SPACING / 2.0);
 
-            // Rerun visualization button
-            if ui.button("📈 Open Rerun").clicked() {
-                // Launch Rerun viewer
+            if ui
+                .button(format!("{} Open Rerun", icons::CHART_LINE))
+                .clicked()
+            {
                 let _ = std::process::Command::new("rerun").spawn();
             }
 
-            // PVCAM live view via Rerun
             #[cfg(all(feature = "rerun_viewer", feature = "pvcam"))]
             {
-                ui.add_space(8.0);
-                let label = if self.app.pvcam_streaming {
-                    "🛑 Stop PVCAM Live"
+                ui.add_space(layout::SECTION_SPACING / 2.0);
+                let (icon, label) = if self.app.pvcam_streaming {
+                    (icons::action::STOP, "Stop PVCAM Live")
                 } else {
-                    "🎥 PVCAM Live to Rerun"
+                    (icons::action::RECORD, "PVCAM Live to Rerun")
                 };
-                if ui.button(label).clicked() {
+                if ui.button(format!("{} {}", icon, label)).clicked() {
                     if self.app.pvcam_streaming {
                         if let Some(task) = self.app.pvcam_task.take() {
                             task.abort();
@@ -1106,6 +1120,15 @@ impl eframe::App for DaqApp {
         self.render_version_warning(ctx);
         self.render_status_bar(ctx);
 
+        let error_count = self.connection.health_status().total_errors;
+        let error_count = if error_count > 0 {
+            Some(error_count)
+        } else {
+            None
+        };
+        self.status_bar
+            .show(ctx, self.connection.state(), error_count);
+
         // Render Dock Area
         let mut dock_state = self
             .dock_state
@@ -1134,17 +1157,16 @@ impl eframe::App for DaqApp {
         self.dock_state = Some(dock_state);
     }
 
-    /// Save application state (including successful daemon address) to storage.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        // Only persist the address if we're connected (save known-good addresses)
         if self.connection.state().is_connected() {
             save_to_storage(storage, &self.daemon_address);
         }
 
-        // Persist dock layout
         if let Some(dock_state) = &self.dock_state {
             eframe::set_value(storage, eframe::APP_KEY, dock_state);
         }
+
+        eframe::set_value(storage, "theme_preference", &self.theme_preference);
     }
 }
 
