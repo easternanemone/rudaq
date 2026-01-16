@@ -29,5 +29,9 @@ storage_arrow = ["rust_daq/storage_arrow"]
 pvcam_sdk = ["rust_daq/pvcam_sdk", "daq-hardware/pvcam_sdk"]
 pvcam_hardware = ["pvcam_sdk"]
 
+# Maitai lab profile: all hardware with real PVCAM SDK
+# Use this on the maitai machine: cargo build --release -p daq-bin --features maitai
+maitai = ["pvcam_hardware"]
+
 [package.metadata.cargo-machete]
 ignored = ["daq-hardware"]  # Needed for pvcam feature passthrough

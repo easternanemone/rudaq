@@ -17,8 +17,8 @@ Rust-based data acquisition system with V5 headless-first architecture for scien
 source scripts/env-check.sh              # Validate & configure environment
 source config/hosts/maitai.env           # Or use host-specific config
 
-# Build & Test
-cargo build                              # Default features
+# Build & Test (local development)
+cargo build                              # Default features (mock hardware)
 cargo nextest run                        # Run all tests (recommended)
 cargo nextest run test_name              # Single test
 cargo nextest run -p daq-core            # Specific crate
@@ -28,9 +28,16 @@ cargo test --doc                         # Doctests (not in nextest)
 cargo fmt --all                          # Format
 cargo clippy --all-targets               # Lint
 
+# Build Daemon for Maitai (REAL PVCAM HARDWARE)
+# ⚠️  IMPORTANT: Use build-maitai.sh to avoid mock mode!
+source scripts/build-maitai.sh           # Clean build with PVCAM support
+
+# Or manually (must clean to avoid cached mock build):
+cargo clean -p daq-bin -p rust_daq -p daq-driver-pvcam
+cargo build --release -p daq-bin --features maitai
+
 # Run Daemon
-cargo run --bin rust-daq-daemon -- daemon --port 50051
-cargo run --bin rust-daq-daemon -- run examples/demo_scan.rhai
+./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_hardware.toml
 
 # Hardware Tests (on remote maitai machine)
 source scripts/env-check.sh && cargo nextest run --profile hardware --features hardware_tests
@@ -39,6 +46,26 @@ source scripts/env-check.sh && cargo nextest run --profile hardware --features h
 bd ready                                 # Find available work
 bd update <id> --status in_progress      # Claim work
 bd close <id> --reason "Done"            # Complete work
+```
+
+### ⚠️ PVCAM Build Gotcha
+
+**Problem:** Building without `--features maitai` or `--features pvcam_hardware` produces a daemon that silently uses mock camera data instead of real PVCAM hardware.
+
+**Symptoms:**
+- Camera streams synthetic gradient patterns instead of real images
+- Log shows: `pvcam_sdk feature enabled: false` and `using mock mode`
+
+**Solution:** Always use `scripts/build-maitai.sh` on the maitai machine, which:
+1. Sources the PVCAM environment variables
+2. Cleans cached build artifacts (critical - Cargo caching causes this issue)
+3. Builds with `--features maitai` (includes `pvcam_hardware`)
+
+**Verification:** Check daemon log for:
+```
+pvcam_sdk feature enabled: true
+PVCAM SDK initialized successfully
+Successfully opened camera 'pvcamUSB_0' with handle 0
 ```
 
 ## Architecture Overview
