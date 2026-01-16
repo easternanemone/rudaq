@@ -740,11 +740,12 @@ impl FrameTap for MetricsTap {
 ///
 /// ```ignore
 /// use daq_core::capabilities::FrameObserver;
+/// use daq_core::data::FrameView;
 ///
 /// struct MyObserver;
 ///
 /// impl FrameObserver for MyObserver {
-///     fn on_frame(&self, frame: &Frame) {
+///     fn on_frame(&self, frame: &FrameView<'_>) {
 ///         println!("Got frame {}", frame.frame_number);
 ///     }
 /// }
@@ -775,33 +776,34 @@ impl ObserverAdapter {
 
 impl FrameTap for ObserverAdapter {
     fn inspect(&self, frame: &FrameData) {
-        // Convert FrameData to Frame for the generic observer interface
-        // This creates a temporary Frame from the FrameData
-        let frame_obj = Frame {
-            frame_number: frame.frame_number,
-            width: frame.width,
-            height: frame.height,
-            bit_depth: frame.bit_depth,
-            timestamp_ns: frame.timestamp_ns,
-            exposure_ms: Some(frame.exposure_ms),
-            roi_x: frame.roi_x,
-            roi_y: frame.roi_y,
-            data: bytes::Bytes::copy_from_slice(frame.pixel_data()),
-            metadata: Some(Box::new(daq_core::data::FrameMetadata {
-                temperature_c: frame.temperature_c,
-                binning: frame.binning,
-                gain_mode: None,
-                readout_speed: None,
-                trigger_mode: None,
-                extra: std::collections::HashMap::new(),
-            })),
-        };
-        self.observer.on_frame(&frame_obj);
+        // Create zero-copy FrameView from FrameData (bd-gtvu optimization)
+        // This borrows pixel data directly - no allocation!
+        let mut view = daq_core::data::FrameView::new(
+            frame.width,
+            frame.height,
+            frame.bit_depth,
+            frame.pixel_data(),
+            frame.frame_number,
+            frame.timestamp_ns,
+        )
+        .with_exposure(frame.exposure_ms)
+        .with_roi_offset(frame.roi_x, frame.roi_y);
+
+        // Add optional metadata if present
+        if let Some(temp) = frame.temperature_c {
+            view = view.with_temperature(temp);
+        }
+        if let Some(binning) = frame.binning {
+            view = view.with_binning(binning);
+        }
+
+        self.observer.on_frame(&view);
     }
 
     fn inspect_frame(&self, frame: &Frame) {
-        // Direct delegation when we already have a Frame
-        self.observer.on_frame(frame);
+        // Convert Frame to FrameView (zero-copy borrow)
+        let view = daq_core::data::FrameView::from_frame(frame);
+        self.observer.on_frame(&view);
     }
 
     fn name(&self) -> &str {

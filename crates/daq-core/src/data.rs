@@ -350,3 +350,259 @@ impl FrameRef {
         Arc::clone(&self.data)
     }
 }
+
+// ============================================================================
+// FrameView - Zero-Copy Frame Reference (bd-gtvu)
+// ============================================================================
+
+/// A borrowed view into frame data for zero-allocation observation.
+///
+/// `FrameView` provides read-only access to frame data without copying.
+/// It's designed for the `FrameObserver` pattern where observers need to
+/// inspect frame data but don't need ownership.
+///
+/// # Zero-Copy Design (bd-gtvu)
+///
+/// Unlike `Frame` which owns its pixel data via `bytes::Bytes`, `FrameView`
+/// borrows the pixel slice. This eliminates the allocation overhead when
+/// adapting internal frame types for external observers.
+///
+/// | Type | Pixel Storage | Allocation per Observer |
+/// |------|---------------|------------------------|
+/// | `&Frame` | `Bytes` (owned) | ~8MB copy at 4K resolution |
+/// | `&FrameView` | `&[u8]` (borrowed) | 0 bytes |
+///
+/// # Lifetime
+///
+/// The `FrameView` is only valid for the duration of the observer callback.
+/// Do not attempt to store or extend the lifetime of a `FrameView`.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use daq_core::data::FrameView;
+///
+/// fn process_frame(view: &FrameView<'_>) {
+///     println!("Frame {} is {}x{}", view.frame_number, view.width, view.height);
+///
+///     // Access pixel data without allocation
+///     let pixels = view.pixels();
+///     let first_pixel = pixels.get(0).copied().unwrap_or(0);
+/// }
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct FrameView<'a> {
+    /// Width in pixels
+    pub width: u32,
+
+    /// Height in pixels
+    pub height: u32,
+
+    /// Bits per pixel (e.g., 8, 12, 16)
+    pub bit_depth: u32,
+
+    /// Borrowed pixel data (zero-copy)
+    pixels: &'a [u8],
+
+    /// Frame sequence number
+    pub frame_number: u64,
+
+    /// Capture timestamp (nanoseconds since UNIX epoch)
+    pub timestamp_ns: u64,
+
+    /// Exposure time (milliseconds)
+    pub exposure_ms: Option<f64>,
+
+    /// ROI X offset in sensor coordinates
+    pub roi_x: u32,
+
+    /// ROI Y offset in sensor coordinates
+    pub roi_y: u32,
+
+    /// Sensor temperature at capture time (Celsius)
+    pub temperature_c: Option<f64>,
+
+    /// Binning (x, y)
+    pub binning: Option<(u16, u16)>,
+}
+
+impl<'a> FrameView<'a> {
+    /// Create a new FrameView from raw components.
+    #[must_use]
+    pub fn new(
+        width: u32,
+        height: u32,
+        bit_depth: u32,
+        pixels: &'a [u8],
+        frame_number: u64,
+        timestamp_ns: u64,
+    ) -> Self {
+        Self {
+            width,
+            height,
+            bit_depth,
+            pixels,
+            frame_number,
+            timestamp_ns,
+            exposure_ms: None,
+            roi_x: 0,
+            roi_y: 0,
+            temperature_c: None,
+            binning: None,
+        }
+    }
+
+    /// Create a FrameView from a Frame (borrows the data).
+    #[must_use]
+    pub fn from_frame(frame: &'a Frame) -> Self {
+        Self {
+            width: frame.width,
+            height: frame.height,
+            bit_depth: frame.bit_depth,
+            pixels: &frame.data,
+            frame_number: frame.frame_number,
+            timestamp_ns: frame.timestamp_ns,
+            exposure_ms: frame.exposure_ms,
+            roi_x: frame.roi_x,
+            roi_y: frame.roi_y,
+            temperature_c: frame.metadata.as_ref().and_then(|m| m.temperature_c),
+            binning: frame.metadata.as_ref().and_then(|m| m.binning),
+        }
+    }
+
+    /// Set exposure time (builder pattern).
+    #[must_use]
+    pub fn with_exposure(mut self, exposure_ms: f64) -> Self {
+        self.exposure_ms = Some(exposure_ms);
+        self
+    }
+
+    /// Set ROI offset (builder pattern).
+    #[must_use]
+    pub fn with_roi_offset(mut self, roi_x: u32, roi_y: u32) -> Self {
+        self.roi_x = roi_x;
+        self.roi_y = roi_y;
+        self
+    }
+
+    /// Set temperature (builder pattern).
+    #[must_use]
+    pub fn with_temperature(mut self, temperature_c: f64) -> Self {
+        self.temperature_c = Some(temperature_c);
+        self
+    }
+
+    /// Set binning (builder pattern).
+    #[must_use]
+    pub fn with_binning(mut self, binning: (u16, u16)) -> Self {
+        self.binning = Some(binning);
+        self
+    }
+
+    /// Get the raw pixel data as a byte slice.
+    #[inline]
+    #[must_use]
+    pub fn pixels(&self) -> &'a [u8] {
+        self.pixels
+    }
+
+    /// Get the number of bytes in the pixel data.
+    #[inline]
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.pixels.len()
+    }
+
+    /// Check if pixel data is empty.
+    #[inline]
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.pixels.is_empty()
+    }
+
+    /// Get pixel value at (x, y) as u32 (handling bit depth conversion).
+    #[must_use]
+    pub fn get(&self, x: u32, y: u32) -> Option<u32> {
+        if x >= self.width || y >= self.height {
+            return None;
+        }
+
+        let idx = (y * self.width + x) as usize;
+
+        match self.bit_depth {
+            8 => self.pixels.get(idx).map(|&v| v as u32),
+            12 | 16 => {
+                let start = idx * 2;
+                if start + 1 < self.pixels.len() {
+                    let bytes = [self.pixels[start], self.pixels[start + 1]];
+                    Some(u16::from_le_bytes(bytes) as u32)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Access data as u16 slice (if applicable).
+    ///
+    /// Returns None if bit_depth is 8 or alignment is wrong.
+    #[must_use]
+    pub fn as_u16_slice(&self) -> Option<&[u16]> {
+        if self.bit_depth <= 8 {
+            return None;
+        }
+        if !self.pixels.len().is_multiple_of(2) {
+            return None;
+        }
+
+        // SAFETY: Casting [u8] to [u16] requires alignment check
+        let (prefix, mid, suffix) = unsafe { self.pixels.align_to::<u16>() };
+
+        if !prefix.is_empty() || !suffix.is_empty() {
+            // Alignment mismatch - log for debugging (consistency with Frame::as_u16_slice)
+            tracing::warn!(
+                prefix_len = prefix.len(),
+                suffix_len = suffix.len(),
+                pixels_len = self.pixels.len(),
+                "FrameView::as_u16_slice alignment mismatch - returning None"
+            );
+            return None;
+        }
+
+        Some(mid)
+    }
+
+    /// Calculate the total number of pixels.
+    #[inline]
+    #[must_use]
+    pub fn pixel_count(&self) -> usize {
+        (self.width as usize) * (self.height as usize)
+    }
+
+    /// Calculate mean pixel value.
+    #[must_use]
+    pub fn mean(&self) -> f64 {
+        match self.bit_depth {
+            8 => {
+                if self.pixels.is_empty() {
+                    return 0.0;
+                }
+                let sum: u64 = self.pixels.iter().map(|&v| v as u64).sum();
+                sum as f64 / self.pixels.len() as f64
+            }
+            12 | 16 => {
+                if let Some(u16_slice) = self.as_u16_slice() {
+                    if u16_slice.is_empty() {
+                        return 0.0;
+                    }
+                    let sum: u64 = u16_slice.iter().map(|&v| v as u64).sum();
+                    sum as f64 / u16_slice.len() as f64
+                } else {
+                    0.0
+                }
+            }
+            _ => 0.0,
+        }
+    }
+}

@@ -347,7 +347,7 @@ impl ObserverHandle {
 ///
 /// ```rust,ignore
 /// use daq_core::capabilities::{FrameObserver, ObserverHandle};
-/// use daq_core::data::Frame;
+/// use daq_core::data::FrameView;
 ///
 /// struct DecimatedObserver {
 ///     interval: u64,
@@ -356,7 +356,7 @@ impl ObserverHandle {
 /// }
 ///
 /// impl FrameObserver for DecimatedObserver {
-///     fn on_frame(&self, frame: &Frame) {
+///     fn on_frame(&self, frame: &FrameView<'_>) {
 ///         let count = self.count.fetch_add(1, Ordering::Relaxed);
 ///         if count % self.interval == 0 {
 ///             // Copy pixel data for persistence (required - can't hold reference)
@@ -378,8 +378,8 @@ pub trait FrameObserver: Send + Sync {
     ///
     /// # Arguments
     ///
-    /// - `frame`: Reference to the frame (valid only for this call)
-    fn on_frame(&self, frame: &crate::data::Frame);
+    /// - `frame`: Zero-copy view into frame data (valid only for this call)
+    fn on_frame(&self, frame: &crate::data::FrameView<'_>);
 
     /// Optional: Return a descriptive name for this observer (for debugging/logging).
     fn name(&self) -> &str {
