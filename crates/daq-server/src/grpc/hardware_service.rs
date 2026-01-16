@@ -1281,11 +1281,32 @@ impl HardwareService for HardwareServiceImpl {
             let mut avg_latency_ms = 0.0f64;
             let mut latency_samples = 0u64;
 
-            tracing::info!(device_id = %device_id_clone, "Starting frame stream forwarding task");
+            tracing::info!(
+                device_id = %device_id_clone,
+                max_fps = max_fps,
+                quality = ?quality,
+                channel_capacity = GRPC_FRAME_CHANNEL_CAPACITY,
+                "Starting frame stream forwarding task"
+            );
+
+            // Track exit reason for debugging
+            let exit_reason: &str;
 
             loop {
                 match frame_rx.recv().await {
                     Ok(frame) => {
+                        // Log early frames for debugging
+                        if frames_sent < 10 {
+                            tracing::info!(
+                                device_id = %device_id_clone,
+                                frame_number = frame.frame_number,
+                                bytes = frame.data.len(),
+                                width = frame.width,
+                                height = frame.height,
+                                "Server received frame from broadcast (early frame debug)"
+                            );
+                        }
+
                         // Rate limiting: skip frame if too soon
                         if let Some(interval) = min_interval {
                             let elapsed = last_frame_time.elapsed();
@@ -1453,8 +1474,24 @@ impl HardwareService for HardwareServiceImpl {
                                 }
                             };
 
+                        // Log early frame sends for debugging
+                        if frames_sent <= 10 {
+                            tracing::info!(
+                                device_id = %device_id_clone,
+                                frame = frames_sent,
+                                frame_number = frame_data.frame_number,
+                                bytes = frame_data.data.len(),
+                                queue_capacity = tx.capacity(),
+                                "About to send frame to gRPC client (early frame debug)"
+                            );
+                        }
+
                         if tx.send(Ok(frame_data)).await.is_err() {
-                            tracing::info!(device_id = %device_id_clone, "Client disconnected from frame stream");
+                            tracing::warn!(
+                                device_id = %device_id_clone,
+                                frames_sent = frames_sent,
+                                "Client disconnected from frame stream - gRPC send failed"
+                            );
                             // Graceful disconnect: stop acquisition when client disconnects (bd-cckz)
                             if let Err(e) = frame_producer_clone.stop_stream().await {
                                 tracing::warn!(
@@ -1468,11 +1505,21 @@ impl HardwareService for HardwareServiceImpl {
                                     "Stopped acquisition after client disconnect"
                                 );
                             }
+                            exit_reason = "client_disconnected";
                             break;
                         }
 
+                        // Log early frame sends success
+                        if frames_sent <= 10 {
+                            tracing::info!(
+                                device_id = %device_id_clone,
+                                frame = frames_sent,
+                                "Successfully sent frame to gRPC client (early frame debug)"
+                            );
+                        }
+
                         // Log compression stats every 30 frames (frames_sent already incremented above)
-                        if frames_sent.is_multiple_of(30) {
+                        if frames_sent > 10 && frames_sent.is_multiple_of(30) {
                             let ratio = if compressed_size > 0 {
                                 uncompressed_size as f64 / compressed_size as f64
                             } else {
@@ -1499,11 +1546,26 @@ impl HardwareService for HardwareServiceImpl {
                         // Continue receiving
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                        // Producer stopped streaming
+                        // Producer stopped streaming - normal termination
+                        tracing::info!(
+                            device_id = %device_id_clone,
+                            frames_sent = frames_sent,
+                            "Frame broadcast channel closed - producer stopped"
+                        );
+                        exit_reason = "broadcast_closed";
                         break;
                     }
                 }
             }
+
+            // Final summary log
+            tracing::info!(
+                device_id = %device_id_clone,
+                exit_reason = exit_reason,
+                frames_sent = frames_sent,
+                frames_dropped = frames_dropped,
+                "Frame stream forwarding task ended"
+            );
         });
 
         Ok(Response::new(ReceiverStream::new(rx)))

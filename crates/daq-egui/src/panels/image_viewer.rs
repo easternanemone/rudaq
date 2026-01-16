@@ -1538,7 +1538,8 @@ impl ImageViewerPanel {
             tracing::info!(
                 device_id = %device_id_clone,
                 max_fps = max_fps,
-                "Frame streaming started"
+                quality = ?stream_quality,
+                "Frame streaming started - entering receive loop"
             );
 
             let mut frames_received = 0u64;
@@ -1547,21 +1548,31 @@ impl ImageViewerPanel {
             // Timeout for stream inactivity (30s) to prevent hanging on network faults (bd-7rk0)
             const STREAM_TIMEOUT: Duration = Duration::from_secs(30);
 
+            // Track why the loop exited for debugging
+            let exit_reason: &str;
+
             loop {
                 tokio::select! {
                     _ = cancel_rx.recv() => {
-                        tracing::info!(device_id = %device_id_clone, "Frame stream cancelled");
+                        tracing::info!(
+                            device_id = %device_id_clone,
+                            frames_received = frames_received,
+                            "Frame stream cancelled by user/system"
+                        );
+                        exit_reason = "cancelled";
                         break;
                     }
                     _ = tokio::time::sleep(STREAM_TIMEOUT) => {
                         tracing::warn!(
                             device_id = %device_id_clone,
                             timeout_secs = STREAM_TIMEOUT.as_secs(),
-                            "Frame stream timeout - no frames received"
+                            frames_received = frames_received,
+                            "Frame stream timeout - no frames received in timeout period"
                         );
                         let _ = action_tx.send(ImageViewerAction::Error(format!(
                             "Frame stream timeout (no frames for {}s)", STREAM_TIMEOUT.as_secs()
                         )));
+                        exit_reason = "timeout";
                         break;
                     }
                     frame_result = stream.next() => {
@@ -1569,17 +1580,32 @@ impl ImageViewerPanel {
                             Some(Ok(mut frame_data)) => {
                                 frames_received += 1;
 
+                                // Log EVERY frame for the first 10 frames to debug early disconnect
+                                if frames_received <= 10 {
+                                    tracing::info!(
+                                        device_id = %device_id_clone,
+                                        frame = frames_received,
+                                        frame_number = frame_data.frame_number,
+                                        bytes = frame_data.data.len(),
+                                        width = frame_data.width,
+                                        height = frame_data.height,
+                                        compressed = frame_data.compression != 0,
+                                        "Received frame from gRPC (early frame debug)"
+                                    );
+                                }
+
                                 // Decompress frame if compressed (bd-7rk0: gRPC improvements)
                                 if let Err(e) = decompress_frame(&mut frame_data) {
                                     tracing::warn!(
                                         device_id = %device_id_clone,
+                                        frame = frames_received,
                                         error = %e,
                                         "Frame decompression failed, skipping frame"
                                     );
                                     continue;
                                 }
 
-                                if frames_received % 30 == 0 {
+                                if frames_received > 10 && frames_received % 30 == 0 {
                                     tracing::debug!(
                                         device_id = %device_id_clone,
                                         frame = frames_received,
@@ -1592,7 +1618,15 @@ impl ImageViewerPanel {
                                 // Use try_send to avoid blocking when queue is full
                                 // Dropping frames is preferred over blocking the stream
                                 match frame_tx.try_send(update) {
-                                    Ok(()) => {}
+                                    Ok(()) => {
+                                        if frames_received <= 10 {
+                                            tracing::info!(
+                                                device_id = %device_id_clone,
+                                                frame = frames_received,
+                                                "Frame queued to UI successfully"
+                                            );
+                                        }
+                                    }
                                     Err(mpsc::TrySendError::Full(_)) => {
                                         frames_dropped += 1;
                                         if frames_dropped % 10 == 0 {
@@ -1604,31 +1638,57 @@ impl ImageViewerPanel {
                                         }
                                     }
                                     Err(mpsc::TrySendError::Disconnected(_)) => {
-                                        // Receiver dropped
-                                        tracing::info!("Frame receiver disconnected, stopping stream");
+                                        // Receiver dropped - this shouldn't happen during normal operation
+                                        tracing::error!(
+                                            device_id = %device_id_clone,
+                                            frames_received = frames_received,
+                                            "Frame receiver disconnected unexpectedly - UI channel closed"
+                                        );
+                                        exit_reason = "receiver_disconnected";
                                         break;
                                     }
                                 }
                             }
                             Some(Err(e)) => {
-                                tracing::warn!(device_id = %device_id_clone, error = %e, "Frame stream error");
+                                // Log detailed error info
+                                tracing::error!(
+                                    device_id = %device_id_clone,
+                                    frames_received = frames_received,
+                                    error = %e,
+                                    error_debug = ?e,
+                                    "Frame stream error from gRPC"
+                                );
                                 let _ = action_tx.send(ImageViewerAction::Error(format!(
                                     "Frame stream error: {}", e
                                 )));
+                                exit_reason = "grpc_error";
                                 break;
                             }
                             None => {
-                                // Stream ended
-                                tracing::info!(device_id = %device_id_clone, "Frame stream ended");
+                                // Stream ended normally (server closed)
+                                tracing::warn!(
+                                    device_id = %device_id_clone,
+                                    frames_received = frames_received,
+                                    "Frame stream ended - server closed connection"
+                                );
                                 let _ = action_tx.send(ImageViewerAction::Error(format!(
                                     "Frame stream from {} ended unexpectedly", device_id_clone
                                 )));
+                                exit_reason = "stream_ended";
                                 break;
                             }
                         }
                     }
                 }
             }
+
+            tracing::info!(
+                device_id = %device_id_clone,
+                exit_reason = exit_reason,
+                frames_received = frames_received,
+                frames_dropped = frames_dropped,
+                "Frame stream loop exited"
+            );
 
             // Log stream statistics
             tracing::info!(
