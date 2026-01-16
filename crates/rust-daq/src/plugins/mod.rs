@@ -13,16 +13,20 @@
 //! ├── Native plugins (daq-plugin-api) [requires native_plugins feature]
 //! │   ├── FfiModuleWrapper - Adapts FFI to Module trait
 //! │   └── PluginModuleFactory - Creates wrapped instances
-//! └── Script plugins (this module)
+//! └── Script plugins (this module) [requires scripting feature]
 //!     ├── ScriptPluginLoader - Discovery and loading
 //!     └── ScriptModule - Script-based Module implementation
 //! ```
 
-// Script plugins (always available)
+// Script plugins - requires scripting feature (depends on daq_scripting)
+#[cfg(feature = "scripting")]
 pub mod loader;
+#[cfg(feature = "scripting")]
 pub mod script_module;
 
+#[cfg(feature = "scripting")]
 pub use loader::{ScriptLanguage, ScriptModuleInfo, ScriptPluginLoader};
+#[cfg(feature = "scripting")]
 pub use script_module::ScriptModule;
 
 // Native plugins (FFI bridge) - requires native_plugins feature

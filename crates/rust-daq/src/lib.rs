@@ -123,10 +123,7 @@ pub mod hardware;
 pub mod log_capture;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod modules;
-#[cfg(all(not(target_arch = "wasm32"), feature = "scripting"))]
-pub mod plugins;
-
-#[cfg(all(not(target_arch = "wasm32"), feature = "native_plugins"))]
+#[cfg(all(not(target_arch = "wasm32"), any(feature = "scripting", feature = "native_plugins")))]
 pub mod plugins;
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "scripting"))]
