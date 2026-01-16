@@ -23,7 +23,7 @@ mod camera_integration_tests {
     use daq_proto::daq::hardware_service_server::HardwareService;
     use daq_proto::daq::{
         ArmRequest, DeviceStateRequest, ListDevicesRequest, StartStreamRequest, StopStreamRequest,
-        StreamFramesRequest, TriggerRequest,
+        StreamFramesRequest, StreamQuality, TriggerRequest,
     };
     use daq_server::grpc::hardware_service::HardwareServiceImpl;
     use rust_daq::hardware::registry::{DeviceConfig, DeviceRegistry, DriverType};
@@ -304,6 +304,7 @@ mod camera_integration_tests {
         let request = Request::new(StreamFramesRequest {
             device_id: "test_camera".to_string(),
             max_fps: 10,
+            quality: StreamQuality::Full.into(),
         });
         let mut stream = service.stream_frames(request).await.unwrap().into_inner();
 
@@ -363,6 +364,7 @@ mod camera_integration_tests {
         let request = Request::new(StreamFramesRequest {
             device_id: "test_camera".to_string(),
             max_fps: 10,
+            quality: StreamQuality::Full.into(),
         });
         let mut stream = service.stream_frames(request).await.unwrap().into_inner();
 

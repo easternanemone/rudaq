@@ -7,7 +7,9 @@ compile_error!("pvcam_grpc_harness requires the 'server' feature");
 use anyhow::{Context, Result};
 use daq_core::health::SystemHealthMonitor;
 use daq_proto::daq::hardware_service_client::HardwareServiceClient;
-use daq_proto::daq::{SetParameterRequest, StartStreamRequest, StopStreamRequest, StreamFramesRequest};
+use daq_proto::daq::{
+    SetParameterRequest, StartStreamRequest, StopStreamRequest, StreamFramesRequest, StreamQuality,
+};
 use rust_daq::hardware::registry::create_lab_registry;
 use serde::Serialize;
 use std::fs;
@@ -389,6 +391,7 @@ async fn run_stream(
     let stream_request = StreamFramesRequest {
         device_id: config.camera_id.clone(),
         max_fps: config.max_fps,
+        quality: StreamQuality::Full.into(), // Full resolution for harness testing
     };
     let mut stream = client
         .stream_frames(stream_request)
@@ -404,7 +407,9 @@ async fn run_stream(
     let mut param_handle = None;
     if config.param_churn {
         let config_clone = config.clone();
-        param_handle = Some(tokio::spawn(async move { run_param_churn(&config_clone).await }));
+        param_handle = Some(tokio::spawn(
+            async move { run_param_churn(&config_clone).await },
+        ));
         notes.push("Parameter churn task started".to_string());
     }
 
@@ -652,10 +657,7 @@ struct SecondaryOutcome {
     status: String,
 }
 
-async fn run_secondary_client(
-    config: &HarnessConfig,
-    duration: Duration,
-) -> SecondaryOutcome {
+async fn run_secondary_client(config: &HarnessConfig, duration: Duration) -> SecondaryOutcome {
     let mut frames = 0u64;
     let mut status = Vec::new();
     let phases = [
@@ -676,6 +678,7 @@ async fn run_secondary_client(
         let request = StreamFramesRequest {
             device_id: config.camera_id.clone(),
             max_fps: config.max_fps,
+            quality: StreamQuality::Full.into(),
         };
 
         let mut stream = match client.stream_frames(request).await {

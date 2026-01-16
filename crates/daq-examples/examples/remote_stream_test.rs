@@ -13,8 +13,8 @@
 //! ```
 
 use daq_proto::daq::{
-    hardware_service_client::HardwareServiceClient, ListDevicesRequest, StartStreamRequest,
-    StopStreamRequest, StreamFramesRequest, ListParametersRequest,
+    hardware_service_client::HardwareServiceClient, ListDevicesRequest, ListParametersRequest,
+    StartStreamRequest, StopStreamRequest, StreamFramesRequest, StreamQuality,
 };
 use futures::StreamExt;
 use std::env;
@@ -89,6 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let request = StreamFramesRequest {
         device_id: cam.clone(),
         max_fps: 30, // Rate limit for GUI rendering
+        quality: StreamQuality::Full.into(), // Full resolution for test
     };
     let mut stream = client.stream_frames(request).await?.into_inner();
 

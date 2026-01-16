@@ -95,7 +95,7 @@ use daq_proto::daq::{
     StartRequest as ScriptStartRequest,
     StartResponse as ScriptStartResponse,
     StartScanRequest,
-    // Camera streaming
+    // Camera streaming with quality control
     StartStreamRequest,
     StopModuleRequest,
     StopRecordingRequest,
@@ -107,6 +107,7 @@ use daq_proto::daq::{
     StreamFramesRequest,
     // Observable streaming (bd-qqjq stub for bd-r5vb)
     StreamObservablesRequest,
+    StreamQuality,
     UploadRequest as ScriptUploadRequest,
     UploadResponse as ScriptUploadResponse,
 };
@@ -155,12 +156,19 @@ impl DaqClient {
 
         // Streaming channel WITHOUT request timeout for long-lived streaming RPCs
         // This prevents the 30-second default timeout from cancelling frame streams
+        // TCP tuning for reduced frame drops during streaming:
+        // - tcp_nodelay: Disables Nagle's algorithm to reduce latency
+        // - buffer_size: Larger buffer to absorb network jitter (1MB)
+        // - initial_stream_window_size: Larger window for high-bandwidth frame streams
         let streaming_endpoint = Channel::from_shared(address.as_str().to_string())?
             .connect_timeout(config.connect_timeout)
             // No .timeout() call - streaming RPCs should not have a request timeout
             .http2_keep_alive_interval(config.keepalive_interval)
             .keep_alive_timeout(config.keepalive_timeout)
-            .keep_alive_while_idle(config.keepalive_while_idle);
+            .keep_alive_while_idle(config.keepalive_while_idle)
+            .tcp_nodelay(true) // Disable Nagle's algorithm for lower latency
+            .buffer_size(1024 * 1024) // 1MB buffer for high-bandwidth streaming
+            .initial_stream_window_size(1024 * 1024); // 1MB initial window
 
         // TODO(bd-otbx): Add TLS configuration for https:// addresses
         // if address.is_tls() {
@@ -629,16 +637,23 @@ impl DaqClient {
     /// Returns a gRPC stream of FrameData. The max_fps parameter limits the
     /// frame rate to prevent overwhelming the GUI (0 = no limit).
     ///
+    /// The quality parameter controls server-side downsampling:
+    /// - `Full`: Full resolution (default)
+    /// - `Preview`: 2x2 binned (~4x smaller)
+    /// - `Fast`: 4x4 binned (~16x smaller)
+    ///
     /// Uses a dedicated streaming channel without request timeout to prevent
     /// long-lived streams from being cancelled by the default 30-second timeout.
     pub async fn stream_frames(
         &mut self,
         device_id: &str,
         max_fps: u32,
+        quality: StreamQuality,
     ) -> Result<impl futures::Stream<Item = Result<FrameData, tonic::Status>>> {
         let request = StreamFramesRequest {
             device_id: device_id.to_string(),
             max_fps,
+            quality: quality.into(),
         };
         // Use hardware_streaming client (no request timeout) for long-lived streams
         let response = self.hardware_streaming.stream_frames(request).await?;

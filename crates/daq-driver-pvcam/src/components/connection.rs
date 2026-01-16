@@ -12,13 +12,13 @@
 use anyhow::Result;
 
 #[cfg(feature = "pvcam_sdk")]
-use anyhow::{Context, anyhow};
+use anyhow::{anyhow, Context};
 #[cfg(feature = "pvcam_sdk")]
 use std::ffi::CString;
 #[cfg(feature = "pvcam_sdk")]
-use std::sync::Mutex;
-#[cfg(feature = "pvcam_sdk")]
 use std::sync::atomic::{AtomicU32, Ordering};
+#[cfg(feature = "pvcam_sdk")]
+use std::sync::Mutex;
 
 #[cfg(any(feature = "pvcam_sdk", feature = "pvcam_hardware"))]
 use pvcam_sys::*;
@@ -119,7 +119,10 @@ impl PvcamConnection {
     /// initialized once, even with multiple PvcamDriver instances.
     #[cfg(feature = "pvcam_sdk")]
     pub fn initialize(&mut self) -> Result<()> {
-        tracing::debug!("PvcamConnection::initialize() called, sdk_initialized={}", self.sdk_initialized);
+        tracing::debug!(
+            "PvcamConnection::initialize() called, sdk_initialized={}",
+            self.sdk_initialized
+        );
 
         if self.sdk_initialized {
             tracing::debug!("SDK already initialized for this connection, returning Ok");
@@ -142,7 +145,11 @@ impl PvcamConnection {
 
         // Increment ref count first, then init if we're the first
         let prev_count = SDK_REF_COUNT.fetch_add(1, Ordering::SeqCst);
-        tracing::debug!("SDK_REF_COUNT incremented: {} -> {}", prev_count, prev_count + 1);
+        tracing::debug!(
+            "SDK_REF_COUNT incremented: {} -> {}",
+            prev_count,
+            prev_count + 1
+        );
 
         if prev_count == 0 {
             // We're the first connection - initialize the SDK
@@ -152,7 +159,9 @@ impl PvcamConnection {
             if let Ok(v) = std::env::var("PVCAM_VERSION") {
                 tracing::debug!("Environment PVCAM_VERSION={}", v);
             } else {
-                tracing::warn!("Environment PVCAM_VERSION is NOT SET - this may cause runtime errors");
+                tracing::warn!(
+                    "Environment PVCAM_VERSION is NOT SET - this may cause runtime errors"
+                );
             }
             if let Ok(v) = std::env::var("PVCAM_SDK_DIR") {
                 tracing::debug!("Environment PVCAM_SDK_DIR={}", v);
@@ -166,7 +175,11 @@ impl PvcamConnection {
                 tracing::trace!("Calling pl_pvcam_get_ver()...");
                 let mut ver: uns16 = 0;
                 let ver_result = pl_pvcam_get_ver(&mut ver);
-                tracing::debug!("pl_pvcam_get_ver() returned {}, version=0x{:04x}", ver_result, ver);
+                tracing::debug!(
+                    "pl_pvcam_get_ver() returned {}, version=0x{:04x}",
+                    ver_result,
+                    ver
+                );
 
                 if ver_result == 0 {
                     let err = get_pvcam_error();
@@ -174,7 +187,12 @@ impl PvcamConnection {
                 } else {
                     let major = (ver >> 8) & 0xFF;
                     let minor = ver & 0xFF;
-                    tracing::info!("PVCAM SDK version: {}.{} (raw: 0x{:04x})", major, minor, ver);
+                    tracing::info!(
+                        "PVCAM SDK version: {}.{} (raw: 0x{:04x})",
+                        major,
+                        minor,
+                        ver
+                    );
                 }
 
                 // SAFETY: Global PVCAM init; protected by SDK_INIT_MUTEX.
@@ -187,10 +205,7 @@ impl PvcamConnection {
                     tracing::error!("pl_pvcam_init() FAILED: {}", err);
                     // Rollback ref count on failure
                     SDK_REF_COUNT.fetch_sub(1, Ordering::SeqCst);
-                    return Err(anyhow!(
-                        "Failed to initialize PVCAM SDK: {}",
-                        err
-                    ));
+                    return Err(anyhow!("Failed to initialize PVCAM SDK: {}", err));
                 }
             }
             tracing::info!("PVCAM SDK initialized successfully (ref count: 1)");
@@ -211,7 +226,10 @@ impl PvcamConnection {
     /// If name is not found, tries to open the first available camera.
     #[cfg(feature = "pvcam_sdk")]
     pub fn open(&mut self, camera_name: &str) -> Result<()> {
-        tracing::debug!("PvcamConnection::open() called with camera_name='{}'", camera_name);
+        tracing::debug!(
+            "PvcamConnection::open() called with camera_name='{}'",
+            camera_name
+        );
 
         if !self.sdk_initialized {
             tracing::error!("Cannot open camera: SDK not initialized");
@@ -227,7 +245,11 @@ impl PvcamConnection {
         unsafe {
             tracing::trace!("Calling pl_cam_get_total()...");
             let res = pl_cam_get_total(&mut total_cameras);
-            tracing::debug!("pl_cam_get_total() returned res={}, count={}", res, total_cameras);
+            tracing::debug!(
+                "pl_cam_get_total() returned res={}, count={}",
+                res,
+                total_cameras
+            );
 
             if res == 0 {
                 let err = get_pvcam_error();
@@ -237,7 +259,9 @@ impl PvcamConnection {
         }
 
         if total_cameras == 0 {
-            tracing::warn!("No PVCAM cameras detected (pl_cam_get_total=0), will try to open by name anyway");
+            tracing::warn!(
+                "No PVCAM cameras detected (pl_cam_get_total=0), will try to open by name anyway"
+            );
         } else {
             tracing::info!("Found {} PVCAM camera(s)", total_cameras);
 
@@ -263,16 +287,26 @@ impl PvcamConnection {
         unsafe {
             // Try to open the requested camera
             tracing::debug!("Attempting to open camera '{}'...", camera_name);
-            tracing::trace!("Calling pl_cam_open('{}', &hcam, OPEN_EXCLUSIVE=0)...", camera_name);
+            tracing::trace!(
+                "Calling pl_cam_open('{}', &hcam, OPEN_EXCLUSIVE=0)...",
+                camera_name
+            );
             let open_result = pl_cam_open(camera_name_cstr.as_ptr() as *mut i8, &mut hcam, 0);
-            tracing::debug!("pl_cam_open('{}') returned {}, hcam={}", camera_name, open_result, hcam);
+            tracing::debug!(
+                "pl_cam_open('{}') returned {}, hcam={}",
+                camera_name,
+                open_result,
+                hcam
+            );
 
             if open_result == 0 {
                 let err_code = pl_error_code();
                 let err_msg = get_pvcam_error();
                 tracing::warn!(
                     "pl_cam_open('{}') FAILED: code={}, {}",
-                    camera_name, err_code, err_msg
+                    camera_name,
+                    err_code,
+                    err_msg
                 );
 
                 // Try first available camera as fallback
@@ -289,29 +323,44 @@ impl PvcamConnection {
 
                     tracing::trace!("Calling pl_cam_open('{}')...", fallback_name);
                     let fallback_result = pl_cam_open(name_buffer.as_mut_ptr(), &mut hcam, 0);
-                    tracing::debug!("pl_cam_open('{}') returned {}, hcam={}", fallback_name, fallback_result, hcam);
+                    tracing::debug!(
+                        "pl_cam_open('{}') returned {}, hcam={}",
+                        fallback_name,
+                        fallback_result,
+                        hcam
+                    );
 
                     if fallback_result == 0 {
                         let err_code = pl_error_code();
                         let err_msg = get_pvcam_error();
                         tracing::error!(
                             "pl_cam_open('{}') FAILED: code={}, {}",
-                            fallback_name, err_code, err_msg
+                            fallback_name,
+                            err_code,
+                            err_msg
                         );
                         return Err(anyhow!("Failed to open any camera: {}", err_msg));
                     }
-                    tracing::info!("Successfully opened fallback camera '{}' with handle {}", fallback_name, hcam);
+                    tracing::info!(
+                        "Successfully opened fallback camera '{}' with handle {}",
+                        fallback_name,
+                        hcam
+                    );
                 } else {
                     let err_code = pl_error_code();
                     let err_msg = get_pvcam_error();
-                    tracing::error!(
-                        "pl_cam_get_name(0) FAILED: code={}, {}",
-                        err_code, err_msg
-                    );
-                    return Err(anyhow!("Failed to get camera name, cannot open: {}", camera_name));
+                    tracing::error!("pl_cam_get_name(0) FAILED: code={}, {}", err_code, err_msg);
+                    return Err(anyhow!(
+                        "Failed to get camera name, cannot open: {}",
+                        camera_name
+                    ));
                 }
             } else {
-                tracing::info!("Successfully opened camera '{}' with handle {}", camera_name, hcam);
+                tracing::info!(
+                    "Successfully opened camera '{}' with handle {}",
+                    camera_name,
+                    hcam
+                );
             }
         }
 

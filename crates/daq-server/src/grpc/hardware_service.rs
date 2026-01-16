@@ -58,10 +58,12 @@ use crate::grpc::proto::{
     StopMotionResponse,
     StopStreamRequest,
     StopStreamResponse,
+    // Stream quality for server-side downsampling
     StreamFramesRequest,
     StreamObservablesRequest,
     StreamParameterChangesRequest,
     StreamPositionRequest,
+    StreamQuality,
     StreamValuesRequest,
     StreamingMetrics,
     TriggerRequest,
@@ -77,6 +79,7 @@ use anyhow::Error as AnyError;
 use daq_core::observable::Observable;
 use daq_core::parameter::Parameter;
 use daq_hardware::registry::{Capability, DeviceRegistry};
+use daq_proto::downsample::{downsample_2x2, downsample_4x4};
 use serde_json;
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
@@ -1202,6 +1205,7 @@ impl HardwareService for HardwareServiceImpl {
         let req = request.into_inner();
         let device_id = req.device_id.clone();
         let max_fps = req.max_fps;
+        let quality = req.quality();
 
         // Get frame producer and subscribe to frame broadcast
         let frame_producer = self.registry.get_frame_producer(&device_id);
@@ -1229,8 +1233,11 @@ impl HardwareService for HardwareServiceImpl {
         };
 
         // Create output channel for gRPC stream
-        // Small buffer (4) since clients only keep latest frame anyway (bd-7rk0)
-        let (tx, rx) = tokio::sync::mpsc::channel(4);
+        // Buffer of 8 frames to absorb network jitter during streaming (bd-7rk0)
+        // Skip threshold at 75% full (6 frames) provides backpressure handling
+        const GRPC_FRAME_CHANNEL_CAPACITY: usize = 8;
+        const SKIP_THRESHOLD: usize = 6; // 75% full triggers frame skipping
+        let (tx, rx) = tokio::sync::mpsc::channel(GRPC_FRAME_CHANNEL_CAPACITY);
 
         // Spawn task to forward frames from broadcast to gRPC stream
         let device_id_clone = device_id.clone();
@@ -1262,6 +1269,22 @@ impl HardwareService for HardwareServiceImpl {
                             }
                         }
                         last_frame_time = std::time::Instant::now();
+
+                        // Backpressure handling: skip frames if gRPC channel is nearly full
+                        // This prevents dropped frames from network jitter by not overwhelming the channel
+                        let queue_len = GRPC_FRAME_CHANNEL_CAPACITY - tx.capacity();
+                        if queue_len >= SKIP_THRESHOLD {
+                            frames_dropped = frames_dropped.saturating_add(1);
+                            if frames_dropped % 10 == 1 {
+                                tracing::debug!(
+                                    device_id = %device_id_clone,
+                                    queue_len,
+                                    threshold = SKIP_THRESHOLD,
+                                    "Skipping frame due to backpressure"
+                                );
+                            }
+                            continue;
+                        }
 
                         // Validate frame dimensions to prevent buffer overflows (bd-7rk0)
                         let bytes_per_pixel = (frame.bit_depth as usize + 7) / 8;
@@ -1309,14 +1332,26 @@ impl HardwareService for HardwareServiceImpl {
                             avg_latency_ms,
                         };
 
+                        // Apply server-side downsampling based on quality setting
+                        // This reduces bandwidth for preview/fast modes while preserving full resolution when needed
+                        let (frame_data_vec, effective_width, effective_height) = match quality {
+                            StreamQuality::Preview => {
+                                downsample_2x2(&frame.data, frame.width, frame.height)
+                            }
+                            StreamQuality::Fast => {
+                                downsample_4x4(&frame.data, frame.width, frame.height)
+                            }
+                            StreamQuality::Full => (frame.data.to_vec(), frame.width, frame.height),
+                        };
+
                         // Convert Arc<Frame> to FrameData proto (bd-183h: propagate driver metadata)
                         // Use driver-provided timestamps and frame numbers for accurate timing
                         let mut frame_data = FrameData {
                             device_id: device_id_clone.clone(),
-                            width: frame.width,
-                            height: frame.height,
+                            width: effective_width,
+                            height: effective_height,
                             bit_depth: frame.bit_depth,
-                            data: frame.data.to_vec(),
+                            data: frame_data_vec,
                             // Use driver-provided frame number and timestamp (bd-183h)
                             frame_number: frame.frame_number,
                             timestamp_ns: frame.timestamp_ns,

@@ -561,10 +561,18 @@ message StopStreamResponse {
   uint64 frames_captured = 2;
 }
 
+// Stream quality level for bandwidth/quality tradeoff
+enum StreamQuality {
+  STREAM_QUALITY_FULL = 0;     // Full resolution (default)
+  STREAM_QUALITY_PREVIEW = 1;  // 2x2 binned (~4x smaller)
+  STREAM_QUALITY_FAST = 2;     // 4x4 binned (~16x smaller)
+}
+
 // Stream frames from a FrameProducer device to GUI
 message StreamFramesRequest {
   string device_id = 1;
   uint32 max_fps = 2;  // Rate limit for GUI rendering (0 = no limit)
+  StreamQuality quality = 3;  // Quality level for server-side downsampling
 }
 
 // Streaming performance metrics for GUI clients

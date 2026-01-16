@@ -17,8 +17,8 @@ use daq_core::error::DaqError;
 use daq_core::observable::ParameterSet;
 use daq_core::parameter::Parameter;
 use daq_core::pipeline::MeasurementSource;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 

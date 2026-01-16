@@ -24,6 +24,7 @@
 
 pub mod compression;
 pub mod convert;
+pub mod downsample;
 
 /// Generated DAQ protocol buffer types.
 pub mod daq {

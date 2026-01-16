@@ -18,7 +18,7 @@ use daq_driver_pvcam::PvcamDriver;
 use daq_proto::daq::hardware_service_server::HardwareService;
 use daq_proto::daq::{
     GetParameterRequest, SetParameterRequest, StartStreamRequest, StopStreamRequest,
-    StreamFramesRequest,
+    StreamFramesRequest, StreamQuality,
 };
 use daq_server::grpc::hardware_service::HardwareServiceImpl;
 use rust_daq::hardware::registry::{DeviceConfig, DeviceRegistry, DriverType};
@@ -94,6 +94,7 @@ async fn test_grpc_camera_control_stream() -> Result<()> {
     let request = Request::new(StreamFramesRequest {
         device_id: "prime_bsi".to_string(),
         max_fps: 0,
+        quality: StreamQuality::Full.into(),
     });
     let mut stream = service.stream_frames(request).await?.into_inner();
 

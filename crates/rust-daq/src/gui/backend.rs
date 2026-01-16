@@ -698,6 +698,7 @@ impl Backend {
                 let request = daq_proto::daq::StreamFramesRequest {
                     device_id: device_id_task.clone(),
                     max_fps: 30,
+                    quality: daq_proto::daq::StreamQuality::Full.into(),
                 };
 
                 match client.stream_frames(request).await {

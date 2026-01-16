@@ -532,9 +532,7 @@ mod tests {
     async fn test_try_acquire_timeout_success() {
         let pool = Pool::new_simple(1, || 42i32);
 
-        let item = pool
-            .try_acquire_timeout(Duration::from_millis(100))
-            .await;
+        let item = pool.try_acquire_timeout(Duration::from_millis(100)).await;
         assert!(item.is_some());
         assert_eq!(*item.unwrap(), 42);
     }

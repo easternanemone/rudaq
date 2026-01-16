@@ -21,7 +21,7 @@ use tokio::runtime::Runtime;
 use crate::client::DaqClient;
 use crate::widgets::{Histogram, HistogramPosition, ParameterCache, RoiSelector};
 use daq_proto::compression::decompress_frame;
-use daq_proto::daq::FrameData;
+use daq_proto::daq::{FrameData, StreamQuality};
 
 /// Maximum frame queue depth (prevents memory buildup if GUI is slow)
 /// We only keep the latest frame anyway, so 4 frames is sufficient
@@ -314,6 +314,15 @@ impl ScaleMode {
     }
 }
 
+/// Get display label for stream quality
+fn stream_quality_label(quality: StreamQuality) -> &'static str {
+    match quality {
+        StreamQuality::Full => "Full",
+        StreamQuality::Preview => "Preview (2x)",
+        StreamQuality::Fast => "Fast (4x)",
+    }
+}
+
 /// Stream subscription handle (for future external stream control)
 #[allow(dead_code)]
 pub struct FrameStreamSubscription {
@@ -530,6 +539,10 @@ pub struct ImageViewerPanel {
     recording_status: Option<daq_proto::daq::RecordingStatus>,
     /// Last recording status poll time
     last_recording_poll: Option<Instant>,
+
+    // -- Stream Quality Settings --
+    /// Stream quality level for server-side downsampling
+    stream_quality: StreamQuality,
 }
 
 impl Default for ImageViewerPanel {
@@ -595,6 +608,9 @@ impl Default for ImageViewerPanel {
             recording_output_path: None,
             recording_status: None,
             last_recording_poll: None,
+
+            // Stream quality for bandwidth control
+            stream_quality: StreamQuality::Full,
         }
     }
 }
@@ -1143,6 +1159,7 @@ impl ImageViewerPanel {
         let action_tx = self.action_tx.clone();
         let device_id_clone = device_id.to_string();
         let max_fps = self.max_fps;
+        let stream_quality = self.stream_quality;
 
         runtime.spawn(async move {
             use futures::StreamExt;
@@ -1171,8 +1188,8 @@ impl ImageViewerPanel {
                 }
             }
 
-            // 2. Subscribe to the frame stream
-            let stream = match client.stream_frames(&device_id_clone, max_fps).await {
+            // 2. Subscribe to the frame stream with quality setting
+            let stream = match client.stream_frames(&device_id_clone, max_fps, stream_quality).await {
                 Ok(s) => s,
                 Err(e) => {
                     // Clean up: stop stream if we started it successfully
@@ -1853,6 +1870,19 @@ impl ImageViewerPanel {
                     ui.selectable_value(&mut self.scale_mode, ScaleMode::Linear, "Linear");
                     ui.selectable_value(&mut self.scale_mode, ScaleMode::Log, "Log");
                     ui.selectable_value(&mut self.scale_mode, ScaleMode::Sqrt, "Sqrt");
+                });
+
+            // Stream quality selector (server-side downsampling)
+            egui::ComboBox::from_id_salt("stream_quality")
+                .selected_text(stream_quality_label(self.stream_quality))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.stream_quality, StreamQuality::Full, "Full");
+                    ui.selectable_value(
+                        &mut self.stream_quality,
+                        StreamQuality::Preview,
+                        "Preview (2x)",
+                    );
+                    ui.selectable_value(&mut self.stream_quality, StreamQuality::Fast, "Fast (4x)");
                 });
 
             // Contrast controls

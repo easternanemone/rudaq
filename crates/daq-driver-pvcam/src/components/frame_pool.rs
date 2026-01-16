@@ -379,9 +379,7 @@ mod tests {
         let _held = pool.acquire().await;
 
         // Should timeout since pool is exhausted
-        let result = pool
-            .try_acquire_timeout(Duration::from_millis(10))
-            .await;
+        let result = pool.try_acquire_timeout(Duration::from_millis(10)).await;
         assert!(result.is_none());
     }
 }

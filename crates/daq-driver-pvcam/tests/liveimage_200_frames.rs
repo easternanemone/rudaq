@@ -34,7 +34,10 @@ async fn liveimage_200_frames() {
             "[PVCAM TRACE] env PVCAM_TRACE=1 PVCAM_TRACE_EVERY={:?}",
             std::env::var("PVCAM_TRACE_EVERY").ok()
         );
-        println!("[PVCAM TRACE] env RUST_LOG={:?}", std::env::var("RUST_LOG").ok());
+        println!(
+            "[PVCAM TRACE] env RUST_LOG={:?}",
+            std::env::var("RUST_LOG").ok()
+        );
         println!(
             "[PVCAM TRACE] env PVCAM_SMOKE_TEST={:?}",
             std::env::var("PVCAM_SMOKE_TEST").ok()

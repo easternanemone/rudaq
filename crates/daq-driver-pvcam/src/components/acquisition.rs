@@ -48,22 +48,21 @@
 //! the `lost_frames` counter is incremented by the gap size and `discontinuity_events`
 //! is incremented. This allows downstream consumers to know when data is missing.
 
-use crate::components::connection::PvcamConnection;
 #[cfg(feature = "pvcam_sdk")]
 use crate::components::connection::get_pvcam_error;
+use crate::components::connection::PvcamConnection;
 #[cfg(feature = "pvcam_sdk")]
 use crate::components::features::PvcamFeatures;
-use anyhow::{Result, anyhow, bail};
+use anyhow::{anyhow, bail, Result};
+#[cfg(feature = "pvcam_sdk")]
+use bytes::Bytes;
 use daq_core::core::Roi;
 use daq_core::data::Frame;
 use daq_core::parameter::Parameter;
 #[cfg(feature = "pvcam_sdk")]
 use daq_pool::buffer_pool::BufferPool;
 #[cfg(feature = "pvcam_sdk")]
-use bytes::Bytes;
-#[cfg(feature = "pvcam_sdk")]
-use std::alloc::{Layout, alloc_zeroed, dealloc};
-use std::sync::Arc;
+use std::alloc::{alloc_zeroed, dealloc, Layout};
 #[cfg(feature = "pvcam_sdk")]
 use std::sync::atomic::AtomicBool;
 #[cfg(feature = "pvcam_sdk")]
@@ -73,6 +72,7 @@ use std::sync::atomic::AtomicI32;
 #[cfg(feature = "pvcam_sdk")]
 use std::sync::atomic::AtomicPtr;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::sync::MutexGuard;
@@ -179,7 +179,10 @@ impl CallbackContext {
     /// forcing the main loop to use get_oldest_frame for proper FIFO order.
     pub fn set_circ_overwrite(&self, overwrite: bool) {
         self.circ_overwrite.store(overwrite, Ordering::Release);
-        tracing::debug!(circ_overwrite = overwrite, "CallbackContext buffer mode updated");
+        tracing::debug!(
+            circ_overwrite = overwrite,
+            "CallbackContext buffer mode updated"
+        );
     }
 
     /// Signal that a frame is ready (called from EOF callback)
@@ -410,7 +413,10 @@ pub static GLOBAL_CALLBACK_CTX: std::sync::atomic::AtomicPtr<CallbackContext> =
 /// Set the global callback context pointer (call before registering callback)
 #[cfg(feature = "pvcam_sdk")]
 pub fn set_global_callback_ctx(ctx: *const CallbackContext) {
-    GLOBAL_CALLBACK_CTX.store(ctx as *mut CallbackContext, std::sync::atomic::Ordering::Release);
+    GLOBAL_CALLBACK_CTX.store(
+        ctx as *mut CallbackContext,
+        std::sync::atomic::Ordering::Release,
+    );
 }
 
 /// Clear the global callback context pointer (call after deregistering callback)
@@ -425,7 +431,8 @@ pub unsafe extern "system" fn pvcam_eof_callback(
     _p_context: *mut std::ffi::c_void, // bd-static-ctx-2026-01-12: IGNORED - use static global instead
 ) {
     // bd-debug-2026-01-12: Trace callback entry BEFORE any checks
-    static CALLBACK_ENTRY_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    static CALLBACK_ENTRY_COUNT: std::sync::atomic::AtomicU32 =
+        std::sync::atomic::AtomicU32::new(0);
     let entry_count = CALLBACK_ENTRY_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
 
     // bd-static-ctx-2026-01-12: Use static global context like minimal test
@@ -440,7 +447,10 @@ pub unsafe extern "system" fn pvcam_eof_callback(
     }
 
     if ctx_ptr.is_null() {
-        eprintln!("[PVCAM CALLBACK] static context is NULL at entry #{}", entry_count);
+        eprintln!(
+            "[PVCAM CALLBACK] static context is NULL at entry #{}",
+            entry_count
+        );
         return;
     }
 
@@ -1389,7 +1399,14 @@ impl PvcamAcquisition {
     ) -> Result<()> {
         tracing::info!(
             "start_stream: roi=({},{} {}x{}), binning=({},{}), exposure={:.1}ms, mode={}",
-            roi.x, roi.y, roi.width, roi.height, binning.0, binning.1, exposure_ms, buffer_mode
+            roi.x,
+            roi.y,
+            roi.width,
+            roi.height,
+            binning.0,
+            binning.1,
+            exposure_ms,
+            buffer_mode
         );
 
         // Avoid unused parameter warnings when hardware feature is disabled.
@@ -1407,7 +1424,14 @@ impl PvcamAcquisition {
         self.reset_frame_loss_metrics();
 
         let reliable_tx = self.reliable_tx.lock().await.clone();
-        tracing::debug!("reliable_tx channel: {}", if reliable_tx.is_some() { "present" } else { "none" });
+        tracing::debug!(
+            "reliable_tx channel: {}",
+            if reliable_tx.is_some() {
+                "present"
+            } else {
+                "none"
+            }
+        );
 
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = conn.handle() {
@@ -1593,7 +1617,9 @@ impl PvcamAcquisition {
                         callback_ctx_ptr as *mut std::ffi::c_void, // Still passed for SDK, but callback ignores it
                     );
                     if result == 0 {
-                        tracing::warn!("Failed to register EOF callback, falling back to polling mode");
+                        tracing::warn!(
+                            "Failed to register EOF callback, falling back to polling mode"
+                        );
                         clear_global_callback_ctx(); // Clear on failure
                         false
                     } else {
@@ -1615,7 +1641,11 @@ impl PvcamAcquisition {
                 hcam = h,
                 exp_mode = TIMED_MODE,
                 exposure_ms = exposure_ms as uns32,
-                buffer_mode = if selected_buffer_mode == CIRC_OVERWRITE { "CIRC_OVERWRITE" } else { "CIRC_NO_OVERWRITE" },
+                buffer_mode = if selected_buffer_mode == CIRC_OVERWRITE {
+                    "CIRC_OVERWRITE"
+                } else {
+                    "CIRC_NO_OVERWRITE"
+                },
                 "Calling pl_exp_setup_cont"
             );
 
@@ -1860,7 +1890,8 @@ impl PvcamAcquisition {
                         // This matches the SDK pattern: callback registration before each setup
                         if use_callback {
                             // Recreate raw pointer (needed because original was scoped to avoid holding across await)
-                            let callback_ctx_ptr = &**self.callback_context as *const CallbackContext;
+                            let callback_ctx_ptr =
+                                &**self.callback_context as *const CallbackContext;
                             let result = pl_cam_register_callback_ex3(
                                 h,
                                 PL_CALLBACK_EOF,
@@ -2013,7 +2044,7 @@ impl PvcamAcquisition {
                     circ_ptr_restored, // bd-3gnv: Pass buffer for auto-restart
                     circ_size_bytes,   // bd-3gnv: Pass size for auto-restart
                     circ_overwrite,
-                    buffer_pool,        // bd-0dax.4: Buffer pool for true zero-allocation
+                    buffer_pool, // bd-0dax.4: Buffer pool for true zero-allocation
                 );
             });
 
@@ -2664,7 +2695,7 @@ impl PvcamAcquisition {
         let mut buffer_cnt: uns32 = 0;
         let mut consecutive_timeouts: u32 = 0;
         const CALLBACK_WAIT_TIMEOUT_MS: u64 = 2000; // 2 seconds (align with C++ 5s, but responsive enough)
-                                                   // FORCE LONG TIMEOUT for debugging
+                                                    // FORCE LONG TIMEOUT for debugging
         let max_consecutive_timeouts: u32 = 5; // 10 seconds total
 
         if use_callback {
@@ -2892,435 +2923,444 @@ impl PvcamAcquisition {
                 }
             };
 
-                frames_processed_in_drain += 1;
+            frames_processed_in_drain += 1;
 
-                // bd-unlock-before-copy-2026-01-12: CRITICAL FIX
-                // The minimal test that works for 200 frames does: get_oldest_frame → UNLOCK → process
-                // We MUST unlock BEFORE any processing to match the SDK's expected timing.
-                //
-                // Safety: In CIRC_NO_OVERWRITE mode with 20 buffer slots, the frame data remains
-                // valid after unlock because the SDK won't overwrite until ALL 20 slots are filled.
-                // Since we process one frame at a time, the data is safe to access after unlock.
+            // bd-unlock-before-copy-2026-01-12: CRITICAL FIX
+            // The minimal test that works for 200 frames does: get_oldest_frame → UNLOCK → process
+            // We MUST unlock BEFORE any processing to match the SDK's expected timing.
+            //
+            // Safety: In CIRC_NO_OVERWRITE mode with 20 buffer slots, the frame data remains
+            // valid after unlock because the SDK won't overwrite until ALL 20 slots are filled.
+            // Since we process one frame at a time, the data is safe to access after unlock.
 
-                // Step 1: UNLOCK IMMEDIATELY after get_oldest_frame - EXACTLY like minimal test
-                let unlock_frame_nr = unsafe { frame_info.FrameNr };
-                if frames_processed_in_drain <= 25 || frames_processed_in_drain % 50 == 0 {
-                    eprintln!("[PVCAM DEBUG] Unlocking frame {} (before copy)", unlock_frame_nr);
+            // Step 1: UNLOCK IMMEDIATELY after get_oldest_frame - EXACTLY like minimal test
+            let unlock_frame_nr = unsafe { frame_info.FrameNr };
+            if frames_processed_in_drain <= 25 || frames_processed_in_drain % 50 == 0 {
+                eprintln!(
+                    "[PVCAM DEBUG] Unlocking frame {} (before copy)",
+                    unlock_frame_nr
+                );
+            }
+            let unlock_result = ffi_safe::release_oldest_frame(hcam);
+            if !unlock_result {
+                unlock_failures += 1;
+                eprintln!("[PVCAM ERROR] Unlock failed for frame {}", unlock_frame_nr);
+            } else if frames_processed_in_drain <= 25 || frames_processed_in_drain % 50 == 0 {
+                eprintln!(
+                    "[PVCAM DEBUG] Frame {} unlocked successfully",
+                    unlock_frame_nr
+                );
+            }
+
+            // bd-diag-2026-01-12: REMOVED - calling check_cont_status after unlock
+            // may cause SDK timing issues that stop callbacks at ~19 frames.
+            // The minimal tests that work for 200 frames don't call check_cont_status
+            // after unlock.
+
+            // bd-diag-skip-processing-2026-01-12: DIAGNOSTIC MODE
+            // When PVCAM_SKIP_PROCESSING=1 is set, skip ALL processing after unlock
+            // to match minimal test behavior exactly (get → unlock → continue).
+            // This isolates whether the issue is in processing vs SDK interaction.
+            static SKIP_PROCESSING: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            let skip_processing = *SKIP_PROCESSING.get_or_init(|| {
+                std::env::var("PVCAM_SKIP_PROCESSING")
+                    .map(|v| v == "1")
+                    .unwrap_or(false)
+            });
+            if skip_processing {
+                // Exactly like minimal test: get → unlock → continue immediately
+                frame_count.fetch_add(1, Ordering::Relaxed);
+                if use_callback {
+                    callback_ctx.consume_one();
                 }
-                let unlock_result = ffi_safe::release_oldest_frame(hcam);
-                if !unlock_result {
-                    unlock_failures += 1;
-                    eprintln!("[PVCAM ERROR] Unlock failed for frame {}", unlock_frame_nr);
-                } else if frames_processed_in_drain <= 25 || frames_processed_in_drain % 50 == 0 {
-                    eprintln!("[PVCAM DEBUG] Frame {} unlocked successfully", unlock_frame_nr);
-                }
+                loop_iteration += 1;
+                continue;
+            }
 
-                // bd-diag-2026-01-12: REMOVED - calling check_cont_status after unlock
-                // may cause SDK timing issues that stop callbacks at ~19 frames.
-                // The minimal tests that work for 200 frames don't call check_cont_status
-                // after unlock.
+            // Step 2: Copy pixel data AFTER unlock
+            // In CIRC_NO_OVERWRITE mode, the frame_ptr data is still valid because
+            // the SDK won't reuse this buffer slot until all 20 slots are filled.
+            let copy_bytes = frame_bytes.min(expected_frame_bytes);
 
-                // bd-diag-skip-processing-2026-01-12: DIAGNOSTIC MODE
-                // When PVCAM_SKIP_PROCESSING=1 is set, skip ALL processing after unlock
-                // to match minimal test behavior exactly (get → unlock → continue).
-                // This isolates whether the issue is in processing vs SDK interaction.
-                static SKIP_PROCESSING: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-                let skip_processing = *SKIP_PROCESSING.get_or_init(|| {
-                    std::env::var("PVCAM_SKIP_PROCESSING").map(|v| v == "1").unwrap_or(false)
-                });
-                if skip_processing {
-                    // Exactly like minimal test: get → unlock → continue immediately
-                    frame_count.fetch_add(1, Ordering::Relaxed);
-                    if use_callback {
-                        callback_ctx.consume_one();
-                    }
-                    loop_iteration += 1;
-                    continue;
-                }
+            // Allocation tracking instrumentation (bd-0dax.1.1)
+            // Track allocation latency and total bytes for frame buffer copies
+            static ALLOC_TOTAL_BYTES: AtomicU64 = AtomicU64::new(0);
+            static ALLOC_TOTAL_TIME_NS: AtomicU64 = AtomicU64::new(0);
+            static ALLOC_FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
+            static POOL_HITS: AtomicU64 = AtomicU64::new(0);
+            static POOL_MISSES: AtomicU64 = AtomicU64::new(0);
 
-                // Step 2: Copy pixel data AFTER unlock
-                // In CIRC_NO_OVERWRITE mode, the frame_ptr data is still valid because
-                // the SDK won't reuse this buffer slot until all 20 slots are filled.
-                let copy_bytes = frame_bytes.min(expected_frame_bytes);
+            let alloc_start = std::time::Instant::now();
 
-                // Allocation tracking instrumentation (bd-0dax.1.1)
-                // Track allocation latency and total bytes for frame buffer copies
-                static ALLOC_TOTAL_BYTES: AtomicU64 = AtomicU64::new(0);
-                static ALLOC_TOTAL_TIME_NS: AtomicU64 = AtomicU64::new(0);
-                static ALLOC_FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
-                static POOL_HITS: AtomicU64 = AtomicU64::new(0);
-                static POOL_MISSES: AtomicU64 = AtomicU64::new(0);
-
-                let alloc_start = std::time::Instant::now();
-
-                // bd-0dax.4: TRUE zero-allocation path using BufferPool + freeze()
-                // When consumers drop the Frame, buffer auto-returns to pool via Bytes::drop.
-                // Falls back to heap allocation if pool is exhausted (backpressure).
-                let (pixel_data, used_pool): (Bytes, bool) = match buffer_pool.try_acquire() {
-                    Some(mut buffer) => {
-                        // Fast path: Copy SDK data into pre-allocated pool buffer
-                        unsafe {
-                            buffer.copy_from_ptr(frame_ptr as *const u8, copy_bytes);
-                        }
-                        // Zero-copy conversion to Bytes - buffer returns to pool when dropped
-                        let data = buffer.freeze();
-                        POOL_HITS.fetch_add(1, Ordering::Relaxed);
-                        (data, true)
-                    }
-                    None => {
-                        // Slow path: Pool exhausted - fall back to heap allocation
-                        // This indicates backpressure (consumers too slow)
-                        POOL_MISSES.fetch_add(1, Ordering::Relaxed);
-                        let misses = POOL_MISSES.load(Ordering::Relaxed);
-                        if misses <= 10 || misses % 100 == 0 {
-                            tracing::warn!(
-                                target: "pvcam_pool",
-                                pool_misses = misses,
-                                pool_available = buffer_pool.available(),
-                                pool_size = buffer_pool.size(),
-                                "Buffer pool exhausted - falling back to heap allocation (backpressure)"
-                            );
-                        }
-                        let data = unsafe {
-                            let sdk_bytes = std::slice::from_raw_parts(frame_ptr as *const u8, copy_bytes);
-                            Bytes::copy_from_slice(sdk_bytes)
-                        };
-                        (data, false)
-                    }
-                };
-                let alloc_duration = alloc_start.elapsed();
-
-                // Update allocation metrics (Relaxed ordering for performance)
-                ALLOC_TOTAL_BYTES.fetch_add(copy_bytes as u64, Ordering::Relaxed);
-                ALLOC_TOTAL_TIME_NS.fetch_add(alloc_duration.as_nanos() as u64, Ordering::Relaxed);
-                let alloc_frame_num = ALLOC_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-
-                // Log allocation metrics every 100 frames
-                if alloc_frame_num % 100 == 0 {
-                    let total_bytes = ALLOC_TOTAL_BYTES.load(Ordering::Relaxed);
-                    let total_ns = ALLOC_TOTAL_TIME_NS.load(Ordering::Relaxed);
-                    let pool_hits = POOL_HITS.load(Ordering::Relaxed);
-                    let pool_misses = POOL_MISSES.load(Ordering::Relaxed);
-                    let avg_alloc_us = if alloc_frame_num > 0 {
-                        (total_ns / alloc_frame_num) / 1000
-                    } else {
-                        0
-                    };
-                    let hit_rate_pct = if alloc_frame_num > 0 {
-                        (pool_hits * 100) / alloc_frame_num
-                    } else {
-                        0
-                    };
-                    tracing::info!(
-                        target: "pvcam_alloc_trace",
-                        frame = alloc_frame_num,
-                        total_allocated_mb = total_bytes / 1_000_000,
-                        avg_alloc_us = avg_alloc_us,
-                        last_alloc_us = alloc_duration.as_micros(),
-                        copy_bytes = copy_bytes,
-                        pool_hit_rate_pct = hit_rate_pct,
-                        pool_hits = pool_hits,
-                        pool_misses = pool_misses,
-                        used_pool = used_pool,
-                        "Allocation metrics (bd-0dax.3)"
-                    );
-                }
-
-                // Step 3: Decode metadata (frame_ptr data still valid in NO_OVERWRITE mode)
-                let frame_metadata = if !md_frame_ptr.is_null() {
+            // bd-0dax.4: TRUE zero-allocation path using BufferPool + freeze()
+            // When consumers drop the Frame, buffer auto-returns to pool via Bytes::drop.
+            // Falls back to heap allocation if pool is exhausted (backpressure).
+            let (pixel_data, used_pool): (Bytes, bool) = match buffer_pool.try_acquire() {
+                Some(mut buffer) => {
+                    // Fast path: Copy SDK data into pre-allocated pool buffer
                     unsafe {
-                        if ffi_safe::decode_frame_metadata(
-                            md_frame_ptr,
-                            frame_ptr,
-                            frame_bytes as uns32,
-                        ) {
-                            let hdr = &*(*md_frame_ptr).header;
-                            let ts_res = hdr.timestampResNs as u64;
-                            let exp_res = hdr.exposureTimeResNs as u64;
-                            Some(FrameMetadata {
-                                frame_nr: hdr.frameNr as i32,
-                                timestamp_bof_ns: (hdr.timestampBOF as u64) * ts_res,
-                                timestamp_eof_ns: (hdr.timestampEOF as u64) * ts_res,
-                                exposure_time_ns: (hdr.exposureTime as u64) * exp_res,
-                                bit_depth: hdr.bitDepth as u16,
-                                roi_count: hdr.roiCount,
-                            })
-                        } else {
-                            None
-                        }
+                        buffer.copy_from_ptr(frame_ptr as *const u8, copy_bytes);
                     }
-                } else {
-                    None
-                };
+                    // Zero-copy conversion to Bytes - buffer returns to pool when dropped
+                    let data = buffer.freeze();
+                    POOL_HITS.fetch_add(1, Ordering::Relaxed);
+                    (data, true)
+                }
+                None => {
+                    // Slow path: Pool exhausted - fall back to heap allocation
+                    // This indicates backpressure (consumers too slow)
+                    POOL_MISSES.fetch_add(1, Ordering::Relaxed);
+                    let misses = POOL_MISSES.load(Ordering::Relaxed);
+                    if misses <= 10 || misses % 100 == 0 {
+                        tracing::warn!(
+                            target: "pvcam_pool",
+                            pool_misses = misses,
+                            pool_available = buffer_pool.available(),
+                            pool_size = buffer_pool.size(),
+                            "Buffer pool exhausted - falling back to heap allocation (backpressure)"
+                        );
+                    }
+                    let data = unsafe {
+                        let sdk_bytes =
+                            std::slice::from_raw_parts(frame_ptr as *const u8, copy_bytes);
+                        Bytes::copy_from_slice(sdk_bytes)
+                    };
+                    (data, false)
+                }
+            };
+            let alloc_duration = alloc_start.elapsed();
 
-                // TRACING: Frame retrieved (bd-trace-2026-01-11)
-                // bd-non-ex-2026-01-12: frame_info.FrameNr may be -1 if using non-_ex get_oldest_frame
-                if loop_iteration <= 10 || frames_processed_in_drain <= 3 {
-                    if unsafe { frame_info.FrameNr } >= 0 {
-                        unsafe {
-                            tracing::info!(
-                                target: "pvcam_frame_trace",
-                                iter = loop_iteration,
-                                drain_frame = frames_processed_in_drain,
-                                hw_frame_nr = frame_info.FrameNr,
-                                timestamp = frame_info.TimeStamp,
-                                timestamp_bof = frame_info.TimeStampBOF,
-                                readout_time = frame_info.ReadoutTime,
-                                "Frame retrieved from PVCAM"
-                            );
-                        }
+            // Update allocation metrics (Relaxed ordering for performance)
+            ALLOC_TOTAL_BYTES.fetch_add(copy_bytes as u64, Ordering::Relaxed);
+            ALLOC_TOTAL_TIME_NS.fetch_add(alloc_duration.as_nanos() as u64, Ordering::Relaxed);
+            let alloc_frame_num = ALLOC_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+
+            // Log allocation metrics every 100 frames
+            if alloc_frame_num % 100 == 0 {
+                let total_bytes = ALLOC_TOTAL_BYTES.load(Ordering::Relaxed);
+                let total_ns = ALLOC_TOTAL_TIME_NS.load(Ordering::Relaxed);
+                let pool_hits = POOL_HITS.load(Ordering::Relaxed);
+                let pool_misses = POOL_MISSES.load(Ordering::Relaxed);
+                let avg_alloc_us = if alloc_frame_num > 0 {
+                    (total_ns / alloc_frame_num) / 1000
+                } else {
+                    0
+                };
+                let hit_rate_pct = if alloc_frame_num > 0 {
+                    (pool_hits * 100) / alloc_frame_num
+                } else {
+                    0
+                };
+                tracing::info!(
+                    target: "pvcam_alloc_trace",
+                    frame = alloc_frame_num,
+                    total_allocated_mb = total_bytes / 1_000_000,
+                    avg_alloc_us = avg_alloc_us,
+                    last_alloc_us = alloc_duration.as_micros(),
+                    copy_bytes = copy_bytes,
+                    pool_hit_rate_pct = hit_rate_pct,
+                    pool_hits = pool_hits,
+                    pool_misses = pool_misses,
+                    used_pool = used_pool,
+                    "Allocation metrics (bd-0dax.3)"
+                );
+            }
+
+            // Step 3: Decode metadata (frame_ptr data still valid in NO_OVERWRITE mode)
+            let frame_metadata = if !md_frame_ptr.is_null() {
+                unsafe {
+                    if ffi_safe::decode_frame_metadata(
+                        md_frame_ptr,
+                        frame_ptr,
+                        frame_bytes as uns32,
+                    ) {
+                        let hdr = &*(*md_frame_ptr).header;
+                        let ts_res = hdr.timestampResNs as u64;
+                        let exp_res = hdr.exposureTimeResNs as u64;
+                        Some(FrameMetadata {
+                            frame_nr: hdr.frameNr as i32,
+                            timestamp_bof_ns: (hdr.timestampBOF as u64) * ts_res,
+                            timestamp_eof_ns: (hdr.timestampEOF as u64) * ts_res,
+                            exposure_time_ns: (hdr.exposureTime as u64) * exp_res,
+                            bit_depth: hdr.bitDepth as u16,
+                            roi_count: hdr.roiCount,
+                        })
                     } else {
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            // TRACING: Frame retrieved (bd-trace-2026-01-11)
+            // bd-non-ex-2026-01-12: frame_info.FrameNr may be -1 if using non-_ex get_oldest_frame
+            if loop_iteration <= 10 || frames_processed_in_drain <= 3 {
+                if unsafe { frame_info.FrameNr } >= 0 {
+                    unsafe {
                         tracing::info!(
                             target: "pvcam_frame_trace",
                             iter = loop_iteration,
                             drain_frame = frames_processed_in_drain,
-                            "Frame retrieved from PVCAM (no FRAME_INFO - using non-_ex API)"
+                            hw_frame_nr = frame_info.FrameNr,
+                            timestamp = frame_info.TimeStamp,
+                            timestamp_bof = frame_info.TimeStampBOF,
+                            readout_time = frame_info.ReadoutTime,
+                            "Frame retrieved from PVCAM"
                         );
                     }
+                } else {
+                    tracing::info!(
+                        target: "pvcam_frame_trace",
+                        iter = loop_iteration,
+                        drain_frame = frames_processed_in_drain,
+                        "Frame retrieved from PVCAM (no FRAME_INFO - using non-_ex API)"
+                    );
                 }
+            }
 
-                // Remaining frame processing uses our copies (pixel_data, frame_metadata, frame_info)
-                // frame_ptr is NO LONGER VALID after unlock above
-                unsafe {
-                    // bd-non-ex-2026-01-12: Get frame number from callback context when using non-_ex API
-                    // The callback still receives FRAME_INFO from PVCAM even if get_oldest_frame doesn't fill it
-                    let current_frame_nr = if frame_info.FrameNr >= 0 {
-                        frame_info.FrameNr
-                    } else {
-                        // Using non-_ex API - get frame number from callback context
-                        callback_ctx.latest_frame_nr.load(Ordering::Acquire)
-                    };
+            // Remaining frame processing uses our copies (pixel_data, frame_metadata, frame_info)
+            // frame_ptr is NO LONGER VALID after unlock above
+            unsafe {
+                // bd-non-ex-2026-01-12: Get frame number from callback context when using non-_ex API
+                // The callback still receives FRAME_INFO from PVCAM even if get_oldest_frame doesn't fill it
+                let current_frame_nr = if frame_info.FrameNr >= 0 {
+                    frame_info.FrameNr
+                } else {
+                    // Using non-_ex API - get frame number from callback context
+                    callback_ctx.latest_frame_nr.load(Ordering::Acquire)
+                };
 
-                    // Frame loss detection (bd-ek9n.3): Check for gaps in FrameNr sequence
-                    // FrameNr is 1-based hardware counter from PVCAM
-                    // bd-non-ex-2026-01-12: Skip frame number tracking if we don't have valid data
-                    let prev_frame_nr = last_hw_frame_nr.load(Ordering::Acquire);
+                // Frame loss detection (bd-ek9n.3): Check for gaps in FrameNr sequence
+                // FrameNr is 1-based hardware counter from PVCAM
+                // bd-non-ex-2026-01-12: Skip frame number tracking if we don't have valid data
+                let prev_frame_nr = last_hw_frame_nr.load(Ordering::Acquire);
 
-                    if current_frame_nr >= 0 && prev_frame_nr >= 0 {
-                        // Only do frame number checks if we have valid frame numbers
-                        let expected_frame_nr = prev_frame_nr + 1;
-                        if current_frame_nr > expected_frame_nr {
-                            // Gap detected: frames were lost between prev and current
-                            let frames_lost = (current_frame_nr - expected_frame_nr) as u64;
-                            lost_frames.fetch_add(frames_lost, Ordering::Relaxed);
-                            discontinuity_events.fetch_add(1, Ordering::Relaxed);
-                            tracing::debug!(
-                                "Frame skip detected: expected {}, got {} ({} frames skipped)",
-                                expected_frame_nr,
-                                current_frame_nr,
-                                frames_lost
-                            );
-                        } else if current_frame_nr == prev_frame_nr {
-                            // Duplicate frame detected (bd-ha3w): same FrameNr as previous
-                            // This happens when the SDK returns the same buffer before new data arrives.
-                            // bd-3gnv FIX: Exit drain loop IMMEDIATELY on duplicate.
-                            // Continuing would just get the same stale frame again.
-                            // Return to outer loop to wait for next callback signal.
-                            discontinuity_events.fetch_add(1, Ordering::Relaxed);
-                            consecutive_duplicates += 1;
+                if current_frame_nr >= 0 && prev_frame_nr >= 0 {
+                    // Only do frame number checks if we have valid frame numbers
+                    let expected_frame_nr = prev_frame_nr + 1;
+                    if current_frame_nr > expected_frame_nr {
+                        // Gap detected: frames were lost between prev and current
+                        let frames_lost = (current_frame_nr - expected_frame_nr) as u64;
+                        lost_frames.fetch_add(frames_lost, Ordering::Relaxed);
+                        discontinuity_events.fetch_add(1, Ordering::Relaxed);
+                        tracing::debug!(
+                            "Frame skip detected: expected {}, got {} ({} frames skipped)",
+                            expected_frame_nr,
+                            current_frame_nr,
+                            frames_lost
+                        );
+                    } else if current_frame_nr == prev_frame_nr {
+                        // Duplicate frame detected (bd-ha3w): same FrameNr as previous
+                        // This happens when the SDK returns the same buffer before new data arrives.
+                        // bd-3gnv FIX: Exit drain loop IMMEDIATELY on duplicate.
+                        // Continuing would just get the same stale frame again.
+                        // Return to outer loop to wait for next callback signal.
+                        discontinuity_events.fetch_add(1, Ordering::Relaxed);
+                        consecutive_duplicates += 1;
 
-                            // Log the first duplicate in this drain with FRAME_INFO details for diagnosis.
-                            if consecutive_duplicates == 1 {
-                                tracing::warn!(
+                        // Log the first duplicate in this drain with FRAME_INFO details for diagnosis.
+                        if consecutive_duplicates == 1 {
+                            tracing::warn!(
                                     "PVCAM duplicate frame detected: FrameNr={}, buffer_cnt={}, bytes_arrived={}",
                                     current_frame_nr,
                                     buffer_cnt,
                                     bytes_arrived
                                 );
-                            }
-
-                            // bd-immediate-unlock-2026-01-12: Frame already unlocked at top of loop
-                            // No need to unlock again here - just consume callback and exit
-                            if use_callback {
-                                callback_ctx.consume_one();
-                            }
-
-                            // bd-flatten-2026-01-12: On duplicate frame, skip processing and
-                            // wait for next callback. (No inner loop anymore - just continue.)
-                            continue; // Wait for next callback
-                        } else if current_frame_nr < expected_frame_nr && current_frame_nr != 1 {
-                            // Frame number went backwards (not due to wrap to 1)
-                            // This is unexpected but log it as discontinuity
-                            discontinuity_events.fetch_add(1, Ordering::Relaxed);
-                            tracing::warn!(
-                                "Frame number discontinuity: expected {}, got {} (possible SDK reset)",
-                                expected_frame_nr,
-                                current_frame_nr
-                            );
                         }
-                    }
-                    // Update last seen frame number (only if we have valid data)
-                    if current_frame_nr >= 0 {
-                        last_hw_frame_nr.store(current_frame_nr, Ordering::Release);
-                    }
-                    // bd-3gnv: Reset duplicate counter on successful new frame
-                    consecutive_duplicates = 0;
 
-                    // bd-immediate-unlock-2026-01-12: pixel_data, frame_metadata, and unlock
-                    // are all handled at the top of the loop immediately after get_oldest_frame.
-                    // frame_ptr is no longer valid here - use only our copies.
-
-                    // Zero-frame detection (bd-ha3w): Check if frame contains valid data
-                    // Sample several positions to detect all-zero frames which indicate
-                    // either buffer corruption or reading before SDK finished writing.
-                    // Real camera data typically has noise even in dark frames.
-                    let sample_positions = [
-                        copy_bytes / 4,
-                        copy_bytes / 2,
-                        copy_bytes * 3 / 4,
-                        copy_bytes - 1,
-                    ];
-                    let has_nonzero = sample_positions
-                        .iter()
-                        .any(|&pos| pos < pixel_data.len() && pixel_data[pos] != 0);
-                    if !has_nonzero && copy_bytes > 1000 {
-                        // Frame appears to be all zeros - likely corrupted or race condition
-                        discontinuity_events.fetch_add(1, Ordering::Relaxed);
-                        tracing::warn!(
-                            "Zero-frame detected for FrameNr {}: buffer appears uninitialized, skipping (bd-ha3w)",
-                            current_frame_nr
-                        );
                         // bd-immediate-unlock-2026-01-12: Frame already unlocked at top of loop
-                        // Just consume callback and skip
+                        // No need to unlock again here - just consume callback and exit
                         if use_callback {
                             callback_ctx.consume_one();
                         }
-                        continue; // Skip to next frame
-                    }
 
-                    // Decrement pending frame counter (callback mode)
+                        // bd-flatten-2026-01-12: On duplicate frame, skip processing and
+                        // wait for next callback. (No inner loop anymore - just continue.)
+                        continue; // Wait for next callback
+                    } else if current_frame_nr < expected_frame_nr && current_frame_nr != 1 {
+                        // Frame number went backwards (not due to wrap to 1)
+                        // This is unexpected but log it as discontinuity
+                        discontinuity_events.fetch_add(1, Ordering::Relaxed);
+                        tracing::warn!(
+                            "Frame number discontinuity: expected {}, got {} (possible SDK reset)",
+                            expected_frame_nr,
+                            current_frame_nr
+                        );
+                    }
+                }
+                // Update last seen frame number (only if we have valid data)
+                if current_frame_nr >= 0 {
+                    last_hw_frame_nr.store(current_frame_nr, Ordering::Release);
+                }
+                // bd-3gnv: Reset duplicate counter on successful new frame
+                consecutive_duplicates = 0;
+
+                // bd-immediate-unlock-2026-01-12: pixel_data, frame_metadata, and unlock
+                // are all handled at the top of the loop immediately after get_oldest_frame.
+                // frame_ptr is no longer valid here - use only our copies.
+
+                // Zero-frame detection (bd-ha3w): Check if frame contains valid data
+                // Sample several positions to detect all-zero frames which indicate
+                // either buffer corruption or reading before SDK finished writing.
+                // Real camera data typically has noise even in dark frames.
+                let sample_positions = [
+                    copy_bytes / 4,
+                    copy_bytes / 2,
+                    copy_bytes * 3 / 4,
+                    copy_bytes - 1,
+                ];
+                let has_nonzero = sample_positions
+                    .iter()
+                    .any(|&pos| pos < pixel_data.len() && pixel_data[pos] != 0);
+                if !has_nonzero && copy_bytes > 1000 {
+                    // Frame appears to be all zeros - likely corrupted or race condition
+                    discontinuity_events.fetch_add(1, Ordering::Relaxed);
+                    tracing::warn!(
+                            "Zero-frame detected for FrameNr {}: buffer appears uninitialized, skipping (bd-ha3w)",
+                            current_frame_nr
+                        );
+                    // bd-immediate-unlock-2026-01-12: Frame already unlocked at top of loop
+                    // Just consume callback and skip
                     if use_callback {
                         callback_ctx.consume_one();
                     }
+                    continue; // Skip to next frame
+                }
 
-                    let monotonic_frame_count = frame_count.fetch_add(1, Ordering::Relaxed) + 1;
+                // Decrement pending frame counter (callback mode)
+                if use_callback {
+                    callback_ctx.consume_one();
+                }
 
-                    let pending = callback_ctx.pending_frames.load(Ordering::Acquire);
-                    let hw_frame_nr = current_frame_nr as i64;
-                    frame_trace.log_frame(
-                        monotonic_frame_count,
-                        hw_frame_nr,
-                        pending,
-                        buffer_cnt,
-                        bytes_arrived,
-                        lost_frames.load(Ordering::Relaxed),
-                        discontinuity_events.load(Ordering::Relaxed),
-                        consecutive_timeouts,
-                        circ_overwrite,
+                let monotonic_frame_count = frame_count.fetch_add(1, Ordering::Relaxed) + 1;
+
+                let pending = callback_ctx.pending_frames.load(Ordering::Acquire);
+                let hw_frame_nr = current_frame_nr as i64;
+                frame_trace.log_frame(
+                    monotonic_frame_count,
+                    hw_frame_nr,
+                    pending,
+                    buffer_cnt,
+                    bytes_arrived,
+                    lost_frames.load(Ordering::Relaxed),
+                    discontinuity_events.load(Ordering::Relaxed),
+                    consecutive_timeouts,
+                    circ_overwrite,
+                );
+
+                // Create Frame with ownership transfer - no additional copy (bd-ek9n.5)
+                // Populate metadata using builder pattern (bd-183h)
+                let mut frame = Frame::from_bytes(width, height, 16, pixel_data)
+                    .with_frame_number(monotonic_frame_count)
+                    .with_roi_offset(roi_x, roi_y);
+
+                // Use hardware timestamps/exposure when available, fall back to software values
+                if let Some(ref md) = frame_metadata {
+                    frame = frame
+                        .with_timestamp(md.timestamp_bof_ns)
+                        .with_exposure(md.exposure_time_ns as f64 / 1_000_000.0);
+                } else {
+                    // Software fallback: use system time and configured exposure
+                    frame = frame
+                        .with_timestamp(Frame::timestamp_now())
+                        .with_exposure(exposure_ms);
+                }
+
+                // Add extended metadata (bd-183h)
+                let ext_metadata = daq_core::data::FrameMetadata {
+                    binning: Some(binning),
+                    ..Default::default()
+                };
+                frame = frame.with_metadata(ext_metadata);
+
+                let frame_arc = Arc::new(frame);
+
+                // Deliver to channels
+                // CRITICAL: Send to broadcast FIRST before reliable path.
+                // The reliable path uses blocking_send which can block if the
+                // measurement pipeline is backpressured. Sending to broadcast
+                // first ensures GUI streaming gets frames regardless.
+                let receiver_count = frame_tx.receiver_count();
+
+                // TRACING: Broadcast subscriber count (bd-trace-2026-01-11)
+                if monotonic_frame_count <= 10 || monotonic_frame_count % 30 == 1 {
+                    tracing::info!(
+                        target: "pvcam_frame_trace",
+                        frame_nr = monotonic_frame_count,
+                        hw_frame_nr = current_frame_nr,
+                        receiver_count,
+                        "Sending frame to broadcast channel"
                     );
+                }
 
-                    // Create Frame with ownership transfer - no additional copy (bd-ek9n.5)
-                    // Populate metadata using builder pattern (bd-183h)
-                    let mut frame = Frame::from_bytes(width, height, 16, pixel_data)
-                        .with_frame_number(monotonic_frame_count)
-                        .with_roi_offset(roi_x, roi_y);
-
-                    // Use hardware timestamps/exposure when available, fall back to software values
-                    if let Some(ref md) = frame_metadata {
-                        frame = frame
-                            .with_timestamp(md.timestamp_bof_ns)
-                            .with_exposure(md.exposure_time_ns as f64 / 1_000_000.0);
-                    } else {
-                        // Software fallback: use system time and configured exposure
-                        frame = frame
-                            .with_timestamp(Frame::timestamp_now())
-                            .with_exposure(exposure_ms);
-                    }
-
-                    // Add extended metadata (bd-183h)
-                    let ext_metadata = daq_core::data::FrameMetadata {
-                        binning: Some(binning),
-                        ..Default::default()
-                    };
-                    frame = frame.with_metadata(ext_metadata);
-
-                    let frame_arc = Arc::new(frame);
-
-                    // Deliver to channels
-                    // CRITICAL: Send to broadcast FIRST before reliable path.
-                    // The reliable path uses blocking_send which can block if the
-                    // measurement pipeline is backpressured. Sending to broadcast
-                    // first ensures GUI streaming gets frames regardless.
-                    let receiver_count = frame_tx.receiver_count();
-
-                    // TRACING: Broadcast subscriber count (bd-trace-2026-01-11)
-                    if monotonic_frame_count <= 10 || monotonic_frame_count % 30 == 1 {
+                if receiver_count == 0 {
+                    // Track when we lost all subscribers (bd-cckz)
+                    if no_subscribers_since.is_none() {
+                        no_subscribers_since = Some(std::time::Instant::now());
                         tracing::info!(
-                            target: "pvcam_frame_trace",
-                            frame_nr = monotonic_frame_count,
-                            hw_frame_nr = current_frame_nr,
-                            receiver_count,
-                            "Sending frame to broadcast channel"
+                            "No broadcast subscribers, starting {} second disconnect timer",
+                            NO_SUBSCRIBER_TIMEOUT.as_secs()
                         );
-                    }
-
-                    if receiver_count == 0 {
-                        // Track when we lost all subscribers (bd-cckz)
-                        if no_subscribers_since.is_none() {
-                            no_subscribers_since = Some(std::time::Instant::now());
+                    } else if let Some(since) = no_subscribers_since {
+                        if since.elapsed() >= NO_SUBSCRIBER_TIMEOUT {
                             tracing::info!(
-                                "No broadcast subscribers, starting {} second disconnect timer",
+                                "No subscribers for {} seconds, stopping acquisition (bd-cckz)",
                                 NO_SUBSCRIBER_TIMEOUT.as_secs()
                             );
-                        } else if let Some(since) = no_subscribers_since {
-                            if since.elapsed() >= NO_SUBSCRIBER_TIMEOUT {
-                                tracing::info!(
-                                    "No subscribers for {} seconds, stopping acquisition (bd-cckz)",
-                                    NO_SUBSCRIBER_TIMEOUT.as_secs()
-                                );
-                                break;
-                            }
-                        }
-                        tracing::warn!(
-                            "Dropping frame {}: no active broadcast subscribers",
-                            current_frame_nr
-                        );
-                    } else {
-                        // Reset timer when subscribers reconnect
-                        if no_subscribers_since.is_some() {
-                            tracing::info!("Subscriber reconnected, canceling disconnect timer");
-                            no_subscribers_since = None;
-                        }
-                        if current_frame_nr % 30 == 1 {
-                            tracing::debug!(
-                                "Sending frame {} to {} broadcast subscribers",
-                                current_frame_nr,
-                                receiver_count
-                            );
+                            break;
                         }
                     }
-                    let _ = frame_tx.send(frame_arc.clone());
+                    tracing::warn!(
+                        "Dropping frame {}: no active broadcast subscribers",
+                        current_frame_nr
+                    );
+                } else {
+                    // Reset timer when subscribers reconnect
+                    if no_subscribers_since.is_some() {
+                        tracing::info!("Subscriber reconnected, canceling disconnect timer");
+                        no_subscribers_since = None;
+                    }
+                    if current_frame_nr % 30 == 1 {
+                        tracing::debug!(
+                            "Sending frame {} to {} broadcast subscribers",
+                            current_frame_nr,
+                            receiver_count
+                        );
+                    }
+                }
+                let _ = frame_tx.send(frame_arc.clone());
 
-                    // Reliable path: use try_send to avoid blocking the frame loop
-                    // If measurement pipeline is slow, frames will be dropped here
-                    // rather than blocking broadcast delivery
-                    if let Some(ref tx) = reliable_tx {
-                        if tx.try_send(frame_arc.clone()).is_err() && current_frame_nr % 100 == 0 {
-                            // Rate-limit warnings to avoid log spam at high FPS
-                            tracing::warn!(
+                // Reliable path: use try_send to avoid blocking the frame loop
+                // If measurement pipeline is slow, frames will be dropped here
+                // rather than blocking broadcast delivery
+                if let Some(ref tx) = reliable_tx {
+                    if tx.try_send(frame_arc.clone()).is_err() && current_frame_nr % 100 == 0 {
+                        // Rate-limit warnings to avoid log spam at high FPS
+                        tracing::warn!(
                                 "Reliable channel full, dropping frames around {} for measurement pipeline",
                                 current_frame_nr
                             );
-                        }
-                    }
-
-                    // Gemini SDK review: Send metadata through channel if available
-                    // Use try_send to avoid blocking frame loop
-                    if let (Some(md), Some(ref tx)) = (frame_metadata, &metadata_tx) {
-                        let _ = tx.try_send(md); // Non-blocking: drop if slow
                     }
                 }
 
-                // bd-flatten-2026-01-12: No inner loop anymore - we process ONE frame per callback
-                // and automatically continue to the outer loop to wait for the next callback.
-                // This matches the minimal test pattern exactly.
-                if loop_iteration <= 10 {
-                    tracing::info!(
-                        target: "pvcam_frame_trace",
-                        iter = loop_iteration,
-                        "Flat frame processing: processed 1 frame, continuing to wait for next callback"
-                    );
+                // Gemini SDK review: Send metadata through channel if available
+                // Use try_send to avoid blocking frame loop
+                if let (Some(md), Some(ref tx)) = (frame_metadata, &metadata_tx) {
+                    let _ = tx.try_send(md); // Non-blocking: drop if slow
                 }
+            }
+
+            // bd-flatten-2026-01-12: No inner loop anymore - we process ONE frame per callback
+            // and automatically continue to the outer loop to wait for the next callback.
+            // This matches the minimal test pattern exactly.
+            if loop_iteration <= 10 {
+                tracing::info!(
+                    target: "pvcam_frame_trace",
+                    iter = loop_iteration,
+                    "Flat frame processing: processed 1 frame, continuing to wait for next callback"
+                );
+            }
 
             // bd-3gnv: Critical warning if unlocks are failing - this causes buffer starvation
             if unlock_failures > 0 {
@@ -3373,7 +3413,7 @@ impl PvcamAcquisition {
                     }
                 }
             }
-        }  // end of outer while loop
+        } // end of outer while loop
 
         // bd-3gnv: Debug why we exited the outer loop
         eprintln!(
