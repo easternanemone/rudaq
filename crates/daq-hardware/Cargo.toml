@@ -58,6 +58,10 @@ tempfile = "3.10"
 version = "6.1"
 optional = true
 
+[dependencies.hot-lib-reloader]
+version = "0.8"
+optional = true
+
 [dependencies.rhai]
 version = "1.19"
 features = ["sync"]
@@ -94,6 +98,6 @@ full = ["all_hardware", "simulator"]
 
 # Other features
 simulator = []
-plugins_hot_reload = ["dep:notify"]
+plugins_hot_reload = ["dep:notify", "dep:hot-lib-reloader"]
 scripting = ["dep:rhai"]        # Rhai scripting for config-driven drivers
 binary_protocol = ["dep:crc"]   # Modbus RTU, etc.

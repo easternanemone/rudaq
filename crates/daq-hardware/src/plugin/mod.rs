@@ -59,6 +59,8 @@ pub mod driver;
 pub mod handles;
 #[cfg(feature = "plugins_hot_reload")]
 pub mod hot_reload;
+#[cfg(feature = "plugins_hot_reload")]
+pub mod lib_reload;
 #[cfg(feature = "serial")]
 pub mod registry;
 pub mod schema;
