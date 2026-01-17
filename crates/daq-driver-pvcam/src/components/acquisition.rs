@@ -909,9 +909,10 @@ mod ffi_safe {
     /// - `Ok(frame_ptr)` - pointer to the frame data in the circular buffer
     /// - `Err(())` if no frame available or error
     ///
-    /// bd-non-ex-2026-01-12: Use pl_exp_get_oldest_frame (non-_ex) to match
-    /// the minimal SDK test that streams 200+ frames reliably. The _ex version
-    /// fills FRAME_INFO, but we get the frame number from the EOF callback.
+    /// bd-fix-2026-01-17: Reverted to pl_exp_get_oldest_frame_ex to get correct
+    /// FrameNr for each frame. The non-ex version relied on callback_ctx.latest_frame_nr
+    /// which causes false "Duplicate Frame" detection when draining a backlog
+    /// (all backlog frames appear to have the latest callback's FrameNr).
     pub fn get_oldest_frame(
         hcam: i16,
         frame_info: &mut FRAME_INFO,
@@ -919,36 +920,33 @@ mod ffi_safe {
         debug_assert!(hcam >= 0, "Invalid camera handle: {}", hcam);
         let mut frame_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
 
-        // SAFETY: hcam is valid, frame_ptr is a valid stack allocation
-        let result = unsafe { pl_exp_get_oldest_frame(hcam, &mut frame_ptr) };
+        // SAFETY: hcam is valid, frame_ptr is a valid stack allocation, frame_info is valid
+        let result = unsafe { pl_exp_get_oldest_frame_ex(hcam, &mut frame_ptr, frame_info) };
 
         if result == 0 || frame_ptr.is_null() {
             // bd-3gnv: Log error code to diagnose why get_oldest_frame is failing
             let err_code = unsafe { pl_error_code() };
-            let err_msg = get_pvcam_error();
-            tracing::debug!(
-                "ffi_safe::get_oldest_frame FAILED: hcam={}, result={}, err_code={}, err_msg={}, frame_ptr_null={}",
-                hcam,
-                result,
-                err_code,
-                err_msg,
-                frame_ptr.is_null()
-            );
-            eprintln!(
-                "[PVCAM DEBUG] get_oldest_frame failed: result={}, err_code={}, msg={}, frame_ptr_null={}",
-                result,
-                err_code,
-                err_msg,
-                frame_ptr.is_null()
-            );
+            // Filter out legitimate "no frame" error (3025 = READOUT_FAILED? No, usually 0 is generic fail)
+            // But for get_oldest_frame, failure usually means no frame ready.
+            // Only log if it's NOT just empty buffer
+            if err_code != 0 {
+                let err_msg = get_pvcam_error();
+                tracing::debug!(
+                    "ffi_safe::get_oldest_frame_ex FAILED: hcam={}, result={}, err_code={}, err_msg={}, frame_ptr_null={}",
+                    hcam,
+                    result,
+                    err_code,
+                    err_msg,
+                    frame_ptr.is_null()
+                );
+            }
             Err(())
         } else {
-            // Non-_ex API doesn't populate FRAME_INFO; mark invalid to force callback usage.
-            frame_info.FrameNr = -1;
             tracing::trace!(
-                "ffi_safe::get_oldest_frame succeeded: hcam={}, frame_ptr={:?}",
+                "ffi_safe::get_oldest_frame_ex succeeded: hcam={}, frame_ptr={:?}, nr={}",
                 hcam,
-                frame_ptr
+                frame_ptr,
+                frame_info.FrameNr
             );
             Ok(frame_ptr)
         }
