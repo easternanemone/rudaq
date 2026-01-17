@@ -3065,7 +3065,10 @@ impl PvcamAcquisition {
 
             // Step 1: UNLOCK IMMEDIATELY after get_oldest_frame - EXACTLY like minimal test
             let unlock_frame_nr = unsafe { frame_info.FrameNr };
-            if frames_processed_in_drain <= 25 || frames_processed_in_drain % 50 == 0 {
+            // bd-fix-2026-01-17: Use loop_iteration (global counter) instead of
+            // frames_processed_in_drain (reset each loop) to limit debug logging.
+            // Previous bug: logging fired every frame due to counter reset.
+            if loop_iteration <= 25 || loop_iteration % 50 == 0 {
                 eprintln!(
                     "[PVCAM DEBUG] Unlocking frame {} (before copy)",
                     unlock_frame_nr
@@ -3075,7 +3078,7 @@ impl PvcamAcquisition {
             if !unlock_result {
                 unlock_failures += 1;
                 eprintln!("[PVCAM ERROR] Unlock failed for frame {}", unlock_frame_nr);
-            } else if frames_processed_in_drain <= 25 || frames_processed_in_drain % 50 == 0 {
+            } else if loop_iteration <= 25 || loop_iteration % 50 == 0 {
                 eprintln!(
                     "[PVCAM DEBUG] Frame {} unlocked successfully",
                     unlock_frame_nr
@@ -3225,7 +3228,8 @@ impl PvcamAcquisition {
 
             // TRACING: Frame retrieved (bd-trace-2026-01-11)
             // bd-non-ex-2026-01-12: frame_info.FrameNr may be -1 if using non-_ex get_oldest_frame
-            if loop_iteration <= 10 || frames_processed_in_drain <= 3 {
+            // bd-fix-2026-01-17: Use loop_iteration only (frames_processed_in_drain resets each loop)
+            if loop_iteration <= 10 || loop_iteration % 100 == 0 {
                 if unsafe { frame_info.FrameNr } >= 0 {
                     unsafe {
                         tracing::info!(
