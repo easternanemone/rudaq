@@ -2134,6 +2134,25 @@ impl PvcamAcquisition {
                 // Channel closed (frame loop ended) - task completes naturally
             });
 
+            // bd-diag-2026-01-17: Spawn streaming state change watcher to catch ALL changes
+            // This will log whenever streaming changes from true to false (or vice versa),
+            // regardless of which code path causes the change.
+            let mut streaming_rx = self.streaming.subscribe();
+            tokio::spawn(async move {
+                while streaming_rx.changed().await.is_ok() {
+                    let new_value = *streaming_rx.borrow();
+                    eprintln!(
+                        "[PVCAM DEBUG] Streaming state CHANGED to {} (watcher detected)",
+                        new_value
+                    );
+                    if !new_value {
+                        // Log backtrace-like info when streaming becomes false
+                        eprintln!("[PVCAM DEBUG] Streaming became false - watcher task will exit");
+                        break;
+                    }
+                }
+            });
+
             return Ok(());
         }
 
