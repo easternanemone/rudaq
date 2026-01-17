@@ -3454,42 +3454,54 @@ impl PvcamAcquisition {
                 let receiver_count = frame_tx.receiver_count();
 
                 // TRACING: Broadcast subscriber count (bd-trace-2026-01-11)
+                // bd-fix-2026-01-17: Check BOTH broadcast subscribers AND tap observers
+                // The gRPC streaming uses tap observers, not the broadcast channel, so we must
+                // count observers to avoid stopping streaming when GUI is connected via gRPC.
+                let has_observers = tap_registry.has_taps();
+                let has_consumers = receiver_count > 0 || has_observers;
+
                 if monotonic_frame_count <= 10 || monotonic_frame_count % 30 == 1 {
                     tracing::info!(
                         target: "pvcam_frame_trace",
                         frame_nr = monotonic_frame_count,
                         hw_frame_nr = current_frame_nr,
                         receiver_count,
+                        observer_count = tap_registry.tap_count(),
                         "Sending frame to broadcast channel"
                     );
                 }
 
-                if receiver_count == 0 {
-                    // Track when we lost all subscribers (bd-cckz)
+                if !has_consumers {
+                    // Track when we lost all subscribers AND observers (bd-cckz, bd-fix-2026-01-17)
                     if no_subscribers_since.is_none() {
                         no_subscribers_since = Some(std::time::Instant::now());
                         tracing::info!(
-                            "No broadcast subscribers, starting {} second disconnect timer",
+                            "No consumers (broadcast={}, observers={}), starting {} second disconnect timer",
+                            receiver_count,
+                            tap_registry.tap_count(),
                             NO_SUBSCRIBER_TIMEOUT.as_secs()
                         );
                     } else if let Some(since) = no_subscribers_since {
                         if since.elapsed() >= NO_SUBSCRIBER_TIMEOUT {
                             tracing::info!(
-                                "No subscribers for {} seconds, stopping acquisition (bd-cckz)",
+                                "No consumers for {} seconds, stopping acquisition (bd-cckz)",
                                 NO_SUBSCRIBER_TIMEOUT.as_secs()
                             );
                             eprintln!(
-                                "[PVCAM DEBUG] Breaking due to no subscribers for {} seconds (iter={}, receiver_count={})",
+                                "[PVCAM DEBUG] Breaking due to no consumers for {} seconds (iter={}, receiver_count={}, observers={})",
                                 NO_SUBSCRIBER_TIMEOUT.as_secs(),
                                 loop_iteration,
-                                receiver_count
+                                receiver_count,
+                                tap_registry.tap_count()
                             );
                             break;
                         }
                     }
                     tracing::warn!(
-                        "Dropping frame {}: no active broadcast subscribers",
-                        current_frame_nr
+                        "Dropping frame {}: no active consumers (broadcast={}, observers={})",
+                        current_frame_nr,
+                        receiver_count,
+                        tap_registry.tap_count()
                     );
                 } else {
                     // Reset timer when subscribers reconnect
