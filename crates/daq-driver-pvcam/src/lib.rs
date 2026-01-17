@@ -1294,6 +1294,34 @@ impl PvcamDriver {
         Ok(())
     }
 
+    /// Close the camera connection explicitly.
+    ///
+    /// This method should be called before the driver is dropped, especially in
+    /// test environments where multiple drivers may be created in sequence.
+    /// Without explicit close, the PVCAM SDK may report "device already open"
+    /// errors due to Arc reference counting delays.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let camera = PvcamDriver::new_async("PrimeBSI").await?;
+    /// // ... use camera ...
+    /// camera.close().await?;  // Explicit close before drop
+    /// ```
+    ///
+    /// # Note
+    /// After calling `close()`, the driver should not be used. Any subsequent
+    /// operations will fail with connection errors.
+    pub async fn close(&self) -> Result<()> {
+        // First stop streaming if active
+        self.shutdown().await?;
+
+        // Then close the connection
+        let mut conn = self.connection.lock().await;
+        conn.close();
+        tracing::debug!("PvcamDriver::close - camera connection closed");
+        Ok(())
+    }
+
     /// Check if the driver experienced an error that requires recovery.
     ///
     /// Returns true if the last acquisition ended due to an error (USB disconnect,

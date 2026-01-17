@@ -490,6 +490,13 @@ impl PvcamConnection {
     pub fn list_available_cameras() -> Result<Vec<String>> {
         Ok(vec!["MockCamera".to_string(), "PrimeBSI".to_string()])
     }
+
+    /// Close the camera connection (mock mode - no-op).
+    #[cfg(not(feature = "pvcam_sdk"))]
+    pub fn close(&mut self) {
+        // No-op in mock mode - no actual camera handle to close
+        tracing::debug!("PvcamConnection::close() called (mock mode - no-op)");
+    }
 }
 
 #[cfg(feature = "pvcam_sdk")]

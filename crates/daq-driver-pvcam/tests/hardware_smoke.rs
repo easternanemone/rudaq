@@ -160,7 +160,8 @@ async fn pvcam_smoke_test() {
 
     // Step 5: Cleanup
     println!("[5/5] Ensuring acquisition stopped...");
-    let _ = camera.stop_stream().await;
+    // Explicitly close to release camera handle before next test
+    let _ = camera.close().await;
 
     // Calculate frame statistics
     let sum: u64 = pixels.iter().map(|&v| v as u64).sum();
@@ -201,6 +202,9 @@ async fn pvcam_camera_info_test() {
     // For Prime BSI, expect 2048x2048
     assert!(width >= 1024, "Width should be at least 1024");
     assert!(height >= 1024, "Height should be at least 1024");
+
+    // Explicitly close to release camera handle before next test
+    let _ = camera.close().await;
 
     println!("\n=== Camera Info Test PASSED ===");
 }
@@ -267,7 +271,8 @@ async fn pvcam_multiple_frames_test() {
         num_frames as f64 / total_time.as_secs_f64()
     );
 
-    let _ = camera.stop_stream().await;
+    // Explicitly close to release camera handle before next test
+    let _ = camera.close().await;
 
     println!("\n=== Multiple Frames Test PASSED ===");
 }
@@ -288,7 +293,7 @@ async fn pvcam_streaming_test() {
         .await
         .expect("Failed to create PVCAM driver");
 
-    // Ensure clean state before starting
+    // Ensure clean state before starting (stop any lingering stream)
     let _ = camera.stop_stream().await;
 
     // Set short exposure for high frame rate
@@ -353,6 +358,9 @@ async fn pvcam_streaming_test() {
         "Should have captured at least one frame during streaming"
     );
 
+    // Explicitly close to release camera handle before next test
+    let _ = camera.close().await;
+
     println!("\n=== Streaming Test PASSED ===");
 }
 
@@ -398,7 +406,8 @@ async fn pvcam_exposure_range_test() {
         );
     }
 
-    let _ = camera.stop_stream().await;
+    // Explicitly close to release camera handle before next test
+    let _ = camera.close().await;
 
     println!("\n=== Exposure Range Test PASSED ===");
 }
@@ -467,7 +476,8 @@ async fn pvcam_frame_statistics_test() {
     assert!(max_val > min_val, "Should have some dynamic range");
     assert!(max_val < 65535, "Should not be saturated");
 
-    let _ = camera.stop_stream().await;
+    // Explicitly close to release camera handle before next test
+    let _ = camera.close().await;
 
     println!("\n=== Frame Statistics Test PASSED ===");
 }
