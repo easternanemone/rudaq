@@ -528,19 +528,32 @@ impl PageAlignedBuffer {
     const PAGE_SIZE: usize = 4096;
 
     /// Allocate a page-aligned buffer of the given size.
-    /// Panics if allocation fails (unlikely for reasonable sizes).
-    pub fn new(size: usize) -> Self {
-        let layout = Layout::from_size_align(size, Self::PAGE_SIZE)
-            .expect("Invalid layout for page-aligned buffer");
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - The layout is invalid (size/alignment combination rejected by allocator)
+    /// - The allocation fails (out of memory)
+    pub fn new(size: usize) -> Result<Self> {
+        let layout = Layout::from_size_align(size, Self::PAGE_SIZE).map_err(|e| {
+            anyhow!(
+                "Invalid layout for page-aligned buffer (size={}, align={}): {}",
+                size,
+                Self::PAGE_SIZE,
+                e
+            )
+        })?;
         let ptr = unsafe { alloc_zeroed(layout) };
         if ptr.is_null() {
-            panic!("Failed to allocate page-aligned buffer of {} bytes", size);
+            bail!(
+                "Failed to allocate page-aligned buffer of {} bytes - out of memory",
+                size
+            );
         }
-        Self {
+        Ok(Self {
             ptr,
             layout,
             len: size,
-        }
+        })
     }
 
     /// Get a mutable pointer to the buffer for passing to PVCAM SDK.
@@ -1809,7 +1822,7 @@ impl PvcamAcquisition {
             // Gemini SDK review: Use page-aligned buffer for DMA performance.
             // Standard Vec<u8> is only 1-byte aligned; PVCAM DMA requires 4KB alignment
             // to avoid internal driver copies (double buffering).
-            let mut circ_buf = PageAlignedBuffer::new(circ_buf_size);
+            let mut circ_buf = PageAlignedBuffer::new(circ_buf_size)?;
             let circ_ptr = circ_buf.as_mut_ptr();
             // bd-3gnv: Convert raw pointer to usize BEFORE any await points.
             // Raw pointers are not Send, but usize is. Convert early to avoid

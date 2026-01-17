@@ -567,7 +567,32 @@ impl RunEngine {
 
             PlanCommand::Wait { seconds } => {
                 debug!(seconds = %seconds, "Waiting");
-                sleep(Duration::from_secs_f64(seconds)).await;
+
+                // Make wait interruptible by checking abort flag periodically (bd-lnoi)
+                // Using chunked sleep approach: check every 100ms for responsiveness
+                let total = Duration::from_secs_f64(seconds);
+                let chunk = Duration::from_millis(100);
+                let mut elapsed = Duration::ZERO;
+
+                while elapsed < total {
+                    // Check for abort before each chunk
+                    if *self.abort_requested.read().await {
+                        info!(
+                            elapsed_ms = %elapsed.as_millis(),
+                            total_ms = %total.as_millis(),
+                            "Wait interrupted by abort request"
+                        );
+                        // Return Ok here - the abort will be handled by the main loop
+                        // after this command returns, ensuring proper cleanup
+                        return Ok(false);
+                    }
+
+                    let remaining = total - elapsed;
+                    let sleep_duration = chunk.min(remaining);
+                    sleep(sleep_duration).await;
+                    elapsed += sleep_duration;
+                }
+
                 Ok(false)
             }
 
@@ -884,6 +909,7 @@ pub struct RunResult {
 mod tests {
     use super::*;
     use crate::plans::Count;
+    use crate::plans_imperative::ImperativePlan;
 
     #[tokio::test]
     async fn test_engine_state_transitions() {
@@ -1021,5 +1047,122 @@ mod tests {
 
         assert!(descriptor_seen, "Did not receive DescriptorDoc");
         assert_eq!(events_seen, 3, "Did not receive 3 EventDocs");
+    }
+
+    /// Test that Wait command can be interrupted by abort (bd-lnoi)
+    #[tokio::test]
+    async fn test_wait_interruptible_by_abort() {
+        let registry = Arc::new(DeviceRegistry::new());
+        let engine = Arc::new(RunEngine::new(registry));
+
+        let mut rx = engine.subscribe();
+
+        // Create a plan with a long wait (60 seconds - would block if not interruptible)
+        let plan = Box::new(ImperativePlan::wait(60.0));
+        engine.queue(plan).await;
+
+        // Start in a separate task
+        let engine_for_task = engine.clone();
+        tokio::spawn(async move {
+            let _ = engine_for_task.start().await;
+        });
+
+        // Wait for engine to start (receive StartDoc)
+        let doc = tokio::time::timeout(Duration::from_secs(1), rx.recv()).await;
+        assert!(doc.is_ok(), "Should receive StartDoc");
+        if let Ok(Ok(Document::Start(_))) = doc {
+            // Good - engine started
+        }
+
+        // Give the Wait command time to start executing
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Request abort - should take effect within 200ms (2 check cycles)
+        let abort_start = tokio::time::Instant::now();
+        engine.abort("Test abort").await.expect("Abort should succeed");
+
+        // Wait for StopDoc with abort status
+        let doc = tokio::time::timeout(Duration::from_millis(500), async {
+            loop {
+                match rx.recv().await {
+                    Ok(Document::Stop(stop)) => return stop,
+                    Ok(_) => continue, // Skip other documents
+                    Err(_) => panic!("Channel closed before StopDoc"),
+                }
+            }
+        })
+        .await;
+
+        let abort_elapsed = abort_start.elapsed();
+
+        assert!(doc.is_ok(), "Should receive StopDoc within 500ms");
+        let stop = doc.unwrap();
+        assert_eq!(stop.exit_status, "abort", "Exit status should be 'abort'");
+
+        // Verify abort was fast (< 500ms, well under the 60s wait)
+        // The chunked sleep checks every 100ms, so abort should complete in ~200ms max
+        assert!(
+            abort_elapsed < Duration::from_millis(500),
+            "Abort took too long: {:?} (expected < 500ms)",
+            abort_elapsed
+        );
+    }
+
+    /// Test that normal Wait still works correctly (bd-lnoi)
+    #[tokio::test]
+    async fn test_wait_completes_normally() {
+        let registry = Arc::new(DeviceRegistry::new());
+        let engine = Arc::new(RunEngine::new(registry));
+
+        let mut rx = engine.subscribe();
+
+        // Create a plan with a short wait
+        let wait_duration = 0.2; // 200ms
+        let plan = Box::new(ImperativePlan::wait(wait_duration));
+        engine.queue(plan).await;
+
+        let start_time = tokio::time::Instant::now();
+
+        // Start in a separate task
+        let engine_for_task = engine.clone();
+        tokio::spawn(async move {
+            let _ = engine_for_task.start().await;
+        });
+
+        // Wait for StopDoc
+        let stop_doc = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                match rx.recv().await {
+                    Ok(Document::Stop(stop)) => return stop,
+                    Ok(_) => continue,
+                    Err(_) => panic!("Channel closed before StopDoc"),
+                }
+            }
+        })
+        .await
+        .expect("Should receive StopDoc");
+
+        let elapsed = start_time.elapsed();
+
+        // Should complete successfully
+        assert_eq!(stop_doc.exit_status, "success");
+
+        // Timing should be approximately correct (within 100ms tolerance)
+        // The wait should take at least wait_duration and not much longer
+        let expected_min = Duration::from_secs_f64(wait_duration);
+        let expected_max = Duration::from_secs_f64(wait_duration + 0.15); // Allow 150ms overhead
+
+        assert!(
+            elapsed >= expected_min,
+            "Wait completed too fast: {:?} (expected >= {:?})",
+            elapsed,
+            expected_min
+        );
+        assert!(
+            elapsed < expected_max,
+            "Wait took too long: {:?} (expected < {:?})",
+            elapsed,
+            expected_max
+        );
     }
 }
