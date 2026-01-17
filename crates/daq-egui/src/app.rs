@@ -615,10 +615,60 @@ impl DaqApp {
 
     #[cfg(all(feature = "rerun_viewer", feature = "pvcam"))]
     fn start_pvcam_stream(&mut self) {
-        use daq_core::capabilities::FrameProducer;
+        use daq_core::capabilities::{FrameObserver, FrameProducer};
+        use daq_core::data::FrameView;
         use daq_driver_pvcam::PvcamDriver;
         use rerun::archetypes::Tensor;
         use rerun::RecordingStreamBuilder;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        /// Frame data with dimensions for channel transport
+        struct PreviewFrame {
+            data: Vec<u8>,
+            width: u32,
+            height: u32,
+        }
+
+        /// Observer that sends frame copies to Rerun for GUI preview (bd-0dax.6.2)
+        ///
+        /// Implements the FrameObserver pattern for tap-based frame delivery.
+        /// Uses a bounded channel with try_send to avoid blocking the frame loop.
+        struct RerunPreviewObserver {
+            tx: tokio::sync::mpsc::Sender<PreviewFrame>,
+            /// Counter for decimation (send every Nth frame)
+            counter: AtomicU64,
+            /// Decimation interval (1 = every frame, 10 = every 10th)
+            decimation: u64,
+        }
+
+        impl FrameObserver for RerunPreviewObserver {
+            fn on_frame(&self, frame: &FrameView<'_>) {
+                // Only process 16-bit frames
+                if frame.bit_depth != 16 {
+                    return;
+                }
+
+                // Decimation: skip frames based on interval
+                let count = self.counter.fetch_add(1, Ordering::Relaxed);
+                if count % self.decimation != 0 {
+                    return;
+                }
+
+                // Non-blocking send with copy (taps must copy, not hold references)
+                if let Ok(permit) = self.tx.try_reserve() {
+                    permit.send(PreviewFrame {
+                        data: frame.pixels().to_vec(),
+                        width: frame.width,
+                        height: frame.height,
+                    });
+                }
+                // If channel is full, we just drop this frame (backpressure)
+            }
+
+            fn name(&self) -> &str {
+                "rerun_preview"
+            }
+        }
 
         let handle = self.runtime.handle().clone();
         self.pvcam_task = Some(handle.spawn(async move {
@@ -631,16 +681,28 @@ impl DaqApp {
                 }
             };
 
-            let mut rx = match driver.subscribe_frames().await {
-                Some(r) => r,
-                None => {
-                    eprintln!("PVCAM frame subscription unavailable");
+            // Create channel for frame data (bounded to prevent memory buildup)
+            let (tx, mut rx) = tokio::sync::mpsc::channel::<PreviewFrame>(4);
+
+            // Create observer
+            let observer = RerunPreviewObserver {
+                tx,
+                counter: AtomicU64::new(0),
+                decimation: 1, // Send every frame (adjust for lower preview FPS)
+            };
+
+            // Register the observer using the tap system (replaces deprecated subscribe_frames)
+            let observer_handle = match driver.register_observer(Box::new(observer)).await {
+                Ok(h) => h,
+                Err(err) => {
+                    eprintln!("Failed to register frame observer: {err}");
                     return;
                 }
             };
 
             if let Err(err) = driver.start_stream().await {
                 eprintln!("PVCAM start_stream failed: {err}");
+                let _ = driver.unregister_observer(observer_handle).await;
                 return;
             }
 
@@ -650,15 +712,13 @@ impl DaqApp {
                 Err(err) => {
                     eprintln!("Failed to spawn rerun viewer: {err}");
                     let _ = driver.stop_stream().await;
+                    let _ = driver.unregister_observer(observer_handle).await;
                     return;
                 }
             };
 
-            while let Ok(frame_arc) = rx.recv().await {
-                let frame = frame_arc.as_ref();
-                if frame.bit_depth != 16 {
-                    continue;
-                }
+            // Process frames from the observer channel
+            while let Some(frame) = rx.recv().await {
                 // Convert raw bytes to u16 slice and create tensor
                 let u16_data: &[u16] = bytemuck::cast_slice(&frame.data);
                 let shape = vec![frame.height as u64, frame.width as u64];
@@ -670,7 +730,9 @@ impl DaqApp {
                 let _ = rec.log("/pvcam/image", &tensor);
             }
 
+            // Cleanup
             let _ = driver.stop_stream().await;
+            let _ = driver.unregister_observer(observer_handle).await;
         }));
 
         self.pvcam_streaming = true;

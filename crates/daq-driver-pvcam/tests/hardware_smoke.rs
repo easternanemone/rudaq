@@ -278,6 +278,7 @@ async fn pvcam_multiple_frames_test() {
 
 /// Test continuous streaming for a short duration
 #[tokio::test]
+#[allow(deprecated)] // subscribe_frames() still works; register_primary_output() not yet wired
 async fn pvcam_streaming_test() {
     skip_if_disabled!();
 

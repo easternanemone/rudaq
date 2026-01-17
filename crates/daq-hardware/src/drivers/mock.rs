@@ -14,7 +14,8 @@
 //! - MockCamera: 33ms frame readout (30fps simulation)
 
 use crate::capabilities::{
-    ExposureControl, FrameProducer, Movable, Parameterized, Readable, Stageable, Triggerable,
+    ExposureControl, FrameObserver, FrameProducer, LoanedFrame, Movable, ObserverHandle,
+    Parameterized, Readable, Stageable, Triggerable,
 };
 use crate::Frame;
 use anyhow::anyhow;
@@ -22,10 +23,14 @@ use anyhow::Result;
 use async_trait::async_trait;
 use daq_core::observable::ParameterSet;
 use daq_core::parameter::Parameter;
+use daq_pool::{FrameData, Pool};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::{sleep, Duration};
+
+/// Pool size for MockCamera frame delivery (bd-5oss)
+const MOCK_FRAME_POOL_SIZE: usize = 16;
 
 // =============================================================================
 // Test Pattern Generator
@@ -444,7 +449,7 @@ pub struct MockCamera {
     staged: Parameter<bool>,
     exposure_s: Parameter<f64>,
     params: ParameterSet,
-    /// Broadcast channel for frame streaming
+    /// Broadcast channel for frame streaming (deprecated)
     frame_tx: tokio::sync::broadcast::Sender<Arc<Frame>>,
     /// Reliable channel for lossless data transmission (optional)
     reliable_tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<Arc<Frame>>>>>,
@@ -453,6 +458,15 @@ pub struct MockCamera {
     streaming_flag: Arc<AtomicBool>,
     armed_flag: Arc<AtomicBool>,
     staged_flag: Arc<AtomicBool>,
+    /// Primary output channel for pooled frames (bd-0dax.5)
+    primary_tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<LoanedFrame>>>>,
+    /// Frame pool for zero-allocation LoanedFrame delivery (bd-5oss)
+    /// Created lazily when register_primary_output is called.
+    frame_pool: Arc<Mutex<Option<Arc<Pool<FrameData>>>>>,
+    /// Registered frame observers (bd-0dax.4)
+    observers: Arc<RwLock<Vec<(u64, Box<dyn FrameObserver>)>>>,
+    /// Counter for generating unique observer IDs
+    next_observer_id: AtomicU64,
 }
 
 impl MockCamera {
@@ -471,6 +485,11 @@ impl MockCamera {
             Arc::new(Mutex::new(None));
         let reliable_tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<Arc<Frame>>>>> =
             Arc::new(Mutex::new(None));
+
+        // bd-5oss: Primary output channel and frame pool for zero-allocation delivery
+        let primary_tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<LoanedFrame>>>> =
+            Arc::new(Mutex::new(None));
+        let frame_pool: Arc<Mutex<Option<Arc<Pool<FrameData>>>>> = Arc::new(Mutex::new(None));
 
         // Create exposure parameter with validation and metadata
         let mut params = ParameterSet::new();
@@ -506,6 +525,8 @@ impl MockCamera {
             let frame_count_write = frame_count.clone();
             let streaming_task_write = streaming_task.clone();
             let reliable_tx_write = reliable_tx.clone();
+            let primary_tx_write = primary_tx.clone(); // bd-5oss
+            let frame_pool_write = frame_pool.clone(); // bd-5oss
             let resolution = (width, height);
 
             streaming.connect_to_hardware_write(move |enable| {
@@ -514,6 +535,8 @@ impl MockCamera {
                 let frame_count = frame_count_write.clone();
                 let streaming_task = streaming_task_write.clone();
                 let reliable_tx = reliable_tx_write.clone();
+                let primary_tx = primary_tx_write.clone(); // bd-5oss
+                let frame_pool = frame_pool_write.clone(); // bd-5oss
 
                 Box::pin(async move {
                     if enable {
@@ -526,6 +549,9 @@ impl MockCamera {
                         let flag_for_task = streaming_flag.clone();
                         let tx = frame_tx.clone();
                         let reliable_tx_for_task = reliable_tx.lock().await.clone();
+                        // bd-5oss: Capture primary_tx and frame_pool for streaming task
+                        let primary_tx_for_task = primary_tx.lock().await.clone();
+                        let frame_pool_for_task = frame_pool.lock().await.clone();
                         let res = resolution;
                         let count = frame_count.clone();
 
@@ -535,6 +561,53 @@ impl MockCamera {
                                 let (w, h) = res;
                                 let buffer = generate_test_pattern(w, h, frame_num);
 
+                                // bd-5oss: Send through primary_tx if registered (pooled path)
+                                if let (Some(ref p_tx), Some(ref pool)) =
+                                    (&primary_tx_for_task, &frame_pool_for_task)
+                                {
+                                    // Acquire frame from pool and populate
+                                    if let Some(mut loaned_frame) = pool.try_acquire() {
+                                        let frame_data = loaned_frame.get_mut();
+                                        frame_data.width = w;
+                                        frame_data.height = h;
+                                        frame_data.bit_depth = 16;
+                                        frame_data.frame_number = frame_num;
+                                        frame_data.timestamp_ns =
+                                            std::time::SystemTime::now()
+                                                .duration_since(std::time::UNIX_EPOCH)
+                                                .map(|d| d.as_nanos() as u64)
+                                                .unwrap_or(0);
+
+                                        // Copy pixel data (u16 -> u8 bytes)
+                                        let byte_len = buffer.len() * 2;
+                                        if byte_len <= frame_data.pixels.capacity() {
+                                            let src_ptr = buffer.as_ptr() as *const u8;
+                                            unsafe {
+                                                std::ptr::copy_nonoverlapping(
+                                                    src_ptr,
+                                                    frame_data.pixels.as_mut_ptr(),
+                                                    byte_len,
+                                                );
+                                            }
+                                            frame_data.actual_len = byte_len;
+                                        }
+
+                                        // Send LoanedFrame - non-blocking to avoid stalling
+                                        if p_tx.try_send(loaned_frame).is_err() && frame_num % 100 == 0 {
+                                            tracing::warn!(
+                                                "MockCamera: primary channel full at frame {}",
+                                                frame_num
+                                            );
+                                        }
+                                    } else if frame_num % 100 == 0 {
+                                        tracing::warn!(
+                                            "MockCamera: frame pool exhausted at frame {}",
+                                            frame_num
+                                        );
+                                    }
+                                }
+
+                                // Legacy paths: Arc<Frame> for broadcast and reliable channels
                                 let frame = Arc::new(Frame::from_u16(w, h, &buffer));
 
                                 // Reliable Path
@@ -542,7 +615,7 @@ impl MockCamera {
                                     let _ = r_tx.send(frame.clone()).await;
                                 }
 
-                                // Lossy Path
+                                // Lossy Path (broadcast)
                                 let _ = tx.send(frame);
 
                                 sleep(Duration::from_millis(33)).await; // ~30fps
@@ -625,6 +698,10 @@ impl MockCamera {
             streaming_flag,
             armed_flag,
             staged_flag,
+            primary_tx,  // bd-5oss: Use the pre-created Arc
+            frame_pool,  // bd-5oss: Frame pool for LoanedFrame delivery
+            observers: Arc::new(RwLock::new(Vec::new())),
+            next_observer_id: AtomicU64::new(0),
         }
     }
 
@@ -749,8 +826,62 @@ impl FrameProducer for MockCamera {
         self.frame_count.load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    #[allow(deprecated)]
     async fn subscribe_frames(&self) -> Option<tokio::sync::broadcast::Receiver<Arc<Frame>>> {
+        tracing::warn!(
+            "subscribe_frames() is deprecated; use register_primary_output() for pooled frames"
+        );
         Some(self.frame_tx.subscribe())
+    }
+
+    async fn register_primary_output(
+        &self,
+        tx: tokio::sync::mpsc::Sender<LoanedFrame>,
+    ) -> Result<()> {
+        // bd-5oss: Create frame pool sized for this camera's resolution
+        let (width, height) = self.resolution;
+        let frame_bytes = (width * height * 2) as usize; // 16-bit pixels
+
+        let pool = Pool::new_with_reset(
+            MOCK_FRAME_POOL_SIZE,
+            move || FrameData::with_capacity(frame_bytes),
+            FrameData::reset,
+        );
+
+        tracing::info!(
+            pool_size = MOCK_FRAME_POOL_SIZE,
+            frame_bytes,
+            total_mb = (MOCK_FRAME_POOL_SIZE * frame_bytes) as f64 / (1024.0 * 1024.0),
+            "MockCamera: Created frame pool for primary output (bd-5oss)"
+        );
+
+        // Store pool and channel
+        *self.frame_pool.lock().await = Some(pool);
+        *self.primary_tx.lock().await = Some(tx);
+        Ok(())
+    }
+
+    async fn register_observer(
+        &self,
+        observer: Box<dyn FrameObserver>,
+    ) -> Result<ObserverHandle> {
+        let id = self.next_observer_id.fetch_add(1, Ordering::Relaxed);
+        self.observers.write().await.push((id, observer));
+        Ok(ObserverHandle(id))
+    }
+
+    async fn unregister_observer(&self, handle: ObserverHandle) -> Result<()> {
+        let mut observers = self.observers.write().await;
+        if let Some(pos) = observers.iter().position(|(id, _)| *id == handle.0) {
+            observers.remove(pos);
+            Ok(())
+        } else {
+            anyhow::bail!("Observer handle {} not found", handle.0)
+        }
+    }
+
+    fn supports_observers(&self) -> bool {
+        true
     }
 }
 

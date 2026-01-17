@@ -20,6 +20,7 @@ fn camera_name() -> String {
 
 /// Stream 200 frames continuously - matches C++ LiveImage example
 #[tokio::test]
+#[allow(deprecated)] // subscribe_frames() still works; register_primary_output() not yet wired
 async fn liveimage_200_frames() {
     if !smoke_test_enabled() {
         println!("Test skipped (set PVCAM_SMOKE_TEST=1 to enable)");

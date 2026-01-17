@@ -107,6 +107,7 @@ mod mock_driver {
     }
 
     #[tokio::test]
+    #[allow(deprecated)] // subscribe_frames() still works; register_primary_output() not yet wired
     async fn driver_streaming_mock() {
         let driver = PvcamDriver::new_async("MockCamera".to_string())
             .await
@@ -126,6 +127,8 @@ mod mock_driver {
         assert!(streaming, "Should be streaming after start_stream()");
 
         // Subscribe and receive a frame
+        // NOTE: Using deprecated subscribe_frames() because register_primary_output()
+        // is not yet implemented in the streaming loop (frames aren't sent to primary_tx)
         if let Some(mut rx) = driver.subscribe_frames().await {
             tokio::select! {
                 frame = rx.recv() => {
@@ -261,6 +264,7 @@ mod hardware_driver {
     }
 
     #[tokio::test]
+    #[allow(deprecated)] // subscribe_frames() still works; register_primary_output() not yet wired
     async fn hardware_stream_frames() {
         let _lock = CAMERA_LOCK.lock().unwrap();
 
@@ -276,6 +280,8 @@ mod hardware_driver {
         println!("Streaming started");
 
         // Subscribe and receive frames
+        // NOTE: Using deprecated subscribe_frames() because register_primary_output()
+        // is not yet implemented in the streaming loop (frames aren't sent to primary_tx)
         if let Some(mut rx) = driver.subscribe_frames().await {
             let mut received = 0;
             let start = std::time::Instant::now();
@@ -310,6 +316,7 @@ mod hardware_driver {
     /// If this fails at ~19 frames while isolation tests pass, the issue is in
     /// something unique to the full driver path.
     #[tokio::test]
+    #[allow(deprecated)] // subscribe_frames() still works; register_primary_output() not yet wired
     async fn hardware_stream_200_frames() {
         let _lock = CAMERA_LOCK.lock().unwrap();
         let _ = *LOG_INIT;

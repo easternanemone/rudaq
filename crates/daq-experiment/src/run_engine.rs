@@ -361,10 +361,14 @@ impl RunEngine {
         self.emit_document(Document::Manifest(manifest)).await;
 
         // Setup frame subscriptions for any FrameProducers in the plan
+        // NOTE: Using deprecated subscribe_frames() because register_primary_output()
+        // is not yet implemented in the streaming loop (frames aren't sent to primary_tx)
+        #[allow(deprecated)]
         let mut frame_subscriptions = HashMap::new();
         for det_id in plan.detectors() {
             // Check if it's a FrameProducer
             if let Some(producer) = self.device_registry.get_frame_producer(&det_id) {
+                #[allow(deprecated)]
                 if let Some(rx) = producer.subscribe_frames().await {
                     info!("Subscribed to frames from {}", det_id);
                     frame_subscriptions.insert(det_id.to_string(), rx);

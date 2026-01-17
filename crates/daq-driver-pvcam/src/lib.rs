@@ -10,7 +10,7 @@ pub mod components;
 use anyhow::Result;
 use async_trait::async_trait;
 use daq_core::capabilities::{
-    Commandable, ExposureControl, Frame, FrameObserver, FrameProducer, ObserverHandle,
+    Commandable, ExposureControl, Frame, FrameObserver, FrameProducer, LoanedFrame, ObserverHandle,
     Parameterized, Triggerable,
 };
 use daq_core::core::Roi;
@@ -1487,8 +1487,20 @@ impl FrameProducer for PvcamDriver {
         self.acquisition.frame_tx.receiver_count()
     }
 
+    #[allow(deprecated)]
     async fn subscribe_frames(&self) -> Option<tokio::sync::broadcast::Receiver<Arc<Frame>>> {
+        tracing::warn!(
+            target: "pvcam",
+            "subscribe_frames() is deprecated, use register_primary_output() or register_observer()"
+        );
         Some(self.acquisition.frame_tx.subscribe())
+    }
+
+    async fn register_primary_output(
+        &self,
+        tx: tokio::sync::mpsc::Sender<LoanedFrame>,
+    ) -> Result<()> {
+        self.acquisition.register_primary_output(tx).await
     }
 
     async fn is_streaming(&self) -> Result<bool> {
@@ -1503,19 +1515,24 @@ impl FrameProducer for PvcamDriver {
     async fn register_observer(
         &self,
         observer: Box<dyn FrameObserver>,
-    ) -> Option<ObserverHandle> {
+    ) -> Result<ObserverHandle> {
         // Wrap the generic observer in our adapter to convert to internal FrameTap
         let adapter = ObserverAdapter::new(observer);
         let tap_handle = self.acquisition.tap_registry.register(Box::new(adapter));
 
         // Convert internal TapHandle to generic ObserverHandle
-        Some(ObserverHandle(tap_handle.id()))
+        Ok(ObserverHandle(tap_handle.id()))
     }
 
-    async fn unregister_observer(&self, handle: ObserverHandle) -> bool {
+    async fn unregister_observer(&self, handle: ObserverHandle) -> Result<()> {
         // Convert generic ObserverHandle to internal TapHandle
         let tap_handle = crate::components::taps::TapHandle::from_id(handle.0);
-        self.acquisition.tap_registry.unregister(tap_handle)
+        let removed = self.acquisition.tap_registry.unregister(tap_handle);
+        if removed {
+            Ok(())
+        } else {
+            anyhow::bail!("Observer handle {} not found", handle.0)
+        }
     }
 
     fn supports_observers(&self) -> bool {

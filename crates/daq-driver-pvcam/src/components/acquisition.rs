@@ -62,6 +62,8 @@ use daq_core::data::Frame;
 use daq_core::parameter::Parameter;
 #[cfg(feature = "pvcam_sdk")]
 use daq_pool::buffer_pool::BufferPool;
+// bd-5oss: Frame pool for mock mode primary_tx delivery
+use daq_pool::{FrameData, Pool};
 #[cfg(feature = "pvcam_sdk")]
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 #[cfg(feature = "pvcam_sdk")]
@@ -1051,6 +1053,10 @@ pub struct PvcamAcquisition {
     pub frame_tx: tokio::sync::broadcast::Sender<Arc<Frame>>,
     pub reliable_tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<Arc<Frame>>>>>,
 
+    /// Primary output channel for zero-allocation frame delivery (bd-0dax.5).
+    /// Single consumer receives LoanedFrame ownership for high-performance streaming.
+    pub primary_tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<daq_core::capabilities::LoanedFrame>>>>,
+
     /// Tap registry for synchronous frame observers (bd-0dax.4).
     /// Taps are called with borrowed frame references before broadcast.
     pub tap_registry: Arc<TapRegistry>,
@@ -1129,6 +1135,9 @@ impl PvcamAcquisition {
             frame_count: Arc::new(AtomicU64::new(0)),
             frame_tx,
             reliable_tx: Arc::new(Mutex::new(None)),
+
+            // Primary output for zero-allocation frame delivery (bd-0dax.5)
+            primary_tx: Arc::new(Mutex::new(None)),
 
             // Tap registry for synchronous frame observers (bd-0dax.4)
             tap_registry: Arc::new(TapRegistry::new()),
@@ -1230,6 +1239,23 @@ impl PvcamAcquisition {
         if let Ok(mut guard) = self.last_error.lock() {
             *guard = None;
         }
+    }
+
+    /// Register the primary output channel for zero-allocation frame delivery (bd-0dax.5).
+    ///
+    /// Only ONE primary consumer is allowed - subsequent calls replace the previous consumer.
+    /// Call BEFORE `start_stream()` to ensure frames are delivered from the start.
+    ///
+    /// # Arguments
+    /// * `tx` - Channel sender that will receive `LoanedFrame` ownership
+    pub async fn register_primary_output(
+        &self,
+        tx: tokio::sync::mpsc::Sender<daq_core::capabilities::LoanedFrame>,
+    ) -> anyhow::Result<()> {
+        let mut primary = self.primary_tx.lock().await;
+        *primary = Some(tx);
+        tracing::debug!(target: "pvcam", "Primary output channel registered");
+        Ok(())
     }
 
     /// Calculate optimal circular buffer frame count (bd-ek9n.4)
@@ -2156,6 +2182,30 @@ impl PvcamAcquisition {
         let tap_registry = self.tap_registry.clone(); // bd-0dax.4: For tap observers
         let (x_bin, y_bin) = binning;
 
+        // bd-5oss: Capture primary_tx for LoanedFrame delivery
+        let primary_tx = self.primary_tx.lock().await.clone();
+
+        // bd-5oss: Create frame pool if primary_tx is registered
+        let frame_pool: Option<Arc<Pool<FrameData>>> = if primary_tx.is_some() {
+            let binned_width = roi.width / x_bin as u32;
+            let binned_height = roi.height / y_bin as u32;
+            let frame_bytes = (binned_width * binned_height * 2) as usize; // 16-bit
+            let pool_size = 16; // Reasonable default for mock
+            let pool = Pool::new_with_reset(
+                pool_size,
+                move || FrameData::with_capacity(frame_bytes),
+                FrameData::reset,
+            );
+            tracing::info!(
+                pool_size,
+                frame_bytes,
+                "PVCAM mock: Created frame pool for primary_tx (bd-5oss)"
+            );
+            Some(pool)
+        } else {
+            None
+        };
+
         tokio::spawn(async move {
             let binned_width = roi.width / x_bin as u32;
             let binned_height = roi.height / y_bin as u32;
@@ -2177,6 +2227,50 @@ impl PvcamAcquisition {
                     }
                 }
 
+                // bd-5oss: Send through primary_tx if registered (pooled path)
+                if let (Some(ref p_tx), Some(ref pool)) = (&primary_tx, &frame_pool) {
+                    if let Some(mut loaned_frame) = pool.try_acquire() {
+                        let frame_data = loaned_frame.get_mut();
+                        frame_data.width = binned_width;
+                        frame_data.height = binned_height;
+                        frame_data.bit_depth = 16;
+                        frame_data.frame_number = frame_num;
+                        frame_data.exposure_ms = exposure_ms;
+                        frame_data.roi_x = roi.x;
+                        frame_data.roi_y = roi.y;
+                        frame_data.binning = Some(binning);
+                        frame_data.timestamp_ns = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_nanos() as u64)
+                            .unwrap_or(0);
+
+                        // Copy pixel data (u16 -> u8 bytes)
+                        let byte_len = pixels.len() * 2;
+                        if byte_len <= frame_data.pixels.capacity() {
+                            let src_ptr = pixels.as_ptr() as *const u8;
+                            unsafe {
+                                std::ptr::copy_nonoverlapping(
+                                    src_ptr,
+                                    frame_data.pixels.as_mut_ptr(),
+                                    byte_len,
+                                );
+                            }
+                            frame_data.actual_len = byte_len;
+                        }
+
+                        // Send LoanedFrame - non-blocking
+                        if p_tx.try_send(loaned_frame).is_err() && frame_num % 100 == 0 {
+                            tracing::warn!(
+                                "PVCAM mock: primary channel full at frame {}",
+                                frame_num
+                            );
+                        }
+                    } else if frame_num % 100 == 0 {
+                        tracing::warn!("PVCAM mock: frame pool exhausted at frame {}", frame_num);
+                    }
+                }
+
+                // Legacy paths: Arc<Frame> for broadcast and reliable channels
                 // Populate frame metadata using builder pattern (bd-183h)
                 let ext_metadata = daq_core::data::FrameMetadata {
                     binning: Some(binning),
@@ -3368,6 +3462,14 @@ impl PvcamAcquisition {
 
                 // bd-0dax.4: Run taps SYNCHRONOUSLY before broadcast (observers get &Frame)
                 tap_registry.apply_frame_with_pixels(&*frame_arc);
+
+                // TODO(bd-5oss): Wire primary_tx for LoanedFrame delivery
+                // Current architecture uses BufferPool -> Bytes -> Arc<Frame>, but primary_tx
+                // expects LoanedFrame (Loaned<FrameData>). Full integration requires either:
+                // 1. Replacing BufferPool with Pool<FrameData> in the SDK frame loop
+                // 2. Creating a conversion layer (defeats zero-allocation goal)
+                // For now, primary_tx is wired in mock mode only. SDK mode continues to use
+                // broadcast (frame_tx) and reliable (reliable_tx) channels.
 
                 let _ = frame_tx.send(frame_arc.clone());
 

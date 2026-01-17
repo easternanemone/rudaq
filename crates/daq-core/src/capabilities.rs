@@ -387,6 +387,12 @@ pub trait FrameObserver: Send + Sync {
     }
 }
 
+/// Type alias for pooled frame data from the object pool.
+///
+/// This represents a frame buffer loaned from a pre-allocated pool,
+/// enabling zero-allocation frame handling for high-FPS scenarios.
+pub type LoanedFrame = daq_pool::Loaned<daq_pool::FrameData>;
+
 /// Capability: Frame/Image Production
 ///
 /// Devices that produce 2D image frames (cameras, beam profilers).
@@ -394,12 +400,19 @@ pub trait FrameObserver: Send + Sync {
 /// # Contract
 /// - `start_stream()` begins continuous acquisition
 /// - `stop_stream()` halts acquisition
-/// - Frames are delivered via `take_frame_receiver()` channel
+/// - Frames are delivered via `register_primary_output()` channel (preferred)
 /// - `resolution()` is immutable (cannot be changed via this trait)
 ///
 /// # Frame Delivery
-/// Call `take_frame_receiver()` BEFORE `start_stream()` to get the channel
-/// that will receive Frame objects during streaming.
+///
+/// ## Preferred: `register_primary_output()` (zero-allocation)
+/// Call `register_primary_output()` BEFORE `start_stream()` to register a channel
+/// that will receive `LoanedFrame` objects with ownership. The primary consumer
+/// owns the frames and controls when they return to the pool.
+///
+/// ## Legacy: `subscribe_frames()` (deprecated)
+/// Returns a broadcast receiver for `Arc<Frame>`. Multiple subscribers receive
+/// the same frames but with heap allocation overhead.
 #[async_trait]
 pub trait FrameProducer: Send + Sync {
     /// Start continuous frame acquisition
@@ -471,6 +484,9 @@ pub trait FrameProducer: Send + Sync {
 
     /// Subscribe to the frame stream
     ///
+    /// **DEPRECATED**: Use `register_primary_output()` for zero-allocation pooled frames.
+    /// This method will be removed in a future release.
+    ///
     /// Returns a broadcast receiver that will receive `Arc<Frame>` for each captured frame.
     /// Multiple subscribers can receive the same frames without copying pixel data.
     /// Can be called multiple times to create additional subscribers.
@@ -487,6 +503,10 @@ pub trait FrameProducer: Send + Sync {
     ///     println!("Frame: {}x{}", frame.width, frame.height);
     /// }
     /// ```
+    #[deprecated(
+        since = "0.3.0",
+        note = "Use register_primary_output() for zero-allocation pooled frames"
+    )]
     async fn subscribe_frames(
         &self,
     ) -> Option<tokio::sync::broadcast::Receiver<std::sync::Arc<crate::data::Frame>>> {
@@ -530,57 +550,92 @@ pub trait FrameProducer: Send + Sync {
     }
 
     // ========================================================================
+    // Primary Output Registration (bd-0dax.5)
+    // ========================================================================
+
+    /// Register the primary frame consumer.
+    ///
+    /// Only ONE primary consumer is allowed - it owns frames and controls pool reclamation.
+    /// Call BEFORE `start_stream()`. Subsequent calls replace the previous consumer.
+    ///
+    /// This is the preferred method for high-performance frame delivery, as it uses
+    /// pre-allocated pooled buffers (`LoanedFrame`) instead of heap-allocated `Arc<Frame>`.
+    ///
+    /// # Arguments
+    /// * `tx` - Channel sender that will receive `LoanedFrame` ownership
+    ///
+    /// # Returns
+    /// * `Ok(())` if registration succeeded
+    /// * `Err` if device doesn't support pooled frames
+    ///
+    /// # Default Implementation
+    /// Returns an error indicating pooled output is not supported.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+    /// camera.register_primary_output(tx).await?;
+    /// camera.start_stream().await?;
+    ///
+    /// while let Some(frame) = rx.recv().await {
+    ///     // Process LoanedFrame - automatically returns to pool when dropped
+    ///     println!("Frame: {}x{}", frame.width, frame.height);
+    /// }
+    /// ```
+    async fn register_primary_output(
+        &self,
+        tx: tokio::sync::mpsc::Sender<LoanedFrame>,
+    ) -> Result<()> {
+        let _ = tx; // Suppress unused warning
+        anyhow::bail!("Pooled frame output not supported by this device")
+    }
+
+    // ========================================================================
     // Frame Observer Methods (bd-0dax.4)
     // ========================================================================
 
-    /// Register a frame observer for synchronous frame inspection.
+    /// Register a tap for secondary frame access (observer pattern).
     ///
-    /// Observers are called synchronously for each frame before the frame
-    /// is delivered to primary consumers (broadcast channel, storage, etc.).
+    /// Taps receive borrowed references to frames, NOT ownership.
+    /// Multiple taps are allowed. Can be registered before or during streaming.
+    /// Taps MUST NOT block - use try_send or bounded channels.
     ///
     /// # Arguments
-    ///
-    /// - `observer`: The observer implementation to register
+    /// * `observer` - The observer implementing FrameObserver trait
     ///
     /// # Returns
-    ///
-    /// - `Some(handle)` if registration succeeded (device supports observers)
-    /// - `None` if observers are not supported by this device
+    /// * Ok(handle) - Use handle to unregister tap later
+    /// * Err if device doesn't support taps
     ///
     /// # Default Implementation
-    ///
-    /// Returns `None` (observers not supported).
+    /// Returns an error indicating taps are not supported.
     ///
     /// # Example
     ///
     /// ```rust,ignore
     /// let handle = device.register_observer(Box::new(my_observer)).await?;
     /// // ... streaming ...
-    /// device.unregister_observer(handle).await;
+    /// device.unregister_observer(handle).await?;
     /// ```
     async fn register_observer(
         &self,
-        _observer: Box<dyn FrameObserver>,
-    ) -> Option<ObserverHandle> {
-        None // Default: observers not supported
+        observer: Box<dyn FrameObserver>,
+    ) -> Result<ObserverHandle> {
+        let _ = observer;
+        anyhow::bail!("Frame observers not supported by this device")
     }
 
     /// Unregister a previously registered frame observer.
     ///
     /// # Arguments
-    ///
-    /// - `handle`: The handle returned from `register_observer()`
+    /// * `handle` - Handle returned from register_observer
     ///
     /// # Returns
-    ///
-    /// - `true` if the observer was found and removed
-    /// - `false` if the handle was not found or observers not supported
-    ///
-    /// # Default Implementation
-    ///
-    /// Returns `false` (observers not supported).
-    async fn unregister_observer(&self, _handle: ObserverHandle) -> bool {
-        false // Default: observers not supported
+    /// * Ok(()) if unregistration succeeded
+    /// * Err if handle is invalid or device doesn't support taps
+    async fn unregister_observer(&self, handle: ObserverHandle) -> Result<()> {
+        let _ = handle;
+        anyhow::bail!("Frame observers not supported by this device")
     }
 
     /// Check if this device supports frame observers.

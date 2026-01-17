@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 daq-core = { path = "../daq-core" }
+daq-pool = { path = "../daq-pool" }
 async-trait = "0.1.79"
 anyhow = "1.0.82"
 thiserror = "1.0"

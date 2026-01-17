@@ -27,4 +27,4 @@ pub use arrow_writer::ArrowDocumentWriter;
 #[cfg(feature = "storage_parquet")]
 pub use arrow_writer::ParquetDocumentWriter;
 #[cfg(feature = "storage_tiff")]
-pub use tiff_writer::TiffWriter;
+pub use tiff_writer::{LoanedFrame, TiffWriter};

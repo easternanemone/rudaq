@@ -76,6 +76,8 @@ use crate::grpc::proto::{
     hardware_service_server::HardwareService,
 };
 use anyhow::Error as AnyError;
+use daq_core::capabilities::FrameObserver;
+use daq_core::data::FrameView;
 use daq_core::observable::Observable;
 use daq_core::parameter::Parameter;
 use daq_hardware::registry::{Capability, DeviceRegistry};
@@ -83,12 +85,147 @@ use daq_proto::downsample::{downsample_2x2, downsample_4x4};
 use serde_json;
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{Duration, interval};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 use tracing::instrument;
+
+// =============================================================================
+// Frame Observer for gRPC Streaming (bd-0dax.6.3)
+// =============================================================================
+
+/// Internal frame data packet sent through the observer channel.
+///
+/// Contains pre-processed frame data ready for gRPC transmission.
+struct ObserverFramePacket {
+    data: Vec<u8>,
+    width: u32,
+    height: u32,
+    bit_depth: u32,
+    frame_number: u64,
+    timestamp_ns: u64,
+    exposure_ms: Option<f64>,
+    roi_x: u32,
+    roi_y: u32,
+    temperature_c: Option<f64>,
+    binning: Option<(u16, u16)>,
+}
+
+/// Observer that sends frames to gRPC stream (bd-0dax.6.3).
+///
+/// This observer receives `FrameView` references from the frame loop and
+/// forwards them (after optional downsampling) to a gRPC client via an
+/// mpsc channel.
+///
+/// # Contract
+///
+/// - `on_frame()` MUST NOT block - uses `try_send()` with bounded channel
+/// - Frame data is copied during `on_frame()` (required - can't hold reference)
+/// - Backpressure is handled by dropping frames when channel is full
+///
+/// # Quality Modes
+///
+/// - `Full`: No downsampling, full resolution frames
+/// - `Preview`: 2x2 binning, ~75% bandwidth reduction
+/// - `Fast`: 4x4 binning, ~94% bandwidth reduction
+struct GrpcStreamObserver {
+    /// Channel sender for frame packets (bounded to handle backpressure)
+    tx: tokio::sync::mpsc::Sender<ObserverFramePacket>,
+    /// Quality setting for server-side downsampling
+    quality: StreamQuality,
+    /// Device ID for logging
+    device_id: String,
+    /// Frame counter for logging
+    frames_received: AtomicU64,
+    /// Frames dropped due to backpressure
+    frames_dropped: AtomicU64,
+}
+
+impl GrpcStreamObserver {
+    /// Create a new gRPC stream observer.
+    fn new(
+        tx: tokio::sync::mpsc::Sender<ObserverFramePacket>,
+        quality: StreamQuality,
+        device_id: String,
+    ) -> Self {
+        Self {
+            tx,
+            quality,
+            device_id,
+            frames_received: AtomicU64::new(0),
+            frames_dropped: AtomicU64::new(0),
+        }
+    }
+}
+
+impl FrameObserver for GrpcStreamObserver {
+    fn on_frame(&self, frame: &FrameView<'_>) {
+        let frame_count = self.frames_received.fetch_add(1, Ordering::Relaxed);
+
+        // Log early frames for debugging
+        if frame_count < 10 {
+            tracing::debug!(
+                device_id = %self.device_id,
+                frame_number = frame.frame_number,
+                width = frame.width,
+                height = frame.height,
+                quality = ?self.quality,
+                "GrpcStreamObserver received frame (early frame debug)"
+            );
+        }
+
+        // Apply server-side downsampling based on quality setting
+        // Note: downsample functions expect 16-bit data
+        let (frame_data, effective_width, effective_height) = match self.quality {
+            StreamQuality::Preview => {
+                downsample_2x2(frame.pixels(), frame.width, frame.height)
+            }
+            StreamQuality::Fast => {
+                downsample_4x4(frame.pixels(), frame.width, frame.height)
+            }
+            StreamQuality::Full => {
+                (frame.pixels().to_vec(), frame.width, frame.height)
+            }
+        };
+
+        let packet = ObserverFramePacket {
+            data: frame_data,
+            width: effective_width,
+            height: effective_height,
+            bit_depth: frame.bit_depth,
+            frame_number: frame.frame_number,
+            timestamp_ns: frame.timestamp_ns,
+            exposure_ms: frame.exposure_ms,
+            roi_x: frame.roi_x,
+            roi_y: frame.roi_y,
+            temperature_c: frame.temperature_c,
+            binning: frame.binning,
+        };
+
+        // Non-blocking send - drop frame if channel is full (backpressure)
+        if self.tx.try_send(packet).is_err() {
+            let dropped = self.frames_dropped.fetch_add(1, Ordering::Relaxed);
+            if dropped % 10 == 0 {
+                tracing::debug!(
+                    device_id = %self.device_id,
+                    frames_dropped = dropped + 1,
+                    "GrpcStreamObserver dropping frame due to backpressure"
+                );
+            }
+        }
+    }
+
+    fn name(&self) -> &str {
+        "grpc_stream_observer"
+    }
+}
+
+// =============================================================================
+// Hardware Service Implementation
+// =============================================================================
 
 /// Hardware gRPC service implementation
 ///
@@ -1220,10 +1357,16 @@ impl HardwareService for HardwareServiceImpl {
 
     type StreamFramesStream = ReceiverStream<Result<FrameData, Status>>;
 
-    /// Stream frames from a FrameProducer device to GUI clients
+    /// Stream frames from a FrameProducer device to GUI clients (bd-0dax.6.3).
     ///
-    /// Subscribes to the device's frame broadcast channel and forwards frames
-    /// over gRPC. Supports optional rate limiting via max_fps.
+    /// Uses the tap-based observer pattern (`register_observer`) to receive frames.
+    /// This is more efficient than the deprecated `subscribe_frames()` broadcast
+    /// approach because:
+    /// - Observers receive borrowed `FrameView` references (zero-copy from driver)
+    /// - Downsampling happens in the observer callback (before any channel send)
+    /// - Backpressure is handled locally in the observer
+    ///
+    /// Supports optional rate limiting via max_fps.
     async fn stream_frames(
         &self,
         request: Request<StreamFramesRequest>,
@@ -1233,7 +1376,7 @@ impl HardwareService for HardwareServiceImpl {
         let max_fps = req.max_fps;
         let quality = req.quality();
 
-        // Get frame producer and subscribe to frame broadcast
+        // Get frame producer
         let frame_producer = self.registry.get_frame_producer(&device_id);
 
         let frame_producer = frame_producer.ok_or_else(|| {
@@ -1243,13 +1386,50 @@ impl HardwareService for HardwareServiceImpl {
             ))
         })?;
 
-        // Subscribe to frame broadcast channel
-        let mut frame_rx = frame_producer.subscribe_frames().await.ok_or_else(|| {
-            Status::unavailable(format!(
-                "Device '{}' does not support frame streaming",
+        // Check if device supports observers (bd-0dax.6.3)
+        if !frame_producer.supports_observers() {
+            return Err(Status::unavailable(format!(
+                "Device '{}' does not support frame observers. \
+                 The driver must implement register_observer() for tap-based streaming.",
                 device_id
-            ))
-        })?;
+            )));
+        }
+
+        // Channel capacity constants
+        // Observer channel: bounded to handle backpressure in on_frame()
+        const OBSERVER_CHANNEL_CAPACITY: usize = 16;
+        // gRPC channel: buffer for network jitter (bd-7rk0)
+        const GRPC_CHANNEL_CAPACITY: usize = 8;
+        const GRPC_SKIP_THRESHOLD: usize = 6; // 75% full triggers frame skipping
+
+        // Create channel from observer to forwarding task
+        let (observer_tx, mut observer_rx) =
+            tokio::sync::mpsc::channel::<ObserverFramePacket>(OBSERVER_CHANNEL_CAPACITY);
+
+        // Create gRPC stream observer
+        let observer = GrpcStreamObserver::new(observer_tx, quality, device_id.clone());
+
+        // Register the observer with the frame producer
+        let observer_handle = frame_producer
+            .register_observer(Box::new(observer))
+            .await
+            .map_err(|e| {
+                Status::internal(format!(
+                    "Failed to register frame observer for device '{}': {}",
+                    device_id, e
+                ))
+            })?;
+
+        tracing::info!(
+            device_id = %device_id,
+            observer_handle = observer_handle.id(),
+            max_fps = max_fps,
+            quality = ?quality,
+            "Registered gRPC stream observer"
+        );
+
+        // Create output channel for gRPC stream
+        let (grpc_tx, grpc_rx) = tokio::sync::mpsc::channel(GRPC_CHANNEL_CAPACITY);
 
         // Calculate minimum interval between frames for rate limiting
         let min_interval = if max_fps > 0 {
@@ -1258,16 +1438,8 @@ impl HardwareService for HardwareServiceImpl {
             None
         };
 
-        // Create output channel for gRPC stream
-        // Buffer of 8 frames to absorb network jitter during streaming (bd-7rk0)
-        // Skip threshold at 75% full (6 frames) provides backpressure handling
-        const GRPC_FRAME_CHANNEL_CAPACITY: usize = 8;
-        const SKIP_THRESHOLD: usize = 6; // 75% full triggers frame skipping
-        let (tx, rx) = tokio::sync::mpsc::channel(GRPC_FRAME_CHANNEL_CAPACITY);
-
-        // Spawn task to forward frames from broadcast to gRPC stream
+        // Spawn task to forward frames from observer channel to gRPC stream
         let device_id_clone = device_id.clone();
-        // Clone frame_producer for graceful disconnect (bd-cckz)
         let frame_producer_clone = frame_producer.clone();
         tokio::spawn(async move {
             // Initialize to allow first frame through immediately
@@ -1285,25 +1457,25 @@ impl HardwareService for HardwareServiceImpl {
                 device_id = %device_id_clone,
                 max_fps = max_fps,
                 quality = ?quality,
-                channel_capacity = GRPC_FRAME_CHANNEL_CAPACITY,
-                "Starting frame stream forwarding task"
+                observer_channel_capacity = OBSERVER_CHANNEL_CAPACITY,
+                grpc_channel_capacity = GRPC_CHANNEL_CAPACITY,
+                "Starting tap-based frame stream forwarding task"
             );
 
-            // Track exit reason for debugging
             let exit_reason: &str;
 
             loop {
-                match frame_rx.recv().await {
-                    Ok(frame) => {
+                match observer_rx.recv().await {
+                    Some(packet) => {
                         // Log early frames for debugging
                         if frames_sent < 10 {
                             tracing::info!(
                                 device_id = %device_id_clone,
-                                frame_number = frame.frame_number,
-                                bytes = frame.data.len(),
-                                width = frame.width,
-                                height = frame.height,
-                                "Server received frame from broadcast (early frame debug)"
+                                frame_number = packet.frame_number,
+                                bytes = packet.data.len(),
+                                width = packet.width,
+                                height = packet.height,
+                                "Received frame from observer (early frame debug)"
                             );
                         }
 
@@ -1312,46 +1484,46 @@ impl HardwareService for HardwareServiceImpl {
                             let elapsed = last_frame_time.elapsed();
                             if elapsed < interval {
                                 frames_dropped = frames_dropped.saturating_add(1);
-                                continue; // Skip this frame
+                                continue;
                             }
                         }
                         last_frame_time = std::time::Instant::now();
 
                         // Backpressure handling: skip frames if gRPC channel is nearly full
-                        // This prevents dropped frames from network jitter by not overwhelming the channel
-                        let queue_len = GRPC_FRAME_CHANNEL_CAPACITY - tx.capacity();
-                        if queue_len >= SKIP_THRESHOLD {
+                        let queue_len = GRPC_CHANNEL_CAPACITY - grpc_tx.capacity();
+                        if queue_len >= GRPC_SKIP_THRESHOLD {
                             frames_dropped = frames_dropped.saturating_add(1);
                             if frames_dropped % 10 == 1 {
                                 tracing::debug!(
                                     device_id = %device_id_clone,
                                     queue_len,
-                                    threshold = SKIP_THRESHOLD,
-                                    "Skipping frame due to backpressure"
+                                    threshold = GRPC_SKIP_THRESHOLD,
+                                    "Skipping frame due to gRPC backpressure"
                                 );
                             }
                             continue;
                         }
 
-                        // Validate frame dimensions to prevent buffer overflows (bd-7rk0)
-                        let bytes_per_pixel = (frame.bit_depth as usize).div_ceil(8);
-                        let expected_size = (frame.width as usize)
-                            .saturating_mul(frame.height as usize)
+                        // Validate frame dimensions (bd-7rk0)
+                        let bytes_per_pixel = (packet.bit_depth as usize).div_ceil(8);
+                        let expected_size = (packet.width as usize)
+                            .saturating_mul(packet.height as usize)
                             .saturating_mul(bytes_per_pixel);
-                        if frame.data.len() != expected_size {
+                        if packet.data.len() != expected_size {
                             tracing::warn!(
                                 device_id = %device_id_clone,
-                                width = frame.width,
-                                height = frame.height,
-                                bit_depth = frame.bit_depth,
-                                actual_size = frame.data.len(),
+                                width = packet.width,
+                                height = packet.height,
+                                bit_depth = packet.bit_depth,
+                                actual_size = packet.data.len(),
                                 expected_size = expected_size,
-                                "Frame data size mismatch, skipping"
+                                "Frame data size mismatch after downsampling, skipping"
                             );
                             frames_dropped = frames_dropped.saturating_add(1);
                             continue;
                         }
 
+                        // Update FPS tracking
                         let now_instant = std::time::Instant::now();
                         fps_window.push_back(now_instant);
                         while let Some(front) = fps_window.front() {
@@ -1363,9 +1535,10 @@ impl HardwareService for HardwareServiceImpl {
                         }
                         let current_fps = fps_window.len() as f64;
 
-                        if frame.timestamp_ns > 0 {
+                        // Update latency tracking
+                        if packet.timestamp_ns > 0 {
                             let latency_ms =
-                                now_ns().saturating_sub(frame.timestamp_ns) as f64 / 1_000_000.0;
+                                now_ns().saturating_sub(packet.timestamp_ns) as f64 / 1_000_000.0;
                             latency_samples = latency_samples.saturating_add(1);
                             avg_latency_ms +=
                                 (latency_ms - avg_latency_ms) / latency_samples as f64;
@@ -1379,77 +1552,33 @@ impl HardwareService for HardwareServiceImpl {
                             avg_latency_ms,
                         };
 
-                        // Extract frame data for CPU-heavy processing (bd-v9v2: spawn_blocking)
-                        // Clone Bytes (cheap ref-count increment) and primitives for move into blocking task
-                        let frame_data_bytes = frame.data.clone();
-                        let frame_width = frame.width;
-                        let frame_height = frame.height;
-                        let frame_bit_depth = frame.bit_depth;
-                        let frame_number = frame.frame_number;
-                        let frame_timestamp_ns = frame.timestamp_ns;
-                        let frame_exposure_ms = frame.exposure_ms;
-                        let frame_roi_x = frame.roi_x;
-                        let frame_roi_y = frame.roi_y;
-                        let frame_metadata = frame.metadata.clone();
+                        // Build FrameData proto and apply compression in blocking task
                         let device_id_for_frame = device_id_clone.clone();
-
-                        // Offload CPU-intensive downsampling and compression to blocking thread pool
-                        // This prevents starving the tokio executor under high frame rates (bd-v9v2)
                         let processing_result = tokio::task::spawn_blocking(move || {
-                            // Apply server-side downsampling based on quality setting
-                            let (frame_data_vec, effective_width, effective_height) = match quality
-                            {
-                                StreamQuality::Preview => {
-                                    downsample_2x2(&frame_data_bytes, frame_width, frame_height)
-                                }
-                                StreamQuality::Fast => {
-                                    downsample_4x4(&frame_data_bytes, frame_width, frame_height)
-                                }
-                                StreamQuality::Full => {
-                                    (frame_data_bytes.to_vec(), frame_width, frame_height)
-                                }
-                            };
-
-                            // Build FrameData proto (bd-183h: propagate driver metadata)
                             let mut frame_data = FrameData {
                                 device_id: device_id_for_frame,
-                                width: effective_width,
-                                height: effective_height,
-                                bit_depth: frame_bit_depth,
-                                data: frame_data_vec,
-                                frame_number,
-                                timestamp_ns: frame_timestamp_ns,
-                                exposure_ms: frame_exposure_ms,
-                                roi_x: frame_roi_x,
-                                roi_y: frame_roi_y,
-                                temperature_c: frame_metadata
-                                    .as_ref()
-                                    .and_then(|m| m.temperature_c),
-                                gain_mode: frame_metadata
-                                    .as_ref()
-                                    .and_then(|m| m.gain_mode.clone()),
-                                readout_speed: frame_metadata
-                                    .as_ref()
-                                    .and_then(|m| m.readout_speed.clone()),
-                                trigger_mode: frame_metadata
-                                    .as_ref()
-                                    .and_then(|m| m.trigger_mode.clone()),
-                                binning_x: frame_metadata
-                                    .as_ref()
-                                    .and_then(|m| m.binning.map(|(x, _)| x as u32)),
-                                binning_y: frame_metadata
-                                    .as_ref()
-                                    .and_then(|m| m.binning.map(|(_, y)| y as u32)),
-                                metadata: frame_metadata
-                                    .as_ref()
-                                    .map(|m| m.extra.clone())
-                                    .unwrap_or_default(),
+                                width: packet.width,
+                                height: packet.height,
+                                bit_depth: packet.bit_depth,
+                                data: packet.data,
+                                frame_number: packet.frame_number,
+                                timestamp_ns: packet.timestamp_ns,
+                                exposure_ms: packet.exposure_ms,
+                                roi_x: packet.roi_x,
+                                roi_y: packet.roi_y,
+                                temperature_c: packet.temperature_c,
+                                gain_mode: None, // FrameView doesn't include these
+                                readout_speed: None,
+                                trigger_mode: None,
+                                binning_x: packet.binning.map(|(x, _)| x as u32),
+                                binning_y: packet.binning.map(|(_, y)| y as u32),
+                                metadata: HashMap::new(),
                                 metrics: Some(metrics),
                                 compression: CompressionType::CompressionNone as i32,
                                 uncompressed_size: 0,
                             };
 
-                            // Apply LZ4 compression (bd-7rk0: gRPC improvements)
+                            // Apply LZ4 compression (bd-7rk0)
                             let uncompressed_size = frame_data.data.len();
                             crate::grpc::compression::compress_frame(&mut frame_data);
                             let compressed_size = frame_data.data.len();
@@ -1458,7 +1587,6 @@ impl HardwareService for HardwareServiceImpl {
                         })
                         .await;
 
-                        // Handle spawn_blocking result (bd-v9v2)
                         let (frame_data, uncompressed_size, compressed_size) =
                             match processing_result {
                                 Ok(result) => result,
@@ -1466,60 +1594,51 @@ impl HardwareService for HardwareServiceImpl {
                                     tracing::error!(
                                         device_id = %device_id_clone,
                                         error = %e,
-                                        "Frame processing task panicked or was cancelled"
+                                        "Frame compression task panicked or was cancelled"
                                     );
-                                    // Skip this frame but continue streaming
                                     frames_dropped = frames_dropped.saturating_add(1);
                                     continue;
                                 }
                             };
 
-                        // Log early frame sends for debugging
+                        // Log early frame sends
                         if frames_sent <= 10 {
                             tracing::info!(
                                 device_id = %device_id_clone,
                                 frame = frames_sent,
                                 frame_number = frame_data.frame_number,
                                 bytes = frame_data.data.len(),
-                                queue_capacity = tx.capacity(),
+                                queue_capacity = grpc_tx.capacity(),
                                 "About to send frame to gRPC client (early frame debug)"
                             );
                         }
 
-                        if tx.send(Ok(frame_data)).await.is_err() {
+                        // Send to gRPC client
+                        if grpc_tx.send(Ok(frame_data)).await.is_err() {
                             tracing::warn!(
                                 device_id = %device_id_clone,
                                 frames_sent = frames_sent,
                                 "Client disconnected from frame stream - gRPC send failed"
                             );
-                            
-                            // Graceful disconnect: stop acquisition when LAST client disconnects (bd-cckz)
-                            // Check receiver count to avoid killing stream for other subscribers (bd-race-fix)
-                            let subscriber_count = frame_producer_clone.receiver_count();
-                            
-                            // If count is <= 1 (just us) or 0 (not supported), stop the stream.
-                            // If count > 1, other subscribers exist, so keep streaming.
-                            if subscriber_count <= 1 {
-                                if let Err(e) = frame_producer_clone.stop_stream().await {
-                                    tracing::warn!(
-                                        device_id = %device_id_clone,
-                                        error = %e,
-                                        "Failed to stop stream on client disconnect"
-                                    );
-                                } else {
-                                    tracing::info!(
-                                        device_id = %device_id_clone,
-                                        "Stopped acquisition after last client disconnect"
-                                    );
-                                }
+
+                            // Unregister observer on disconnect (bd-0dax.6.3)
+                            if let Err(e) =
+                                frame_producer_clone.unregister_observer(observer_handle).await
+                            {
+                                tracing::warn!(
+                                    device_id = %device_id_clone,
+                                    observer_handle = observer_handle.id(),
+                                    error = %e,
+                                    "Failed to unregister observer on client disconnect"
+                                );
                             } else {
                                 tracing::info!(
                                     device_id = %device_id_clone,
-                                    subscriber_count,
-                                    "Client disconnected but stream continues for other subscribers"
+                                    observer_handle = observer_handle.id(),
+                                    "Unregistered observer after client disconnect"
                                 );
                             }
-                            
+
                             exit_reason = "client_disconnected";
                             break;
                         }
@@ -1533,7 +1652,7 @@ impl HardwareService for HardwareServiceImpl {
                             );
                         }
 
-                        // Log compression stats every 30 frames (frames_sent already incremented above)
+                        // Log compression stats periodically
                         if frames_sent > 10 && frames_sent.is_multiple_of(30) {
                             let ratio = if compressed_size > 0 {
                                 uncompressed_size as f64 / compressed_size as f64
@@ -1550,24 +1669,27 @@ impl HardwareService for HardwareServiceImpl {
                             );
                         }
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        // Frames were dropped due to slow consumer
-                        frames_dropped = frames_dropped.saturating_add(n as u64);
-                        tracing::warn!(
-                            device_id = %device_id_clone,
-                            frames_dropped = n,
-                            "Frame stream lagged, dropped frames"
-                        );
-                        // Continue receiving
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                        // Producer stopped streaming - normal termination
+                    None => {
+                        // Observer channel closed - producer stopped or observer was dropped
                         tracing::info!(
                             device_id = %device_id_clone,
                             frames_sent = frames_sent,
-                            "Frame broadcast channel closed - producer stopped"
+                            "Observer channel closed - producer stopped streaming"
                         );
-                        exit_reason = "broadcast_closed";
+
+                        // Clean up observer registration
+                        if let Err(e) =
+                            frame_producer_clone.unregister_observer(observer_handle).await
+                        {
+                            tracing::debug!(
+                                device_id = %device_id_clone,
+                                observer_handle = observer_handle.id(),
+                                error = %e,
+                                "Failed to unregister observer (may already be unregistered)"
+                            );
+                        }
+
+                        exit_reason = "observer_channel_closed";
                         break;
                     }
                 }
@@ -1579,11 +1701,11 @@ impl HardwareService for HardwareServiceImpl {
                 exit_reason = exit_reason,
                 frames_sent = frames_sent,
                 frames_dropped = frames_dropped,
-                "Frame stream forwarding task ended"
+                "Tap-based frame stream forwarding task ended"
             );
         });
 
-        Ok(Response::new(ReceiverStream::new(rx)))
+        Ok(Response::new(ReceiverStream::new(grpc_rx)))
     }
 
     // =========================================================================

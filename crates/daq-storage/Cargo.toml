@@ -6,6 +6,7 @@ description = "High-throughput storage and buffering for rust-daq"
 
 [dependencies]
 daq-core = { path = "../daq-core" }
+daq-pool = { path = "../daq-pool" }
 daq-proto = { path = "../daq-proto" }
 
 serde = { version = "1.0", features = ["derive"] }
@@ -27,6 +28,7 @@ tracing = "0.1"
 anyhow = "1.0"
 
 [dev-dependencies]
+bytes = "1.5"
 tempfile = "3.10"
 tokio = { version = "1.36", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }

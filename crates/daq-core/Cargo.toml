@@ -18,6 +18,7 @@ tracing = "0.1"
 schemars = { version = "0.8", optional = true } # If needed for schema generation
 config = { version = "0.14.0", features = ["toml"] }
 arrow = { version = "57", optional = true, features = ["ipc"] }
+daq-pool = { path = "../daq-pool" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1", features = ["sync", "macros", "rt", "time"] }
