@@ -237,19 +237,30 @@ impl CallbackContext {
     /// continue operation. This ensures the frame loop doesn't deadlock if the
     /// mutex was poisoned by an earlier panic elsewhere.
     pub fn wait_for_frames(&self, timeout_ms: u64) -> u32 {
-        // bd-simple-wait-2026-01-12: Simplified wait to match minimal test pattern exactly.
-        // The minimal test that works for 200 frames has NO fast path - it always waits
-        // on the condvar and always resets the flag. This avoids subtle race conditions
-        // where the fast path could leave the mutex flag in the wrong state.
-
         // Check if shutdown requested
         if self.shutdown.load(Ordering::Acquire) {
             tracing::trace!("wait_for_frames: shutdown requested, returning 0");
             return 0;
         }
 
-        // ALWAYS lock mutex and wait on condvar - no fast path
-        // This matches the minimal test's wait() pattern exactly
+        // bd-fast-path-2026-01-17: CRITICAL FIX - Check pending_frames FIRST.
+        // The previous "no fast path" approach caused deadlocks:
+        // - Flattened loop processes ONE frame per wake
+        // - Multiple frames can arrive while processing (interrupt coalescing)
+        // - Consumer resets notified flag, processes one frame, returns to wait
+        // - But pending_frames > 0 - there's MORE work to do!
+        // - Consumer sleeps waiting for NEW notification that never comes
+        // - Buffer fills (~50 frames), camera stops in CIRC_NO_OVERWRITE mode
+        // - DEADLOCK: consumer sleeping, camera can't write
+        //
+        // Fix: If we have pending work, return immediately - don't wait for new signal.
+        let pending = self.pending_frames.load(Ordering::Acquire);
+        if pending > 0 {
+            tracing::trace!(pending, "wait_for_frames: fast path - pending frames available");
+            return pending;
+        }
+
+        // No pending frames - wait for notification
         let guard = match self.mutex.lock() {
             Ok(g) => g,
             Err(poisoned) => {
