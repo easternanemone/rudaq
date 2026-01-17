@@ -1328,6 +1328,7 @@ impl HardwareService for HardwareServiceImpl {
         request: Request<StopStreamRequest>,
     ) -> Result<Response<StopStreamResponse>, Status> {
         let req = request.into_inner();
+        eprintln!("[GRPC DEBUG] stop_stream called for device: {}", req.device_id);
 
         // Extract Arc without lock before awaiting hardware
         let frame_producer = self.registry.get_frame_producer(&req.device_id);
@@ -1615,6 +1616,7 @@ impl HardwareService for HardwareServiceImpl {
 
                         // Send to gRPC client
                         if grpc_tx.send(Ok(frame_data)).await.is_err() {
+                            eprintln!("[GRPC DEBUG] Client disconnected after {} frames - gRPC send failed", frames_sent);
                             tracing::warn!(
                                 device_id = %device_id_clone,
                                 frames_sent = frames_sent,
@@ -1671,6 +1673,7 @@ impl HardwareService for HardwareServiceImpl {
                     }
                     None => {
                         // Observer channel closed - producer stopped or observer was dropped
+                        eprintln!("[GRPC DEBUG] Observer channel closed for {} after {} frames - producer stopped", device_id_clone, frames_sent);
                         tracing::info!(
                             device_id = %device_id_clone,
                             frames_sent = frames_sent,
