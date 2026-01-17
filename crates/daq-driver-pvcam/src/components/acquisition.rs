@@ -2937,7 +2937,14 @@ impl PvcamAcquisition {
                         // Treating EXPOSURE_IN_PROGRESS as "has frames" causes a hot-spin when no frame is ready yet.
                         cnt > 0
                     }
-                    Err(()) => break,
+                    Err(()) => {
+                        // bd-diag-2026-01-17: Log before unlogged break to identify exit cause
+                        eprintln!(
+                            "[PVCAM DEBUG] Breaking due to check_cont_status error in polling mode (iter={})",
+                            loop_iteration
+                        );
+                        break;
+                    }
                 }
             };
 
@@ -3040,6 +3047,13 @@ impl PvcamAcquisition {
 
             // Check shutdown before attempting frame retrieval
             if !streaming.get() || shutdown.load(Ordering::Acquire) {
+                // bd-diag-2026-01-17: Log before unlogged break to identify exit cause
+                eprintln!(
+                    "[PVCAM DEBUG] Breaking due to shutdown check (iter={}, streaming={}, shutdown={})",
+                    loop_iteration,
+                    streaming.get(),
+                    shutdown.load(Ordering::Acquire)
+                );
                 break;
             }
 
