@@ -49,13 +49,8 @@ fn main() -> Result<()> {
                 println!("  Acquisition aborted.");
             }
 
-            println!("  Uninitializing sequence (pl_exp_uninit_seq)...");
-            if pl_exp_uninit_seq() == 0 {
-                // This is deprecated/legacy, might fail or do nothing on modern cams
-                println!("  pl_exp_uninit_seq failed (expected on some systems): {}", get_error());
-            } else {
-                println!("  Sequence uninitialized.");
-            }
+            // pl_exp_uninit_seq is deprecated/removed in modern PVCAM versions
+            println!("  (Skipping pl_exp_uninit_seq - removed in modern SDK)");
 
             // Optional: reset post-processing
             println!("  Resetting PP features (pl_pp_reset)...");
