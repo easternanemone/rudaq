@@ -88,3 +88,86 @@ If the camera is not detecting ("No cameras found" or "Installation Corrupted" e
     - Re-runs `pl_exp_setup_cont` and `pl_exp_start_cont`.
     - Re-registers the EOF callback.
 3.  **Transparency**: The driver maintains a monotonic virtual frame counter, so downstream consumers see a continuous stream of frame numbers despite the internal hardware restarts. There may be a small timing gap (glitch) during the restart, but data flow resumes automatically.
+
+### Camera Stuck After Dirty Shutdown
+
+**Symptom**: Camera won't stream, logs show `Status: 1` (EXPOSURE_IN_PROGRESS) with zero bytes received.
+
+**Cause**: Using `pkill` or `kill -9` to terminate the daemon bypasses cleanup, leaving camera firmware in acquisition mode.
+
+**Solution**: Run the force reset tool:
+```bash
+source config/hosts/maitai.env
+cargo run --example force_reset --features pvcam_sdk -p daq-driver-pvcam
+```
+
+If software reset fails, physically disconnect and reconnect the camera USB cable.
+
+See [PVCAM_SETUP.md](troubleshooting/PVCAM_SETUP.md#camera-stuck-in-exposure_in_progress-status-1) for detailed troubleshooting.
+
+## Disk Space Management
+
+The maitai machine has limited disk space. Monitor usage to prevent HDF5 write failures.
+
+### Check Disk Usage
+
+```bash
+df -h /home/maitai
+du -sh /home/maitai/* | sort -h | tail -10
+```
+
+### Common Space Consumers
+
+| Directory | Typical Size | Safe to Clean |
+|-----------|-------------|---------------|
+| `rust-daq/target` | 2-5 GB | Yes (`cargo clean`) |
+| `~/.cargo` | 2-3 GB | Partially (`cargo cache --autoclean`) |
+| Old `rust-daq-*` backups | 1-6 GB each | Yes (remove entirely) |
+
+### Cleanup Commands
+
+```bash
+# Clean build artifacts (recoverable via rebuild)
+cd ~/rust-daq && cargo clean
+
+# Remove old backup directories
+rm -rf ~/rust-daq-sync ~/rust-daq-test ~/rust-daq-main
+rm -rf ~/code/rust-daq.bak
+
+# Clean cargo cache (keeps recent items)
+cargo cache --autoclean
+```
+
+### HDF5 "Disk Quota Exceeded" Error
+
+**Symptom**: Daemon logs show `HDF5 flush error: Disk quota exceeded (os error 122)`
+
+**Cause**: Disk is full or per-user quota exceeded.
+
+**Solution**:
+1. Check disk usage: `df -h /home/maitai`
+2. Clean up old build artifacts and backups (see above)
+3. Restart daemon to reset HDF5 file handle
+
+## Quick Start Commands
+
+```bash
+# Connect to maitai
+ssh maitai@100.117.5.12
+
+# Set up environment
+source ~/rust-daq/config/hosts/maitai.env
+
+# Check/rebuild daemon
+cd ~/rust-daq
+source scripts/build-maitai.sh  # Clean rebuild with PVCAM support
+
+# Start daemon
+./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_hardware.toml
+
+# Monitor logs
+tail -f /tmp/daemon.log
+
+# Reset stuck camera (if needed)
+cargo run --example force_reset --features pvcam_sdk -p daq-driver-pvcam
+```

@@ -179,6 +179,79 @@ The driver implements an automatic stall detection and recovery mechanism:
 
 This allows sustained streaming indefinitely despite the hardware limitation.
 
+### Camera Stuck in EXPOSURE_IN_PROGRESS (Status 1)
+
+**Symptoms:**
+- `pl_exp_check_cont_status()` continuously returns `Status: 1` (EXPOSURE_IN_PROGRESS)
+- No frames are received despite streaming being enabled
+- Logs show repeated timeouts:
+  ```
+  [PVCAM DEBUG] Timeouts: 1, Status: 1, Bytes: 0, BufferCnt: 0, streaming: true
+  [PVCAM DEBUG] Breaking due to max consecutive timeouts
+  ```
+
+**Cause:**
+The camera firmware is stuck in acquisition mode, typically from a **dirty shutdown** (e.g., using `pkill` or `kill -9` to terminate the daemon). When the daemon is killed abruptly, it bypasses the cleanup code that would normally call `pl_exp_abort()` and `pl_cam_close()`, leaving the camera hardware in an inconsistent state.
+
+**Solution:**
+Use the `force_reset` example to clear the stuck camera state:
+
+```bash
+cd /path/to/rust-daq
+source config/hosts/maitai.env  # or scripts/env-check.sh
+
+# Run the force reset tool
+cargo run --example force_reset --features pvcam_sdk -p daq-driver-pvcam
+
+# Expected output:
+# Initializing PVCAM...
+# Found 1 cameras.
+# Opening camera 0: pvcamUSB_0
+#   Camera opened. Handle: 0
+#   Aborting acquisition (pl_exp_abort with CCS_HALT)...
+#   Acquisition aborted.
+#   Resetting PP features (pl_pp_reset)...
+#   PP features reset.
+#   Closing camera...
+#   Camera closed.
+# Uninitializing PVCAM...
+# Done.
+```
+
+If the software reset doesn't work (camera still stuck), a **physical power cycle** of the camera may be required.
+
+**Prevention:**
+- Always stop the daemon gracefully with `Ctrl+C` when possible
+- If using systemd, use `systemctl stop rust-daq-daemon`
+- Avoid `pkill -9` or `kill -9` which bypass cleanup handlers
+
+### Dirty Shutdown Recovery
+
+**Symptoms:**
+After killing the daemon with `pkill`, `kill -9`, or a system crash:
+- Camera won't stream on next daemon start
+- Camera stuck in EXPOSURE_IN_PROGRESS
+- `pl_cam_open` may fail or hang
+
+**Recovery Steps:**
+
+1. **Try software reset first:**
+   ```bash
+   cargo run --example force_reset --features pvcam_sdk -p daq-driver-pvcam
+   ```
+
+2. **If software reset fails, power cycle the camera:**
+   - Disconnect USB cable
+   - Wait 5 seconds
+   - Reconnect USB cable
+   - Wait for device enumeration (check `lsusb`)
+
+3. **Restart the daemon:**
+   ```bash
+   source config/hosts/maitai.env
+   ./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_hardware.toml
+   ```
+
 ## Verification
 
 Run the hardware validation suite:

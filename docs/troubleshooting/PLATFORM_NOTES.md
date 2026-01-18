@@ -40,6 +40,24 @@ If running under Wayland but experiencing issues, you can force X11 mode:
 WAYLAND_DISPLAY= cargo run --bin rust-daq-gui
 ```
 
+### dark-light System Theme Detection (Temporarily Disabled)
+
+**Status:** Disabled as of 2025-01-17 due to dependency conflict.
+
+**Issue:** The `dark-light` crate (v2.0) depends on `ashpd` 0.10.x which conflicts with other dependencies requiring newer `zbus` versions.
+
+**Error (if re-enabled):**
+```
+error[E0277]: the trait bound `zbus::Connection: From<zbus::Connection>` is not satisfied
+```
+
+**Current Workaround:** The `dark-light` feature is disabled in `daq-egui`. System theme detection falls back to dark mode. Users can still manually toggle themes in the GUI.
+
+**To Re-enable (when fixed upstream):**
+1. Check if `dark-light` 2.1+ or compatible `ashpd` update is released
+2. Add `"dep:dark-light"` back to the `standalone` feature in `crates/daq-egui/Cargo.toml`
+3. Remove the `#[cfg(feature = "dark-light")]` guards in `theme.rs`
+
 ## macOS
 
 ### Building
