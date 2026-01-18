@@ -25,7 +25,7 @@
 //! let components = factory.build(config.into()).await?;
 //! ```
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use daq_core::capabilities::{Movable, Parameterized};
 use daq_core::driver::{Capability, DeviceComponents, DriverFactory};

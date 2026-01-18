@@ -86,8 +86,8 @@ use daq_proto::downsample::{downsample_2x2, downsample_4x4};
 use serde_json;
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{Duration, interval};
 use tokio_stream::wrappers::ReceiverStream;
@@ -181,15 +181,9 @@ impl FrameObserver for GrpcStreamObserver {
         // Apply server-side downsampling based on quality setting
         // Note: downsample functions expect 16-bit data
         let (frame_data, effective_width, effective_height) = match self.quality {
-            StreamQuality::Preview => {
-                downsample_2x2(frame.pixels(), frame.width, frame.height)
-            }
-            StreamQuality::Fast => {
-                downsample_4x4(frame.pixels(), frame.width, frame.height)
-            }
-            StreamQuality::Full => {
-                (frame.pixels().to_vec(), frame.width, frame.height)
-            }
+            StreamQuality::Preview => downsample_2x2(frame.pixels(), frame.width, frame.height),
+            StreamQuality::Fast => downsample_4x4(frame.pixels(), frame.width, frame.height),
+            StreamQuality::Full => (frame.pixels().to_vec(), frame.width, frame.height),
         };
 
         let packet = ObserverFramePacket {
@@ -1359,7 +1353,10 @@ impl HardwareService for HardwareServiceImpl {
         request: Request<StopStreamRequest>,
     ) -> Result<Response<StopStreamResponse>, Status> {
         let req = request.into_inner();
-        eprintln!("[GRPC DEBUG] stop_stream called for device: {}", req.device_id);
+        eprintln!(
+            "[GRPC DEBUG] stop_stream called for device: {}",
+            req.device_id
+        );
 
         // Extract Arc without lock before awaiting hardware
         let frame_producer = self.registry.get_frame_producer(&req.device_id);
@@ -1647,7 +1644,10 @@ impl HardwareService for HardwareServiceImpl {
 
                         // Send to gRPC client
                         if grpc_tx.send(Ok(frame_data)).await.is_err() {
-                            eprintln!("[GRPC DEBUG] Client disconnected after {} frames - gRPC send failed", frames_sent);
+                            eprintln!(
+                                "[GRPC DEBUG] Client disconnected after {} frames - gRPC send failed",
+                                frames_sent
+                            );
                             tracing::warn!(
                                 device_id = %device_id_clone,
                                 frames_sent = frames_sent,
@@ -1655,8 +1655,9 @@ impl HardwareService for HardwareServiceImpl {
                             );
 
                             // Unregister observer on disconnect (bd-0dax.6.3)
-                            if let Err(e) =
-                                frame_producer_clone.unregister_observer(observer_handle).await
+                            if let Err(e) = frame_producer_clone
+                                .unregister_observer(observer_handle)
+                                .await
                             {
                                 tracing::warn!(
                                     device_id = %device_id_clone,
@@ -1704,7 +1705,10 @@ impl HardwareService for HardwareServiceImpl {
                     }
                     None => {
                         // Observer channel closed - producer stopped or observer was dropped
-                        eprintln!("[GRPC DEBUG] Observer channel closed for {} after {} frames - producer stopped", device_id_clone, frames_sent);
+                        eprintln!(
+                            "[GRPC DEBUG] Observer channel closed for {} after {} frames - producer stopped",
+                            device_id_clone, frames_sent
+                        );
                         tracing::info!(
                             device_id = %device_id_clone,
                             frames_sent = frames_sent,
@@ -1712,8 +1716,9 @@ impl HardwareService for HardwareServiceImpl {
                         );
 
                         // Clean up observer registration
-                        if let Err(e) =
-                            frame_producer_clone.unregister_observer(observer_handle).await
+                        if let Err(e) = frame_producer_clone
+                            .unregister_observer(observer_handle)
+                            .await
                         {
                             tracing::debug!(
                                 device_id = %device_id_clone,

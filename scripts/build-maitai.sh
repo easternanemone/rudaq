@@ -30,8 +30,10 @@ echo "   PVCAM_SDK_DIR=$PVCAM_SDK_DIR"
 echo "   PVCAM_VERSION=$PVCAM_VERSION"
 
 # Clean the relevant crates to avoid caching issues
+# IMPORTANT: Must clean daq-hardware too - feature flags (thorlabs, newport, etc.)
+# are baked into the compiled crate and won't update without rebuild
 echo "🧹 Cleaning cached build artifacts..."
-cargo clean -p daq-bin -p rust_daq -p daq-driver-pvcam 2>/dev/null || true
+cargo clean -p daq-bin -p rust_daq -p daq-driver-pvcam -p daq-hardware 2>/dev/null || true
 
 # Build with maitai profile (includes pvcam_hardware)
 echo "🔨 Building with maitai profile..."

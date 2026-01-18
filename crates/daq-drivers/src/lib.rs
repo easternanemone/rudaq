@@ -163,7 +163,7 @@ pub fn link_drivers() {
 /// }
 /// ```
 pub fn available_drivers() -> Vec<&'static str> {
-    #[allow(unused_mut)]  // mut needed when features enable push() calls
+    #[allow(unused_mut)] // mut needed when features enable push() calls
     let mut drivers = Vec::new();
 
     #[cfg(feature = "pvcam")]

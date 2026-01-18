@@ -695,8 +695,8 @@ impl InstrumentManagerPanel {
         let available_height = ui.available_height();
         StripBuilder::new(ui)
             .size(Size::exact(250.0)) // Left column: Device tree
-            .size(Size::exact(4.0))   // Separator
-            .size(Size::remainder())  // Right column: Control panel
+            .size(Size::exact(4.0)) // Separator
+            .size(Size::remainder()) // Right column: Control panel
             .horizontal(|mut strip| {
                 // Left side: Device tree
                 strip.cell(|ui| {

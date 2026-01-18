@@ -55,9 +55,9 @@ fn main() -> Result<()> {
             // Optional: reset post-processing
             println!("  Resetting PP features (pl_pp_reset)...");
             if pl_pp_reset(hcam) == 0 {
-                 println!("  pl_pp_reset failed: {}", get_error());
+                println!("  pl_pp_reset failed: {}", get_error());
             } else {
-                 println!("  PP features reset.");
+                println!("  PP features reset.");
             }
 
             println!("  Closing camera...");
@@ -82,5 +82,9 @@ unsafe fn get_error() -> String {
     let code = pl_error_code();
     let mut msg_buf = vec![0i8; 256];
     pl_error_message(code, msg_buf.as_mut_ptr());
-    format!("{} (code {})", CStr::from_ptr(msg_buf.as_ptr()).to_string_lossy(), code)
+    format!(
+        "{} (code {})",
+        CStr::from_ptr(msg_buf.as_ptr()).to_string_lossy(),
+        code
+    )
 }

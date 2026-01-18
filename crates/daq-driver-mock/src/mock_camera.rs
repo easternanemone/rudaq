@@ -1,7 +1,7 @@
 //! Mock camera implementation with trigger and streaming support.
 
 use crate::pattern::generate_test_pattern;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use daq_core::capabilities::{
     ExposureControl, FrameObserver, FrameProducer, LoanedFrame, ObserverHandle, Parameterized,
@@ -14,10 +14,10 @@ use daq_core::parameter::Parameter;
 use daq_pool::{FrameData, Pool};
 use futures::future::BoxFuture;
 use serde::Deserialize;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::sync::{Mutex, RwLock};
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 /// Pool size for MockCamera frame delivery
 const MOCK_FRAME_POOL_SIZE: usize = 16;

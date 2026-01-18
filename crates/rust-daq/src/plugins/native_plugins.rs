@@ -48,8 +48,16 @@ fn convert_parameter(param: &FfiModuleParameter) -> ModuleParameter {
         description: param.description.to_string(),
         param_type: param.param_type.to_string(),
         default_value: param.default_value.to_string(),
-        min_value: param.min_value.as_ref().map(|v| v.to_string()).into_option(),
-        max_value: param.max_value.as_ref().map(|v| v.to_string()).into_option(),
+        min_value: param
+            .min_value
+            .as_ref()
+            .map(|v| v.to_string())
+            .into_option(),
+        max_value: param
+            .max_value
+            .as_ref()
+            .map(|v| v.to_string())
+            .into_option(),
         enum_values: param.enum_values.iter().map(|v| v.to_string()).collect(),
         units: param.units.to_string(),
         required: param.required,
@@ -181,7 +189,10 @@ impl Module for FfiModuleWrapper {
     }
 
     fn configure(&mut self, params: HashMap<String, String>) -> Result<Vec<String>> {
-        let mut inner = self.inner.lock().map_err(|e| anyhow!("Lock poisoned: {}", e))?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow!("Lock poisoned: {}", e))?;
         let ffi_config = Self::to_ffi_config(&params);
         let result = inner.configure(ffi_config);
         let warnings = Self::convert_result(result)?;
@@ -194,36 +205,54 @@ impl Module for FfiModuleWrapper {
     }
 
     async fn stage(&mut self, ctx: &ModuleContext) -> Result<()> {
-        let mut inner = self.inner.lock().map_err(|e| anyhow!("Lock poisoned: {}", e))?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow!("Lock poisoned: {}", e))?;
         let ffi_ctx = Self::to_ffi_context(ctx);
         Self::convert_result(inner.stage(&ffi_ctx))
     }
 
     async fn unstage(&mut self, ctx: &ModuleContext) -> Result<()> {
-        let mut inner = self.inner.lock().map_err(|e| anyhow!("Lock poisoned: {}", e))?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow!("Lock poisoned: {}", e))?;
         let ffi_ctx = Self::to_ffi_context(ctx);
         Self::convert_result(inner.unstage(&ffi_ctx))
     }
 
     async fn start(&mut self, ctx: ModuleContext) -> Result<()> {
-        let mut inner = self.inner.lock().map_err(|e| anyhow!("Lock poisoned: {}", e))?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow!("Lock poisoned: {}", e))?;
         let ffi_ctx = Self::to_ffi_context(&ctx);
         Self::convert_result(inner.start(ffi_ctx))?;
         Ok(())
     }
 
     async fn pause(&mut self) -> Result<()> {
-        let mut inner = self.inner.lock().map_err(|e| anyhow!("Lock poisoned: {}", e))?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow!("Lock poisoned: {}", e))?;
         Self::convert_result(inner.pause())
     }
 
     async fn resume(&mut self) -> Result<()> {
-        let mut inner = self.inner.lock().map_err(|e| anyhow!("Lock poisoned: {}", e))?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow!("Lock poisoned: {}", e))?;
         Self::convert_result(inner.resume())
     }
 
     async fn stop(&mut self) -> Result<()> {
-        let mut inner = self.inner.lock().map_err(|e| anyhow!("Lock poisoned: {}", e))?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow!("Lock poisoned: {}", e))?;
         Self::convert_result(inner.stop())
     }
 

@@ -1083,7 +1083,10 @@ mod tests {
 
         // Request abort - should take effect within 200ms (2 check cycles)
         let abort_start = tokio::time::Instant::now();
-        engine.abort("Test abort").await.expect("Abort should succeed");
+        engine
+            .abort("Test abort")
+            .await
+            .expect("Abort should succeed");
 
         // Wait for StopDoc with abort status
         let doc = tokio::time::timeout(Duration::from_millis(500), async {

@@ -617,10 +617,7 @@ pub trait FrameProducer: Send + Sync {
     /// // ... streaming ...
     /// device.unregister_observer(handle).await?;
     /// ```
-    async fn register_observer(
-        &self,
-        observer: Box<dyn FrameObserver>,
-    ) -> Result<ObserverHandle> {
+    async fn register_observer(&self, observer: Box<dyn FrameObserver>) -> Result<ObserverHandle> {
         let _ = observer;
         anyhow::bail!("Frame observers not supported by this device")
     }

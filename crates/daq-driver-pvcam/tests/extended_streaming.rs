@@ -67,7 +67,8 @@ async fn extended_streaming_test() {
                 frame_count += 1;
                 // Report every second
                 if last_report.elapsed() >= Duration::from_secs(1) {
-                    println!("  Frames so far: {} (@ {:.1} fps)",
+                    println!(
+                        "  Frames so far: {} (@ {:.1} fps)",
                         frame_count,
                         frame_count as f64 / start.elapsed().as_secs_f64()
                     );
@@ -79,7 +80,10 @@ async fn extended_streaming_test() {
                 break;
             }
             Err(_) => {
-                println!("  ERROR: Timeout waiting for frame after {} frames", frame_count);
+                println!(
+                    "  ERROR: Timeout waiting for frame after {} frames",
+                    frame_count
+                );
                 break;
             }
         }
@@ -97,7 +101,10 @@ async fn extended_streaming_test() {
     println!("\n=== Extended Streaming Results ===");
     println!("  Duration: {:?}", elapsed);
     println!("  Frames captured: {}", frame_count);
-    println!("  Frame rate: {:.2} fps", frame_count as f64 / elapsed.as_secs_f64());
+    println!(
+        "  Frame rate: {:.2} fps",
+        frame_count as f64 / elapsed.as_secs_f64()
+    );
 
     // At 46 fps for 5 seconds, we expect ~230 frames
     // If we only got ~50 frames, the test FAILS

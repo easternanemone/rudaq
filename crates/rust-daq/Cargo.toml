@@ -178,9 +178,9 @@ visa = ["dep:visa-rs"]
 mock = ["dep:daq-driver-mock"]
 
 # Hardware drivers (standalone crates)
-thorlabs = ["serial", "dep:daq-driver-thorlabs"]
-newport = ["serial", "dep:daq-driver-newport"]
-spectra_physics = ["serial", "dep:daq-driver-spectra-physics"]
+thorlabs = ["serial", "dep:daq-driver-thorlabs", "daq-hardware/thorlabs"]
+newport = ["serial", "dep:daq-driver-newport", "daq-hardware/newport"]
+spectra_physics = ["serial", "dep:daq-driver-spectra-physics", "daq-hardware/spectra_physics"]
 newport_power_meter = ["newport"]
 
 # PVCAM camera support

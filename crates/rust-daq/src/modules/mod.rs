@@ -824,11 +824,7 @@ impl ModuleRegistry {
             }
 
             // Create factory and cache type info
-            let factory = PluginModuleFactory::new(
-                plugin_id.clone(),
-                type_id.clone(),
-                &type_info,
-            );
+            let factory = PluginModuleFactory::new(plugin_id.clone(), type_id.clone(), &type_info);
 
             // Store the converted type info
             self.type_info_cache

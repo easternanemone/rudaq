@@ -4,12 +4,7 @@
 //! as a test fixture.
 
 #![cfg(all(not(target_arch = "wasm32"), feature = "native_plugins"))]
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    missing_docs
-)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
 use anyhow::Result;
 use rust_daq::hardware::registry::DeviceRegistry;
@@ -118,7 +113,8 @@ fn test_create_module_instance() -> Result<()> {
     manager.load_plugin(&path)?;
 
     // Create module via plugin manager
-    let module = manager.create_module("echo_module")
+    let module = manager
+        .create_module("echo_module")
         .map_err(|e| anyhow::anyhow!("Failed to create module: {}", e))?;
     assert_eq!(module.type_id().as_str(), "echo_module");
 
@@ -211,7 +207,9 @@ fn test_create_plugin_module_via_registry() -> Result<()> {
         module_registry.create_plugin_module("echo_module", "Test Echo", &plugin_manager)?;
 
     // Verify instance was created
-    let instance = module_registry.get_module(&module_id).expect("Should exist");
+    let instance = module_registry
+        .get_module(&module_id)
+        .expect("Should exist");
     assert_eq!(instance.name, "Test Echo");
     assert_eq!(instance.type_id(), "echo_module");
 

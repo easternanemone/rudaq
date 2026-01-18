@@ -2179,7 +2179,11 @@ impl ImageViewerPanel {
                             StreamQuality::Preview,
                             "Preview (2x)",
                         );
-                        ui.selectable_value(&mut self.stream_quality, StreamQuality::Fast, "Fast (4x)");
+                        ui.selectable_value(
+                            &mut self.stream_quality,
+                            StreamQuality::Fast,
+                            "Fast (4x)",
+                        );
                     });
 
                 ui.separator();

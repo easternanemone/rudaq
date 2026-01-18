@@ -173,10 +173,7 @@ impl Esp300Driver {
         .await
         .context("spawn_blocking for ESP300 port opening failed")??;
 
-        let driver = Self::build(
-            Arc::new(Mutex::new(BufReader::new(Box::new(port)))),
-            axis,
-        );
+        let driver = Self::build(Arc::new(Mutex::new(BufReader::new(Box::new(port)))), axis);
 
         // Validate device identity by querying version
         // ESP300 responds with something like "ESP300 Version 3.04"

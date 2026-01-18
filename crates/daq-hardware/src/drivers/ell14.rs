@@ -836,10 +836,7 @@ impl Ell14Driver {
     /// Unlike [`with_shared_port_calibrated`], this method logs warnings but
     /// continues with default calibration if the device doesn't respond.
     /// Use this only when you need backwards-compatible behavior.
-    pub async fn with_shared_port_lenient(
-        shared_port: SharedPort,
-        address: &str,
-    ) -> Self {
+    pub async fn with_shared_port_lenient(shared_port: SharedPort, address: &str) -> Self {
         // Create driver with default calibration first (needed for get_device_info)
         let mut driver = Self::build(
             shared_port,

@@ -13,8 +13,8 @@ pub mod resource_pool;
 
 pub use capabilities::*;
 pub use registry::{
-    DeviceConfig, DeviceInfo, DeviceRegistry, DriverType, register_all_factories,
-    register_mock_factories,
+    register_all_factories, register_mock_factories, DeviceConfig, DeviceInfo, DeviceRegistry,
+    DriverType,
 };
 
 // Re-export declarative config types under a distinct name to avoid confusion
@@ -23,6 +23,6 @@ pub use config::DeviceConfig as DeclarativeDeviceConfig;
 
 // Re-export factory types for config-driven driver creation
 pub use factory::{
-    ConfiguredBus, ConfiguredDriver, DriverFactory, GenericSerialDriverFactory,
-    GenericSerialInstanceConfig, load_all_factories,
+    load_all_factories, ConfiguredBus, ConfiguredDriver, DriverFactory, GenericSerialDriverFactory,
+    GenericSerialInstanceConfig,
 };

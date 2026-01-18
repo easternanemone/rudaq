@@ -334,9 +334,7 @@ impl MaiTaiDriver {
             let shutter_result = self.shutter().await;
             let shutter_open = shutter_result.as_ref().map(|&v| v).unwrap_or(true);
             if shutter_open {
-                log::warn!(
-                    "SAFETY: Emission enable refused - shutter is open or state unknown"
-                );
+                log::warn!("SAFETY: Emission enable refused - shutter is open or state unknown");
                 return Err(anyhow!(
                     "Refusing to enable emission: shutter is open or state unknown. Close shutter first."
                 ));
@@ -573,10 +571,7 @@ mod tests {
         ];
 
         for (input, expected) in test_cases {
-            let clean = input
-                .trim()
-                .trim_end_matches("nm")
-                .trim_end_matches("NM");
+            let clean = input.trim().trim_end_matches("nm").trim_end_matches("NM");
             let wavelength: f64 = clean.parse().unwrap();
             assert_eq!(wavelength, expected, "Failed to parse: {}", input);
         }

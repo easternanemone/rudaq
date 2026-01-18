@@ -1559,10 +1559,7 @@ impl FrameProducer for PvcamDriver {
     }
 
     // bd-0dax.4: Observer registration for gRPC/external consumers
-    async fn register_observer(
-        &self,
-        observer: Box<dyn FrameObserver>,
-    ) -> Result<ObserverHandle> {
+    async fn register_observer(&self, observer: Box<dyn FrameObserver>) -> Result<ObserverHandle> {
         // Wrap the generic observer in our adapter to convert to internal FrameTap
         let adapter = ObserverAdapter::new(observer);
         let tap_handle = self.acquisition.tap_registry.register(Box::new(adapter));

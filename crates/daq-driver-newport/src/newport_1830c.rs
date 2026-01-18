@@ -84,10 +84,7 @@ impl DriverFactory for Newport1830CFactory {
         let cfg: Newport1830CConfig = config.clone().try_into()?;
         if let Some(wl) = cfg.wavelength_nm {
             if !(300.0..=1100.0).contains(&wl) {
-                return Err(anyhow!(
-                    "Wavelength {} nm out of range (300-1100 nm)",
-                    wl
-                ));
+                return Err(anyhow!("Wavelength {} nm out of range (300-1100 nm)", wl));
             }
         }
         Ok(())

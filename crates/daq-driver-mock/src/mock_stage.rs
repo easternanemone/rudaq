@@ -10,7 +10,7 @@ use futures::future::BoxFuture;
 use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 // =============================================================================
 // MockStageFactory - DriverFactory implementation

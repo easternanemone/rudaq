@@ -217,7 +217,8 @@ pub struct DeviceComponents {
     pub frame_producer: Option<Arc<dyn FrameProducer>>,
 
     /// MeasurementSource for frames (Bluesky-style)
-    pub source_frame: Option<Arc<dyn MeasurementSource<Output = Arc<Frame>, Error = anyhow::Error>>>,
+    pub source_frame:
+        Option<Arc<dyn MeasurementSource<Output = Arc<Frame>, Error = anyhow::Error>>>,
 
     /// ExposureControl implementation (exposure time)
     pub exposure_control: Option<Arc<dyn ExposureControl>>,
@@ -548,10 +549,7 @@ mod tests {
             });
 
         assert_eq!(components.category, Some(DeviceCategory::Stage));
-        assert_eq!(
-            components.metadata.position_units,
-            Some("mm".to_string())
-        );
+        assert_eq!(components.metadata.position_units, Some("mm".to_string()));
     }
 
     #[test]

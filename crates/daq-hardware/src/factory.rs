@@ -550,7 +550,6 @@ impl GenericSerialDriverFactory {
     pub fn device_config(&self) -> &DeviceConfig {
         &self.device_config
     }
-
 }
 
 impl DriverFactoryTrait for GenericSerialDriverFactory {
@@ -699,7 +698,10 @@ pub fn load_all_factories(dir: &Path) -> Result<Vec<GenericSerialDriverFactory>>
     use crate::config::load_all_devices;
 
     let configs = load_all_devices(dir)?;
-    Ok(configs.into_iter().map(GenericSerialDriverFactory::new).collect())
+    Ok(configs
+        .into_iter()
+        .map(GenericSerialDriverFactory::new)
+        .collect())
 }
 
 // =============================================================================

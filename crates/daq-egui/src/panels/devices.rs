@@ -449,7 +449,10 @@ impl DevicesPanel {
                     ui.horizontal(|ui| {
                         ui.colored_label(
                             egui::Color32::from_rgb(255, 180, 100),
-                            format!("⚠ {} device(s) failed to register", self.registration_failures.len()),
+                            format!(
+                                "⚠ {} device(s) failed to register",
+                                self.registration_failures.len()
+                            ),
                         );
                     });
                     egui::CollapsingHeader::new("Show details")

@@ -20,8 +20,8 @@
 //! let components = factory.build(config.into()).await?;
 //! ```
 
-use crate::shared_ports::{SharedPort, get_or_open_port, get_or_open_port_with_timeout};
-use anyhow::{Context, Result, anyhow};
+use crate::shared_ports::{get_or_open_port, get_or_open_port_with_timeout, SharedPort};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use daq_core::capabilities::{Movable, Parameterized};
 use daq_core::driver::{Capability, DeviceComponents, DriverFactory};

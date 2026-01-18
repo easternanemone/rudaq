@@ -256,7 +256,10 @@ impl CallbackContext {
         // Fix: If we have pending work, return immediately - don't wait for new signal.
         let pending = self.pending_frames.load(Ordering::Acquire);
         if pending > 0 {
-            tracing::trace!(pending, "wait_for_frames: fast path - pending frames available");
+            tracing::trace!(
+                pending,
+                "wait_for_frames: fast path - pending frames available"
+            );
             return pending;
         }
 
@@ -1064,7 +1067,8 @@ pub struct PvcamAcquisition {
 
     /// Primary output channel for zero-allocation frame delivery (bd-0dax.5).
     /// Single consumer receives LoanedFrame ownership for high-performance streaming.
-    pub primary_tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<daq_core::capabilities::LoanedFrame>>>>,
+    pub primary_tx:
+        Arc<Mutex<Option<tokio::sync::mpsc::Sender<daq_core::capabilities::LoanedFrame>>>>,
 
     /// Tap registry for synchronous frame observers (bd-0dax.4).
     /// Taps are called with borrowed frame references before broadcast.
