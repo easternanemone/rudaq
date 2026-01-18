@@ -3,9 +3,9 @@
 //! Reference: MaiTai HP/MaiTai XF User's Manual
 //!
 //! Protocol Overview:
-//! - Format: ASCII command/response over RS-232
-//! - Baud: 9600, 8N1, software flow control (XON/XOFF)
-//! - Command terminator: CR (\r)
+//! - Format: ASCII command/response over RS-232 or USB-to-USB
+//! - Baud: 115200 (USB-to-USB) or 9600 (RS-232), 8N1, NO flow control
+//! - Command terminator: CR+LF (\r\n)
 //! - Response terminator: LF (\n)
 //! - Commands: WAVELENGTH:xxx, SHUTTER:x, ON/OFF
 //! - Queries: WAVELENGTH?, POWER?, SHUTTER?
@@ -84,12 +84,13 @@ impl MaiTaiDriver {
     /// This constructor may block the async runtime during serial port opening.
     /// For non-blocking construction, use [`new_async`] instead.
     pub fn new(port_path: &str) -> Result<Self> {
-        // Configure serial settings with XON/XOFF flow control (required for MaiTai)
-        let port = tokio_serial::new(port_path, 9600)
+        // Configure serial settings for USB-to-USB connection (115200, 8N1, no flow control)
+        // Note: RS-232 connections may require 9600 baud - adjust if using serial adapter
+        let port = tokio_serial::new(port_path, 115200)
             .data_bits(tokio_serial::DataBits::Eight)
             .parity(tokio_serial::Parity::None)
             .stop_bits(tokio_serial::StopBits::One)
-            .flow_control(tokio_serial::FlowControl::Software) // XON/XOFF for MaiTai
+            .flow_control(tokio_serial::FlowControl::None)
             .open_native_async()
             .context(format!("Failed to open MaiTai serial port: {}", port_path))?;
 
@@ -121,7 +122,7 @@ impl MaiTaiDriver {
                         .map_err(|e| DaqError::Instrument(e.to_string()))?;
                     tokio::time::sleep(Duration::from_millis(500)).await;
 
-                    // Read and discard response (required for XON/XOFF flow control)
+                    // Read and discard any response/echo to clear the buffer
                     let mut response = String::new();
                     match tokio::time::timeout(
                         Duration::from_millis(500),
@@ -168,12 +169,13 @@ impl MaiTaiDriver {
         let port_path = port_path.to_string();
 
         // Use spawn_blocking to avoid blocking the async runtime
+        // USB-to-USB connection: 115200 baud, 8N1, no flow control
         let port = spawn_blocking(move || {
-            tokio_serial::new(&port_path, 9600)
+            tokio_serial::new(&port_path, 115200)
                 .data_bits(tokio_serial::DataBits::Eight)
                 .parity(tokio_serial::Parity::None)
                 .stop_bits(tokio_serial::StopBits::One)
-                .flow_control(tokio_serial::FlowControl::Software) // XON/XOFF for MaiTai
+                .flow_control(tokio_serial::FlowControl::None)
                 .open_native_async()
                 .context(format!("Failed to open MaiTai serial port: {}", port_path))
         })
@@ -208,7 +210,7 @@ impl MaiTaiDriver {
                         .map_err(|e| DaqError::Instrument(e.to_string()))?;
                     tokio::time::sleep(Duration::from_millis(500)).await;
 
-                    // Read and discard response (required for XON/XOFF flow control)
+                    // Read and discard any response/echo to clear the buffer
                     let mut response = String::new();
                     match tokio::time::timeout(
                         Duration::from_millis(500),
@@ -409,12 +411,12 @@ impl MaiTaiDriver {
         Ok(response.trim().to_string())
     }
 
-    /// Send command and read any response (required for proper serial flow control)
+    /// Send command and read any response
     ///
-    /// MaiTai requires reading responses even for "set" commands to:
-    /// 1. Clear the serial buffer (prevents XON/XOFF flow control issues)
+    /// MaiTai may send responses even for "set" commands, so we read to:
+    /// 1. Clear the serial buffer
     /// 2. Get command acknowledgment/echo
-    /// 3. Allow the device to process the next command
+    /// 3. Ensure device is ready for the next command
     async fn send_command(&self, command: &str) -> Result<()> {
         let mut port = self.port.lock().await;
 
@@ -434,8 +436,8 @@ impl MaiTaiDriver {
         // Wait for device to process command
         tokio::time::sleep(Duration::from_millis(500)).await;
 
-        // Read and discard any response/echo (critical for XON/XOFF flow control)
-        // Device may send acknowledgment, echo, or error - we need to clear the buffer
+        // Read and discard any response/echo to clear the buffer
+        // Device may send acknowledgment, echo, or error
         let mut response = String::new();
         match tokio::time::timeout(Duration::from_millis(500), port.read_line(&mut response)).await
         {

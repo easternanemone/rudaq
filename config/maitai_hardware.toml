@@ -8,10 +8,15 @@
 #
 # Hardware Inventory:
 #   - Prime BSI Camera (PVCAM)
-#   - 3x ELL14 Rotators (RS-485 bus at /dev/ttyUSB1)
-#   - MaiTai Ti:Sapphire Laser (/dev/ttyUSB5)
+#   - 3x ELL14 Rotators (RS-485 bus via FT230X serial DK0AHAJZ)
+#   - MaiTai Ti:Sapphire Laser (CP2102 serial 0001)
 #   - Newport 1830-C Power Meter (/dev/ttyS0)
-#   - ESP300 Motion Controller (/dev/ttyUSB0)
+#   - ESP300 Motion Controller (FTDI 4-port serial FT1RALWL)
+#
+# USB Serial by-id Mapping (stable across reboots, verified 2026-01-17):
+#   MaiTai:  usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0
+#   ELL14:   usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0
+#   ESP300:  usb-FTDI_USB__-__Serial_Cable_FT1RALWL-if00-port0
 
 # ============================================================================
 # Photometrics Prime BSI Camera (PVCAM)
@@ -29,7 +34,7 @@ camera_name = "pvcamUSB_0"
 # ============================================================================
 # Thorlabs ELL14 Rotation Mounts (RS-485 Multidrop Bus)
 # ============================================================================
-# Three rotators share one serial connection at /dev/ttyUSB1
+# Three rotators share one serial connection at /dev/ttyUSB2 (FT230X)
 # Addresses: 2, 3, 8 (set via Thorlabs software)
 
 [[devices]]
@@ -37,7 +42,7 @@ id = "rotator_2"
 name = "ELL14 Rotator (Address 2)"
 [devices.driver]
 type = "ell14"
-port = "/dev/ttyUSB1"
+port = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0"
 address = "2"
 
 [[devices]]
@@ -45,7 +50,7 @@ id = "rotator_3"
 name = "ELL14 Rotator (Address 3)"
 [devices.driver]
 type = "ell14"
-port = "/dev/ttyUSB1"
+port = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0"
 address = "3"
 
 [[devices]]
@@ -53,20 +58,22 @@ id = "rotator_8"
 name = "ELL14 Rotator (Address 8)"
 [devices.driver]
 type = "ell14"
-port = "/dev/ttyUSB1"
+port = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0"
 address = "8"
 
 # ============================================================================
 # Spectra-Physics MaiTai Ti:Sapphire Laser
 # ============================================================================
 # Serial control for wavelength tuning (690-1040nm)
+# USB-to-USB connection at 115200 baud (faster than RS-232)
 
 [[devices]]
 id = "maitai"
 name = "MaiTai Ti:Sapphire Laser"
 [devices.driver]
 type = "mai_tai"
-port = "/dev/ttyUSB5"
+port = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0"
+# USB-to-USB connection: 115200 baud, 8N1, no flow control (driver defaults)
 
 # ============================================================================
 # Newport 1830-C Optical Power Meter
@@ -83,14 +90,15 @@ port = "/dev/ttyS0"
 # ============================================================================
 # Newport ESP300 Motion Controller
 # ============================================================================
-# 3-axis motion controller - configure one device per axis
+# 3-axis motion controller via FTDI 4-port cable
+# Note: ESP300 didn't respond during 2026-01-17 testing - may need verification
 
 [[devices]]
 id = "esp300_axis1"
 name = "ESP300 Axis 1"
 [devices.driver]
 type = "esp300"
-port = "/dev/ttyUSB0"
+port = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Cable_FT1RALWL-if00-port0"
 axis = 1
 
 [[devices]]
@@ -98,7 +106,7 @@ id = "esp300_axis2"
 name = "ESP300 Axis 2"
 [devices.driver]
 type = "esp300"
-port = "/dev/ttyUSB0"
+port = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Cable_FT1RALWL-if00-port0"
 axis = 2
 
 [[devices]]
@@ -106,5 +114,5 @@ id = "esp300_axis3"
 name = "ESP300 Axis 3"
 [devices.driver]
 type = "esp300"
-port = "/dev/ttyUSB0"
+port = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Cable_FT1RALWL-if00-port0"
 axis = 3
