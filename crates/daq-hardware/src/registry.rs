@@ -1203,7 +1203,8 @@ impl DeviceRegistry {
 
             #[cfg(feature = "spectra_physics")]
             DriverType::MaiTai { port } => {
-                let driver = Arc::new(crate::drivers::maitai::MaiTaiDriver::new(&port)?);
+                // Use new_async() to validate device identity on connection
+                let driver = Arc::new(crate::drivers::maitai::MaiTaiDriver::new_async(&port).await?);
                 Ok(RegisteredDevice {
                     config,
                     movable: None,

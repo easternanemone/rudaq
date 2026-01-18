@@ -17,13 +17,14 @@
 //!
 //! # Example Usage
 //!
-//! ```no_run
-//! use rust_daq::hardware::maitai::MaiTaiDriver;
-//! use rust_daq::hardware::capabilities::Readable;
+//! ```ignore
+//! use daq_hardware::drivers::maitai::MaiTaiDriver;
+//! use daq_hardware::capabilities::Readable;
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
-//!     let laser = MaiTaiDriver::new("/dev/ttyUSB0")?;
+//!     // Use new_async() for production - validates device identity
+//!     let laser = MaiTaiDriver::new_async("/dev/ttyUSB0").await?;
 //!
 //!     // Set wavelength
 //!     laser.set_wavelength(800.0).await?;
