@@ -82,7 +82,12 @@ impl MaiTaiDriver {
     ///
     /// # Note
     /// This constructor may block the async runtime during serial port opening.
-    /// For non-blocking construction, use [`new_async`] instead.
+    /// For non-blocking construction with device validation, use [`new_async`] instead.
+    ///
+    /// # Warning
+    /// This constructor does NOT validate device identity. The port may be connected
+    /// to a different device (e.g., an ELL14 rotator). Use [`new_async`] which performs
+    /// an `*IDN?` handshake to verify the device is actually a MaiTai laser.
     pub fn new(port_path: &str) -> Result<Self> {
         // Configure serial settings for USB-to-USB connection (115200, 8N1, no flow control)
         // Note: RS-232 connections may require 9600 baud - adjust if using serial adapter
@@ -155,16 +160,20 @@ impl MaiTaiDriver {
         })
     }
 
-    /// Create a new MaiTai driver instance asynchronously
+    /// Create a new MaiTai driver instance asynchronously with device validation
     ///
-    /// This is the preferred constructor as it uses `spawn_blocking` to avoid
-    /// blocking the async runtime during serial port opening.
+    /// This is the preferred constructor as it:
+    /// 1. Uses `spawn_blocking` to avoid blocking the async runtime
+    /// 2. Validates device identity via `*IDN?` query to ensure a MaiTai is connected
     ///
     /// # Arguments
     /// * `port_path` - Serial port path (e.g., "/dev/ttyUSB0", "COM3")
     ///
     /// # Errors
-    /// Returns error if serial port cannot be opened
+    /// Returns error if:
+    /// - Serial port cannot be opened
+    /// - Device does not respond to `*IDN?` query
+    /// - Device identity does not contain "MaiTai" (wrong device connected)
     pub async fn new_async(port_path: &str) -> Result<Self> {
         let port_path = port_path.to_string();
 
@@ -235,12 +244,29 @@ impl MaiTaiDriver {
         // Register parameter
         params.register(wavelength.clone());
 
-        Ok(Self {
+        let driver = Self {
             port: port_mutex,
             timeout: Duration::from_secs(5),
             wavelength_nm: wavelength,
             params,
-        })
+        };
+
+        // Validate device identity - fail fast if wrong device is connected
+        let identity = driver
+            .identify()
+            .await
+            .context("Failed to query device identity - is a MaiTai laser connected?")?;
+
+        if !identity.to_uppercase().contains("MAITAI") {
+            return Err(anyhow!(
+                "Device identity mismatch: expected MaiTai laser, got '{}'. \
+                 Check that the correct device is connected to this port.",
+                identity
+            ));
+        }
+
+        tracing::info!("MaiTai laser validated: {}", identity);
+        Ok(driver)
     }
 
     /// Set wavelength

@@ -211,6 +211,23 @@ command = "get_shutter"
 output_field = "state"
 
 # ==============================================================================
+# Initialization Sequence
+# ==============================================================================
+# Validates device identity on connection to fail-fast if wrong device
+
+[[init_sequence]]
+command = "identify"
+description = "Query device identity to verify MaiTai is connected"
+required = true
+expect = "MaiTai"
+
+[[init_sequence]]
+command = "get_shutter"
+description = "Query initial shutter state"
+required = false
+delay_ms = 100
+
+# ==============================================================================
 # UI Configuration
 # ==============================================================================
 
