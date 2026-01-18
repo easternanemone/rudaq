@@ -209,3 +209,54 @@ command = "close_shutter"
 [trait_mapping.ShutterControl.is_shutter_open]
 command = "get_shutter"
 output_field = "state"
+
+# ==============================================================================
+# UI Configuration
+# ==============================================================================
+
+[ui]
+icon = "laser"
+color = "#E91E63"
+
+[ui.control_panel]
+layout = "vertical"
+show_header = true
+
+[[ui.control_panel.sections]]
+type = "wavelength"
+label = "Wavelength Tuning"
+show_slider = true
+presets = [700.0, 750.0, 800.0, 850.0, 900.0, 950.0, 1000.0]
+show_color = true
+
+[[ui.control_panel.sections]]
+type = "separator"
+visible = true
+
+[[ui.control_panel.sections]]
+type = "shutter"
+label = "Beam Shutter"
+toggle_style = true
+
+[[ui.control_panel.sections]]
+type = "separator"
+visible = true
+
+[[ui.control_panel.sections]]
+type = "sensor"
+label = "Output Power"
+precision = 2
+unit = "mW"
+show_trend = true
+refresh_ms = 1000
+
+[[ui.control_panel.sections]]
+type = "status_display"
+label = "Status"
+parameters = ["emission_enabled"]
+compact = true
+
+[ui.status_display]
+summary_params = ["wavelength_nm", "shutter_open"]
+summary_format = "${wavelength_nm} nm | Shutter: ${shutter_open}"
+show_connection = true

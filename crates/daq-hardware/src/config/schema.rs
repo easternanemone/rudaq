@@ -94,6 +94,11 @@ pub struct DeviceConfig {
     /// Binary response parsing definitions
     #[serde(default)]
     pub binary_responses: HashMap<String, BinaryResponseConfig>,
+
+    /// UI configuration for control panels and visualization
+    #[serde(default)]
+    #[validate]
+    pub ui: Option<UiConfig>,
 }
 
 // =============================================================================
@@ -1234,6 +1239,461 @@ pub struct BinaryResponseFieldConfig {
     pub is_error_code: bool,
 }
 
+// =============================================================================
+// UI Configuration (Control Panels)
+// =============================================================================
+
+/// Top-level UI configuration for a device.
+///
+/// Defines how the device should be displayed and controlled in the GUI.
+///
+/// # Example
+///
+/// ```toml
+/// [ui]
+/// icon = "laser"
+/// color = "#FF5733"
+///
+/// [ui.control_panel]
+/// layout = "vertical"
+/// sections = [
+///     { type = "motion", label = "Position", show_jog = true },
+///     { type = "preset_buttons", label = "Presets", presets = [0.0, 45.0, 90.0] },
+/// ]
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct UiConfig {
+    /// Icon identifier for the device (e.g., "laser", "motor", "camera")
+    #[serde(default)]
+    pub icon: Option<String>,
+
+    /// Color for the device in hex format (e.g., "#FF5733")
+    #[serde(default)]
+    pub color: Option<String>,
+
+    /// Control panel configuration
+    #[serde(default)]
+    #[validate]
+    pub control_panel: Option<ControlPanelConfig>,
+
+    /// Status display configuration
+    #[serde(default)]
+    #[validate]
+    pub status_display: Option<StatusDisplayConfig>,
+}
+
+/// Control panel layout configuration.
+///
+/// Defines the sections and layout of the device control panel in the GUI.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct ControlPanelConfig {
+    /// Layout direction for sections
+    #[serde(default)]
+    pub layout: PanelLayout,
+
+    /// Ordered list of control sections to display
+    #[serde(default)]
+    pub sections: Vec<ControlSection>,
+
+    /// Width hint for the panel (pixels, 0 = auto)
+    #[serde(default)]
+    #[validate(maximum = 2000)]
+    pub width: u16,
+
+    /// Whether to show the device header with name/status
+    #[serde(default = "default_true")]
+    pub show_header: bool,
+
+    /// Whether to allow collapsing sections
+    #[serde(default)]
+    pub collapsible: bool,
+}
+
+/// Panel layout direction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PanelLayout {
+    /// Sections stacked vertically (default)
+    #[default]
+    Vertical,
+    /// Sections arranged horizontally
+    Horizontal,
+    /// Grid layout with configurable columns
+    Grid,
+}
+
+/// A control section in the device control panel.
+///
+/// Uses tagged union for different section types.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ControlSection {
+    /// Motion control section with position display and jog buttons
+    Motion(MotionSectionConfig),
+
+    /// Preset position buttons
+    PresetButtons(PresetButtonsSectionConfig),
+
+    /// Custom action button (triggers a command)
+    CustomAction(CustomActionSectionConfig),
+
+    /// Camera/frame producer controls
+    Camera(CameraSectionConfig),
+
+    /// Shutter control toggle
+    Shutter(ShutterSectionConfig),
+
+    /// Wavelength tuning control
+    Wavelength(WavelengthSectionConfig),
+
+    /// Generic parameter display/edit
+    Parameter(ParameterSectionConfig),
+
+    /// Read-only status display
+    StatusDisplay(StatusDisplaySectionConfig),
+
+    /// Power meter / sensor reading display
+    Sensor(SensorSectionConfig),
+
+    /// Separator/spacer between sections
+    Separator(SeparatorConfig),
+
+    /// Custom section with user-defined widgets
+    Custom(CustomSectionConfig),
+}
+
+/// Motion control section configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct MotionSectionConfig {
+    /// Section label
+    #[serde(default = "default_motion_label")]
+    pub label: String,
+
+    /// Show jog buttons (+/- step movement)
+    #[serde(default = "default_true")]
+    pub show_jog: bool,
+
+    /// Jog step sizes available (e.g., [0.1, 1.0, 10.0])
+    #[serde(default = "default_jog_steps")]
+    pub jog_steps: Vec<f64>,
+
+    /// Show home button
+    #[serde(default)]
+    pub show_home: bool,
+
+    /// Show stop button
+    #[serde(default = "default_true")]
+    pub show_stop: bool,
+
+    /// Position display precision (decimal places)
+    #[serde(default = "default_precision")]
+    #[validate(maximum = 10)]
+    pub precision: u8,
+
+    /// Unit label for position display
+    #[serde(default)]
+    pub unit: Option<String>,
+}
+
+fn default_motion_label() -> String {
+    "Position".to_string()
+}
+
+fn default_jog_steps() -> Vec<f64> {
+    vec![0.1, 1.0, 10.0]
+}
+
+fn default_precision() -> u8 {
+    3
+}
+
+/// Preset buttons section configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct PresetButtonsSectionConfig {
+    /// Section label
+    #[serde(default = "default_presets_label")]
+    pub label: String,
+
+    /// Preset values (position or parameter value)
+    #[serde(default)]
+    pub presets: Vec<PresetValue>,
+
+    /// Arrange buttons vertically instead of horizontally
+    #[serde(default)]
+    pub vertical: bool,
+}
+
+fn default_presets_label() -> String {
+    "Presets".to_string()
+}
+
+/// A preset button value with optional label.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum PresetValue {
+    /// Simple numeric preset
+    Number(f64),
+    /// Labeled preset with value
+    Labeled { label: String, value: f64 },
+}
+
+/// Custom action button configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct CustomActionSectionConfig {
+    /// Button label
+    pub label: String,
+
+    /// Command to execute when clicked
+    pub command: String,
+
+    /// Optional parameters to pass to the command
+    #[serde(default)]
+    pub params: HashMap<String, serde_json::Value>,
+
+    /// Button style/color hint
+    #[serde(default)]
+    pub style: ButtonStyle,
+
+    /// Confirmation message (if set, prompts before executing)
+    #[serde(default)]
+    pub confirm: Option<String>,
+}
+
+/// Button style hints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ButtonStyle {
+    /// Default button style
+    #[default]
+    Default,
+    /// Primary action button (highlighted)
+    Primary,
+    /// Secondary/subtle button
+    Secondary,
+    /// Danger/destructive action (red)
+    Danger,
+    /// Success/positive action (green)
+    Success,
+}
+
+/// Camera control section configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct CameraSectionConfig {
+    /// Section label
+    #[serde(default = "default_camera_label")]
+    pub label: String,
+
+    /// Show exposure control
+    #[serde(default = "default_true")]
+    pub show_exposure: bool,
+
+    /// Show gain control
+    #[serde(default)]
+    pub show_gain: bool,
+
+    /// Show binning control
+    #[serde(default)]
+    pub show_binning: bool,
+
+    /// Show ROI controls
+    #[serde(default)]
+    pub show_roi: bool,
+
+    /// Show histogram
+    #[serde(default)]
+    pub show_histogram: bool,
+
+    /// Show frame statistics (min/max/mean)
+    #[serde(default = "default_true")]
+    pub show_stats: bool,
+}
+
+fn default_camera_label() -> String {
+    "Camera".to_string()
+}
+
+/// Shutter control section configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct ShutterSectionConfig {
+    /// Section label
+    #[serde(default = "default_shutter_label")]
+    pub label: String,
+
+    /// Show as toggle switch instead of buttons
+    #[serde(default)]
+    pub toggle_style: bool,
+}
+
+fn default_shutter_label() -> String {
+    "Shutter".to_string()
+}
+
+/// Wavelength tuning section configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct WavelengthSectionConfig {
+    /// Section label
+    #[serde(default = "default_wavelength_label")]
+    pub label: String,
+
+    /// Show wavelength slider
+    #[serde(default = "default_true")]
+    pub show_slider: bool,
+
+    /// Wavelength presets (nm)
+    #[serde(default)]
+    pub presets: Vec<f64>,
+
+    /// Show color indicator based on wavelength
+    #[serde(default = "default_true")]
+    pub show_color: bool,
+}
+
+fn default_wavelength_label() -> String {
+    "Wavelength".to_string()
+}
+
+/// Generic parameter section configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct ParameterSectionConfig {
+    /// Section label
+    #[serde(default)]
+    pub label: String,
+
+    /// Parameter name to display/edit
+    pub parameter: String,
+
+    /// Widget type for editing
+    #[serde(default)]
+    pub widget: ParameterWidget,
+
+    /// Read-only display (no editing)
+    #[serde(default)]
+    pub read_only: bool,
+}
+
+/// Widget type for parameter editing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ParameterWidget {
+    /// Automatic based on parameter type
+    #[default]
+    Auto,
+    /// Text input field
+    TextInput,
+    /// Numeric slider
+    Slider,
+    /// Numeric spinner with +/- buttons
+    Spinner,
+    /// Toggle switch (for booleans)
+    Toggle,
+    /// Dropdown/combo box (for enums/choices)
+    Dropdown,
+}
+
+/// Status display section configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct StatusDisplaySectionConfig {
+    /// Section label
+    #[serde(default)]
+    pub label: String,
+
+    /// Parameters to display as status
+    #[serde(default)]
+    pub parameters: Vec<String>,
+
+    /// Show as compact inline display
+    #[serde(default)]
+    pub compact: bool,
+}
+
+/// Sensor reading display section configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct SensorSectionConfig {
+    /// Section label
+    #[serde(default = "default_sensor_label")]
+    pub label: String,
+
+    /// Display precision (decimal places)
+    #[serde(default = "default_precision")]
+    #[validate(maximum = 10)]
+    pub precision: u8,
+
+    /// Unit label
+    #[serde(default)]
+    pub unit: Option<String>,
+
+    /// Show trend graph
+    #[serde(default)]
+    pub show_trend: bool,
+
+    /// Auto-refresh interval (milliseconds, 0 = manual)
+    #[serde(default)]
+    #[validate(maximum = 60000)]
+    pub refresh_ms: u32,
+}
+
+fn default_sensor_label() -> String {
+    "Reading".to_string()
+}
+
+/// Separator/spacer configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct SeparatorConfig {
+    /// Height in pixels (0 = default)
+    #[serde(default)]
+    #[validate(maximum = 100)]
+    pub height: u8,
+
+    /// Show visible line
+    #[serde(default = "default_true")]
+    pub visible: bool,
+}
+
+/// Custom section for advanced use cases.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct CustomSectionConfig {
+    /// Section label
+    #[serde(default)]
+    pub label: String,
+
+    /// Custom widget identifier
+    pub widget: String,
+
+    /// Widget-specific configuration
+    #[serde(default)]
+    pub config: HashMap<String, serde_json::Value>,
+}
+
+/// Status display configuration (outside control panel).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct StatusDisplayConfig {
+    /// Parameters to show in device tree summary
+    #[serde(default)]
+    pub summary_params: Vec<String>,
+
+    /// Format string for summary (uses parameter names)
+    #[serde(default)]
+    pub summary_format: Option<String>,
+
+    /// Show connection status indicator
+    #[serde(default = "default_true")]
+    pub show_connection: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1296,5 +1756,188 @@ mod tests {
     fn test_byte_order_default() {
         let order: ByteOrder = Default::default();
         assert_eq!(order, ByteOrder::LittleEndian);
+    }
+
+    // =============================================================================
+    // UI Config Tests
+    // =============================================================================
+
+    #[test]
+    fn test_ui_config_deserialization() {
+        let toml_str = r##"
+            icon = "laser"
+            color = "#FF5733"
+
+            [control_panel]
+            layout = "vertical"
+            show_header = true
+        "##;
+
+        let config: UiConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.icon, Some("laser".to_string()));
+        assert_eq!(config.color, Some("#FF5733".to_string()));
+        assert!(config.control_panel.is_some());
+        let panel = config.control_panel.unwrap();
+        assert_eq!(panel.layout, PanelLayout::Vertical);
+        assert!(panel.show_header);
+    }
+
+    #[test]
+    fn test_control_section_motion() {
+        let toml = r#"
+            type = "motion"
+            label = "Rotation"
+            show_jog = true
+            jog_steps = [0.1, 1.0, 10.0]
+            precision = 2
+            unit = "degrees"
+        "#;
+
+        let section: ControlSection = toml::from_str(toml).unwrap();
+        match section {
+            ControlSection::Motion(cfg) => {
+                assert_eq!(cfg.label, "Rotation");
+                assert!(cfg.show_jog);
+                assert_eq!(cfg.jog_steps, vec![0.1, 1.0, 10.0]);
+                assert_eq!(cfg.precision, 2);
+                assert_eq!(cfg.unit, Some("degrees".to_string()));
+            }
+            _ => panic!("Expected Motion section"),
+        }
+    }
+
+    #[test]
+    fn test_control_section_preset_buttons() {
+        let toml = r#"
+            type = "preset_buttons"
+            label = "Presets"
+            presets = [0.0, 45.0, 90.0, 180.0]
+        "#;
+
+        let section: ControlSection = toml::from_str(toml).unwrap();
+        match section {
+            ControlSection::PresetButtons(cfg) => {
+                assert_eq!(cfg.label, "Presets");
+                assert_eq!(cfg.presets.len(), 4);
+            }
+            _ => panic!("Expected PresetButtons section"),
+        }
+    }
+
+    #[test]
+    fn test_control_section_camera() {
+        let toml = r#"
+            type = "camera"
+            label = "Camera Controls"
+            show_exposure = true
+            show_histogram = true
+            show_binning = false
+        "#;
+
+        let section: ControlSection = toml::from_str(toml).unwrap();
+        match section {
+            ControlSection::Camera(cfg) => {
+                assert_eq!(cfg.label, "Camera Controls");
+                assert!(cfg.show_exposure);
+                assert!(cfg.show_histogram);
+                assert!(!cfg.show_binning);
+            }
+            _ => panic!("Expected Camera section"),
+        }
+    }
+
+    #[test]
+    fn test_control_section_wavelength() {
+        let toml = r#"
+            type = "wavelength"
+            label = "Tuning"
+            show_slider = true
+            presets = [700.0, 800.0, 900.0, 1000.0]
+            show_color = true
+        "#;
+
+        let section: ControlSection = toml::from_str(toml).unwrap();
+        match section {
+            ControlSection::Wavelength(cfg) => {
+                assert_eq!(cfg.label, "Tuning");
+                assert!(cfg.show_slider);
+                assert_eq!(cfg.presets, vec![700.0, 800.0, 900.0, 1000.0]);
+            }
+            _ => panic!("Expected Wavelength section"),
+        }
+    }
+
+    #[test]
+    fn test_preset_value_variants() {
+        // Simple number
+        let simple: PresetValue = serde_json::from_str("45.0").unwrap();
+        matches!(simple, PresetValue::Number(45.0));
+
+        // Labeled preset
+        let labeled: PresetValue =
+            serde_json::from_str(r#"{"label": "Home", "value": 0.0}"#).unwrap();
+        match labeled {
+            PresetValue::Labeled { label, value } => {
+                assert_eq!(label, "Home");
+                assert_eq!(value, 0.0);
+            }
+            _ => panic!("Expected Labeled preset"),
+        }
+    }
+
+    #[test]
+    fn test_button_style_serialization() {
+        let style = ButtonStyle::Danger;
+        let json = serde_json::to_string(&style).unwrap();
+        assert_eq!(json, "\"danger\"");
+
+        let parsed: ButtonStyle = serde_json::from_str("\"primary\"").unwrap();
+        assert_eq!(parsed, ButtonStyle::Primary);
+    }
+
+    #[test]
+    fn test_panel_layout_serialization() {
+        let layout = PanelLayout::Horizontal;
+        let json = serde_json::to_string(&layout).unwrap();
+        assert_eq!(json, "\"horizontal\"");
+
+        let parsed: PanelLayout = serde_json::from_str("\"grid\"").unwrap();
+        assert_eq!(parsed, PanelLayout::Grid);
+    }
+
+    #[test]
+    fn test_full_control_panel_config() {
+        let toml = r#"
+            layout = "vertical"
+            show_header = true
+            collapsible = false
+
+            [[sections]]
+            type = "motion"
+            label = "Position"
+            show_jog = true
+
+            [[sections]]
+            type = "separator"
+            visible = true
+
+            [[sections]]
+            type = "preset_buttons"
+            label = "Quick Positions"
+            presets = [0.0, 90.0, 180.0]
+        "#;
+
+        let config: ControlPanelConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.layout, PanelLayout::Vertical);
+        assert!(config.show_header);
+        assert!(!config.collapsible);
+        assert_eq!(config.sections.len(), 3);
+
+        // Check first section is Motion
+        matches!(&config.sections[0], ControlSection::Motion(_));
+        // Check second section is Separator
+        matches!(&config.sections[1], ControlSection::Separator(_));
+        // Check third section is PresetButtons
+        matches!(&config.sections[2], ControlSection::PresetButtons(_));
     }
 }

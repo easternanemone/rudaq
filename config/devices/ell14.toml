@@ -485,3 +485,46 @@ command = "get_position"
 description = "Get current position"
 required = false
 delay_ms = 100
+
+# ==============================================================================
+# UI Configuration
+# ==============================================================================
+
+[ui]
+icon = "motor"
+color = "#4CAF50"
+
+[ui.control_panel]
+layout = "vertical"
+show_header = true
+collapsible = false
+
+[[ui.control_panel.sections]]
+type = "motion"
+label = "Rotation"
+show_jog = true
+jog_steps = [0.1, 1.0, 5.0, 10.0, 45.0]
+show_home = true
+show_stop = true
+precision = 2
+unit = "°"
+
+[[ui.control_panel.sections]]
+type = "separator"
+visible = true
+
+[[ui.control_panel.sections]]
+type = "preset_buttons"
+label = "Quick Positions"
+presets = [
+    { label = "0°", value = 0.0 },
+    { label = "45°", value = 45.0 },
+    { label = "90°", value = 90.0 },
+    { label = "180°", value = 180.0 },
+]
+vertical = false
+
+[ui.status_display]
+summary_params = ["position_degrees"]
+summary_format = "${position_degrees}°"
+show_connection = true
