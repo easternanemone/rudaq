@@ -16,8 +16,8 @@ pub mod toast;
 pub mod toggle;
 
 pub use device_controls::{
-    create_control_panel, DeviceControlWidget, MaiTaiControlPanel, PowerMeterControlPanel,
-    RotatorControlPanel, StageControlPanel,
+    DeviceControlWidget, MaiTaiControlPanel, PowerMeterControlPanel, RotatorControlPanel,
+    StageControlPanel,
 };
 pub use gauge::*;
 pub use histogram::*;

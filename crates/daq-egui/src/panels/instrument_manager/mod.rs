@@ -3,8 +3,10 @@
 //! Displays registered hardware grouped by type (Cameras, Stages, Detectors, etc.)
 //! with expandable nodes showing device state and quick actions.
 
+mod dispatch;
 mod types;
 
+pub use dispatch::{determine_panel_type, PanelType};
 pub use types::{DeviceCategory, DeviceGroup, ParameterInfo, PopOutRequest};
 
 use eframe::egui;
@@ -20,10 +22,6 @@ use crate::widgets::{
     RotatorControlPanel, StageControlPanel,
 };
 use daq_proto::daq::DeviceInfo;
-
-/// Auto-refresh interval (for future auto-refresh feature)
-#[allow(dead_code)]
-const AUTO_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Timeout for individual device state fetch (prevents stalls from hung devices)
 const DEVICE_STATE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
@@ -211,23 +209,6 @@ impl InstrumentManagerPanel {
     /// Called by DaqApp after each ui() call to handle pop-out actions.
     pub fn take_pop_out_request(&mut self) -> Option<PopOutRequest> {
         self.pending_pop_out.take().map(|device_info| PopOutRequest { device_info })
-    }
-
-    /// Check if auto-refresh is due (for future auto-refresh feature)
-    #[allow(dead_code)]
-    fn should_auto_refresh(&self) -> bool {
-        match self.last_refresh {
-            Some(last) => last.elapsed() >= AUTO_REFRESH_INTERVAL,
-            None => true, // Never refreshed
-        }
-    }
-
-    /// Called each frame - triggers auto-refresh if needed (for future auto-refresh feature)
-    #[allow(dead_code)]
-    pub fn tick(&mut self, client: Option<&mut DaqClient>, runtime: &Runtime) {
-        if self.action_in_flight == 0 && self.should_auto_refresh() {
-            self.refresh(client, runtime);
-        }
     }
 
     /// Poll for async results
