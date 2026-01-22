@@ -12,7 +12,7 @@ Build a visual experiment designer for rust-daq that transforms how scientists c
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Form-Based Scan Builder** - Validate core execution loop with simple forms
+- [x] **Phase 1: Form-Based Scan Builder** - Validate core execution loop with simple forms
 - [ ] **Phase 2: Node Graph Editor Core** - Visual editing foundation with undo/validation
 - [ ] **Phase 3: Plan Translation and Execution** - Connect visual graph to RunEngine
 - [ ] **Phase 4: Sequences and Control Flow** - Sequence composition with loops
@@ -38,9 +38,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 3 plans in 3 waves
 
 Plans:
-- [ ] 01-01-PLAN.md — Device selection and form layout (ScanBuilderPanel foundation)
-- [ ] 01-02-PLAN.md — Execution and live 1D plotting (Start/Abort, document streaming)
-- [ ] 01-03-PLAN.md — 2D grid scan and completion summary (2D visualization, polish)
+- [x] 01-01-PLAN.md — Device selection and form layout (ScanBuilderPanel foundation)
+- [x] 01-02-PLAN.md — Execution and live 1D plotting (Start/Abort, document streaming)
+- [x] 01-03-PLAN.md — 2D grid scan and completion summary (2D visualization, polish)
 
 ### Phase 2: Node Graph Editor Core
 **Goal**: Scientists can visually build experiments by dragging nodes and connecting wires, with validation and undo
@@ -52,11 +52,13 @@ Plans:
   3. User can undo/redo edits with Ctrl+Z/Ctrl+Y, with full edit history
   4. User can group related nodes into subgraph to collapse complex sections
   5. Editor shows validation errors visually (red borders, error messages) when connections invalid
-**Plans**: TBD
+**Plans**: 4 plans in 3 waves
 
 Plans:
-- [ ] 02-01: TBD during plan-phase
-- [ ] 02-02: TBD during plan-phase
+- [ ] 02-01-PLAN.md — Graph module foundation (egui-snarl integration, ExperimentNode, basic canvas)
+- [ ] 02-02-PLAN.md — Node palette and wire connections (drag-drop creation, validation)
+- [ ] 02-03-PLAN.md — Property inspector and undo/redo (node editing, command pattern)
+- [ ] 02-04-PLAN.md — Serialization and polish (JSON save/load, visual error display)
 
 ### Phase 3: Plan Translation and Execution
 **Goal**: Experiments designed visually translate to executable Plans and run via RunEngine
@@ -181,12 +183,12 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Form-Based Scan Builder | 0/3 | Ready for execution | - |
-| 2. Node Graph Editor Core | 0/TBD | Not started | - |
+| 1. Form-Based Scan Builder | 3/3 | Complete | 2026-01-22 |
+| 2. Node Graph Editor Core | 0/4 | Ready for execution | - |
 | 3. Plan Translation and Execution | 0/TBD | Not started | - |
 | 4. Sequences and Control Flow | 0/TBD | Not started | - |
 | 5. Live Visualization | 0/TBD | Not started | - |
