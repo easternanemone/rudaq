@@ -10,7 +10,19 @@
 //!
 //! # Hardware Tested
 //!
-//! - NI PCI-MIO-16XE-10 (16-ch AI, 2-ch AO, DIO, counters)
+//! - NI PCI-MIO-16XE-10 (16-ch AI, 2-ch AO, DIO, counters) with BNC-2110
+//!
+//! # Input Reference Modes
+//!
+//! The analog input driver supports multiple input reference modes:
+//!
+//! | Mode | Config Value | Description |
+//! |------|--------------|-------------|
+//! | RSE  | `"rse"` or `"ground"` | Referenced Single-Ended (vs card ground) |
+//! | NRSE | `"nrse"` or `"common"` | Non-Referenced Single-Ended (vs AISENSE) |
+//! | DIFF | `"diff"` or `"differential"` | Differential (ACH0+ACH8, ACH1+ACH9, etc.) |
+//!
+//! For loopback testing with a BNC-2110, use `input_mode = "rse"`.
 //!
 //! # Example Configuration
 //!
@@ -24,6 +36,7 @@
 //! device = "/dev/comedi0"
 //! channel = 0
 //! range_index = 0
+//! input_mode = "rse"  # or "nrse", "diff"
 //! ```
 
 use anyhow::{Context, Result};
@@ -41,7 +54,7 @@ use tracing::{debug, info};
 use crate::device::ComediDevice;
 use crate::subsystem::analog_input::AnalogInput;
 use crate::subsystem::analog_output::AnalogOutput;
-use crate::subsystem::Range;
+use crate::subsystem::{AnalogReference, Range};
 
 // =============================================================================
 // Configuration Types
@@ -62,6 +75,17 @@ pub struct ComediAnalogInputConfig {
     #[serde(default)]
     pub range_index: u32,
 
+    /// Input reference mode: "rse" (default), "nrse", or "diff"
+    ///
+    /// - **RSE** (Referenced Single-Ended): Measures vs card ground (AIGND).
+    ///   Best for loopback testing and grounded signals.
+    /// - **NRSE** (Non-Referenced Single-Ended): Measures vs AISENSE pin.
+    ///   Use when signal has its own ground reference.
+    /// - **DIFF** (Differential): Measures difference between paired channels
+    ///   (ACH0+ACH8, ACH1+ACH9, etc.). Best for noise rejection.
+    #[serde(default = "default_input_mode")]
+    pub input_mode: String,
+
     /// Human-readable name for the measurement
     #[serde(default)]
     pub measurement_name: Option<String>,
@@ -81,6 +105,29 @@ fn default_device() -> String {
 
 fn default_units() -> String {
     "V".to_string()
+}
+
+fn default_input_mode() -> String {
+    "rse".to_string()
+}
+
+/// Parse input mode string to AnalogReference.
+///
+/// Supported values:
+/// - "rse", "ground", "single-ended" → Ground (RSE)
+/// - "nrse", "common" → Common (NRSE)
+/// - "diff", "differential" → Differential
+fn parse_input_mode(mode: &str) -> Result<AnalogReference> {
+    match mode.to_lowercase().as_str() {
+        "rse" | "ground" | "single-ended" | "single_ended" => Ok(AnalogReference::Ground),
+        "nrse" | "common" => Ok(AnalogReference::Common),
+        "diff" | "differential" => Ok(AnalogReference::Differential),
+        "other" => Ok(AnalogReference::Other),
+        _ => anyhow::bail!(
+            "Invalid input_mode '{}'. Valid values: rse, nrse, diff (or: ground, common, differential)",
+            mode
+        ),
+    }
 }
 
 /// Configuration for Comedi analog output driver.
@@ -113,6 +160,7 @@ pub struct ComediAnalogOutputConfig {
 
 /// Mock analog input for testing.
 struct MockAnalogInput {
+    #[allow(dead_code)]
     channel: u32,
     value: RwLock<f64>,
 }
@@ -188,6 +236,7 @@ impl MockAnalogOutput {
 /// ```
 pub struct ComediAnalogInputDriver {
     /// Real hardware (None if mock mode)
+    #[allow(dead_code)]
     device: Option<ComediDevice>,
     analog_input: Option<AnalogInput>,
 
@@ -200,14 +249,23 @@ pub struct ComediAnalogInputDriver {
     /// Range index
     range_index: u32,
 
+    /// Analog reference mode (RSE, NRSE, DIFF)
+    aref: AnalogReference,
+
     /// Parameter registry
     params: Arc<ParameterSet>,
 
     /// Voltage reading parameter (updated on each read)
+    #[allow(dead_code)]
     voltage: Parameter<f64>,
 
     /// Channel parameter (read-only info)
+    #[allow(dead_code)]
     channel_param: Parameter<f64>,
+
+    /// Input mode parameter (read-only info)
+    #[allow(dead_code)]
+    input_mode_param: Parameter<f64>,
 }
 
 impl ComediAnalogInputDriver {
@@ -217,11 +275,13 @@ impl ComediAnalogInputDriver {
     /// * `device_path` - Path to Comedi device (e.g., "/dev/comedi0")
     /// * `channel` - Analog input channel number
     /// * `range_index` - Voltage range index
+    /// * `aref` - Analog reference mode (RSE, NRSE, DIFF)
     /// * `mock` - If true, use mock implementation
     pub async fn new_async(
         device_path: &str,
         channel: u32,
         range_index: u32,
+        aref: AnalogReference,
         mock: bool,
     ) -> Result<Arc<Self>> {
         let mut params = ParameterSet::new();
@@ -234,25 +294,42 @@ impl ComediAnalogInputDriver {
         let channel_param =
             Parameter::new("channel", channel as f64).with_description("Analog input channel");
 
+        // Input mode as numeric for parameter (0=RSE, 1=NRSE, 2=DIFF, 3=Other)
+        let input_mode_param = Parameter::new("input_mode", aref.to_raw() as f64)
+            .with_description("Input reference mode (0=RSE, 1=NRSE, 2=DIFF)");
+
         params.register(voltage.clone());
         params.register(channel_param.clone());
+        params.register(input_mode_param.clone());
+
+        let aref_name = match aref {
+            AnalogReference::Ground => "RSE",
+            AnalogReference::Common => "NRSE",
+            AnalogReference::Differential => "DIFF",
+            AnalogReference::Other => "OTHER",
+        };
 
         let driver = if mock {
-            info!("Creating mock Comedi analog input driver (channel={})", channel);
+            info!(
+                "Creating mock Comedi analog input driver (channel={}, mode={})",
+                channel, aref_name
+            );
             Self {
                 device: None,
                 analog_input: None,
                 mock: Some(MockAnalogInput::new(channel)),
                 channel,
                 range_index,
+                aref,
                 params: Arc::new(params),
                 voltage,
                 channel_param,
+                input_mode_param,
             }
         } else {
             info!(
-                "Opening Comedi device {} for analog input (channel={}, range={})",
-                device_path, channel, range_index
+                "Opening Comedi device {} for analog input (channel={}, range={}, mode={})",
+                device_path, channel, range_index, aref_name
             );
 
             // Open device in blocking task (FFI is blocking)
@@ -276,13 +353,23 @@ impl ComediAnalogInputDriver {
                 );
             }
 
+            // Warn about differential mode channel requirements
+            if aref == AnalogReference::Differential && channel >= n_channels / 2 {
+                tracing::warn!(
+                    "Channel {} may not support differential mode (typical max: {})",
+                    channel,
+                    n_channels / 2 - 1
+                );
+            }
+
             info!(
-                "Opened {} ({}), channel {}/{}, {}-bit resolution",
+                "Opened {} ({}), channel {}/{}, {}-bit resolution, mode={}",
                 device.board_name(),
                 device.driver_name(),
                 channel,
                 n_channels,
-                ai.resolution_bits()
+                ai.resolution_bits(),
+                aref_name
             );
 
             Self {
@@ -291,16 +378,18 @@ impl ComediAnalogInputDriver {
                 mock: None,
                 channel,
                 range_index,
+                aref,
                 params: Arc::new(params),
                 voltage,
                 channel_param,
+                input_mode_param,
             }
         };
 
         Ok(Arc::new(driver))
     }
 
-    /// Read voltage from the configured channel.
+    /// Read voltage from the configured channel using the configured reference mode.
     async fn read_voltage(&self) -> Result<f64> {
         if let Some(mock) = &self.mock {
             return mock.read_voltage().await;
@@ -312,7 +401,8 @@ impl ComediAnalogInputDriver {
             .ok_or_else(|| anyhow::anyhow!("No analog input subsystem"))?;
 
         let channel = self.channel;
-        // Use default range (±10V) with specified index
+        let aref = self.aref;
+        // Use specified range index
         let range = Range {
             index: self.range_index,
             ..Range::default()
@@ -320,13 +410,25 @@ impl ComediAnalogInputDriver {
 
         // Comedi FFI is blocking, run in blocking task
         let ai_clone = ai.clone();
-        let voltage = tokio::task::spawn_blocking(move || ai_clone.read_voltage(channel, range))
-            .await
-            .context("Task join error")?
-            .context("Failed to read voltage")?;
+        let voltage =
+            tokio::task::spawn_blocking(move || ai_clone.read_raw(channel, range.index, aref))
+                .await
+                .context("Task join error")?
+                .context("Failed to read voltage")?;
 
-        debug!("Read voltage: channel={}, value={:.4}V", self.channel, voltage);
+        // Convert raw to voltage
+        let voltage = ai.raw_to_voltage(voltage, &range);
+
+        debug!(
+            "Read voltage: channel={}, aref={:?}, value={:.4}V",
+            self.channel, self.aref, voltage
+        );
         Ok(voltage)
+    }
+
+    /// Get the configured analog reference mode.
+    pub fn analog_reference(&self) -> AnalogReference {
+        self.aref
     }
 
     /// Get the channel number.
@@ -366,6 +468,7 @@ impl Readable for ComediAnalogInputDriver {
 /// such as PID feedback loops.
 pub struct ComediAnalogOutputDriver {
     /// Real hardware
+    #[allow(dead_code)]
     device: Option<ComediDevice>,
     analog_output: Option<AnalogOutput>,
 
@@ -530,6 +633,9 @@ impl DriverFactory for ComediAnalogInputFactory {
             anyhow::bail!("'device' path cannot be empty");
         }
 
+        // Validate input_mode
+        parse_input_mode(&cfg.input_mode)?;
+
         // Channel validation will happen at build time when we know device capabilities
         Ok(())
     }
@@ -540,9 +646,17 @@ impl DriverFactory for ComediAnalogInputFactory {
                 .try_into()
                 .context("Invalid Comedi analog input config")?;
 
-            let driver =
-                ComediAnalogInputDriver::new_async(&cfg.device, cfg.channel, cfg.range_index, cfg.mock)
-                    .await?;
+            // Parse input reference mode
+            let aref = parse_input_mode(&cfg.input_mode)?;
+
+            let driver = ComediAnalogInputDriver::new_async(
+                &cfg.device,
+                cfg.channel,
+                cfg.range_index,
+                aref,
+                cfg.mock,
+            )
+            .await?;
 
             Ok(DeviceComponents {
                 readable: Some(driver.clone()),
@@ -660,9 +774,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_ai_mock_driver() {
-        let driver = ComediAnalogInputDriver::new_async("/dev/comedi0", 0, 0, true)
-            .await
-            .expect("Failed to create mock driver");
+        let driver =
+            ComediAnalogInputDriver::new_async("/dev/comedi0", 0, 0, AnalogReference::Ground, true)
+                .await
+                .expect("Failed to create mock driver");
 
         // Read should work
         let voltage = driver.read().await.expect("Failed to read");
@@ -672,6 +787,65 @@ mod tests {
         let params = driver.parameters();
         assert!(params.names().contains(&"voltage"));
         assert!(params.names().contains(&"channel"));
+        assert!(params.names().contains(&"input_mode"));
+
+        // Check analog reference
+        assert_eq!(driver.analog_reference(), AnalogReference::Ground);
+    }
+
+    #[tokio::test]
+    async fn test_ai_mock_driver_differential() {
+        let driver = ComediAnalogInputDriver::new_async(
+            "/dev/comedi0",
+            0,
+            0,
+            AnalogReference::Differential,
+            true,
+        )
+        .await
+        .expect("Failed to create mock driver");
+
+        assert_eq!(driver.analog_reference(), AnalogReference::Differential);
+    }
+
+    #[tokio::test]
+    async fn test_parse_input_mode() {
+        // RSE variants
+        assert!(matches!(
+            parse_input_mode("rse"),
+            Ok(AnalogReference::Ground)
+        ));
+        assert!(matches!(
+            parse_input_mode("RSE"),
+            Ok(AnalogReference::Ground)
+        ));
+        assert!(matches!(
+            parse_input_mode("ground"),
+            Ok(AnalogReference::Ground)
+        ));
+
+        // NRSE variants
+        assert!(matches!(
+            parse_input_mode("nrse"),
+            Ok(AnalogReference::Common)
+        ));
+        assert!(matches!(
+            parse_input_mode("common"),
+            Ok(AnalogReference::Common)
+        ));
+
+        // DIFF variants
+        assert!(matches!(
+            parse_input_mode("diff"),
+            Ok(AnalogReference::Differential)
+        ));
+        assert!(matches!(
+            parse_input_mode("differential"),
+            Ok(AnalogReference::Differential)
+        ));
+
+        // Invalid
+        assert!(parse_input_mode("invalid").is_err());
     }
 
     #[tokio::test]

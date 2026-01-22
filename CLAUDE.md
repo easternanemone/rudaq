@@ -364,10 +364,11 @@ ssh maitai@100.117.5.12 'cd ~/rust-daq && source config/hosts/maitai.env && \
   cargo test --features hardware_tests -- --nocapture --test-threads=1'
 ```
 
-### Serial Port Inventory (maitai)
+### Hardware Inventory (maitai)
 
-| Device | Port | Driver | Feature Flag |
-|--------|------|--------|--------------|
+| Device | Port/Path | Driver | Feature Flag |
+|--------|-----------|--------|--------------|
+| NI PCI-MIO-16XE-10 | `/dev/comedi0` | `ComediAnalogInput/OutputDriver` | `comedi` |
 | Newport 1830-C Power Meter | `/dev/ttyS0` | `Newport1830CDriver` | `newport_power_meter` |
 | MaiTai Laser | `/dev/ttyUSB5` | `MaiTaiDriver` | `spectra_physics` |
 | ELL14 Rotators (addr 2,3,8) | `/dev/ttyUSB1` | `Ell14Driver` | `thorlabs` |
@@ -405,6 +406,49 @@ source config/hosts/maitai.env
 export PVCAM_SMOKE_TEST=1
 cargo test --features pvcam_hardware --test pvcam_hardware_smoke -- --nocapture
 ```
+
+### Comedi DAQ (NI PCI-MIO-16XE-10)
+
+The Comedi driver supports the NI PCI-MIO-16XE-10 DAQ card on maitai via the Linux Comedi framework.
+
+**Hardware:**
+- Card: NI PCI-MIO-16XE-10 (16-ch AI, 2-ch AO, 8 DIO, counters)
+- Breakout: BNC-2110 (68-pin shielded BNC terminal block)
+- Device: `/dev/comedi0`
+
+**Input Reference Modes:**
+
+| Mode | Config Value | Description |
+|------|--------------|-------------|
+| RSE | `"rse"` (default) | Referenced Single-Ended (vs card ground) |
+| NRSE | `"nrse"` | Non-Referenced Single-Ended (vs AISENSE) |
+| DIFF | `"diff"` | Differential (ACH0+ACH8 pairs, 8 channels max) |
+
+**BNC-2110 Channel Mapping:**
+- ACH0-ACH7 (AI0-AI7): Available on BNC connectors
+- ACH8-ACH15 (AI8-AI15): Spring terminal block only
+- DAC0, DAC1 (AO0, AO1): Available on BNC connectors
+
+**Example Configuration:**
+
+```toml
+[[devices]]
+id = "photodiode"
+type = "comedi_analog_input"
+enabled = true
+
+[devices.config]
+device = "/dev/comedi0"
+channel = 0
+range_index = 0
+input_mode = "rse"  # or "nrse", "diff"
+units = "V"
+```
+
+**Loopback Testing:**
+1. Connect BNC cable from DAC0 to ACH0
+2. Set ACH0 switch on BNC-2110 to FS (Floating Source)
+3. Use `input_mode = "rse"` in config
 
 ## Declarative Driver Plugins
 

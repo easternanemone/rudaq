@@ -6,6 +6,29 @@
 # - Counters/timers
 #
 # This config uses the Comedi driver framework.
+# Breakout board: BNC-2110 (68-pin shielded BNC terminal block)
+
+# =============================================================================
+# Input Reference Modes (for analog input channels)
+# =============================================================================
+#
+# The BNC-2110 supports three input reference modes:
+#
+# | Mode | Config Value        | BNC-2110 Switch | Description                    |
+# |------|---------------------|-----------------|--------------------------------|
+# | RSE  | "rse" or "ground"   | GS or FS        | Referenced Single-Ended        |
+# | NRSE | "nrse" or "common"  | GS              | Non-Referenced Single-Ended    |
+# | DIFF | "diff"              | N/A (internal)  | Differential (ACH0+ACH8, etc.) |
+#
+# RSE (default): Best for grounded signals and loopback testing.
+#                Signal measured vs card ground (AIGND).
+#
+# NRSE: Use when signal has its own ground reference.
+#       All channels share a common reference (AISENSE pin).
+#
+# DIFF: Best for noise rejection with remote sensors.
+#       Uses paired channels (ACH0+ACH8, ACH1+ACH9, etc.)
+#       Note: Only 8 differential channels available.
 
 # =============================================================================
 # Analog Input Channel for Power Monitoring
@@ -17,9 +40,10 @@ type = "comedi_analog_input"
 enabled = true
 
 [devices.config]
-device = "/dev/comedi0"      # Comedi device path
+device = "/dev/comedi0"       # Comedi device path
 channel = 0                   # AI channel (0-15)
 range_index = 0               # Voltage range (0 = default ±10V)
+input_mode = "rse"            # Reference mode: "rse", "nrse", or "diff"
 units = "V"                   # Measurement units
 # mock = false                # Set true for testing without hardware
 
@@ -34,6 +58,7 @@ enabled = true
 device = "/dev/comedi0"
 channel = 1
 range_index = 0
+input_mode = "rse"
 units = "V"
 
 # =============================================================================
@@ -52,6 +77,33 @@ range_index = 0               # Voltage range
 units = "V"
 
 # =============================================================================
+# Loopback Testing Example
+# =============================================================================
+#
+# To test AO → AI loopback on the BNC-2110:
+#
+# 1. Connect BNC cable from DAC0 to ACH0
+# 2. Set ACH0 switch to FS (Floating Source)
+# 3. Use RSE input mode (default)
+#
+# [[devices]]
+# id = "loopback_output"
+# type = "comedi_analog_output"
+# enabled = true
+# [devices.config]
+# device = "/dev/comedi0"
+# channel = 0                   # DAC0
+#
+# [[devices]]
+# id = "loopback_input"
+# type = "comedi_analog_input"
+# enabled = true
+# [devices.config]
+# device = "/dev/comedi0"
+# channel = 0                   # ACH0 (wired to DAC0)
+# input_mode = "rse"            # Best for loopback
+
+# =============================================================================
 # Notes
 # =============================================================================
 #
@@ -65,6 +117,11 @@ units = "V"
 #   Subdevice 1: AO (Analog Output) - 2 channels
 #   Subdevice 2: DIO (Digital I/O) - 8 channels
 #   Subdevice 3-13: Counters, calibration, etc.
+#
+# BNC-2110 Channel Availability:
+#   ACH0-ACH7 (AI0-AI7): Available on BNC connectors
+#   ACH8-ACH15 (AI8-AI15): Spring terminal block only (no BNCs)
+#   DAC0, DAC1 (AO0, AO1): Available on BNC connectors
 #
 # Build with Comedi support:
 #   cargo build --features comedi           # Mock mode (no hardware)
