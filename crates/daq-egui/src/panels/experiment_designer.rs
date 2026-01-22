@@ -537,7 +537,17 @@ impl ExperimentDesignerPanel {
     fn validate_graph(&mut self) {
         self.viewer.clear_all_errors();
 
-        // Collect node IDs and validation results to avoid borrowing issues
+        // Check for cycles first (graph-level validation)
+        if let Some(cycle_error) = crate::graph::validation::validate_graph_structure(&self.snarl)
+        {
+            // Set error on first node as a way to show the error
+            if let Some((first_id, _)) = self.snarl.node_ids().next() {
+                self.viewer.set_node_error(first_id, cycle_error);
+            }
+            return; // Don't do per-node validation if there's a cycle
+        }
+
+        // Per-node validation (existing code)
         let errors: Vec<_> = self
             .snarl
             .node_ids()

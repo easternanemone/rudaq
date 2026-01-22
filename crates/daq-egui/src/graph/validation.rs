@@ -57,6 +57,76 @@ pub fn validate_connection(
     }
 }
 
+/// Validate entire graph structure, including cycle detection.
+/// Returns None if valid, or Some(error_message) if invalid.
+pub fn validate_graph_structure<N>(snarl: &egui_snarl::Snarl<N>) -> Option<String>
+where
+    N: Clone,
+{
+    use std::collections::{HashMap, HashSet, VecDeque};
+
+    if snarl.node_ids().count() == 0 {
+        return None; // Empty is valid (just nothing to run)
+    }
+
+    // Build adjacency and find roots
+    let mut adjacency: HashMap<egui_snarl::NodeId, Vec<egui_snarl::NodeId>> = HashMap::new();
+    let mut has_input: HashSet<egui_snarl::NodeId> = HashSet::new();
+
+    for (node_id, _) in snarl.node_ids() {
+        adjacency.insert(node_id, Vec::new());
+    }
+
+    for (out_pin, in_pin) in snarl.wires() {
+        adjacency.get_mut(&out_pin.node).map(|v| v.push(in_pin.node));
+        has_input.insert(in_pin.node);
+    }
+
+    let roots: Vec<_> = snarl
+        .node_ids()
+        .filter(|(id, _)| !has_input.contains(id))
+        .map(|(id, _)| id)
+        .collect();
+
+    if roots.is_empty() {
+        return Some("No root nodes - graph may contain cycles".to_string());
+    }
+
+    // Kahn's algorithm for cycle detection
+    let mut in_degree: HashMap<egui_snarl::NodeId, usize> = HashMap::new();
+    for node_id in adjacency.keys() {
+        in_degree.insert(*node_id, 0);
+    }
+    for neighbors in adjacency.values() {
+        for n in neighbors {
+            *in_degree.get_mut(n).unwrap_or(&mut 0) += 1;
+        }
+    }
+
+    let mut queue: VecDeque<_> = roots.iter().copied().collect();
+    let mut sorted_count = 0;
+
+    while let Some(node_id) = queue.pop_front() {
+        sorted_count += 1;
+        if let Some(neighbors) = adjacency.get(&node_id) {
+            for neighbor in neighbors {
+                if let Some(deg) = in_degree.get_mut(neighbor) {
+                    *deg -= 1;
+                    if *deg == 0 {
+                        queue.push_back(*neighbor);
+                    }
+                }
+            }
+        }
+    }
+
+    if sorted_count != snarl.node_ids().count() {
+        return Some("Graph contains a cycle".to_string());
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

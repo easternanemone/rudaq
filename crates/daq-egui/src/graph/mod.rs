@@ -15,8 +15,10 @@ pub use nodes::ExperimentNode;
 pub use serialization::{
     load_graph, save_graph, GraphFile, GraphMetadata, GRAPH_FILE_EXTENSION, GRAPH_FILE_FILTER,
 };
-pub use translation::{GraphPlan, TranslationError, detect_cycles};
-pub use validation::{input_pin_type, output_pin_type, validate_connection, PinType};
+pub use translation::{detect_cycles, GraphPlan, TranslationError};
+pub use validation::{
+    input_pin_type, output_pin_type, validate_connection, validate_graph_structure, PinType,
+};
 pub use viewer::ExperimentViewer;
 
 // Re-export Snarl for convenience
