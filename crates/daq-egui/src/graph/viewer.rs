@@ -1,33 +1,63 @@
 //! SnarlViewer implementation for ExperimentNode.
 
+use std::collections::HashMap;
+
 use egui_snarl::ui::{PinInfo, SnarlViewer};
-use egui_snarl::{InPin, OutPin, Snarl};
+use egui_snarl::{InPin, NodeId, OutPin, Snarl};
 
 use super::nodes::ExperimentNode;
 use super::validation::{output_pin_type, validate_connection, PinType};
 
 /// Viewer for rendering experiment nodes in the graph editor.
+#[derive(Default)]
 pub struct ExperimentViewer {
     /// Last validation error (shown as toast/status)
     pub last_error: Option<String>,
+    /// Per-node validation errors
+    pub node_errors: HashMap<NodeId, String>,
 }
 
 impl ExperimentViewer {
     pub fn new() -> Self {
-        Self { last_error: None }
+        Self {
+            last_error: None,
+            node_errors: HashMap::new(),
+        }
     }
 
     /// Clears the last error if any.
+    #[allow(dead_code)]
     pub fn clear_error(&mut self) {
         self.last_error = None;
     }
-}
 
-impl Default for ExperimentViewer {
-    fn default() -> Self {
-        Self::new()
+    /// Set a validation error for a specific node.
+    pub fn set_node_error(&mut self, node_id: NodeId, error: String) {
+        self.node_errors.insert(node_id, error);
+    }
+
+    /// Clear the validation error for a specific node.
+    pub fn clear_node_error(&mut self, node_id: NodeId) {
+        self.node_errors.remove(&node_id);
+    }
+
+    /// Clear all validation errors.
+    pub fn clear_all_errors(&mut self) {
+        self.node_errors.clear();
+        self.last_error = None;
+    }
+
+    /// Get the number of nodes with errors.
+    pub fn error_count(&self) -> usize {
+        self.node_errors.len()
+    }
+
+    /// Check if there are any validation errors.
+    pub fn has_errors(&self) -> bool {
+        !self.node_errors.is_empty()
     }
 }
+
 
 impl SnarlViewer<ExperimentNode> for ExperimentViewer {
     fn title(&mut self, node: &ExperimentNode) -> String {

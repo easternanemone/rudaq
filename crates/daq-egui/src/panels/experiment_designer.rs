@@ -154,6 +154,15 @@ impl ExperimentDesignerPanel {
 
         ui.separator();
 
+        // Run validation each frame (cheap check)
+        self.validate_graph();
+
+        // Bottom status bar with validation status
+        egui::TopBottomPanel::bottom("validation_status_bar")
+            .show_inside(ui, |ui| {
+                self.show_validation_status_bar(ui);
+            });
+
         // Three-panel layout: Palette | Canvas | Inspector
         egui::SidePanel::left("node_palette_panel")
             .resizable(true)
@@ -197,6 +206,15 @@ impl ExperimentDesignerPanel {
         ui.separator();
 
         if let Some(node_id) = self.selected_node {
+            // Show validation error for selected node prominently
+            if let Some(error) = self.viewer.node_errors.get(&node_id) {
+                ui.group(|ui| {
+                    ui.colored_label(egui::Color32::from_rgb(255, 100, 100), "Validation Error:");
+                    ui.label(error);
+                });
+                ui.add_space(8.0);
+            }
+
             if let Some(node) = self.snarl.get_node(node_id) {
                 // Clone the node before passing to inspector
                 let node_clone = node.clone();
@@ -482,5 +500,92 @@ impl ExperimentDesignerPanel {
     /// Set a status message that auto-fades after 3 seconds.
     fn set_status(&mut self, msg: impl Into<String>) {
         self.status_message = Some((msg.into(), std::time::Instant::now()));
+    }
+
+    // ========== Validation ==========
+
+    /// Show validation status bar at the bottom of the panel.
+    fn show_validation_status_bar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            let error_count = self.viewer.error_count();
+            if error_count > 0 {
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 100, 100),
+                    format!(
+                        "{} validation error{}",
+                        error_count,
+                        if error_count == 1 { "" } else { "s" }
+                    ),
+                );
+
+                // Show first error as summary
+                if let Some((node_id, error)) = self.viewer.node_errors.iter().next() {
+                    if let Some(node) = self.snarl.get_node(*node_id) {
+                        ui.label(format!("- {}: {}", node.node_name(), error));
+                    }
+                }
+            } else {
+                ui.colored_label(
+                    egui::Color32::from_rgb(100, 200, 100),
+                    "Graph valid",
+                );
+            }
+        });
+    }
+
+    /// Validate the entire graph and update error display.
+    fn validate_graph(&mut self) {
+        self.viewer.clear_all_errors();
+
+        // Collect node IDs and validation results to avoid borrowing issues
+        let errors: Vec<_> = self
+            .snarl
+            .node_ids()
+            .filter_map(|(node_id, node)| {
+                self.validate_node(node).map(|error| (node_id, error))
+            })
+            .collect();
+
+        // Apply errors after iteration
+        for (node_id, error) in errors {
+            self.viewer.set_node_error(node_id, error);
+        }
+    }
+
+    /// Validate a single node, returning an error message if invalid.
+    fn validate_node(&self, node: &ExperimentNode) -> Option<String> {
+        match node {
+            ExperimentNode::Scan {
+                actuator, points, ..
+            } => {
+                if actuator.is_empty() {
+                    return Some("Actuator not set".to_string());
+                }
+                if *points == 0 {
+                    return Some("Points must be > 0".to_string());
+                }
+            }
+            ExperimentNode::Acquire { detector, .. } => {
+                if detector.is_empty() {
+                    return Some("Detector not set".to_string());
+                }
+            }
+            ExperimentNode::Move { device, .. } => {
+                if device.is_empty() {
+                    return Some("Device not set".to_string());
+                }
+            }
+            ExperimentNode::Wait { duration_ms } => {
+                if *duration_ms <= 0.0 {
+                    return Some("Duration must be > 0".to_string());
+                }
+            }
+            ExperimentNode::Loop { iterations } => {
+                if *iterations == 0 {
+                    return Some("Iterations must be > 0".to_string());
+                }
+            }
+        }
+        None
     }
 }
