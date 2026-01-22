@@ -54,7 +54,7 @@ use daq_core::parameter::Parameter;
 use futures::future::BoxFuture;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
 use tokio::task::spawn_blocking;
 use tokio_serial::SerialPortBuilderExt;
@@ -347,8 +347,37 @@ impl Newport1830CDriver {
     async fn query(&self, command: &str) -> Result<String> {
         let mut port = self.port.lock().await;
 
+        // Flush any stale data in both BufReader's buffer and underlying stream
+        // This is critical to prevent reading old responses from previous commands
+        {
+            let buf = port.buffer();
+            if !buf.is_empty() {
+                tracing::debug!("Newport 1830-C: clearing {} bytes from BufReader buffer", buf.len());
+                let len = buf.len();
+                port.consume(len);
+            }
+        }
+
+        // Flush any pending data from the underlying serial stream
+        let mut discard_buf = [0u8; 256];
+        loop {
+            match tokio::time::timeout(
+                Duration::from_millis(10),
+                port.get_mut().read(&mut discard_buf),
+            )
+            .await
+            {
+                Ok(Ok(0)) | Err(_) => break, // No data or timeout - buffer is clear
+                Ok(Ok(n)) => {
+                    tracing::debug!("Newport 1830-C: flushed {} stale bytes from stream", n);
+                }
+                Ok(Err(_)) => break,
+            }
+        }
+
         // Write command with LF terminator
         let cmd = format!("{}\n", command);
+        tracing::debug!("Newport 1830-C: sending command {:?}", cmd);
         port.get_mut()
             .write_all(cmd.as_bytes())
             .await
@@ -360,6 +389,7 @@ impl Newport1830CDriver {
             .await
             .context("Newport 1830-C read timeout")??;
 
+        tracing::debug!("Newport 1830-C: raw response {:?}", response);
         Ok(response.trim().to_string())
     }
 
