@@ -986,6 +986,13 @@ impl HardwareService for HardwareServiceImpl {
             .await_with_timeout("read_value", readable.read())
             .await?;
 
+        tracing::debug!(
+            "read_value response: device_id={}, value={}, units='{}'",
+            req.device_id,
+            value,
+            units
+        );
+
         Ok(Response::new(ReadValueResponse {
             success: true,
             error_message: String::new(),
