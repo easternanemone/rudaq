@@ -280,7 +280,9 @@ impl ExperimentDesignerPanel {
                 let node_clone = node.clone();
 
                 // Show inspector and check for modifications
-                if let Some(modified_node) = PropertyInspector::show(ui, &node_clone) {
+                // TODO: Fetch and cache device list from DaqClient for autocomplete
+                let device_ids: Vec<String> = Vec::new(); // Empty for now, falls back to text field
+                if let Some(modified_node) = PropertyInspector::show(ui, &node_clone, &device_ids) {
                     // Create undo-tracked modification
                     self.history.edit(
                         &mut self.snarl,
