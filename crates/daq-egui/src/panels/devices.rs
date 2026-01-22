@@ -948,7 +948,8 @@ impl DevicesPanel {
                     }
 
                     // Update buffer while editing
-                    self.param_edit_buffers.insert(buffer_key.clone(), value.to_string());
+                    self.param_edit_buffers
+                        .insert(buffer_key.clone(), value.to_string());
 
                     // Commit on focus lost or drag stopped
                     if (response.lost_focus() || response.drag_stopped()) && value != original {
@@ -990,7 +991,8 @@ impl DevicesPanel {
                     }
 
                     // Update buffer while editing
-                    self.param_edit_buffers.insert(buffer_key.clone(), value.to_string());
+                    self.param_edit_buffers
+                        .insert(buffer_key.clone(), value.to_string());
 
                     // Commit on focus lost or drag stopped
                     if (response.lost_focus() || response.drag_stopped())

@@ -69,11 +69,11 @@ pub mod mock;
 #[cfg(feature = "serial")]
 pub mod mock_serial;
 
+#[cfg(feature = "comedi")]
+pub use daq_driver_comedi as comedi;
 /// Newport 1830-C power meter (re-exported from daq-driver-newport)
 /// Note: The canonical implementation is in daq-driver-newport crate.
 #[cfg(feature = "newport")]
 pub use daq_driver_newport::newport_1830c;
-#[cfg(feature = "comedi")]
-pub use daq_driver_comedi as comedi;
 #[cfg(feature = "pvcam")]
 pub use daq_driver_pvcam as pvcam;

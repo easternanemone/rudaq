@@ -19,8 +19,8 @@ use tokio::sync::mpsc;
 
 use crate::client::DaqClient;
 use crate::widgets::{
-    offline_notice, DeviceControlWidget, MaiTaiControlPanel, OfflineContext, PowerMeterControlPanel,
-    RotatorControlPanel, StageControlPanel,
+    offline_notice, DeviceControlWidget, MaiTaiControlPanel, OfflineContext,
+    PowerMeterControlPanel, RotatorControlPanel, StageControlPanel,
 };
 use daq_proto::daq::DeviceInfo;
 
@@ -29,7 +29,6 @@ const DEVICE_STATE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 
 /// Maximum concurrent device state requests (prevents overwhelming the daemon)
 const MAX_CONCURRENT_REQUESTS: usize = 8;
-
 
 /// Device state information
 #[derive(Debug, Clone, Default)]
@@ -204,7 +203,9 @@ impl InstrumentManagerPanel {
     /// Take a pending pop-out request (if any).
     /// Called by DaqApp after each ui() call to handle pop-out actions.
     pub fn take_pop_out_request(&mut self) -> Option<PopOutRequest> {
-        self.pending_pop_out.take().map(|device_info| PopOutRequest { device_info })
+        self.pending_pop_out
+            .take()
+            .map(|device_info| PopOutRequest { device_info })
     }
 
     /// Poll for async results
@@ -1323,7 +1324,11 @@ impl InstrumentManagerPanel {
         // Pop Out button header
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("⬜ Pop Out").on_hover_text("Open in separate dockable panel").clicked() {
+                if ui
+                    .button("⬜ Pop Out")
+                    .on_hover_text("Open in separate dockable panel")
+                    .clicked()
+                {
                     self.pending_pop_out = Some(device.clone());
                 }
             });

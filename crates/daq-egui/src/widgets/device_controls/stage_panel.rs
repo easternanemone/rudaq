@@ -280,9 +280,8 @@ impl DeviceControlWidget for StageControlPanel {
 
         ui.horizontal(|ui| {
             ui.label("Target:");
-            let response = ui.add(
-                egui::TextEdit::singleline(&mut self.position_input).desired_width(80.0),
-            );
+            let response =
+                ui.add(egui::TextEdit::singleline(&mut self.position_input).desired_width(80.0));
 
             if ui.add_enabled(!is_busy, egui::Button::new("Go")).clicked() {
                 if let Ok(pos) = self.position_input.parse::<f64>() {
@@ -329,7 +328,10 @@ impl DeviceControlWidget for StageControlPanel {
 
         // Action buttons
         ui.horizontal(|ui| {
-            if ui.add_enabled(!is_busy, egui::Button::new("🏠 Home")).clicked() {
+            if ui
+                .add_enabled(!is_busy, egui::Button::new("🏠 Home"))
+                .clicked()
+            {
                 self.home(client.as_deref_mut(), runtime, &device_id);
             }
 

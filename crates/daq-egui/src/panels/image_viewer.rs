@@ -1351,7 +1351,8 @@ impl ImageViewerPanel {
 
                 // Update buffer immediately for visual feedback
                 if val != original {
-                    self.param_edit_buffers.insert(buffer_key.clone(), val.to_string());
+                    self.param_edit_buffers
+                        .insert(buffer_key.clone(), val.to_string());
                 }
 
                 // Commit on release or focus lost
@@ -1396,7 +1397,8 @@ impl ImageViewerPanel {
                 }
 
                 if (val - original).abs() > f64::EPSILON {
-                    self.param_edit_buffers.insert(buffer_key.clone(), val.to_string());
+                    self.param_edit_buffers
+                        .insert(buffer_key.clone(), val.to_string());
                 }
 
                 let current_float: f64 = param.current_value.parse().unwrap_or(0.0);

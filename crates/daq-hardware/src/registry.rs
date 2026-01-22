@@ -1548,8 +1548,9 @@ impl DeviceRegistry {
             #[cfg(feature = "spectra_physics")]
             DriverType::MaiTai { port } => {
                 // Use new_async() to validate device identity on connection
-                let driver =
-                    Arc::new(daq_driver_spectra_physics::MaiTaiDriver::new_async_default(&port).await?);
+                let driver = Arc::new(
+                    daq_driver_spectra_physics::MaiTaiDriver::new_async_default(&port).await?,
+                );
                 Ok(RegisteredDevice {
                     config,
                     movable: None,
@@ -1603,24 +1604,20 @@ impl DeviceRegistry {
 
             // Handle disabled features
             #[cfg(all(not(feature = "thorlabs"), feature = "serial"))]
-            DriverType::Ell14 { .. } => Err(anyhow!(
-                "ELL14 driver requires 'thorlabs' feature"
-            )),
+            DriverType::Ell14 { .. } => Err(anyhow!("ELL14 driver requires 'thorlabs' feature")),
 
             #[cfg(all(not(feature = "newport"), feature = "serial"))]
-            DriverType::Newport1830C { .. } => Err(anyhow!(
-                "Newport 1830-C driver requires 'newport' feature"
-            )),
+            DriverType::Newport1830C { .. } => {
+                Err(anyhow!("Newport 1830-C driver requires 'newport' feature"))
+            }
 
             #[cfg(all(not(feature = "spectra_physics"), feature = "serial"))]
-            DriverType::MaiTai { .. } => Err(anyhow!(
-                "MaiTai driver requires 'spectra_physics' feature"
-            )),
+            DriverType::MaiTai { .. } => {
+                Err(anyhow!("MaiTai driver requires 'spectra_physics' feature"))
+            }
 
             #[cfg(all(not(feature = "newport"), feature = "serial"))]
-            DriverType::Esp300 { .. } => Err(anyhow!(
-                "ESP300 driver requires 'newport' feature"
-            )),
+            DriverType::Esp300 { .. } => Err(anyhow!("ESP300 driver requires 'newport' feature")),
         }
     }
 

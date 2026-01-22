@@ -203,7 +203,12 @@ impl MaiTaiControlPanel {
         device_id: &str,
         enabled: bool,
     ) {
-        tracing::info!("[GUI] set_emission called: device={}, enabled={}, client_present={}", device_id, enabled, client.is_some());
+        tracing::info!(
+            "[GUI] set_emission called: device={}, enabled={}, client_present={}",
+            device_id,
+            enabled,
+            client.is_some()
+        );
         let Some(client) = client else {
             tracing::warn!("[GUI] set_emission: NO CLIENT - cannot send RPC!");
             self.error = Some("Not connected".to_string());
@@ -355,8 +360,7 @@ impl DeviceControlWidget for MaiTaiControlPanel {
 
                     // Single button that toggles state
                     let button_text = if is_on { "🟢 ON" } else { "⚫ OFF" };
-                    let button = egui::Button::new(button_text)
-                        .min_size(egui::vec2(80.0, 24.0));
+                    let button = egui::Button::new(button_text).min_size(egui::vec2(80.0, 24.0));
 
                     if ui.add(button).clicked() {
                         let new_state = !is_on;
@@ -374,8 +378,7 @@ impl DeviceControlWidget for MaiTaiControlPanel {
 
                     // Single button that toggles state
                     let button_text = if is_open { "🟡 OPEN" } else { "⬛ CLOSED" };
-                    let button = egui::Button::new(button_text)
-                        .min_size(egui::vec2(100.0, 24.0));
+                    let button = egui::Button::new(button_text).min_size(egui::vec2(100.0, 24.0));
 
                     if ui.add(button).clicked() {
                         let new_state = !is_open;

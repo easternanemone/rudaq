@@ -391,7 +391,12 @@ impl MaiTaiDriver {
 
         // Bit 0 indicates laser on state
         let is_on = (status & 1) != 0;
-        log::info!("MaiTai: status byte = {}, bit0 = {}, is_on = {}", status, status & 1, is_on);
+        log::info!(
+            "MaiTai: status byte = {}, bit0 = {}, is_on = {}",
+            status,
+            status & 1,
+            is_on
+        );
         Ok(is_on)
     }
 
@@ -462,7 +467,8 @@ impl MaiTaiDriver {
         tokio::time::sleep(Duration::from_millis(20)).await;
         loop {
             let mut discard = String::new();
-            match tokio::time::timeout(Duration::from_millis(50), port.read_line(&mut discard)).await
+            match tokio::time::timeout(Duration::from_millis(50), port.read_line(&mut discard))
+                .await
             {
                 Ok(Ok(n)) if n > 0 => {
                     log::debug!("MaiTai: discarded stale response: {:?}", discard.trim());

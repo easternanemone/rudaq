@@ -216,7 +216,9 @@ pub enum Panel {
     ImageViewer,
     Logs,
     /// Dockable device control panel (uses id to lookup device_id in app state)
-    DeviceControl { id: usize },
+    DeviceControl {
+        id: usize,
+    },
 }
 
 impl DaqApp {
@@ -287,52 +289,71 @@ impl DaqApp {
         let (health_tx, health_rx) = mpsc::channel(4);
 
         // Load persisted device panel info
-        let (device_panel_info, next_device_panel_id, docked_maitai_panels, docked_power_meter_panels, docked_rotator_panels, docked_stage_panels) =
-            if let Some(storage) = cc.storage {
-                let persisted: HashMap<usize, PersistedPanelInfo> =
-                    eframe::get_value(storage, "device_panel_info").unwrap_or_default();
-                let next_id: usize =
-                    eframe::get_value(storage, "next_device_panel_id").unwrap_or(0);
+        let (
+            device_panel_info,
+            next_device_panel_id,
+            docked_maitai_panels,
+            docked_power_meter_panels,
+            docked_rotator_panels,
+            docked_stage_panels,
+        ) = if let Some(storage) = cc.storage {
+            let persisted: HashMap<usize, PersistedPanelInfo> =
+                eframe::get_value(storage, "device_panel_info").unwrap_or_default();
+            let next_id: usize = eframe::get_value(storage, "next_device_panel_id").unwrap_or(0);
 
-                // Convert persisted panels to runtime structures and create panel widgets
-                let mut device_info_map = HashMap::new();
-                let mut maitai = HashMap::new();
-                let mut power_meter = HashMap::new();
-                let mut rotator = HashMap::new();
-                let mut stage = HashMap::new();
+            // Convert persisted panels to runtime structures and create panel widgets
+            let mut device_info_map = HashMap::new();
+            let mut maitai = HashMap::new();
+            let mut power_meter = HashMap::new();
+            let mut rotator = HashMap::new();
+            let mut stage = HashMap::new();
 
-                for (id, persisted_info) in persisted {
-                    let device_info: DeviceInfo = persisted_info.clone().into();
+            for (id, persisted_info) in persisted {
+                let device_info: DeviceInfo = persisted_info.clone().into();
 
-                    // Create the appropriate panel widget based on capability flags
-                    if device_info.is_emission_controllable
-                        || device_info.is_shutter_controllable
-                        || device_info.is_wavelength_tunable
+                // Create the appropriate panel widget based on capability flags
+                if device_info.is_emission_controllable
+                    || device_info.is_shutter_controllable
+                    || device_info.is_wavelength_tunable
+                {
+                    maitai.insert(id, MaiTaiControlPanel::default());
+                } else if device_info.is_readable && !device_info.is_movable {
+                    power_meter.insert(id, PowerMeterControlPanel::default());
+                } else if device_info.is_movable {
+                    let driver_lower = device_info.driver_type.to_lowercase();
+                    if driver_lower.contains("ell14")
+                        || driver_lower.contains("rotator")
+                        || driver_lower.contains("thorlabs")
                     {
-                        maitai.insert(id, MaiTaiControlPanel::default());
-                    } else if device_info.is_readable && !device_info.is_movable {
-                        power_meter.insert(id, PowerMeterControlPanel::default());
-                    } else if device_info.is_movable {
-                        let driver_lower = device_info.driver_type.to_lowercase();
-                        if driver_lower.contains("ell14")
-                            || driver_lower.contains("rotator")
-                            || driver_lower.contains("thorlabs")
-                        {
-                            rotator.insert(id, RotatorControlPanel::default());
-                        } else {
-                            stage.insert(id, StageControlPanel::default());
-                        }
+                        rotator.insert(id, RotatorControlPanel::default());
                     } else {
                         stage.insert(id, StageControlPanel::default());
                     }
-
-                    device_info_map.insert(id, DevicePanelInfo { device_info });
+                } else {
+                    stage.insert(id, StageControlPanel::default());
                 }
 
-                (device_info_map, next_id, maitai, power_meter, rotator, stage)
-            } else {
-                (HashMap::new(), 0, HashMap::new(), HashMap::new(), HashMap::new(), HashMap::new())
-            };
+                device_info_map.insert(id, DevicePanelInfo { device_info });
+            }
+
+            (
+                device_info_map,
+                next_id,
+                maitai,
+                power_meter,
+                rotator,
+                stage,
+            )
+        } else {
+            (
+                HashMap::new(),
+                0,
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+            )
+        };
 
         // Initialize dock state and filter out orphaned DeviceControl panels
         let mut dock_state = if let Some(storage) = cc.storage {
@@ -359,7 +380,9 @@ impl DaqApp {
             .collect();
 
         for id in orphaned_ids {
-            dock_state.retain_tabs(|tab| !matches!(tab, Panel::DeviceControl { id: panel_id } if *panel_id == id));
+            dock_state.retain_tabs(
+                |tab| !matches!(tab, Panel::DeviceControl { id: panel_id } if *panel_id == id),
+            );
         }
 
         Self {
@@ -1373,33 +1396,13 @@ impl<'a> DaqTabViewer<'a> {
         // Render the appropriate panel widget based on which HashMap contains the panel
         // (panel type was determined at creation time using capability flags)
         if let Some(panel) = self.app.docked_maitai_panels.get_mut(&panel_id) {
-            panel.ui(
-                ui,
-                device_info,
-                self.app.client.as_mut(),
-                &self.app.runtime,
-            );
+            panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
         } else if let Some(panel) = self.app.docked_power_meter_panels.get_mut(&panel_id) {
-            panel.ui(
-                ui,
-                device_info,
-                self.app.client.as_mut(),
-                &self.app.runtime,
-            );
+            panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
         } else if let Some(panel) = self.app.docked_rotator_panels.get_mut(&panel_id) {
-            panel.ui(
-                ui,
-                device_info,
-                self.app.client.as_mut(),
-                &self.app.runtime,
-            );
+            panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
         } else if let Some(panel) = self.app.docked_stage_panels.get_mut(&panel_id) {
-            panel.ui(
-                ui,
-                device_info,
-                self.app.client.as_mut(),
-                &self.app.runtime,
-            );
+            panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
         }
     }
 }

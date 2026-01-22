@@ -310,7 +310,10 @@ impl Newport1830CDriver {
         {
             let buf = port.buffer();
             if !buf.is_empty() {
-                tracing::debug!("Newport 1830-C: clearing {} bytes from BufReader buffer", buf.len());
+                tracing::debug!(
+                    "Newport 1830-C: clearing {} bytes from BufReader buffer",
+                    buf.len()
+                );
                 let len = buf.len();
                 port.consume(len);
             }

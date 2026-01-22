@@ -274,16 +274,10 @@ impl DeviceControlWidget for RotatorControlPanel {
             {
                 self.move_relative(client.as_deref_mut(), runtime, &device_id, -10.0);
             }
-            if ui
-                .add_enabled(!is_busy, egui::Button::new("-1°"))
-                .clicked()
-            {
+            if ui.add_enabled(!is_busy, egui::Button::new("-1°")).clicked() {
                 self.move_relative(client.as_deref_mut(), runtime, &device_id, -1.0);
             }
-            if ui
-                .add_enabled(!is_busy, egui::Button::new("+1°"))
-                .clicked()
-            {
+            if ui.add_enabled(!is_busy, egui::Button::new("+1°")).clicked() {
                 self.move_relative(client.as_deref_mut(), runtime, &device_id, 1.0);
             }
             if ui
@@ -347,7 +341,10 @@ impl DeviceControlWidget for RotatorControlPanel {
 
         // Action buttons
         ui.horizontal(|ui| {
-            if ui.add_enabled(!is_busy, egui::Button::new("🏠 Home")).clicked() {
+            if ui
+                .add_enabled(!is_busy, egui::Button::new("🏠 Home"))
+                .clicked()
+            {
                 self.home(client.as_deref_mut(), runtime, &device_id);
             }
 
