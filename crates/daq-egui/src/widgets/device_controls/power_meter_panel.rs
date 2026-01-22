@@ -194,6 +194,7 @@ impl DeviceControlWidget for PowerMeterControlPanel {
         // Initial fetch
         if !self.initial_fetch_done && client.is_some() {
             self.initial_fetch_done = true;
+            tracing::info!("[PowerMeter] Initial fetch for device={}", device_id);
             self.read_power(client.as_deref_mut(), runtime, &device_id);
             self.fetch_wavelength(client.as_deref_mut(), runtime, &device_id);
         }
@@ -207,7 +208,10 @@ impl DeviceControlWidget for PowerMeterControlPanel {
                 .unwrap_or(true);
 
         if should_refresh && client.is_some() {
+            tracing::debug!("[PowerMeter] Auto-refresh read for device={}", device_id);
             self.read_power(client.as_deref_mut(), runtime, &device_id);
+        } else if should_refresh && client.is_none() {
+            tracing::warn!("[PowerMeter] Auto-refresh skipped: no client for device={}", device_id);
         }
 
         // Header

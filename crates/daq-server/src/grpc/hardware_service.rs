@@ -965,6 +965,7 @@ impl HardwareService for HardwareServiceImpl {
         request: Request<ReadValueRequest>,
     ) -> Result<Response<ReadValueResponse>, Status> {
         let req = request.into_inner();
+        tracing::debug!("read_value called for device_id={}", req.device_id);
 
         // Extract Arc and metadata without lock before awaiting hardware
         let readable = self.registry.get_readable(&req.device_id);

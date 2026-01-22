@@ -136,3 +136,4 @@ docs/MORPH_*.md
 .tmp
 AGENTS.md
 whats-next.md
+.grepai/
