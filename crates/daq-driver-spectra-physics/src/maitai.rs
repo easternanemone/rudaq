@@ -330,8 +330,10 @@ impl MaiTaiDriver {
     ///
     /// Safety: Refuses to enable emission if shutter is open
     pub async fn set_emission(&self, on: bool) -> Result<()> {
+        log::info!("MaiTai: set_emission({})", on);
         if on {
             let shutter_result = self.shutter().await;
+            log::info!("MaiTai: shutter query result = {:?}", shutter_result);
             let shutter_open = shutter_result.as_ref().map(|&v| v).unwrap_or(true);
             if shutter_open {
                 log::warn!("SAFETY: Emission enable refused - shutter is open or state unknown");
@@ -341,6 +343,7 @@ impl MaiTaiDriver {
             }
         }
         let cmd = if on { "ON" } else { "OFF" };
+        log::info!("MaiTai: sending command '{}'", cmd);
         self.send_command(cmd).await
     }
 
@@ -349,7 +352,10 @@ impl MaiTaiDriver {
     /// The MaiTai uses *STB? to query the product status byte.
     /// Bit 0 indicates laser on (1) or off (0).
     pub async fn emission(&self) -> Result<bool> {
+        log::info!("MaiTai: querying emission state via *STB?");
         let response = self.query("*STB?").await?;
+        log::info!("MaiTai: *STB? response = {:?}", response);
+
         let status: i32 = response
             .trim()
             .parse()
@@ -357,6 +363,7 @@ impl MaiTaiDriver {
 
         // Bit 0 indicates laser on state
         let is_on = (status & 1) != 0;
+        log::info!("MaiTai: status byte = {}, bit0 = {}, is_on = {}", status, status & 1, is_on);
         Ok(is_on)
     }
 
