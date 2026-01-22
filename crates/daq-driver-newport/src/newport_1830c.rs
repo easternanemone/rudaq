@@ -306,6 +306,7 @@ impl Newport1830CDriver {
         let mut port = self.port.lock().await;
 
         let cmd = format!("{}\n", command);
+        tracing::debug!("Newport 1830-C: sending command {:?}", cmd);
         port.get_mut()
             .write_all(cmd.as_bytes())
             .await
@@ -316,6 +317,7 @@ impl Newport1830CDriver {
             .await
             .context("Newport 1830-C read timeout")??;
 
+        tracing::debug!("Newport 1830-C: raw response {:?}", response);
         Ok(response.trim().to_string())
     }
 
