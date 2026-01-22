@@ -965,15 +965,10 @@ impl HardwareService for HardwareServiceImpl {
         request: Request<ReadValueRequest>,
     ) -> Result<Response<ReadValueResponse>, Status> {
         let req = request.into_inner();
-        tracing::info!("read_value called for device_id={}", req.device_id);
+        tracing::debug!("read_value called for device_id={}", req.device_id);
 
         // Extract Arc and metadata without lock before awaiting hardware
         let readable = self.registry.get_readable(&req.device_id);
-        tracing::info!(
-            "read_value: device_id={} readable={}",
-            req.device_id,
-            if readable.is_some() { "Some" } else { "None" }
-        );
         let units = self
             .registry
             .get_device_info(&req.device_id)
@@ -981,18 +976,15 @@ impl HardwareService for HardwareServiceImpl {
             .unwrap_or_default();
 
         let readable = readable.ok_or_else(|| {
-            tracing::error!("read_value: device '{}' readable is None!", req.device_id);
             Status::not_found(format!(
                 "Device '{}' not found or not readable",
                 req.device_id
             ))
         })?;
 
-        tracing::info!("read_value: calling readable.read() for device={}", req.device_id);
         let value = self
             .await_with_timeout("read_value", readable.read())
             .await?;
-        tracing::info!("read_value: got value={} for device={}", value, req.device_id);
 
         Ok(Response::new(ReadValueResponse {
             success: true,
