@@ -641,24 +641,57 @@ impl ExperimentDesignerPanel {
                     return Some("Points must be > 0".to_string());
                 }
             }
-            ExperimentNode::Acquire { detector, .. } => {
-                if detector.is_empty() {
+            ExperimentNode::Acquire(config) => {
+                if config.detector.is_empty() {
                     return Some("Detector not set".to_string());
                 }
+                if config.frame_count == 0 {
+                    return Some("Frame count must be > 0".to_string());
+                }
             }
-            ExperimentNode::Move { device, .. } => {
-                if device.is_empty() {
+            ExperimentNode::Move(config) => {
+                if config.device.is_empty() {
                     return Some("Device not set".to_string());
                 }
             }
-            ExperimentNode::Wait { duration_ms } => {
-                if *duration_ms <= 0.0 {
-                    return Some("Duration must be > 0".to_string());
+            ExperimentNode::Wait { condition } => {
+                use crate::graph::nodes::WaitCondition;
+                match condition {
+                    WaitCondition::Duration { milliseconds } => {
+                        if *milliseconds <= 0.0 {
+                            return Some("Duration must be > 0".to_string());
+                        }
+                    }
+                    WaitCondition::Threshold { timeout_ms, .. } => {
+                        if *timeout_ms <= 0.0 {
+                            return Some("Timeout must be > 0".to_string());
+                        }
+                    }
+                    WaitCondition::Stability { timeout_ms, .. } => {
+                        if *timeout_ms <= 0.0 {
+                            return Some("Timeout must be > 0".to_string());
+                        }
+                    }
                 }
             }
-            ExperimentNode::Loop { iterations } => {
-                if *iterations == 0 {
-                    return Some("Iterations must be > 0".to_string());
+            ExperimentNode::Loop(config) => {
+                use crate::graph::nodes::LoopTermination;
+                match &config.termination {
+                    LoopTermination::Count { iterations } => {
+                        if *iterations == 0 {
+                            return Some("Iterations must be > 0".to_string());
+                        }
+                    }
+                    LoopTermination::Condition { max_iterations, .. } => {
+                        if *max_iterations == 0 {
+                            return Some("Max iterations must be > 0".to_string());
+                        }
+                    }
+                    LoopTermination::Infinite { max_iterations } => {
+                        if *max_iterations == 0 {
+                            return Some("Max iterations must be > 0".to_string());
+                        }
+                    }
                 }
             }
         }
@@ -916,42 +949,48 @@ impl ExperimentDesignerPanel {
                         ));
                     }
                 }
-                ExperimentNode::Acquire {
-                    detector,
-                    duration_ms,
-                } => {
-                    if !detector.is_empty() {
+                ExperimentNode::Acquire(config) => {
+                    if !config.detector.is_empty() {
+                        let exposure = config.exposure_ms.unwrap_or(100.0);
                         params.push(EditableParameter::float_ranged(
-                            detector,
+                            &config.detector,
                             "exposure_ms",
-                            &format!("{} Exposure (ms)", detector),
-                            *duration_ms,
+                            &format!("{} Exposure (ms)", config.detector),
+                            exposure,
                             1.0,
                             10000.0,
                         ));
                     }
                 }
-                ExperimentNode::Move { device, position } => {
-                    if !device.is_empty() {
+                ExperimentNode::Move(config) => {
+                    if !config.device.is_empty() {
                         params.push(EditableParameter::float(
-                            device,
+                            &config.device,
                             "position",
-                            &format!("{} Position", device),
-                            *position,
+                            &format!("{} Position", config.device),
+                            config.position,
                         ));
                     }
                 }
-                ExperimentNode::Wait { duration_ms } => {
-                    params.push(EditableParameter::float_ranged(
-                        "",
-                        "wait_duration",
-                        "Wait Duration (ms)",
-                        *duration_ms,
-                        0.0,
-                        60000.0,
-                    ));
+                ExperimentNode::Wait { condition } => {
+                    use crate::graph::nodes::WaitCondition;
+                    match condition {
+                        WaitCondition::Duration { milliseconds } => {
+                            params.push(EditableParameter::float_ranged(
+                                "",
+                                "wait_duration",
+                                "Wait Duration (ms)",
+                                *milliseconds,
+                                0.0,
+                                60000.0,
+                            ));
+                        }
+                        _ => {
+                            // Condition-based waits not editable at runtime yet
+                        }
+                    }
                 }
-                ExperimentNode::Loop { .. } => {
+                ExperimentNode::Loop(..) => {
                     // Loop iterations not typically editable at runtime
                 }
             }

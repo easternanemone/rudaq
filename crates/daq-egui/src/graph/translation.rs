@@ -237,52 +237,98 @@ fn translate_node(
                 }
             }
         }
-        ExperimentNode::Acquire { detector, duration_ms } => {
-            if !detector.is_empty() {
-                detectors.push(detector.clone());
-                // Set exposure if duration specified
-                if *duration_ms > 0.0 {
-                    commands.push(PlanCommand::Set {
-                        device_id: detector.clone(),
-                        parameter: "exposure_ms".to_string(),
-                        value: duration_ms.to_string(),
+        ExperimentNode::Acquire(config) => {
+            if !config.detector.is_empty() {
+                detectors.push(config.detector.clone());
+                // Set exposure if specified
+                if let Some(exposure_ms) = config.exposure_ms {
+                    if exposure_ms > 0.0 {
+                        commands.push(PlanCommand::Set {
+                            device_id: config.detector.clone(),
+                            parameter: "exposure_ms".to_string(),
+                            value: exposure_ms.to_string(),
+                        });
+                    }
+                }
+                // Generate Trigger+Read for each frame in burst
+                for _ in 0..config.frame_count {
+                    commands.push(PlanCommand::Trigger {
+                        device_id: config.detector.clone(),
+                    });
+                    commands.push(PlanCommand::Read {
+                        device_id: config.detector.clone(),
+                    });
+                    commands.push(PlanCommand::EmitEvent {
+                        stream: "primary".to_string(),
+                        data: HashMap::new(),
+                        positions: HashMap::new(),
+                    });
+                    events += 1;
+                }
+            }
+        }
+        ExperimentNode::Move(config) => {
+            if !config.device.is_empty() {
+                movers.push(config.device.clone());
+                commands.push(PlanCommand::MoveTo {
+                    device_id: config.device.clone(),
+                    position: config.position,
+                });
+                if config.wait_settled {
+                    // TODO: Add WaitSettled command when available
+                    // For now, just add a checkpoint
+                    commands.push(PlanCommand::Checkpoint {
+                        label: format!("node_{:?}_settled", node_id),
                     });
                 }
-                commands.push(PlanCommand::Trigger {
-                    device_id: detector.clone(),
-                });
-                commands.push(PlanCommand::Read {
-                    device_id: detector.clone(),
-                });
-                commands.push(PlanCommand::EmitEvent {
-                    stream: "primary".to_string(),
-                    data: HashMap::new(),
-                    positions: HashMap::new(),
-                });
-                events += 1;
             }
         }
-        ExperimentNode::Move { device, position } => {
-            if !device.is_empty() {
-                movers.push(device.clone());
-                commands.push(PlanCommand::MoveTo {
-                    device_id: device.clone(),
-                    position: *position,
-                });
+        ExperimentNode::Wait { condition } => {
+            use super::nodes::WaitCondition;
+            match condition {
+                WaitCondition::Duration { milliseconds } => {
+                    commands.push(PlanCommand::Wait {
+                        seconds: *milliseconds / 1000.0,
+                    });
+                }
+                WaitCondition::Threshold { timeout_ms, .. } => {
+                    // TODO: Implement threshold-based waits
+                    tracing::warn!("Threshold-based waits not yet implemented, using timeout fallback");
+                    commands.push(PlanCommand::Wait {
+                        seconds: *timeout_ms / 1000.0,
+                    });
+                }
+                WaitCondition::Stability { timeout_ms, .. } => {
+                    // TODO: Implement stability-based waits
+                    tracing::warn!("Stability-based waits not yet implemented, using timeout fallback");
+                    commands.push(PlanCommand::Wait {
+                        seconds: *timeout_ms / 1000.0,
+                    });
+                }
             }
         }
-        ExperimentNode::Wait { duration_ms } => {
-            commands.push(PlanCommand::Wait {
-                seconds: *duration_ms / 1000.0,
-            });
-        }
-        ExperimentNode::Loop { iterations } => {
+        ExperimentNode::Loop(config) => {
+            use super::nodes::LoopTermination;
             // Loop node itself just marks checkpoint
             // Loop body is handled by graph structure (body output connects to loop content)
             // For now, loops are not fully implemented - just add checkpoint
-            commands.push(PlanCommand::Checkpoint {
-                label: format!("node_{:?}_loop_iter_{}", node_id, iterations),
-            });
+            match &config.termination {
+                LoopTermination::Count { iterations } => {
+                    commands.push(PlanCommand::Checkpoint {
+                        label: format!("node_{:?}_loop_count_{}", node_id, iterations),
+                    });
+                }
+                LoopTermination::Condition { max_iterations, .. } => {
+                    commands.push(PlanCommand::Checkpoint {
+                        label: format!("node_{:?}_loop_condition_max_{}", node_id, max_iterations),
+                    });
+                }
+                LoopTermination::Infinite { max_iterations } => {
+                    commands.push(PlanCommand::Checkpoint {
+                        label: format!("node_{:?}_loop_infinite_max_{}", node_id, max_iterations),
+                    });
+                }
+            }
         }
     }
 

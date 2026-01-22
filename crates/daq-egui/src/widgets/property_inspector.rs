@@ -32,22 +32,69 @@ impl PropertyInspector {
                     changed |= Self::float_field(ui, "Stop", stop);
                     changed |= Self::u32_field(ui, "Points", points);
                 }
-                ExperimentNode::Acquire {
-                    detector,
-                    duration_ms,
-                } => {
-                    changed |= Self::text_field(ui, "Detector", detector);
-                    changed |= Self::float_field(ui, "Duration (ms)", duration_ms);
+                ExperimentNode::Acquire(config) => {
+                    changed |= Self::text_field(ui, "Detector", &mut config.detector);
+
+                    // Exposure control with optional override
+                    ui.horizontal(|ui| {
+                        ui.label("Exposure (ms)");
+                        let mut has_override = config.exposure_ms.is_some();
+                        if ui.checkbox(&mut has_override, "Override").changed() {
+                            config.exposure_ms = if has_override { Some(100.0) } else { None };
+                            changed = true;
+                        }
+                        if let Some(ref mut exp) = config.exposure_ms {
+                            changed |= ui.add(egui::DragValue::new(exp).speed(0.1)).changed();
+                        }
+                    });
+
+                    changed |= Self::u32_field(ui, "Frame Count", &mut config.frame_count);
                 }
-                ExperimentNode::Move { device, position } => {
-                    changed |= Self::text_field(ui, "Device", device);
-                    changed |= Self::float_field(ui, "Position", position);
+                ExperimentNode::Move(config) => {
+                    changed |= Self::text_field(ui, "Device", &mut config.device);
+                    changed |= Self::float_field(ui, "Position", &mut config.position);
+
+                    // Mode selection
+                    ui.horizontal(|ui| {
+                        ui.label("Mode");
+                        use crate::graph::nodes::MoveMode;
+                        let before = config.mode.clone();
+                        ui.radio_value(&mut config.mode, MoveMode::Absolute, "Absolute");
+                        ui.radio_value(&mut config.mode, MoveMode::Relative, "Relative");
+                        if config.mode != before {
+                            changed = true;
+                        }
+                    });
+
+                    changed |= Self::checkbox_field(ui, "Wait Settled", &mut config.wait_settled);
                 }
-                ExperimentNode::Wait { duration_ms } => {
-                    changed |= Self::float_field(ui, "Duration (ms)", duration_ms);
+                ExperimentNode::Wait { condition } => {
+                    use crate::graph::nodes::WaitCondition;
+                    match condition {
+                        WaitCondition::Duration { milliseconds } => {
+                            changed |= Self::float_field(ui, "Duration (ms)", milliseconds);
+                        }
+                        WaitCondition::Threshold { .. } => {
+                            ui.label("⚠ Threshold waits: UI coming in Plan 02");
+                        }
+                        WaitCondition::Stability { .. } => {
+                            ui.label("⚠ Stability waits: UI coming in Plan 02");
+                        }
+                    }
                 }
-                ExperimentNode::Loop { iterations } => {
-                    changed |= Self::u32_field(ui, "Iterations", iterations);
+                ExperimentNode::Loop(config) => {
+                    use crate::graph::nodes::LoopTermination;
+                    match &mut config.termination {
+                        LoopTermination::Count { iterations } => {
+                            changed |= Self::u32_field(ui, "Iterations", iterations);
+                        }
+                        LoopTermination::Condition { .. } => {
+                            ui.label("⚠ Condition loops: UI coming in Plan 02");
+                        }
+                        LoopTermination::Infinite { .. } => {
+                            ui.label("⚠ Infinite loops: UI coming in Plan 02");
+                        }
+                    }
                 }
             }
         });
@@ -87,6 +134,14 @@ impl PropertyInspector {
                 *value = v.max(1) as u32;
             }
             changed
+        })
+        .inner
+    }
+
+    fn checkbox_field(ui: &mut Ui, label: &str, value: &mut bool) -> bool {
+        ui.horizontal(|ui| {
+            ui.label(label);
+            ui.checkbox(value, "").changed()
         })
         .inner
     }
