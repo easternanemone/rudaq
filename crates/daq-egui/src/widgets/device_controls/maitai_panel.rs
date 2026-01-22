@@ -335,12 +335,13 @@ impl DeviceControlWidget for MaiTaiControlPanel {
         ui.columns(2, |cols| {
             // Left column: Power gauge
             cols[0].vertical_centered(|ui| {
+                // Note: MaiTai read:pow? returns WATTS, not milliwatts
                 let power = self.state.power_mw.unwrap_or(0.0) as f32;
                 ui.add(
                     Gauge::new(power)
-                        .range(0.0, 5000.0)
+                        .range(0.0, 5.0) // 0-5 Watts typical range
                         .label("Power")
-                        .unit(" mW")
+                        .unit(" W")
                         .size(80.0),
                 );
             });
@@ -532,7 +533,7 @@ impl DeviceControlWidget for MaiTaiControlPanel {
 
                     ui.label("Power:");
                     ui.label(format!(
-                        "{} mW",
+                        "{} W",
                         self.state
                             .power_mw
                             .map(|p| format!("{:.1}", p))
