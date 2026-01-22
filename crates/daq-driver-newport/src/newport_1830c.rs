@@ -69,7 +69,7 @@ static NEWPORT_1830C_CAPABILITIES: &[Capability] = &[
 
 impl DriverFactory for Newport1830CFactory {
     fn driver_type(&self) -> &'static str {
-        "newport_1830c"
+        "newport1830_c"
     }
 
     fn name(&self) -> &'static str {
@@ -418,7 +418,7 @@ mod tests {
     #[test]
     fn test_factory_driver_type() {
         let factory = Newport1830CFactory;
-        assert_eq!(factory.driver_type(), "newport_1830c");
+        assert_eq!(factory.driver_type(), "newport1830_c");
         assert_eq!(factory.name(), "Newport 1830-C Optical Power Meter");
     }
 
