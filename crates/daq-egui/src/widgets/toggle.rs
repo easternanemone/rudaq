@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 
 use egui::{Response, Sense, Ui, Vec2, Widget};
+use tracing;
 
 use crate::layout;
 
@@ -82,7 +83,9 @@ impl Widget for Toggle<'_> {
         let (rect, mut response) = ui.allocate_exact_size(desired_size, Sense::click());
 
         if response.clicked() {
+            let old_value = *self.value;
             *self.value = !*self.value;
+            tracing::info!("[Toggle] CLICKED! old={} new={}", old_value, *self.value);
             response.mark_changed();
         }
 

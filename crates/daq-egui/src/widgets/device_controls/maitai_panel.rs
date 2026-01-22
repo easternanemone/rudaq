@@ -9,6 +9,7 @@
 use egui::Ui;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
+use tracing;
 
 use crate::client::DaqClient;
 use crate::widgets::device_controls::DeviceControlWidget;
@@ -203,10 +204,13 @@ impl MaiTaiControlPanel {
         device_id: &str,
         enabled: bool,
     ) {
+        tracing::info!("[GUI] set_emission called: device={}, enabled={}, client_present={}", device_id, enabled, client.is_some());
         let Some(client) = client else {
+            tracing::warn!("[GUI] set_emission: NO CLIENT - cannot send RPC!");
             self.error = Some("Not connected".to_string());
             return;
         };
+        tracing::info!("[GUI] set_emission: spawning async task to call RPC");
 
         self.actions_in_flight += 1;
         let mut client = client.clone();
@@ -285,6 +289,8 @@ impl DeviceControlWidget for MaiTaiControlPanel {
         mut client: Option<&mut DaqClient>,
         runtime: &Runtime,
     ) {
+        tracing::info!("[GUI] MaiTaiControlPanel::ui called for device={}", device.id);
+
         // Poll for async results
         self.poll_results();
 
@@ -332,29 +338,39 @@ impl DeviceControlWidget for MaiTaiControlPanel {
 
             // Right column: Controls
             cols[1].vertical(|ui| {
-                // Emission toggle
+                // Emission control
                 ui.horizontal(|ui| {
                     ui.label("Emission:");
-                    let mut emission = self.state.emission_enabled.unwrap_or(false);
-                    let emission_label = if emission { "ON" } else { "OFF" };
-                    let response = ui.add(Toggle::new(&mut emission).label(emission_label));
+                    let is_on = self.state.emission_enabled.unwrap_or(false);
 
-                    if response.changed() {
-                        self.set_emission(client.as_deref_mut(), runtime, &device_id, emission);
+                    // Single button that toggles state
+                    let button_text = if is_on { "🟢 ON" } else { "⚫ OFF" };
+                    let button = egui::Button::new(button_text)
+                        .min_size(egui::vec2(80.0, 24.0));
+
+                    if ui.add(button).clicked() {
+                        let new_state = !is_on;
+                        tracing::info!("[GUI] Emission button clicked! Setting to {}", new_state);
+                        self.set_emission(client.as_deref_mut(), runtime, &device_id, new_state);
                     }
                 });
 
                 ui.add_space(4.0);
 
-                // Shutter toggle
+                // Shutter control
                 ui.horizontal(|ui| {
                     ui.label("Shutter:");
-                    let mut shutter = self.state.shutter_open.unwrap_or(false);
-                    let shutter_label = if shutter { "OPEN" } else { "CLOSED" };
-                    let response = ui.add(Toggle::new(&mut shutter).label(shutter_label));
+                    let is_open = self.state.shutter_open.unwrap_or(false);
 
-                    if response.changed() {
-                        self.set_shutter(client.as_deref_mut(), runtime, &device_id, shutter);
+                    // Single button that toggles state
+                    let button_text = if is_open { "🟡 OPEN" } else { "⬛ CLOSED" };
+                    let button = egui::Button::new(button_text)
+                        .min_size(egui::vec2(100.0, 24.0));
+
+                    if ui.add(button).clicked() {
+                        let new_state = !is_open;
+                        tracing::info!("[GUI] Shutter button clicked! Setting to {}", new_state);
+                        self.set_shutter(client.as_deref_mut(), runtime, &device_id, new_state);
                     }
 
                     // Safety indicator - warn if shutter open but emission off
