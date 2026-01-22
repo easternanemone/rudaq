@@ -389,9 +389,10 @@ impl ScanBuilderPanel {
             // Dwell time (shared by both modes)
             ui.horizontal(|ui| {
                 ui.label("Dwell Time:");
-                let response = self.render_validated_field(ui, &mut self.dwell_time_ms.clone(), "dwell_time");
-                if response.changed() {
-                    self.dwell_time_ms = response.text;
+                let has_error = self.validation_errors.contains_key("dwell_time");
+                let changed = Self::render_text_field(ui, &mut self.dwell_time_ms, has_error, self.validation_errors.get("dwell_time"));
+                if changed {
+                    self.validate_form();
                 }
                 ui.label("ms");
             });
@@ -400,49 +401,57 @@ impl ScanBuilderPanel {
 
     /// Render 1D scan parameter inputs
     fn render_1d_parameters(&mut self, ui: &mut egui::Ui) {
+        let mut changed = false;
+
         ui.horizontal(|ui| {
             ui.label("Start:");
-            let response = self.render_validated_field(ui, &mut self.start_1d.clone(), "start_1d");
-            if response.changed() {
-                self.start_1d = response.text;
+            let has_error = self.validation_errors.contains_key("start_1d");
+            if Self::render_text_field(ui, &mut self.start_1d, has_error, self.validation_errors.get("start_1d")) {
+                changed = true;
             }
         });
 
         ui.horizontal(|ui| {
             ui.label("Stop:");
-            let response = self.render_validated_field(ui, &mut self.stop_1d.clone(), "stop_1d");
-            if response.changed() {
-                self.stop_1d = response.text;
+            let has_error = self.validation_errors.contains_key("stop_1d");
+            if Self::render_text_field(ui, &mut self.stop_1d, has_error, self.validation_errors.get("stop_1d")) {
+                changed = true;
             }
         });
 
         ui.horizontal(|ui| {
             ui.label("Points:");
-            let response = self.render_validated_field(ui, &mut self.points_1d.clone(), "points_1d");
-            if response.changed() {
-                self.points_1d = response.text;
+            let has_error = self.validation_errors.contains_key("points_1d");
+            if Self::render_text_field(ui, &mut self.points_1d, has_error, self.validation_errors.get("points_1d")) {
+                changed = true;
             }
         });
+
+        if changed {
+            self.validate_form();
+        }
     }
 
     /// Render 2D scan parameter inputs
     fn render_2d_parameters(&mut self, ui: &mut egui::Ui) {
+        let mut changed = false;
+
         ui.label("X Axis (fast):");
         ui.horizontal(|ui| {
             ui.label("  Start:");
-            let response = self.render_validated_field(ui, &mut self.x_start.clone(), "x_start");
-            if response.changed() {
-                self.x_start = response.text;
+            let has_error = self.validation_errors.contains_key("x_start");
+            if Self::render_text_field(ui, &mut self.x_start, has_error, self.validation_errors.get("x_start")) {
+                changed = true;
             }
             ui.label("Stop:");
-            let response = self.render_validated_field(ui, &mut self.x_stop.clone(), "x_stop");
-            if response.changed() {
-                self.x_stop = response.text;
+            let has_error = self.validation_errors.contains_key("x_stop");
+            if Self::render_text_field(ui, &mut self.x_stop, has_error, self.validation_errors.get("x_stop")) {
+                changed = true;
             }
             ui.label("Points:");
-            let response = self.render_validated_field(ui, &mut self.x_points.clone(), "x_points");
-            if response.changed() {
-                self.x_points = response.text;
+            let has_error = self.validation_errors.contains_key("x_points");
+            if Self::render_text_field(ui, &mut self.x_points, has_error, self.validation_errors.get("x_points")) {
+                changed = true;
             }
         });
 
@@ -451,57 +460,49 @@ impl ScanBuilderPanel {
         ui.label("Y Axis (slow):");
         ui.horizontal(|ui| {
             ui.label("  Start:");
-            let response = self.render_validated_field(ui, &mut self.y_start.clone(), "y_start");
-            if response.changed() {
-                self.y_start = response.text;
+            let has_error = self.validation_errors.contains_key("y_start");
+            if Self::render_text_field(ui, &mut self.y_start, has_error, self.validation_errors.get("y_start")) {
+                changed = true;
             }
             ui.label("Stop:");
-            let response = self.render_validated_field(ui, &mut self.y_stop.clone(), "y_stop");
-            if response.changed() {
-                self.y_stop = response.text;
+            let has_error = self.validation_errors.contains_key("y_stop");
+            if Self::render_text_field(ui, &mut self.y_stop, has_error, self.validation_errors.get("y_stop")) {
+                changed = true;
             }
             ui.label("Points:");
-            let response = self.render_validated_field(ui, &mut self.y_points.clone(), "y_points");
-            if response.changed() {
-                self.y_points = response.text;
+            let has_error = self.validation_errors.contains_key("y_points");
+            if Self::render_text_field(ui, &mut self.y_points, has_error, self.validation_errors.get("y_points")) {
+                changed = true;
             }
         });
+
+        if changed {
+            self.validate_form();
+        }
     }
 
-    /// Render a text field with validation error display
-    fn render_validated_field(&mut self, ui: &mut egui::Ui, text: &mut String, field_name: &'static str) -> ValidatedFieldResponse {
-        let has_error = self.validation_errors.contains_key(field_name);
-
+    /// Render a single text field with optional error styling
+    /// Returns true if the text was modified
+    fn render_text_field(ui: &mut egui::Ui, text: &mut String, has_error: bool, error_msg: Option<&String>) -> bool {
         // Apply red stroke if validation error
         let mut frame = egui::Frame::NONE;
         if has_error {
             frame = frame.stroke(egui::Stroke::new(1.0, egui::Color32::RED));
         }
 
-        let mut new_text = text.clone();
+        let old_text = text.clone();
         let response = frame.show(ui, |ui| {
-            ui.add_sized([80.0, 18.0], egui::TextEdit::singleline(&mut new_text))
+            ui.add_sized([80.0, 18.0], egui::TextEdit::singleline(text))
         });
 
         // Show tooltip on hover if error
         if has_error {
-            if let Some(err) = self.validation_errors.get(field_name) {
+            if let Some(err) = error_msg {
                 response.response.on_hover_text(err);
             }
         }
 
-        let changed = &new_text != text;
-        *text = new_text.clone();
-
-        // Re-validate on change
-        if changed {
-            self.validate_form();
-        }
-
-        ValidatedFieldResponse {
-            text: text.clone(),
-            changed,
-        }
+        text != &old_text
     }
 
     /// Validate the entire form and populate validation_errors
@@ -713,18 +714,6 @@ impl ScanBuilderPanel {
             let result = client.list_devices().await.map_err(|e| e.to_string());
             let _ = tx.send(ActionResult::DevicesLoaded(result)).await;
         });
-    }
-}
-
-/// Helper struct for validated field response
-struct ValidatedFieldResponse {
-    text: String,
-    changed: bool,
-}
-
-impl ValidatedFieldResponse {
-    fn changed(&self) -> bool {
-        self.changed
     }
 }
 
