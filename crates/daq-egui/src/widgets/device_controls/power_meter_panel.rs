@@ -78,6 +78,7 @@ impl PowerMeterControlPanel {
                     Ok(power) => {
                         self.state.power_mw = Some(power);
                         self.state.loading = false;
+                        self.error = None; // Clear any previous error on success
                     }
                     Err(e) => {
                         self.error = Some(format!("Read failed: {}", e));
