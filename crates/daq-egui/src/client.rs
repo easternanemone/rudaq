@@ -93,6 +93,12 @@ use daq_proto::daq::{
     // RunEngine control types
     AbortPlanRequest,
     AbortPlanResponse,
+    EngineStatus,
+    GetEngineStatusRequest,
+    PauseEngineRequest,
+    PauseEngineResponse,
+    ResumeEngineRequest,
+    ResumeEngineResponse,
     StartEngineRequest,
     StartEngineResponse,
     ResumeScanRequest,
@@ -849,6 +855,36 @@ impl DaqClient {
             .abort_plan(AbortPlanRequest {
                 run_uid: run_uid.unwrap_or("").to_string(),
             })
+            .await?;
+        Ok(response.into_inner())
+    }
+
+    /// Pause the RunEngine
+    ///
+    /// # Arguments
+    /// * `defer` - If true, pause at next checkpoint. If false, pause immediately.
+    pub async fn pause_engine(&mut self, defer: bool) -> Result<PauseEngineResponse> {
+        let response = self
+            .run_engine
+            .pause_engine(PauseEngineRequest { defer })
+            .await?;
+        Ok(response.into_inner())
+    }
+
+    /// Resume the paused RunEngine
+    pub async fn resume_engine(&mut self) -> Result<ResumeEngineResponse> {
+        let response = self
+            .run_engine
+            .resume_engine(ResumeEngineRequest {})
+            .await?;
+        Ok(response.into_inner())
+    }
+
+    /// Get the current RunEngine status
+    pub async fn get_engine_status(&mut self) -> Result<EngineStatus> {
+        let response = self
+            .run_engine
+            .get_engine_status(GetEngineStatusRequest {})
             .await?;
         Ok(response.into_inner())
     }
