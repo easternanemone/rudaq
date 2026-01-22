@@ -84,7 +84,7 @@ port = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_
 id = "power_meter"
 name = "Newport 1830-C Power Meter"
 [devices.driver]
-type = "newport1830_c"
+type = "newport_1830c"
 port = "/dev/ttyS0"
 
 # ============================================================================
