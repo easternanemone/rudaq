@@ -928,12 +928,12 @@ impl ExperimentDesignerPanel {
             // Handle modifications
             for result in results {
                 if let RuntimeParameterEditResult::Modified {
-                    device_id,
-                    param_name,
-                    new_value,
+                    ref device_id,
+                    ref param_name,
+                    ref new_value,
                 } = result
                 {
-                    self.send_parameter_update(&device_id, &param_name, &new_value, client, runtime);
+                    self.send_parameter_update(device_id, param_name, new_value, client, runtime);
                 }
             }
         });
