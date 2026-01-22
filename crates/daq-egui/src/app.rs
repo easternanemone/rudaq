@@ -1262,7 +1262,9 @@ impl<'a> TabViewer for DaqTabViewer<'a> {
                     .ui(ui, self.app.client.as_mut(), &self.app.runtime)
             }
             Panel::ExperimentDesigner => {
-                self.app.experiment_designer_panel.ui(ui)
+                self.app
+                    .experiment_designer_panel
+                    .ui(ui, self.app.client.as_mut(), Some(&self.app.runtime))
             }
             Panel::Storage => {
                 self.app

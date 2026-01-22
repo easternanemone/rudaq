@@ -4,15 +4,27 @@ use std::path::PathBuf;
 
 use egui_snarl::ui::{get_selected_nodes, SnarlStyle};
 use egui_snarl::{NodeId, Snarl};
+use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
 use undo::Record;
 
+use crate::client::DaqClient;
 use crate::graph::commands::{AddNodeData, GraphEdit, ModifyNodeData};
 use crate::graph::{
-    load_graph, save_graph, ExperimentNode, ExperimentViewer, GraphFile, GraphMetadata,
-    GRAPH_FILE_EXTENSION,
+    load_graph, save_graph, EngineStateLocal, ExecutionState, ExperimentNode, ExperimentViewer,
+    GraphFile, GraphMetadata, GraphPlan, GRAPH_FILE_EXTENSION,
 };
 use crate::widgets::node_palette::{NodePalette, NodeType};
 use crate::widgets::PropertyInspector;
+use daq_experiment::Plan;
+
+/// Actions from async execution operations
+enum ExecutionAction {
+    Started { run_uid: String, total_events: u32 },
+    StatusUpdate { state: i32, current_event: Option<u32>, total_events: Option<u32> },
+    Completed,
+    Error(String),
+}
 
 /// Panel for visual experiment design using a node graph editor.
 pub struct ExperimentDesignerPanel {
@@ -35,10 +47,18 @@ pub struct ExperimentDesignerPanel {
     metadata: GraphMetadata,
     /// Status message for save/load feedback (message, timestamp)
     status_message: Option<(String, std::time::Instant)>,
+    /// Execution state for visual feedback
+    execution_state: ExecutionState,
+    /// Channel for async action results
+    action_tx: mpsc::Sender<ExecutionAction>,
+    action_rx: mpsc::Receiver<ExecutionAction>,
+    /// Last error message
+    last_error: Option<String>,
 }
 
 impl Default for ExperimentDesignerPanel {
     fn default() -> Self {
+        let (action_tx, action_rx) = mpsc::channel(32);
         Self {
             snarl: Snarl::new(),
             viewer: ExperimentViewer::new(),
@@ -51,6 +71,10 @@ impl Default for ExperimentDesignerPanel {
             current_file: None,
             metadata: GraphMetadata::default(),
             status_message: None,
+            execution_state: ExecutionState::new(),
+            action_tx,
+            action_rx,
+            last_error: None,
         }
     }
 }
@@ -60,7 +84,10 @@ impl ExperimentDesignerPanel {
         Self::default()
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, client: Option<&mut DaqClient>, runtime: Option<&Runtime>) {
+        // Poll for async results
+        self.poll_execution_actions();
+
         // Handle keyboard shortcuts FIRST (before any UI that might consume keys)
         self.handle_keyboard(ui);
 
@@ -100,6 +127,11 @@ impl ExperimentDesignerPanel {
             {
                 self.save_file_dialog();
             }
+
+            ui.separator();
+
+            // Execution controls
+            self.show_execution_toolbar(ui, client, runtime);
 
             ui.separator();
 
@@ -597,5 +629,171 @@ impl ExperimentDesignerPanel {
             }
         }
         None
+    }
+
+    // ========== Execution Controls ==========
+
+    fn show_execution_toolbar(&mut self, ui: &mut egui::Ui, client: Option<&mut DaqClient>, runtime: Option<&Runtime>) {
+        let has_errors = self.viewer.error_count() > 0;
+        let is_running = self.execution_state.is_running();
+        let is_paused = self.execution_state.is_paused();
+        let is_idle = !self.execution_state.is_active();
+
+        // Run button - enabled when idle and no validation errors
+        let can_run = is_idle && !has_errors && self.snarl.node_ids().count() > 0;
+        let run_clicked = ui.add_enabled(can_run, egui::Button::new("▶ Run"))
+            .on_hover_text("Execute the experiment")
+            .clicked();
+
+        // Pause button - enabled when running
+        let pause_clicked = ui.add_enabled(is_running, egui::Button::new("⏸ Pause"))
+            .on_hover_text("Pause at next checkpoint")
+            .clicked();
+
+        // Resume button - enabled when paused
+        let resume_clicked = ui.add_enabled(is_paused, egui::Button::new("▶ Resume"))
+            .on_hover_text("Resume execution")
+            .clicked();
+
+        // Abort button - enabled when running or paused
+        let abort_clicked = ui.add_enabled(is_running || is_paused, egui::Button::new("⏹ Abort"))
+            .on_hover_text("Abort execution")
+            .clicked();
+
+        // Handle button clicks AFTER all UI (only one can be clicked per frame)
+        if run_clicked {
+            self.run_experiment(client, runtime);
+        } else if pause_clicked {
+            self.pause_experiment(client, runtime);
+        } else if resume_clicked {
+            self.resume_experiment(client, runtime);
+        } else if abort_clicked {
+            self.abort_experiment(client, runtime);
+        }
+
+        // Progress display
+        if self.execution_state.is_active() {
+            ui.separator();
+            let progress = self.execution_state.progress();
+            ui.add(egui::ProgressBar::new(progress).show_percentage());
+
+            let status_text = match self.execution_state.engine_state {
+                EngineStateLocal::Running => {
+                    format!("Running: {}/{}", self.execution_state.current_event, self.execution_state.total_events)
+                }
+                EngineStateLocal::Paused => "Paused".to_string(),
+                _ => String::new(),
+            };
+            ui.label(status_text);
+
+            // ETA
+            if let Some(eta) = self.execution_state.estimated_remaining() {
+                ui.label(format!("ETA: {:.0}s", eta.as_secs_f64()));
+            }
+        }
+
+        // Error display
+        if let Some(err) = &self.last_error {
+            ui.colored_label(egui::Color32::RED, err);
+        }
+    }
+
+    fn run_experiment(&mut self, client: Option<&mut DaqClient>, runtime: Option<&Runtime>) {
+        let Some(client) = client else {
+            self.last_error = Some("Not connected to daemon".to_string());
+            return;
+        };
+        let Some(runtime) = runtime else {
+            self.last_error = Some("No runtime available".to_string());
+            return;
+        };
+
+        // Translate graph to plan
+        let plan = match GraphPlan::from_snarl(&self.snarl) {
+            Ok(p) => p,
+            Err(e) => {
+                self.last_error = Some(format!("Translation error: {}", e));
+                return;
+            }
+        };
+
+        let total_events = plan.num_points() as u32;
+        self.last_error = None;
+
+        // Queue and start via gRPC
+        // Note: For now, we use queue_plan with graph_plan type
+        // The server would need to accept GraphPlan or we serialize differently
+        // Simplified: just set state to running for UI feedback
+        self.execution_state.start_execution("pending".to_string(), total_events);
+
+        // TODO: Actually queue plan via gRPC when GraphPlan serialization is implemented
+        // For now, show that execution would start
+        self.set_status("Experiment queued (translation demo)");
+    }
+
+    fn pause_experiment(&mut self, client: Option<&mut DaqClient>, runtime: Option<&Runtime>) {
+        let Some(client) = client else { return; };
+        let Some(runtime) = runtime else { return; };
+
+        let tx = self.action_tx.clone();
+        let mut client = client.clone();
+
+        runtime.spawn(async move {
+            match client.pause_engine(true).await {
+                Ok(_) => { let _ = tx.send(ExecutionAction::StatusUpdate { state: 2, current_event: None, total_events: None }).await; }
+                Err(e) => { let _ = tx.send(ExecutionAction::Error(e.to_string())).await; }
+            }
+        });
+    }
+
+    fn resume_experiment(&mut self, client: Option<&mut DaqClient>, runtime: Option<&Runtime>) {
+        let Some(client) = client else { return; };
+        let Some(runtime) = runtime else { return; };
+
+        let tx = self.action_tx.clone();
+        let mut client = client.clone();
+
+        runtime.spawn(async move {
+            match client.resume_engine().await {
+                Ok(_) => { let _ = tx.send(ExecutionAction::StatusUpdate { state: 1, current_event: None, total_events: None }).await; }
+                Err(e) => { let _ = tx.send(ExecutionAction::Error(e.to_string())).await; }
+            }
+        });
+    }
+
+    fn abort_experiment(&mut self, client: Option<&mut DaqClient>, runtime: Option<&Runtime>) {
+        let Some(client) = client else { return; };
+        let Some(runtime) = runtime else { return; };
+
+        let tx = self.action_tx.clone();
+        let mut client = client.clone();
+
+        runtime.spawn(async move {
+            match client.abort_plan(None).await {
+                Ok(_) => { let _ = tx.send(ExecutionAction::Completed).await; }
+                Err(e) => { let _ = tx.send(ExecutionAction::Error(e.to_string())).await; }
+            }
+        });
+    }
+
+    fn poll_execution_actions(&mut self) {
+        while let Ok(action) = self.action_rx.try_recv() {
+            match action {
+                ExecutionAction::Started { run_uid, total_events } => {
+                    self.execution_state.start_execution(run_uid, total_events);
+                }
+                ExecutionAction::StatusUpdate { state, current_event, total_events } => {
+                    self.execution_state.update_from_status(state, current_event, total_events);
+                }
+                ExecutionAction::Completed => {
+                    self.execution_state.reset();
+                    self.set_status("Execution completed");
+                }
+                ExecutionAction::Error(e) => {
+                    self.last_error = Some(e);
+                    self.execution_state.reset();
+                }
+            }
+        }
     }
 }
