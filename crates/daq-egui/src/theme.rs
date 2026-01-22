@@ -61,6 +61,14 @@ pub fn apply_theme(ctx: &Context, preference: ThemePreference) {
         light_visuals()
     };
     ctx.set_visuals(visuals);
+
+    // Disable debug visualization in debug builds
+    #[cfg(debug_assertions)]
+    ctx.style_mut(|style| {
+        style.debug.debug_on_hover = false;
+        style.debug.debug_on_hover_with_all_modifiers = false;
+        style.debug.show_unaligned = false;
+    });
 }
 
 fn dark_visuals() -> Visuals {
