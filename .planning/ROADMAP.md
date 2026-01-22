@@ -69,11 +69,13 @@ Plans:
   2. User can pause running experiment at checkpoint, modify device parameters, and resume
   3. User sees current progress (step N of M, percentage, estimated time remaining)
   4. Validation errors prevent execution (missing devices, invalid parameters, cycles in graph)
-**Plans**: TBD
+**Plans**: 4 plans in 3 waves
 
 Plans:
-- [ ] 03-01: TBD during plan-phase
-- [ ] 03-02: TBD during plan-phase
+- [ ] 03-01-PLAN.md — DaqClient engine control + graph translation with cycle detection
+- [ ] 03-02-PLAN.md — Execution state tracking + Run/Pause/Resume UI + progress display
+- [ ] 03-03-PLAN.md — Parameter editing while paused
+- [ ] 03-04-PLAN.md — Integration and human verification
 
 ### Phase 4: Sequences and Control Flow
 **Goal**: Scientists can compose multi-step sequences with moves, waits, acquire, and loops
@@ -190,7 +192,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 |-------|----------------|--------|-----------|
 | 1. Form-Based Scan Builder | 3/3 | Complete | 2026-01-22 |
 | 2. Node Graph Editor Core | 4/4 | Complete | 2026-01-22 |
-| 3. Plan Translation and Execution | 0/TBD | Not started | - |
+| 3. Plan Translation and Execution | 0/4 | Planning complete | - |
 | 4. Sequences and Control Flow | 0/TBD | Not started | - |
 | 5. Live Visualization | 0/TBD | Not started | - |
 | 6. Data Management | 0/TBD | Not started | - |
