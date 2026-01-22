@@ -5,15 +5,17 @@
 //! Protocol Overview:
 //! - Format: ASCII command/response over RS-232 or USB-to-USB
 //! - Baud: 115200 (USB-to-USB) or 9600 (RS-232), 8N1, NO flow control
-//! - Command terminator: CR+LF (\r\n)
+//! - Command terminator: LF (\n) only - NOT CR+LF
 //! - Response terminator: LF (\n)
-//! - Commands: WAVELENGTH:xxx, SHUTTER:x, ON/OFF
-//! - Queries: WAVELENGTH?, POWER?, SHUTTER?
+//! - Commands (lowercase): wav xxx, shut x, on, off
+//! - Queries (lowercase): wav?, read:wav?, pow?, shut?, *stb?, *idn?
 //!
 //! Response Formats (actual observed from hardware):
-//! - WAVELENGTH? -> "820nm\n" (value with "nm" suffix)
-//! - SHUTTER? -> "0\n" or "1\n" (0=closed, 1=open)
-//! - POWER? -> value with units
+//! - wav? -> "820nm\n" (commanded wavelength with "nm" suffix)
+//! - read:wav? -> "820nm\n" (current operating wavelength)
+//! - shut? -> "0\n" or "1\n" (0=closed, 1=open)
+//! - read:pow? -> "3.00W\n" (IR power with units)
+//! - *stb? -> status byte (bit 0 = emission on/off)
 //!
 //! # Usage
 //!
@@ -252,7 +254,8 @@ impl MaiTaiDriver {
         wavelength.connect_to_hardware_write(move |target: f64| {
             let port = port.clone();
             Box::pin(async move {
-                let cmd = format!("WAVELENGTH:{}\r\n", target);
+                // Use lowercase command with LF terminator (per MaiTai protocol)
+                let cmd = format!("wav {:.3}\n", target);
                 let mut guard = port.lock().await;
                 guard
                     .get_mut()
@@ -316,20 +319,25 @@ impl MaiTaiDriver {
 
     /// Query laser identity
     pub async fn identify(&self) -> Result<String> {
-        self.query("*IDN?").await
+        self.query("*idn?").await
     }
 
     /// Set shutter state
     ///
-    /// MaiTai uses `SHUTter:1` and `SHUTter:0` with colon separator
+    /// MaiTai uses `shut 1` and `shut 0` (lowercase, space separator)
+    /// C++ sends this command 4x for reliability
     pub async fn set_shutter(&self, open: bool) -> Result<()> {
-        let cmd = if open { "SHUTter:1" } else { "SHUTter:0" };
-        self.send_command(cmd).await
+        let cmd = if open { "shut 1" } else { "shut 0" };
+        // Send command multiple times for reliability (per C++ driver pattern)
+        for _ in 0..4 {
+            self.send_command(cmd).await?;
+        }
+        Ok(())
     }
 
     /// Get shutter state
     pub async fn shutter(&self) -> Result<bool> {
-        let response = self.query("SHUTTER?").await?;
+        let response = self.query("shut?").await?;
         let state: i32 = response
             .trim()
             .parse()
@@ -361,19 +369,20 @@ impl MaiTaiDriver {
                 ));
             }
         }
-        let cmd = if on { "ON" } else { "OFF" };
+        // Use lowercase commands (per MaiTai protocol)
+        let cmd = if on { "on" } else { "off" };
         log::info!("MaiTai: sending command '{}'", cmd);
         self.send_command(cmd).await
     }
 
     /// Query current emission state via status byte
     ///
-    /// The MaiTai uses *STB? to query the product status byte.
+    /// The MaiTai uses *stb? to query the product status byte.
     /// Bit 0 indicates laser on (1) or off (0).
     pub async fn emission(&self) -> Result<bool> {
-        log::info!("MaiTai: querying emission state via *STB?");
-        let response = self.query("*STB?").await?;
-        log::info!("MaiTai: *STB? response = {:?}", response);
+        log::info!("MaiTai: querying emission state via *stb?");
+        let response = self.query("*stb?").await?;
+        log::info!("MaiTai: *stb? response = {:?}", response);
 
         let status: i32 = response
             .trim()
@@ -388,7 +397,8 @@ impl MaiTaiDriver {
 
     /// Query current wavelength setting
     pub async fn query_wavelength(&self) -> Result<f64> {
-        let response = self.query("WAVELENGTH?").await?;
+        // Use read:wav? to get current operating wavelength (per C++ GetInfo pattern)
+        let response = self.query("read:wav?").await?;
         // Response format: "820nm" - strip "nm" suffix if present
         let clean = response
             .trim()
@@ -406,7 +416,8 @@ impl MaiTaiDriver {
 
     /// Query power measurement
     async fn query_power(&self) -> Result<f64> {
-        let response = self.query("POWER?").await?;
+        // Use read:pow? to get current IR power (per C++ pattern)
+        let response = self.query("read:pow?").await?;
         // Response format may include units
         let clean = response.trim().to_lowercase();
         let clean = clean
@@ -420,10 +431,49 @@ impl MaiTaiDriver {
     }
 
     /// Send query and read response
+    ///
+    /// Following C++ driver pattern:
+    /// 1. Check if any data already in buffer - if so, clear it by sending \n and reading all
+    /// 2. Send command with \n terminator (NOT \r\n)
+    /// 3. Read response line
     async fn query(&self, command: &str) -> Result<String> {
         let mut port = self.port.lock().await;
 
-        let cmd = format!("{}\r\n", command);
+        // Clear any stale data from buffer (per C++ GetInfo pattern)
+        // First drain software buffer
+        let stale_len = port.buffer().len();
+        if stale_len > 0 {
+            log::debug!("MaiTai: draining {} bytes of stale buffer data", stale_len);
+            port.consume(stale_len);
+        }
+
+        // Send newline to clear any partial command in MaiTai's buffer
+        // Then read and discard any responses (per C++ pattern)
+        port.get_mut()
+            .write_all(b"\n")
+            .await
+            .context("MaiTai clear write failed")?;
+        port.get_mut()
+            .flush()
+            .await
+            .context("MaiTai clear flush failed")?;
+
+        // Brief delay then drain any responses
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        loop {
+            let mut discard = String::new();
+            match tokio::time::timeout(Duration::from_millis(50), port.read_line(&mut discard)).await
+            {
+                Ok(Ok(n)) if n > 0 => {
+                    log::debug!("MaiTai: discarded stale response: {:?}", discard.trim());
+                }
+                _ => break,
+            }
+        }
+
+        // Now send the actual command with LF terminator (NOT CRLF!)
+        let cmd = format!("{}\n", command);
+        log::debug!("MaiTai: sending query: {:?}", cmd.trim());
         port.get_mut()
             .write_all(cmd.as_bytes())
             .await
@@ -440,14 +490,19 @@ impl MaiTaiDriver {
             .await
             .context("MaiTai read timeout")??;
 
+        log::debug!("MaiTai: received response: {:?}", response.trim());
         Ok(response.trim().to_string())
     }
 
     /// Send command and read any response
+    ///
+    /// Uses LF terminator (NOT CRLF!) per MaiTai protocol
     async fn send_command(&self, command: &str) -> Result<()> {
         let mut port = self.port.lock().await;
 
-        let cmd = format!("{}\r\n", command);
+        // Use LF terminator only (per MaiTai protocol)
+        let cmd = format!("{}\n", command);
+        log::debug!("MaiTai: sending command: {:?}", cmd.trim());
         port.get_mut()
             .write_all(cmd.as_bytes())
             .await
@@ -687,7 +742,8 @@ mod tests {
         let n = host.read(&mut buf).await?;
         let sent = String::from_utf8_lossy(&buf[..n]);
 
-        assert!(sent.contains("WAVELENGTH:800"));
+        // New format: "wav 800.000\n" (lowercase, space separator, LF terminator)
+        assert!(sent.contains("wav 800"));
 
         Ok(())
     }

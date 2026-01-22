@@ -174,30 +174,22 @@ impl MaiTaiControlPanel {
         let device_id = device_id.to_string();
 
         runtime.spawn(async move {
-            // Fetch all state in parallel - clone client for each call
-            let mut client1 = client.clone();
-            let mut client2 = client.clone();
-            let mut client3 = client.clone();
-            let mut client4 = client;
+            // IMPORTANT: Query sequentially, NOT in parallel!
+            // Serial devices can only handle one command at a time.
+            // Parallel queries cause response interleaving bugs.
+            let mut client = client;
 
-            let device_id1 = device_id.clone();
-            let device_id2 = device_id.clone();
-            let device_id3 = device_id.clone();
-            let device_id4 = device_id;
-
-            let (emission, shutter, wavelength, power) = tokio::join!(
-                client1.get_emission(&device_id1),
-                client2.get_shutter(&device_id2),
-                client3.get_wavelength(&device_id3),
-                client4.read_value(&device_id4)
-            );
+            let emission = client.get_emission(&device_id).await.ok();
+            let shutter = client.get_shutter(&device_id).await.ok();
+            let wavelength = client.get_wavelength(&device_id).await.ok();
+            let power = client.read_value(&device_id).await.ok().map(|r| r.value);
 
             let _ = tx
                 .send(ActionResult::FetchState {
-                    emission: emission.ok(),
-                    shutter: shutter.ok(),
-                    wavelength: wavelength.ok(),
-                    power: power.ok().map(|r| r.value),
+                    emission,
+                    shutter,
+                    wavelength,
+                    power,
                 })
                 .await;
         });
