@@ -427,8 +427,46 @@ impl Newport1830CDriver {
             .with_context(|| format!("Failed to parse power response: '{}'. Ensure device is in Watts mode (U1).", trimmed))
     }
 
-    /// Send query and read response
+    /// Send query and read response with retry support.
+    ///
+    /// Wraps `query_once` with up to 3 retries and linear backoff.
     async fn query(&self, command: &str) -> Result<String> {
+        const MAX_RETRIES: u32 = 3;
+        const BASE_BACKOFF_MS: u64 = 100;
+
+        let mut last_error = None;
+
+        for attempt in 0..MAX_RETRIES {
+            if attempt > 0 {
+                let backoff = Duration::from_millis(BASE_BACKOFF_MS * (attempt as u64));
+                tracing::debug!(
+                    cmd = %command,
+                    attempt,
+                    backoff_ms = backoff.as_millis(),
+                    "Retrying Newport 1830-C query after backoff"
+                );
+                tokio::time::sleep(backoff).await;
+            }
+
+            match self.query_once(command).await {
+                Ok(resp) => return Ok(resp),
+                Err(e) => {
+                    tracing::debug!(
+                        cmd = %command,
+                        attempt,
+                        error = %e,
+                        "Newport 1830-C query attempt failed"
+                    );
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| anyhow!("Newport 1830-C query failed after {} retries", MAX_RETRIES)))
+    }
+
+    /// Send query and read response (single attempt)
+    async fn query_once(&self, command: &str) -> Result<String> {
         let mut port = self.port.lock().await;
 
         // Flush any stale data in both BufReader's buffer and underlying stream
