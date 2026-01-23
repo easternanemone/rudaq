@@ -258,16 +258,36 @@ impl Ell14Driver {
                 // Convert degrees to pulses and send move absolute command
                 let pulses = (target * ppd).round() as u32;
                 let cmd = format!("{}ma{:08X}", addr, pulses);
+                let expected_prefix = format!("{}PO", addr);
 
                 let mut guard = port.lock().await;
+
+                // Clear any pending data first (leftover from other devices on RS-485 bus)
+                let mut discard = [0u8; 64];
+                let clear_deadline = tokio::time::Instant::now() + Duration::from_millis(10);
+                while tokio::time::Instant::now() < clear_deadline {
+                    match tokio::time::timeout(Duration::from_millis(5), guard.read(&mut discard))
+                        .await
+                    {
+                        Ok(Ok(0)) => break,
+                        Ok(Ok(n)) => {
+                            tracing::trace!(
+                                discarded = n,
+                                "Cleared pending data before ELL14 move_abs"
+                            );
+                        }
+                        Ok(Err(_)) | Err(_) => break,
+                    }
+                }
+
                 guard.write_all(cmd.as_bytes()).await?;
                 guard.flush().await?;
 
                 // Read and consume the PO response to avoid polluting subsequent commands
-                // Response format: <addr>PO<8 hex digits>\r\n (e.g., "2PO00000000\r\n")
+                // Response format: <addr>PO<8 hex digits>\r\n (e.g., "2PO00000000\r\n" = 13 chars)
                 let mut response = Vec::with_capacity(32);
                 let mut buf = [0u8; 32];
-                let deadline = tokio::time::Instant::now() + Duration::from_millis(300);
+                let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
 
                 loop {
                     tokio::time::sleep(Duration::from_millis(30)).await;
@@ -278,8 +298,14 @@ impl Ell14Driver {
                         Ok(0) => break,
                         Ok(n) => {
                             response.extend_from_slice(&buf[..n]);
-                            // Check for complete response (ends with CR/LF)
-                            if response.contains(&b'\r') || response.contains(&b'\n') {
+                            // Check for complete PO response: must start with our address+PO
+                            // and end with CR/LF, with full position data
+                            let resp_str = String::from_utf8_lossy(&response);
+                            if resp_str.contains(&expected_prefix)
+                                && (response.contains(&b'\r') || response.contains(&b'\n'))
+                                && resp_str.len() >= 12
+                            {
+                                // Got complete response
                                 break;
                             }
                         }
@@ -394,10 +420,11 @@ impl Ell14Driver {
 
             // Parse pulses_per_unit from IN response
             // Format: {addr}IN{type}{serial}{year}{fw}{travel}{pulses_per_unit}
-            // Expected: "2IN0E1140051720231701016800023000" (33 chars + addr)
+            // Expected: "2IN0E1140051720231701016800023000" (33 chars total)
+            // addr(1) + IN(2) + type(2) + serial(8) + year(4) + fw(4) + travel(4) + ppu(8) = 33
             // The last 8 chars are pulses_per_unit in hex (00023000 = 143360 pulses)
             let trimmed = resp.trim();
-            if trimmed.len() >= 34 {
+            if trimmed.len() >= 33 {
                 // Full response: address(1) + IN(2) + data(31) = 34 minimum
                 if let Some(ppu_hex) = trimmed.get(trimmed.len().saturating_sub(8)..) {
                     if let Ok(ppu) = u32::from_str_radix(ppu_hex, 16) {
