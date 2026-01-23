@@ -101,13 +101,14 @@ Plans:
   1. User sees live camera frames displayed in image viewer during acquisition
   2. Plots auto-scale to data range automatically, with manual override option
   3. Multiple plots update simultaneously for multi-detector experiments
-**Plans**: 4 plans in 2 waves
+**Plans**: 5 plans in 3 waves
 
 Plans:
-- [ ] 05-01-PLAN.md — Auto-scale plot wrapper with grow-to-fit logic and per-axis lock controls
-- [ ] 05-02-PLAN.md — Multi-detector grid layout panel using StripBuilder
-- [ ] 05-03-PLAN.md — Live visualization panel integrating cameras and plots with FPS status
-- [ ] 05-04-PLAN.md — Integration with experiment execution (auto-spawn visualization on run)
+- [x] 05-01-PLAN.md — Auto-scale plot wrapper with grow-to-fit logic and per-axis lock controls
+- [x] 05-02-PLAN.md — Multi-detector grid layout panel using StripBuilder
+- [x] 05-03-PLAN.md — Live visualization panel integrating cameras and plots with FPS status
+- [x] 05-04-PLAN.md — Integration with experiment execution (auto-spawn visualization on run)
+- [ ] 05-05-PLAN.md — Gap closure: Wire camera/document streaming to visualization channels
 
 ### Phase 6: Data Management
 **Goal**: Complete metadata capture, run history browsing, and comparison tools
@@ -197,7 +198,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 2. Node Graph Editor Core | 4/4 | Complete | 2026-01-22 |
 | 3. Plan Translation and Execution | 4/4 | Complete (human approved) | 2026-01-22 |
 | 4. Sequences and Control Flow | 3/3 | Complete | 2026-01-22 |
-| 5. Live Visualization | 0/4 | Planned | - |
+| 5. Live Visualization | 4/5 | Gap closure in progress | - |
 | 6. Data Management | 0/TBD | Not started | - |
 | 7. Code Export and Provenance | 0/TBD | Not started | - |
 | 8. Advanced Scans | 0/TBD | Not started | - |
