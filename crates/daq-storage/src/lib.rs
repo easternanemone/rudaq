@@ -7,6 +7,8 @@ pub mod arrow_writer;
 pub mod comedi_writer;
 pub mod document_writer;
 pub mod hdf5_writer;
+#[cfg(feature = "storage_hdf5")]
+pub mod hdf5_annotation;
 pub mod ring_buffer;
 pub mod ring_buffer_reader;
 pub mod tap_registry;
@@ -19,6 +21,8 @@ pub use comedi_writer::{
 };
 pub use document_writer::DocumentWriter;
 pub use hdf5_writer::HDF5Writer;
+#[cfg(feature = "storage_hdf5")]
+pub use hdf5_annotation::{add_run_annotation, read_run_annotations, RunAnnotation};
 pub use ring_buffer::{AsyncRingBuffer, RingBuffer};
 pub use ring_buffer_reader::{ReaderStats, RingBufferReader};
 
