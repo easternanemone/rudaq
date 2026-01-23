@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::client::DaqClient;
-use crate::widgets::{offline_notice, OfflineContext};
+use crate::widgets::{offline_notice, OfflineContext, MetadataEditor};
 use daq_proto::daq::Document;
 
 /// Scan mode selection (1D vs 2D)
@@ -49,6 +49,7 @@ enum PendingAction {
         plan_type: String,
         parameters: HashMap<String, String>,
         device_mapping: HashMap<String, String>,
+        metadata: HashMap<String, String>,
     },
     AbortScan,
 }
@@ -151,6 +152,9 @@ pub struct ScanBuilderPanel {
     // Completion summary
     show_completion_summary: bool,
     completion_summary: Option<CompletionSummary>,
+
+    // Metadata editor
+    metadata_editor: MetadataEditor,
 }
 
 impl Default for ScanBuilderPanel {
@@ -199,6 +203,8 @@ impl Default for ScanBuilderPanel {
             // Completion summary
             show_completion_summary: false,
             completion_summary: None,
+            // Metadata editor
+            metadata_editor: MetadataEditor::new(),
         }
     }
 }
@@ -894,10 +900,38 @@ impl ScanBuilderPanel {
                             }
                         };
 
+                        // Build metadata from editor + auto-add scan provenance
+                        let mut metadata = self.metadata_editor.to_metadata_map();
+                        metadata.insert("scan_type".to_string(), plan_type.clone());
+
+                        // Add actuator/detector info for provenance
+                        match self.scan_mode {
+                            ScanMode::OneDimensional => {
+                                if let Some(actuator) = &self.selected_actuator {
+                                    metadata.insert("actuator".to_string(), actuator.clone());
+                                }
+                                if let Some(detector) = self.selected_detectors.first() {
+                                    metadata.insert("detector".to_string(), detector.clone());
+                                }
+                            }
+                            ScanMode::TwoDimensional => {
+                                if let Some(actuator_x) = &self.selected_actuator_x {
+                                    metadata.insert("motor_x".to_string(), actuator_x.clone());
+                                }
+                                if let Some(actuator_y) = &self.selected_actuator_y {
+                                    metadata.insert("motor_y".to_string(), actuator_y.clone());
+                                }
+                                if let Some(detector) = self.selected_detectors.first() {
+                                    metadata.insert("detector".to_string(), detector.clone());
+                                }
+                            }
+                        }
+
                         self.pending_action = Some(PendingAction::StartScan {
                             plan_type,
                             parameters,
                             device_mapping,
+                            metadata,
                         });
                     }
 
@@ -1402,7 +1436,8 @@ impl ScanBuilderPanel {
                 plan_type,
                 parameters,
                 device_mapping,
-            } => self.start_scan(client, runtime, plan_type, parameters, device_mapping),
+                metadata,
+            } => self.start_scan(client, runtime, plan_type, parameters, device_mapping, metadata),
             PendingAction::AbortScan => self.abort_scan(client, runtime),
         }
     }
@@ -1435,6 +1470,7 @@ impl ScanBuilderPanel {
         plan_type: String,
         parameters: HashMap<String, String>,
         device_mapping: HashMap<String, String>,
+        metadata: HashMap<String, String>,
     ) {
         self.error = None;
         self.status = Some("Starting scan...".to_string());
@@ -1449,9 +1485,9 @@ impl ScanBuilderPanel {
         self.action_in_flight = self.action_in_flight.saturating_add(1);
 
         runtime.spawn(async move {
-            // Queue the plan
+            // Queue the plan with metadata
             match client
-                .queue_plan(&plan_type, parameters, device_mapping, HashMap::new())
+                .queue_plan(&plan_type, parameters, device_mapping, metadata)
                 .await
             {
                 Ok(queue_response) => {
