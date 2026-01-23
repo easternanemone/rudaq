@@ -262,35 +262,57 @@ impl Ell14Driver {
 
                 let mut guard = port.lock().await;
 
-                // Clear any pending data first (leftover from other devices on RS-485 bus)
-                let mut discard = [0u8; 64];
-                let clear_deadline = tokio::time::Instant::now() + Duration::from_millis(10);
+                // Aggressive buffer draining (same as transaction_once)
+                let mut discard = [0u8; 256];
+                let clear_deadline = tokio::time::Instant::now() + Duration::from_millis(50);
+                let mut total_discarded = 0usize;
+                let mut zero_byte_count = 0u32;
+
                 while tokio::time::Instant::now() < clear_deadline {
                     match tokio::time::timeout(Duration::from_millis(5), guard.read(&mut discard))
                         .await
                     {
-                        Ok(Ok(0)) => break,
+                        Ok(Ok(0)) => {
+                            zero_byte_count += 1;
+                            if zero_byte_count >= 3 {
+                                break;
+                            }
+                            tokio::time::sleep(Duration::from_millis(2)).await;
+                        }
                         Ok(Ok(n)) => {
-                            tracing::trace!(
-                                discarded = n,
-                                "Cleared pending data before ELL14 move_abs"
-                            );
+                            total_discarded += n;
+                            zero_byte_count = 0;
+                        }
+                        Ok(Err(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            zero_byte_count += 1;
+                            if zero_byte_count >= 3 {
+                                break;
+                            }
+                            tokio::time::sleep(Duration::from_millis(2)).await;
                         }
                         Ok(Err(_)) | Err(_) => break,
                     }
+                }
+                if total_discarded > 0 {
+                    tracing::trace!(
+                        discarded = total_discarded,
+                        "Cleared pending data before ELL14 move_abs"
+                    );
                 }
 
                 guard.write_all(cmd.as_bytes()).await?;
                 guard.flush().await?;
 
                 // Read and consume the PO response to avoid polluting subsequent commands
-                // Response format: <addr>PO<8 hex digits>\r\n (e.g., "2PO00000000\r\n" = 13 chars)
-                let mut response = Vec::with_capacity(32);
-                let mut buf = [0u8; 32];
+                // Use pattern scanning to handle leading garbage (RS-485 bus noise)
+                let mut response = Vec::with_capacity(64);
+                let mut buf = [0u8; 64];
                 let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
 
+                // Initial wait for device to start responding
+                tokio::time::sleep(Duration::from_millis(15)).await;
+
                 loop {
-                    tokio::time::sleep(Duration::from_millis(30)).await;
                     if tokio::time::Instant::now() > deadline {
                         break;
                     }
@@ -298,21 +320,29 @@ impl Ell14Driver {
                         Ok(0) => break,
                         Ok(n) => {
                             response.extend_from_slice(&buf[..n]);
-                            // Check for complete PO response: must start with our address+PO
-                            // and end with CR/LF, with full position data
+                            // Scan for PO response anywhere in buffer (handles leading garbage)
                             let resp_str = String::from_utf8_lossy(&response);
-                            if resp_str.contains(&expected_prefix)
-                                && (response.contains(&b'\r') || response.contains(&b'\n'))
-                                && resp_str.len() >= 12
-                            {
-                                // Got complete response
-                                break;
+                            if let Some(start_idx) = resp_str.find(&expected_prefix) {
+                                let after_prefix = &resp_str[start_idx..];
+                                // PO response: {addr}PO{8 hex}\r\n - need at least 11 chars after finding prefix start
+                                if after_prefix.len() >= 11
+                                    && (after_prefix.contains('\r') || after_prefix.contains('\n'))
+                                {
+                                    break;
+                                }
                             }
                         }
-                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
-                        Err(e) if e.kind() == std::io::ErrorKind::TimedOut => break,
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                            continue;
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                            continue;
+                        }
                         Err(_) => break,
                     }
+                    tokio::time::sleep(Duration::from_millis(5)).await;
                 }
 
                 tracing::trace!(
@@ -337,18 +367,90 @@ impl Ell14Driver {
             let ppd = ppd_for_read;
             Box::pin(async move {
                 let cmd = format!("{}gp", addr);
+                let expected_prefix = format!("{}PO", addr);
 
                 let mut guard = port.lock().await;
+
+                // Aggressive buffer draining
+                let mut discard = [0u8; 256];
+                let clear_deadline = tokio::time::Instant::now() + Duration::from_millis(50);
+                let mut zero_byte_count = 0u32;
+
+                while tokio::time::Instant::now() < clear_deadline {
+                    match tokio::time::timeout(Duration::from_millis(5), guard.read(&mut discard))
+                        .await
+                    {
+                        Ok(Ok(0)) => {
+                            zero_byte_count += 1;
+                            if zero_byte_count >= 3 {
+                                break;
+                            }
+                            tokio::time::sleep(Duration::from_millis(2)).await;
+                        }
+                        Ok(Ok(_)) => {
+                            zero_byte_count = 0;
+                        }
+                        Ok(Err(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            zero_byte_count += 1;
+                            if zero_byte_count >= 3 {
+                                break;
+                            }
+                            tokio::time::sleep(Duration::from_millis(2)).await;
+                        }
+                        Ok(Err(_)) | Err(_) => break,
+                    }
+                }
+
                 guard.write_all(cmd.as_bytes()).await?;
                 guard.flush().await?;
 
-                // Read response
-                let mut buf = [0u8; 32];
-                tokio::time::sleep(Duration::from_millis(50)).await;
-                let n = guard.read(&mut buf).await?;
+                // Read response with pattern scanning
+                let mut response = Vec::with_capacity(64);
+                let mut buf = [0u8; 64];
+                let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
 
-                let resp = String::from_utf8_lossy(&buf[..n]);
-                // Parse position from response (format: "XPOxxxxxxxx")
+                tokio::time::sleep(Duration::from_millis(15)).await;
+
+                loop {
+                    if tokio::time::Instant::now() > deadline {
+                        break;
+                    }
+                    match guard.read(&mut buf).await {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            response.extend_from_slice(&buf[..n]);
+                            let resp_str = String::from_utf8_lossy(&response);
+                            if let Some(start_idx) = resp_str.find(&expected_prefix) {
+                                let after_prefix = &resp_str[start_idx..];
+                                // PO response: {addr}PO{8 hex}\r\n
+                                if after_prefix.len() >= 11
+                                    && (after_prefix.contains('\r') || after_prefix.contains('\n'))
+                                {
+                                    // Extract and parse position
+                                    if let Some(hex) = after_prefix.get(3..11) {
+                                        if let Ok(pulses) = u32::from_str_radix(hex, 16) {
+                                            return Ok(pulses as f64 / ppd);
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                            continue;
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                            continue;
+                        }
+                        Err(_) => break,
+                    }
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+
+                // Fallback: try to parse what we have
+                let resp = String::from_utf8_lossy(&response);
                 if let Some(idx) = resp.find("PO") {
                     let hex_str = &resp[idx + 2..].trim();
                     if let Some(hex) = hex_str.get(..8) {
@@ -357,9 +459,10 @@ impl Ell14Driver {
                         }
                     }
                 }
-                Err(DaqError::Instrument(
-                    "Failed to parse position response".to_string(),
-                ))
+                Err(DaqError::Instrument(format!(
+                    "Failed to parse position response: {}",
+                    resp
+                )))
             })
         });
     }
@@ -368,35 +471,58 @@ impl Ell14Driver {
     pub async fn with_shared_port_calibrated(port: SharedPort, address: &str) -> Result<Self> {
         // Query device info to get calibration
         let cmd = format!("{}in", address);
+        let expected_prefix = format!("{}IN", address.to_uppercase());
 
         let pulses_per_degree = {
             let mut guard = port.lock().await;
 
-            // Clear any pending data in the receive buffer first
-            let mut discard = [0u8; 64];
-            let clear_deadline = tokio::time::Instant::now() + Duration::from_millis(10);
+            // Aggressive buffer draining (same pattern as transaction_once)
+            let mut discard = [0u8; 256];
+            let clear_deadline = tokio::time::Instant::now() + Duration::from_millis(50);
+            let mut total_discarded = 0usize;
+            let mut zero_byte_count = 0u32;
+
             while tokio::time::Instant::now() < clear_deadline {
                 match tokio::time::timeout(Duration::from_millis(5), guard.read(&mut discard)).await
                 {
-                    Ok(Ok(0)) => break,
+                    Ok(Ok(0)) => {
+                        zero_byte_count += 1;
+                        if zero_byte_count >= 3 {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(2)).await;
+                    }
                     Ok(Ok(n)) => {
-                        tracing::trace!(discarded = n, "Cleared pending data before IN query");
+                        total_discarded += n;
+                        zero_byte_count = 0;
+                    }
+                    Ok(Err(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        zero_byte_count += 1;
+                        if zero_byte_count >= 3 {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(2)).await;
                     }
                     Ok(Err(_)) | Err(_) => break,
                 }
+            }
+            if total_discarded > 0 {
+                tracing::trace!(discarded = total_discarded, "Cleared pending data before IN query");
             }
 
             guard.write_all(cmd.as_bytes()).await?;
             guard.flush().await?;
 
-            // Read complete response with proper timeout
+            // Initial wait for device to respond
+            tokio::time::sleep(Duration::from_millis(15)).await;
+
+            // Read complete response with pattern scanning
             // Response format: {addr}IN{32 chars}\r\n (total ~35 bytes)
-            let mut response = Vec::with_capacity(64);
+            let mut response = Vec::with_capacity(128);
             let mut buf = [0u8; 64];
-            let deadline = tokio::time::Instant::now() + Duration::from_millis(300);
+            let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
 
             loop {
-                tokio::time::sleep(Duration::from_millis(30)).await;
                 if tokio::time::Instant::now() > deadline {
                     break;
                 }
@@ -404,40 +530,71 @@ impl Ell14Driver {
                     Ok(0) => break,
                     Ok(n) => {
                         response.extend_from_slice(&buf[..n]);
-                        // Check for complete response (ends with CR/LF)
-                        if response.contains(&b'\r') || response.contains(&b'\n') {
-                            break;
+                        // Scan for IN response anywhere in buffer (handles leading garbage)
+                        let resp_str = String::from_utf8_lossy(&response);
+                        if let Some(start_idx) = resp_str.find(&expected_prefix) {
+                            let after_prefix = &resp_str[start_idx..];
+                            // IN response needs: {addr}IN{30 chars}\r\n - at least 33 chars
+                            if after_prefix.len() >= 33
+                                && (after_prefix.contains('\r') || after_prefix.contains('\n'))
+                            {
+                                break;
+                            }
                         }
                     }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
-                    Err(e) if e.kind() == std::io::ErrorKind::TimedOut => break,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                        continue;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                        continue;
+                    }
                     Err(_) => break,
                 }
+                tokio::time::sleep(Duration::from_millis(5)).await;
             }
 
             let resp = String::from_utf8_lossy(&response);
-            tracing::debug!(response = %resp, "Device info response");
+            tracing::debug!(address = %address, response = %resp, "Device info response");
 
-            // Parse pulses_per_unit from IN response
+            // Parse pulses_per_unit from IN response using pattern scanning
             // Format: {addr}IN{type}{serial}{year}{fw}{travel}{pulses_per_unit}
             // Expected: "2IN0E1140051720231701016800023000" (33 chars total)
             // addr(1) + IN(2) + type(2) + serial(8) + year(4) + fw(4) + travel(4) + ppu(8) = 33
             // The last 8 chars are pulses_per_unit in hex (00023000 = 143360 pulses)
-            let trimmed = resp.trim();
-            if trimmed.len() >= 33 {
-                // Full response: address(1) + IN(2) + data(31) = 34 minimum
-                if let Some(ppu_hex) = trimmed.get(trimmed.len().saturating_sub(8)..) {
-                    if let Ok(ppu) = u32::from_str_radix(ppu_hex, 16) {
-                        let ppd = ppu as f64 / 360.0;
-                        // Sanity check: pulses_per_degree should be ~398 for ELL14
-                        if ppd > 100.0 && ppd < 1000.0 {
-                            ppd
+            if let Some(start_idx) = resp.find(&expected_prefix) {
+                let after_prefix = &resp[start_idx..];
+                // Find terminator
+                let end_idx = after_prefix.find('\r').or_else(|| after_prefix.find('\n'));
+                let clean_resp = match end_idx {
+                    Some(idx) => &after_prefix[..idx],
+                    None => after_prefix,
+                };
+                let trimmed = clean_resp.trim();
+
+                if trimmed.len() >= 33 {
+                    // Extract last 8 hex chars (pulses_per_unit)
+                    if let Some(ppu_hex) = trimmed.get(trimmed.len().saturating_sub(8)..) {
+                        if let Ok(ppu) = u32::from_str_radix(ppu_hex, 16) {
+                            let ppd = ppu as f64 / 360.0;
+                            // Sanity check: pulses_per_degree should be ~398 for ELL14
+                            if ppd > 100.0 && ppd < 1000.0 {
+                                ppd
+                            } else {
+                                tracing::warn!(
+                                    address = %address,
+                                    parsed_ppd = ppd,
+                                    raw_ppu_hex = ppu_hex,
+                                    "Invalid pulses_per_degree parsed, using default"
+                                );
+                                Self::DEFAULT_PULSES_PER_DEGREE
+                            }
                         } else {
                             tracing::warn!(
                                 address = %address,
-                                parsed_ppd = ppd,
-                                raw_ppu_hex = ppu_hex,
-                                "Invalid pulses_per_degree parsed, using default"
+                                ppu_hex = ppu_hex,
+                                "Failed to parse ppu hex, using default calibration"
                             );
                             Self::DEFAULT_PULSES_PER_DEGREE
                         }
@@ -445,14 +602,19 @@ impl Ell14Driver {
                         Self::DEFAULT_PULSES_PER_DEGREE
                     }
                 } else {
+                    tracing::warn!(
+                        address = %address,
+                        response_len = trimmed.len(),
+                        response = %trimmed,
+                        "Incomplete IN response, using default calibration"
+                    );
                     Self::DEFAULT_PULSES_PER_DEGREE
                 }
             } else {
                 tracing::warn!(
                     address = %address,
-                    response_len = trimmed.len(),
-                    response = %trimmed,
-                    "Incomplete IN response, using default calibration"
+                    response = %resp,
+                    "No IN prefix found in response, using default calibration"
                 );
                 Self::DEFAULT_PULSES_PER_DEGREE
             }
@@ -477,33 +639,96 @@ impl Ell14Driver {
         self.pulses_per_degree
     }
 
-    /// Send a command and read response.
+    /// Send a command and read response with retry support.
+    ///
+    /// Wraps `transaction_once` with up to 3 retries and linear backoff.
+    #[instrument(skip(self))]
+    async fn transaction(&self, cmd: &str) -> Result<String> {
+        const MAX_RETRIES: u32 = 3;
+        const BASE_BACKOFF_MS: u64 = 50;
+
+        let mut last_error = None;
+
+        for attempt in 0..MAX_RETRIES {
+            if attempt > 0 {
+                let backoff = Duration::from_millis(BASE_BACKOFF_MS * (attempt as u64));
+                tracing::debug!(
+                    address = %self.address,
+                    cmd = %cmd,
+                    attempt,
+                    backoff_ms = backoff.as_millis(),
+                    "Retrying ELL14 transaction after backoff"
+                );
+                tokio::time::sleep(backoff).await;
+            }
+
+            match self.transaction_once(cmd).await {
+                Ok(resp) => return Ok(resp),
+                Err(e) => {
+                    tracing::debug!(
+                        address = %self.address,
+                        cmd = %cmd,
+                        attempt,
+                        error = %e,
+                        "ELL14 transaction attempt failed"
+                    );
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| anyhow!("Transaction failed after {} retries", MAX_RETRIES)))
+    }
+
+    /// Send a command and read response (single attempt).
     ///
     /// ELL14 responses are terminated with CR LF. At 9600 baud, a typical 17-byte
     /// response takes ~18ms to transmit. We use multiple short reads to collect
     /// the complete response.
     ///
-    /// On RS-485 multidrop bus, multiple devices share the same port. We clear
-    /// any pending data before sending and validate the response address prefix.
-    #[instrument(skip(self))]
-    async fn transaction(&self, cmd: &str) -> Result<String> {
+    /// On RS-485 multidrop bus, multiple devices share the same port. We:
+    /// 1. Aggressively drain the buffer until we see 0 bytes
+    /// 2. Send command
+    /// 3. Scan response buffer for our address prefix (handles leading garbage)
+    /// 4. Extract message between prefix and CR/LF terminator
+    async fn transaction_once(&self, cmd: &str) -> Result<String> {
         let full_cmd = format!("{}{}", self.address, cmd);
         let expected_prefix = &self.address;
 
         let mut guard = self.port.lock().await;
 
-        // Clear any pending data in the receive buffer (leftover from other devices)
-        // Use a very short timeout to avoid blocking if no data is pending
-        let mut discard = [0u8; 64];
-        let clear_deadline = tokio::time::Instant::now() + Duration::from_millis(5);
+        // Aggressive buffer draining: read until we get 0 bytes or hit safety limit
+        // This is critical for RS-485 buses where other devices may have sent data
+        let mut discard = [0u8; 256];
+        let clear_deadline = tokio::time::Instant::now() + Duration::from_millis(50);
         let mut total_discarded = 0usize;
+        let mut zero_byte_count = 0u32;
+
         while tokio::time::Instant::now() < clear_deadline {
-            match tokio::time::timeout(Duration::from_millis(2), guard.read(&mut discard)).await {
-                Ok(Ok(0)) => break,
+            match tokio::time::timeout(Duration::from_millis(5), guard.read(&mut discard)).await {
+                Ok(Ok(0)) => {
+                    zero_byte_count += 1;
+                    // Require 3 consecutive zero-byte reads to confirm buffer is empty
+                    if zero_byte_count >= 3 {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(2)).await;
+                }
                 Ok(Ok(n)) => {
                     total_discarded += n;
+                    zero_byte_count = 0; // Reset counter
                 }
-                Ok(Err(_)) | Err(_) => break,
+                Ok(Err(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    zero_byte_count += 1;
+                    if zero_byte_count >= 3 {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(2)).await;
+                }
+                Ok(Err(_)) | Err(_) => {
+                    // Timeout or other error - buffer is likely empty
+                    break;
+                }
             }
         }
         if total_discarded > 0 {
@@ -518,8 +743,9 @@ impl Ell14Driver {
         guard.write_all(full_cmd.as_bytes()).await?;
         guard.flush().await?;
 
-        // Collect response with multiple reads until we see our address prefix + CR/LF
-        let mut response = Vec::with_capacity(64);
+        // Collect response with multiple reads
+        // Use pattern scanning to handle leading garbage bytes (common on RS-485)
+        let mut response = Vec::with_capacity(128);
         let mut buf = [0u8; 64];
         let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
 
@@ -542,12 +768,29 @@ impl Ell14Driver {
                 Ok(0) => break, // EOF
                 Ok(n) => {
                     response.extend_from_slice(&buf[..n]);
-                    // Check for complete response: starts with our address and ends with CR/LF
+
+                    // Scan for valid frame: look for address prefix ANYWHERE in buffer
+                    // This handles leading garbage bytes from RS-485 bus noise
                     let resp_str = String::from_utf8_lossy(&response);
-                    if resp_str.starts_with(expected_prefix)
-                        && (response.contains(&b'\r') || response.contains(&b'\n'))
-                    {
-                        break;
+                    if let Some(start_idx) = resp_str.find(expected_prefix) {
+                        // Found start marker, look for terminator after it
+                        let after_prefix = &resp_str[start_idx..];
+                        if let Some(end_offset) = after_prefix.find('\r').or_else(|| after_prefix.find('\n')) {
+                            // Extract valid message, discarding leading garbage
+                            let valid_msg = after_prefix[..end_offset].to_string();
+                            tracing::debug!(cmd = %full_cmd, response = %valid_msg, "ELL14 transaction");
+                            return Ok(valid_msg);
+                        }
+                    }
+
+                    // Prevent OOM if buffer grows too large without a match
+                    if response.len() > 512 {
+                        tracing::warn!(
+                            cmd = %full_cmd,
+                            buffer_len = response.len(),
+                            "ELL14 response buffer overflow, discarding old data"
+                        );
+                        response.drain(0..256);
                     }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -567,8 +810,13 @@ impl Ell14Driver {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
 
+        // If we timed out without finding a complete response, return what we have
+        // (caller can decide if it's valid)
         let resp = String::from_utf8_lossy(&response).to_string();
-        tracing::debug!(cmd = %full_cmd, response = %resp, "ELL14 transaction");
+        if resp.is_empty() {
+            return Err(anyhow!("ELL14 transaction timeout: no response received for command '{}'", full_cmd));
+        }
+        tracing::debug!(cmd = %full_cmd, response = %resp, incomplete = true, "ELL14 transaction (incomplete)");
         Ok(resp)
     }
 
