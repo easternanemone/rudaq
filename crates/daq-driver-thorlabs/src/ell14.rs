@@ -382,16 +382,16 @@ impl Ell14Driver {
         let mut guard = self.port.lock().await;
 
         // Clear any pending data in the receive buffer (leftover from other devices)
+        // Use a very short timeout to avoid blocking if no data is pending
         let mut discard = [0u8; 64];
-        loop {
-            match guard.read(&mut discard).await {
-                Ok(0) => break,
-                Ok(n) => {
+        let clear_deadline = tokio::time::Instant::now() + Duration::from_millis(10);
+        while tokio::time::Instant::now() < clear_deadline {
+            match tokio::time::timeout(Duration::from_millis(5), guard.read(&mut discard)).await {
+                Ok(Ok(0)) => break,
+                Ok(Ok(n)) => {
                     tracing::trace!(discarded = n, "Cleared pending data before ELL14 command");
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
-                Err(e) if e.kind() == std::io::ErrorKind::TimedOut => break,
-                Err(_) => break,
+                Ok(Err(_)) | Err(_) => break,
             }
         }
 
