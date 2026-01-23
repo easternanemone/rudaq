@@ -47,10 +47,10 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Data Management
 
 - [ ] **DATA-01**: Data auto-saves to disk (HDF5 or CSV) during acquisition
-- [ ] **DATA-02**: Metadata captured with each run (device settings, timestamps, scan parameters)
-- [ ] **DATA-03**: User can add custom notes/tags to runs
-- [ ] **DATA-04**: User can browse run history and view previous results
-- [ ] **DATA-05**: User can compare data from multiple runs
+- [~] **DATA-02**: Metadata captured with each run (device settings, timestamps, scan parameters) — ScanBuilder complete, ExperimentDesigner awaits server integration
+- [x] **DATA-03**: User can add custom notes/tags to runs
+- [x] **DATA-04**: User can browse run history and view previous results
+- [x] **DATA-05**: User can compare data from multiple runs
 
 ### Experiment Library
 
@@ -129,10 +129,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | VIZ-02 | Phase 5 | Complete |
 | VIZ-03 | Phase 5 | Complete |
 | DATA-01 | Phase 1 | Pending |
-| DATA-02 | Phase 6 | Pending |
-| DATA-03 | Phase 6 | Pending |
-| DATA-04 | Phase 6 | Pending |
-| DATA-05 | Phase 6 | Pending |
+| DATA-02 | Phase 6 | Partial (ScanBuilder complete, ExperimentDesigner awaits server integration) |
+| DATA-03 | Phase 6 | Complete |
+| DATA-04 | Phase 6 | Complete |
+| DATA-05 | Phase 6 | Complete |
 | LIB-01 | Phase 2 | Pending |
 | LIB-02 | Phase 2 | Pending |
 | LIB-03 | Phase 9 | Pending |
@@ -150,4 +150,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2025-01-22*
-*Last updated: 2025-01-22 after roadmap creation*
+*Last updated: 2026-01-22 after Phase 6 completion*

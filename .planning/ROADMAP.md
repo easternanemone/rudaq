@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Plan Translation and Execution** - Connect visual graph to RunEngine
 - [x] **Phase 4: Sequences and Control Flow** - Sequence composition with loops
 - [x] **Phase 5: Live Visualization** - Real-time plotting during acquisition
-- [ ] **Phase 6: Data Management** - Auto-save, metadata, and run history
+- [x] **Phase 6: Data Management** - Auto-save, metadata, and run history
 - [ ] **Phase 7: Code Export and Provenance** - Rhai generation and versioning
 - [ ] **Phase 8: Advanced Scans** - Nested and adaptive scans
 - [ ] **Phase 9: Templates and Library** - Reusable experiment patterns (including subgraph grouping)
@@ -122,10 +122,10 @@ Plans:
 **Plans**: 4 plans in 2 waves
 
 Plans:
-- [ ] 06-01-PLAN.md — Metadata editor widget and StartDoc enrichment
-- [ ] 06-02-PLAN.md — Run history panel with filtering
-- [ ] 06-03-PLAN.md — HDF5 post-acquisition annotation
-- [ ] 06-04-PLAN.md — Multi-run comparison panel
+- [x] 06-01-PLAN.md — Metadata editor widget and StartDoc enrichment
+- [x] 06-02-PLAN.md — Run history panel with filtering
+- [x] 06-03-PLAN.md — HDF5 post-acquisition annotation
+- [x] 06-04-PLAN.md — Multi-run comparison panel
 
 ### Phase 7: Code Export and Provenance
 **Goal**: Complete provenance tracking with one-way code generation for inspection
@@ -201,7 +201,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 3. Plan Translation and Execution | 4/4 | Complete (human approved) | 2026-01-22 |
 | 4. Sequences and Control Flow | 3/3 | Complete | 2026-01-22 |
 | 5. Live Visualization | 5/5 | Complete | 2026-01-22 |
-| 6. Data Management | 0/4 | Not started | - |
+| 6. Data Management | 4/4 | Complete | 2026-01-22 |
 | 7. Code Export and Provenance | 0/TBD | Not started | - |
 | 8. Advanced Scans | 0/TBD | Not started | - |
 | 9. Templates and Library | 0/TBD | Not started | - |
