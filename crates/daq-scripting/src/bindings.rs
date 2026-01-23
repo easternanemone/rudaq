@@ -751,12 +751,16 @@ fn register_hardware_factories(engine: &mut Engine) {
                     }
                     Err(_) => {
                         eprintln!("  [DEBUG] ELL14 calibration timed out, using defaults");
-                        Ell14Driver::with_shared_port(shared_port, &address)
+                        let d = Ell14Driver::with_shared_port(shared_port, &address);
+                        eprintln!("  [DEBUG] Uncalibrated driver created");
+                        d
                     }
                 };
+                eprintln!("  [DEBUG] Returning driver from async block");
                 Ok::<_, anyhow::Error>(driver)
             })?;
 
+            eprintln!("  [DEBUG] run_blocking completed, creating StageHandle");
             Ok(StageHandle {
                 driver: Arc::new(driver),
                 data_tx: None,
