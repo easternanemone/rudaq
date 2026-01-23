@@ -12,32 +12,32 @@ See: .planning/PROJECT.md (updated 2025-01-22)
 Phase: 7 of 10 (Code Export and Provenance)
 Plan: 1 of 4 complete
 Status: In progress
-Last activity: 2026-01-22 - Completed 07-02-PLAN.md (Experiment Provenance Tracking)
+Last activity: 2026-01-23 - Completed 07-01-PLAN.md (Rhai Code Generation)
 
-Progress: [██████░░░░] 61%
+Progress: [██████░░░░] 62%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 22
-- Average duration: 5.6min
-- Total execution time: 2.1 hours
+- Total plans completed: 23
+- Average duration: 5.7min
+- Total execution time: 2.2 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan | Status |
-|-------|-------|-------|----------|--------|
+|-------|-------|----------|----------|--------|
 | 01 | 3 | 17min | 5.7min | ✓ Complete |
 | 02 | 4 | 36min | 9.0min | ✓ Complete |
 | 03 | 4 | 28min | 7.0min | ✓ Complete |
 | 04 | 3 | 14min | 4.7min | ✓ Complete |
 | 05 | 5 | 14min | 2.8min | ✓ Complete |
 | 06 | 4 | 34min | 8.5min | ✓ Complete |
-| 07 | 1 | 4min | 4.0min | In Progress |
+| 07 | 1 | 8min | 8.0min | In Progress |
 
 **Recent Trend:**
-- Last 5 plans: 06-02 (7min), 06-03 (7min), 06-04 (9min), 07-02 (4min)
-- Trend: Phase 7 started at 4min/plan (provenance infrastructure)
+- Last 5 plans: 06-03 (7min), 06-04 (9min), 07-02 (4min), 07-01 (8min)
+- Trend: Phase 7 averaging 6min/plan (code generation complete)
 
 *Updated after each plan completion*
 
@@ -103,6 +103,9 @@ Recent decisions affecting current work:
 - Manual git commands in build.rs instead of vergen-gitcl (avoids version conflicts, simpler)
 - Optional provenance fields with serde(default) for backwards compatibility (ExperimentManifest)
 - SHA256 hash of entire .expgraph file for graph provenance (simplest, most reliable)
+- One-way Rhai code generation established (visual editor is source of truth, code is export artifact)
+- Public topological_sort functions for code reuse between translation and codegen modules
+- Float formatting with .1 precision for Rhai code readability
 
 ### Pending Todos
 
@@ -149,7 +152,7 @@ See: .planning/phases/06-data-management/06-VERIFICATION.md
 
 ## Session Continuity
 
-Last session: 2026-01-22
-Stopped at: Completed 07-02-PLAN.md (Experiment Provenance Tracking)
+Last session: 2026-01-23
+Stopped at: Completed 07-01-PLAN.md (Rhai Code Generation)
 Resume file: None
-Next action: Continue Phase 7 (Code Export and Provenance) - 3 plans remaining
+Next action: Continue Phase 7 (Code Export and Provenance) - 3 plans remaining (07-02, 07-03, 07-04)
