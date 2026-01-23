@@ -30,13 +30,16 @@ ndarray = { version = "0.15", optional = true }
 [features]
 default = []
 python = ["dep:pyo3"]
-# Hardware factory functions for Rhai scripts (ELL14, Newport 1830-C, MaiTai)
-hardware_factories = [
+# HDF5 data storage from Rhai scripts
+hdf5_scripting = ["dep:hdf5"]
+# Full scripting support with all hardware drivers and HDF5 storage
+# This is the RECOMMENDED feature for scripted experiments on maitai
+scripting_full = [
     "dep:daq-driver-thorlabs",
     "dep:daq-driver-newport",
     "dep:daq-driver-spectra-physics",
+    "hdf5_scripting",
 ]
-# HDF5 data storage from Rhai scripts
-hdf5_scripting = ["dep:hdf5"]
-# Combined feature for full polarization characterization support
-polarization = ["hardware_factories", "hdf5_scripting"]
+# Alias for backwards compatibility (prefer scripting_full)
+polarization = ["scripting_full"]
+hardware_factories = ["scripting_full"]

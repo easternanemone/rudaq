@@ -68,6 +68,25 @@ PVCAM SDK initialized successfully
 Successfully opened camera 'pvcamUSB_0' with handle 0
 ```
 
+### Rhai Scripted Experiments Build
+
+For scripted experiments (polarization characterization, etc.) on maitai:
+
+```bash
+# Build with full scripting support (HDF5 + all hardware drivers)
+cargo build --release -p daq-scripting --features scripting_full --bin run_polarization
+
+# Run the experiment
+./target/release/run_polarization
+```
+
+**Feature flags (simplified):**
+- `scripting_full` - **RECOMMENDED**: All hardware drivers + HDF5 storage
+- `polarization`, `hardware_factories` - Aliases for `scripting_full` (backwards compat)
+- `hdf5_scripting` - HDF5 only (no hardware drivers)
+
+**HDF5 requirement:** Requires system HDF5 library (`libhdf5-dev` on Debian/Ubuntu).
+
 ## Architecture Overview
 
 **Design Philosophy:** Headless-first + scriptable control + remote GUI
