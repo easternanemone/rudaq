@@ -11,7 +11,7 @@ use undo::Record;
 use crate::client::DaqClient;
 use crate::graph::commands::{AddNodeData, GraphEdit, ModifyNodeData};
 use crate::graph::{
-    load_graph, save_graph, EngineStateLocal, ExecutionState, ExperimentNode, ExperimentViewer,
+    load_graph, save_graph, graph_to_rhai_script, EngineStateLocal, ExecutionState, ExperimentNode, ExperimentViewer,
     GraphFile, GraphMetadata, GraphPlan, GRAPH_FILE_EXTENSION,
 };
 use crate::panels::{
@@ -186,6 +186,16 @@ impl ExperimentDesignerPanel {
                 .clicked()
             {
                 self.redo();
+            }
+
+            ui.separator();
+
+            // Export Rhai button
+            if ui.button("Export Rhai...")
+                .on_hover_text("Export as standalone Rhai script file (CODE-02)")
+                .clicked()
+            {
+                self.export_rhai_dialog();
             }
 
             ui.separator();
@@ -611,6 +621,39 @@ impl ExperimentDesignerPanel {
     /// Set a status message that auto-fades after 3 seconds.
     fn set_status(&mut self, msg: impl Into<String>) {
         self.status_message = Some((msg.into(), std::time::Instant::now()));
+    }
+
+    /// Open file dialog to export graph as Rhai script.
+    fn export_rhai_dialog(&mut self) {
+        // Generate code first
+        let source_name = self.current_file
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().to_string());
+        let code = graph_to_rhai_script(&self.snarl, source_name.as_deref());
+
+        // Suggest filename based on current graph file
+        let suggested_name = self.current_file
+            .as_ref()
+            .and_then(|p| p.file_stem())
+            .map(|s| format!("{}.rhai", s.to_string_lossy()))
+            .unwrap_or_else(|| "experiment.rhai".to_string());
+
+        // Open save dialog
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Rhai Script", &["rhai"])
+            .set_file_name(&suggested_name)
+            .save_file()
+        {
+            match std::fs::write(&path, &code) {
+                Ok(()) => {
+                    self.set_status(format!("Exported to {}", path.display()));
+                }
+                Err(e) => {
+                    self.set_status(format!("Export failed: {}", e));
+                }
+            }
+        }
     }
 
     // ========== Validation ==========
