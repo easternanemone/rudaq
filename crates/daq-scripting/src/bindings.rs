@@ -719,6 +719,7 @@ fn register_hardware_factories(engine: &mut Engine) {
 
     // create_elliptec(port, address) - Create ELL14 rotator driver
     // Note: ELL14 uses 115200 baud (not 9600), so we use get_or_open_port_115200
+    // If calibration times out (device not responding), falls back to uncalibrated mode
     engine.register_fn(
         "create_elliptec",
         |port: &str, address: &str| -> Result<StageHandle, Box<EvalAltResult>> {
@@ -726,10 +727,39 @@ fn register_hardware_factories(engine: &mut Engine) {
             let address = address.to_string();
 
             let driver = run_blocking("ELL14 create", async move {
-                // Use ELL14-specific port opener with 115200 baud
                 use daq_driver_thorlabs::shared_ports::get_or_open_port_115200;
+                use tokio::time::{timeout, Duration};
+
                 let shared_port = get_or_open_port_115200(&port).await?;
-                Ell14Driver::with_shared_port_calibrated(shared_port, &address).await
+
+                // Try calibrated driver with 3s timeout
+                let driver: Ell14Driver = match timeout(
+                    Duration::from_secs(3),
+                    Ell14Driver::with_shared_port_calibrated(shared_port.clone(), &address),
+                )
+                .await
+                {
+                    Ok(Ok(driver)) => {
+                        tracing::info!(address = %address, "ELL14 calibrated successfully");
+                        driver
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!(
+                            address = %address,
+                            error = %e,
+                            "ELL14 calibration failed, using uncalibrated defaults"
+                        );
+                        Ell14Driver::with_shared_port(shared_port, &address)
+                    }
+                    Err(_) => {
+                        tracing::warn!(
+                            address = %address,
+                            "ELL14 calibration timed out, using uncalibrated defaults"
+                        );
+                        Ell14Driver::with_shared_port(shared_port, &address)
+                    }
+                };
+                Ok::<_, anyhow::Error>(driver)
             })?;
 
             Ok(StageHandle {
