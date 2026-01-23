@@ -399,11 +399,19 @@ pub fn register_hardware(engine: &mut Engine) {
         },
     );
 
-    // stage.wait_settled() - Wait for motion to complete
+    // stage.wait_settled() - Wait for motion to complete (with 15s timeout)
     engine.register_fn(
         "wait_settled",
         move |stage: &mut StageHandle| -> Result<Dynamic, Box<EvalAltResult>> {
-            run_blocking("Stage wait_settled", stage.driver.wait_settled())?;
+            let driver = stage.driver.clone();
+            run_blocking("Stage wait_settled", async move {
+                use tokio::time::{timeout, Duration};
+                match timeout(Duration::from_secs(15), driver.wait_settled()).await {
+                    Ok(Ok(())) => Ok(()),
+                    Ok(Err(e)) => Err(anyhow::anyhow!("wait_settled failed: {}", e)),
+                    Err(_) => Err(anyhow::anyhow!("wait_settled timed out after 15s")),
+                }
+            })?;
             Ok(Dynamic::UNIT)
         },
     );
@@ -571,14 +579,30 @@ pub fn register_hardware(engine: &mut Engine) {
     // Additional Stage Methods
     // =========================================================================
 
-    // stage.home() - Home the stage to mechanical zero
+    // stage.home() - Home the stage to mechanical zero (with timeouts)
     engine.register_fn(
         "home",
         move |stage: &mut StageHandle| -> Result<Dynamic, Box<EvalAltResult>> {
+            let driver = stage.driver.clone();
             // Move to position 0.0 as a generic home operation
             // Note: For devices with true homing (like ELL14), use the specific driver
-            run_blocking("Stage home", stage.driver.move_abs(0.0))?;
-            run_blocking("Stage wait_settled", stage.driver.wait_settled())?;
+            run_blocking("Stage home", async move {
+                use tokio::time::{timeout, Duration};
+
+                // Move to 0 with 5s timeout
+                timeout(Duration::from_secs(5), driver.move_abs(0.0))
+                    .await
+                    .map_err(|_| anyhow::anyhow!("home move_abs timed out after 5s"))?
+                    .map_err(|e| anyhow::anyhow!("home move_abs failed: {}", e))?;
+
+                // Wait settled with 15s timeout
+                timeout(Duration::from_secs(15), driver.wait_settled())
+                    .await
+                    .map_err(|_| anyhow::anyhow!("home wait_settled timed out after 15s"))?
+                    .map_err(|e| anyhow::anyhow!("home wait_settled failed: {}", e))?;
+
+                Ok::<_, anyhow::Error>(())
+            })?;
             Ok(Dynamic::UNIT)
         },
     );
