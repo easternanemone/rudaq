@@ -15,7 +15,7 @@
 // Configuration - use stable by-id paths that don't change on reboot
 let ELLIPTEC_PORT = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0";
 let NEWPORT_PORT = "/dev/ttyS0";  // Built-in RS-232, always stable
-let MAITAI_PORT = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0";
+let MAITAI_PORT = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Cable_FT1RALWL-if02-port0";  // MaiTai on FTDI cable
 
 let START_ANGLE = 0.0;
 let END_ANGLE = 360.0;
