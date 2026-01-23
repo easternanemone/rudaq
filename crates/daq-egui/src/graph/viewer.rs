@@ -492,31 +492,34 @@ impl SnarlViewer<ExperimentNode> for ExperimentViewer {
         ui: &mut egui::Ui,
         snarl: &mut Snarl<ExperimentNode>,
     ) {
-        // Get mutable reference to node and render appropriate editor
-        if let Some(node) = snarl.get_node_mut(node_id) {
-            match node {
-                ExperimentNode::Scan {
-                    actuator,
-                    start,
-                    stop,
-                    points,
-                } => {
-                    self.show_scan_body(ui, node_id, actuator, start, stop, points);
-                }
-                ExperimentNode::Acquire(config) => {
-                    self.show_acquire_body(ui, node_id, config);
-                }
-                ExperimentNode::Move(config) => {
-                    self.show_move_body(ui, node_id, config);
-                }
-                ExperimentNode::Wait { condition } => {
-                    self.show_wait_body(ui, node_id, condition);
-                }
-                ExperimentNode::Loop(config) => {
-                    self.show_loop_body(ui, node_id, config);
+        // Wrap content with node-specific ID to prevent widget state bleed between same-type nodes
+        ui.push_id(node_id, |ui| {
+            // Get mutable reference to node and render appropriate editor
+            if let Some(node) = snarl.get_node_mut(node_id) {
+                match node {
+                    ExperimentNode::Scan {
+                        actuator,
+                        start,
+                        stop,
+                        points,
+                    } => {
+                        self.show_scan_body(ui, node_id, actuator, start, stop, points);
+                    }
+                    ExperimentNode::Acquire(config) => {
+                        self.show_acquire_body(ui, node_id, config);
+                    }
+                    ExperimentNode::Move(config) => {
+                        self.show_move_body(ui, node_id, config);
+                    }
+                    ExperimentNode::Wait { condition } => {
+                        self.show_wait_body(ui, node_id, condition);
+                    }
+                    ExperimentNode::Loop(config) => {
+                        self.show_loop_body(ui, node_id, config);
+                    }
                 }
             }
-        }
+        });
     }
 
     fn connect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<ExperimentNode>) {
@@ -541,5 +544,28 @@ impl SnarlViewer<ExperimentNode> for ExperimentViewer {
 
     fn disconnect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<ExperimentNode>) {
         snarl.disconnect(from.id, to.id);
+    }
+
+    fn header_frame(
+        &mut self,
+        default: egui::Frame,
+        node: NodeId,
+        _inputs: &[InPin],
+        _outputs: &[OutPin],
+        _snarl: &Snarl<ExperimentNode>,
+    ) -> egui::Frame {
+        // Red tint for validation errors
+        if self.node_errors.contains_key(&node) {
+            return default.fill(egui::Color32::from_rgb(120, 40, 40));
+        }
+
+        // Green tint for currently executing node
+        if let Some(ref state) = self.execution_state {
+            if state.active_node == Some(node) {
+                return default.fill(egui::Color32::from_rgb(40, 100, 40));
+            }
+        }
+
+        default
     }
 }

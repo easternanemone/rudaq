@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use egui_snarl::ui::{SnarlStyle, SnarlWidget};
+use egui_snarl::ui::{BackgroundPattern, SnarlStyle, SnarlWidget, WireLayer, WireStyle};
 use egui_snarl::{NodeId, Snarl};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
@@ -88,13 +88,34 @@ pub struct ExperimentDesignerPanel {
     last_device_fetch: Option<std::time::Instant>,
 }
 
+/// Create custom SnarlStyle for the experiment designer.
+fn create_node_style() -> SnarlStyle {
+    SnarlStyle {
+        // Larger pins for easier mouse targeting
+        pin_size: Some(8.0),
+
+        // Orthogonal wires (cleaner for DAQ flow graphs)
+        wire_style: Some(WireStyle::AxisAligned { corner_radius: 4.0 }),
+        wire_width: Some(2.0),
+        wire_layer: Some(WireLayer::BehindNodes), // Don't obscure inline editors
+
+        // No grid background (cleaner)
+        bg_pattern: Some(BackgroundPattern::NoPattern),
+
+        // Better selection visibility (note: API typo is intentional)
+        select_stoke: Some(egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 150, 255))),
+
+        ..Default::default()
+    }
+}
+
 impl Default for ExperimentDesignerPanel {
     fn default() -> Self {
         let (action_tx, action_rx) = mpsc::channel(32);
         Self {
             snarl: Snarl::new(),
             viewer: ExperimentViewer::new(),
-            style: SnarlStyle::default(),
+            style: create_node_style(),
             dragging_node: None,
             context_menu_pos: None,
             node_count: 0,
