@@ -119,11 +119,13 @@ Plans:
   2. User can add custom notes and tags to experiments during or after execution
   3. User can browse run history, search by metadata, and view previous results
   4. User can compare data from multiple runs with overlaid plots
-**Plans**: TBD
+**Plans**: 4 plans in 2 waves
 
 Plans:
-- [ ] 06-01: TBD during plan-phase
-- [ ] 06-02: TBD during plan-phase
+- [ ] 06-01-PLAN.md — Metadata editor widget and StartDoc enrichment
+- [ ] 06-02-PLAN.md — Run history panel with filtering
+- [ ] 06-03-PLAN.md — HDF5 post-acquisition annotation
+- [ ] 06-04-PLAN.md — Multi-run comparison panel
 
 ### Phase 7: Code Export and Provenance
 **Goal**: Complete provenance tracking with one-way code generation for inspection
@@ -199,7 +201,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 3. Plan Translation and Execution | 4/4 | Complete (human approved) | 2026-01-22 |
 | 4. Sequences and Control Flow | 3/3 | Complete | 2026-01-22 |
 | 5. Live Visualization | 5/5 | Complete | 2026-01-22 |
-| 6. Data Management | 0/TBD | Not started | - |
+| 6. Data Management | 0/4 | Not started | - |
 | 7. Code Export and Provenance | 0/TBD | Not started | - |
 | 8. Advanced Scans | 0/TBD | Not started | - |
 | 9. Templates and Library | 0/TBD | Not started | - |
