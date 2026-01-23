@@ -730,7 +730,9 @@ fn register_hardware_factories(engine: &mut Engine) {
                 use daq_driver_thorlabs::shared_ports::get_or_open_port_115200;
                 use tokio::time::{timeout, Duration};
 
+                eprintln!("  [DEBUG] Opening port {}...", port);
                 let shared_port = get_or_open_port_115200(&port).await?;
+                eprintln!("  [DEBUG] Port opened, attempting calibration for address {}...", address);
 
                 // Try calibrated driver with 3s timeout
                 let driver: Ell14Driver = match timeout(
@@ -740,22 +742,15 @@ fn register_hardware_factories(engine: &mut Engine) {
                 .await
                 {
                     Ok(Ok(driver)) => {
-                        tracing::info!(address = %address, "ELL14 calibrated successfully");
+                        eprintln!("  [DEBUG] ELL14 calibrated successfully");
                         driver
                     }
                     Ok(Err(e)) => {
-                        tracing::warn!(
-                            address = %address,
-                            error = %e,
-                            "ELL14 calibration failed, using uncalibrated defaults"
-                        );
+                        eprintln!("  [DEBUG] ELL14 calibration failed: {}, using defaults", e);
                         Ell14Driver::with_shared_port(shared_port, &address)
                     }
                     Err(_) => {
-                        tracing::warn!(
-                            address = %address,
-                            "ELL14 calibration timed out, using uncalibrated defaults"
-                        );
+                        eprintln!("  [DEBUG] ELL14 calibration timed out, using defaults");
                         Ell14Driver::with_shared_port(shared_port, &address)
                     }
                 };
