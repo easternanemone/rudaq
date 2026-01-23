@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use egui_snarl::ui::{get_selected_nodes, SnarlStyle};
+use egui_snarl::ui::{SnarlStyle, SnarlWidget};
 use egui_snarl::{NodeId, Snarl};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
@@ -23,7 +23,6 @@ use crate::widgets::{EditableParameter, PropertyInspector, RuntimeParameterEditR
 use daq_experiment::Plan;
 use daq_proto::daq::StreamQuality;
 use futures::StreamExt;
-use std::sync::mpsc::TrySendError;
 
 /// Actions from async execution operations
 enum ExecutionAction {
@@ -171,9 +170,6 @@ impl ExperimentDesignerPanel {
 
         // Handle keyboard shortcuts FIRST (before any UI that might consume keys)
         self.handle_keyboard(ui);
-
-        // Update selected node from egui-snarl state
-        self.update_selected_node(ui);
 
         // Update code preview if visible
         self.code_preview.update(&self.snarl, self.graph_version);
@@ -389,21 +385,38 @@ impl ExperimentDesignerPanel {
                 self.viewer.execution_state = None;
             }
 
+            // Capture canvas rect BEFORE widget consumes space (for drop detection)
+            let canvas_rect = ui.available_rect_before_wrap();
+
+            // Define SnarlWidget
+            let snarl_id = egui::Id::new("experiment_graph");
+            let widget = SnarlWidget::new()
+                .id(snarl_id)
+                .style(self.style.clone());
+
+            // 1. Render Graph FIRST (so it's the background/base layer)
+            widget.show(&mut self.snarl, &mut self.viewer, ui);
+
+            // 2. Render Overlays/Handlers AFTER (so they are on top)
             // Handle context menu for adding nodes
             self.handle_context_menu(ui);
 
-            // Handle drop onto canvas
-            self.handle_canvas_drop(ui);
+            // Handle drop onto canvas (using pre-captured rect)
+            self.handle_canvas_drop_at(ui, canvas_rect);
 
-            // Graph canvas - takes remaining space
-            egui::Frame::canvas(ui.style()).show(ui, |ui| {
-                let id = egui::Id::new("experiment_graph");
-                self.snarl.show(&mut self.viewer, &self.style, id, ui);
+            // 3. Query selection using the widget instance (ensures ID consistency)
+            let selected = widget.get_selected_nodes(ui);
 
-                // TODO: Add visual node highlighting when egui-snarl supports custom header colors
-                // For now, execution state is tracked but not visually shown on nodes
-                // Alternative: Could add status icons/badges to node titles
-            });
+            // DEBUG: print on every click
+            if ui.input(|i| i.pointer.any_click()) {
+                eprintln!(
+                    "CLICK - dragging: {:?}, selected: {:?}",
+                    self.dragging_node.as_ref().map(|n| n.name()),
+                    selected
+                );
+            }
+
+            self.selected_node = selected.first().copied();
         });
     }
 
@@ -487,7 +500,12 @@ impl ExperimentDesignerPanel {
         }
 
         // Delete: Delete or Backspace to remove selected node
-        if ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
+        // Only process if no text widget has focus (otherwise user is editing text)
+        let text_edit_has_focus = ui.ctx().memory(|mem| mem.focused().is_some())
+            && ui.ctx().wants_keyboard_input();
+        if !text_edit_has_focus
+            && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
+        {
             if let Some(node_id) = self.selected_node.take() {
                 // For now, just remove directly (could use RemoveNode command for undo)
                 // We do direct removal because RemoveNode would need the node position
@@ -496,15 +514,6 @@ impl ExperimentDesignerPanel {
                 self.graph_version = self.graph_version.wrapping_add(1);
             }
         }
-    }
-
-    fn update_selected_node(&mut self, ui: &egui::Ui) {
-        // Get selected nodes from egui-snarl's internal state
-        let snarl_id = egui::Id::new("experiment_graph");
-        let selected = get_selected_nodes(snarl_id, ui.ctx());
-
-        // Update our cached selection (take first selected node if any)
-        self.selected_node = selected.first().copied();
     }
 
     fn undo(&mut self) {
@@ -519,15 +528,15 @@ impl ExperimentDesignerPanel {
 
     fn handle_context_menu(&mut self, ui: &mut egui::Ui) {
         // Check for right-click to open context menu
-        let response = ui.interact(
-            ui.available_rect_before_wrap(),
-            egui::Id::new("canvas_context"),
-            egui::Sense::click(),
-        );
+        // Don't use ui.interact() at all - just check input state directly
+        // This avoids consuming any clicks that should go to snarl
+        let canvas_rect = ui.available_rect_before_wrap();
 
-        if response.secondary_clicked() {
-            if let Some(pos) = response.interact_pointer_pos() {
-                self.context_menu_pos = Some(pos);
+        if ui.input(|i| i.pointer.secondary_clicked()) {
+            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                if canvas_rect.contains(pos) {
+                    self.context_menu_pos = Some(pos);
+                }
             }
         }
 
@@ -565,9 +574,11 @@ impl ExperimentDesignerPanel {
                         }
 
                         // Close menu on click outside or after adding node
+                        // Use primary_clicked() instead of any_click() to avoid closing
+                        // on the same right-click that opened the menu
                         if close_menu
-                            || ui.input(|i| i.pointer.any_click())
-                                && !ui.rect_contains_pointer(ui.min_rect())
+                            || (ui.input(|i| i.pointer.primary_clicked())
+                                && !ui.rect_contains_pointer(ui.min_rect()))
                         {
                             self.context_menu_pos = None;
                         }
@@ -575,19 +586,23 @@ impl ExperimentDesignerPanel {
                 });
 
             // Close menu when clicking elsewhere
+            // Ignore secondary click to prevent closing immediately on the same frame it opens
             if ui.input(|i| {
-                i.pointer.any_click() && i.pointer.hover_pos().is_some_and(|p| p != pos)
+                i.pointer.any_click()
+                    && !i.pointer.secondary_clicked()
+                    && i.pointer.hover_pos().is_some_and(|p| p != pos)
             }) {
                 self.context_menu_pos = None;
             }
         }
     }
 
-    fn handle_canvas_drop(&mut self, ui: &mut egui::Ui) {
+    fn handle_canvas_drop_at(&mut self, ui: &mut egui::Ui, canvas_rect: egui::Rect) {
         // Check if we're dragging and the mouse was released over the canvas
         if let Some(node_type) = self.dragging_node {
+            // Use the pre-captured canvas rect (before widget consumed space)
             let response = ui.interact(
-                ui.available_rect_before_wrap(),
+                canvas_rect,
                 egui::Id::new("canvas_drop_zone"),
                 egui::Sense::hover(),
             );
@@ -595,7 +610,7 @@ impl ExperimentDesignerPanel {
             if response.hovered() {
                 // Show drop indicator
                 ui.painter().rect_stroke(
-                    response.rect,
+                    canvas_rect,
                     egui::CornerRadius::same(4),
                     egui::Stroke::new(2.0, egui::Color32::LIGHT_BLUE),
                     egui::StrokeKind::Inside,
@@ -605,9 +620,10 @@ impl ExperimentDesignerPanel {
             // Check if drag ended (mouse released)
             if !ui.input(|i| i.pointer.any_down()) {
                 if let Some(pos) = ui.input(|i| i.pointer.hover_pos()) {
-                    if response.rect.contains(pos) {
-                        // Create node at drop position with undo tracking
-                        let node_pos = self.next_node_position();
+                    if canvas_rect.contains(pos) {
+                        // Create node at drop position (convert screen coords to canvas-relative)
+                        let node_pos = pos - canvas_rect.min.to_vec2();
+                        self.node_count += 1; // Keep counter in sync for context menu adds
                         let node = node_type.create_node();
                         self.history.edit(
                             &mut self.snarl,
