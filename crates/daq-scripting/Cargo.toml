@@ -15,6 +15,7 @@ chrono = "0.4"
 rhai = { version = "1.19", features = ["sync"] }
 pyo3 = { version = "0.24", features = ["auto-initialize"], optional = true }
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
 
 # Optional hardware driver dependencies for factory functions
