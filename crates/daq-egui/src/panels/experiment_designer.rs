@@ -14,6 +14,7 @@ use crate::graph::{
     load_graph, save_graph, EngineStateLocal, ExecutionState, ExperimentNode, ExperimentViewer,
     GraphFile, GraphMetadata, GraphPlan, GRAPH_FILE_EXTENSION,
 };
+use crate::panels::LiveVisualizationPanel;
 use crate::widgets::node_palette::{NodePalette, NodeType};
 use crate::widgets::{EditableParameter, PropertyInspector, RuntimeParameterEditResult, RuntimeParameterEditor};
 use daq_experiment::Plan;
@@ -56,6 +57,12 @@ pub struct ExperimentDesignerPanel {
     last_error: Option<String>,
     /// Parameters available for editing while paused
     editable_params: Vec<EditableParameter>,
+    /// Live visualization panel (shown during execution)
+    visualization_panel: Option<LiveVisualizationPanel>,
+    /// Frame update sender (for camera data)
+    frame_tx: Option<FrameUpdateSender>,
+    /// Data update sender (for plot data)
+    data_tx: Option<DataUpdateSender>,
 }
 
 impl Default for ExperimentDesignerPanel {
@@ -78,6 +85,9 @@ impl Default for ExperimentDesignerPanel {
             action_rx,
             last_error: None,
             editable_params: Vec::new(),
+            visualization_panel: None,
+            frame_tx: None,
+            data_tx: None,
         }
     }
 }
@@ -1107,5 +1117,78 @@ impl ExperimentDesignerPanel {
             "Set {}.{} = {}",
             device_id_display, param_name_display, new_value_display
         ));
+    }
+
+    // ========== Live Visualization Integration ==========
+
+    /// Extract detectors from graph Acquire nodes.
+    /// Returns (cameras, plots) where:
+    /// - cameras: Vec<(device_id, title)>
+    /// - plots: Vec<(device_id, label, title)>
+    fn extract_detectors(&self) -> (Vec<(String, String)>, Vec<(String, String, String)>) {
+        let mut cameras = Vec::new();
+        let mut plots = Vec::new();
+
+        for (_, node) in self.snarl.node_ids() {
+            if let ExperimentNode::Acquire(config) = node {
+                if !config.detector.is_empty() {
+                    // Simple heuristic: device IDs containing "camera" or "cam" are cameras
+                    // Everything else is a plot (power meter, photodiode, etc.)
+                    let device_id = &config.detector;
+                    let device_lower = device_id.to_lowercase();
+
+                    if device_lower.contains("camera") || device_lower.contains("cam") {
+                        cameras.push((device_id.clone(), device_id.clone()));
+                    } else {
+                        // For plots, use device_id as both identifier and label
+                        plots.push((device_id.clone(), device_id.clone(), device_id.clone()));
+                    }
+                }
+            }
+        }
+
+        // Deduplicate
+        cameras.sort_unstable();
+        cameras.dedup();
+        plots.sort_unstable();
+        plots.dedup();
+
+        (cameras, plots)
+    }
+
+    /// Start visualization when experiment execution begins.
+    fn start_visualization(&mut self) {
+        // Extract detectors from graph
+        let (cameras, plots) = self.extract_detectors();
+
+        // Only create visualization if there are detectors
+        if cameras.is_empty() && plots.is_empty() {
+            return;
+        }
+
+        // Create channels
+        let (frame_tx, frame_rx) = frame_channel();
+        let (data_tx, data_rx) = data_channel();
+
+        // Create and configure panel
+        let mut panel = LiveVisualizationPanel::new();
+        panel.configure_detectors(cameras, plots);
+        panel.set_frame_receiver(frame_rx);
+        panel.set_data_receiver(data_rx);
+        panel.start();
+
+        // Store panel and senders
+        self.visualization_panel = Some(panel);
+        self.frame_tx = Some(frame_tx);
+        self.data_tx = Some(data_tx);
+    }
+
+    /// Stop visualization when experiment completes.
+    fn stop_visualization(&mut self) {
+        if let Some(panel) = &mut self.visualization_panel {
+            panel.stop();
+        }
+        // Keep panel visible but mark as inactive
+        // Don't drop channels yet - they may have pending data
     }
 }
