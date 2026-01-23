@@ -563,10 +563,16 @@ impl SnarlViewer<ExperimentNode> for ExperimentViewer {
             return default.fill(egui::Color32::from_rgb(120, 40, 40));
         }
 
-        // Green tint for currently executing node
+        // Execution state coloring
         if let Some(ref state) = self.execution_state {
-            if state.active_node == Some(node) {
-                return default.fill(egui::Color32::from_rgb(40, 100, 40));
+            match state.node_state(node) {
+                NodeExecutionState::Running => {
+                    return default.fill(egui::Color32::from_rgb(40, 100, 40)); // Dark green
+                }
+                NodeExecutionState::Completed => {
+                    return default.fill(egui::Color32::from_rgb(40, 60, 80)); // Dark blue
+                }
+                NodeExecutionState::Pending | NodeExecutionState::Skipped => {}
             }
         }
 
