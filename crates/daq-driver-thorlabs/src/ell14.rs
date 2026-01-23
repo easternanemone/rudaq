@@ -460,9 +460,12 @@ impl Ell14Driver {
         if let Some(idx) = resp.find("GS") {
             let hex_str = resp[idx + 2..].trim();
             if let Some(hex) = hex_str.get(..2) {
-                return Ok(Ell14StatusCode::from_hex(hex));
+                let status = Ell14StatusCode::from_hex(hex);
+                tracing::trace!(address = %self.address, response = %resp, hex, ?status, "ELL14 get_status parsed");
+                return Ok(status);
             }
         }
+        tracing::debug!(address = %self.address, response = %resp, "ELL14 get_status failed to parse GS response");
         Ok(Ell14StatusCode::Unknown)
     }
 }
@@ -511,20 +514,40 @@ impl Movable for Ell14Driver {
 
         loop {
             if start.elapsed() > timeout {
+                tracing::warn!(
+                    address = %self.address,
+                    consecutive_settled,
+                    "ELL14 wait_settled timed out"
+                );
                 return Err(anyhow!("ELL14 wait_settled timed out after 10 seconds"));
             }
 
             match self.get_status().await {
                 Ok(status) if status.is_ok() => {
                     consecutive_settled += 1;
+                    tracing::trace!(
+                        address = %self.address,
+                        consecutive_settled,
+                        "ELL14 status OK"
+                    );
                     if consecutive_settled >= 3 {
                         return Ok(());
                     }
                 }
-                Ok(_) => {
+                Ok(status) => {
+                    tracing::debug!(
+                        address = %self.address,
+                        ?status,
+                        "ELL14 status not OK, resetting counter"
+                    );
                     consecutive_settled = 0;
                 }
-                Err(_) => {
+                Err(e) => {
+                    tracing::debug!(
+                        address = %self.address,
+                        error = %e,
+                        "ELL14 get_status error (device may be in motion)"
+                    );
                     // Device may not respond during motion
                 }
             }
