@@ -40,6 +40,9 @@ wasm-timer = "0.2"
 [build-dependencies]
 anyhow = "1.0"
 
+[dev-dependencies]
+tempfile = "3.15"
+
 [features]
 storage_arrow = ["dep:arrow"]
 serial = ["dep:tokio-serial"]  # Serial port support for driver crates

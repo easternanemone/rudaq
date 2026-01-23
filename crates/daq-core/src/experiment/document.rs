@@ -9,6 +9,16 @@
 //! - **StopDoc**: Completion status and summary
 //! - **ExperimentManifest**: Hardware parameter snapshot for reproducibility (bd-ej44)
 //!
+//! # Provenance Tracking
+//!
+//! ExperimentManifest automatically captures:
+//! - Git commit SHA and dirty flag (from build-time env vars)
+//! - Graph file hash (SHA256) when executing from saved .expgraph files
+//! - Device parameter snapshots at experiment start
+//! - System information (hostname, software version)
+//!
+//! This ensures experiments are reproducible with complete provenance.
+//!
 //! # Document Flow
 //!
 //! ```text
@@ -657,5 +667,115 @@ mod tests {
         // Test JSON value conversion
         let json_value = manifest.to_json_value().unwrap();
         assert!(json_value.is_object());
+    }
+
+    #[test]
+    fn test_manifest_git_provenance() {
+        let manifest = ExperimentManifest::new(
+            "test-run",
+            "test_plan",
+            "Test Plan",
+            HashMap::new(),
+        );
+
+        // Git info should be captured (when built in git repo)
+        // Note: May be None in some CI environments
+        if let Some(sha) = &manifest.git_commit {
+            assert_eq!(sha.len(), 40, "Git SHA should be 40 hex chars");
+        }
+
+        // Git dirty flag should be present
+        // (will be true during development, false in CI builds)
+        assert!(manifest.git_dirty.is_some());
+    }
+
+    #[test]
+    fn test_manifest_graph_provenance() {
+        use std::io::Write;
+
+        // Create temp file with known content
+        let mut temp = tempfile::NamedTempFile::new().unwrap();
+        writeln!(temp, "test content").unwrap();
+
+        let manifest = ExperimentManifest::new(
+            "test-run",
+            "test_plan",
+            "Test Plan",
+            HashMap::new(),
+        )
+        .with_graph_provenance(temp.path());
+
+        assert!(manifest.graph_file.is_some());
+        assert!(manifest.graph_hash.is_some());
+        assert_eq!(
+            manifest.graph_hash.as_ref().unwrap().len(),
+            64,
+            "SHA256 is 64 hex chars"
+        );
+
+        // Verify hash is consistent
+        let hash1 = manifest.graph_hash.clone().unwrap();
+
+        let manifest2 = ExperimentManifest::new(
+            "test-run-2",
+            "test_plan",
+            "Test Plan",
+            HashMap::new(),
+        )
+        .with_graph_provenance(temp.path());
+
+        assert_eq!(hash1, manifest2.graph_hash.unwrap(), "Hash should be deterministic");
+    }
+
+    #[test]
+    fn test_manifest_provenance_serialization() {
+        use std::io::Write;
+
+        let mut temp = tempfile::NamedTempFile::new().unwrap();
+        writeln!(temp, "graph data").unwrap();
+
+        let manifest = ExperimentManifest::new(
+            "run-789",
+            "grid_scan",
+            "Test Grid",
+            HashMap::new(),
+        )
+        .with_graph_provenance(temp.path())
+        .add_metadata("custom", "value");
+
+        let json = manifest.to_json().unwrap();
+        let parsed: ExperimentManifest = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.git_commit, manifest.git_commit);
+        assert_eq!(parsed.git_dirty, manifest.git_dirty);
+        assert_eq!(parsed.graph_hash, manifest.graph_hash);
+        assert_eq!(parsed.graph_file, manifest.graph_file);
+        assert_eq!(
+            parsed.metadata.get("custom"),
+            Some(&"value".to_string())
+        );
+    }
+
+    #[test]
+    fn test_manifest_backwards_compatibility() {
+        // Old manifest JSON without provenance fields should still load
+        let old_json = r#"{
+            "timestamp_ns": 1234567890000000000,
+            "run_uid": "old-run",
+            "plan_type": "count",
+            "plan_name": "Old Plan",
+            "parameters": {},
+            "system_info": {
+                "software_version": "0.1.0"
+            },
+            "metadata": {}
+        }"#;
+
+        let parsed: ExperimentManifest = serde_json::from_str(old_json).unwrap();
+        assert_eq!(parsed.run_uid, "old-run");
+        assert!(parsed.git_commit.is_none());
+        assert!(parsed.git_dirty.is_none());
+        assert!(parsed.graph_hash.is_none());
+        assert!(parsed.graph_file.is_none());
     }
 }
