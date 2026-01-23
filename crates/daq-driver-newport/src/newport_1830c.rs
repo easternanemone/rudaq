@@ -181,9 +181,10 @@ impl Newport1830CDriver {
         // Disable echo mode (E0) FIRST to prevent command echoes in responses.
         // The 1830-C has E0/E1 for echo off/on. Without this, responses may include
         // the echoed command which corrupts parsing.
-        driver.send_config_command("E0").await.context(
-            "Newport 1830-C: failed to disable echo mode (E0) during initialization",
-        )?;
+        driver
+            .send_config_command("E0")
+            .await
+            .context("Newport 1830-C: failed to disable echo mode (E0) during initialization")?;
         tracing::info!("Newport 1830-C: disabled echo mode (E0)");
 
         // Set units to Watts (U1) to ensure consistent scientific notation response format.
@@ -419,12 +420,18 @@ impl Newport1830CDriver {
             return Err(anyhow!("Meter underrange (signal too dim): {}", trimmed));
         }
         if upper.contains("SAT") {
-            return Err(anyhow!("Meter saturated (detector overloaded): {}", trimmed));
+            return Err(anyhow!(
+                "Meter saturated (detector overloaded): {}",
+                trimmed
+            ));
         }
 
-        trimmed
-            .parse::<f64>()
-            .with_context(|| format!("Failed to parse power response: '{}'. Ensure device is in Watts mode (U1).", trimmed))
+        trimmed.parse::<f64>().with_context(|| {
+            format!(
+                "Failed to parse power response: '{}'. Ensure device is in Watts mode (U1).",
+                trimmed
+            )
+        })
     }
 
     /// Send query and read response with retry support.
@@ -462,7 +469,9 @@ impl Newport1830CDriver {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| anyhow!("Newport 1830-C query failed after {} retries", MAX_RETRIES)))
+        Err(last_error.unwrap_or_else(|| {
+            anyhow!("Newport 1830-C query failed after {} retries", MAX_RETRIES)
+        }))
     }
 
     /// Send query and read response (single attempt)
@@ -488,7 +497,7 @@ impl Newport1830CDriver {
         // This is critical for slow 9600 baud connections where data may arrive in gaps
         let mut discard_buf = [0u8; 256];
         let clear_deadline = tokio::time::Instant::now() + Duration::from_millis(50);
-        let mut total_discarded = 0usize;
+        let mut _total_discarded = 0usize;
         let mut zero_byte_count = 0u32;
 
         while tokio::time::Instant::now() < clear_deadline {
@@ -507,7 +516,7 @@ impl Newport1830CDriver {
                     tokio::time::sleep(Duration::from_millis(2)).await;
                 }
                 Ok(Ok(n)) => {
-                    total_discarded += n;
+                    _total_discarded += n;
                     zero_byte_count = 0;
                     tracing::debug!("Newport 1830-C: flushed {} stale bytes from stream", n);
                 }
@@ -544,7 +553,9 @@ impl Newport1830CDriver {
         let start = std::time::Instant::now();
         loop {
             if start.elapsed() > self.timeout {
-                return Err(anyhow!("Newport 1830-C read timeout (buffer drain exceeded)"));
+                return Err(anyhow!(
+                    "Newport 1830-C read timeout (buffer drain exceeded)"
+                ));
             }
 
             let mut response = String::new();

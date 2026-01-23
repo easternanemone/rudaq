@@ -188,6 +188,23 @@ impl Ell14StatusCode {
 // Ell14Driver
 // =============================================================================
 
+/// Cached device settings for quick reference without hardware queries.
+///
+/// This cache is populated during initialization and can be refreshed
+/// periodically. Provides fast access to settings like velocity without
+/// blocking on serial I/O.
+#[derive(Debug, Clone, Default)]
+pub struct Ell14CachedSettings {
+    /// Forward velocity as percentage (0-100)
+    pub velocity_percent: u8,
+    /// Backward velocity as percentage (0-100)
+    pub backward_velocity_percent: u8,
+    /// Last known position in degrees (may be stale)
+    pub last_position_deg: Option<f64>,
+    /// Timestamp of last cache update (Unix millis)
+    pub last_updated_ms: u64,
+}
+
 /// Driver for Thorlabs Elliptec ELL14 Rotation Mount.
 ///
 /// Implements the Movable capability trait for controlling rotation.
@@ -199,6 +216,8 @@ pub struct Ell14Driver {
     pulses_per_degree: f64,
     position_deg: Parameter<f64>,
     params: Arc<ParameterSet>,
+    /// Cached settings for quick reference without hardware queries
+    cached_settings: Arc<tokio::sync::RwLock<Ell14CachedSettings>>,
 }
 
 impl Ell14Driver {
@@ -235,6 +254,7 @@ impl Ell14Driver {
             pulses_per_degree,
             position_deg,
             params: Arc::new(params),
+            cached_settings: Arc::new(tokio::sync::RwLock::new(Ell14CachedSettings::default())),
         }
     }
 
@@ -546,7 +566,10 @@ impl Ell14Driver {
                 }
             }
             if total_discarded > 0 {
-                tracing::trace!(discarded = total_discarded, "Cleared pending data before IN query");
+                tracing::trace!(
+                    discarded = total_discarded,
+                    "Cleared pending data before IN query"
+                );
             }
 
             guard.write_all(cmd.as_bytes()).await?;
@@ -670,7 +693,27 @@ impl Ell14Driver {
             "Calibrated ELL14 driver"
         );
 
-        Ok(Self::with_calibration(port, address, pulses_per_degree))
+        let driver = Self::with_calibration(port, address, pulses_per_degree);
+
+        // Set maximum velocity for fastest operation
+        if let Err(e) = driver.set_max_velocity().await {
+            tracing::warn!(
+                address = %address,
+                error = %e,
+                "Failed to set max velocity during init, using default"
+            );
+        }
+
+        // Populate cached settings
+        if let Err(e) = driver.refresh_cached_settings().await {
+            tracing::warn!(
+                address = %address,
+                error = %e,
+                "Failed to refresh cached settings during init"
+            );
+        }
+
+        Ok(driver)
     }
 
     /// Get the device address.
@@ -721,7 +764,8 @@ impl Ell14Driver {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| anyhow!("Transaction failed after {} retries", MAX_RETRIES)))
+        Err(last_error
+            .unwrap_or_else(|| anyhow!("Transaction failed after {} retries", MAX_RETRIES)))
     }
 
     /// Send a command and read response (single attempt).
@@ -819,7 +863,9 @@ impl Ell14Driver {
                     if let Some(start_idx) = resp_str.find(expected_prefix) {
                         // Found start marker, look for terminator after it
                         let after_prefix = &resp_str[start_idx..];
-                        if let Some(end_offset) = after_prefix.find('\r').or_else(|| after_prefix.find('\n')) {
+                        if let Some(end_offset) =
+                            after_prefix.find('\r').or_else(|| after_prefix.find('\n'))
+                        {
                             // Extract valid message, discarding leading garbage
                             let valid_msg = after_prefix[..end_offset].to_string();
                             tracing::debug!(cmd = %full_cmd, response = %valid_msg, "ELL14 transaction");
@@ -863,7 +909,10 @@ impl Ell14Driver {
         // (caller can decide if it's valid)
         let resp = String::from_utf8_lossy(&response).to_string();
         if resp.is_empty() {
-            return Err(anyhow!("ELL14 transaction timeout: no response received for command '{}'", full_cmd));
+            return Err(anyhow!(
+                "ELL14 transaction timeout: no response received for command '{}'",
+                full_cmd
+            ));
         }
         tracing::debug!(cmd = %full_cmd, response = %resp, incomplete = true, "ELL14 transaction (incomplete)");
         Ok(resp)
@@ -894,6 +943,113 @@ impl Ell14Driver {
         }
         tracing::debug!(address = %self.address, response = %resp, "ELL14 get_status failed to parse GS response");
         Ok(Ell14StatusCode::Unknown)
+    }
+
+    /// Set forward velocity as percentage of maximum (0-100).
+    ///
+    /// Higher values = faster movement. Default is ~50%, max is 100%.
+    /// Call this during initialization for fastest scans.
+    #[instrument(skip(self), fields(address = %self.address))]
+    pub async fn set_velocity(&self, percent: u8) -> Result<()> {
+        let percent = percent.min(100); // Clamp to valid range
+                                        // ELL14 velocity is 2 hex digits representing 0-100%
+        let hex = format!("sv{:02X}", percent);
+        let _ = self.transaction(&hex).await?;
+        tracing::info!(
+            address = %self.address,
+            percent,
+            "ELL14 velocity set"
+        );
+        Ok(())
+    }
+
+    /// Get current forward velocity as percentage (0-100).
+    #[instrument(skip(self), fields(address = %self.address))]
+    pub async fn get_velocity(&self) -> Result<u8> {
+        let resp = self.transaction("gv").await?;
+        // Response format: {addr}GV{2 hex digits}
+        if let Some(idx) = resp.find("GV") {
+            let hex_str = &resp[idx + 2..].trim();
+            if let Some(hex) = hex_str.get(..2) {
+                if let Ok(percent) = u8::from_str_radix(hex, 16) {
+                    tracing::trace!(address = %self.address, percent, "ELL14 velocity read");
+                    return Ok(percent);
+                }
+            }
+        }
+        tracing::debug!(address = %self.address, response = %resp, "ELL14 get_velocity failed to parse");
+        Err(anyhow!("Failed to parse velocity response: {}", resp))
+    }
+
+    /// Set velocity to maximum (100%) for fastest operation.
+    pub async fn set_max_velocity(&self) -> Result<()> {
+        self.set_velocity(100).await
+    }
+
+    /// Get backward velocity as percentage (0-100).
+    #[instrument(skip(self), fields(address = %self.address))]
+    pub async fn get_backward_velocity(&self) -> Result<u8> {
+        let resp = self.transaction("bv").await?;
+        // Response format: {addr}BV{2 hex digits}
+        if let Some(idx) = resp.find("BV") {
+            let hex_str = &resp[idx + 2..].trim();
+            if let Some(hex) = hex_str.get(..2) {
+                if let Ok(percent) = u8::from_str_radix(hex, 16) {
+                    tracing::trace!(address = %self.address, percent, "ELL14 backward velocity read");
+                    return Ok(percent);
+                }
+            }
+        }
+        tracing::debug!(address = %self.address, response = %resp, "ELL14 get_backward_velocity failed to parse");
+        Err(anyhow!(
+            "Failed to parse backward velocity response: {}",
+            resp
+        ))
+    }
+
+    /// Refresh cached settings by querying hardware.
+    ///
+    /// Call this periodically if you need up-to-date settings without
+    /// making individual queries. The cache is non-blocking to read.
+    #[instrument(skip(self), fields(address = %self.address))]
+    pub async fn refresh_cached_settings(&self) -> Result<()> {
+        let velocity = self.get_velocity().await.unwrap_or(50);
+        let backward_velocity = self.get_backward_velocity().await.unwrap_or(50);
+        let position = self.position().await.ok();
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+
+        let mut cache = self.cached_settings.write().await;
+        cache.velocity_percent = velocity;
+        cache.backward_velocity_percent = backward_velocity;
+        cache.last_position_deg = position;
+        cache.last_updated_ms = now_ms;
+
+        tracing::debug!(
+            address = %self.address,
+            velocity,
+            backward_velocity,
+            position = ?cache.last_position_deg,
+            "Cached settings refreshed"
+        );
+
+        Ok(())
+    }
+
+    /// Get cached settings snapshot (non-blocking read).
+    ///
+    /// Returns a clone of the current cached settings. May be stale
+    /// if `refresh_cached_settings()` hasn't been called recently.
+    pub async fn get_cached_settings(&self) -> Ell14CachedSettings {
+        self.cached_settings.read().await.clone()
+    }
+
+    /// Get cached velocity without hardware query (may be stale).
+    pub async fn cached_velocity(&self) -> u8 {
+        self.cached_settings.read().await.velocity_percent
     }
 }
 
@@ -979,7 +1135,7 @@ impl Movable for Ell14Driver {
                 }
             }
 
-            tokio::time::sleep(Duration::from_millis(25)).await;  // Reduced from 50ms for faster response
+            tokio::time::sleep(Duration::from_millis(25)).await; // Reduced from 50ms for faster response
         }
     }
 }

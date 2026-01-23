@@ -255,6 +255,29 @@ pub struct ShutterHandle {
     pub driver: Arc<dyn ShutterControl>,
 }
 
+/// Handle to an ELL14 rotator with velocity control for Rhai scripts
+///
+/// Unlike `StageHandle`, this stores the concrete `Ell14Driver` to expose
+/// device-specific methods like velocity control. During initialization,
+/// velocity is automatically set to maximum for fastest scans.
+///
+/// # Script Example
+/// ```rhai
+/// let rotator = create_elliptec("/dev/ttyUSB1", "2");
+/// rotator.move_abs(45.0);
+/// rotator.wait_settled();
+/// let vel = rotator.velocity();  // Get cached velocity percentage
+/// print("Velocity: " + vel + "%");
+/// ```
+#[cfg(feature = "scripting_full")]
+#[derive(Clone)]
+pub struct Ell14Handle {
+    /// Concrete ELL14 driver with velocity control
+    pub driver: Arc<daq_driver_thorlabs::Ell14Driver>,
+    /// Soft position limits for rotator (0-360°)
+    pub soft_limits: SoftLimits,
+}
+
 /// Handle to an HDF5 file for data storage in Rhai scripts
 ///
 /// Provides methods to write datasets and attributes to HDF5 files.
@@ -393,7 +416,9 @@ pub fn register_hardware(engine: &mut Engine) {
                 match timeout(Duration::from_secs(3), driver.position()).await {
                     Ok(Ok(pos)) => Ok(pos),
                     Ok(Err(e)) => Err(anyhow::anyhow!("position query failed: {}", e)),
-                    Err(_) => Err(anyhow::anyhow!("position query timed out (device not responding)")),
+                    Err(_) => Err(anyhow::anyhow!(
+                        "position query timed out (device not responding)"
+                    )),
                 }
             })
         },
@@ -685,9 +710,7 @@ pub fn register_hardware(engine: &mut Engine) {
     });
 
     // timestamp_iso() - Get full ISO8601 timestamp with timezone
-    engine.register_fn("timestamp_iso", || -> String {
-        Utc::now().to_rfc3339()
-    });
+    engine.register_fn("timestamp_iso", || -> String { Utc::now().to_rfc3339() });
 
     // =========================================================================
     // Shutter Safety Wrapper
@@ -749,12 +772,102 @@ fn register_hardware_factories(engine: &mut Engine) {
     // ELL14 Rotator Factory
     // =========================================================================
 
+    // Register Ell14Handle type for ELL14-specific functionality
+    engine.register_type_with_name::<Ell14Handle>("Ell14");
+
+    // ELL14 methods - move_abs
+    engine.register_fn(
+        "move_abs",
+        |handle: &mut Ell14Handle, pos: f64| -> Result<Dynamic, Box<EvalAltResult>> {
+            // Validate soft limits
+            if pos < handle.soft_limits.min || pos > handle.soft_limits.max {
+                return Err(Box::new(EvalAltResult::ErrorRuntime(
+                    format!(
+                        "Position {} outside soft limits [{}, {}]",
+                        pos, handle.soft_limits.min, handle.soft_limits.max
+                    )
+                    .into(),
+                    Position::NONE,
+                )));
+            }
+            run_blocking("ELL14 move_abs", handle.driver.move_abs(pos))?;
+            Ok(Dynamic::UNIT)
+        },
+    );
+
+    // ELL14 methods - position
+    engine.register_fn(
+        "position",
+        |handle: &mut Ell14Handle| -> Result<f64, Box<EvalAltResult>> {
+            run_blocking("ELL14 position", handle.driver.position())
+        },
+    );
+
+    // ELL14 methods - wait_settled
+    engine.register_fn(
+        "wait_settled",
+        |handle: &mut Ell14Handle| -> Result<Dynamic, Box<EvalAltResult>> {
+            run_blocking("ELL14 wait_settled", handle.driver.wait_settled())?;
+            Ok(Dynamic::UNIT)
+        },
+    );
+
+    // ELL14 methods - home
+    engine.register_fn(
+        "home",
+        |handle: &mut Ell14Handle| -> Result<Dynamic, Box<EvalAltResult>> {
+            run_blocking("ELL14 home", handle.driver.home())?;
+            Ok(Dynamic::UNIT)
+        },
+    );
+
+    // ELL14 methods - velocity (cached, non-blocking)
+    engine.register_fn(
+        "velocity",
+        |handle: &mut Ell14Handle| -> Result<i64, Box<EvalAltResult>> {
+            let percent = run_blocking("ELL14 velocity", handle.driver.cached_velocity())?;
+            Ok(percent as i64)
+        },
+    );
+
+    // ELL14 methods - get_velocity (queries hardware)
+    engine.register_fn(
+        "get_velocity",
+        |handle: &mut Ell14Handle| -> Result<i64, Box<EvalAltResult>> {
+            let percent = run_blocking("ELL14 get_velocity", handle.driver.get_velocity())?;
+            Ok(percent as i64)
+        },
+    );
+
+    // ELL14 methods - set_velocity
+    engine.register_fn(
+        "set_velocity",
+        |handle: &mut Ell14Handle, percent: i64| -> Result<Dynamic, Box<EvalAltResult>> {
+            let percent = percent.clamp(0, 100) as u8;
+            run_blocking("ELL14 set_velocity", handle.driver.set_velocity(percent))?;
+            Ok(Dynamic::UNIT)
+        },
+    );
+
+    // ELL14 methods - refresh_settings (updates cache from hardware)
+    engine.register_fn(
+        "refresh_settings",
+        |handle: &mut Ell14Handle| -> Result<Dynamic, Box<EvalAltResult>> {
+            run_blocking(
+                "ELL14 refresh_settings",
+                handle.driver.refresh_cached_settings(),
+            )?;
+            Ok(Dynamic::UNIT)
+        },
+    );
+
     // create_elliptec(port, address) - Create ELL14 rotator driver
     // Note: ELL14 uses 9600 baud (factory default). Use by-id path for stable port resolution.
     // If calibration times out (device not responding), falls back to uncalibrated mode
+    // Velocity is automatically set to maximum during calibrated initialization.
     engine.register_fn(
         "create_elliptec",
-        |port: &str, address: &str| -> Result<StageHandle, Box<EvalAltResult>> {
+        |port: &str, address: &str| -> Result<Ell14Handle, Box<EvalAltResult>> {
             let port = port.to_string();
             let address = address.to_string();
 
@@ -764,7 +877,7 @@ fn register_hardware_factories(engine: &mut Engine) {
 
                 let shared_port = get_or_open_port(&port).await?;
 
-                // Try calibrated driver with 3s timeout
+                // Try calibrated driver with 3s timeout (includes max velocity initialization)
                 let driver: Ell14Driver = match timeout(
                     Duration::from_secs(3),
                     Ell14Driver::with_shared_port_calibrated(shared_port.clone(), &address),
@@ -772,7 +885,13 @@ fn register_hardware_factories(engine: &mut Engine) {
                 .await
                 {
                     Ok(Ok(driver)) => {
-                        tracing::info!(address = %address, "ELL14 calibrated successfully");
+                        // Log velocity after calibration
+                        let velocity = driver.cached_velocity().await;
+                        tracing::info!(
+                            address = %address,
+                            velocity = %velocity,
+                            "ELL14 calibrated with max velocity"
+                        );
                         driver
                     }
                     Ok(Err(e)) => {
@@ -793,9 +912,8 @@ fn register_hardware_factories(engine: &mut Engine) {
                 };
                 Ok::<_, anyhow::Error>(driver)
             })?;
-            Ok(StageHandle {
+            Ok(Ell14Handle {
                 driver: Arc::new(driver),
-                data_tx: None,
                 soft_limits: SoftLimits::new(0.0, 360.0), // Rotator: 0-360°
             })
         },
@@ -814,8 +932,10 @@ fn register_hardware_factories(engine: &mut Engine) {
         |port: &str| -> Result<Newport1830CHandle, Box<EvalAltResult>> {
             let port = port.to_string();
 
-            let driver =
-                run_blocking("Newport 1830-C create", Newport1830CDriver::new_async(&port))?;
+            let driver = run_blocking(
+                "Newport 1830-C create",
+                Newport1830CDriver::new_async(&port),
+            )?;
 
             Ok(Newport1830CHandle {
                 driver: Arc::new(driver),
@@ -875,7 +995,10 @@ fn register_hardware_factories(engine: &mut Engine) {
     engine.register_fn(
         "set_attenuator",
         |pm: &mut Newport1830CHandle, enabled: bool| -> Result<Dynamic, Box<EvalAltResult>> {
-            run_blocking("Newport 1830-C set_attenuator", pm.driver.set_attenuator(enabled))?;
+            run_blocking(
+                "Newport 1830-C set_attenuator",
+                pm.driver.set_attenuator(enabled),
+            )?;
             Ok(Dynamic::UNIT)
         },
     );
@@ -954,11 +1077,12 @@ fn register_hdf5_functions(engine: &mut Engine) {
             let value = value.to_string();
             run_blocking("HDF5 write_attr", async {
                 let guard = hdf5.file.lock().await;
-                let file = guard.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("HDF5 file already closed")
-                })?;
+                let file = guard
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("HDF5 file already closed"))?;
                 // Parse string to VarLenUnicode (following hdf5_writer.rs pattern)
-                let vlu: hdf5::types::VarLenUnicode = value.parse()
+                let vlu: hdf5::types::VarLenUnicode = value
+                    .parse()
                     .map_err(|_| anyhow::anyhow!("Failed to parse string as VarLenUnicode"))?;
                 file.new_attr::<hdf5::types::VarLenUnicode>()
                     .shape(())
@@ -978,9 +1102,9 @@ fn register_hdf5_functions(engine: &mut Engine) {
         |hdf5: &mut Hdf5Handle, name: &str, value: f64| -> Result<Dynamic, Box<EvalAltResult>> {
             run_blocking("HDF5 write_attr_f64", async {
                 let guard = hdf5.file.lock().await;
-                let file = guard.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("HDF5 file already closed")
-                })?;
+                let file = guard
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("HDF5 file already closed"))?;
                 file.new_attr::<f64>()
                     .shape(())
                     .create(name)
@@ -999,9 +1123,9 @@ fn register_hdf5_functions(engine: &mut Engine) {
         |hdf5: &mut Hdf5Handle, name: &str, value: i64| -> Result<Dynamic, Box<EvalAltResult>> {
             run_blocking("HDF5 write_attr_i64", async {
                 let guard = hdf5.file.lock().await;
-                let file = guard.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("HDF5 file already closed")
-                })?;
+                let file = guard
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("HDF5 file already closed"))?;
                 file.new_attr::<i64>()
                     .shape(())
                     .create(name)
@@ -1038,9 +1162,9 @@ fn register_hdf5_functions(engine: &mut Engine) {
 
             run_blocking("HDF5 write_array_1d", async {
                 let guard = hdf5.file.lock().await;
-                let file = guard.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("HDF5 file already closed")
-                })?;
+                let file = guard
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("HDF5 file already closed"))?;
 
                 // Create dataset
                 let dataset = file
@@ -1111,9 +1235,9 @@ fn register_hdf5_functions(engine: &mut Engine) {
 
             run_blocking("HDF5 write_array_2d", async {
                 let guard = hdf5.file.lock().await;
-                let file = guard.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("HDF5 file already closed")
-                })?;
+                let file = guard
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("HDF5 file already closed"))?;
 
                 // Create or get group for nested paths
                 let (group, dataset_name) = if name.contains('/') {
@@ -1125,7 +1249,9 @@ fn register_hdf5_functions(engine: &mut Engine) {
                     let group = file
                         .create_group(group_path)
                         .or_else(|_| file.group(group_path))
-                        .map_err(|e| anyhow::anyhow!("Failed to create group '{}': {}", group_path, e))?;
+                        .map_err(|e| {
+                            anyhow::anyhow!("Failed to create group '{}': {}", group_path, e)
+                        })?;
 
                     (Some(group), ds_name)
                 } else {
@@ -1160,9 +1286,9 @@ fn register_hdf5_functions(engine: &mut Engine) {
         |hdf5: &mut Hdf5Handle, name: &str| -> Result<Dynamic, Box<EvalAltResult>> {
             run_blocking("HDF5 create_group", async {
                 let guard = hdf5.file.lock().await;
-                let file = guard.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("HDF5 file already closed")
-                })?;
+                let file = guard
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("HDF5 file already closed"))?;
                 file.create_group(name)
                     .map_err(|e| anyhow::anyhow!("Failed to create group '{}': {}", name, e))?;
                 Ok::<_, anyhow::Error>(())

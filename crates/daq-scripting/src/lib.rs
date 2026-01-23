@@ -17,6 +17,9 @@ pub mod pyo3_engine;
 
 pub use bindings::{CameraHandle, ReadableHandle, ShutterHandle, SoftLimits, StageHandle};
 
+#[cfg(feature = "scripting_full")]
+pub use bindings::Ell14Handle;
+
 #[cfg(feature = "hdf5_scripting")]
 pub use bindings::Hdf5Handle;
 pub use comedi_bindings::{
