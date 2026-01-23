@@ -72,6 +72,8 @@ pub struct ExperimentDesignerPanel {
     camera_stream_tasks: Vec<tokio::task::JoinHandle<()>>,
     /// Document stream task (for cleanup)
     document_stream_task: Option<tokio::task::JoinHandle<()>>,
+    /// Metadata editor for run metadata
+    metadata_editor: crate::widgets::MetadataEditor,
 }
 
 impl Default for ExperimentDesignerPanel {
@@ -99,6 +101,7 @@ impl Default for ExperimentDesignerPanel {
             data_tx: None,
             camera_stream_tasks: Vec::new(),
             document_stream_task: None,
+            metadata_editor: crate::widgets::MetadataEditor::new(),
         }
     }
 }
@@ -213,6 +216,15 @@ impl ExperimentDesignerPanel {
                 ui.colored_label(node_type.color(), format!("Dragging: {}", node_type.name()));
             }
         });
+
+        // Run metadata section (collapsible, before execution controls)
+        egui::CollapsingHeader::new("Run Metadata (Optional)")
+            .default_open(false)
+            .show(ui, |ui| {
+                self.metadata_editor.ui(ui);
+            });
+
+        ui.separator();
 
         // Execution controls (separate row for more space)
         ui.horizontal(|ui| {
@@ -863,7 +875,18 @@ impl ExperimentDesignerPanel {
         let runtime = runtime.unwrap();
         self.start_visualization(client, runtime);
 
-        // TODO: Queue plan via gRPC
+        // TODO(06-01): Queue plan via gRPC with metadata
+        // Extract metadata from editor + add graph provenance
+        let mut _metadata = self.metadata_editor.to_metadata_map();
+        _metadata.insert("graph_node_count".to_string(), self.snarl.node_ids().count().to_string());
+        _metadata.insert(
+            "graph_file".to_string(),
+            self.current_file.as_ref()
+                .and_then(|p| p.file_name().and_then(|n| n.to_str()))
+                .unwrap_or("unsaved")
+                .to_string()
+        );
+
         // For full implementation, need to either:
         // 1. Serialize GraphPlan and send via QueuePlan with plan_type="graph_plan"
         // 2. Or convert to an existing plan type the server understands
