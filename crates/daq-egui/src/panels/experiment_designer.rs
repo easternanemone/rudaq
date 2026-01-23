@@ -16,6 +16,7 @@ use crate::graph::{
 };
 use crate::panels::{
     data_channel, frame_channel, DataUpdateSender, FrameUpdate, FrameUpdateSender, DataUpdate, LiveVisualizationPanel,
+    CodePreviewPanel,
 };
 use crate::widgets::node_palette::{NodePalette, NodeType};
 use crate::widgets::{EditableParameter, PropertyInspector, RuntimeParameterEditResult, RuntimeParameterEditor};
@@ -74,6 +75,14 @@ pub struct ExperimentDesignerPanel {
     document_stream_task: Option<tokio::task::JoinHandle<()>>,
     /// Metadata editor for run metadata
     metadata_editor: crate::widgets::MetadataEditor,
+    /// Whether to show eject confirmation dialog
+    show_eject_confirmation: bool,
+    /// Script editor panel (Some when ejected)
+    script_editor: Option<crate::panels::ScriptEditorPanel>,
+    /// Code preview panel (shows generated Rhai)
+    code_preview: CodePreviewPanel,
+    /// Graph version counter (incremented on each edit)
+    graph_version: u64,
 }
 
 impl Default for ExperimentDesignerPanel {
@@ -102,6 +111,10 @@ impl Default for ExperimentDesignerPanel {
             camera_stream_tasks: Vec::new(),
             document_stream_task: None,
             metadata_editor: crate::widgets::MetadataEditor::new(),
+            show_eject_confirmation: false,
+            script_editor: None,
+            code_preview: CodePreviewPanel::new(),
+            graph_version: 0,
         }
     }
 }
@@ -112,6 +125,36 @@ impl ExperimentDesignerPanel {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui, client: Option<&mut DaqClient>, runtime: Option<&Runtime>) {
+        // If ejected, show script editor instead
+        if self.script_editor.is_some() {
+            // Track if user wants to return to graph mode
+            let mut return_to_graph = false;
+
+            // Add "New Graph" button (creates new graph, loses script changes)
+            ui.horizontal(|ui| {
+                if ui.button("New Graph")
+                    .on_hover_text("Start a new visual graph (script changes will be lost)")
+                    .clicked()
+                {
+                    return_to_graph = true;
+                }
+            });
+            ui.separator();
+
+            // Show editor (safe borrow after button logic)
+            if let Some(editor) = &mut self.script_editor {
+                editor.ui(ui);
+            }
+
+            // Handle return to graph mode
+            if return_to_graph {
+                self.script_editor = None;
+                self.new_graph();
+            }
+
+            return;
+        }
+
         // Poll for async results
         self.poll_execution_actions();
 
@@ -131,6 +174,12 @@ impl ExperimentDesignerPanel {
 
         // Update selected node from egui-snarl state
         self.update_selected_node(ui);
+
+        // Update code preview if visible
+        self.code_preview.update(&self.snarl, self.graph_version);
+
+        // Render code preview panel (right side) BEFORE main panel so it claims space
+        self.code_preview.ui(ui.ctx());
 
         // Top toolbar with file operations and undo/redo buttons
         ui.horizontal(|ui| {
@@ -168,6 +217,17 @@ impl ExperimentDesignerPanel {
 
             ui.separator();
 
+            // Code preview toggle
+            let code_label = if self.code_preview.is_visible() { "Hide Code" } else { "Show Code" };
+            if ui.button(code_label)
+                .on_hover_text("Toggle generated Rhai code preview (CODE-01)")
+                .clicked()
+            {
+                self.code_preview.toggle();
+            }
+
+            ui.separator();
+
             // Undo button
             let can_undo = self.history.can_undo();
             if ui
@@ -196,6 +256,14 @@ impl ExperimentDesignerPanel {
                 .clicked()
             {
                 self.export_rhai_dialog();
+            }
+
+            // Eject to Script button
+            if ui.button("Eject to Script")
+                .on_hover_text("Convert to editable script (one-way, cannot return to graph) (CODE-03)")
+                .clicked()
+            {
+                self.show_eject_confirmation = true;
             }
 
             ui.separator();
@@ -251,6 +319,31 @@ impl ExperimentDesignerPanel {
                     panel.show(ui);
                 });
             ui.separator();
+        }
+
+        // Eject confirmation dialog
+        if self.show_eject_confirmation {
+            egui::Window::new("Eject to Script Mode?")
+                .collapsible(false)
+                .resizable(false)
+                .show(ui.ctx(), |ui| {
+                    ui.label("This will convert your visual graph to an editable Rhai script.");
+                    ui.label("");
+                    ui.label("WARNING: This is one-way. You cannot convert the script back to a visual graph.");
+                    ui.label("Your .expgraph file will remain unchanged.");
+                    ui.label("");
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Cancel").clicked() {
+                            self.show_eject_confirmation = false;
+                        }
+
+                        if ui.button("Eject").clicked() {
+                            self.eject_to_script();
+                            self.show_eject_confirmation = false;
+                        }
+                    });
+                });
         }
 
         // Run validation each frame (cheap check)
@@ -654,6 +747,20 @@ impl ExperimentDesignerPanel {
                 }
             }
         }
+    }
+
+    /// Eject to script editor mode (one-way conversion).
+    fn eject_to_script(&mut self) {
+        let source_name = self.current_file
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().to_string());
+        let code = graph_to_rhai_script(&self.snarl, source_name.as_deref());
+
+        self.script_editor = Some(crate::panels::ScriptEditorPanel::from_graph_code(
+            code,
+            self.current_file.clone(),
+        ));
     }
 
     // ========== Validation ==========
