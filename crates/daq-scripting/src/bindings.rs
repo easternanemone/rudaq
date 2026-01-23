@@ -383,11 +383,22 @@ pub fn register_hardware(engine: &mut Engine) {
         },
     );
 
-    // let pos = stage.position() - Get current position
+    // let pos = stage.position() - Get current position (with 3s timeout for unresponsive devices)
     engine.register_fn(
         "position",
         move |stage: &mut StageHandle| -> Result<f64, Box<EvalAltResult>> {
-            run_blocking("Stage position", stage.driver.position())
+            eprintln!("  [DEBUG] position() called, querying device...");
+            let driver = stage.driver.clone();
+            let result = run_blocking("Stage position", async move {
+                use tokio::time::{timeout, Duration};
+                match timeout(Duration::from_secs(3), driver.position()).await {
+                    Ok(Ok(pos)) => Ok(pos),
+                    Ok(Err(e)) => Err(anyhow::anyhow!("position query failed: {}", e)),
+                    Err(_) => Err(anyhow::anyhow!("position query timed out (device not responding)")),
+                }
+            });
+            eprintln!("  [DEBUG] position() returned: {:?}", result.as_ref().map(|v| *v));
+            result
         },
     );
 
