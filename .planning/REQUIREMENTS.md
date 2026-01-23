@@ -41,8 +41,8 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Live Visualization
 
 - [ ] **VIZ-01**: User sees live line plots updating as scalar data is acquired
-- [ ] **VIZ-02**: User sees live image display for camera frames during acquisition
-- [ ] **VIZ-03**: Plots auto-scale to data range with manual override option
+- [x] **VIZ-02**: User sees live image display for camera frames during acquisition
+- [x] **VIZ-03**: Plots auto-scale to data range with manual override option
 
 ### Data Management
 
@@ -126,8 +126,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EXEC-05 | Phase 3 | Pending |
 | EXEC-06 | Phase 3 | Pending |
 | VIZ-01 | Phase 1 | Pending |
-| VIZ-02 | Phase 5 | Pending |
-| VIZ-03 | Phase 5 | Pending |
+| VIZ-02 | Phase 5 | Complete |
+| VIZ-03 | Phase 5 | Complete |
 | DATA-01 | Phase 1 | Pending |
 | DATA-02 | Phase 6 | Pending |
 | DATA-03 | Phase 6 | Pending |

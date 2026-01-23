@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Node Graph Editor Core** - Visual editing foundation with undo/validation
 - [x] **Phase 3: Plan Translation and Execution** - Connect visual graph to RunEngine
 - [x] **Phase 4: Sequences and Control Flow** - Sequence composition with loops
-- [ ] **Phase 5: Live Visualization** - Real-time plotting during acquisition
+- [x] **Phase 5: Live Visualization** - Real-time plotting during acquisition
 - [ ] **Phase 6: Data Management** - Auto-save, metadata, and run history
 - [ ] **Phase 7: Code Export and Provenance** - Rhai generation and versioning
 - [ ] **Phase 8: Advanced Scans** - Nested and adaptive scans
@@ -108,7 +108,7 @@ Plans:
 - [x] 05-02-PLAN.md — Multi-detector grid layout panel using StripBuilder
 - [x] 05-03-PLAN.md — Live visualization panel integrating cameras and plots with FPS status
 - [x] 05-04-PLAN.md — Integration with experiment execution (auto-spawn visualization on run)
-- [ ] 05-05-PLAN.md — Gap closure: Wire camera/document streaming to visualization channels
+- [x] 05-05-PLAN.md — Gap closure: Wire camera/document streaming to visualization channels
 
 ### Phase 6: Data Management
 **Goal**: Complete metadata capture, run history browsing, and comparison tools
@@ -198,7 +198,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 2. Node Graph Editor Core | 4/4 | Complete | 2026-01-22 |
 | 3. Plan Translation and Execution | 4/4 | Complete (human approved) | 2026-01-22 |
 | 4. Sequences and Control Flow | 3/3 | Complete | 2026-01-22 |
-| 5. Live Visualization | 4/5 | Gap closure in progress | - |
+| 5. Live Visualization | 5/5 | Complete | 2026-01-22 |
 | 6. Data Management | 0/TBD | Not started | - |
 | 7. Code Export and Provenance | 0/TBD | Not started | - |
 | 8. Advanced Scans | 0/TBD | Not started | - |
