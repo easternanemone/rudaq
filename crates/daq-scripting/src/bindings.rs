@@ -718,6 +718,7 @@ fn register_hardware_factories(engine: &mut Engine) {
     // =========================================================================
 
     // create_elliptec(port, address) - Create ELL14 rotator driver
+    // Note: ELL14 uses 115200 baud (not 9600), so we use get_or_open_port_115200
     engine.register_fn(
         "create_elliptec",
         |port: &str, address: &str| -> Result<StageHandle, Box<EvalAltResult>> {
@@ -725,9 +726,9 @@ fn register_hardware_factories(engine: &mut Engine) {
             let address = address.to_string();
 
             let driver = run_blocking("ELL14 create", async move {
-                // Use the shared port infrastructure from daq-driver-thorlabs
-                use daq_driver_thorlabs::shared_ports::get_or_open_port;
-                let shared_port = get_or_open_port(&port).await?;
+                // Use ELL14-specific port opener with 115200 baud
+                use daq_driver_thorlabs::shared_ports::get_or_open_port_115200;
+                let shared_port = get_or_open_port_115200(&port).await?;
                 Ell14Driver::with_shared_port_calibrated(shared_port, &address).await
             })?;
 

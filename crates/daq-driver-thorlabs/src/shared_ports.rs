@@ -56,8 +56,69 @@ pub fn remove_port(port_path: &str) -> bool {
 ///
 /// If a port is already open for this path, returns the existing connection.
 /// Otherwise, opens a new port and registers it.
+///
+/// Note: Uses 9600 baud (legacy ELL14 default). For newer ELL14 units at 115200 baud,
+/// use `get_or_open_port_115200` instead.
 pub async fn get_or_open_port(port_path: &str) -> anyhow::Result<SharedPort> {
     get_or_open_port_with_timeout(port_path, std::time::Duration::from_millis(500)).await
+}
+
+/// Get or create a shared port at 115200 baud (common ELL14 configuration).
+///
+/// Many ELL14 units are factory-configured to 115200 baud instead of the
+/// default 9600. Use this function for those devices.
+pub async fn get_or_open_port_115200(port_path: &str) -> anyhow::Result<SharedPort> {
+    get_or_open_port_with_baud(port_path, 115200, std::time::Duration::from_millis(500)).await
+}
+
+/// Get or create a shared port with custom baud rate.
+pub async fn get_or_open_port_with_baud(
+    port_path: &str,
+    baud_rate: u32,
+    timeout: std::time::Duration,
+) -> anyhow::Result<SharedPort> {
+    use tokio::io::AsyncWriteExt;
+
+    // Check if already open
+    if let Some(port) = get_existing_port(port_path) {
+        // Health check: try to flush the port to verify it's still connected
+        let health_check = async {
+            let mut guard = port.lock().await;
+            guard.flush().await
+        };
+
+        match tokio::time::timeout(std::time::Duration::from_millis(100), health_check).await {
+            Ok(Ok(())) => {
+                tracing::debug!(port = port_path, "Reusing healthy ELL14 shared port");
+                return Ok(port);
+            }
+            Ok(Err(e)) => {
+                tracing::warn!(port = port_path, error = %e, "ELL14 shared port health check failed, reopening");
+                remove_port(port_path);
+            }
+            Err(_) => {
+                tracing::warn!(
+                    port = port_path,
+                    "ELL14 shared port health check timed out, reopening"
+                );
+                remove_port(port_path);
+            }
+        }
+    }
+
+    // Open new port with specified baud rate
+    let port_path_owned = port_path.to_string();
+    let port = tokio::task::spawn_blocking(move || {
+        open_serial_port_with_baud(&port_path_owned, baud_rate, timeout)
+    })
+    .await??;
+
+    let shared: SharedPort = Arc::new(Mutex::new(Box::new(port)));
+
+    // Store in registry
+    register_port(port_path, shared.clone());
+
+    Ok(shared)
 }
 
 /// Get or create a shared port for the given path with custom timeout.
@@ -110,14 +171,23 @@ pub async fn get_or_open_port_with_timeout(
     Ok(shared)
 }
 
-/// Open a serial port with ELL14 default settings.
+/// Open a serial port with ELL14 default settings (9600 baud).
 fn open_serial_port(
     port_path: &str,
     timeout: std::time::Duration,
 ) -> anyhow::Result<tokio_serial::SerialStream> {
+    open_serial_port_with_baud(port_path, 9600, timeout)
+}
+
+/// Open a serial port with custom baud rate.
+fn open_serial_port_with_baud(
+    port_path: &str,
+    baud_rate: u32,
+    timeout: std::time::Duration,
+) -> anyhow::Result<tokio_serial::SerialStream> {
     use tokio_serial::SerialPortBuilderExt;
 
-    let port = tokio_serial::new(port_path, 9600)
+    let port = tokio_serial::new(port_path, baud_rate)
         .data_bits(tokio_serial::DataBits::Eight)
         .parity(tokio_serial::Parity::None)
         .stop_bits(tokio_serial::StopBits::One)
@@ -125,7 +195,12 @@ fn open_serial_port(
         .timeout(timeout)
         .open_native_async()?;
 
-    tracing::info!(port = port_path, timeout_ms = ?timeout.as_millis(), "Opened ELL14 serial port");
+    tracing::info!(
+        port = port_path,
+        baud_rate,
+        timeout_ms = ?timeout.as_millis(),
+        "Opened ELL14 serial port"
+    );
     Ok(port)
 }
 
