@@ -146,6 +146,55 @@ impl RunHistoryPanel {
         });
     }
 
+    /// Save annotation to HDF5 file
+    #[cfg(feature = "storage_hdf5")]
+    fn save_annotation(&mut self, file_path: String, runtime: &Runtime) {
+        let notes = self.annotation_notes.clone();
+        let tags = self
+            .annotation_tags
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>();
+
+        let tx = self.action_tx.clone();
+        self.action_in_flight += 1;
+
+        runtime.spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                use std::path::PathBuf;
+                let path = PathBuf::from(file_path);
+                let annotation = daq_storage::RunAnnotation { notes, tags };
+                daq_storage::add_run_annotation(&path, &annotation)
+            })
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|r| r.map_err(|e| e.to_string()));
+
+            let _ = tx.send(ActionResult::SaveAnnotation(result)).await;
+        });
+    }
+
+    /// Load annotation from HDF5 file
+    #[cfg(feature = "storage_hdf5")]
+    fn load_annotation(&mut self, file_path: String, runtime: &Runtime) {
+        let tx = self.action_tx.clone();
+        self.action_in_flight += 1;
+
+        runtime.spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                use std::path::PathBuf;
+                let path = PathBuf::from(file_path);
+                daq_storage::read_run_annotations(&path)
+            })
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|r| r.map_err(|e| e.to_string()));
+
+            let _ = tx.send(ActionResult::LoadAnnotation(result)).await;
+        });
+    }
+
     /// Apply search filter to acquisitions
     fn apply_filter(&mut self) {
         if self.search_query.is_empty() {
@@ -387,13 +436,19 @@ impl RunHistoryPanel {
         if let Some(action) = self.pending_action.take() {
             match action {
                 PendingAction::Refresh => self.refresh(client, runtime),
-                PendingAction::SaveAnnotation { file_path: _ } => {
-                    // TODO: Implement annotation saving when storage_hdf5 feature is complete
-                    self.annotation_status = Some("Annotation saving not yet implemented".to_string());
+                #[cfg(feature = "storage_hdf5")]
+                PendingAction::SaveAnnotation { file_path } => {
+                    self.save_annotation(file_path, runtime);
                 }
-                PendingAction::LoadAnnotation { file_path: _ } => {
-                    // TODO: Implement annotation loading when storage_hdf5 feature is complete
-                    self.annotation_status = Some("Annotation loading not yet implemented".to_string());
+                #[cfg(feature = "storage_hdf5")]
+                PendingAction::LoadAnnotation { file_path } => {
+                    self.load_annotation(file_path, runtime);
+                }
+                #[cfg(not(feature = "storage_hdf5"))]
+                PendingAction::SaveAnnotation { file_path: _ }
+                | PendingAction::LoadAnnotation { file_path: _ } => {
+                    self.annotation_status =
+                        Some("Annotation feature requires storage_hdf5".to_string());
                 }
             }
         }

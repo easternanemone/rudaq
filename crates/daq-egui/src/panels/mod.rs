@@ -15,6 +15,7 @@ mod plan_runner;
 mod scan_builder;
 mod scans;
 mod scripts;
+mod run_comparison;
 mod run_history;
 mod signal_plotter;
 mod signal_plotter_stream;
@@ -40,6 +41,7 @@ pub use logging::{ConnectionDiagnostics, ConnectionStatus, LogLevel, LoggingPane
 pub use modules::ModulesPanel;
 pub use multi_detector_grid::{DetectorPanel, DetectorType, MultiDetectorGrid};
 pub use plan_runner::PlanRunnerPanel;
+pub use run_comparison::RunComparisonPanel;
 pub use run_history::RunHistoryPanel;
 pub use scan_builder::ScanBuilderPanel;
 pub use scans::ScansPanel;

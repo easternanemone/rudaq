@@ -1,0 +1,419 @@
+//! Run comparison panel - overlay plots from multiple runs for visual analysis.
+
+use eframe::egui;
+use egui_plot::{Corner, Legend, Line, Plot, PlotPoints};
+use std::collections::{HashMap, HashSet};
+use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
+
+use crate::client::DaqClient;
+use crate::widgets::{offline_notice, OfflineContext};
+
+/// Pending action for run comparison panel
+enum PendingAction {
+    Refresh,
+    LoadRunData { file_path: String, run_id: String },
+}
+
+/// Result from an async action
+enum ActionResult {
+    Refresh(Result<Vec<daq_proto::daq::AcquisitionSummary>, String>),
+    LoadRunData {
+        run_id: String,
+        result: Result<RunData, String>,
+    },
+}
+
+/// Loaded run data for comparison
+#[derive(Debug, Clone)]
+struct RunData {
+    run_id: String,
+    run_name: String,
+    points: Vec<(f64, f64)>, // (x, y) for plotting
+    x_label: String,
+    y_label: String,
+}
+
+/// Run comparison panel state
+pub struct RunComparisonPanel {
+    /// All acquisitions loaded from server
+    available_runs: Vec<daq_proto::daq::AcquisitionSummary>,
+    /// Selected run IDs (checkboxes)
+    selected_run_ids: HashSet<String>,
+    /// Loaded run data (ready for plotting)
+    loaded_runs: HashMap<String, RunData>,
+    /// Visible runs (toggle visibility in plot)
+    visible_runs: HashSet<String>,
+    /// Search query text
+    search_query: String,
+    /// Error message
+    error: Option<String>,
+    /// Last refresh timestamp
+    last_refresh: Option<std::time::Instant>,
+    /// Pending action
+    pending_action: Option<PendingAction>,
+    /// Async action result sender
+    action_tx: mpsc::Sender<ActionResult>,
+    /// Async action result receiver
+    action_rx: mpsc::Receiver<ActionResult>,
+    /// Number of in-flight async actions
+    action_in_flight: usize,
+}
+
+impl Default for RunComparisonPanel {
+    fn default() -> Self {
+        let (action_tx, action_rx) = mpsc::channel(16);
+        Self {
+            available_runs: Vec::new(),
+            selected_run_ids: HashSet::new(),
+            loaded_runs: HashMap::new(),
+            visible_runs: HashSet::new(),
+            search_query: String::new(),
+            error: None,
+            last_refresh: None,
+            pending_action: None,
+            action_tx,
+            action_rx,
+            action_in_flight: 0,
+        }
+    }
+}
+
+impl RunComparisonPanel {
+    /// Poll for async results and update state
+    fn poll_async_results(&mut self, ctx: &egui::Context) {
+        let mut updated = false;
+        loop {
+            match self.action_rx.try_recv() {
+                Ok(result) => {
+                    self.action_in_flight = self.action_in_flight.saturating_sub(1);
+                    match result {
+                        ActionResult::Refresh(result) => match result {
+                            Ok(acquisitions) => {
+                                self.available_runs = acquisitions;
+                                self.last_refresh = Some(std::time::Instant::now());
+                                self.error = None;
+                            }
+                            Err(e) => self.error = Some(e),
+                        },
+                        ActionResult::LoadRunData { run_id, result } => match result {
+                            Ok(data) => {
+                                self.visible_runs.insert(run_id.clone());
+                                self.loaded_runs.insert(run_id, data);
+                                self.error = None;
+                            }
+                            Err(e) => self.error = Some(e),
+                        },
+                    }
+                    updated = true;
+                }
+                Err(mpsc::error::TryRecvError::Empty) => break,
+                Err(mpsc::error::TryRecvError::Disconnected) => break,
+            }
+        }
+
+        if self.action_in_flight > 0 || updated {
+            ctx.request_repaint();
+        }
+    }
+
+    /// Refresh acquisition list from server
+    fn refresh(&mut self, client: Option<&mut DaqClient>, runtime: &Runtime) {
+        let Some(client) = client else {
+            self.error = Some("Not connected".to_string());
+            return;
+        };
+
+        let mut client = client.clone();
+        let tx = self.action_tx.clone();
+        self.action_in_flight += 1;
+
+        runtime.spawn(async move {
+            let result = client.list_acquisitions().await.map_err(|e| e.to_string());
+            let _ = tx.send(ActionResult::Refresh(result)).await;
+        });
+    }
+
+    /// Load run data from HDF5 file
+    fn load_run_data(&mut self, file_path: String, run_id: String, runtime: &Runtime) {
+        let tx = self.action_tx.clone();
+        self.action_in_flight += 1;
+
+        runtime.spawn(async move {
+            let run_id_clone = run_id.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                load_run_data_blocking(&file_path, &run_id_clone)
+            })
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|r| r);
+
+            let _ = tx.send(ActionResult::LoadRunData { run_id, result }).await;
+        });
+    }
+
+    /// Execute pending action
+    fn execute_action(
+        &mut self,
+        action: PendingAction,
+        client: Option<&mut DaqClient>,
+        runtime: &Runtime,
+    ) {
+        match action {
+            PendingAction::Refresh => self.refresh(client, runtime),
+            PendingAction::LoadRunData { file_path, run_id } => {
+                self.load_run_data(file_path, run_id, runtime);
+            }
+        }
+    }
+
+    /// Render comparison plot with multiple overlaid runs
+    fn render_comparison_plot(&mut self, ui: &mut egui::Ui) {
+        // Legend controls for toggling visibility
+        ui.horizontal(|ui| {
+            ui.label("Visible runs:");
+            for (run_id, data) in &self.loaded_runs {
+                let mut visible = self.visible_runs.contains(run_id);
+                if ui.checkbox(&mut visible, &data.run_name).changed() {
+                    if visible {
+                        self.visible_runs.insert(run_id.clone());
+                    } else {
+                        self.visible_runs.remove(run_id);
+                    }
+                }
+            }
+        });
+
+        ui.separator();
+
+        // Color palette for runs (distinct colors from matplotlib tab10)
+        let colors = [
+            egui::Color32::from_rgb(31, 119, 180),  // Blue
+            egui::Color32::from_rgb(255, 127, 14),  // Orange
+            egui::Color32::from_rgb(44, 160, 44),   // Green
+            egui::Color32::from_rgb(214, 39, 40),   // Red
+            egui::Color32::from_rgb(148, 103, 189), // Purple
+            egui::Color32::from_rgb(140, 86, 75),   // Brown
+            egui::Color32::from_rgb(227, 119, 194), // Pink
+            egui::Color32::from_rgb(127, 127, 127), // Gray
+        ];
+
+        Plot::new("comparison_plot")
+            .legend(Legend::default().position(Corner::RightTop))
+            .show(ui, |plot_ui| {
+                let mut color_idx = 0;
+
+                for (run_id, data) in &self.loaded_runs {
+                    if !self.visible_runs.contains(run_id) {
+                        continue;
+                    }
+
+                    let color = colors[color_idx % colors.len()];
+                    color_idx += 1;
+
+                    // Convert (f64, f64) tuples to [f64; 2] arrays for egui_plot
+                    let points: Vec<[f64; 2]> = data
+                        .points
+                        .iter()
+                        .map(|&(x, y)| [x, y])
+                        .collect();
+                    let plot_points = PlotPoints::new(points);
+                    let line = Line::new(&data.run_name, plot_points).color(color);
+
+                    plot_ui.line(line);
+                }
+            });
+
+        ui.label(format!(
+            "Showing {} of {} loaded runs",
+            self.visible_runs.len(),
+            self.loaded_runs.len()
+        ));
+    }
+
+    /// Render the run comparison panel
+    pub fn ui(&mut self, ui: &mut egui::Ui, client: Option<&mut DaqClient>, runtime: &Runtime) {
+        self.poll_async_results(ui.ctx());
+        self.pending_action = None;
+
+        ui.heading("Run Comparison");
+
+        // Show offline notice if not connected
+        if offline_notice(ui, client.is_none(), OfflineContext::Storage) {
+            return;
+        }
+
+        ui.horizontal(|ui| {
+            if ui.button("🔄 Refresh Runs").clicked() {
+                self.pending_action = Some(PendingAction::Refresh);
+            }
+
+            if let Some(last) = self.last_refresh {
+                let elapsed = last.elapsed();
+                ui.label(format!("Updated {}s ago", elapsed.as_secs()));
+            }
+        });
+
+        // Show error message
+        if let Some(err) = &self.error {
+            ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
+        }
+
+        ui.separator();
+
+        // Split into two columns: run selection (left) and plot (right)
+        ui.columns(2, |cols| {
+            // Left column: run selection
+            cols[0].heading("Available Runs");
+
+            cols[0].horizontal(|ui| {
+                ui.label("Search:");
+                ui.text_edit_singleline(&mut self.search_query);
+            });
+
+            egui::ScrollArea::vertical()
+                .max_height(400.0)
+                .show(&mut cols[0], |ui| {
+                    for acq in &self.available_runs {
+                        if !self.search_query.is_empty()
+                            && !acq
+                                .name
+                                .to_lowercase()
+                                .contains(&self.search_query.to_lowercase())
+                        {
+                            continue;
+                        }
+
+                        let is_selected = self.selected_run_ids.contains(&acq.acquisition_id);
+                        let mut checkbox_state = is_selected;
+
+                        ui.horizontal(|ui| {
+                            if ui.checkbox(&mut checkbox_state, "").changed() {
+                                if checkbox_state {
+                                    self.selected_run_ids.insert(acq.acquisition_id.clone());
+                                    // Trigger data load
+                                    self.pending_action = Some(PendingAction::LoadRunData {
+                                        file_path: acq.file_path.clone(),
+                                        run_id: acq.acquisition_id.clone(),
+                                    });
+                                } else {
+                                    self.selected_run_ids.remove(&acq.acquisition_id);
+                                    self.loaded_runs.remove(&acq.acquisition_id);
+                                    self.visible_runs.remove(&acq.acquisition_id);
+                                }
+                            }
+
+                            ui.label(&acq.name);
+                            ui.label(format!(
+                                "({})",
+                                &acq.acquisition_id[..8.min(acq.acquisition_id.len())]
+                            ));
+                        });
+                    }
+                });
+
+            cols[0].separator();
+            cols[0].label(format!("Selected: {} runs", self.selected_run_ids.len()));
+
+            // Right column: plot
+            cols[1].heading("Comparison Plot");
+
+            if self.loaded_runs.is_empty() {
+                cols[1].label("Select runs to compare");
+            } else {
+                self.render_comparison_plot(&mut cols[1]);
+            }
+        });
+
+        // Auto-refresh on first render
+        if self.last_refresh.is_none() {
+            self.pending_action = Some(PendingAction::Refresh);
+        }
+
+        // Execute pending action
+        if let Some(action) = self.pending_action.take() {
+            self.execute_action(action, client, runtime);
+        }
+    }
+}
+
+/// Load run data from HDF5 file (blocking I/O)
+#[cfg(feature = "storage_hdf5")]
+fn load_run_data_blocking(file_path: &str, run_id: &str) -> Result<RunData, String> {
+    use hdf5::File;
+    use std::path::Path;
+
+    let file =
+        File::open(Path::new(file_path)).map_err(|e| format!("Failed to open HDF5 file: {}", e))?;
+
+    // Read start doc for metadata
+    let start_group = file
+        .group("start")
+        .map_err(|e| format!("Missing start group: {}", e))?;
+
+    let run_name = start_group
+        .attr("plan_name")
+        .and_then(|a| a.read_scalar::<hdf5::types::VarLenUnicode>())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|_| run_id[..8].to_string());
+
+    // Read event data (assuming primary stream)
+    let mut points = Vec::new();
+    let mut x_label = "Point Index".to_string();
+    let mut y_label = "Value".to_string();
+
+    // Try to read primary stream data
+    if let Ok(primary_group) = file.group("primary") {
+        // Try common detector names
+        let detector_names = ["detector", "photodiode", "intensity", "counts"];
+        for name in &detector_names {
+            if let Ok(dataset) = primary_group.dataset(name) {
+                if let Ok(data) = dataset.read_1d::<f64>() {
+                    y_label = name.to_string();
+                    points = data
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &y)| (i as f64, y))
+                        .collect();
+                    break;
+                }
+            }
+        }
+
+        // Try to read actuator data for x-axis
+        let actuator_names = ["motor", "actuator", "position", "wavelength"];
+        for name in &actuator_names {
+            if let Ok(dataset) = primary_group.dataset(name) {
+                if let Ok(x_data) = dataset.read_1d::<f64>() {
+                    x_label = name.to_string();
+                    // Re-map points with actual x values
+                    if x_data.len() == points.len() {
+                        points = x_data
+                            .iter()
+                            .zip(points.iter())
+                            .map(|(&x, &(_, y))| (x, y))
+                            .collect();
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    if points.is_empty() {
+        return Err("No plottable data found in HDF5 file".to_string());
+    }
+
+    Ok(RunData {
+        run_id: run_id.to_string(),
+        run_name,
+        points,
+        x_label,
+        y_label,
+    })
+}
+
+#[cfg(not(feature = "storage_hdf5"))]
+fn load_run_data_blocking(_file_path: &str, _run_id: &str) -> Result<RunData, String> {
+    Err("HDF5 storage feature not enabled".to_string())
+}
