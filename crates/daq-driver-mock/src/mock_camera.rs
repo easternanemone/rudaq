@@ -157,6 +157,7 @@ pub struct MockCamera {
     /// Frame pool for zero-allocation LoanedFrame delivery
     frame_pool: Arc<Mutex<Option<Arc<Pool<FrameData>>>>>,
     /// Registered frame observers
+    #[allow(clippy::type_complexity)]
     observers: Arc<RwLock<Vec<(u64, Box<dyn FrameObserver>)>>>,
     /// Counter for generating unique observer IDs
     next_observer_id: AtomicU64,
@@ -288,14 +289,14 @@ impl MockCamera {
                                         }
 
                                         if p_tx.try_send(loaned_frame).is_err()
-                                            && frame_num % 100 == 0
+                                            && frame_num.is_multiple_of(100)
                                         {
                                             tracing::warn!(
                                                 "MockCamera: primary channel full at frame {}",
                                                 frame_num
                                             );
                                         }
-                                    } else if frame_num % 100 == 0 {
+                                    } else if frame_num.is_multiple_of(100) {
                                         tracing::warn!(
                                             "MockCamera: frame pool exhausted at frame {}",
                                             frame_num
