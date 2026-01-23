@@ -137,11 +137,13 @@ Plans:
   3. User can switch to script editor mode (eject from visual, edit code directly)
   4. Generated code is readable with comments explaining each step
   5. Every experiment run captures complete provenance (graph version, git commit, device states)
-**Plans**: TBD
+**Plans**: 4 plans in 2 waves
 
 Plans:
-- [ ] 07-01: TBD during plan-phase
-- [ ] 07-02: TBD during plan-phase
+- [ ] 07-01-PLAN.md — Code generation engine (ExperimentNode to Rhai translation)
+- [ ] 07-02-PLAN.md — Provenance tracking (git commit, graph hash in ExperimentManifest)
+- [ ] 07-03-PLAN.md — Code preview panel with syntax highlighting
+- [ ] 07-04-PLAN.md — Export and script editor mode
 
 ### Phase 8: Advanced Scans
 **Goal**: Nested multi-dimensional scans and adaptive plans responding to data
@@ -202,7 +204,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 4. Sequences and Control Flow | 3/3 | Complete | 2026-01-22 |
 | 5. Live Visualization | 5/5 | Complete | 2026-01-22 |
 | 6. Data Management | 4/4 | Complete | 2026-01-22 |
-| 7. Code Export and Provenance | 0/TBD | Not started | - |
+| 7. Code Export and Provenance | 0/4 | Planned | - |
 | 8. Advanced Scans | 0/TBD | Not started | - |
 | 9. Templates and Library | 0/TBD | Not started | - |
 | 10. Polish and Integration | 0/TBD | Not started | - |
