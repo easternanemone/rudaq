@@ -40,6 +40,9 @@ dark-light = { version = "2.0", optional = true }
 egui-snarl = { version = "0.9", features = ["serde"] }
 undo = "0.52"
 
+# Code editor for preview panel
+egui_code_editor = "0.2.20"
+
 serde = { version = "1.0", features = ["derive"] }
 
 # Rerun for embedded viewer
