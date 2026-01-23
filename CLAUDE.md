@@ -366,13 +366,19 @@ ssh maitai@100.117.5.12 'cd ~/rust-daq && source config/hosts/maitai.env && \
 
 ### Hardware Inventory (maitai)
 
-| Device | Port/Path | Driver | Feature Flag |
-|--------|-----------|--------|--------------|
-| NI PCI-MIO-16XE-10 | `/dev/comedi0` | `ComediAnalogInput/OutputDriver` | `comedi` |
-| Newport 1830-C Power Meter | `/dev/ttyS0` | `Newport1830CDriver` | `newport_power_meter` |
-| MaiTai Laser | `/dev/ttyUSB5` | `MaiTaiDriver` | `spectra_physics` |
-| ELL14 Rotators (addr 2,3,8) | `/dev/ttyUSB1` | `Ell14Driver` | `thorlabs` |
-| ESP300 Motion Controller | `/dev/ttyUSB0` | `Esp300Driver` | `newport` |
+> **⚠️ CRITICAL: Use `/dev/serial/by-id/` paths - NOT `/dev/ttyUSB*`!**
+> USB device numbers change on reboot. The by-id paths are stable and MUST be used.
+> These configurations were VERIFIED WORKING on 2026-01-23.
+
+| Device | Stable Port (by-id) | Baud | Protocol | Feature Flag |
+|--------|---------------------|------|----------|--------------|
+| MaiTai Laser | `/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0` | 115200 | 8N1, LF terminator, no flow control | `spectra_physics` |
+| ELL14 Rotators (addr 2,3,8) | `/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0` | 9600 | RS-485 multidrop, hex encoding | `thorlabs` |
+| Newport 1830-C Power Meter | `/dev/ttyS0` | 9600 | Built-in RS-232 (always stable), simple ASCII | `newport_power_meter` |
+| NI PCI-MIO-16XE-10 | `/dev/comedi0` | N/A | Comedi driver | `comedi` |
+| ESP300 Motion Controller | `/dev/ttyUSB0` *(needs by-id)* | 19200 | Multi-axis (1-3) | `newport` |
+
+**DO NOT CHANGE THESE PATHS** without verifying with actual hardware tests.
 
 ### Serial Driver Capabilities
 
