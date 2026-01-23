@@ -28,9 +28,10 @@ cargo test --doc                         # Doctests (not in nextest)
 cargo fmt --all                          # Format
 cargo clippy --all-targets               # Lint
 
-# Build Daemon for Maitai (REAL PVCAM HARDWARE)
-# ⚠️  IMPORTANT: Use build-maitai.sh to avoid mock mode!
-source scripts/build-maitai.sh           # Clean build with PVCAM support
+# Build Daemon for Maitai (REAL PVCAM HARDWARE + ALL SERIAL DEVICES)
+# ⚠️  CRITICAL: Use build-maitai.sh - it includes ALL hardware drivers!
+# The 'maitai' feature enables: PVCAM (real SDK), thorlabs, newport, spectra_physics, serial
+bash scripts/build-maitai.sh             # Clean build with ALL real hardware
 
 # Or manually (must clean to avoid cached mock build):
 cargo clean -p daq-bin -p rust_daq -p daq-driver-pvcam
@@ -38,6 +39,12 @@ cargo build --release -p daq-bin --features maitai
 
 # Run Daemon
 ./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_hardware.toml
+
+# Build GUI (separate build - does NOT require hardware features)
+cargo build --release -p daq-egui --bin rust-daq-gui
+
+# Run GUI (connects to daemon)
+./target/release/rust-daq-gui --daemon-url http://localhost:50051
 
 # Hardware Tests (on remote maitai machine)
 source scripts/env-check.sh && cargo nextest run --profile hardware --features hardware_tests
@@ -48,25 +55,84 @@ bd update <id> --status in_progress      # Claim work
 bd close <id> --reason "Done"            # Complete work
 ```
 
-### ⚠️ PVCAM Build Gotcha
+### ⚠️ CRITICAL: Maitai Hardware Build Requirements
 
-**Problem:** Building without `--features maitai` or `--features pvcam_hardware` produces a daemon that silently uses mock camera data instead of real PVCAM hardware.
+**MANDATORY: The `maitai` feature flag MUST be used when building for real hardware.**
 
-**Symptoms:**
+**What the `maitai` feature includes:**
+The `maitai` feature is a comprehensive profile that enables ALL hardware drivers on the maitai machine:
+- `pvcam_hardware` - Real PVCAM SDK (not mock camera)
+- `thorlabs` - ELL14 rotators
+- `newport` - ESP300 motion controller + 1830-C power meter
+- `spectra_physics` - MaiTai laser
+- `serial` - Base serial port support
+
+**Problem:** Building without `--features maitai` produces a daemon that:
+- Uses MOCK camera data (synthetic gradients) instead of real PVCAM
+- Uses MOCK serial devices instead of real hardware
+- Base dependencies include `all_hardware` which uses mock PVCAM by default
+
+**Symptoms of incorrect build:**
 - Camera streams synthetic gradient patterns instead of real images
-- Log shows: `pvcam_sdk feature enabled: false` and `using mock mode`
+- Daemon log shows: `pvcam_sdk feature enabled: false` and `using mock mode`
+- Serial devices may appear to work but don't communicate with real hardware
 
-**Solution:** Always use `scripts/build-maitai.sh` on the maitai machine, which:
-1. Sources the PVCAM environment variables
-2. Cleans cached build artifacts (critical - Cargo caching causes this issue)
-3. Builds with `--features maitai` (includes `pvcam_hardware`)
+**CORRECT build process (ALWAYS use this):**
+```bash
+bash scripts/build-maitai.sh
+```
 
-**Verification:** Check daemon log for:
+This script:
+1. Sources PVCAM environment variables (PVCAM_SDK_DIR, PVCAM_VERSION, LD_LIBRARY_PATH)
+2. **Cleans cached build artifacts** (CRITICAL - Cargo caching causes silent mock mode)
+3. Builds with `--features maitai` which enables ALL real hardware drivers
+4. Only builds the daemon (GUI is separate and doesn't need hardware features)
+
+**Verification - daemon log MUST show:**
 ```
 pvcam_sdk feature enabled: true
 PVCAM SDK initialized successfully
 Successfully opened camera 'pvcamUSB_0' with handle 0
 ```
+
+**If you see mock mode, the build is WRONG and must be rebuilt with the script.**
+
+### Post-Build Verification - ALL Hardware Check
+
+After building and starting the daemon, verify ALL 7 devices are registered:
+
+```bash
+# Start daemon and check log output
+./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_hardware.toml 2>&1 | tee daemon.log
+
+# OR check existing log with grep
+grep "Registered.*device(s)" daemon.log -A 10
+```
+
+**Required output - MUST show exactly 7 devices:**
+```
+Registered 7 device(s)
+  - prime_bsi: Photometrics Prime BSI Camera ([Triggerable, FrameProducer, ...])
+  - maitai: MaiTai Ti:Sapphire Laser ([Readable, ShutterControl, ...])
+  - power_meter: Newport 1830-C Power Meter ([Readable, WavelengthTunable, ...])
+  - rotator_2: ELL14 Rotator (Address 2) ([Movable, Parameterized])
+  - rotator_3: ELL14 Rotator (Address 3) ([Movable, Parameterized])
+  - rotator_8: ELL14 Rotator (Address 8) ([Movable, Parameterized])
+  - esp300_axis1: ESP300 Axis 1 ([Movable, Parameterized])
+```
+
+**If you see fewer than 7 devices, check:**
+1. Did you use `bash scripts/build-maitai.sh`? (NOT just `cargo build`)
+2. Did the build script show "✓" for all 6 hardware types?
+3. Did you do a full `cargo clean` before rebuilding?
+4. Are hardware devices powered on and connected?
+
+**GUI Verification:**
+After connecting GUI to daemon:
+- Open "Instruments" panel
+- Should show ALL 7 devices listed
+- Each device should have its control panel available
+- Camera should stream real images (not synthetic gradients)
 
 ## Architecture Overview
 

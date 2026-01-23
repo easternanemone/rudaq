@@ -1,10 +1,20 @@
 #!/bin/bash
-# Build script for maitai lab machine with real PVCAM hardware support
+# Build script for maitai lab machine with COMPLETE REAL HARDWARE SUPPORT
 #
-# Usage: source scripts/build-maitai.sh
+# Usage: bash scripts/build-maitai.sh
 #
-# This script ensures the daemon is built with real PVCAM SDK support,
-# avoiding the common issue where cached builds use mock mode.
+# The 'maitai' feature flag enables ALL hardware drivers:
+#   - PVCAM (real SDK, not mock)
+#   - Thorlabs ELL14 rotators
+#   - Newport ESP300 motion controller
+#   - Newport 1830-C power meter
+#   - Spectra-Physics MaiTai laser
+#   - Serial port communication
+#
+# This script ensures proper build by:
+#   1. Loading PVCAM environment variables
+#   2. Performing full clean (critical for feature flag changes)
+#   3. Building with --features maitai
 
 set -e
 
@@ -25,9 +35,18 @@ if [[ -z "$PVCAM_SDK_DIR" ]]; then
     exit 1
 fi
 
-echo "🔧 Building daemon with PVCAM hardware support..."
+echo "🔧 Building daemon with ALL REAL HARDWARE (maitai feature)..."
 echo "   PVCAM_SDK_DIR=$PVCAM_SDK_DIR"
 echo "   PVCAM_VERSION=$PVCAM_VERSION"
+echo ""
+echo "   Enabled drivers:"
+echo "     ✓ PVCAM camera (real SDK)"
+echo "     ✓ Thorlabs ELL14 rotators"
+echo "     ✓ Newport ESP300 motion controller"
+echo "     ✓ Newport 1830-C power meter"
+echo "     ✓ Spectra-Physics MaiTai laser"
+echo "     ✓ Serial port communication"
+echo ""
 
 # Clean build artifacts to avoid feature flag caching issues
 # NOTE: Full clean is required because feature flags are baked into dependencies.
@@ -42,5 +61,15 @@ cargo build --release -p daq-bin --features maitai
 echo ""
 echo "✅ Build complete!"
 echo ""
-echo "To start the daemon:"
-echo "  ./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_hardware.toml"
+echo "📋 Verification checklist:"
+echo "   1. Start daemon with: ./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_hardware.toml"
+echo "   2. Check daemon log for: 'pvcam_sdk feature enabled: true'"
+echo "   3. Verify: 'Successfully opened camera' with real handle (not mock)"
+echo "   4. Confirm: 'Registered 7 device(s)' including:"
+echo "      - prime_bsi (PVCAM camera)"
+echo "      - maitai (laser)"
+echo "      - power_meter (Newport 1830-C)"
+echo "      - rotator_2, rotator_3, rotator_8 (ELL14)"
+echo "      - esp300_axis1 (Newport ESP300)"
+echo ""
+echo "❌ If daemon shows 'using mock mode', the build is INCORRECT - rebuild!"

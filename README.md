@@ -67,7 +67,7 @@ For a deep dive, see [Architecture Documentation](docs/architecture/ARCHITECTURE
 
 ### Building
 
-Build the main daemon:
+Build the daemon for your environment:
 
 ```bash
 # Basic build (Mock hardware, CSV storage)
@@ -79,6 +79,27 @@ cargo build -p daq-bin --features storage_hdf5
 # With all hardware drivers and server features
 cargo build -p daq-bin --features "server,all_hardware,storage_hdf5"
 ```
+
+**For Maitai Lab Machine (Real Hardware):**
+
+The maitai machine requires ALL real hardware drivers enabled:
+
+```bash
+# CORRECT way - uses build script with full clean
+bash scripts/build-maitai.sh
+
+# This enables ALL hardware:
+#   - PVCAM (real SDK, not mock camera)
+#   - Thorlabs ELL14 rotators (3x devices)
+#   - Newport ESP300 motion controller
+#   - Newport 1830-C power meter
+#   - Spectra-Physics MaiTai laser
+#   - Serial port communication
+
+# Verify build shows: "Registered 7 device(s)" in daemon log
+```
+
+**WARNING:** Building without the `maitai` feature produces mock hardware only!
 
 ### Running
 
