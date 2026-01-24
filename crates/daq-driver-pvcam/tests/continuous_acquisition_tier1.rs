@@ -221,8 +221,9 @@ async fn test_continuous_streaming() {
     stats.print_summary("Continuous Streaming");
 
     // Assertions - use sensor-aware expected FPS calculated above
-    // Allow 40% tolerance to account for sequence mode batch transitions
-    assert_fps_near(stats.fps, expected_fps, 40.0, "Continuous streaming");
+    // Allow 60% tolerance to account for variable readout times across camera models
+    // (some cameras achieve faster readout than the conservative 23ms estimate)
+    assert_fps_near(stats.fps, expected_fps, 60.0, "Continuous streaming");
     assert_frame_count_min(stats.frame_count, 10, "Continuous streaming");
     assert_no_duplicate_frames(stats.duplicate_frames, "Continuous streaming");
 
@@ -328,7 +329,9 @@ async fn test_sustained_full_sensor_streaming() {
 
     // Expect ~600 frames over 20s; require at least 500 to catch regressions
     assert_frame_count_min(stats.frame_count, 500, "Sustained streaming");
-    assert_fps_near(stats.fps, expected_fps, 50.0, "Sustained streaming");
+    // Allow 60% tolerance to account for variable readout times across camera models
+    // (some cameras achieve faster readout than the conservative 23ms estimate)
+    assert_fps_near(stats.fps, expected_fps, 60.0, "Sustained streaming");
     assert_no_duplicate_frames(stats.duplicate_frames, "Sustained streaming");
     assert_errors_within_limit(
         stats.timeout_errors + stats.channel_errors,
