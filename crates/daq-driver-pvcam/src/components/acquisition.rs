@@ -2222,8 +2222,6 @@ impl PvcamAcquisition {
                     }
                 }
             });
-
-            Ok(())
         }
 
         // Mock path (or no handle)
@@ -2363,13 +2361,13 @@ impl PvcamAcquisition {
                         }
 
                         // Send LoanedFrame - non-blocking
-                        if p_tx.try_send(loaned_frame).is_err() && frame_num.is_multiple_of(100) {
+                        if p_tx.try_send(loaned_frame).is_err() && frame_num % 100 == 0 {
                             tracing::warn!(
                                 "PVCAM mock: primary channel full at frame {}",
                                 frame_num
                             );
                         }
-                    } else if frame_num.is_multiple_of(100) {
+                    } else if frame_num % 100 == 0 {
                         tracing::warn!("PVCAM mock: frame pool exhausted at frame {}", frame_num);
                     }
                 }
@@ -3329,7 +3327,7 @@ impl PvcamAcquisition {
             let alloc_frame_num = ALLOC_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
 
             // Log allocation metrics every 100 frames
-            if alloc_frame_num.is_multiple_of(100) {
+            if alloc_frame_num % 100 == 0 {
                 let total_bytes = ALLOC_TOTAL_BYTES.load(Ordering::Relaxed);
                 let total_ns = ALLOC_TOTAL_TIME_NS.load(Ordering::Relaxed);
                 let pool_hits = POOL_HITS.load(Ordering::Relaxed);
@@ -3661,7 +3659,7 @@ impl PvcamAcquisition {
                 // rather than blocking broadcast delivery
                 if let Some(ref tx) = reliable_tx {
                     if tx.try_send(frame_arc.clone()).is_err()
-                        && current_frame_nr.is_multiple_of(100)
+                        && current_frame_nr % 100 == 0
                     {
                         // Rate-limit warnings to avoid log spam at high FPS
                         tracing::warn!(
