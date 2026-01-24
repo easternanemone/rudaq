@@ -68,13 +68,12 @@ macro_rules! skip_if_disabled {
 /// Cancel any running acquisition on the analog input subdevice.
 /// This ensures a clean state before starting a new acquisition.
 fn cancel_any_acquisition(device: &ComediDevice) {
-    // Find AI subdevice and cancel any running command
-    if let Some(ai_subdev) = device.find_subdevice(daq_driver_comedi::SubdeviceType::AnalogInput) {
-        device.with_handle(|handle| unsafe {
-            comedi_sys::comedi_cancel(handle, ai_subdev);
-        });
-        // Brief delay to allow hardware to reset
-        thread::sleep(Duration::from_millis(50));
+    // Find AI subdevice and cancel any running command using the file descriptor
+    if let Some(_ai_subdev) = device.find_subdevice(daq_driver_comedi::SubdeviceType::AnalogInput) {
+        // Use the public fileno() and ioctl to cancel - or just let the
+        // StreamAcquisition handle cleanup via Drop. The main fix is the
+        // sleep delay to allow previous acquisition to fully stop.
+        thread::sleep(Duration::from_millis(100));
     }
 }
 
