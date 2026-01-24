@@ -250,89 +250,216 @@ pub fn CR_AREF(a: c_uint) -> c_uint {
     (a >> 24) & 0x03
 }
 
-// Dummy function declarations - these will fail at link time if actually called
-// without the real library, which is the desired behavior
+// Panic stub implementations - these allow linking to succeed but will panic at runtime
+// if called without the comedi-sdk feature enabled.
+//
+// This is intentional: it allows the workspace to build and test on systems without
+// comedilib installed, while still catching any accidental usage at runtime.
 
-extern "C" {
-    pub fn comedi_open(filename: *const c_char) -> *mut comedi_t;
-    pub fn comedi_close(dev: *mut comedi_t) -> c_int;
-    pub fn comedi_get_n_subdevices(dev: *mut comedi_t) -> c_int;
-    pub fn comedi_get_subdevice_type(dev: *mut comedi_t, subdevice: c_uint) -> c_int;
-    pub fn comedi_get_subdevice_flags(dev: *mut comedi_t, subdevice: c_uint) -> c_int;
-    pub fn comedi_get_n_channels(dev: *mut comedi_t, subdevice: c_uint) -> c_int;
-    pub fn comedi_get_n_ranges(dev: *mut comedi_t, subdevice: c_uint, channel: c_uint) -> c_int;
-    pub fn comedi_get_maxdata(dev: *mut comedi_t, subdevice: c_uint, channel: c_uint) -> lsampl_t;
-    pub fn comedi_get_range(
-        dev: *mut comedi_t,
-        subdevice: c_uint,
-        channel: c_uint,
-        range: c_uint,
-    ) -> *mut comedi_range;
-    pub fn comedi_get_board_name(dev: *mut comedi_t) -> *const c_char;
-    pub fn comedi_get_driver_name(dev: *mut comedi_t) -> *const c_char;
-    pub fn comedi_data_read(
-        dev: *mut comedi_t,
-        subdevice: c_uint,
-        channel: c_uint,
-        range: c_uint,
-        aref: c_uint,
-        data: *mut lsampl_t,
-    ) -> c_int;
-    pub fn comedi_data_write(
-        dev: *mut comedi_t,
-        subdevice: c_uint,
-        channel: c_uint,
-        range: c_uint,
-        aref: c_uint,
-        data: lsampl_t,
-    ) -> c_int;
-    pub fn comedi_dio_config(
-        dev: *mut comedi_t,
-        subdevice: c_uint,
-        channel: c_uint,
-        direction: c_uint,
-    ) -> c_int;
-    pub fn comedi_dio_read(
-        dev: *mut comedi_t,
-        subdevice: c_uint,
-        channel: c_uint,
-        bit: *mut c_uint,
-    ) -> c_int;
-    pub fn comedi_dio_write(
-        dev: *mut comedi_t,
-        subdevice: c_uint,
-        channel: c_uint,
-        bit: c_uint,
-    ) -> c_int;
-    pub fn comedi_dio_bitfield2(
-        dev: *mut comedi_t,
-        subdevice: c_uint,
-        write_mask: c_uint,
-        bits: *mut c_uint,
-        base_channel: c_uint,
-    ) -> c_int;
-    pub fn comedi_to_phys(
-        data: lsampl_t,
-        range: *const comedi_range,
-        maxdata: lsampl_t,
-    ) -> f64;
-    pub fn comedi_from_phys(
-        data: f64,
-        range: *const comedi_range,
-        maxdata: lsampl_t,
-    ) -> lsampl_t;
-    pub fn comedi_command(dev: *mut comedi_t, cmd: *mut comedi_cmd) -> c_int;
-    pub fn comedi_command_test(dev: *mut comedi_t, cmd: *mut comedi_cmd) -> c_int;
-    pub fn comedi_cancel(dev: *mut comedi_t, subdevice: c_uint) -> c_int;
-    pub fn comedi_poll(dev: *mut comedi_t, subdevice: c_uint) -> c_int;
-    pub fn comedi_get_buffer_size(dev: *mut comedi_t, subdevice: c_uint) -> c_int;
-    pub fn comedi_get_buffer_contents(dev: *mut comedi_t, subdevice: c_uint) -> c_int;
-    pub fn comedi_mark_buffer_read(dev: *mut comedi_t, subdevice: c_uint, bytes: c_uint) -> c_int;
-    pub fn comedi_fileno(dev: *mut comedi_t) -> c_int;
-    pub fn comedi_strerror(errnum: c_int) -> *const c_char;
-    pub fn comedi_errno() -> c_int;
-    pub fn comedi_perror(s: *const c_char);
-    pub fn comedi_loglevel(loglevel: c_int) -> c_int;
+const COMEDI_SDK_PANIC_MSG: &str = "comedi function called but comedi-sdk feature is not enabled. \
+    Enable the comedi-sdk feature (or comedi_hardware in daq-hardware) to use the real comedi library.";
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_open(_filename: *const c_char) -> *mut comedi_t {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_close(_dev: *mut comedi_t) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_get_n_subdevices(_dev: *mut comedi_t) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_get_subdevice_type(_dev: *mut comedi_t, _subdevice: c_uint) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_get_subdevice_flags(_dev: *mut comedi_t, _subdevice: c_uint) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_get_n_channels(_dev: *mut comedi_t, _subdevice: c_uint) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_get_n_ranges(_dev: *mut comedi_t, _subdevice: c_uint, _channel: c_uint) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_get_maxdata(_dev: *mut comedi_t, _subdevice: c_uint, _channel: c_uint) -> lsampl_t {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_get_range(
+    _dev: *mut comedi_t,
+    _subdevice: c_uint,
+    _channel: c_uint,
+    _range: c_uint,
+) -> *mut comedi_range {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_get_board_name(_dev: *mut comedi_t) -> *const c_char {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_get_driver_name(_dev: *mut comedi_t) -> *const c_char {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_data_read(
+    _dev: *mut comedi_t,
+    _subdevice: c_uint,
+    _channel: c_uint,
+    _range: c_uint,
+    _aref: c_uint,
+    _data: *mut lsampl_t,
+) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_data_write(
+    _dev: *mut comedi_t,
+    _subdevice: c_uint,
+    _channel: c_uint,
+    _range: c_uint,
+    _aref: c_uint,
+    _data: lsampl_t,
+) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_dio_config(
+    _dev: *mut comedi_t,
+    _subdevice: c_uint,
+    _channel: c_uint,
+    _direction: c_uint,
+) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_dio_read(
+    _dev: *mut comedi_t,
+    _subdevice: c_uint,
+    _channel: c_uint,
+    _bit: *mut c_uint,
+) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_dio_write(
+    _dev: *mut comedi_t,
+    _subdevice: c_uint,
+    _channel: c_uint,
+    _bit: c_uint,
+) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_dio_bitfield2(
+    _dev: *mut comedi_t,
+    _subdevice: c_uint,
+    _write_mask: c_uint,
+    _bits: *mut c_uint,
+    _base_channel: c_uint,
+) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_to_phys(
+    _data: lsampl_t,
+    _range: *const comedi_range,
+    _maxdata: lsampl_t,
+) -> f64 {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_from_phys(
+    _data: f64,
+    _range: *const comedi_range,
+    _maxdata: lsampl_t,
+) -> lsampl_t {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_command(_dev: *mut comedi_t, _cmd: *mut comedi_cmd) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_command_test(_dev: *mut comedi_t, _cmd: *mut comedi_cmd) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_cancel(_dev: *mut comedi_t, _subdevice: c_uint) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_poll(_dev: *mut comedi_t, _subdevice: c_uint) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_get_buffer_size(_dev: *mut comedi_t, _subdevice: c_uint) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_get_buffer_contents(_dev: *mut comedi_t, _subdevice: c_uint) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_mark_buffer_read(_dev: *mut comedi_t, _subdevice: c_uint, _bytes: c_uint) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_fileno(_dev: *mut comedi_t) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_strerror(_errnum: c_int) -> *const c_char {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_errno() -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_perror(_s: *const c_char) {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn comedi_loglevel(_loglevel: c_int) -> c_int {
+    panic!("{}", COMEDI_SDK_PANIC_MSG);
 }
 
 // DIO direction constants

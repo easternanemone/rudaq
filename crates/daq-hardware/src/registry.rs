@@ -614,6 +614,8 @@ pub struct DeviceMetadata {
 struct RegisteredDevice {
     /// Device configuration
     config: DeviceConfig,
+    /// Actual driver type string (preserves factory-registered type)
+    driver_type: String,
     /// Movable implementation (if supported)
     movable: Option<Arc<dyn Movable>>,
     /// Readable implementation (if supported)
@@ -1122,6 +1124,7 @@ impl DeviceRegistry {
 
         RegisteredDevice {
             config,
+            driver_type,
             movable: components.movable,
             readable: components.readable,
             triggerable: components.triggerable,
@@ -1234,7 +1237,7 @@ impl DeviceRegistry {
                     e.to_string(),
                 ))
             })?;
-        let driver_type = registered.config.driver.driver_name().to_string();
+        let driver_type = registered.driver_type.clone();
         if let Err(err) = self
             .run_on_register(&registered.config.id, &driver_type, &registered.lifecycle)
             .await
@@ -1261,7 +1264,7 @@ impl DeviceRegistry {
     /// This method is thread-safe and can be called concurrently.
     pub async fn unregister(&self, id: &str) -> Result<bool, DaqError> {
         if let Some((_, device)) = self.devices.remove(id) {
-            let driver_type = device.config.driver.driver_name().to_string();
+            let driver_type = device.driver_type.clone();
             self.run_on_unregister(&device.config.id, &driver_type, &device.lifecycle)
                 .await?;
             Ok(true)
@@ -1304,7 +1307,7 @@ impl DeviceRegistry {
                 DeviceInfo {
                     id: d.config.id.clone(),
                     name: d.config.name.clone(),
-                    driver_type: d.config.driver.driver_name().to_string(),
+                    driver_type: d.driver_type.clone(),
                     // Use introspected capabilities from actual trait objects,
                     // not the config's DriverType enum (which may be synthetic)
                     capabilities: d.capabilities(),
@@ -1361,7 +1364,7 @@ impl DeviceRegistry {
         self.devices.get(id).map(|d| DeviceInfo {
             id: d.config.id.clone(),
             name: d.config.name.clone(),
-            driver_type: d.config.driver.driver_name().to_string(),
+            driver_type: d.driver_type.clone(),
             // Use introspected capabilities from actual trait objects,
             // not the config's DriverType enum (which may be synthetic)
             capabilities: d.capabilities(),
@@ -1509,6 +1512,7 @@ impl DeviceRegistry {
     /// Instantiate a device from configuration
     async fn instantiate_device(&self, config: DeviceConfig) -> Result<RegisteredDevice> {
         // Clone driver before matching to avoid borrow issues
+        let driver_type_name = config.driver.driver_name().to_string();
         let driver = config.driver.clone();
 
         match driver {
@@ -1518,6 +1522,7 @@ impl DeviceRegistry {
                 ));
                 Ok(RegisteredDevice {
                     config,
+                    driver_type: driver_type_name.clone(),
                     movable: Some(driver.clone()),
                     readable: None,
                     triggerable: None,
@@ -1545,6 +1550,7 @@ impl DeviceRegistry {
                 let driver = Arc::new(crate::drivers::mock::MockPowerMeter::new(reading));
                 Ok(RegisteredDevice {
                     config,
+                    driver_type: driver_type_name.clone(),
                     movable: None,
                     readable: Some(driver.clone()),
                     triggerable: None,
@@ -1570,6 +1576,7 @@ impl DeviceRegistry {
                 let driver = Arc::new(crate::drivers::mock::MockCamera::new(width, height));
                 Ok(RegisteredDevice {
                     config,
+                    driver_type: driver_type_name.clone(),
                     movable: None,
                     readable: None,
                     triggerable: Some(driver.clone()),
@@ -1606,6 +1613,7 @@ impl DeviceRegistry {
                 let (width, height) = driver.resolution();
                 Ok(RegisteredDevice {
                     config,
+                    driver_type: driver_type_name.clone(),
                     movable: None,
                     readable: None,
                     triggerable: Some(driver.clone()),
@@ -1643,6 +1651,7 @@ impl DeviceRegistry {
                 // TODO: Implement HAL trait wrappers for Comedi subsystems
                 Ok(RegisteredDevice {
                     config,
+                    driver_type: driver_type_name.clone(),
                     movable: None,
                     readable: None,
                     triggerable: None,
@@ -1696,6 +1705,7 @@ impl DeviceRegistry {
                 );
                 Ok(RegisteredDevice {
                     config,
+                    driver_type: driver_type_name.clone(),
                     movable: Some(driver.clone()),
                     readable: None,
                     triggerable: None,
@@ -1729,6 +1739,7 @@ impl DeviceRegistry {
                 let wavelength_range = driver.wavelength_range();
                 Ok(RegisteredDevice {
                     config,
+                    driver_type: driver_type_name.clone(),
                     movable: None,
                     readable: Some(driver.clone()),
                     triggerable: None,
@@ -1760,6 +1771,7 @@ impl DeviceRegistry {
                 );
                 Ok(RegisteredDevice {
                     config,
+                    driver_type: driver_type_name.clone(),
                     movable: None,
                     readable: Some(driver.clone()),
                     triggerable: None,
@@ -1788,6 +1800,7 @@ impl DeviceRegistry {
                     Arc::new(crate::drivers::esp300::Esp300Driver::new_async(&port, axis).await?);
                 Ok(RegisteredDevice {
                     config,
+                    driver_type: driver_type_name.clone(),
                     movable: Some(driver.clone()),
                     readable: None,
                     triggerable: None,
@@ -1877,6 +1890,7 @@ impl DeviceRegistry {
                 ));
             }
         };
+        let driver_type_name = config.driver.driver_name().to_string();
 
         // Introspect capabilities from the plugin configuration
         let factory = self.plugin_factory.read().await;
@@ -1945,6 +1959,7 @@ impl DeviceRegistry {
 
         Ok(RegisteredDevice {
             config,
+            driver_type: driver_type_name.clone(),
             movable,
             readable,
             triggerable: None,
@@ -2521,6 +2536,45 @@ mod tests {
         assert!(camera.capabilities.contains(&Capability::FrameProducer));
         assert!(camera.capabilities.contains(&Capability::Triggerable));
         assert!(camera.capabilities.contains(&Capability::ExposureControl));
+    }
+
+    #[tokio::test]
+    async fn test_legacy_toml_config_registers_mock_devices() {
+        let toml_str = r#"
+[[devices]]
+id = "legacy_stage"
+name = "Legacy Stage"
+[devices.driver]
+type = "mock_stage"
+initial_position = 1.23
+
+[[devices]]
+id = "legacy_camera"
+name = "Legacy Camera"
+[devices.driver]
+type = "mock_camera"
+width = 320
+height = 240
+"#;
+
+        let config: HardwareConfig = toml::from_str(toml_str).unwrap();
+        let registry = create_registry_from_config(&config).await.unwrap();
+
+        let devices = registry.list_devices();
+        assert_eq!(devices.len(), 2);
+
+        let stage = devices.iter().find(|d| d.id == "legacy_stage").unwrap();
+        assert_eq!(stage.driver_type, "mock_stage");
+        assert!(stage.capabilities.contains(&Capability::Movable));
+
+        let camera = devices.iter().find(|d| d.id == "legacy_camera").unwrap();
+        assert_eq!(camera.driver_type, "mock_camera");
+        assert!(camera.capabilities.contains(&Capability::FrameProducer));
+        assert!(camera.capabilities.contains(&Capability::Triggerable));
+        assert!(camera.capabilities.contains(&Capability::ExposureControl));
+
+        assert!(registry.get_movable("legacy_stage").is_some());
+        assert!(registry.get_frame_producer("legacy_camera").is_some());
     }
 
     #[tokio::test]
