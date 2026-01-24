@@ -50,7 +50,7 @@ use tracing::{debug, error, info, trace, warn};
 
 use comedi_sys::{
     comedi_cmd, lsampl_t, AREF_GROUND, CMDF_PRIORITY, CR_PACK, SDF_LSAMPL, TRIG_COUNT, TRIG_EXT,
-    TRIG_FOLLOW, TRIG_NOW, TRIG_TIMER,
+    TRIG_FOLLOW, TRIG_NONE, TRIG_NOW, TRIG_TIMER,
 };
 
 use crate::device::{ComediDevice, SubdeviceType};
@@ -705,11 +705,14 @@ impl StreamAcquisition {
         let convert_interval_ns = self.config.convert_interval_ns();
 
         // Determine stop source and argument
+        // IMPORTANT: For continuous acquisition, use TRIG_NONE, not TRIG_COUNT with 0
+        // TRIG_COUNT with stop_arg=0 is NOT "infinite" in Comedi - it stops immediately!
         let (stop_src, stop_arg) = match self.config.stop {
-            StopCondition::Continuous => (TRIG_COUNT, 0u32), // 0 = infinite for NI
+            StopCondition::Continuous => (TRIG_NONE, 0u32),
             StopCondition::Count(n) => (TRIG_COUNT, n as u32),
             StopCondition::Duration(d) => {
-                let scans = (d.as_secs_f64() * self.config.sample_rate) as u32;
+                let scan_rate = self.config.scan_rate.unwrap_or(self.config.sample_rate);
+                let scans = (d.as_secs_f64() * scan_rate).round() as u32;
                 (TRIG_COUNT, scans)
             }
         };
@@ -730,9 +733,10 @@ impl StreamAcquisition {
             scan_begin_src: self.config.scan_trigger.to_raw(),
             scan_begin_arg: scan_interval_ns,
 
-            // Convert: follow scan or timer
-            convert_src: if n_channels > 1 { TRIG_TIMER } else { TRIG_NOW },
-            convert_arg: convert_interval_ns,
+            // Convert: use TRIG_TIMER for all cases to ensure proper timing
+            // TRIG_NOW can cause command test to not converge on some hardware
+            convert_src: TRIG_TIMER,
+            convert_arg: if n_channels > 1 { convert_interval_ns } else { 0 },
 
             // Scan end: count channels
             scan_end_src: TRIG_COUNT,
@@ -763,16 +767,23 @@ impl StreamAcquisition {
     }
 
     /// Test and adjust the command.
+    /// 
+    /// Comedi's command test must converge to 0 (valid command) before the
+    /// command can be executed. Each pass may adjust timing parameters.
     fn test_command(&self, state: &mut StreamState) -> Result<()> {
-        // Comedi command test may need multiple passes
-        for pass in 0..3 {
+        // Comedi command test must return 0 for a valid command.
+        // Keep calling until it converges or fails.
+        let mut last_result = 0;
+        
+        for pass in 0..20 {
             let result = self.device.with_handle(|handle| unsafe {
                 comedi_sys::comedi_command_test(handle, &mut state.cmd)
             });
+            last_result = result;
 
             match result {
                 0 => {
-                    debug!(pass = pass, "Command test passed");
+                    debug!(pass = pass, "Command test passed - command is valid");
                     return Ok(());
                 }
                 1..=5 => {
@@ -780,21 +791,32 @@ impl StreamAcquisition {
                     debug!(
                         pass = pass,
                         result = result,
-                        "Command test modified parameters, retrying"
+                        scan_begin_arg = state.cmd.scan_begin_arg,
+                        convert_arg = state.cmd.convert_arg,
+                        "Command test adjusted parameters, retrying"
                     );
+                }
+                _ if result < 0 => {
+                    // Negative result is an error
+                    return Err(unsafe { ComediError::from_errno() });
                 }
                 _ => {
                     return Err(ComediError::CommandError {
                         code: result,
-                        message: format!("Command test failed with code {}", result),
+                        message: format!("Command test failed with unexpected code {}", result),
                     });
                 }
             }
         }
 
-        // Accept after 3 passes (parameters were adjusted)
-        warn!("Command test needed multiple passes, using adjusted parameters");
-        Ok(())
+        // Did not converge after 20 passes
+        Err(ComediError::CommandError {
+            code: last_result,
+            message: format!(
+                "Command test did not converge to valid command after 20 passes (last result: {})",
+                last_result
+            ),
+        })
     }
 
     /// Convert raw ADC value to voltage.

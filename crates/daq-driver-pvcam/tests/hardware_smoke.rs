@@ -418,6 +418,7 @@ async fn pvcam_exposure_range_test() {
 
 /// Test frame data statistics (validates pixel data is reasonable)
 #[tokio::test]
+#[allow(deprecated)] // subscribe_frames() still works; register_primary_output() not yet wired
 async fn pvcam_frame_statistics_test() {
     skip_if_disabled!();
 
@@ -427,17 +428,52 @@ async fn pvcam_frame_statistics_test() {
         .await
         .expect("Failed to create PVCAM driver");
 
+    // Ensure clean state before starting (stop any lingering stream)
+    let _ = camera.stop_stream().await;
+
     // Set moderate exposure
     camera
         .set_exposure(0.020)
         .await
         .expect("Failed to set exposure");
 
-    // Acquire frame
-    let frame = camera
-        .acquire_frame()
+    // Use streaming pattern for more robust callback registration
+    // Subscribe to frame stream BEFORE starting (critical for callback timing)
+    let mut rx = camera
+        .subscribe_frames()
         .await
-        .expect("Failed to acquire frame");
+        .expect("Failed to subscribe to frame stream");
+
+    // Start streaming
+    println!("Starting stream for frame capture...");
+    camera
+        .start_stream()
+        .await
+        .expect("Failed to start streaming");
+
+    // Small delay to ensure callback is fully registered
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Wait for first frame with longer timeout (10s) for robust callback capture
+    let frame = match tokio::time::timeout(Duration::from_secs(10), rx.recv()).await {
+        Ok(Ok(frame)) => frame,
+        Ok(Err(e)) => {
+            let _ = camera.stop_stream().await;
+            let _ = camera.close().await;
+            panic!("Frame receive error: {}", e);
+        }
+        Err(_) => {
+            let _ = camera.stop_stream().await;
+            let _ = camera.close().await;
+            panic!("Timed out waiting for frame (10s) - EOF callback may not be firing");
+        }
+    };
+
+    // Stop streaming immediately after getting frame
+    camera
+        .stop_stream()
+        .await
+        .expect("Failed to stop streaming");
 
     // Convert to u16 pixels
     let pixels: Vec<u16> = frame
