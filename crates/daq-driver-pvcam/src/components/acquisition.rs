@@ -2238,7 +2238,9 @@ impl PvcamAcquisition {
             tracing::warn!(
                 "start_stream: pvcam_sdk compiled but handle is None - falling back to mock stream"
             );
-            self.start_mock_stream(roi, binning, exposure_ms, reliable_tx)
+            // Clone reliable_tx again since the original may have been moved into hardware path
+            let reliable_tx_mock = self.reliable_tx.lock().await.clone();
+            self.start_mock_stream(roi, binning, exposure_ms, reliable_tx_mock)
                 .await?;
         }
 
