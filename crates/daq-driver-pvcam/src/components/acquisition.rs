@@ -2551,7 +2551,9 @@ impl PvcamAcquisition {
             *guard = Some(done_tx.clone());
         }
 
-        // Spawn blocking task for sequence acquisition loop
+        // Spawn blocking task for sequence acquisition loop.
+        // NOTE: frame_loop_sequence uses std::thread::sleep + blocking PVCAM FFI calls,
+        // so it must run on the tokio blocking pool (not runtime worker threads).
         let poll_handle = tokio::task::spawn_blocking(move || {
             Self::frame_loop_sequence(
                 hcam,
