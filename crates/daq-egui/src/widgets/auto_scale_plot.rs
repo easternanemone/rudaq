@@ -29,9 +29,9 @@ pub struct AxisLockState {
 ///
 /// ## Example
 ///
-/// ```no_run
+/// ```ignore
 /// use daq_egui::widgets::{AutoScalePlot, AxisLockState};
-/// use egui_plot::Line;
+/// use egui_plot::{Line, PlotPoints};
 ///
 /// let mut plot = AutoScalePlot::new(AxisLockState::default());
 /// let points = vec![[0.0, 1.0], [1.0, 2.0], [2.0, 1.5]];
@@ -39,9 +39,9 @@ pub struct AxisLockState {
 /// // Update bounds to fit new data
 /// plot.update_bounds(&points);
 ///
-/// // Render with controls
+/// // Render with controls (inside an egui frame)
 /// plot.show_with_controls(ui, "my_plot", |plot_ui| {
-///     plot_ui.line(Line::new(points));
+///     plot_ui.line(Line::new(PlotPoints::from_iter(points.iter().copied())));
 /// });
 /// ```
 pub struct AutoScalePlot {

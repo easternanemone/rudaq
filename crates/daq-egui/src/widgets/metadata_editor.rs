@@ -9,12 +9,12 @@ use std::collections::HashMap;
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```ignore
 /// use daq_egui::widgets::MetadataEditor;
 ///
 /// let mut editor = MetadataEditor::new();
 ///
-/// // In your UI code:
+/// // In your UI code (inside an egui frame):
 /// editor.ui(ui);
 ///
 /// // When queuing a plan:
