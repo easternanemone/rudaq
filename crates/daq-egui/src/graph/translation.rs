@@ -642,7 +642,7 @@ mod tests {
         );
 
         // Translate to plan
-        let mut plan = GraphPlan::from_snarl(&snarl).expect("Translation failed");
+        let plan = GraphPlan::from_snarl(&snarl).expect("Translation failed");
 
         // Count iteration markers
         let iteration_starts = plan.commands.iter().filter(|cmd| {

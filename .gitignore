@@ -140,3 +140,7 @@ whats-next.md
 
 # Beads task tracking (ephemeral)
 .beads/
+
+# Local AI tool config
+.agents/
+.factory/

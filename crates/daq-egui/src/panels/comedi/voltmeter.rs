@@ -321,7 +321,7 @@ impl VoltmeterPanel {
     /// Start streaming from a hardware device via gRPC
     pub fn start_streaming(
         &mut self,
-        mut client: DaqClient,
+        _client: DaqClient,
         runtime: &Runtime,
         device_id: String,
         channel: u32,
