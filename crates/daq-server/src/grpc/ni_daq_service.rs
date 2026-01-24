@@ -485,31 +485,221 @@ impl NiDaqService for NiDaqServiceImpl {
     #[instrument(skip(self))]
     async fn configure_digital_io(
         &self,
-        _request: Request<ConfigureDigitalIoRequest>,
+        request: Request<ConfigureDigitalIoRequest>,
     ) -> Result<Response<ConfigureDigitalIoResponse>, Status> {
-        Err(Status::unimplemented(
-            "ConfigureDigitalIO not yet implemented (Phase 3)",
-        ))
+        #[cfg(feature = "comedi")]
+        {
+            let req = request.into_inner();
+
+            // Validate device_id
+            if req.device_id.is_empty() {
+                return Err(Status::invalid_argument("device_id is required"));
+            }
+
+            // Validate pins configuration
+            if req.pins.is_empty() {
+                return Err(Status::invalid_argument(
+                    "At least one pin configuration is required",
+                ));
+            }
+
+            // Verify device exists in registry
+            let _device_info = self
+                .registry
+                .get_device_info(&req.device_id)
+                .ok_or_else(|| Status::not_found(format!("Device '{}' not found", req.device_id)))?;
+
+            // Determine device path (TODO: store in registry metadata)
+            let device_path = "/dev/comedi0";
+
+            // Configure pins via spawn_blocking (FFI call)
+            let pins = req.pins.clone();
+            self.await_with_timeout("ConfigureDigitalIO", async move {
+                tokio::task::spawn_blocking(move || {
+                    use daq_driver_comedi::subsystem::digital_io::DioDirection;
+                    use daq_hardware::drivers::comedi::ComediDevice;
+
+                    let device = ComediDevice::open(device_path)?;
+                    let dio = device.digital_io()?;
+
+                    // Validate and configure each pin
+                    for pin_config in &pins {
+                        let pin = pin_config.pin;
+                        let direction = DigitalDirection::try_from(pin_config.direction)
+                            .map_err(|_| {
+                                anyhow::anyhow!("Invalid direction: {}", pin_config.direction)
+                            })?;
+
+                        // Validate pin number
+                        if pin >= dio.n_channels() {
+                            return Err(anyhow::anyhow!(
+                                "Invalid pin {}. Device has {} DIO channels",
+                                pin,
+                                dio.n_channels()
+                            ));
+                        }
+
+                        // Map proto DigitalDirection to driver DioDirection
+                        let dio_dir = match direction {
+                            DigitalDirection::Input => DioDirection::Input,
+                            DigitalDirection::Output => DioDirection::Output,
+                        };
+
+                        // Configure the pin
+                        dio.configure(pin, dio_dir)?;
+                    }
+
+                    Ok(())
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
+            })
+            .await?;
+
+            Ok(Response::new(ConfigureDigitalIoResponse {
+                success: true,
+                error_message: String::new(),
+            }))
+        }
+
+        #[cfg(not(feature = "comedi"))]
+        {
+            let _ = request; // Suppress unused warning
+            Err(Status::unimplemented(
+                "ConfigureDigitalIO requires 'comedi' feature to be enabled",
+            ))
+        }
     }
 
     #[instrument(skip(self))]
     async fn read_digital_io(
         &self,
-        _request: Request<ReadDigitalIoRequest>,
+        request: Request<ReadDigitalIoRequest>,
     ) -> Result<Response<ReadDigitalIoResponse>, Status> {
-        Err(Status::unimplemented(
-            "ReadDigitalIO not yet implemented (Phase 3)",
-        ))
+        #[cfg(feature = "comedi")]
+        {
+            let req = request.into_inner();
+
+            // Validate device_id
+            if req.device_id.is_empty() {
+                return Err(Status::invalid_argument("device_id is required"));
+            }
+
+            // Verify device exists in registry
+            let _device_info = self
+                .registry
+                .get_device_info(&req.device_id)
+                .ok_or_else(|| Status::not_found(format!("Device '{}' not found", req.device_id)))?;
+
+            // Determine device path (TODO: store in registry metadata)
+            let device_path = "/dev/comedi0";
+
+            // Read pin via spawn_blocking (FFI call)
+            let pin = req.pin;
+            let value = self
+                .await_with_timeout("ReadDigitalIO", async move {
+                    tokio::task::spawn_blocking(move || {
+                        use daq_hardware::drivers::comedi::ComediDevice;
+
+                        let device = ComediDevice::open(device_path)?;
+                        let dio = device.digital_io()?;
+
+                        // Validate pin number
+                        if pin >= dio.n_channels() {
+                            return Err(anyhow::anyhow!(
+                                "Invalid pin {}. Device has {} DIO channels",
+                                pin,
+                                dio.n_channels()
+                            ));
+                        }
+
+                        // Read the pin value
+                        dio.read(pin).map_err(|e| anyhow::anyhow!("Failed to read pin: {}", e))
+                    })
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
+                })
+                .await?;
+
+            Ok(Response::new(ReadDigitalIoResponse {
+                success: true,
+                error_message: String::new(),
+                value,
+            }))
+        }
+
+        #[cfg(not(feature = "comedi"))]
+        {
+            let _ = request; // Suppress unused warning
+            Err(Status::unimplemented(
+                "ReadDigitalIO requires 'comedi' feature to be enabled",
+            ))
+        }
     }
 
     #[instrument(skip(self))]
     async fn write_digital_io(
         &self,
-        _request: Request<WriteDigitalIoRequest>,
+        request: Request<WriteDigitalIoRequest>,
     ) -> Result<Response<WriteDigitalIoResponse>, Status> {
-        Err(Status::unimplemented(
-            "WriteDigitalIO not yet implemented (Phase 3)",
-        ))
+        #[cfg(feature = "comedi")]
+        {
+            let req = request.into_inner();
+
+            // Validate device_id
+            if req.device_id.is_empty() {
+                return Err(Status::invalid_argument("device_id is required"));
+            }
+
+            // Verify device exists in registry
+            let _device_info = self
+                .registry
+                .get_device_info(&req.device_id)
+                .ok_or_else(|| Status::not_found(format!("Device '{}' not found", req.device_id)))?;
+
+            // Determine device path (TODO: store in registry metadata)
+            let device_path = "/dev/comedi0";
+
+            // Write pin via spawn_blocking (FFI call)
+            let pin = req.pin;
+            let value = req.value;
+            self.await_with_timeout("WriteDigitalIO", async move {
+                tokio::task::spawn_blocking(move || {
+                    use daq_hardware::drivers::comedi::ComediDevice;
+
+                    let device = ComediDevice::open(device_path)?;
+                    let dio = device.digital_io()?;
+
+                    // Validate pin number
+                    if pin >= dio.n_channels() {
+                        return Err(anyhow::anyhow!(
+                            "Invalid pin {}. Device has {} DIO channels",
+                            pin,
+                            dio.n_channels()
+                        ));
+                    }
+
+                    // Write the pin value
+                    dio.write(pin, value).map_err(|e| anyhow::anyhow!("Failed to write pin: {}", e))
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
+            })
+            .await?;
+
+            Ok(Response::new(WriteDigitalIoResponse {
+                success: true,
+                error_message: String::new(),
+            }))
+        }
+
+        #[cfg(not(feature = "comedi"))]
+        {
+            let _ = request; // Suppress unused warning
+            Err(Status::unimplemented(
+                "WriteDigitalIO requires 'comedi' feature to be enabled",
+            ))
+        }
     }
 
     #[instrument(skip(self))]
