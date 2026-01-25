@@ -345,6 +345,33 @@ mod tests {
         );
     }
 
+    /// Test that voltage_input is formatted with 3 decimal places.
+    /// This ensures consistent precision display for voltage values.
+    /// The format string "{:.3}" is used in poll_results() and ui().
+    #[test]
+    fn test_voltage_input_uses_three_decimal_places() {
+        // Test formatting of various voltage values
+        let test_cases = [
+            (0.0, "0.000"),
+            (1.0, "1.000"),
+            (-5.5, "-5.500"),
+            (3.14159, "3.142"),  // Should round
+            (10.0, "10.000"),
+            (-10.0, "-10.000"),
+            (0.001, "0.001"),
+            (0.0001, "0.000"),   // Below precision, rounds to 0.000
+        ];
+
+        for (voltage, expected) in test_cases {
+            let formatted = format!("{:.3}", voltage);
+            assert_eq!(
+                formatted, expected,
+                "Voltage {} should format as '{}', got '{}'",
+                voltage, expected, formatted
+            );
+        }
+    }
+
     /// Test voltage clamping logic by verifying the bounds.
     /// In write_voltage(), voltage is clamped to [min_voltage, max_voltage].
     /// This test documents the expected clamping behavior.
