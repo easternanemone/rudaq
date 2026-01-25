@@ -153,11 +153,16 @@ Plans:
   1. User can create nested scan (outer wavelength loop, inner XY position scan)
   2. User can create adaptive scan that adjusts parameters based on acquired data (e.g., zoom into peak)
   3. Nested scans execute in correct order (outer × inner loops) with proper data dimensionality
-**Plans**: TBD
+**Plans**: 7 plans in 3 waves
 
 Plans:
-- [ ] 08-01: TBD during plan-phase
-- [ ] 08-02: TBD during plan-phase
+- [ ] 08-01-PLAN.md — Zarr V3 storage foundation (zarrs crate, Xarray-compatible encoding)
+- [ ] 08-02-PLAN.md — NestedScan node type with outer/inner configuration
+- [ ] 08-03-PLAN.md — AdaptiveScan node type with trigger conditions and actions
+- [ ] 08-04-PLAN.md — NestedScan translation and code generation
+- [ ] 08-05-PLAN.md — AdaptiveScan translation with peak detection
+- [ ] 08-06-PLAN.md — Nested progress display and Zarr integration points
+- [ ] 08-07-PLAN.md — Adaptive trigger alert modal UI
 
 ### Phase 9: Templates and Library
 **Goal**: Reusable experiment patterns and subgraph grouping accelerate common tasks
