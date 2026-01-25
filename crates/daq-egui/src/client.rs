@@ -235,13 +235,23 @@ impl DaqClient {
 
     /// List all devices
     pub async fn list_devices(&mut self) -> Result<Vec<daq_proto::daq::DeviceInfo>> {
+        tracing::debug!("DaqClient::list_devices() - sending gRPC request");
         let response = self
             .hardware
             .list_devices(ListDevicesRequest {
                 capability_filter: None,
             })
-            .await?;
-        Ok(response.into_inner().devices)
+            .await
+            .map_err(|e| {
+                tracing::warn!(error = %e, "DaqClient::list_devices() - gRPC request failed");
+                e
+            })?;
+        let devices = response.into_inner().devices;
+        tracing::debug!(
+            device_count = devices.len(),
+            "DaqClient::list_devices() - received response"
+        );
+        Ok(devices)
     }
 
     /// List all devices with registration failures included

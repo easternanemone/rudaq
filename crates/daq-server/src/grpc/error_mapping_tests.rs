@@ -9,6 +9,15 @@ mod tests {
         assert_eq!(status.code(), expected);
     }
 
+    fn assert_metadata(status: &tonic::Status, key: &str, expected: &str) {
+        let value = status
+            .metadata()
+            .get(key)
+            .and_then(|val| val.to_str().ok())
+            .unwrap_or("<missing>");
+        assert_eq!(value, expected);
+    }
+
     mod configuration_errors {
         use super::*;
 
@@ -36,13 +45,27 @@ mod tests {
         }
 
         #[test]
-        fn driver_init_error_maps_to_unavailable() {
+        fn driver_init_error_maps_to_failed_precondition() {
             let err = DaqError::Driver(DriverError::new(
                 "mock_camera",
                 DriverErrorKind::Initialization,
                 "failed",
             ));
-            assert_status_code(err, Code::Unavailable);
+            assert_status_code(err, Code::FailedPrecondition);
+        }
+
+        #[test]
+        fn driver_error_includes_metadata() {
+            let err = DaqError::Driver(DriverError::new(
+                "mock_camera",
+                DriverErrorKind::Initialization,
+                "failed",
+            ));
+            let status = map_daq_error_to_status(err);
+
+            assert_metadata(&status, "x-daq-error-kind", "driver");
+            assert_metadata(&status, "x-daq-driver-type", "mock_camera");
+            assert_metadata(&status, "x-daq-driver-kind", "initialization");
         }
 
         #[test]
@@ -61,6 +84,14 @@ mod tests {
         }
 
         #[test]
+        fn instrument_error_includes_metadata() {
+            let err = DaqError::Instrument("camera fault".into());
+            let status = map_daq_error_to_status(err);
+
+            assert_metadata(&status, "x-daq-error-kind", "instrument");
+        }
+
+        #[test]
         fn serial_unexpected_eof_maps_to_aborted() {
             assert_status_code(DaqError::SerialUnexpectedEof, Code::Aborted);
         }
@@ -68,6 +99,46 @@ mod tests {
         #[test]
         fn serial_feature_disabled_maps_to_unimplemented() {
             assert_status_code(DaqError::SerialFeatureDisabled, Code::Unimplemented);
+        }
+
+        #[test]
+        fn driver_timeout_error_maps_to_deadline_exceeded() {
+            let err = DaqError::Driver(DriverError::new(
+                "mock_camera",
+                DriverErrorKind::Timeout,
+                "operation timed out",
+            ));
+            assert_status_code(err, Code::DeadlineExceeded);
+        }
+
+        #[test]
+        fn driver_permission_error_maps_to_permission_denied() {
+            let err = DaqError::Driver(DriverError::new(
+                "comedi",
+                DriverErrorKind::Permission,
+                "access denied",
+            ));
+            assert_status_code(err, Code::PermissionDenied);
+        }
+
+        #[test]
+        fn driver_hardware_error_maps_to_unavailable() {
+            let err = DaqError::Driver(DriverError::new(
+                "comedi",
+                DriverErrorKind::Hardware,
+                "buffer overflow",
+            ));
+            assert_status_code(err, Code::Unavailable);
+        }
+
+        #[test]
+        fn driver_invalid_parameter_maps_to_invalid_argument() {
+            let err = DaqError::Driver(DriverError::new(
+                "comedi",
+                DriverErrorKind::InvalidParameter,
+                "channel out of range",
+            ));
+            assert_status_code(err, Code::InvalidArgument);
         }
     }
 

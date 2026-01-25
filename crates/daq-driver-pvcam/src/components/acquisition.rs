@@ -3660,9 +3660,7 @@ impl PvcamAcquisition {
                 // If measurement pipeline is slow, frames will be dropped here
                 // rather than blocking broadcast delivery
                 if let Some(ref tx) = reliable_tx {
-                    if tx.try_send(frame_arc.clone()).is_err()
-                        && current_frame_nr % 100 == 0
-                    {
+                    if tx.try_send(frame_arc.clone()).is_err() && current_frame_nr % 100 == 0 {
                         // Rate-limit warnings to avoid log spam at high FPS
                         tracing::warn!(
                                 "Reliable channel full, dropping frames around {} for measurement pipeline",

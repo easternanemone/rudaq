@@ -385,8 +385,9 @@ impl PluginFactory {
             }
         };
 
-        // Execute initialization sequence
+        // Execute initialization sequence and mark as executed
         driver.execute_command_sequence(&config.on_connect).await?;
+        driver.mark_on_connect_executed();
 
         Ok(driver)
     }
@@ -416,8 +417,9 @@ impl PluginFactory {
 
         let driver = GenericDriver::new_mock(config.clone())?;
 
-        // Execute initialization sequence (will be simulated)
+        // Execute initialization sequence (will be simulated) and mark as executed
         driver.execute_command_sequence(&config.on_connect).await?;
+        driver.mark_on_connect_executed();
 
         Ok(driver)
     }

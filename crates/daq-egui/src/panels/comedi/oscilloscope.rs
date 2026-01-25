@@ -423,7 +423,7 @@ impl Default for OscilloscopePanel {
             streaming_handle: None,
             streaming_device_id: None,
             streaming_error: None,
-            external_channels: vec![0], // Default to CH0
+            external_channels: vec![0],   // Default to CH0
             external_sample_rate: 1000.0, // 1 kHz default
         }
     }
@@ -489,9 +489,7 @@ impl OscilloscopePanel {
                 sample_rate_hz,
                 range_index: 0, // Default range
                 stop_condition: Some(
-                    daq_proto::ni_daq::stream_analog_input_request::StopCondition::Continuous(
-                        true,
-                    ),
+                    daq_proto::ni_daq::stream_analog_input_request::StopCondition::Continuous(true),
                 ),
                 buffer_size: 1024,
             };

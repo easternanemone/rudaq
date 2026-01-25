@@ -4,81 +4,85 @@
 //! bypassing the scripting layer. It connects to the DeviceRegistry for
 //! capability-based access to hardware devices.
 
-use crate::grpc::proto::{
-    ArmRequest,
-    ArmResponse,
-    CompressionType,
-    DeviceCommandRequest,
-    DeviceCommandResponse,
-    DeviceInfo,
-    DeviceMetadata as ProtoDeviceMetadata,
-    DeviceStateRequest,
-    DeviceStateResponse,
-    DeviceStateSubscribeRequest,
-    DeviceStateUpdate,
-    FrameData,
-    GetEmissionRequest,
-    GetEmissionResponse,
-    GetExposureRequest,
-    GetExposureResponse,
-    GetParameterRequest,
-    GetShutterRequest,
-    GetShutterResponse,
-    GetWavelengthRequest,
-    GetWavelengthResponse,
-    ListDevicesRequest,
-    ListDevicesResponse,
-    ListParametersRequest,
-    ListParametersResponse,
-    MoveRequest,
-    MoveResponse,
-    ObservableValue,
-    ParameterChange,
-    ParameterDescriptor,
-    ParameterValue,
-    PositionUpdate,
-    ReadValueRequest,
-    ReadValueResponse,
-    RegistrationFailure as ProtoRegistrationFailure,
-    SetEmissionRequest,
-    SetEmissionResponse,
-    SetExposureRequest,
-    SetExposureResponse,
-    SetParameterRequest,
-    SetParameterResponse,
-    // Laser control types (bd-pwjo)
-    SetShutterRequest,
-    SetShutterResponse,
-    SetWavelengthRequest,
-    SetWavelengthResponse,
-    StageDeviceRequest,
-    StageDeviceResponse,
-    StartStreamRequest,
-    StartStreamResponse,
-    StopMotionRequest,
-    StopMotionResponse,
-    StopStreamRequest,
-    StopStreamResponse,
-    // Stream quality for server-side downsampling
-    StreamFramesRequest,
-    StreamObservablesRequest,
-    StreamParameterChangesRequest,
-    StreamPositionRequest,
-    StreamQuality,
-    StreamValuesRequest,
-    StreamingMetrics,
-    TriggerRequest,
-    TriggerResponse,
-    UnstageDeviceRequest,
-    UnstageDeviceResponse,
-    ValueUpdate,
-    WaitSettledRequest,
-    WaitSettledResponse,
-    hardware_service_server::HardwareService,
+use crate::grpc::{
+    map_daq_error_to_status,
+    proto::{
+        ArmRequest,
+        ArmResponse,
+        CompressionType,
+        DeviceCommandRequest,
+        DeviceCommandResponse,
+        DeviceInfo,
+        DeviceMetadata as ProtoDeviceMetadata,
+        DeviceStateRequest,
+        DeviceStateResponse,
+        DeviceStateSubscribeRequest,
+        DeviceStateUpdate,
+        FrameData,
+        GetEmissionRequest,
+        GetEmissionResponse,
+        GetExposureRequest,
+        GetExposureResponse,
+        GetParameterRequest,
+        GetShutterRequest,
+        GetShutterResponse,
+        GetWavelengthRequest,
+        GetWavelengthResponse,
+        ListDevicesRequest,
+        ListDevicesResponse,
+        ListParametersRequest,
+        ListParametersResponse,
+        MoveRequest,
+        MoveResponse,
+        ObservableValue,
+        ParameterChange,
+        ParameterDescriptor,
+        ParameterValue,
+        PositionUpdate,
+        ReadValueRequest,
+        ReadValueResponse,
+        RegistrationFailure as ProtoRegistrationFailure,
+        SetEmissionRequest,
+        SetEmissionResponse,
+        SetExposureRequest,
+        SetExposureResponse,
+        SetParameterRequest,
+        SetParameterResponse,
+        // Laser control types (bd-pwjo)
+        SetShutterRequest,
+        SetShutterResponse,
+        SetWavelengthRequest,
+        SetWavelengthResponse,
+        StageDeviceRequest,
+        StageDeviceResponse,
+        StartStreamRequest,
+        StartStreamResponse,
+        StopMotionRequest,
+        StopMotionResponse,
+        StopStreamRequest,
+        StopStreamResponse,
+        // Stream quality for server-side downsampling
+        StreamFramesRequest,
+        StreamObservablesRequest,
+        StreamParameterChangesRequest,
+        StreamPositionRequest,
+        StreamQuality,
+        StreamValuesRequest,
+        StreamingMetrics,
+        TriggerRequest,
+        TriggerResponse,
+        UnstageDeviceRequest,
+        UnstageDeviceResponse,
+        ValueUpdate,
+        WaitSettledRequest,
+        WaitSettledResponse,
+        hardware_service_server::HardwareService,
+    },
 };
 use anyhow::Error as AnyError;
 use daq_core::capabilities::FrameObserver;
 use daq_core::data::FrameView;
+use daq_core::error::DaqError;
 use daq_core::limits::{FPS_WINDOW, MAX_STREAMS_PER_CLIENT, RPC_TIMEOUT};
 use daq_core::observable::Observable;
 use daq_core::parameter::Parameter;
@@ -325,7 +329,7 @@ impl HardwareServiceImpl {
     {
         match tokio::time::timeout(RPC_TIMEOUT, fut).await {
             Ok(Ok(value)) => Ok(value),
-            Ok(Err(err)) => Err(map_hardware_error_to_status(&err.to_string())),
+            Ok(Err(err)) => Err(map_anyhow_error_to_status(err)),
             Err(_) => Err(Status::deadline_exceeded(format!(
                 "{} timed out after {:?}",
                 operation, RPC_TIMEOUT
@@ -2556,6 +2560,14 @@ fn monitor_parameter<T: std::fmt::Display + Clone + Send + Sync + 'static>(
             let _ = tx.send(change);
         }
     });
+}
+
+/// Map anyhow errors to gRPC Status, preferring structured DaqError mapping.
+fn map_anyhow_error_to_status(err: AnyError) -> Status {
+    match err.downcast::<DaqError>() {
+        Ok(daq_err) => map_daq_error_to_status(daq_err),
+        Err(err) => map_hardware_error_to_status(&err.to_string()),
+    }
 }
 
 /// Map hardware errors to canonical gRPC Status codes

@@ -17,9 +17,11 @@ use tokio::sync::{Mutex, RwLock};
 use tokio_serial::SerialStream;
 
 use crate::plugin::schema::{CommandSequence, InstrumentConfig, ValueType};
+use daq_core::driver::DeviceLifecycle;
 use daq_core::error::DaqError;
 use daq_core::limits::{self, validate_frame_size};
 use daq_core::observable::ParameterSet; // NEW: For Parameterized trait implementation
+use futures::future::BoxFuture;
 
 // =============================================================================
 // Connection Enum - Unified abstraction over Serial, TCP, and Mock
@@ -107,16 +109,18 @@ impl crate::capabilities::Parameterized for GenericDriver {
 /// let driver = Arc::new(GenericDriver::new_serial(config, serial_port)?);
 /// let power = driver.read_named_f64("power", false).await?;
 /// ```
+#[derive(Clone)]
 pub struct GenericDriver {
     /// The instrument configuration loaded from YAML.
     pub config: InstrumentConfig,
 
-    /// Connection wrapped in Mutex for interior mutability.
-    /// This allows `&self` methods while still enabling writes.
-    connection: Mutex<Connection>,
+    /// Connection wrapped in Arc<Mutex> for interior mutability and cloneability.
+    /// This allows `&self` methods while still enabling writes, and enables
+    /// the driver to be cloned for use in async lifecycle hooks.
+    connection: std::sync::Arc<Mutex<Connection>>,
 
     /// Runtime state storage for capability values.
-    state: RwLock<HashMap<String, Value>>,
+    state: std::sync::Arc<RwLock<HashMap<String, Value>>>,
 
     /// Compiled regex patterns for error detection.
     error_patterns: Vec<Regex>,
@@ -128,16 +132,22 @@ pub struct GenericDriver {
     frame_broadcaster: tokio::sync::broadcast::Sender<std::sync::Arc<crate::Frame>>,
 
     /// Frame counter for tracking acquisition progress.
-    frame_counter: std::sync::atomic::AtomicU64,
+    frame_counter: std::sync::Arc<std::sync::atomic::AtomicU64>,
 
     /// Streaming state flag.
-    is_streaming: std::sync::atomic::AtomicBool,
+    is_streaming: std::sync::Arc<std::sync::atomic::AtomicBool>,
 
     /// Parameter registry for exposing settable parameters (bd-plb6)
     ///
     /// Populated from YAML config.capabilities.settable during initialization.
     /// Enables generic parameter access via Parameterized trait.
-    parameters: ParameterSet,
+    /// Wrapped in Arc for cloneability.
+    parameters: std::sync::Arc<ParameterSet>,
+
+    /// Tracks whether on_connect has been executed (to avoid double execution).
+    /// Set to true after PluginFactory::spawn() runs on_connect, so
+    /// DeviceLifecycle::on_register() can skip if already done.
+    on_connect_executed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl GenericDriver {
@@ -216,14 +226,15 @@ impl GenericDriver {
 
         Ok(Self {
             config,
-            connection: Mutex::new(connection),
-            state: RwLock::new(HashMap::new()),
+            connection: std::sync::Arc::new(Mutex::new(connection)),
+            state: std::sync::Arc::new(RwLock::new(HashMap::new())),
             error_patterns,
             termination_bytes,
             frame_broadcaster: frame_tx,
-            frame_counter: std::sync::atomic::AtomicU64::new(0),
-            is_streaming: std::sync::atomic::AtomicBool::new(false),
-            parameters: ParameterSet::new(),
+            frame_counter: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            is_streaming: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            parameters: std::sync::Arc::new(ParameterSet::new()),
+            on_connect_executed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })
     }
 
@@ -1362,20 +1373,11 @@ impl GenericDriver {
 
     /// Internal method to create a lightweight clone for the streaming task.
     ///
-    /// Note: This is a workaround since we can't easily pass `&self` to a spawned task.
-    /// In production, consider using Arc<GenericDriver> throughout.
+    /// Now that GenericDriver is Clone (via Arc-wrapped fields), this simply
+    /// delegates to clone(). The shared state (frame_counter, is_streaming)
+    /// is properly shared between the original and the clone.
     fn clone_for_streaming(&self) -> Self {
-        Self {
-            config: self.config.clone(),
-            connection: Mutex::new(Connection::Mock), // Streaming task uses separate connection
-            state: RwLock::new(HashMap::new()),
-            error_patterns: self.error_patterns.clone(),
-            termination_bytes: self.termination_bytes.clone(),
-            frame_broadcaster: self.frame_broadcaster.clone(),
-            frame_counter: std::sync::atomic::AtomicU64::new(0),
-            is_streaming: std::sync::atomic::AtomicBool::new(false),
-            parameters: ParameterSet::new(), // Not used in streaming task
-        }
+        self.clone()
     }
 
     /// Background frame streaming loop.
@@ -1474,6 +1476,55 @@ impl GenericDriver {
         }
 
         Ok(crate::Frame::from_u16(width, height, &buffer))
+    }
+
+    /// Marks the on_connect sequence as having been executed.
+    ///
+    /// Called by PluginFactory::spawn() after running on_connect, so that
+    /// DeviceLifecycle::on_register() knows to skip re-execution.
+    pub fn mark_on_connect_executed(&self) {
+        self.on_connect_executed
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Returns whether on_connect has been executed.
+    pub fn is_on_connect_executed(&self) -> bool {
+        self.on_connect_executed
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+// =============================================================================
+// DeviceLifecycle Implementation
+// =============================================================================
+
+impl DeviceLifecycle for GenericDriver {
+    fn on_register(&self) -> BoxFuture<'static, Result<()>> {
+        // Check if on_connect was already executed by PluginFactory::spawn()
+        if self
+            .on_connect_executed
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return Box::pin(async { Ok(()) });
+        }
+
+        // Clone the driver (cheap due to Arc-wrapped fields) for the async block
+        let driver = self.clone();
+        let on_connect = self.config.on_connect.clone();
+
+        Box::pin(async move {
+            driver.execute_command_sequence(&on_connect).await?;
+            driver.mark_on_connect_executed();
+            Ok(())
+        })
+    }
+
+    fn on_unregister(&self) -> BoxFuture<'static, Result<()>> {
+        // Clone the driver for the async block
+        let driver = self.clone();
+        let on_disconnect = self.config.on_disconnect.clone();
+
+        Box::pin(async move { driver.execute_command_sequence(&on_disconnect).await })
     }
 }
 
@@ -1872,5 +1923,72 @@ mod tests {
 
         assert_eq!(width, 0);
         assert_eq!(height, 0);
+    }
+
+    // =========================================================================
+    // DeviceLifecycle Tests
+    // =========================================================================
+
+    /// Creates a config with on_connect and on_disconnect sequences for testing
+    fn create_lifecycle_config() -> InstrumentConfig {
+        let mut config = create_test_config();
+        config.on_connect = vec![CommandSequence {
+            cmd: "INIT".to_string(),
+            wait_ms: 0,
+        }];
+        config.on_disconnect = vec![CommandSequence {
+            cmd: "CLOSE".to_string(),
+            wait_ms: 0,
+        }];
+        config
+    }
+
+    #[tokio::test]
+    async fn test_device_lifecycle_on_register_skips_if_already_executed() {
+        use daq_core::driver::DeviceLifecycle;
+
+        let config = create_lifecycle_config();
+        let driver = GenericDriver::new_mock(config).unwrap();
+
+        // Initially, on_connect is not executed
+        assert!(!driver.is_on_connect_executed());
+
+        // Mark as executed (simulating what PluginFactory::spawn does)
+        driver.mark_on_connect_executed();
+        assert!(driver.is_on_connect_executed());
+
+        // on_register should succeed without re-executing (since it's already done)
+        let result = driver.on_register().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_device_lifecycle_on_register_executes_if_not_done() {
+        use daq_core::driver::DeviceLifecycle;
+
+        let config = create_lifecycle_config();
+        let driver = GenericDriver::new_mock(config).unwrap();
+
+        // on_connect not executed yet
+        assert!(!driver.is_on_connect_executed());
+
+        // on_register should execute on_connect (mock mode, so it succeeds)
+        let result = driver.on_register().await;
+        assert!(result.is_ok());
+
+        // Now it should be marked as executed
+        assert!(driver.is_on_connect_executed());
+    }
+
+    #[tokio::test]
+    async fn test_device_lifecycle_on_unregister() {
+        use daq_core::driver::DeviceLifecycle;
+
+        let config = create_lifecycle_config();
+        let driver = GenericDriver::new_mock(config).unwrap();
+
+        // on_unregister should execute on_disconnect (mock mode, so it succeeds)
+        let result = driver.on_unregister().await;
+        assert!(result.is_ok());
     }
 }

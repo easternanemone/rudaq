@@ -15,8 +15,56 @@
 //! - **Internal**: Server-side bugs (I/O errors, processing failures)
 //! - **Aborted**: Operation was aborted (unexpected EOF)
 
-use daq_core::error::DaqError;
+use daq_core::error::{DaqError, DriverError};
+use std::str::FromStr;
+use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Code, Status};
+
+const ERROR_KIND_HEADER: &str = "x-daq-error-kind";
+const DRIVER_TYPE_HEADER: &str = "x-daq-driver-type";
+const DRIVER_KIND_HEADER: &str = "x-daq-driver-kind";
+
+fn sanitize_metadata_value(value: &str) -> String {
+    if value.is_ascii() {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            "unknown".to_string()
+        } else {
+            trimmed.to_string()
+        }
+    } else {
+        let ascii: String = value.chars().filter(|c| c.is_ascii()).collect();
+        let trimmed = ascii.trim();
+        if trimmed.is_empty() {
+            "unknown".to_string()
+        } else {
+            trimmed.to_string()
+        }
+    }
+}
+
+fn insert_metadata(metadata: &mut MetadataMap, key: &'static str, value: &str) {
+    let sanitized = sanitize_metadata_value(value);
+    if let Ok(val) = MetadataValue::from_str(&sanitized) {
+        metadata.insert(key, val);
+    }
+}
+
+fn status_with_metadata(
+    code: Code,
+    message: impl Into<String>,
+    error_kind: &'static str,
+    driver: Option<&DriverError>,
+) -> Status {
+    let mut status = Status::new(code, message.into());
+    let metadata = status.metadata_mut();
+    insert_metadata(metadata, ERROR_KIND_HEADER, error_kind);
+    if let Some(driver) = driver {
+        insert_metadata(metadata, DRIVER_TYPE_HEADER, &driver.driver_type);
+        insert_metadata(metadata, DRIVER_KIND_HEADER, &driver.kind.to_string());
+    }
+    status
+}
 
 /// Map a DaqError to an appropriate gRPC Status.
 ///
@@ -46,20 +94,36 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
 
         // Hardware/connection errors → Unavailable
         // Resource is temporarily unavailable, client may retry
-        DaqError::Instrument(msg) => {
-            Status::new(Code::Unavailable, format!("Instrument error: {}", msg))
-        }
-        DaqError::Driver(err) => match err.kind {
-            daq_core::error::DriverErrorKind::Configuration => {
-                Status::new(Code::InvalidArgument, err.to_string())
+        DaqError::Instrument(msg) => status_with_metadata(
+            Code::Unavailable,
+            format!("Instrument error: {}", msg),
+            "instrument",
+            None,
+        ),
+        DaqError::Driver(ref err) => match err.kind {
+            daq_core::error::DriverErrorKind::Configuration
+            | daq_core::error::DriverErrorKind::InvalidParameter => {
+                status_with_metadata(Code::InvalidArgument, err.to_string(), "driver", Some(err))
             }
-            daq_core::error::DriverErrorKind::Initialization
-            | daq_core::error::DriverErrorKind::Communication => {
-                Status::new(Code::Unavailable, err.to_string())
+            daq_core::error::DriverErrorKind::Initialization => status_with_metadata(
+                Code::FailedPrecondition,
+                err.to_string(),
+                "driver",
+                Some(err),
+            ),
+            daq_core::error::DriverErrorKind::Communication
+            | daq_core::error::DriverErrorKind::Hardware => {
+                status_with_metadata(Code::Unavailable, err.to_string(), "driver", Some(err))
+            }
+            daq_core::error::DriverErrorKind::Timeout => {
+                status_with_metadata(Code::DeadlineExceeded, err.to_string(), "driver", Some(err))
+            }
+            daq_core::error::DriverErrorKind::Permission => {
+                status_with_metadata(Code::PermissionDenied, err.to_string(), "driver", Some(err))
             }
             daq_core::error::DriverErrorKind::Shutdown
             | daq_core::error::DriverErrorKind::Unknown => {
-                Status::new(Code::Internal, err.to_string())
+                status_with_metadata(Code::Internal, err.to_string(), "driver", Some(err))
             }
         },
         DaqError::SerialPortNotConnected => {

@@ -40,6 +40,10 @@ pub enum DriverErrorKind {
     Configuration,
     Communication,
     Shutdown,
+    Hardware,
+    Timeout,
+    Permission,
+    InvalidParameter,
     Unknown,
 }
 
@@ -50,6 +54,10 @@ impl std::fmt::Display for DriverErrorKind {
             DriverErrorKind::Configuration => "configuration",
             DriverErrorKind::Communication => "communication",
             DriverErrorKind::Shutdown => "shutdown",
+            DriverErrorKind::Hardware => "hardware",
+            DriverErrorKind::Timeout => "timeout",
+            DriverErrorKind::Permission => "permission",
+            DriverErrorKind::InvalidParameter => "invalid_parameter",
             DriverErrorKind::Unknown => "unknown",
         };
         write!(f, "{}", label)

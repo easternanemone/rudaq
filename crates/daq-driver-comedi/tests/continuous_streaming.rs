@@ -34,8 +34,8 @@
 
 use daq_driver_comedi::{ComediDevice, StreamAcquisition, StreamConfig};
 use std::env;
-use std::time::{Duration, Instant};
 use std::thread;
+use std::time::{Duration, Instant};
 
 // =============================================================================
 // Test Configuration
@@ -191,7 +191,7 @@ fn test_basic_streaming() {
     println!("Device: {}", device_path());
 
     let device = ComediDevice::open(&device_path()).expect("Failed to open Comedi device");
-    
+
     // Cancel any lingering acquisition from previous tests
     cancel_any_acquisition(&device);
 
@@ -279,7 +279,7 @@ fn test_multi_channel_streaming() {
     println!("Device: {}", device_path());
 
     let device = ComediDevice::open(&device_path()).expect("Failed to open Comedi device");
-    
+
     // Cancel any lingering acquisition from previous tests
     cancel_any_acquisition(&device);
 
@@ -357,11 +357,7 @@ fn test_multi_channel_streaming() {
 
     // Assertions
     for (ch, samples) in channel_samples.iter().enumerate() {
-        assert!(
-            !samples.is_empty(),
-            "Channel {} should have samples",
-            ch
-        );
+        assert!(!samples.is_empty(), "Channel {} should have samples", ch);
     }
 
     // All channels should have approximately equal sample counts
@@ -398,7 +394,7 @@ fn test_high_speed_acquisition() {
     println!("Device: {}", device_path());
 
     let device = ComediDevice::open(&device_path()).expect("Failed to open Comedi device");
-    
+
     // Cancel any lingering acquisition from previous tests
     cancel_any_acquisition(&device);
 
@@ -445,8 +441,7 @@ fn test_high_speed_acquisition() {
 
     // Calculate expected samples
     let expected_samples = (HIGH_SPEED_RATE * stats.duration.as_secs_f64()) as u64;
-    let capture_efficiency =
-        (stats.samples_acquired as f64 / expected_samples as f64) * 100.0;
+    let capture_efficiency = (stats.samples_acquired as f64 / expected_samples as f64) * 100.0;
     println!("  Expected samples: {}", expected_samples);
     println!("  Capture efficiency: {:.1}%", capture_efficiency);
 
@@ -492,7 +487,7 @@ fn test_sustained_streaming() {
     println!("Duration: {:?}", SUSTAINED_DURATION);
 
     let device = ComediDevice::open(&device_path()).expect("Failed to open Comedi device");
-    
+
     // Cancel any lingering acquisition from previous tests
     cancel_any_acquisition(&device);
 
@@ -611,7 +606,7 @@ fn test_sample_rate_accuracy() {
     println!("Device: {}", device_path());
 
     let device = ComediDevice::open(&device_path()).expect("Failed to open Comedi device");
-    
+
     // Cancel any lingering acquisition from previous tests
     cancel_any_acquisition(&device);
 
@@ -632,7 +627,7 @@ fn test_sample_rate_accuracy() {
         let stream = StreamAcquisition::new(&device, config).expect("Failed to create stream");
 
         stream.start().expect("Failed to start streaming");
-        
+
         // Allow hardware to stabilize before measuring
         thread::sleep(Duration::from_millis(100));
 
@@ -649,7 +644,7 @@ fn test_sample_rate_accuracy() {
 
         let elapsed = start.elapsed();
         stream.stop().expect("Failed to stop streaming");
-        
+
         // Cleanup between rate tests
         drop(stream);
         thread::sleep(Duration::from_millis(200));
@@ -700,7 +695,7 @@ fn test_data_integrity() {
     println!("Device: {}", device_path());
 
     let device = ComediDevice::open(&device_path()).expect("Failed to open Comedi device");
-    
+
     // Cancel any lingering acquisition from previous tests
     cancel_any_acquisition(&device);
 
@@ -751,11 +746,8 @@ fn test_data_integrity() {
         let min = all_samples.iter().cloned().fold(f64::MAX, f64::min);
         let max = all_samples.iter().cloned().fold(f64::MIN, f64::max);
         let mean: f64 = all_samples.iter().sum::<f64>() / all_samples.len() as f64;
-        let variance: f64 = all_samples
-            .iter()
-            .map(|v| (v - mean).powi(2))
-            .sum::<f64>()
-            / all_samples.len() as f64;
+        let variance: f64 =
+            all_samples.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / all_samples.len() as f64;
         let std_dev = variance.sqrt();
 
         println!("\nSignal Statistics:");

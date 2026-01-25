@@ -3,6 +3,7 @@
 //! This module provides a comprehensive error type that covers all possible
 //! failure modes when interacting with Comedi devices.
 
+use daq_core::error::{DaqError, DriverError, DriverErrorKind};
 use std::ffi::CStr;
 use std::fmt;
 use thiserror::Error;
@@ -186,6 +187,33 @@ impl ComediError {
     /// Check if the device is busy.
     pub fn is_busy(&self) -> bool {
         matches!(self, Self::DeviceBusy { .. })
+    }
+}
+
+impl From<ComediError> for DaqError {
+    fn from(err: ComediError) -> Self {
+        let kind = match &err {
+            ComediError::DeviceNotFound { .. }
+            | ComediError::InvalidSubdevice { .. }
+            | ComediError::SubdeviceTypeMismatch { .. }
+            | ComediError::InvalidChannel { .. }
+            | ComediError::InvalidRange { .. }
+            | ComediError::InvalidConfig { .. }
+            | ComediError::NotSupported { .. }
+            | ComediError::InvalidCommand { .. } => DriverErrorKind::Configuration,
+            ComediError::PermissionDenied { .. } => DriverErrorKind::Permission,
+            ComediError::DeviceBusy { .. }
+            | ComediError::BufferOverflow
+            | ComediError::BufferUnderrun
+            | ComediError::HardwareError { .. } => DriverErrorKind::Hardware,
+            ComediError::CalibrationError { .. } => DriverErrorKind::Initialization,
+            ComediError::StdIoError(_)
+            | ComediError::IoError { .. }
+            | ComediError::CommandError { .. }
+            | ComediError::LibraryError { .. }
+            | ComediError::NullPointer { .. } => DriverErrorKind::Communication,
+        };
+        DaqError::Driver(DriverError::new("comedi", kind, err.to_string()))
     }
 }
 

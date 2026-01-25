@@ -669,7 +669,8 @@ mod tests {
         fn on_frame(&self, frame: &FrameView<'_>) {
             self.frames_received.fetch_add(1, Ordering::Relaxed);
             self.last_width.store(frame.width as u64, Ordering::Relaxed);
-            self.last_height.store(frame.height as u64, Ordering::Relaxed);
+            self.last_height
+                .store(frame.height as u64, Ordering::Relaxed);
         }
 
         fn name(&self) -> &str {
