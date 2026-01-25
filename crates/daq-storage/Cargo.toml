@@ -22,6 +22,10 @@ memmap2 = "0.9"
 # Image formats
 image = { version = "0.25", optional = true, default-features = false, features = ["tiff"] }
 
+# Zarr V3 storage
+zarrs = { version = "0.22", optional = true }
+object_store = { version = "0.11", optional = true }
+
 # Async & Logging
 tokio = { version = "1.36", features = ["sync", "fs"] }
 tracing = "0.1"
@@ -40,6 +44,7 @@ storage_hdf5 = ["dep:hdf5"]
 storage_arrow = ["dep:arrow"]
 storage_parquet = ["dep:parquet", "dep:arrow"]
 storage_tiff = ["dep:image"]
+storage_zarr = ["dep:zarrs", "dep:object_store"]
 networking = []
 
 # Examples that require specific features (bd-jnfu.13)
