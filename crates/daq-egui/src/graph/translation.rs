@@ -34,6 +34,10 @@ impl std::fmt::Display for TranslationError {
 
 impl std::error::Error for TranslationError {}
 
+/// Type alias for the adjacency result from graph analysis.
+/// Contains (adjacency_map, root_nodes) for topological sorting.
+type AdjacencyResult = (HashMap<NodeId, Vec<NodeId>>, Vec<NodeId>);
+
 /// Plan generated from a visual node graph
 pub struct GraphPlan {
     commands: Vec<PlanCommand>,
@@ -143,7 +147,7 @@ impl Plan for GraphPlan {
 /// Build adjacency list from snarl wires
 pub fn build_adjacency(
     snarl: &Snarl<ExperimentNode>,
-) -> Result<(HashMap<NodeId, Vec<NodeId>>, Vec<NodeId>), TranslationError> {
+) -> Result<AdjacencyResult, TranslationError> {
     let mut adjacency: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
     let mut has_input: HashSet<NodeId> = HashSet::new();
 

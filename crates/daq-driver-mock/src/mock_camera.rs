@@ -22,6 +22,10 @@ use tokio::time::{Duration, sleep};
 /// Pool size for MockCamera frame delivery
 const MOCK_FRAME_POOL_SIZE: usize = 16;
 
+/// Type alias for frame observer registry to reduce complexity.
+/// Each observer is a tuple of (observer_id, observer_callback).
+type ObserverRegistry = Arc<RwLock<Vec<(u64, Box<dyn FrameObserver>)>>>;
+
 // =============================================================================
 // MockCameraFactory - DriverFactory implementation
 // =============================================================================
@@ -157,8 +161,7 @@ pub struct MockCamera {
     /// Frame pool for zero-allocation LoanedFrame delivery
     frame_pool: Arc<Mutex<Option<Arc<Pool<FrameData>>>>>,
     /// Registered frame observers
-    #[allow(clippy::type_complexity)]
-    observers: Arc<RwLock<Vec<(u64, Box<dyn FrameObserver>)>>>,
+    observers: ObserverRegistry,
     /// Counter for generating unique observer IDs
     next_observer_id: AtomicU64,
 }

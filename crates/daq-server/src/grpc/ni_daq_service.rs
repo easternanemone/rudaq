@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if)]
 //! NI DAQ Service implementation for Comedi hardware control (bd-czem)
 //!
 //! This module provides gRPC endpoints for NI PCI-MIO-16XE-10 data acquisition
@@ -273,6 +274,7 @@ impl NiDaqService for NiDaqServiceImpl {
     type StreamAnalogInputStream =
         tokio_stream::wrappers::ReceiverStream<Result<AnalogInputData, Status>>;
 
+    #[allow(clippy::collapsible_if)]
     #[instrument(skip(self))]
     async fn configure_analog_input(
         &self,
@@ -332,10 +334,7 @@ impl NiDaqService for NiDaqServiceImpl {
         if let Some(timing) = &req.timing {
             if timing.sample_rate_hz <= 0.0 {
                 return Err(Status::invalid_argument("sample_rate_hz must be positive"));
-            }
-
-            // NI PCI-MIO-16XE-10 max sample rate is ~100 kS/s aggregate
-            if timing.sample_rate_hz > 100_000.0 {
+            } else if timing.sample_rate_hz > 100_000.0 {
                 return Err(Status::invalid_argument(
                     "sample_rate_hz exceeds maximum (100 kS/s) for NI PCI-MIO-16XE-10",
                 ));

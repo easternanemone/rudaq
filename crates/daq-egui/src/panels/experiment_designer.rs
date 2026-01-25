@@ -27,6 +27,12 @@ use daq_experiment::Plan;
 use daq_proto::daq::StreamQuality;
 use futures::StreamExt;
 
+/// Type alias for camera detector info: (device_id, title)
+type CameraInfo = (String, String);
+
+/// Type alias for plot detector info: (device_id, label, title)
+type PlotInfo = (String, String, String);
+
 /// Actions from async execution operations
 enum ExecutionAction {
     Started {
@@ -227,7 +233,7 @@ impl ExperimentDesignerPanel {
         self.code_preview.update(&self.snarl, self.graph_version);
 
         // Render code preview panel (right side) BEFORE main panel so it claims space
-        self.code_preview.ui(ui.ctx());
+        self.code_preview.ui_inside(ui);
 
         // Top toolbar with file operations and undo/redo buttons
         ui.horizontal(|ui| {
@@ -1507,9 +1513,9 @@ impl ExperimentDesignerPanel {
 
     /// Extract detectors from graph Acquire nodes.
     /// Returns (cameras, plots) where:
-    /// - cameras: Vec<(device_id, title)>
-    /// - plots: Vec<(device_id, label, title)>
-    fn extract_detectors(&self) -> (Vec<(String, String)>, Vec<(String, String, String)>) {
+    /// - cameras: Vec<CameraInfo> - (device_id, title)
+    /// - plots: Vec<PlotInfo> - (device_id, label, title)
+    fn extract_detectors(&self) -> (Vec<CameraInfo>, Vec<PlotInfo>) {
         let mut cameras = Vec::new();
         let mut plots = Vec::new();
 

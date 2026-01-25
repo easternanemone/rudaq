@@ -73,7 +73,7 @@ impl SimpleRingBuffer {
     /// * `n_channels` - Number of channels
     fn new(capacity_samples: usize, n_channels: usize) -> Self {
         // Round up to multiple of n_channels for complete scans
-        let capacity = ((capacity_samples + n_channels - 1) / n_channels) * n_channels;
+        let capacity = capacity_samples.div_ceil(n_channels) * n_channels;
 
         Self {
             data: vec![0.0; capacity],
@@ -96,15 +96,15 @@ impl SimpleRingBuffer {
         assert_eq!(scan.len(), self.n_channels, "Scan length mismatch");
 
         let pos = self.write_pos.load(Ordering::Relaxed) as usize;
-        let start_idx = (pos % self.capacity) as usize;
+        let start_idx = pos % self.capacity;
 
         // Write samples (may wrap around)
-        for (i, &sample) in scan.iter().enumerate() {
+        for (i, sample) in scan.iter().enumerate() {
             let idx = (start_idx + i) % self.capacity;
             // SAFETY: Single writer, idx is always in bounds
             unsafe {
                 let ptr = self.data.as_ptr().add(idx) as *mut f64;
-                ptr.write(sample);
+                ptr.write(*sample);
             }
         }
 
@@ -142,11 +142,11 @@ impl SimpleRingBuffer {
 
         // Read samples
         for scan_idx in 0..scans_to_read {
-            for ch_idx in 0..self.n_channels {
+            for (ch_idx, channel) in channels.iter_mut().enumerate() {
                 let buf_idx = (start_idx + scan_idx * self.n_channels + ch_idx) % self.capacity;
                 // SAFETY: buf_idx is always in bounds, Acquire ordering ensures visibility
                 let sample = unsafe { *self.data.as_ptr().add(buf_idx) };
-                channels[ch_idx].push(sample);
+                channel.push(sample);
             }
         }
 
