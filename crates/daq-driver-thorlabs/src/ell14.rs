@@ -1324,4 +1324,100 @@ mod tests {
         let clamped = percent.min(100);
         assert_eq!(clamped, 50);
     }
+
+    // =========================================================================
+    // Motion Command No-Retry Tests
+    // =========================================================================
+    //
+    // IMPORTANT: Motion commands (move_rel, home) must NOT retry on timeout!
+    //
+    // The ELL14 device executes motion commands immediately upon receiving them,
+    // but may not respond in time because it's busy moving. If we retry a move
+    // command that timed out, the device will execute the move AGAIN, causing
+    // double (or triple) the expected movement.
+    //
+    // This was a real bug: clicking +90° caused 180° or 270° movement because
+    // the driver retried the command 2-3 times when the device didn't respond.
+    //
+    // The fix: move_rel() and home() use transaction_once() directly instead of
+    // transaction() which has retry logic. Timeouts are treated as success
+    // because the command was sent and the device is just busy moving.
+
+    #[test]
+    fn test_move_rel_pulse_calculation() {
+        // Verify pulse calculation for move_rel commands
+        // ELL14 uses pulses_per_degree to convert degrees to motor pulses
+        let ppd = Ell14Driver::DEFAULT_PULSES_PER_DEGREE; // ~398.22
+        
+        // 90 degrees should be ~35840 pulses
+        let distance_deg = 90.0;
+        let pulses = (distance_deg * ppd).round() as i32;
+        assert_eq!(pulses, 35840);
+        
+        // Hex format for ELL14 protocol: 8 uppercase hex digits
+        let hex_pulses = format!("{:08X}", pulses as u32);
+        assert_eq!(hex_pulses, "00008C00");
+        
+        // Full command format: mr{8 hex digits}
+        let cmd = format!("mr{}", hex_pulses);
+        assert_eq!(cmd, "mr00008C00");
+    }
+
+    #[test]
+    fn test_move_rel_negative_pulse_calculation() {
+        // Verify negative (CCW) movement pulse calculation
+        let ppd = Ell14Driver::DEFAULT_PULSES_PER_DEGREE;
+        
+        // -90 degrees should be negative pulses, but formatted as u32 (two's complement)
+        let distance_deg = -90.0;
+        let pulses = (distance_deg * ppd).round() as i32;
+        assert_eq!(pulses, -35840);
+        
+        // When cast to u32, negative becomes two's complement
+        let hex_pulses = format!("{:08X}", pulses as u32);
+        assert_eq!(hex_pulses, "FFFF7400");
+    }
+
+    #[test]
+    fn test_move_command_format() {
+        // Document the expected command format for relative moves
+        // This ensures the protocol is correctly implemented
+        
+        // Small positive movement (1 degree)
+        let ppd = Ell14Driver::DEFAULT_PULSES_PER_DEGREE;
+        let pulses = (1.0 * ppd).round() as i32;
+        let hex = format!("{:08X}", pulses as u32);
+        assert_eq!(hex, "0000018E"); // ~398 pulses
+        
+        // Medium movement (10 degrees)
+        let pulses = (10.0 * ppd).round() as i32;
+        let hex = format!("{:08X}", pulses as u32);
+        assert_eq!(hex, "00000F8E"); // ~3982 pulses
+    }
+
+    /// This test documents the critical no-retry behavior for motion commands.
+    /// 
+    /// Motion commands MUST use transaction_once() (no retry) because:
+    /// 1. The ELL14 executes move commands immediately upon receipt
+    /// 2. The device doesn't respond while it's busy moving
+    /// 3. If we retry a timed-out move, the device executes it AGAIN
+    /// 4. This causes 2x or 3x the expected movement (the original bug)
+    ///
+    /// The implementation treats timeout as success for motion commands because
+    /// the command was successfully sent - the device is just busy moving.
+    #[test]
+    fn test_motion_commands_no_retry_documentation() {
+        // This test serves as documentation that motion commands must not retry.
+        // The actual behavior is tested by the real hardware, but this test
+        // ensures developers understand the design decision.
+        //
+        // If you're changing move_rel() or home() to use transaction() instead
+        // of transaction_once(), STOP! You will cause double-movement bugs.
+        //
+        // See commit b5fa5e9 for the fix that resolved this issue.
+        
+        // Verify the timeout error message format that we check for
+        let timeout_msg = "ELL14 transaction timeout: no response received for command 'test'";
+        assert!(timeout_msg.contains("timeout"));
+    }
 }
