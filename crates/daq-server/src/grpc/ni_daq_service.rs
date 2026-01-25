@@ -95,13 +95,13 @@ impl NiDaqService for NiDaqServiceImpl {
             let _device_info = self
                 .registry
                 .get_device_info(&req.device_id)
-                .ok_or_else(|| Status::not_found(format!("Device '{}' not found", req.device_id)))?;
+                .ok_or_else(|| {
+                    Status::not_found(format!("Device '{}' not found", req.device_id))
+                })?;
 
             // Validate channels
             if req.channels.is_empty() {
-                return Err(Status::invalid_argument(
-                    "At least one channel is required",
-                ));
+                return Err(Status::invalid_argument("At least one channel is required"));
             }
 
             // Validate channel numbers (NI PCI-MIO-16XE-10 has 16 AI channels: 0-15)
@@ -507,7 +507,9 @@ impl NiDaqService for NiDaqServiceImpl {
             let _device_info = self
                 .registry
                 .get_device_info(&req.device_id)
-                .ok_or_else(|| Status::not_found(format!("Device '{}' not found", req.device_id)))?;
+                .ok_or_else(|| {
+                    Status::not_found(format!("Device '{}' not found", req.device_id))
+                })?;
 
             // Determine device path (TODO: store in registry metadata)
             let device_path = "/dev/comedi0";
@@ -525,8 +527,8 @@ impl NiDaqService for NiDaqServiceImpl {
                     // Validate and configure each pin
                     for pin_config in &pins {
                         let pin = pin_config.pin;
-                        let direction = DigitalDirection::try_from(pin_config.direction)
-                            .map_err(|_| {
+                        let direction =
+                            DigitalDirection::try_from(pin_config.direction).map_err(|_| {
                                 anyhow::anyhow!("Invalid direction: {}", pin_config.direction)
                             })?;
 
@@ -589,7 +591,9 @@ impl NiDaqService for NiDaqServiceImpl {
             let _device_info = self
                 .registry
                 .get_device_info(&req.device_id)
-                .ok_or_else(|| Status::not_found(format!("Device '{}' not found", req.device_id)))?;
+                .ok_or_else(|| {
+                    Status::not_found(format!("Device '{}' not found", req.device_id))
+                })?;
 
             // Determine device path (TODO: store in registry metadata)
             let device_path = "/dev/comedi0";
@@ -614,7 +618,8 @@ impl NiDaqService for NiDaqServiceImpl {
                         }
 
                         // Read the pin value
-                        dio.read(pin).map_err(|e| anyhow::anyhow!("Failed to read pin: {}", e))
+                        dio.read(pin)
+                            .map_err(|e| anyhow::anyhow!("Failed to read pin: {}", e))
                     })
                     .await
                     .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
@@ -655,7 +660,9 @@ impl NiDaqService for NiDaqServiceImpl {
             let _device_info = self
                 .registry
                 .get_device_info(&req.device_id)
-                .ok_or_else(|| Status::not_found(format!("Device '{}' not found", req.device_id)))?;
+                .ok_or_else(|| {
+                    Status::not_found(format!("Device '{}' not found", req.device_id))
+                })?;
 
             // Determine device path (TODO: store in registry metadata)
             let device_path = "/dev/comedi0";
@@ -680,7 +687,8 @@ impl NiDaqService for NiDaqServiceImpl {
                     }
 
                     // Write the pin value
-                    dio.write(pin, value).map_err(|e| anyhow::anyhow!("Failed to write pin: {}", e))
+                    dio.write(pin, value)
+                        .map_err(|e| anyhow::anyhow!("Failed to write pin: {}", e))
                 })
                 .await
                 .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
@@ -744,7 +752,9 @@ impl NiDaqService for NiDaqServiceImpl {
             let _device_info = self
                 .registry
                 .get_device_info(&req.device_id)
-                .ok_or_else(|| Status::not_found(format!("Device '{}' not found", req.device_id)))?;
+                .ok_or_else(|| {
+                    Status::not_found(format!("Device '{}' not found", req.device_id))
+                })?;
 
             // Determine device path (TODO: store in registry metadata)
             let device_path = "/dev/comedi0";
@@ -822,7 +832,9 @@ impl NiDaqService for NiDaqServiceImpl {
             let _device_info = self
                 .registry
                 .get_device_info(&req.device_id)
-                .ok_or_else(|| Status::not_found(format!("Device '{}' not found", req.device_id)))?;
+                .ok_or_else(|| {
+                    Status::not_found(format!("Device '{}' not found", req.device_id))
+                })?;
 
             // Determine device path (TODO: store in registry metadata)
             let device_path = "/dev/comedi0";
@@ -908,7 +920,9 @@ impl NiDaqService for NiDaqServiceImpl {
             let _device_info = self
                 .registry
                 .get_device_info(&req.device_id)
-                .ok_or_else(|| Status::not_found(format!("Device '{}' not found", req.device_id)))?;
+                .ok_or_else(|| {
+                    Status::not_found(format!("Device '{}' not found", req.device_id))
+                })?;
 
             // Determine device path (TODO: store in registry metadata)
             let device_path = "/dev/comedi0";

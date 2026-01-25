@@ -365,9 +365,7 @@ impl VoltmeterPanel {
                 sample_rate_hz,
                 range_index: 0,
                 stop_condition: Some(
-                    daq_proto::ni_daq::stream_analog_input_request::StopCondition::Continuous(
-                        true,
-                    ),
+                    daq_proto::ni_daq::stream_analog_input_request::StopCondition::Continuous(true),
                 ),
                 buffer_size: 256,
             };
@@ -380,7 +378,11 @@ impl VoltmeterPanel {
                 }
             };
 
-            tracing::info!("Voltmeter streaming from device={} ch={}", device_id, channel);
+            tracing::info!(
+                "Voltmeter streaming from device={} ch={}",
+                device_id,
+                channel
+            );
 
             loop {
                 tokio::select! {

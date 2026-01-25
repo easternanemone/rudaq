@@ -208,6 +208,17 @@ impl InstrumentManagerPanel {
             .map(|device_info| PopOutRequest { device_info })
     }
 
+    /// Reset the refresh state to trigger a new auto-refresh.
+    /// Called when the connection is re-established after a disconnect.
+    pub fn reset_refresh_state(&mut self) {
+        tracing::info!("InstrumentManagerPanel: resetting refresh state for reconnect");
+        self.initial_refresh_done = false;
+        self.groups.clear();
+        self.device_states.clear();
+        self.error = None;
+        self.status = None;
+    }
+
     /// Poll for async results
     fn poll_async_results(
         &mut self,
@@ -225,6 +236,11 @@ impl InstrumentManagerPanel {
                     match result {
                         ActionResult::Refresh(result) => match result {
                             Ok(devices) => {
+                                let device_count = devices.len();
+                                tracing::info!(
+                                    device_count,
+                                    "InstrumentManagerPanel: refresh succeeded, received devices"
+                                );
                                 self.update_groups(devices);
                                 self.last_refresh = Some(std::time::Instant::now());
                                 self.status = Some(format!(
@@ -234,7 +250,13 @@ impl InstrumentManagerPanel {
                                 self.error = None;
                                 should_fetch_device_states = true;
                             }
-                            Err(e) => self.error = Some(e),
+                            Err(e) => {
+                                tracing::error!(
+                                    error = %e,
+                                    "InstrumentManagerPanel: refresh failed"
+                                );
+                                self.error = Some(e);
+                            }
                         },
                         ActionResult::GetDeviceState { device_id, result } => match result {
                             Ok(state) => {
@@ -511,11 +533,19 @@ impl InstrumentManagerPanel {
     ///
     /// Uses catch_unwind to ensure action_in_flight is always decremented (bd-tjwm.5)
     pub fn refresh(&mut self, client: Option<&mut DaqClient>, runtime: &Runtime) {
+        tracing::info!(
+            client_available = client.is_some(),
+            action_in_flight = self.action_in_flight,
+            "InstrumentManagerPanel::refresh() called"
+        );
+
         self.error = None;
-        self.status = None;
+        self.status = Some("Refreshing devices...".to_string());
 
         let Some(client) = client else {
+            tracing::warn!("InstrumentManagerPanel::refresh() - no client available");
             self.error = Some("Not connected to daemon".to_string());
+            self.status = None;
             return;
         };
 
@@ -523,16 +553,38 @@ impl InstrumentManagerPanel {
         let tx = self.action_tx.clone();
         self.action_in_flight = self.action_in_flight.saturating_add(1);
 
+        tracing::debug!(
+            action_in_flight = self.action_in_flight,
+            "InstrumentManagerPanel: spawning list_devices task"
+        );
+
         runtime.spawn(async move {
             use futures::FutureExt;
+
+            tracing::debug!("InstrumentManagerPanel: list_devices task starting");
 
             let work = std::panic::AssertUnwindSafe(async {
                 client.list_devices().await.map_err(|e| e.to_string())
             });
 
             let result = match work.catch_unwind().await {
-                Ok(r) => r,
-                Err(_) => Err("Task panicked".to_string()),
+                Ok(r) => {
+                    match &r {
+                        Ok(devices) => tracing::debug!(
+                            device_count = devices.len(),
+                            "InstrumentManagerPanel: list_devices succeeded"
+                        ),
+                        Err(e) => tracing::warn!(
+                            error = %e,
+                            "InstrumentManagerPanel: list_devices failed"
+                        ),
+                    }
+                    r
+                }
+                Err(_) => {
+                    tracing::error!("InstrumentManagerPanel: list_devices task panicked");
+                    Err("Task panicked".to_string())
+                }
             };
 
             let _ = tx.send(ActionResult::Refresh(result)).await;
@@ -582,9 +634,16 @@ impl InstrumentManagerPanel {
 
         // Auto-refresh on first render when connected
         if !self.initial_refresh_done && client.is_some() && self.action_in_flight == 0 {
-            tracing::info!("Instruments panel: triggering auto-refresh on first render");
+            tracing::info!(
+                groups_count = self.groups.len(),
+                "InstrumentManagerPanel: triggering auto-refresh on first render (client connected)"
+            );
             self.initial_refresh_done = true;
             self.refresh(client.as_deref_mut(), runtime);
+        } else if !self.initial_refresh_done && client.is_none() {
+            tracing::debug!(
+                "InstrumentManagerPanel: waiting for client connection before auto-refresh"
+            );
         }
 
         // Toolbar

@@ -109,7 +109,8 @@ impl SimpleRingBuffer {
         }
 
         // Update write position
-        self.write_pos.fetch_add(self.n_channels as u64, Ordering::Release);
+        self.write_pos
+            .fetch_add(self.n_channels as u64, Ordering::Release);
     }
 
     /// Read the most recent N samples per channel.
@@ -124,7 +125,9 @@ impl SimpleRingBuffer {
         let scans_written = (total_written as usize) / self.n_channels;
 
         // Clamp to available data
-        let scans_to_read = num_samples.min(scans_written).min(self.capacity / self.n_channels);
+        let scans_to_read = num_samples
+            .min(scans_written)
+            .min(self.capacity / self.n_channels);
 
         if scans_to_read == 0 {
             return vec![Vec::new(); self.n_channels];
@@ -290,16 +293,15 @@ impl ComediMultiChannelAcquisition {
 
         // Create stream acquisition
         let device_clone = Arc::clone(&self.device);
-        let stream = task::spawn_blocking(move || StreamAcquisition::new(&device_clone, config))
-            .await??;
+        let stream =
+            task::spawn_blocking(move || StreamAcquisition::new(&device_clone, config)).await??;
 
         let stream = Arc::new(Mutex::new(stream));
 
         // Start hardware acquisition
         {
             let stream = Arc::clone(&stream);
-            task::spawn_blocking(move || stream.lock().start())
-                .await??;
+            task::spawn_blocking(move || stream.lock().start()).await??;
         }
 
         self.running.store(true, Ordering::Release);
@@ -406,8 +408,7 @@ impl ComediMultiChannelAcquisition {
 
         // Wait for background task to finish (with timeout)
         if let Some(handle) = self.task_handle.take() {
-            let timeout_result =
-                tokio::time::timeout(Duration::from_secs(5), handle).await;
+            let timeout_result = tokio::time::timeout(Duration::from_secs(5), handle).await;
 
             match timeout_result {
                 Ok(join_result) => {

@@ -27,6 +27,13 @@ use crate::widgets::{
 };
 use daq_proto::daq::DeviceInfo;
 
+/// Layout version constant. Increment this when the default dock layout changes
+/// to force users with stale saved layouts to get the new default.
+const LAYOUT_VERSION: u32 = 1;
+
+/// Storage key for layout version
+const LAYOUT_VERSION_KEY: &str = "layout_version";
+
 /// Result of a health check sent through the channel (bd-j3xz.3.3: includes RTT).
 enum HealthCheckResult {
     /// Health check succeeded with round-trip time in milliseconds.
@@ -364,8 +371,33 @@ impl DaqApp {
         };
 
         // Initialize dock state and filter out orphaned DeviceControl panels
+        // Check layout version to detect stale saved layouts
         let mut dock_state = if let Some(storage) = cc.storage {
-            eframe::get_value(storage, eframe::APP_KEY).unwrap_or_else(Self::default_dock_state)
+            let stored_version: Option<u32> = eframe::get_value(storage, LAYOUT_VERSION_KEY);
+            match stored_version {
+                Some(v) if v == LAYOUT_VERSION => {
+                    // Version matches, use stored layout
+                    eframe::get_value(storage, eframe::APP_KEY)
+                        .unwrap_or_else(Self::default_dock_state)
+                }
+                Some(v) => {
+                    // Version mismatch - reset to default
+                    tracing::info!(
+                        "Layout version changed ({} -> {}), resetting to default layout",
+                        v,
+                        LAYOUT_VERSION
+                    );
+                    Self::default_dock_state()
+                }
+                None => {
+                    // No version stored (first run or pre-versioning) - reset to default
+                    tracing::info!(
+                        "No layout version found, resetting to default layout (v{})",
+                        LAYOUT_VERSION
+                    );
+                    Self::default_dock_state()
+                }
+            }
         } else {
             Self::default_dock_state()
         };
@@ -444,7 +476,8 @@ impl DaqApp {
 
     /// Create the default dock layout
     fn default_dock_state() -> DockState<Panel> {
-        let mut dock_state = DockState::new(vec![Panel::GettingStarted]);
+        // Start with Instruments as the main panel (primary hardware control view)
+        let mut dock_state = DockState::new(vec![Panel::Instruments]);
         let surface = dock_state.main_surface_mut();
 
         // Split left for Nav
@@ -1174,6 +1207,10 @@ impl DaqApp {
         self.run_history_panel = RunHistoryPanel::default();
         self.run_comparison_panel = RunComparisonPanel::default();
 
+        // Reset InstrumentManagerPanel to trigger auto-refresh on reconnect
+        // (keeps panel state like selected device, but clears device list and refresh flag)
+        self.instrument_manager_panel.reset_refresh_state();
+
         self.logging_panel
             .info("Connection", "Connected - panels will refresh data");
     }
@@ -1588,6 +1625,9 @@ impl eframe::App for DaqApp {
             eframe::set_value(storage, eframe::APP_KEY, dock_state);
         }
 
+        // Persist layout version for stale layout detection on next load
+        eframe::set_value(storage, LAYOUT_VERSION_KEY, &LAYOUT_VERSION);
+
         eframe::set_value(storage, "theme_preference", &self.theme_preference);
 
         // Persist device panel info for layout restoration
@@ -1642,13 +1682,13 @@ mod tests {
 
         let mut found_nav = false;
         let mut found_logs = false;
-        let mut found_getting_started = false;
+        let mut found_instruments = false;
 
         for ((_surface, _node), tab) in dock_state.iter_all_tabs() {
             match tab {
                 Panel::Nav => found_nav = true,
                 Panel::Logs => found_logs = true,
-                Panel::GettingStarted => found_getting_started = true,
+                Panel::Instruments => found_instruments = true,
                 _ => {}
             }
         }
@@ -1656,8 +1696,8 @@ mod tests {
         assert!(found_nav, "Navigation panel missing from default layout");
         assert!(found_logs, "Logs panel missing from default layout");
         assert!(
-            found_getting_started,
-            "Getting Started panel missing from default layout"
+            found_instruments,
+            "Instruments panel missing from default layout"
         );
     }
 }

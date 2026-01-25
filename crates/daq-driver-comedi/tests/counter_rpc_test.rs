@@ -95,7 +95,10 @@ async fn test_read_counter() {
     assert!(result.success, "ReadCounter should succeed");
     assert!(result.timestamp_ns > 0, "Timestamp should be non-zero");
     // Counter value after reset should be 0 or close to 0
-    println!("Counter 0 value: {}, timestamp: {} ns", result.count, result.timestamp_ns);
+    println!(
+        "Counter 0 value: {}, timestamp: {} ns",
+        result.count, result.timestamp_ns
+    );
 }
 
 #[tokio::test]

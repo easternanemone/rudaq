@@ -736,7 +736,11 @@ impl StreamAcquisition {
             // Convert: use TRIG_TIMER for all cases to ensure proper timing
             // TRIG_NOW can cause command test to not converge on some hardware
             convert_src: TRIG_TIMER,
-            convert_arg: if n_channels > 1 { convert_interval_ns } else { 0 },
+            convert_arg: if n_channels > 1 {
+                convert_interval_ns
+            } else {
+                0
+            },
 
             // Scan end: count channels
             scan_end_src: TRIG_COUNT,
@@ -767,14 +771,14 @@ impl StreamAcquisition {
     }
 
     /// Test and adjust the command.
-    /// 
+    ///
     /// Comedi's command test must converge to 0 (valid command) before the
     /// command can be executed. Each pass may adjust timing parameters.
     fn test_command(&self, state: &mut StreamState) -> Result<()> {
         // Comedi command test must return 0 for a valid command.
         // Keep calling until it converges or fails.
         let mut last_result = 0;
-        
+
         for pass in 0..20 {
             let result = self.device.with_handle(|handle| unsafe {
                 comedi_sys::comedi_command_test(handle, &mut state.cmd)
