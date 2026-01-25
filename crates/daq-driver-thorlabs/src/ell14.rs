@@ -949,8 +949,19 @@ impl Ell14Driver {
 
     /// Home the device to mechanical zero.
     pub async fn home(&self) -> Result<()> {
-        let _ = self.transaction("ho").await?;
-        Ok(())
+        // IMPORTANT: Do NOT retry home commands! The device executes the home even if it
+        // doesn't respond in time (it's busy moving). Retrying causes repeated homing.
+        match self.transaction_once("ho").await {
+            Ok(_) => Ok(()),
+            Err(e) if e.to_string().contains("timeout") => {
+                tracing::debug!(
+                    address = %self.address,
+                    "Home command sent (no response - device is homing)"
+                );
+                Ok(()) // Command was sent, device is just busy
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Stop any motion.
@@ -1100,8 +1111,32 @@ impl Movable for Ell14Driver {
         let pulses = (distance_deg * self.pulses_per_degree).round() as i32;
         let hex_pulses = format!("{:08X}", pulses as u32);
         let cmd = format!("mr{}", hex_pulses);
-        let _ = self.transaction(&cmd).await?;
-        Ok(())
+        
+        tracing::debug!(
+            address = %self.address,
+            distance_deg,
+            pulses_per_degree = self.pulses_per_degree,
+            pulses,
+            hex_pulses = %hex_pulses,
+            full_cmd = %format!("{}mr{}", self.address, hex_pulses),
+            "ELL14 move_rel: sending relative move command"
+        );
+        
+        // IMPORTANT: Do NOT retry move commands! The device executes moves even if it
+        // doesn't respond in time (it's busy moving). Retrying causes double movement.
+        // Use transaction_once and treat timeout as success (command was sent).
+        match self.transaction_once(&cmd).await {
+            Ok(_) => Ok(()),
+            Err(e) if e.to_string().contains("timeout") => {
+                tracing::debug!(
+                    address = %self.address,
+                    cmd = %cmd,
+                    "Move command sent (no response - device is moving)"
+                );
+                Ok(()) // Command was sent, device is just busy moving
+            }
+            Err(e) => Err(e),
+        }
     }
 
     #[instrument(skip(self), fields(address = %self.address))]
