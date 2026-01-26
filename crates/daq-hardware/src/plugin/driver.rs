@@ -158,7 +158,8 @@ pub struct GenericDriver {
 
     /// Primary frame output channel for pooled frame delivery (bd-b86g.2).
     /// Only ONE primary consumer is allowed - it owns frames and controls pool reclamation.
-    primary_output: std::sync::Arc<RwLock<Option<tokio::sync::mpsc::Sender<crate::capabilities::LoanedFrame>>>>,
+    primary_output:
+        std::sync::Arc<RwLock<Option<tokio::sync::mpsc::Sender<crate::capabilities::LoanedFrame>>>>,
 }
 
 impl GenericDriver {

@@ -2,7 +2,7 @@
 
 use crate::pattern::generate_test_pattern;
 // Import common infrastructure (bd-1gdn.2)
-use crate::common::{MockMode, TimingConfig, ErrorConfig, MockRng};
+use crate::common::{ErrorConfig, MockMode, MockRng, TimingConfig};
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use daq_core::capabilities::{
@@ -446,7 +446,7 @@ impl MockCamera {
             let frame_pool_write = frame_pool.clone();
             let observers_write = observers_for_streaming.clone();
             let resolution = (config.width, config.height);
-            
+
             // Clone these Arcs for the closure (originals kept for struct)
             let mode_for_streaming = mode;
             let timing_for_streaming = timing_config;
@@ -495,12 +495,14 @@ impl MockCamera {
                             let reliable_tx_for_task = reliable_tx.lock().await.clone();
                             let primary_tx_for_task = primary_tx.lock().await.clone();
                             let frame_pool_for_task = frame_pool.lock().await.clone();
-                            
+
                             let mut last_frame_time = tokio::time::Instant::now();
-                            
+
                             while flag_for_task.load(Ordering::SeqCst) {
                                 // Error injection check
-                                if let Err(e) = error_cfg.check_operation("mock_camera", "frame_capture") {
+                                if let Err(e) =
+                                    error_cfg.check_operation("mock_camera", "frame_capture")
+                                {
                                     tracing::error!("MockCamera: Error injection triggered: {}", e);
                                     if matches!(mode, MockMode::Chaos) {
                                         sleep(Duration::from_millis(100)).await;
@@ -509,20 +511,20 @@ impl MockCamera {
                                 }
 
                                 let frame_num = count.fetch_add(1, Ordering::SeqCst) + 1;
-                                
+
                                 // Frame loss simulation
                                 let mut hardware_frame_nr = frame_num;
                                 if loss_rate > 0.0 && rng_val.should_fail(loss_rate) {
                                     // Simulate lost frame by incrementing hardware counter
                                     hardware_frame_nr += rng_val.gen_range(1..5);
                                 }
-                                
+
                                 // Update statistics
                                 {
                                     let mut stats_guard = stats.lock().await;
                                     stats_guard.check_discontinuity(hardware_frame_nr);
                                 }
-                                
+
                                 let (w, h) = res;
                                 let buffer = generate_test_pattern(w, h, frame_num);
 
@@ -532,11 +534,13 @@ impl MockCamera {
                                     MockMode::Instant => 0, // No delays in Instant mode
                                     MockMode::Realistic | MockMode::Chaos => {
                                         let readout_time_ms = timing.frame_readout_ms;
-                                        
+
                                         // fps = min(1/exposure, max_fps, 1000/readout_time)
-                                        let max_fps_from_readout = 1000.0 / readout_time_ms.max(1) as f64;
+                                        let max_fps_from_readout =
+                                            1000.0 / readout_time_ms.max(1) as f64;
                                         let exposure_fps = 1.0 / exposure_s;
-                                        let actual_fps = exposure_fps.min(max_fps_val).min(max_fps_from_readout);
+                                        let actual_fps =
+                                            exposure_fps.min(max_fps_val).min(max_fps_from_readout);
                                         (1000.0 / actual_fps) as u64
                                     }
                                 };
@@ -980,8 +984,8 @@ impl Stageable for MockCamera {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use daq_core::data::FrameView;
     use crate::common::ErrorScenario;
+    use daq_core::data::FrameView;
 
     /// Test observer that counts frames received.
     struct CountingObserver {
@@ -1265,7 +1269,7 @@ mod tests {
 
         let stats = camera.statistics().await;
         assert!(stats.total_frames > 0, "Should have captured some frames");
-        
+
         // With 50% loss rate, we expect some discontinuities
         // (but allow for random chance with small sample)
         if stats.lost_frames > 0 {
@@ -1312,7 +1316,7 @@ mod tests {
         camera.stop_stream().await.unwrap();
 
         let final_temp = camera.temperature().await;
-        
+
         // Temperature should have drifted toward setpoint
         assert!(
             final_temp > initial_temp,
@@ -1331,14 +1335,14 @@ mod tests {
 
         // Set long exposure (0.1s = 10 fps max)
         camera.set_exposure(0.1).await.unwrap();
-        
+
         let start = tokio::time::Instant::now();
         camera.start_stream().await.unwrap();
         tokio::time::sleep(Duration::from_millis(500)).await;
         camera.stop_stream().await.unwrap();
 
         let frame_count = camera.get_frame_count();
-        
+
         // With 0.1s exposure, should get ~5 frames in 500ms
         // Allow wide tolerance for async scheduling and timing jitter
         assert!(
@@ -1350,9 +1354,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_instant_mode_no_delays() {
-        let camera = MockCamera::builder()
-            .mode(MockMode::Instant)
-            .build();
+        let camera = MockCamera::builder().mode(MockMode::Instant).build();
 
         let start = tokio::time::Instant::now();
         camera.start_stream().await.unwrap();
@@ -1380,7 +1382,7 @@ mod tests {
         camera.stop_stream().await.unwrap();
 
         let frame_count = camera.get_frame_count();
-        
+
         // At 30fps, should get ~9 frames in 300ms
         // Allow very wide tolerance for timing jitter, async delays, and startup latency
         assert!(
@@ -1412,9 +1414,7 @@ mod tests {
     async fn test_shutter_delays() {
         // This test is primarily for coverage - shutter delays are currently
         // used in the builder but not actively applied in arm/trigger
-        let camera = MockCamera::builder()
-            .shutter_delays(50, 30)
-            .build();
+        let camera = MockCamera::builder().shutter_delays(50, 30).build();
 
         assert_eq!(camera.shutter_open_delay_ms, 50);
         assert_eq!(camera.shutter_close_delay_ms, 30);
@@ -1433,7 +1433,7 @@ mod tests {
         camera.stop_stream().await.unwrap();
 
         let frame_count = camera.get_frame_count();
-        
+
         // At 10fps, should get 2-3 frames in 250ms
         assert!(
             frame_count <= 4,
@@ -1444,9 +1444,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_statistics_reset_on_stage() {
-        let camera = MockCamera::builder()
-            .mode(MockMode::Realistic)
-            .build();
+        let camera = MockCamera::builder().mode(MockMode::Realistic).build();
 
         camera.stage().await.unwrap();
         camera.start_stream().await.unwrap();
@@ -1460,6 +1458,10 @@ mod tests {
         camera.unstage().await.unwrap();
         camera.stage().await.unwrap();
 
-        assert_eq!(camera.get_frame_count(), 0, "Frame count should reset on stage");
+        assert_eq!(
+            camera.get_frame_count(),
+            0,
+            "Frame count should reset on stage"
+        );
     }
 }

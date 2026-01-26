@@ -5,7 +5,6 @@
     clippy::new_without_default,
     clippy::must_use_candidate,
     clippy::panic,
-    deprecated,
     unsafe_code,
     unused_mut,
     unused_imports,
@@ -79,11 +78,12 @@ async fn test_streaming_frame_delivery() {
         .await
         .expect("Failed to set exposure");
 
-    // Subscribe to frame broadcasts (supports multiple subscribers)
-    let mut rx = camera
-        .subscribe_frames()
+    // Register primary output channel
+    let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+    camera
+        .register_primary_output(tx)
         .await
-        .expect("Failed to subscribe");
+        .expect("Failed to register primary output");
 
     // Start streaming
     camera.start_stream().await.expect("Failed to start stream");
@@ -97,7 +97,7 @@ async fn test_streaming_frame_delivery() {
 
     while start.elapsed() < test_duration {
         match tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
-            Ok(Ok(frame)) => {
+            Ok(Some(frame)) => {
                 frame_count += 1;
                 if frame_count == 1 {
                     println!(
@@ -108,7 +108,7 @@ async fn test_streaming_frame_delivery() {
                     );
                 }
             }
-            Ok(Err(_)) => {
+            Ok(None) => {
                 println!("Channel closed");
                 break;
             }
@@ -164,18 +164,20 @@ async fn test_streaming_backpressure() {
     // Start streaming
     camera.start_stream().await.expect("Failed to start stream");
 
+    // Register primary output channel
+    let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+    camera
+        .register_primary_output(tx)
+        .await
+        .expect("Failed to register primary output");
+
     // Let it run for a bit without consuming
     println!("Streaming without consuming for 500ms...");
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Now subscribe and consume
-    let mut rx = camera
-        .subscribe_frames()
-        .await
-        .expect("Failed to subscribe");
-
+    // Now consume from the channel
     let mut consumed = 0;
-    while let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(100), rx.recv()).await {
+    while let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(100), rx.recv()).await {
         consumed += 1;
         if consumed >= 10 {
             break;
@@ -211,10 +213,12 @@ async fn test_streaming_stability() {
         .await
         .expect("Failed to set exposure");
 
-    let mut rx = camera
-        .subscribe_frames()
+    // Register primary output channel
+    let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+    camera
+        .register_primary_output(tx)
         .await
-        .expect("Failed to subscribe");
+        .expect("Failed to register primary output");
 
     camera.start_stream().await.expect("Failed to start stream");
 
@@ -228,7 +232,7 @@ async fn test_streaming_stability() {
 
     while start.elapsed() < test_duration {
         match tokio::time::timeout(Duration::from_secs(1), rx.recv()).await {
-            Ok(Ok(frame)) => {
+            Ok(Some(frame)) => {
                 frame_count += 1;
 
                 // Validate frame
@@ -247,7 +251,7 @@ async fn test_streaming_stability() {
                     last_report = Instant::now();
                 }
             }
-            Ok(Err(_)) => {
+            Ok(None) => {
                 println!("Channel closed unexpectedly");
                 errors += 1;
                 break;

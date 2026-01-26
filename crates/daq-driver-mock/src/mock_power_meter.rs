@@ -270,7 +270,9 @@ impl SpectralResponse {
     pub fn silicon_photodiode() -> Self {
         // Typical Si photodiode response peaks around 900nm
         Self {
-            wavelength_nm: vec![300.0, 400.0, 500.0, 600.0, 700.0, 800.0, 900.0, 1000.0, 1100.0],
+            wavelength_nm: vec![
+                300.0, 400.0, 500.0, 600.0, 700.0, 800.0, 900.0, 1000.0, 1100.0,
+            ],
             responsivity: vec![0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.70, 0.65, 0.50],
         }
     }
@@ -293,7 +295,8 @@ impl SpectralResponse {
                 // Linear interpolation
                 let t = (wl - self.wavelength_nm[i])
                     / (self.wavelength_nm[i + 1] - self.wavelength_nm[i]);
-                return self.responsivity[i] + t * (self.responsivity[i + 1] - self.responsivity[i]);
+                return self.responsivity[i]
+                    + t * (self.responsivity[i + 1] - self.responsivity[i]);
             }
         }
 
@@ -468,11 +471,7 @@ impl MockPowerMeter {
             PowerUnit::Relative => {
                 // Normalized to base power
                 let base = self.base_power.get();
-                if base == 0.0 {
-                    0.0
-                } else {
-                    watts / base
-                }
+                if base == 0.0 { 0.0 } else { watts / base }
             }
         }
     }
@@ -752,8 +751,8 @@ mod tests {
             .unwrap();
 
         let mean = readings.iter().sum::<f64>() / readings.len() as f64;
-        let variance = readings.iter().map(|r| (r - mean).powi(2)).sum::<f64>()
-            / readings.len() as f64;
+        let variance =
+            readings.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / readings.len() as f64;
 
         // Mean should be close to base power
         assert!(

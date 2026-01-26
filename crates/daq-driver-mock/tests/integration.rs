@@ -26,9 +26,7 @@ fn test_error_scenarios() {
         count: 5,
     });
 
-    let _timeout = ErrorConfig::scenario(ErrorScenario::Timeout {
-        operation: "move",
-    });
+    let _timeout = ErrorConfig::scenario(ErrorScenario::Timeout { operation: "move" });
 
     let _comm_loss = ErrorConfig::scenario(ErrorScenario::CommunicationLoss);
 

@@ -42,7 +42,6 @@ pub enum VoltageRangeConfig {
     Unipolar5V,
 }
 
-
 impl From<VoltageRangeConfig> for VoltageRange {
     fn from(config: VoltageRangeConfig) -> Self {
         match config {
