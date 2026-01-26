@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2025-01-22)
 ## Current Position
 
 Phase: 8 of 10 (Advanced Scans)
-Plan: 3 of TBD (08-03 complete)
+Plan: 1 of 7 (08-01 complete)
 Status: In progress
-Last activity: 2026-01-25 - Completed 08-03-PLAN.md (AdaptiveScan node type)
+Last activity: 2026-01-25 - Completed 08-01-PLAN.md (Zarr V3 Storage Foundation)
 
-Progress: [███████░░░] 73%
+Progress: [███████░░░] 71%
 
 ## Performance Metrics
 
@@ -115,6 +115,9 @@ Recent decisions affecting current work:
 - Eject confirmation dialog prevents accidental one-way conversion
 - Theme selector in script editor (Gruvbox Dark/Light, Aura Dark)
 - Code preview uses show_inside() for proper tab layout (not window-level SidePanel)
+- zarrs 0.22 with filesystem feature for Zarr V3 storage (08-01)
+- _ARRAY_DIMENSIONS attribute for Xarray compatibility (08-01)
+- ReadableWritableListableStorage Arc pattern since FilesystemStore not Clone (08-01)
 
 ### Pending Todos
 
@@ -162,6 +165,6 @@ See: .planning/phases/06-data-management/06-VERIFICATION.md
 ## Session Continuity
 
 Last session: 2026-01-25
-Stopped at: Completed 08-03-PLAN.md (AdaptiveScan node type)
+Stopped at: Completed 08-01-PLAN.md (Zarr V3 Storage Foundation)
 Resume file: None
-Next action: Continue Phase 8 plans (if more exist) or verify phase completion
+Next action: Execute 08-02-PLAN.md (Nested Scan Nodes)
