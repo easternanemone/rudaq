@@ -662,7 +662,7 @@ async fn test_safety_shutter_on_drop() {
     sleep(Duration::from_millis(500)).await;
 
     // Create new connection to verify shutter state
-    let driver = MaiTaiDriver::new(PORT).expect("Could not reconnect");
+    let driver = MaiTaiDriver::new_async(PORT).await.expect("Could not reconnect");
 
     // Note: MaiTai may not auto-close shutter on disconnect
     // This test documents the behavior
@@ -692,7 +692,7 @@ async fn test_safety_shutter_on_drop() {
 /// Test: Use WavelengthTunable trait methods
 #[tokio::test]
 async fn test_trait_wavelength_tunable() {
-    let driver = match MaiTaiDriver::new(PORT) {
+    let driver = match MaiTaiDriver::new_async(PORT).await {
         Ok(d) => d,
         Err(e) => {
             eprintln!("[SKIP] Cannot create driver: {}", e);
@@ -726,7 +726,7 @@ async fn test_trait_wavelength_tunable() {
 /// Test: Use ShutterControl trait methods
 #[tokio::test]
 async fn test_trait_shutter_control() {
-    let driver = match MaiTaiDriver::new(PORT) {
+    let driver = match MaiTaiDriver::new_async(PORT).await {
         Ok(d) => d,
         Err(e) => {
             eprintln!("[SKIP] Cannot create driver: {}", e);
@@ -764,7 +764,7 @@ async fn test_trait_shutter_control() {
 async fn test_trait_readable() {
     log_safety_warning("test_trait_readable");
 
-    let driver = match MaiTaiDriver::new(PORT) {
+    let driver = match MaiTaiDriver::new_async(PORT).await {
         Ok(d) => d,
         Err(e) => {
             eprintln!("[SKIP] Cannot create driver: {}", e);
@@ -793,7 +793,7 @@ async fn test_trait_readable() {
 /// Test: Measure command latency
 #[tokio::test]
 async fn test_command_latency() {
-    let driver = match MaiTaiDriver::new(PORT) {
+    let driver = match MaiTaiDriver::new_async(PORT).await {
         Ok(d) => d,
         Err(e) => {
             eprintln!("[SKIP] Cannot create driver: {}", e);
@@ -834,7 +834,7 @@ async fn test_command_latency() {
 /// Test: Recovery from invalid command
 #[tokio::test]
 async fn test_error_recovery() {
-    let driver = match MaiTaiDriver::new(PORT) {
+    let driver = match MaiTaiDriver::new_async(PORT).await {
         Ok(d) => d,
         Err(e) => {
             eprintln!("[SKIP] Cannot create driver: {}", e);
@@ -871,7 +871,7 @@ async fn test_error_recovery() {
 /// accidental laser exposure.
 #[tokio::test]
 async fn test_emission_guard_rejects_when_shutter_open() {
-    let driver = match MaiTaiDriver::new(PORT) {
+    let driver = match MaiTaiDriver::new_async(PORT).await {
         Ok(d) => d,
         Err(e) => {
             eprintln!("[SKIP] Cannot create driver: {}", e);
@@ -931,7 +931,7 @@ async fn test_emission_guard_rejects_when_shutter_open() {
 async fn test_emission_allowed_when_shutter_closed() {
     log_safety_warning("test_emission_allowed_when_shutter_closed");
 
-    let driver = match MaiTaiDriver::new(PORT) {
+    let driver = match MaiTaiDriver::new_async(PORT).await {
         Ok(d) => d,
         Err(e) => {
             eprintln!("[SKIP] Cannot create driver: {}", e);
