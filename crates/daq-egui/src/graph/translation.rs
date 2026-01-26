@@ -483,36 +483,64 @@ fn translate_node_with_snarl(
             }
         }
         ExperimentNode::AdaptiveScan(config) => {
-            // Adaptive scan - fallback to basic scan for now
-            // TODO: Implement runtime trigger evaluation
-            tracing::warn!(
-                "AdaptiveScan at {:?} falling back to basic scan. \
-                Trigger evaluation requires RunEngine runtime support.",
-                node_id
-            );
+            // Adaptive scan with trigger evaluation checkpoints
+            // NOTE: Actual trigger evaluation happens at runtime in RunEngine
+            // Translation generates checkpoints that mark where evaluation occurs
 
             if config.scan.points > 0 && !config.scan.actuator.is_empty() {
                 movers.push(config.scan.actuator.clone());
+
                 let step = if config.scan.points > 1 {
                     (config.scan.stop - config.scan.start) / (config.scan.points as f64 - 1.0)
                 } else {
                     0.0
                 };
+
+                // Adaptive scan start checkpoint
+                commands.push(PlanCommand::Checkpoint {
+                    label: format!("adaptive_{:?}_start", node_id),
+                });
+
+                // Generate scan points
                 for i in 0..config.scan.points {
                     let pos = config.scan.start + step * i as f64;
+
+                    // Move actuator
                     commands.push(PlanCommand::MoveTo {
                         device_id: config.scan.actuator.clone(),
                         position: pos,
                     });
+
+                    // Point checkpoint with trigger metadata
                     commands.push(PlanCommand::Checkpoint {
-                        label: format!("adaptive_{:?}_point_{}", node_id, i),
+                        label: format!(
+                            "adaptive_{:?}_point_{}_triggers_{}",
+                            node_id,
+                            i,
+                            config.triggers.len()
+                        ),
                     });
+
+                    // Emit event
                     commands.push(PlanCommand::EmitEvent {
                         stream: "primary".to_string(),
                         data: HashMap::new(),
                         positions: [(config.scan.actuator.clone(), pos)].into_iter().collect(),
                     });
                     events += 1;
+                }
+
+                // Add adaptive evaluation checkpoint
+                // This is where the RunEngine evaluates accumulated data against triggers
+                commands.push(PlanCommand::Checkpoint {
+                    label: format!("adaptive_{:?}_evaluate_action_{:?}", node_id, config.action),
+                });
+
+                // If require_approval, add an approval checkpoint
+                if config.require_approval {
+                    commands.push(PlanCommand::Checkpoint {
+                        label: format!("adaptive_{:?}_approval_required", node_id),
+                    });
                 }
             }
         }
@@ -925,6 +953,128 @@ mod tests {
         assert!(
             plan.detectors.contains(&"camera".to_string()),
             "Should include body node detector"
+        );
+    }
+
+    #[test]
+    fn test_adaptive_scan_translation() {
+        use crate::graph::nodes::{
+            AdaptiveAction, AdaptiveScanConfig, ScanDimension, ThresholdOp, TriggerCondition,
+            TriggerLogic,
+        };
+
+        let mut snarl = Snarl::new();
+
+        // Create AdaptiveScan node with 5 points and 2 triggers
+        snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            ExperimentNode::AdaptiveScan(AdaptiveScanConfig {
+                scan: ScanDimension {
+                    actuator: "wavelength".to_string(),
+                    dimension_name: "lambda".to_string(),
+                    start: 400.0,
+                    stop: 800.0,
+                    points: 5,
+                },
+                triggers: vec![
+                    TriggerCondition::Threshold {
+                        device_id: "power_meter".to_string(),
+                        operator: ThresholdOp::GreaterThan,
+                        value: 1000.0,
+                    },
+                    TriggerCondition::PeakDetection {
+                        device_id: "power_meter".to_string(),
+                        min_prominence: 100.0,
+                        min_height: None,
+                    },
+                ],
+                trigger_logic: TriggerLogic::Any,
+                action: AdaptiveAction::Zoom2x,
+                require_approval: true,
+            }),
+        );
+
+        let plan = GraphPlan::from_snarl(&snarl).expect("Translation failed");
+
+        // Should have start checkpoint
+        let has_start = plan.commands.iter().any(|cmd| {
+            matches!(cmd, PlanCommand::Checkpoint { label } if label.contains("adaptive") && label.contains("start"))
+        });
+        assert!(has_start, "Should have adaptive scan start checkpoint");
+
+        // Should have 5 point checkpoints with trigger count
+        let point_checkpoints: Vec<_> = plan
+            .commands
+            .iter()
+            .filter(|cmd| {
+                matches!(cmd, PlanCommand::Checkpoint { label } if label.contains("point") && label.contains("triggers_2"))
+            })
+            .collect();
+        assert_eq!(
+            point_checkpoints.len(),
+            5,
+            "Should have 5 point checkpoints with trigger count"
+        );
+
+        // Should have evaluate checkpoint with action
+        let has_evaluate = plan.commands.iter().any(|cmd| {
+            matches!(cmd, PlanCommand::Checkpoint { label } if label.contains("evaluate_action") && label.contains("Zoom2x"))
+        });
+        assert!(has_evaluate, "Should have evaluate checkpoint with action");
+
+        // Should have approval checkpoint (require_approval = true)
+        let has_approval = plan.commands.iter().any(|cmd| {
+            matches!(cmd, PlanCommand::Checkpoint { label } if label.contains("approval_required"))
+        });
+        assert!(
+            has_approval,
+            "Should have approval checkpoint when require_approval = true"
+        );
+
+        // Should have 5 events
+        assert_eq!(plan.total_events, 5, "Should have 5 events");
+
+        // Should include actuator as mover
+        assert!(
+            plan.movers.contains(&"wavelength".to_string()),
+            "Should include wavelength actuator"
+        );
+    }
+
+    #[test]
+    fn test_adaptive_scan_without_approval() {
+        use crate::graph::nodes::{
+            AdaptiveAction, AdaptiveScanConfig, ScanDimension, TriggerCondition, TriggerLogic,
+        };
+
+        let mut snarl = Snarl::new();
+
+        snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            ExperimentNode::AdaptiveScan(AdaptiveScanConfig {
+                scan: ScanDimension {
+                    actuator: "stage".to_string(),
+                    dimension_name: "pos".to_string(),
+                    start: 0.0,
+                    stop: 100.0,
+                    points: 10,
+                },
+                triggers: vec![TriggerCondition::default()],
+                trigger_logic: TriggerLogic::Any,
+                action: AdaptiveAction::MoveToPeak,
+                require_approval: false, // No approval needed
+            }),
+        );
+
+        let plan = GraphPlan::from_snarl(&snarl).expect("Translation failed");
+
+        // Should NOT have approval checkpoint
+        let has_approval = plan.commands.iter().any(|cmd| {
+            matches!(cmd, PlanCommand::Checkpoint { label } if label.contains("approval_required"))
+        });
+        assert!(
+            !has_approval,
+            "Should NOT have approval checkpoint when require_approval = false"
         );
     }
 }
