@@ -974,6 +974,31 @@ impl ExperimentDesignerPanel {
                     }
                 }
             }
+            ExperimentNode::NestedScan(config) => {
+                if config.outer.actuator.is_empty() {
+                    return Some("Outer actuator not set".to_string());
+                }
+                if config.inner.actuator.is_empty() {
+                    return Some("Inner actuator not set".to_string());
+                }
+                if config.outer.points == 0 {
+                    return Some("Outer points must be > 0".to_string());
+                }
+                if config.inner.points == 0 {
+                    return Some("Inner points must be > 0".to_string());
+                }
+            }
+            ExperimentNode::AdaptiveScan(config) => {
+                if config.scan.actuator.is_empty() {
+                    return Some("Scan actuator not set".to_string());
+                }
+                if config.scan.points == 0 {
+                    return Some("Scan points must be > 0".to_string());
+                }
+                if config.triggers.is_empty() {
+                    return Some("At least one trigger required".to_string());
+                }
+            }
         }
         None
     }
@@ -1391,6 +1416,35 @@ impl ExperimentDesignerPanel {
                 }
                 ExperimentNode::Loop(..) => {
                     // Loop iterations not typically editable at runtime
+                }
+                ExperimentNode::NestedScan(config) => {
+                    // Add outer and inner position parameters
+                    if !config.outer.actuator.is_empty() {
+                        params.push(EditableParameter::float(
+                            &config.outer.actuator,
+                            "position",
+                            &format!("{} Position", config.outer.dimension_name),
+                            config.outer.start,
+                        ));
+                    }
+                    if !config.inner.actuator.is_empty() {
+                        params.push(EditableParameter::float(
+                            &config.inner.actuator,
+                            "position",
+                            &format!("{} Position", config.inner.dimension_name),
+                            config.inner.start,
+                        ));
+                    }
+                }
+                ExperimentNode::AdaptiveScan(config) => {
+                    if !config.scan.actuator.is_empty() {
+                        params.push(EditableParameter::float(
+                            &config.scan.actuator,
+                            "position",
+                            &format!("{} Position", config.scan.actuator),
+                            config.scan.start,
+                        ));
+                    }
                 }
             }
         }

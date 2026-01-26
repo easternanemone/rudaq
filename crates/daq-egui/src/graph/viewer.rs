@@ -431,6 +431,290 @@ impl ExperimentViewer {
             }
         }
     }
+
+    /// Show NestedScan node body with inline editors.
+    fn show_nested_scan_body(
+        &self,
+        ui: &mut egui::Ui,
+        node_id: NodeId,
+        config: &mut super::nodes::NestedScanConfig,
+    ) {
+        if let Some(error) = self.node_errors.get(&node_id) {
+            ui.colored_label(egui::Color32::from_rgb(255, 100, 100), error);
+        }
+
+        ui.collapsing("Outer", |ui| {
+            self.device_dropdown(
+                ui,
+                "nested_outer_dev",
+                &mut config.outer.actuator,
+                "Actuator:",
+            );
+            ui.horizontal(|ui| {
+                ui.label("Name:");
+                ui.text_edit_singleline(&mut config.outer.dimension_name);
+            });
+            ui.horizontal(|ui| {
+                ui.label("Start:");
+                ui.add(egui::DragValue::new(&mut config.outer.start).speed(0.1));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Stop:");
+                ui.add(egui::DragValue::new(&mut config.outer.stop).speed(0.1));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Points:");
+                let mut v = config.outer.points as i32;
+                if ui
+                    .add(egui::DragValue::new(&mut v).speed(1).range(1..=10000))
+                    .changed()
+                {
+                    config.outer.points = v.max(1) as u32;
+                }
+            });
+        });
+
+        ui.collapsing("Inner", |ui| {
+            self.device_dropdown(
+                ui,
+                "nested_inner_dev",
+                &mut config.inner.actuator,
+                "Actuator:",
+            );
+            ui.horizontal(|ui| {
+                ui.label("Name:");
+                ui.text_edit_singleline(&mut config.inner.dimension_name);
+            });
+            ui.horizontal(|ui| {
+                ui.label("Start:");
+                ui.add(egui::DragValue::new(&mut config.inner.start).speed(0.1));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Stop:");
+                ui.add(egui::DragValue::new(&mut config.inner.stop).speed(0.1));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Points:");
+                let mut v = config.inner.points as i32;
+                if ui
+                    .add(egui::DragValue::new(&mut v).speed(1).range(1..=10000))
+                    .changed()
+                {
+                    config.inner.points = v.max(1) as u32;
+                }
+            });
+        });
+    }
+
+    /// Show AdaptiveScan node body with inline editors.
+    fn show_adaptive_scan_body(
+        &self,
+        ui: &mut egui::Ui,
+        node_id: NodeId,
+        config: &mut super::nodes::AdaptiveScanConfig,
+    ) {
+        use super::nodes::{AdaptiveAction, TriggerCondition, TriggerLogic};
+
+        if let Some(error) = self.node_errors.get(&node_id) {
+            ui.colored_label(egui::Color32::from_rgb(255, 100, 100), error);
+        }
+
+        // Base scan configuration
+        ui.collapsing("Scan", |ui| {
+            self.device_dropdown(
+                ui,
+                "adaptive_scan_dev",
+                &mut config.scan.actuator,
+                "Actuator:",
+            );
+            ui.horizontal(|ui| {
+                ui.label("Start:");
+                ui.add(egui::DragValue::new(&mut config.scan.start).speed(0.1));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Stop:");
+                ui.add(egui::DragValue::new(&mut config.scan.stop).speed(0.1));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Points:");
+                let mut v = config.scan.points as i32;
+                if ui
+                    .add(egui::DragValue::new(&mut v).speed(1).range(1..=10000))
+                    .changed()
+                {
+                    config.scan.points = v.max(1) as u32;
+                }
+            });
+        });
+
+        // Trigger configuration
+        ui.collapsing("Triggers", |ui| {
+            // Logic selector
+            ui.horizontal(|ui| {
+                ui.label("Logic:");
+                egui::ComboBox::from_id_salt("trigger_logic")
+                    .selected_text(match config.trigger_logic {
+                        TriggerLogic::Any => "Any (OR)",
+                        TriggerLogic::All => "All (AND)",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut config.trigger_logic,
+                            TriggerLogic::Any,
+                            "Any (OR)",
+                        );
+                        ui.selectable_value(
+                            &mut config.trigger_logic,
+                            TriggerLogic::All,
+                            "All (AND)",
+                        );
+                    });
+            });
+
+            // Show each trigger with remove button
+            let mut remove_idx = None;
+            let trigger_count = config.triggers.len();
+            for (idx, trigger) in config.triggers.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(format!("{}:", idx + 1));
+                    // Trigger type selector
+                    let is_threshold = matches!(trigger, TriggerCondition::Threshold { .. });
+                    let mut trigger_type = if is_threshold { 0 } else { 1 };
+                    egui::ComboBox::from_id_salt(format!("trigger_type_{}", idx))
+                        .width(80.0)
+                        .selected_text(if is_threshold { "Threshold" } else { "Peak" })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut trigger_type, 0, "Threshold");
+                            ui.selectable_value(&mut trigger_type, 1, "Peak");
+                        });
+                    // Convert if type changed
+                    if trigger_type == 0 && !is_threshold {
+                        *trigger = TriggerCondition::default();
+                    } else if trigger_type == 1 && is_threshold {
+                        *trigger = TriggerCondition::PeakDetection {
+                            device_id: String::new(),
+                            min_prominence: 1.0,
+                            min_height: None,
+                        };
+                    }
+                    // Remove button (disable if only one trigger)
+                    if trigger_count > 1 && ui.button("x").clicked() {
+                        remove_idx = Some(idx);
+                    }
+                });
+
+                // Trigger-specific fields
+                match trigger {
+                    TriggerCondition::Threshold {
+                        device_id,
+                        operator,
+                        value,
+                    } => {
+                        ui.horizontal(|ui| {
+                            ui.label("  Device:");
+                            ui.text_edit_singleline(device_id);
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("  Op:");
+                            egui::ComboBox::from_id_salt(format!("threshold_op_{}", idx))
+                                .width(60.0)
+                                .selected_text(match operator {
+                                    super::nodes::ThresholdOp::LessThan => "<",
+                                    super::nodes::ThresholdOp::GreaterThan => ">",
+                                    super::nodes::ThresholdOp::EqualWithin { .. } => "~=",
+                                })
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        operator,
+                                        super::nodes::ThresholdOp::LessThan,
+                                        "<",
+                                    );
+                                    ui.selectable_value(
+                                        operator,
+                                        super::nodes::ThresholdOp::GreaterThan,
+                                        ">",
+                                    );
+                                    ui.selectable_value(
+                                        operator,
+                                        super::nodes::ThresholdOp::EqualWithin { tolerance: 0.01 },
+                                        "~=",
+                                    );
+                                });
+                            ui.add(egui::DragValue::new(value).speed(0.1));
+                        });
+                    }
+                    TriggerCondition::PeakDetection {
+                        device_id,
+                        min_prominence,
+                        min_height,
+                    } => {
+                        ui.horizontal(|ui| {
+                            ui.label("  Device:");
+                            ui.text_edit_singleline(device_id);
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("  Prominence:");
+                            ui.add(egui::DragValue::new(min_prominence).speed(0.1));
+                        });
+                        ui.horizontal(|ui| {
+                            let mut has_height = min_height.is_some();
+                            if ui.checkbox(&mut has_height, "Min height:").changed() {
+                                *min_height = if has_height { Some(0.0) } else { None };
+                            }
+                            if let Some(h) = min_height {
+                                ui.add(egui::DragValue::new(h).speed(0.1));
+                            }
+                        });
+                    }
+                }
+                ui.separator();
+            }
+
+            // Remove trigger if requested
+            if let Some(idx) = remove_idx {
+                config.triggers.remove(idx);
+            }
+
+            // Add trigger button
+            if ui.button("+ Add Trigger").clicked() {
+                config.triggers.push(TriggerCondition::default());
+            }
+        });
+
+        // Action configuration
+        ui.horizontal(|ui| {
+            ui.label("Action:");
+            egui::ComboBox::from_id_salt("adaptive_action")
+                .selected_text(match config.action {
+                    AdaptiveAction::Zoom2x => "Zoom 2x",
+                    AdaptiveAction::Zoom4x => "Zoom 4x",
+                    AdaptiveAction::MoveToPeak => "Move to Peak",
+                    AdaptiveAction::AcquireAtPeak => "Acquire at Peak",
+                    AdaptiveAction::MarkAndContinue => "Mark & Continue",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut config.action, AdaptiveAction::Zoom2x, "Zoom 2x");
+                    ui.selectable_value(&mut config.action, AdaptiveAction::Zoom4x, "Zoom 4x");
+                    ui.selectable_value(
+                        &mut config.action,
+                        AdaptiveAction::MoveToPeak,
+                        "Move to Peak",
+                    );
+                    ui.selectable_value(
+                        &mut config.action,
+                        AdaptiveAction::AcquireAtPeak,
+                        "Acquire at Peak",
+                    );
+                    ui.selectable_value(
+                        &mut config.action,
+                        AdaptiveAction::MarkAndContinue,
+                        "Mark & Continue",
+                    );
+                });
+        });
+
+        ui.checkbox(&mut config.require_approval, "Require approval");
+    }
 }
 
 impl SnarlViewer<ExperimentNode> for ExperimentViewer {
@@ -448,8 +732,9 @@ impl SnarlViewer<ExperimentNode> for ExperimentViewer {
 
     fn outputs(&mut self, node: &ExperimentNode) -> usize {
         match node {
-            ExperimentNode::Loop { .. } => 2, // Next + loop body outputs
-            _ => 1,                           // Sequential flow output
+            ExperimentNode::Loop { .. } => 2,       // Next + loop body outputs
+            ExperimentNode::NestedScan { .. } => 2, // Next + body outputs
+            _ => 1,                                 // Sequential flow output
         }
     }
 
@@ -520,6 +805,12 @@ impl SnarlViewer<ExperimentNode> for ExperimentViewer {
                     }
                     ExperimentNode::Loop(config) => {
                         self.show_loop_body(ui, node_id, config);
+                    }
+                    ExperimentNode::NestedScan(config) => {
+                        self.show_nested_scan_body(ui, node_id, config);
+                    }
+                    ExperimentNode::AdaptiveScan(config) => {
+                        self.show_adaptive_scan_body(ui, node_id, config);
                     }
                 }
             }

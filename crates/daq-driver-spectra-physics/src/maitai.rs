@@ -427,8 +427,8 @@ impl MaiTaiDriver {
         let clean = response.trim().to_lowercase();
         let clean = clean
             .trim_end_matches("mw")
-            .trim_end_matches("w")
-            .trim_end_matches("%")
+            .trim_end_matches('w')
+            .trim_end_matches('%')
             .trim();
         clean
             .parse::<f64>()

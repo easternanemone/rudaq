@@ -145,9 +145,7 @@ impl Plan for GraphPlan {
 }
 
 /// Build adjacency list from snarl wires
-pub fn build_adjacency(
-    snarl: &Snarl<ExperimentNode>,
-) -> Result<AdjacencyResult, TranslationError> {
+pub fn build_adjacency(snarl: &Snarl<ExperimentNode>) -> Result<AdjacencyResult, TranslationError> {
     let mut adjacency: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
     let mut has_input: HashSet<NodeId> = HashSet::new();
 
@@ -387,6 +385,91 @@ fn translate_node_with_snarl(
                 commands.push(PlanCommand::Checkpoint {
                     label: format!("loop_{:?}_iter_{}_end", node_id, i),
                 });
+            }
+        }
+        ExperimentNode::NestedScan(config) => {
+            // Nested scan generates outer x inner grid
+            if !config.outer.actuator.is_empty() && !config.inner.actuator.is_empty() {
+                movers.push(config.outer.actuator.clone());
+                movers.push(config.inner.actuator.clone());
+
+                let outer_step = if config.outer.points > 1 {
+                    (config.outer.stop - config.outer.start) / (config.outer.points as f64 - 1.0)
+                } else {
+                    0.0
+                };
+                let inner_step = if config.inner.points > 1 {
+                    (config.inner.stop - config.inner.start) / (config.inner.points as f64 - 1.0)
+                } else {
+                    0.0
+                };
+
+                for outer_i in 0..config.outer.points {
+                    let outer_pos = config.outer.start + outer_step * outer_i as f64;
+                    commands.push(PlanCommand::MoveTo {
+                        device_id: config.outer.actuator.clone(),
+                        position: outer_pos,
+                    });
+                    commands.push(PlanCommand::Checkpoint {
+                        label: format!("nested_{:?}_outer_{}", node_id, outer_i),
+                    });
+
+                    for inner_i in 0..config.inner.points {
+                        let inner_pos = config.inner.start + inner_step * inner_i as f64;
+                        commands.push(PlanCommand::MoveTo {
+                            device_id: config.inner.actuator.clone(),
+                            position: inner_pos,
+                        });
+                        commands.push(PlanCommand::Checkpoint {
+                            label: format!("nested_{:?}_inner_{}_{}", node_id, outer_i, inner_i),
+                        });
+                        commands.push(PlanCommand::EmitEvent {
+                            stream: "primary".to_string(),
+                            data: HashMap::new(),
+                            positions: [
+                                (config.outer.actuator.clone(), outer_pos),
+                                (config.inner.actuator.clone(), inner_pos),
+                            ]
+                            .into_iter()
+                            .collect(),
+                        });
+                        events += 1;
+                    }
+                }
+            }
+        }
+        ExperimentNode::AdaptiveScan(config) => {
+            // Adaptive scan - fallback to basic scan for now
+            // TODO: Implement runtime trigger evaluation
+            tracing::warn!(
+                "AdaptiveScan at {:?} falling back to basic scan. \
+                Trigger evaluation requires RunEngine runtime support.",
+                node_id
+            );
+
+            if config.scan.points > 0 && !config.scan.actuator.is_empty() {
+                movers.push(config.scan.actuator.clone());
+                let step = if config.scan.points > 1 {
+                    (config.scan.stop - config.scan.start) / (config.scan.points as f64 - 1.0)
+                } else {
+                    0.0
+                };
+                for i in 0..config.scan.points {
+                    let pos = config.scan.start + step * i as f64;
+                    commands.push(PlanCommand::MoveTo {
+                        device_id: config.scan.actuator.clone(),
+                        position: pos,
+                    });
+                    commands.push(PlanCommand::Checkpoint {
+                        label: format!("adaptive_{:?}_point_{}", node_id, i),
+                    });
+                    commands.push(PlanCommand::EmitEvent {
+                        stream: "primary".to_string(),
+                        data: HashMap::new(),
+                        positions: [(config.scan.actuator.clone(), pos)].into_iter().collect(),
+                    });
+                    events += 1;
+                }
             }
         }
     }

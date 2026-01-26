@@ -2363,9 +2363,7 @@ impl PvcamAcquisition {
                         }
 
                         // Send LoanedFrame - non-blocking
-                        if p_tx.try_send(loaned_frame).is_err()
-                            && frame_num.is_multiple_of(100)
-                        {
+                        if p_tx.try_send(loaned_frame).is_err() && frame_num.is_multiple_of(100) {
                             tracing::warn!(
                                 "PVCAM mock: primary channel full at frame {}",
                                 frame_num

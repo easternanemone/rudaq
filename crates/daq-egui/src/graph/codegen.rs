@@ -5,8 +5,8 @@
 //! Generated scripts are read-only artifacts for learning and debugging.
 
 use super::nodes::{
-    AcquireConfig, ExperimentNode, LoopConfig, LoopTermination, MoveConfig, MoveMode, ThresholdOp,
-    WaitCondition,
+    AcquireConfig, AdaptiveAction, AdaptiveScanConfig, ExperimentNode, LoopConfig, LoopTermination,
+    MoveConfig, MoveMode, NestedScanConfig, ThresholdOp, TriggerCondition, WaitCondition,
 };
 use super::translation::{build_adjacency, topological_sort};
 use egui_snarl::{NodeId, Snarl};
@@ -116,6 +116,10 @@ fn node_to_rhai(
         ExperimentNode::Loop(config) => {
             loop_to_rhai(config, node_id, snarl, loop_body_set, indent_level)
         }
+
+        ExperimentNode::NestedScan(config) => nested_scan_to_rhai(config, indent_level),
+
+        ExperimentNode::AdaptiveScan(config) => adaptive_scan_to_rhai(config, indent_level),
     }
 }
 
@@ -382,6 +386,225 @@ fn loop_to_rhai(
             }
         }
     }
+
+    code.push_str(&format!("{}}}\n", ind));
+
+    code
+}
+
+/// Generate Rhai code for a NestedScan node.
+fn nested_scan_to_rhai(config: &NestedScanConfig, indent: usize) -> String {
+    let ind = indent_str(indent);
+    let mut code = String::new();
+
+    if config.outer.actuator.is_empty() || config.inner.actuator.is_empty() {
+        code.push_str(&format!(
+            "{}// WARNING: NestedScan node has empty actuator(s)\n",
+            ind
+        ));
+        return code;
+    }
+
+    code.push_str(&format!(
+        "{}// Nested scan: {} x {}\n",
+        ind, config.outer.dimension_name, config.inner.dimension_name
+    ));
+
+    // Outer loop
+    code.push_str(&format!(
+        "{}// Outer: {} from {:.1} to {:.1} ({} points)\n",
+        ind, config.outer.actuator, config.outer.start, config.outer.stop, config.outer.points
+    ));
+    code.push_str(&format!(
+        "{}for outer_i in 0..{} {{\n",
+        ind, config.outer.points
+    ));
+
+    let body_ind = indent_str(indent + 1);
+
+    // Outer position calculation
+    if config.outer.points > 1 {
+        code.push_str(&format!(
+            "{}let outer_pos = {} + ({} - {}) * outer_i / ({} - 1);\n",
+            body_ind,
+            config.outer.start,
+            config.outer.stop,
+            config.outer.start,
+            config.outer.points
+        ));
+    } else {
+        code.push_str(&format!(
+            "{}let outer_pos = {};\n",
+            body_ind, config.outer.start
+        ));
+    }
+    code.push_str(&format!(
+        "{}{}.move_abs(outer_pos);\n",
+        body_ind, config.outer.actuator
+    ));
+    code.push_str(&format!(
+        "{}{}.wait_settled();\n",
+        body_ind, config.outer.actuator
+    ));
+
+    // Inner loop
+    code.push_str(&format!(
+        "{}// Inner: {} from {:.1} to {:.1} ({} points)\n",
+        body_ind, config.inner.actuator, config.inner.start, config.inner.stop, config.inner.points
+    ));
+    code.push_str(&format!(
+        "{}for inner_i in 0..{} {{\n",
+        body_ind, config.inner.points
+    ));
+
+    let inner_ind = indent_str(indent + 2);
+
+    // Inner position calculation
+    if config.inner.points > 1 {
+        code.push_str(&format!(
+            "{}let inner_pos = {} + ({} - {}) * inner_i / ({} - 1);\n",
+            inner_ind,
+            config.inner.start,
+            config.inner.stop,
+            config.inner.start,
+            config.inner.points
+        ));
+    } else {
+        code.push_str(&format!(
+            "{}let inner_pos = {};\n",
+            inner_ind, config.inner.start
+        ));
+    }
+    code.push_str(&format!(
+        "{}{}.move_abs(inner_pos);\n",
+        inner_ind, config.inner.actuator
+    ));
+    code.push_str(&format!(
+        "{}{}.wait_settled();\n",
+        inner_ind, config.inner.actuator
+    ));
+
+    // Yield event
+    code.push_str(&format!(
+        "{}yield_event(#{{ \"{}\": outer_pos, \"{}\": inner_pos }});\n",
+        inner_ind, config.outer.dimension_name, config.inner.dimension_name
+    ));
+
+    code.push_str(&format!("{}}}\n", body_ind));
+    code.push_str(&format!("{}}}\n", ind));
+
+    code
+}
+
+/// Generate Rhai code for an AdaptiveScan node.
+fn adaptive_scan_to_rhai(config: &AdaptiveScanConfig, indent: usize) -> String {
+    let ind = indent_str(indent);
+    let mut code = String::new();
+
+    if config.scan.actuator.is_empty() {
+        code.push_str(&format!(
+            "{}// WARNING: AdaptiveScan node has no actuator specified\n",
+            ind
+        ));
+        return code;
+    }
+
+    code.push_str(&format!(
+        "{}// Adaptive scan: {} from {:.1} to {:.1} ({} points)\n",
+        ind, config.scan.actuator, config.scan.start, config.scan.stop, config.scan.points
+    ));
+
+    // Document triggers
+    code.push_str(&format!(
+        "{}// Triggers ({:?} logic):\n",
+        ind, config.trigger_logic
+    ));
+    for (i, trigger) in config.triggers.iter().enumerate() {
+        match trigger {
+            TriggerCondition::Threshold {
+                device_id,
+                operator,
+                value,
+            } => {
+                let op_str = match operator {
+                    ThresholdOp::LessThan => "<",
+                    ThresholdOp::GreaterThan => ">",
+                    ThresholdOp::EqualWithin { tolerance } => &format!("== (+/-{})", tolerance),
+                };
+                code.push_str(&format!(
+                    "{}//   {}: {} {} {}\n",
+                    ind,
+                    i + 1,
+                    device_id,
+                    op_str,
+                    value
+                ));
+            }
+            TriggerCondition::PeakDetection {
+                device_id,
+                min_prominence,
+                min_height,
+            } => {
+                code.push_str(&format!(
+                    "{}//   {}: Peak detection on {} (prominence >= {}{})\n",
+                    ind,
+                    i + 1,
+                    device_id,
+                    min_prominence,
+                    min_height.map_or(String::new(), |h| format!(", height >= {}", h))
+                ));
+            }
+        }
+    }
+
+    // Document action
+    let action_str = match config.action {
+        AdaptiveAction::Zoom2x => "Zoom 2x (narrow range, increase resolution)",
+        AdaptiveAction::Zoom4x => "Zoom 4x (narrow range, increase resolution)",
+        AdaptiveAction::MoveToPeak => "Move to detected peak position",
+        AdaptiveAction::AcquireAtPeak => "Trigger acquisition at peak",
+        AdaptiveAction::MarkAndContinue => "Mark peak location and continue",
+    };
+    code.push_str(&format!("{}// Action: {}\n", ind, action_str));
+    if config.require_approval {
+        code.push_str(&format!(
+            "{}// (requires user approval before action)\n",
+            ind
+        ));
+    }
+
+    code.push_str(&format!(
+        "{}// TODO: AdaptiveScan requires runtime trigger evaluation\n",
+        ind
+    ));
+    code.push_str(&format!("{}// Falling back to regular scan for now\n", ind));
+
+    // Generate basic scan as fallback
+    code.push_str(&format!("{}for i in 0..{} {{\n", ind, config.scan.points));
+
+    let body_ind = indent_str(indent + 1);
+
+    if config.scan.points > 1 {
+        code.push_str(&format!(
+            "{}let pos = {} + ({} - {}) * i / ({} - 1);\n",
+            body_ind, config.scan.start, config.scan.stop, config.scan.start, config.scan.points
+        ));
+    } else {
+        code.push_str(&format!("{}let pos = {};\n", body_ind, config.scan.start));
+    }
+
+    code.push_str(&format!(
+        "{}{}.move_abs(pos);\n",
+        body_ind, config.scan.actuator
+    ));
+    code.push_str(&format!(
+        "{}{}.wait_settled();\n",
+        body_ind, config.scan.actuator
+    ));
+    code.push_str(&format!(
+        "{}yield_event(#{{ \"{}\": pos }});\n",
+        body_ind, config.scan.actuator
+    ));
 
     code.push_str(&format!("{}}}\n", ind));
 

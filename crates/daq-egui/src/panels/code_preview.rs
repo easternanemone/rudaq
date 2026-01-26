@@ -59,7 +59,10 @@ impl CodePreviewPanel {
     /// DEPRECATED: Use ui_inside() for proper integration with tabs/docks.
     /// This method renders at the window level and may be cut off in tabbed layouts.
     #[allow(dead_code)]
-    #[deprecated(since = "0.1.0", note = "Use ui_inside() for proper tab/dock integration")]
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use ui_inside() for proper tab/dock integration"
+    )]
     pub fn ui(&mut self, ctx: &egui::Context) {
         if !self.visible {
             return;

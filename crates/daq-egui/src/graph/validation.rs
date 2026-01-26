@@ -14,7 +14,7 @@ pub enum PinType {
 /// Get the type of an output pin for a node.
 pub fn output_pin_type(node: &ExperimentNode, output_idx: usize) -> PinType {
     match node {
-        ExperimentNode::Loop { .. } => {
+        ExperimentNode::Loop { .. } | ExperimentNode::NestedScan { .. } => {
             if output_idx == 0 {
                 PinType::Flow // "Next" output (continues after loop completes)
             } else {

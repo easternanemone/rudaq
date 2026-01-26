@@ -84,7 +84,7 @@ impl Default for RotatorControlPanel {
 impl RotatorControlPanel {
     /// Auto-refresh interval
     const REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
-    
+
     /// Minimum time between commands to prevent duplicate clicks
     const COMMAND_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(250);
 
@@ -191,7 +191,10 @@ impl RotatorControlPanel {
                 panel_instance_id = self.panel_instance_id,
                 device_id,
                 position,
-                elapsed_ms = self.last_command_time.map(|t| t.elapsed().as_millis() as u64).unwrap_or(0),
+                elapsed_ms = self
+                    .last_command_time
+                    .map(|t| t.elapsed().as_millis() as u64)
+                    .unwrap_or(0),
                 "Move absolute command debounced - too soon after last command"
             );
             return;
@@ -239,7 +242,10 @@ impl RotatorControlPanel {
                 panel_instance_id = self.panel_instance_id,
                 device_id,
                 delta,
-                elapsed_ms = self.last_command_time.map(|t| t.elapsed().as_millis() as u64).unwrap_or(0),
+                elapsed_ms = self
+                    .last_command_time
+                    .map(|t| t.elapsed().as_millis() as u64)
+                    .unwrap_or(0),
                 "Jog command debounced - too soon after last command"
             );
             return;
@@ -280,7 +286,10 @@ impl RotatorControlPanel {
             tracing::debug!(
                 panel_instance_id = self.panel_instance_id,
                 device_id,
-                elapsed_ms = self.last_command_time.map(|t| t.elapsed().as_millis() as u64).unwrap_or(0),
+                elapsed_ms = self
+                    .last_command_time
+                    .map(|t| t.elapsed().as_millis() as u64)
+                    .unwrap_or(0),
                 "Home command debounced - too soon after last command"
             );
             return;
@@ -518,14 +527,8 @@ mod tests {
         );
 
         // No error or status messages initially
-        assert!(
-            panel.error.is_none(),
-            "Error should be None on creation"
-        );
-        assert!(
-            panel.status.is_none(),
-            "Status should be None on creation"
-        );
+        assert!(panel.error.is_none(), "Error should be None on creation");
+        assert!(panel.status.is_none(), "Status should be None on creation");
 
         // Device ID not set until UI is rendered with device info
         assert!(
@@ -560,10 +563,7 @@ mod tests {
             panel.state.position_deg.is_none(),
             "Position should be None on creation"
         );
-        assert!(
-            !panel.state.moving,
-            "Moving should be false on creation"
-        );
+        assert!(!panel.state.moving, "Moving should be false on creation");
     }
 
     /// Test that each new panel gets a unique incrementing instance ID.
@@ -639,9 +639,8 @@ mod tests {
         let mut panel = RotatorControlPanel::default();
 
         // Set last_command_time to a time in the past (well beyond debounce period)
-        panel.last_command_time = Some(
-            std::time::Instant::now() - std::time::Duration::from_millis(500)
-        );
+        panel.last_command_time =
+            Some(std::time::Instant::now() - std::time::Duration::from_millis(500));
 
         // Should allow command since debounce period (250ms) has elapsed
         assert!(
@@ -688,10 +687,7 @@ mod tests {
             state.position_deg.is_none(),
             "Default position should be None"
         );
-        assert!(
-            !state.moving,
-            "Default moving state should be false"
-        );
+        assert!(!state.moving, "Default moving state should be false");
     }
 
     /// Test that actions_in_flight counter can be incremented and decremented.
@@ -719,7 +715,10 @@ mod tests {
 
         // saturating_sub at zero should stay at zero
         panel.actions_in_flight = panel.actions_in_flight.saturating_sub(1);
-        assert_eq!(panel.actions_in_flight, 0, "saturating_sub should not go negative");
+        assert_eq!(
+            panel.actions_in_flight, 0,
+            "saturating_sub should not go negative"
+        );
     }
 
     /// Test that position_input uses 2 decimal places for display formatting.
@@ -729,20 +728,20 @@ mod tests {
     fn test_position_input_uses_two_decimal_places() {
         // The formatting happens in poll_results when FetchState succeeds:
         //   self.position_input = format!("{:.2}", pos);
-        
+
         // Test various position values to verify 2 decimal place formatting
         let test_cases = [
             (0.0, "0.00"),
             (45.0, "45.00"),
-            (90.123, "90.12"),      // Rounds down
-            (90.126, "90.13"),      // Rounds up
-            (180.999, "181.00"),    // Rounds up to next integer
-            (-45.5, "-45.50"),      // Negative value
-            (359.994, "359.99"),    // Near 360
-            (0.001, "0.00"),        // Very small - rounds to 0.00
-            (0.004, "0.00"),        // Just below rounding boundary
-            (12.345, "12.35"),      // Standard rounding case
-            (270.0, "270.00"),      // Full rotation value
+            (90.123, "90.12"),   // Rounds down
+            (90.126, "90.13"),   // Rounds up
+            (180.999, "181.00"), // Rounds up to next integer
+            (-45.5, "-45.50"),   // Negative value
+            (359.994, "359.99"), // Near 360
+            (0.001, "0.00"),     // Very small - rounds to 0.00
+            (0.004, "0.00"),     // Just below rounding boundary
+            (12.345, "12.35"),   // Standard rounding case
+            (270.0, "270.00"),   // Full rotation value
         ];
 
         for (input, expected) in test_cases {
@@ -768,16 +767,25 @@ mod tests {
         // Setting refresh_in_flight should not affect actions_in_flight
         panel.refresh_in_flight = true;
         assert!(panel.refresh_in_flight);
-        assert_eq!(panel.actions_in_flight, 0, "refresh should not affect actions count");
+        assert_eq!(
+            panel.actions_in_flight, 0,
+            "refresh should not affect actions count"
+        );
 
         // Setting actions_in_flight should not affect refresh_in_flight
         panel.actions_in_flight = 1;
-        assert!(panel.refresh_in_flight, "actions should not affect refresh flag");
+        assert!(
+            panel.refresh_in_flight,
+            "actions should not affect refresh flag"
+        );
         assert_eq!(panel.actions_in_flight, 1);
 
         // Clear refresh but keep action
         panel.refresh_in_flight = false;
         assert!(!panel.refresh_in_flight);
-        assert_eq!(panel.actions_in_flight, 1, "clearing refresh should not affect actions");
+        assert_eq!(
+            panel.actions_in_flight, 1,
+            "clearing refresh should not affect actions"
+        );
     }
 }

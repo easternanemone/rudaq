@@ -11,6 +11,7 @@
 #![allow(non_snake_case)]
 #![allow(deref_nullptr)]
 #![allow(clippy::all)]
+#![allow(unsafe_code)] // FFI bindings require unsafe
 
 #[cfg(feature = "pvcam-sdk")]
 pub mod bindings {

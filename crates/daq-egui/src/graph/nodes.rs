@@ -20,6 +20,10 @@ pub enum ExperimentNode {
     Acquire(AcquireConfig),
     /// Loop control node
     Loop(LoopConfig),
+    /// Nested scan with outer/inner loop structure
+    NestedScan(NestedScanConfig),
+    /// Adaptive scan that responds to acquired data
+    AdaptiveScan(AdaptiveScanConfig),
 }
 
 /// Movement mode for Move nodes.
@@ -136,6 +140,140 @@ pub struct LoopConfig {
     pub termination: LoopTermination,
 }
 
+/// Single dimension of a nested scan.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ScanDimension {
+    /// Device ID for the actuator
+    pub actuator: String,
+    /// Dimension name for data labeling (e.g., "wavelength", "position_x")
+    pub dimension_name: String,
+    /// Start position
+    pub start: f64,
+    /// Stop position
+    pub stop: f64,
+    /// Number of points
+    pub points: u32,
+}
+
+impl Default for ScanDimension {
+    fn default() -> Self {
+        Self {
+            actuator: String::new(),
+            dimension_name: String::new(),
+            start: 0.0,
+            stop: 100.0,
+            points: 10,
+        }
+    }
+}
+
+/// Configuration for NestedScan node (outer/inner loop combination).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NestedScanConfig {
+    /// Outer scan configuration
+    pub outer: ScanDimension,
+    /// Inner scan configuration
+    pub inner: ScanDimension,
+    /// Warning threshold for deep nesting (default: 3)
+    pub nesting_warning_depth: u32,
+}
+
+impl Default for NestedScanConfig {
+    fn default() -> Self {
+        Self {
+            outer: ScanDimension {
+                dimension_name: "outer".to_string(),
+                ..Default::default()
+            },
+            inner: ScanDimension {
+                dimension_name: "inner".to_string(),
+                ..Default::default()
+            },
+            nesting_warning_depth: 3,
+        }
+    }
+}
+
+/// Conditions that can trigger adaptive scan actions.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum TriggerCondition {
+    /// Signal crosses a threshold
+    Threshold {
+        device_id: String,
+        operator: ThresholdOp,
+        value: f64,
+    },
+    /// Peak detected in signal
+    PeakDetection {
+        device_id: String,
+        min_prominence: f64,
+        min_height: Option<f64>,
+    },
+}
+
+impl Default for TriggerCondition {
+    fn default() -> Self {
+        Self::Threshold {
+            device_id: String::new(),
+            operator: ThresholdOp::GreaterThan,
+            value: 1000.0,
+        }
+    }
+}
+
+/// Actions to take when trigger fires.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+pub enum AdaptiveAction {
+    /// Narrow range and increase resolution (2x)
+    #[default]
+    Zoom2x,
+    /// Narrow range and increase resolution (4x)
+    Zoom4x,
+    /// Move actuator to detected peak position
+    MoveToPeak,
+    /// Trigger acquisition at peak position
+    AcquireAtPeak,
+    /// Record peak location but continue scan unchanged
+    MarkAndContinue,
+}
+
+/// Logic for combining multiple trigger conditions.
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
+pub enum TriggerLogic {
+    /// Fire if any trigger matches
+    #[default]
+    Any,
+    /// Fire only if all triggers match
+    All,
+}
+
+/// Configuration for AdaptiveScan node.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AdaptiveScanConfig {
+    /// Base scan configuration
+    pub scan: ScanDimension,
+    /// Trigger conditions
+    pub triggers: Vec<TriggerCondition>,
+    /// How to combine multiple triggers
+    pub trigger_logic: TriggerLogic,
+    /// Action to take when triggered
+    pub action: AdaptiveAction,
+    /// Pause for user approval before action (default: false)
+    pub require_approval: bool,
+}
+
+impl Default for AdaptiveScanConfig {
+    fn default() -> Self {
+        Self {
+            scan: ScanDimension::default(),
+            triggers: vec![TriggerCondition::default()],
+            trigger_logic: TriggerLogic::Any,
+            action: AdaptiveAction::Zoom2x,
+            require_approval: false,
+        }
+    }
+}
+
 impl ExperimentNode {
     /// Get human-readable name for this node type.
     pub fn node_name(&self) -> &'static str {
@@ -145,6 +283,8 @@ impl ExperimentNode {
             ExperimentNode::Move(..) => "Move",
             ExperimentNode::Wait { .. } => "Wait",
             ExperimentNode::Loop(..) => "Loop",
+            ExperimentNode::NestedScan(..) => "Nested Scan",
+            ExperimentNode::AdaptiveScan(..) => "Adaptive Scan",
         }
     }
 
@@ -178,5 +318,15 @@ impl ExperimentNode {
     /// Create a default Loop node with sensible defaults.
     pub fn default_loop() -> Self {
         ExperimentNode::Loop(LoopConfig::default())
+    }
+
+    /// Create a default NestedScan node with sensible defaults.
+    pub fn default_nested_scan() -> Self {
+        ExperimentNode::NestedScan(NestedScanConfig::default())
+    }
+
+    /// Create a default AdaptiveScan node with sensible defaults.
+    pub fn default_adaptive_scan() -> Self {
+        ExperimentNode::AdaptiveScan(AdaptiveScanConfig::default())
     }
 }

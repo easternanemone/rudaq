@@ -1623,15 +1623,20 @@ impl eframe::App for DaqApp {
                     // Priority: laser (emission/shutter) > analog output (comedi_analog_output) > power meter (readable) > rotator/stage (movable)
                     // Note: Power meters may have is_wavelength_tunable for calibration, but lack emission/shutter control
                     let driver_lower = device_info.driver_type.to_lowercase();
-                    
+
                     if device_info.is_emission_controllable || device_info.is_shutter_controllable {
                         // Laser with control capabilities (emission or shutter)
                         tracing::info!(panel_id, "OpenDeviceControl: routing to MaiTai panel");
                         self.docked_maitai_panels
                             .insert(panel_id, MaiTaiControlPanel::default());
-                    } else if driver_lower.contains("comedi_analog_output") || driver_lower.contains("analog_output") {
+                    } else if driver_lower.contains("comedi_analog_output")
+                        || driver_lower.contains("analog_output")
+                    {
                         // Analog output device (EOM, DAC) - route to voltage control panel
-                        tracing::info!(panel_id, "OpenDeviceControl: routing to AnalogOutput panel");
+                        tracing::info!(
+                            panel_id,
+                            "OpenDeviceControl: routing to AnalogOutput panel"
+                        );
                         self.docked_analog_output_panels
                             .insert(panel_id, AnalogOutputControlPanel::default());
                     } else if device_info.is_readable && !device_info.is_movable {
@@ -1656,7 +1661,10 @@ impl eframe::App for DaqApp {
                         }
                     } else {
                         // Fallback to stage panel for unknown devices
-                        tracing::info!(panel_id, "OpenDeviceControl: routing to Stage panel (fallback)");
+                        tracing::info!(
+                            panel_id,
+                            "OpenDeviceControl: routing to Stage panel (fallback)"
+                        );
                         self.docked_stage_panels
                             .insert(panel_id, StageControlPanel::default());
                     }

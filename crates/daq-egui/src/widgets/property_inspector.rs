@@ -53,6 +53,12 @@ impl PropertyInspector {
                 ExperimentNode::Loop(config) => {
                     changed |= Self::show_loop_inspector(ui, config, device_ids);
                 }
+                ExperimentNode::NestedScan(config) => {
+                    changed |= Self::show_nested_scan_inspector(ui, config, device_ids);
+                }
+                ExperimentNode::AdaptiveScan(config) => {
+                    changed |= Self::show_adaptive_scan_inspector(ui, config, device_ids);
+                }
             }
         });
 
@@ -540,6 +546,329 @@ impl PropertyInspector {
                 ui.label("(safety limit)");
             }
         }
+
+        changed
+    }
+
+    /// Show NestedScan node inspector.
+    fn show_nested_scan_inspector(
+        ui: &mut Ui,
+        config: &mut crate::graph::nodes::NestedScanConfig,
+        device_ids: &[String],
+    ) -> bool {
+        let mut changed = false;
+
+        // Total points calculation
+        let total_points = config.outer.points as u64 * config.inner.points as u64;
+        ui.label(format!(
+            "Total points: {} x {} = {}",
+            config.outer.points, config.inner.points, total_points
+        ));
+        ui.separator();
+
+        // Outer scan section
+        ui.collapsing("Outer Scan", |ui| {
+            changed |= Self::show_scan_dimension(ui, "outer", &mut config.outer, device_ids);
+        });
+
+        // Inner scan section
+        ui.collapsing("Inner Scan", |ui| {
+            changed |= Self::show_scan_dimension(ui, "inner", &mut config.inner, device_ids);
+        });
+
+        // Nesting depth warning
+        if config.nesting_warning_depth > 3 {
+            ui.colored_label(
+                egui::Color32::YELLOW,
+                "Warning: Deep nesting may slow translation",
+            );
+        }
+
+        changed
+    }
+
+    /// Show a single scan dimension (used for NestedScan outer/inner).
+    fn show_scan_dimension(
+        ui: &mut Ui,
+        id_prefix: &str,
+        dim: &mut crate::graph::nodes::ScanDimension,
+        device_ids: &[String],
+    ) -> bool {
+        let mut changed = false;
+
+        // Dimension name
+        ui.horizontal(|ui| {
+            ui.label("Name:");
+            changed |= ui.text_edit_singleline(&mut dim.dimension_name).changed();
+        });
+
+        // Actuator selection
+        ui.horizontal(|ui| {
+            ui.label("Actuator:");
+            if device_ids.is_empty() {
+                changed |= ui.text_edit_singleline(&mut dim.actuator).changed();
+            } else {
+                let mut selector = DeviceSelector::new(device_ids);
+                selector.set_selected(&dim.actuator);
+                if selector.show(ui, "Select actuator...") {
+                    dim.actuator = selector.selected().to_string();
+                    changed = true;
+                }
+            }
+        });
+
+        // Range fields
+        ui.horizontal(|ui| {
+            ui.label("Start:");
+            ui.push_id(format!("{}_start", id_prefix), |ui| {
+                changed |= ui
+                    .add(egui::DragValue::new(&mut dim.start).speed(0.1))
+                    .changed();
+            });
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("Stop:");
+            ui.push_id(format!("{}_stop", id_prefix), |ui| {
+                changed |= ui
+                    .add(egui::DragValue::new(&mut dim.stop).speed(0.1))
+                    .changed();
+            });
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("Points:");
+            ui.push_id(format!("{}_points", id_prefix), |ui| {
+                let mut v = dim.points as i32;
+                let resp = ui.add(egui::DragValue::new(&mut v).speed(1).range(1..=10000));
+                if resp.changed() {
+                    dim.points = v.max(1) as u32;
+                    changed = true;
+                }
+            });
+        });
+
+        changed
+    }
+
+    /// Show AdaptiveScan node inspector.
+    fn show_adaptive_scan_inspector(
+        ui: &mut Ui,
+        config: &mut crate::graph::nodes::AdaptiveScanConfig,
+        device_ids: &[String],
+    ) -> bool {
+        use crate::graph::nodes::{AdaptiveAction, TriggerCondition, TriggerLogic};
+        let mut changed = false;
+
+        // Base scan section
+        ui.collapsing("Base Scan", |ui| {
+            changed |= Self::show_scan_dimension(ui, "adaptive", &mut config.scan, device_ids);
+        });
+
+        ui.separator();
+
+        // Action selector
+        ui.horizontal(|ui| {
+            ui.label("Action:");
+            egui::ComboBox::from_id_salt("adaptive_action")
+                .selected_text(match config.action {
+                    AdaptiveAction::Zoom2x => "Zoom 2x",
+                    AdaptiveAction::Zoom4x => "Zoom 4x",
+                    AdaptiveAction::MoveToPeak => "Move to Peak",
+                    AdaptiveAction::AcquireAtPeak => "Acquire at Peak",
+                    AdaptiveAction::MarkAndContinue => "Mark and Continue",
+                })
+                .show_ui(ui, |ui| {
+                    let before = config.action.clone();
+                    ui.selectable_value(&mut config.action, AdaptiveAction::Zoom2x, "Zoom 2x");
+                    ui.selectable_value(&mut config.action, AdaptiveAction::Zoom4x, "Zoom 4x");
+                    ui.selectable_value(
+                        &mut config.action,
+                        AdaptiveAction::MoveToPeak,
+                        "Move to Peak",
+                    );
+                    ui.selectable_value(
+                        &mut config.action,
+                        AdaptiveAction::AcquireAtPeak,
+                        "Acquire at Peak",
+                    );
+                    ui.selectable_value(
+                        &mut config.action,
+                        AdaptiveAction::MarkAndContinue,
+                        "Mark and Continue",
+                    );
+                    if config.action != before {
+                        changed = true;
+                    }
+                });
+        });
+
+        // Trigger logic selector
+        ui.horizontal(|ui| {
+            ui.label("Trigger Logic:");
+            egui::ComboBox::from_id_salt("trigger_logic")
+                .selected_text(match config.trigger_logic {
+                    TriggerLogic::Any => "Any trigger",
+                    TriggerLogic::All => "All triggers",
+                })
+                .show_ui(ui, |ui| {
+                    let before = config.trigger_logic.clone();
+                    ui.selectable_value(
+                        &mut config.trigger_logic,
+                        TriggerLogic::Any,
+                        "Any trigger",
+                    );
+                    ui.selectable_value(
+                        &mut config.trigger_logic,
+                        TriggerLogic::All,
+                        "All triggers",
+                    );
+                    if config.trigger_logic != before {
+                        changed = true;
+                    }
+                });
+        });
+
+        // Require approval checkbox
+        changed |= ui
+            .checkbox(&mut config.require_approval, "Require user approval")
+            .changed();
+
+        ui.separator();
+
+        // Triggers section
+        ui.label("Triggers:");
+        let mut trigger_to_remove = None;
+        for (i, trigger) in config.triggers.iter_mut().enumerate() {
+            ui.horizontal(|ui| {
+                ui.push_id(format!("trigger_{}", i), |ui| {
+                    match trigger {
+                        TriggerCondition::Threshold {
+                            device_id,
+                            operator,
+                            value,
+                        } => {
+                            ui.label("Threshold:");
+                            if device_ids.is_empty() {
+                                changed |= ui.text_edit_singleline(device_id).changed();
+                            } else {
+                                let mut selector = DeviceSelector::new(device_ids);
+                                selector.set_selected(device_id);
+                                if selector.show(ui, "Device...") {
+                                    *device_id = selector.selected().to_string();
+                                    changed = true;
+                                }
+                            }
+
+                            // Operator selector
+                            egui::ComboBox::from_id_salt("trigger_op")
+                                .selected_text(match operator {
+                                    crate::graph::nodes::ThresholdOp::LessThan => "<",
+                                    crate::graph::nodes::ThresholdOp::GreaterThan => ">",
+                                    crate::graph::nodes::ThresholdOp::EqualWithin { .. } => "~=",
+                                })
+                                .width(40.0)
+                                .show_ui(ui, |ui| {
+                                    let before = operator.clone();
+                                    if ui
+                                        .selectable_label(
+                                            matches!(
+                                                operator,
+                                                crate::graph::nodes::ThresholdOp::LessThan
+                                            ),
+                                            "<",
+                                        )
+                                        .clicked()
+                                    {
+                                        *operator = crate::graph::nodes::ThresholdOp::LessThan;
+                                    }
+                                    if ui
+                                        .selectable_label(
+                                            matches!(
+                                                operator,
+                                                crate::graph::nodes::ThresholdOp::GreaterThan
+                                            ),
+                                            ">",
+                                        )
+                                        .clicked()
+                                    {
+                                        *operator = crate::graph::nodes::ThresholdOp::GreaterThan;
+                                    }
+                                    if ui
+                                        .selectable_label(
+                                            matches!(
+                                                operator,
+                                                crate::graph::nodes::ThresholdOp::EqualWithin { .. }
+                                            ),
+                                            "~=",
+                                        )
+                                        .clicked()
+                                    {
+                                        *operator = crate::graph::nodes::ThresholdOp::EqualWithin {
+                                            tolerance: 0.01,
+                                        };
+                                    }
+                                    if *operator != before {
+                                        changed = true;
+                                    }
+                                });
+
+                            changed |= ui.add(egui::DragValue::new(value).speed(0.1)).changed();
+                        }
+                        TriggerCondition::PeakDetection {
+                            device_id,
+                            min_prominence,
+                            min_height,
+                        } => {
+                            ui.label("Peak:");
+                            if device_ids.is_empty() {
+                                changed |= ui.text_edit_singleline(device_id).changed();
+                            } else {
+                                let mut selector = DeviceSelector::new(device_ids);
+                                selector.set_selected(device_id);
+                                if selector.show(ui, "Device...") {
+                                    *device_id = selector.selected().to_string();
+                                    changed = true;
+                                }
+                            }
+                            ui.label("prom:");
+                            changed |= ui
+                                .add(egui::DragValue::new(min_prominence).speed(0.1))
+                                .changed();
+                            if let Some(h) = min_height {
+                                ui.label("h:");
+                                changed |= ui.add(egui::DragValue::new(h).speed(0.1)).changed();
+                            }
+                        }
+                    }
+
+                    if ui.button("X").clicked() {
+                        trigger_to_remove = Some(i);
+                    }
+                });
+            });
+        }
+
+        if let Some(i) = trigger_to_remove {
+            config.triggers.remove(i);
+            changed = true;
+        }
+
+        // Add trigger buttons
+        ui.horizontal(|ui| {
+            if ui.button("+ Threshold").clicked() {
+                config.triggers.push(TriggerCondition::default());
+                changed = true;
+            }
+            if ui.button("+ Peak").clicked() {
+                config.triggers.push(TriggerCondition::PeakDetection {
+                    device_id: String::new(),
+                    min_prominence: 100.0,
+                    min_height: None,
+                });
+                changed = true;
+            }
+        });
 
         changed
     }

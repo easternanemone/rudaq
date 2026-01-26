@@ -1,5 +1,6 @@
 //! Zero-allocation object pool for high-performance frame handling.
 //!
+#![allow(unsafe_code)] // Pool uses unsafe for lock-free slot access - intentional and documented
 //! This crate provides two complementary pool implementations optimized for the
 //! PVCAM frame processing pipeline where per-frame heap allocations are prohibitively
 //! expensive:

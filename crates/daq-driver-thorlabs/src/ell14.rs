@@ -1111,7 +1111,7 @@ impl Movable for Ell14Driver {
         let pulses = (distance_deg * self.pulses_per_degree).round() as i32;
         let hex_pulses = format!("{:08X}", pulses as u32);
         let cmd = format!("mr{}", hex_pulses);
-        
+
         tracing::debug!(
             address = %self.address,
             distance_deg,
@@ -1121,7 +1121,7 @@ impl Movable for Ell14Driver {
             full_cmd = %format!("{}mr{}", self.address, hex_pulses),
             "ELL14 move_rel: sending relative move command"
         );
-        
+
         // IMPORTANT: Do NOT retry move commands! The device executes moves even if it
         // doesn't respond in time (it's busy moving). Retrying causes double movement.
         // Use transaction_once and treat timeout as success (command was sent).
@@ -1348,16 +1348,16 @@ mod tests {
         // Verify pulse calculation for move_rel commands
         // ELL14 uses pulses_per_degree to convert degrees to motor pulses
         let ppd = Ell14Driver::DEFAULT_PULSES_PER_DEGREE; // ~398.22
-        
+
         // 90 degrees should be ~35840 pulses
         let distance_deg = 90.0;
         let pulses = (distance_deg * ppd).round() as i32;
         assert_eq!(pulses, 35840);
-        
+
         // Hex format for ELL14 protocol: 8 uppercase hex digits
         let hex_pulses = format!("{:08X}", pulses as u32);
         assert_eq!(hex_pulses, "00008C00");
-        
+
         // Full command format: mr{8 hex digits}
         let cmd = format!("mr{}", hex_pulses);
         assert_eq!(cmd, "mr00008C00");
@@ -1367,12 +1367,12 @@ mod tests {
     fn test_move_rel_negative_pulse_calculation() {
         // Verify negative (CCW) movement pulse calculation
         let ppd = Ell14Driver::DEFAULT_PULSES_PER_DEGREE;
-        
+
         // -90 degrees should be negative pulses, but formatted as u32 (two's complement)
         let distance_deg = -90.0;
         let pulses = (distance_deg * ppd).round() as i32;
         assert_eq!(pulses, -35840);
-        
+
         // When cast to u32, negative becomes two's complement
         let hex_pulses = format!("{:08X}", pulses as u32);
         assert_eq!(hex_pulses, "FFFF7400");
@@ -1382,13 +1382,13 @@ mod tests {
     fn test_move_command_format() {
         // Document the expected command format for relative moves
         // This ensures the protocol is correctly implemented
-        
+
         // Small positive movement (1 degree)
         let ppd = Ell14Driver::DEFAULT_PULSES_PER_DEGREE;
         let pulses = (1.0 * ppd).round() as i32;
         let hex = format!("{:08X}", pulses as u32);
         assert_eq!(hex, "0000018E"); // ~398 pulses
-        
+
         // Medium movement (10 degrees)
         let pulses = (10.0 * ppd).round() as i32;
         let hex = format!("{:08X}", pulses as u32);
@@ -1396,7 +1396,7 @@ mod tests {
     }
 
     /// This test documents the critical no-retry behavior for motion commands.
-    /// 
+    ///
     /// Motion commands MUST use transaction_once() (no retry) because:
     /// 1. The ELL14 executes move commands immediately upon receipt
     /// 2. The device doesn't respond while it's busy moving
@@ -1415,7 +1415,7 @@ mod tests {
         // of transaction_once(), STOP! You will cause double-movement bugs.
         //
         // See commit b5fa5e9 for the fix that resolved this issue.
-        
+
         // Verify the timeout error message format that we check for
         let timeout_msg = "ELL14 transaction timeout: no response received for command 'test'";
         assert!(timeout_msg.contains("timeout"));

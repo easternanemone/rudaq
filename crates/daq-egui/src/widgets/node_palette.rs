@@ -12,6 +12,8 @@ pub enum NodeType {
     Move,
     Wait,
     Loop,
+    NestedScan,
+    AdaptiveScan,
 }
 
 impl NodeType {
@@ -23,6 +25,8 @@ impl NodeType {
             Self::Move,
             Self::Wait,
             Self::Loop,
+            Self::NestedScan,
+            Self::AdaptiveScan,
         ]
     }
 
@@ -34,6 +38,8 @@ impl NodeType {
             Self::Move => "Move",
             Self::Wait => "Wait",
             Self::Loop => "Loop",
+            Self::NestedScan => "Nested Scan",
+            Self::AdaptiveScan => "Adaptive Scan",
         }
     }
 
@@ -45,6 +51,8 @@ impl NodeType {
             Self::Move => "Move actuator to a position",
             Self::Wait => "Pause for a duration",
             Self::Loop => "Repeat a sequence N times",
+            Self::NestedScan => "Outer/inner loop combination",
+            Self::AdaptiveScan => "Scan that responds to data",
         }
     }
 
@@ -56,6 +64,8 @@ impl NodeType {
             Self::Move => Color32::from_rgb(255, 182, 108), // Light orange
             Self::Wait => Color32::from_rgb(192, 192, 192), // Silver
             Self::Loop => Color32::from_rgb(221, 160, 221), // Plum
+            Self::NestedScan => Color32::from_rgb(138, 43, 226), // Purple/violet (distinct from Scan)
+            Self::AdaptiveScan => Color32::from_rgb(255, 140, 0), // Dark orange (distinct from Move)
         }
     }
 
@@ -67,6 +77,8 @@ impl NodeType {
             Self::Move => ExperimentNode::default_move(),
             Self::Wait => ExperimentNode::default_wait(),
             Self::Loop => ExperimentNode::default_loop(),
+            Self::NestedScan => ExperimentNode::default_nested_scan(),
+            Self::AdaptiveScan => ExperimentNode::default_adaptive_scan(),
         }
     }
 }

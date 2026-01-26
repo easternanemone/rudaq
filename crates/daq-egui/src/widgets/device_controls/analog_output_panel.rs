@@ -183,7 +183,10 @@ impl DeviceControlWidget for AnalogOutputControlPanel {
             );
             ui.label("V");
 
-            if ui.add_enabled(!is_busy, egui::Button::new("Apply")).clicked() {
+            if ui
+                .add_enabled(!is_busy, egui::Button::new("Apply"))
+                .clicked()
+            {
                 if let Ok(v) = self.voltage_input.parse::<f64>() {
                     let v = v.clamp(self.min_voltage, self.max_voltage);
                     self.write_voltage(client, runtime, &device_id, v);
@@ -212,14 +215,20 @@ impl DeviceControlWidget for AnalogOutputControlPanel {
             }
 
             if ui
-                .add_enabled(!is_busy, egui::Button::new(format!("{:.0} V", self.min_voltage)))
+                .add_enabled(
+                    !is_busy,
+                    egui::Button::new(format!("{:.0} V", self.min_voltage)),
+                )
                 .clicked()
             {
                 self.write_voltage(client, runtime, &device_id, self.min_voltage);
             }
 
             if ui
-                .add_enabled(!is_busy, egui::Button::new(format!("{:.0} V", self.max_voltage)))
+                .add_enabled(
+                    !is_busy,
+                    egui::Button::new(format!("{:.0} V", self.max_voltage)),
+                )
                 .clicked()
             {
                 self.write_voltage(client, runtime, &device_id, self.max_voltage);
@@ -264,14 +273,8 @@ mod tests {
         );
 
         // No error or status messages initially
-        assert!(
-            panel.error.is_none(),
-            "Error should be None on creation"
-        );
-        assert!(
-            panel.status.is_none(),
-            "Status should be None on creation"
-        );
+        assert!(panel.error.is_none(), "Error should be None on creation");
+        assert!(panel.status.is_none(), "Status should be None on creation");
 
         // Device ID not set until UI is rendered with device info
         assert!(
@@ -355,11 +358,11 @@ mod tests {
             (0.0, "0.000"),
             (1.0, "1.000"),
             (-5.5, "-5.500"),
-            (3.14159, "3.142"),  // Should round
+            (3.14159, "3.142"), // Should round
             (10.0, "10.000"),
             (-10.0, "-10.000"),
             (0.001, "0.001"),
-            (0.0001, "0.000"),   // Below precision, rounds to 0.000
+            (0.0001, "0.000"), // Below precision, rounds to 0.000
         ];
 
         for (voltage, expected) in test_cases {

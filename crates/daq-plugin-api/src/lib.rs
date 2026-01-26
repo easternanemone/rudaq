@@ -1,5 +1,7 @@
 //! FFI-stable plugin API for rust-daq modules.
 //!
+#![allow(unsafe_code)] // Plugin API uses unsafe for FFI - intentional
+#![allow(clippy::cast_ptr_alignment)] // FFI pointer casts are checked at runtime
 //! This crate provides the ABI-stable interface for native plugins using `abi_stable`.
 //! Plugins implement the `ModuleFfi` trait and export a root module via `get_root_module()`.
 //!

@@ -419,8 +419,12 @@ impl<'a> ZarrArrayBuilder<'a> {
     /// - Store write fails
     pub async fn build(self) -> Result<()> {
         let name = self.name.ok_or_else(|| anyhow!("Array name is required"))?;
-        let shape = self.shape.ok_or_else(|| anyhow!("Array shape is required"))?;
-        let chunks = self.chunks.ok_or_else(|| anyhow!("Chunk sizes are required"))?;
+        let shape = self
+            .shape
+            .ok_or_else(|| anyhow!("Array shape is required"))?;
+        let chunks = self
+            .chunks
+            .ok_or_else(|| anyhow!("Chunk sizes are required"))?;
         let data_type = self
             .data_type
             .ok_or_else(|| anyhow!("Data type is required"))?;
@@ -451,8 +455,9 @@ impl<'a> ZarrArrayBuilder<'a> {
         }
 
         // Prepare dimension names for zarrs (Option<Vec<Option<String>>>)
-        let dimension_names: Option<Vec<Option<String>>> =
-            self.dimensions.map(|dims| dims.into_iter().map(Some).collect());
+        let dimension_names: Option<Vec<Option<String>>> = self
+            .dimensions
+            .map(|dims| dims.into_iter().map(Some).collect());
 
         let store = self.writer.store.clone();
         let array_path = format!("/{}", name);
