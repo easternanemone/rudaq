@@ -1,0 +1,31 @@
+[package]
+name = "daq-driver-generic"
+version = "0.1.0"
+edition = "2021"
+description = "Generic config-driven serial driver for rust-daq"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/TheFermiSea/rust-daq"
+
+[dependencies]
+# Core dependencies (DriverFactory trait, capabilities)
+daq-core = { path = "../daq-core", features = ["serial"] }
+
+# Hardware crate with GenericSerialDriver implementation
+daq-hardware = { path = "../daq-hardware", features = ["serial"] }
+
+# Re-export async-trait for users implementing custom drivers
+async-trait = "0.1"
+
+# Error handling
+anyhow = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[features]
+default = []
+# Enable Rhai scripting support for config-driven drivers
+scripting = ["daq-hardware/scripting"]
+
+[lints]
+workspace = true

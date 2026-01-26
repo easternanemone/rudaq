@@ -29,6 +29,7 @@ pub mod loader;
 pub mod metadata;
 pub mod module_ffi;
 pub mod plugin;
+pub mod config;
 
 pub use loader::*;
 pub use metadata::*;

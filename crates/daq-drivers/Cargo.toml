@@ -29,6 +29,9 @@ daq-driver-thorlabs = { path = "../daq-driver-thorlabs", optional = true }
 # Newport ESP300 motion controller and 1830-C power meter
 daq-driver-newport = { path = "../daq-driver-newport", optional = true }
 
+# Generic config-driven serial driver
+daq-driver-generic = { path = "../daq-driver-generic", optional = true }
+
 # Spectra-Physics MaiTai Ti:Sapphire laser
 daq-driver-spectra-physics = { path = "../daq-driver-spectra-physics", optional = true }
 
@@ -44,6 +47,9 @@ comedi_hardware = ["comedi", "daq-driver-comedi/hardware"]
 # Mock drivers for testing/simulation
 mock = ["dep:daq-driver-mock"]
 
+# Generic config-driven serial driver
+generic = ["dep:daq-driver-generic"]
+
 # Thorlabs ELL14 rotation mount
 thorlabs = ["dep:daq-driver-thorlabs"]
 
@@ -56,7 +62,7 @@ spectra_physics = ["dep:daq-driver-spectra-physics"]
 # Convenience feature sets
 #
 # all: All drivers with mock implementations (for development/testing)
-all = ["thorlabs", "newport", "spectra_physics", "pvcam", "comedi", "mock"]
+all = ["thorlabs", "newport", "spectra_physics", "pvcam", "comedi", "mock", "generic"]
 
 # maitai: Hardware configuration for the maitai lab system
 maitai = ["thorlabs", "newport", "spectra_physics", "pvcam_sdk"]

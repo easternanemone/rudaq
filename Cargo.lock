@@ -2689,6 +2689,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "daq-driver-generic"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "daq-core",
+ "daq-hardware",
+ "tokio",
+]
+
+[[package]]
 name = "daq-driver-mock"
 version = "0.1.0"
 dependencies = [
@@ -2797,6 +2808,7 @@ version = "0.1.0"
 dependencies = [
  "daq-core",
  "daq-driver-comedi",
+ "daq-driver-generic",
  "daq-driver-mock",
  "daq-driver-newport",
  "daq-driver-pvcam",
@@ -2908,6 +2920,7 @@ name = "daq-plugin-api"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
+ "regex",
  "serde",
  "serde_json",
  "tracing",
