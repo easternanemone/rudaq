@@ -717,6 +717,36 @@ units = "V"
 2. Set ACH0 switch on BNC-2110 to FS (Floating Source)
 3. Use `input_mode = "rse"` in config
 
+**Test Commands:**
+```bash
+# Build with hardware feature
+cargo build -p daq-driver-comedi --features hardware
+
+# Run smoke tests (requires COMEDI_SMOKE_TEST=1)
+export COMEDI_SMOKE_TEST=1
+cargo nextest run --profile hardware --features hardware -p daq-driver-comedi -- hardware_smoke
+
+# Run all Comedi tests (set env vars for specific test suites)
+export COMEDI_LOOPBACK_TEST=1    # Analog loopback (requires AO0→ACH1 connection)
+export COMEDI_DIO_TEST=1          # Digital I/O tests
+export COMEDI_COUNTER_TEST=1      # Counter/timer tests
+export COMEDI_HAL_TEST=1          # HAL trait compliance
+export COMEDI_ERROR_TEST=1        # Error handling
+export COMEDI_STORAGE_TEST=1      # Storage integration
+cargo nextest run --profile hardware --features hardware -p daq-driver-comedi
+
+# Run benchmarks
+cargo bench -p daq-driver-comedi --features hardware
+
+# Run examples
+cargo run -p daq-driver-comedi --features hardware --example single_read
+cargo run -p daq-driver-comedi --features hardware --example streaming
+cargo run -p daq-driver-comedi --features hardware --example digital_io
+cargo run -p daq-driver-comedi --features hardware --example counter
+```
+
+**Documentation:** See `docs/guides/comedi-setup.md` for full setup instructions.
+
 ## Declarative Driver Plugins
 
 Add serial instruments without Rust code using TOML configs in `config/devices/`:
