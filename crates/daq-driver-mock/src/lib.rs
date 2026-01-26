@@ -30,10 +30,14 @@
 //! registry.register_factory(Box::new(MockPowerMeterFactory));
 //! ```
 
+pub mod common;
 mod mock_camera;
 mod mock_power_meter;
 mod mock_stage;
 mod pattern;
+
+// Re-export common types
+pub use common::{ErrorConfig, ErrorScenario, MockMode, MockRng, TimingConfig};
 
 // Re-export driver types
 pub use mock_camera::{MockCamera, MockCameraFactory};
