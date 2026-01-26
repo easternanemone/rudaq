@@ -82,11 +82,12 @@ use crate::grpc::{
 use anyhow::Error as AnyError;
 use daq_core::capabilities::FrameObserver;
 use daq_core::data::FrameView;
+use daq_core::driver::Capability;
 use daq_core::error::DaqError;
 use daq_core::limits::{FPS_WINDOW, MAX_STREAMS_PER_CLIENT, RPC_TIMEOUT};
 use daq_core::observable::Observable;
 use daq_core::parameter::Parameter;
-use daq_hardware::registry::{Capability, DeviceRegistry};
+use daq_hardware::registry::DeviceRegistry;
 use daq_proto::downsample::{downsample_2x2, downsample_4x4};
 use serde_json;
 use std::collections::hash_map::Entry;

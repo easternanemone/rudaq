@@ -149,9 +149,9 @@ fn verify_device_id_export() {
 
 #[test]
 fn verify_capability_enum_export() {
-    // Verify Capability enum is exported
+    // Verify Capability enum is exported from daq-core
     fn _check_type_exists<T>() {}
-    _check_type_exists::<rust_daq::hardware::registry::Capability>();
+    _check_type_exists::<daq_core::driver::Capability>();
 }
 
 // =============================================================================
