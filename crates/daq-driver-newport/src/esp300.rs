@@ -32,14 +32,12 @@ use daq_core::driver::{Capability, DeviceComponents, DriverFactory};
 use daq_core::error::DaqError;
 use daq_core::observable::ParameterSet;
 use daq_core::parameter::Parameter;
+use daq_core::serial::{open_serial_async, wrap_shared, SharedPort};
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::Mutex;
-use tokio::task::spawn_blocking;
-use tokio_serial::SerialPortBuilderExt;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tracing::instrument;
 
 // =============================================================================
@@ -107,11 +105,6 @@ impl DriverFactory for Esp300Factory {
 // Esp300Driver
 // =============================================================================
 
-pub trait SerialPortIO: AsyncRead + AsyncWrite + Unpin + Send {}
-impl<T: AsyncRead + AsyncWrite + Unpin + Send> SerialPortIO for T {}
-type DynSerial = Box<dyn SerialPortIO>;
-type SharedPort = Arc<Mutex<BufReader<DynSerial>>>;
-
 /// Driver for Newport ESP300 Universal Motion Controller
 ///
 /// Supports up to 3 axes. Each axis is controlled independently via
@@ -170,29 +163,11 @@ impl Esp300Driver {
             return Err(anyhow!("ESP300 axis must be 1-3, got {}", axis));
         }
 
-        let port_path_owned = port_path.to_string();
+        // Use shared serial port opening utility
+        let port = open_serial_async(port_path, 19200, "ESP300").await?;
+        let shared = wrap_shared(Box::new(port));
 
-        // Use spawn_blocking to avoid blocking the async runtime
-        let port = spawn_blocking(move || {
-            tokio_serial::new(&port_path_owned, 19200)
-                .data_bits(tokio_serial::DataBits::Eight)
-                .parity(tokio_serial::Parity::None)
-                .stop_bits(tokio_serial::StopBits::One)
-                .flow_control(tokio_serial::FlowControl::None)
-                .open_native_async()
-                .context(format!(
-                    "Failed to open ESP300 serial port: {}",
-                    port_path_owned
-                ))
-        })
-        .await
-        .context("spawn_blocking for ESP300 port opening failed")??;
-
-        let driver = Self::build(
-            Arc::new(Mutex::new(BufReader::new(Box::new(port)))),
-            axis,
-            timeout,
-        );
+        let driver = Self::build(shared, axis, timeout);
 
         // Validate device identity by querying version
         match driver.query("VE").await {

@@ -1,7 +1,7 @@
 //! Serial Port Abstractions for Driver Crates
 //!
-//! This module provides shared types for async serial communication that can be used
-//! by driver crates without duplicating definitions.
+//! This module provides shared types and utilities for async serial communication
+//! that can be used by driver crates without duplicating definitions.
 //!
 //! # Feature Flag
 //!
@@ -19,29 +19,28 @@
 //! - [`SharedPort`]: Thread-safe shared serial port with buffered reading
 //! - [`SharedPortUnbuffered`]: Thread-safe shared serial port without buffering
 //!
+//! # Utilities
+//!
+//! - [`open_serial_async`]: Open a serial port with spawn_blocking
+//! - [`drain_serial_buffer`]: Drain stale data from a serial port
+//!
 //! # Example
 //!
 //! ```rust,ignore
-//! use daq_core::serial::{SerialPortIO, SharedPort};
-//! use std::sync::Arc;
-//! use tokio::sync::Mutex;
-//! use tokio::io::BufReader;
+//! use daq_core::serial::{open_serial_async, drain_serial_buffer, SharedPort};
 //!
-//! // Open a serial port and wrap it for sharing
-//! let port = tokio_serial::new("/dev/ttyUSB0", 9600)
-//!     .open_native_async()?;
-//! let shared: SharedPort = Arc::new(Mutex::new(BufReader::new(Box::new(port))));
+//! // Open a serial port
+//! let port = open_serial_async("/dev/ttyUSB0", 9600, "My Device").await?;
+//! let shared = wrap_shared(Box::new(port));
 //!
-//! // Use in multiple tasks
-//! let port_clone = shared.clone();
-//! tokio::spawn(async move {
-//!     let mut guard = port_clone.lock().await;
-//!     // Read and write operations
-//! });
+//! // Drain any stale data before communication
+//! let mut guard = shared.lock().await;
+//! let discarded = drain_serial_buffer(guard.get_mut(), 50).await;
 //! ```
 
 use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncWrite, BufReader};
+use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader};
 use tokio::sync::Mutex;
 
 // =============================================================================
@@ -163,6 +162,131 @@ pub fn wrap_shared_unbuffered(port: DynSerial) -> SharedPortUnbuffered {
     Arc::new(Mutex::new(port))
 }
 
+// =============================================================================
+// Serial Port Utilities
+// =============================================================================
+
+/// Open a serial port asynchronously using spawn_blocking.
+///
+/// This function wraps the serial port opening in `spawn_blocking` to avoid
+/// blocking the async runtime during port initialization. Standard settings
+/// are applied: 8N1, no flow control.
+///
+/// # Parameters
+///
+/// - `port_path`: Path to the serial port (e.g., "/dev/ttyUSB0")
+/// - `baud_rate`: Baud rate (e.g., 9600, 115200)
+/// - `device_name`: Human-readable device name for error messages
+///
+/// # Returns
+///
+/// A `tokio_serial::SerialStream` ready for async I/O.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use daq_core::serial::open_serial_async;
+///
+/// let port = open_serial_async("/dev/ttyUSB0", 9600, "ESP300").await?;
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if the port cannot be opened or spawn_blocking fails.
+pub async fn open_serial_async(
+    port_path: &str,
+    baud_rate: u32,
+    device_name: &str,
+) -> anyhow::Result<tokio_serial::SerialStream> {
+    use anyhow::Context;
+    use tokio::task::spawn_blocking;
+    use tokio_serial::SerialPortBuilderExt;
+
+    let port_path_owned = port_path.to_string();
+    let device_name_owned = device_name.to_string();
+
+    spawn_blocking(move || {
+        tokio_serial::new(&port_path_owned, baud_rate)
+            .data_bits(tokio_serial::DataBits::Eight)
+            .parity(tokio_serial::Parity::None)
+            .stop_bits(tokio_serial::StopBits::One)
+            .flow_control(tokio_serial::FlowControl::None)
+            .open_native_async()
+            .context(format!(
+                "Failed to open {} serial port: {}",
+                device_name_owned, port_path_owned
+            ))
+    })
+    .await
+    .context("spawn_blocking for serial port opening failed")?
+}
+
+/// Drain stale data from a serial port buffer.
+///
+/// This function aggressively reads and discards data from the serial port until
+/// no more data is immediately available. Useful for clearing buffers before
+/// sending commands, especially on RS-485 multidrop buses where other devices
+/// may have sent data.
+///
+/// # Parameters
+///
+/// - `port`: Mutable reference to the serial port (or any AsyncRead)
+/// - `timeout_ms`: Timeout in milliseconds for the drain operation
+///
+/// # Returns
+///
+/// Total number of bytes discarded.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use daq_core::serial::{drain_serial_buffer, SharedPort};
+///
+/// async fn clear_and_send(port: &SharedPort, command: &str) -> anyhow::Result<()> {
+///     let mut guard = port.lock().await;
+///     
+///     // Clear stale data
+///     let discarded = drain_serial_buffer(guard.get_mut(), 50).await;
+///     if discarded > 0 {
+///         tracing::debug!("Discarded {} stale bytes", discarded);
+///     }
+///     
+///     // Send command
+///     guard.get_mut().write_all(command.as_bytes()).await?;
+///     Ok(())
+/// }
+/// ```
+pub async fn drain_serial_buffer<R: AsyncRead + Unpin>(
+    port: &mut R,
+    timeout_ms: u64,
+) -> usize {
+    let mut discard = [0u8; 256];
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(timeout_ms);
+    let mut total_discarded = 0usize;
+
+    loop {
+        if tokio::time::Instant::now() >= deadline {
+            break;
+        }
+
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        match tokio::time::timeout(remaining, port.read(&mut discard)).await {
+            Ok(Ok(0)) => break, // EOF or no more data
+            Ok(Ok(n)) => {
+                total_discarded += n;
+            }
+            Ok(Err(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // No data available, done
+                break;
+            }
+            Ok(Err(_)) => break, // Real I/O error, abort drain
+            Err(_) => break,     // Timeout, no more immediate data
+        }
+    }
+
+    total_discarded
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,5 +345,33 @@ mod tests {
         guard.read_line(&mut line).await.unwrap();
 
         assert_eq!(line.trim(), "data");
+    }
+
+    #[tokio::test]
+    async fn test_drain_serial_buffer() {
+        // Create a duplex stream with some data
+        let (mut host, mut device) = tokio::io::duplex(64);
+
+        // Write some stale data from host
+        host.write_all(b"stale data 12345").await.unwrap();
+
+        // Wait a bit for data to be available
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // Drain the buffer
+        let discarded = drain_serial_buffer(&mut device, 50).await;
+
+        // Should have read all 16 bytes
+        assert_eq!(discarded, 16);
+
+        // Buffer should now be empty
+        let mut buf = [0u8; 1];
+        match tokio::time::timeout(Duration::from_millis(10), device.read(&mut buf)).await {
+            Ok(Ok(0)) => {}, // EOF is ok
+            Ok(Ok(_)) => panic!("Expected no data, but read some"),
+            Err(_) => {}, // Timeout is expected
+            Ok(Err(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {}, // No data available
+            Ok(Err(e)) => panic!("Unexpected error: {}", e),
+        }
     }
 }
