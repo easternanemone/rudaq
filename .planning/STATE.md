@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2025-01-22)
 ## Current Position
 
 Phase: 8 of 10 (Advanced Scans)
-Plan: 5 of 7 (08-01 thru 08-05 complete)
+Plan: 6 of 7 (08-01 thru 08-06 complete, 08-07 partial)
 Status: In progress
-Last activity: 2026-01-26 - Completed 08-04-PLAN.md (NestedScan Translation)
+Last activity: 2026-01-26 - Completed 08-06-PLAN.md (Nested Progress Display)
 
-Progress: [███████░░░] 76%
+Progress: [████████░░] 78%
 
 ## Performance Metrics
 
@@ -36,8 +36,8 @@ Progress: [███████░░░] 76%
 | 07 | 4 | 31min | 7.8min | ✓ Complete |
 
 **Recent Trend:**
-- Last 5 plans: 08-01 (?), 08-02 (?), 08-03 (?), 08-05 (24min), 08-04 (25min)
-- Trend: Phase 8 in progress (advanced scan types with translation and trigger evaluation)
+- Last 5 plans: 08-02 (?), 08-03 (?), 08-05 (24min), 08-04 (25min), 08-06 (42min)
+- Trend: Phase 8 in progress (nested progress UI with Zarr integration)
 
 *Updated after each plan completion*
 
@@ -121,6 +121,9 @@ Recent decisions affecting current work:
 - Translation generates checkpoints, RunEngine evaluates triggers at runtime (08-05)
 - Peak detection uses find_peaks PeakFinder with prominence filtering (08-05)
 - Validation integrated into validate_loop_bodies() for AdaptiveScan (08-05)
+- Dimensional indices as f64 in positions map for Zarr coordinate assignment (08-06)
+- Reserved _outer_idx/_inner_idx keys for multi-dimensional array positions (08-06)
+- NestedProgress with row-major decomposition for flat index to dimension indices (08-06)
 
 ### Pending Todos
 
@@ -168,6 +171,6 @@ See: .planning/phases/06-data-management/06-VERIFICATION.md
 ## Session Continuity
 
 Last session: 2026-01-26
-Stopped at: Completed 08-04-PLAN.md (NestedScan Translation)
+Stopped at: Completed 08-06-PLAN.md (Nested Progress Display)
 Resume file: None
-Next action: Execute 08-06-PLAN.md or 08-07-PLAN.md
+Next action: Complete 08-07-PLAN.md (Adaptive Alert integration partial)
