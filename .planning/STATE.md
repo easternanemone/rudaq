@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2025-01-22)
 ## Current Position
 
 Phase: 8 of 10 (Advanced Scans)
-Plan: 0 of TBD
-Status: Not started
-Last activity: 2026-01-25 - Completed Phase 7 (Code Export and Provenance)
+Plan: 5 of 7 (08-01 thru 08-05 complete)
+Status: In progress
+Last activity: 2026-01-26 - Completed 08-04-PLAN.md (NestedScan Translation)
 
-Progress: [███████░░░] 70%
+Progress: [███████░░░] 76%
 
 ## Performance Metrics
 
@@ -36,8 +36,8 @@ Progress: [███████░░░] 70%
 | 07 | 4 | 31min | 7.8min | ✓ Complete |
 
 **Recent Trend:**
-- Last 5 plans: 07-01 (8min), 07-02 (4min), 07-03 (7min), 07-04 (12min)
-- Trend: Phase 7 completed at 7.8min/plan average (full code export pipeline)
+- Last 5 plans: 08-01 (?), 08-02 (?), 08-03 (?), 08-05 (24min), 08-04 (25min)
+- Trend: Phase 8 in progress (advanced scan types with translation and trigger evaluation)
 
 *Updated after each plan completion*
 
@@ -115,6 +115,12 @@ Recent decisions affecting current work:
 - Eject confirmation dialog prevents accidental one-way conversion
 - Theme selector in script editor (Gruvbox Dark/Light, Aura Dark)
 - Code preview uses show_inside() for proper tab layout (not window-level SidePanel)
+- zarrs 0.22 with filesystem feature for Zarr V3 storage (08-01)
+- _ARRAY_DIMENSIONS attribute for Xarray compatibility (08-01)
+- ReadableWritableListableStorage Arc pattern since FilesystemStore not Clone (08-01)
+- Translation generates checkpoints, RunEngine evaluates triggers at runtime (08-05)
+- Peak detection uses find_peaks PeakFinder with prominence filtering (08-05)
+- Validation integrated into validate_loop_bodies() for AdaptiveScan (08-05)
 
 ### Pending Todos
 
@@ -161,7 +167,7 @@ See: .planning/phases/06-data-management/06-VERIFICATION.md
 
 ## Session Continuity
 
-Last session: 2026-01-25
-Stopped at: Completed Phase 7 (Code Export and Provenance)
+Last session: 2026-01-26
+Stopped at: Completed 08-04-PLAN.md (NestedScan Translation)
 Resume file: None
-Next action: Plan Phase 8 (Advanced Scans)
+Next action: Execute 08-06-PLAN.md or 08-07-PLAN.md

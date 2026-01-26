@@ -85,18 +85,18 @@ impl AnalogOutputControlPanel {
 
     fn write_voltage(
         &mut self,
-        client: Option<&mut DaqClient>,
+        client: &mut Option<&mut DaqClient>,
         runtime: &Runtime,
         device_id: &str,
         voltage: f64,
     ) {
-        let Some(client) = client else {
+        let Some(client) = client.as_mut() else {
             self.error = Some("Not connected".to_string());
             return;
         };
 
         self.actions_in_flight += 1;
-        let mut client = client.clone();
+        let mut client = (*client).clone();
         let tx = self.action_tx.clone();
         let device_id = device_id.to_string();
         let voltage = voltage.clamp(self.min_voltage, self.max_voltage);
@@ -168,7 +168,7 @@ impl DeviceControlWidget for AnalogOutputControlPanel {
             if ui.add_enabled(!is_busy, slider).changed() {
                 self.voltage = voltage;
                 self.voltage_input = format!("{:.3}", voltage);
-                self.write_voltage(client, runtime, &device_id, voltage);
+                self.write_voltage(&mut client, runtime, &device_id, voltage);
             }
         });
 
@@ -189,7 +189,7 @@ impl DeviceControlWidget for AnalogOutputControlPanel {
             {
                 if let Ok(v) = self.voltage_input.parse::<f64>() {
                     let v = v.clamp(self.min_voltage, self.max_voltage);
-                    self.write_voltage(client, runtime, &device_id, v);
+                    self.write_voltage(&mut client, runtime, &device_id, v);
                 } else {
                     self.error = Some("Invalid voltage value".to_string());
                 }
@@ -198,7 +198,7 @@ impl DeviceControlWidget for AnalogOutputControlPanel {
             if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !is_busy {
                 if let Ok(v) = self.voltage_input.parse::<f64>() {
                     let v = v.clamp(self.min_voltage, self.max_voltage);
-                    self.write_voltage(client, runtime, &device_id, v);
+                    self.write_voltage(&mut client, runtime, &device_id, v);
                 }
             }
         });
@@ -211,7 +211,7 @@ impl DeviceControlWidget for AnalogOutputControlPanel {
             ui.label("Quick set:");
 
             if ui.add_enabled(!is_busy, egui::Button::new("0 V")).clicked() {
-                self.write_voltage(client, runtime, &device_id, 0.0);
+                self.write_voltage(&mut client, runtime, &device_id, 0.0);
             }
 
             if ui
@@ -221,7 +221,7 @@ impl DeviceControlWidget for AnalogOutputControlPanel {
                 )
                 .clicked()
             {
-                self.write_voltage(client, runtime, &device_id, self.min_voltage);
+                self.write_voltage(&mut client, runtime, &device_id, self.min_voltage);
             }
 
             if ui
@@ -231,7 +231,7 @@ impl DeviceControlWidget for AnalogOutputControlPanel {
                 )
                 .clicked()
             {
-                self.write_voltage(client, runtime, &device_id, self.max_voltage);
+                self.write_voltage(&mut client, runtime, &device_id, self.max_voltage);
             }
         });
 

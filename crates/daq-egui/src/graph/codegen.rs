@@ -924,4 +924,116 @@ mod tests {
         assert_eq!(indent_str(2), "    ");
         assert_eq!(indent_str(3), "      ");
     }
+
+    #[test]
+    fn test_nested_scan_to_rhai() {
+        let config = NestedScanConfig {
+            outer: crate::graph::nodes::ScanDimension {
+                actuator: "stage_x".to_string(),
+                start: 0.0,
+                stop: 100.0,
+                points: 10,
+                dimension_name: "x_pos".to_string(),
+            },
+            inner: crate::graph::nodes::ScanDimension {
+                actuator: "stage_y".to_string(),
+                start: 0.0,
+                stop: 50.0,
+                points: 5,
+                dimension_name: "y_pos".to_string(),
+            },
+            nesting_warning_depth: 3,
+        };
+
+        let code = nested_scan_to_rhai(&config, 0);
+
+        // Should have comment with dimension names
+        assert!(
+            code.contains("// Nested scan: x_pos x y_pos"),
+            "Should have dimension names in comment"
+        );
+
+        // Should have outer for loop
+        assert!(
+            code.contains("for outer_i in 0..10"),
+            "Should have outer for loop with 10 points"
+        );
+
+        // Should have inner for loop
+        assert!(
+            code.contains("for inner_i in 0..5"),
+            "Should have inner for loop with 5 points"
+        );
+
+        // Should have moves for both actuators
+        assert!(
+            code.contains("stage_x.move_abs(outer_pos)"),
+            "Should move outer actuator"
+        );
+        assert!(
+            code.contains("stage_y.move_abs(inner_pos)"),
+            "Should move inner actuator"
+        );
+
+        // Should have wait_settled for both
+        assert!(
+            code.contains("stage_x.wait_settled()"),
+            "Should wait for outer actuator"
+        );
+        assert!(
+            code.contains("stage_y.wait_settled()"),
+            "Should wait for inner actuator"
+        );
+
+        // Should have yield_event with both positions
+        assert!(
+            code.contains("yield_event"),
+            "Should yield event at each point"
+        );
+        assert!(
+            code.contains("x_pos") && code.contains("y_pos"),
+            "yield_event should include both dimension names"
+        );
+
+        // Should have proper indentation (inner loop more indented than outer)
+        let lines: Vec<&str> = code.lines().collect();
+        let outer_loop_line = lines.iter().find(|l| l.contains("for outer_i")).unwrap();
+        let inner_loop_line = lines.iter().find(|l| l.contains("for inner_i")).unwrap();
+
+        let outer_indent = outer_loop_line.len() - outer_loop_line.trim_start().len();
+        let inner_indent = inner_loop_line.len() - inner_loop_line.trim_start().len();
+        assert!(
+            inner_indent > outer_indent,
+            "Inner loop should be more indented than outer loop"
+        );
+    }
+
+    #[test]
+    fn test_nested_scan_to_rhai_empty_actuator_warning() {
+        let config = NestedScanConfig {
+            outer: crate::graph::nodes::ScanDimension {
+                actuator: String::new(),
+                start: 0.0,
+                stop: 100.0,
+                points: 10,
+                dimension_name: "x".to_string(),
+            },
+            inner: crate::graph::nodes::ScanDimension {
+                actuator: String::new(),
+                start: 0.0,
+                stop: 50.0,
+                points: 5,
+                dimension_name: "y".to_string(),
+            },
+            nesting_warning_depth: 3,
+        };
+
+        let code = nested_scan_to_rhai(&config, 0);
+
+        // Should have warning for empty actuators
+        assert!(
+            code.contains("WARNING"),
+            "Should warn about empty actuators"
+        );
+    }
 }

@@ -67,7 +67,10 @@ impl GraphPlan {
         // Identify loop body nodes (these will be skipped in main traversal)
         let mut loop_body_set = HashSet::new();
         for (loop_id, loop_node) in snarl.node_ids() {
-            if matches!(loop_node, ExperimentNode::Loop(..)) {
+            if matches!(
+                loop_node,
+                ExperimentNode::Loop(..) | ExperimentNode::NestedScan(..)
+            ) {
                 let body_nodes = find_loop_body_nodes(loop_id, snarl);
                 loop_body_set.extend(body_nodes);
             }
@@ -388,87 +391,156 @@ fn translate_node_with_snarl(
             }
         }
         ExperimentNode::NestedScan(config) => {
-            // Nested scan generates outer x inner grid
-            if !config.outer.actuator.is_empty() && !config.inner.actuator.is_empty() {
+            // Nested scan generates outer x inner grid with body nodes at each point
+            // Get body nodes (reuse existing find_loop_body_nodes - same pin 1 convention)
+            let body_nodes = find_loop_body_nodes(node_id, snarl);
+
+            // Add actuators to movers list
+            if !config.outer.actuator.is_empty() {
                 movers.push(config.outer.actuator.clone());
+            }
+            if !config.inner.actuator.is_empty() {
                 movers.push(config.inner.actuator.clone());
+            }
 
-                let outer_step = if config.outer.points > 1 {
-                    (config.outer.stop - config.outer.start) / (config.outer.points as f64 - 1.0)
-                } else {
-                    0.0
-                };
-                let inner_step = if config.inner.points > 1 {
-                    (config.inner.stop - config.inner.start) / (config.inner.points as f64 - 1.0)
-                } else {
-                    0.0
-                };
+            // Calculate step sizes
+            let outer_step = if config.outer.points > 1 {
+                (config.outer.stop - config.outer.start) / (config.outer.points as f64 - 1.0)
+            } else {
+                0.0
+            };
+            let inner_step = if config.inner.points > 1 {
+                (config.inner.stop - config.inner.start) / (config.inner.points as f64 - 1.0)
+            } else {
+                0.0
+            };
 
-                for outer_i in 0..config.outer.points {
-                    let outer_pos = config.outer.start + outer_step * outer_i as f64;
+            // Nested iteration: outer × inner
+            for outer_idx in 0..config.outer.points {
+                let outer_pos = config.outer.start + outer_step * outer_idx as f64;
+
+                // Move outer actuator
+                if !config.outer.actuator.is_empty() {
                     commands.push(PlanCommand::MoveTo {
                         device_id: config.outer.actuator.clone(),
                         position: outer_pos,
                     });
-                    commands.push(PlanCommand::Checkpoint {
-                        label: format!("nested_{:?}_outer_{}", node_id, outer_i),
-                    });
+                }
 
-                    for inner_i in 0..config.inner.points {
-                        let inner_pos = config.inner.start + inner_step * inner_i as f64;
+                commands.push(PlanCommand::Checkpoint {
+                    label: format!("nested_{:?}_outer_{}_start", node_id, outer_idx),
+                });
+
+                for inner_idx in 0..config.inner.points {
+                    let inner_pos = config.inner.start + inner_step * inner_idx as f64;
+
+                    // Move inner actuator
+                    if !config.inner.actuator.is_empty() {
                         commands.push(PlanCommand::MoveTo {
                             device_id: config.inner.actuator.clone(),
                             position: inner_pos,
                         });
-                        commands.push(PlanCommand::Checkpoint {
-                            label: format!("nested_{:?}_inner_{}_{}", node_id, outer_i, inner_i),
-                        });
-                        commands.push(PlanCommand::EmitEvent {
-                            stream: "primary".to_string(),
-                            data: HashMap::new(),
-                            positions: [
-                                (config.outer.actuator.clone(), outer_pos),
-                                (config.inner.actuator.clone(), inner_pos),
-                            ]
-                            .into_iter()
-                            .collect(),
-                        });
-                        events += 1;
                     }
+
+                    commands.push(PlanCommand::Checkpoint {
+                        label: format!(
+                            "nested_{:?}_outer_{}_inner_{}",
+                            node_id, outer_idx, inner_idx
+                        ),
+                    });
+
+                    // Execute body nodes at this point
+                    for &body_node_id in &body_nodes {
+                        if let Some(body_node) = snarl.get_node(body_node_id) {
+                            let (body_cmds, body_movers, body_detectors, body_events) =
+                                translate_node_with_snarl(body_node, body_node_id, snarl);
+                            commands.extend(body_cmds);
+                            movers.extend(body_movers);
+                            detectors.extend(body_detectors);
+                            events += body_events;
+                        }
+                    }
+
+                    // Emit event with dimensional positions
+                    let mut positions = HashMap::new();
+                    if !config.outer.actuator.is_empty() {
+                        positions.insert(config.outer.actuator.clone(), outer_pos);
+                    }
+                    if !config.inner.actuator.is_empty() {
+                        positions.insert(config.inner.actuator.clone(), inner_pos);
+                    }
+                    commands.push(PlanCommand::EmitEvent {
+                        stream: "primary".to_string(),
+                        data: HashMap::new(),
+                        positions,
+                    });
+                    events += 1;
                 }
+
+                commands.push(PlanCommand::Checkpoint {
+                    label: format!("nested_{:?}_outer_{}_end", node_id, outer_idx),
+                });
             }
         }
         ExperimentNode::AdaptiveScan(config) => {
-            // Adaptive scan - fallback to basic scan for now
-            // TODO: Implement runtime trigger evaluation
-            tracing::warn!(
-                "AdaptiveScan at {:?} falling back to basic scan. \
-                Trigger evaluation requires RunEngine runtime support.",
-                node_id
-            );
+            // Adaptive scan with trigger evaluation checkpoints
+            // NOTE: Actual trigger evaluation happens at runtime in RunEngine
+            // Translation generates checkpoints that mark where evaluation occurs
 
             if config.scan.points > 0 && !config.scan.actuator.is_empty() {
                 movers.push(config.scan.actuator.clone());
+
                 let step = if config.scan.points > 1 {
                     (config.scan.stop - config.scan.start) / (config.scan.points as f64 - 1.0)
                 } else {
                     0.0
                 };
+
+                // Adaptive scan start checkpoint
+                commands.push(PlanCommand::Checkpoint {
+                    label: format!("adaptive_{:?}_start", node_id),
+                });
+
+                // Generate scan points
                 for i in 0..config.scan.points {
                     let pos = config.scan.start + step * i as f64;
+
+                    // Move actuator
                     commands.push(PlanCommand::MoveTo {
                         device_id: config.scan.actuator.clone(),
                         position: pos,
                     });
+
+                    // Point checkpoint with trigger metadata
                     commands.push(PlanCommand::Checkpoint {
-                        label: format!("adaptive_{:?}_point_{}", node_id, i),
+                        label: format!(
+                            "adaptive_{:?}_point_{}_triggers_{}",
+                            node_id,
+                            i,
+                            config.triggers.len()
+                        ),
                     });
+
+                    // Emit event
                     commands.push(PlanCommand::EmitEvent {
                         stream: "primary".to_string(),
                         data: HashMap::new(),
                         positions: [(config.scan.actuator.clone(), pos)].into_iter().collect(),
                     });
                     events += 1;
+                }
+
+                // Add adaptive evaluation checkpoint
+                // This is where the RunEngine evaluates accumulated data against triggers
+                commands.push(PlanCommand::Checkpoint {
+                    label: format!("adaptive_{:?}_evaluate_action_{:?}", node_id, config.action),
+                });
+
+                // If require_approval, add an approval checkpoint
+                if config.require_approval {
+                    commands.push(PlanCommand::Checkpoint {
+                        label: format!("adaptive_{:?}_approval_required", node_id),
+                    });
                 }
             }
         }
@@ -605,7 +677,9 @@ pub fn detect_cycles(snarl: &Snarl<ExperimentNode>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::nodes::{AcquireConfig, LoopConfig, LoopTermination};
+    use crate::graph::nodes::{
+        AcquireConfig, LoopConfig, LoopTermination, NestedScanConfig, ScanDimension,
+    };
 
     #[test]
     fn test_empty_graph() {
@@ -754,5 +828,253 @@ mod tests {
 
         // Should have 3 events (one per iteration)
         assert_eq!(plan.total_events, 3, "Expected 3 events total");
+    }
+
+    #[test]
+    fn test_nested_scan_event_count() {
+        let mut snarl = Snarl::new();
+
+        // Create NestedScan node with 10 outer x 5 inner = 50 points
+        let _nested_node = snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            ExperimentNode::NestedScan(NestedScanConfig {
+                outer: ScanDimension {
+                    actuator: "stage_x".to_string(),
+                    start: 0.0,
+                    stop: 100.0,
+                    points: 10,
+                    dimension_name: "x".to_string(),
+                },
+                inner: ScanDimension {
+                    actuator: "stage_y".to_string(),
+                    start: 0.0,
+                    stop: 50.0,
+                    points: 5,
+                    dimension_name: "y".to_string(),
+                },
+                nesting_warning_depth: 3,
+            }),
+        );
+
+        // Translate to plan
+        let plan = GraphPlan::from_snarl(&snarl).expect("Translation failed");
+
+        // Should have 10 × 5 = 50 EmitEvent commands
+        let emit_count = plan
+            .commands
+            .iter()
+            .filter(|cmd| matches!(cmd, PlanCommand::EmitEvent { .. }))
+            .count();
+        assert_eq!(emit_count, 50, "Expected 50 EmitEvent commands (10 × 5)");
+
+        // Verify total_events matches
+        assert_eq!(plan.total_events, 50, "Expected 50 events total");
+
+        // Verify movers include both actuators
+        assert!(
+            plan.movers.contains(&"stage_x".to_string()),
+            "Should include outer actuator"
+        );
+        assert!(
+            plan.movers.contains(&"stage_y".to_string()),
+            "Should include inner actuator"
+        );
+    }
+
+    #[test]
+    fn test_nested_scan_with_body_nodes() {
+        let mut snarl = Snarl::new();
+
+        // Create NestedScan node with 2 outer x 3 inner = 6 points
+        let nested_node = snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            ExperimentNode::NestedScan(NestedScanConfig {
+                outer: ScanDimension {
+                    actuator: "stage_x".to_string(),
+                    start: 0.0,
+                    stop: 10.0,
+                    points: 2,
+                    dimension_name: "x".to_string(),
+                },
+                inner: ScanDimension {
+                    actuator: "stage_y".to_string(),
+                    start: 0.0,
+                    stop: 20.0,
+                    points: 3,
+                    dimension_name: "y".to_string(),
+                },
+                nesting_warning_depth: 3,
+            }),
+        );
+
+        // Create an Acquire node in the body
+        let acquire = snarl.insert_node(
+            egui::pos2(100.0, 0.0),
+            ExperimentNode::Acquire(AcquireConfig {
+                detector: "camera".to_string(),
+                exposure_ms: Some(100.0),
+                frame_count: 1,
+            }),
+        );
+
+        // Connect NestedScan body output (pin 1) to acquire
+        snarl.connect(
+            egui_snarl::OutPinId {
+                node: nested_node,
+                output: 1,
+            },
+            egui_snarl::InPinId {
+                node: acquire,
+                input: 0,
+            },
+        );
+
+        // Translate to plan
+        let plan = GraphPlan::from_snarl(&snarl).expect("Translation failed");
+
+        // Should have 2 × 3 = 6 Trigger commands (body executes at each point)
+        let trigger_count = plan
+            .commands
+            .iter()
+            .filter(|cmd| matches!(cmd, PlanCommand::Trigger { .. }))
+            .count();
+        assert_eq!(
+            trigger_count, 6,
+            "Expected 6 triggers (body executes at each outer × inner point)"
+        );
+
+        // Total events = 6 from NestedScan + 6 from Acquire = 12
+        assert_eq!(
+            plan.total_events, 12,
+            "Expected 12 events (6 from scan + 6 from body)"
+        );
+
+        // Verify detector is included
+        assert!(
+            plan.detectors.contains(&"camera".to_string()),
+            "Should include body node detector"
+        );
+    }
+
+    #[test]
+    fn test_adaptive_scan_translation() {
+        use crate::graph::nodes::{
+            AdaptiveAction, AdaptiveScanConfig, ScanDimension, ThresholdOp, TriggerCondition,
+            TriggerLogic,
+        };
+
+        let mut snarl = Snarl::new();
+
+        // Create AdaptiveScan node with 5 points and 2 triggers
+        snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            ExperimentNode::AdaptiveScan(AdaptiveScanConfig {
+                scan: ScanDimension {
+                    actuator: "wavelength".to_string(),
+                    dimension_name: "lambda".to_string(),
+                    start: 400.0,
+                    stop: 800.0,
+                    points: 5,
+                },
+                triggers: vec![
+                    TriggerCondition::Threshold {
+                        device_id: "power_meter".to_string(),
+                        operator: ThresholdOp::GreaterThan,
+                        value: 1000.0,
+                    },
+                    TriggerCondition::PeakDetection {
+                        device_id: "power_meter".to_string(),
+                        min_prominence: 100.0,
+                        min_height: None,
+                    },
+                ],
+                trigger_logic: TriggerLogic::Any,
+                action: AdaptiveAction::Zoom2x,
+                require_approval: true,
+            }),
+        );
+
+        let plan = GraphPlan::from_snarl(&snarl).expect("Translation failed");
+
+        // Should have start checkpoint
+        let has_start = plan.commands.iter().any(|cmd| {
+            matches!(cmd, PlanCommand::Checkpoint { label } if label.contains("adaptive") && label.contains("start"))
+        });
+        assert!(has_start, "Should have adaptive scan start checkpoint");
+
+        // Should have 5 point checkpoints with trigger count
+        let point_checkpoints: Vec<_> = plan
+            .commands
+            .iter()
+            .filter(|cmd| {
+                matches!(cmd, PlanCommand::Checkpoint { label } if label.contains("point") && label.contains("triggers_2"))
+            })
+            .collect();
+        assert_eq!(
+            point_checkpoints.len(),
+            5,
+            "Should have 5 point checkpoints with trigger count"
+        );
+
+        // Should have evaluate checkpoint with action
+        let has_evaluate = plan.commands.iter().any(|cmd| {
+            matches!(cmd, PlanCommand::Checkpoint { label } if label.contains("evaluate_action") && label.contains("Zoom2x"))
+        });
+        assert!(has_evaluate, "Should have evaluate checkpoint with action");
+
+        // Should have approval checkpoint (require_approval = true)
+        let has_approval = plan.commands.iter().any(|cmd| {
+            matches!(cmd, PlanCommand::Checkpoint { label } if label.contains("approval_required"))
+        });
+        assert!(
+            has_approval,
+            "Should have approval checkpoint when require_approval = true"
+        );
+
+        // Should have 5 events
+        assert_eq!(plan.total_events, 5, "Should have 5 events");
+
+        // Should include actuator as mover
+        assert!(
+            plan.movers.contains(&"wavelength".to_string()),
+            "Should include wavelength actuator"
+        );
+    }
+
+    #[test]
+    fn test_adaptive_scan_without_approval() {
+        use crate::graph::nodes::{
+            AdaptiveAction, AdaptiveScanConfig, ScanDimension, TriggerCondition, TriggerLogic,
+        };
+
+        let mut snarl = Snarl::new();
+
+        snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            ExperimentNode::AdaptiveScan(AdaptiveScanConfig {
+                scan: ScanDimension {
+                    actuator: "stage".to_string(),
+                    dimension_name: "pos".to_string(),
+                    start: 0.0,
+                    stop: 100.0,
+                    points: 10,
+                },
+                triggers: vec![TriggerCondition::default()],
+                trigger_logic: TriggerLogic::Any,
+                action: AdaptiveAction::MoveToPeak,
+                require_approval: false, // No approval needed
+            }),
+        );
+
+        let plan = GraphPlan::from_snarl(&snarl).expect("Translation failed");
+
+        // Should NOT have approval checkpoint
+        let has_approval = plan.commands.iter().any(|cmd| {
+            matches!(cmd, PlanCommand::Checkpoint { label } if label.contains("approval_required"))
+        });
+        assert!(
+            !has_approval,
+            "Should NOT have approval checkpoint when require_approval = false"
+        );
     }
 }

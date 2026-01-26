@@ -1,5 +1,6 @@
 //! Node graph editor module for experiment design.
 
+pub mod adaptive;
 pub mod codegen;
 pub mod commands;
 pub mod execution_state;
@@ -28,9 +29,14 @@ pub use translation::{
 };
 #[allow(unused_imports)]
 pub use validation::{
-    input_pin_type, output_pin_type, validate_connection, validate_graph_structure, PinType,
+    input_pin_type, output_pin_type, validate_adaptive_scan, validate_connection,
+    validate_graph_structure, PinType,
 };
 pub use viewer::ExperimentViewer;
+
+// Adaptive scan trigger evaluation
+#[allow(unused_imports)]
+pub use adaptive::{detect_peaks, evaluate_triggers, DetectedPeak, TriggerResult};
 
 // Re-export Snarl for convenience
 #[allow(unused_imports)]

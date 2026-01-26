@@ -78,20 +78,12 @@ impl PropertyInspector {
         let mut changed = false;
 
         // Device selection with autocomplete
-        ui.horizontal(|ui| {
-            ui.label("Device:");
-            if device_ids.is_empty() {
-                // Fallback to text field when no devices available
-                changed |= ui.text_edit_singleline(&mut config.device).changed();
-            } else {
-                let mut selector = DeviceSelector::new(device_ids);
-                selector.set_selected(&config.device);
-                if selector.show(ui, "Select actuator...") {
-                    config.device = selector.selected().to_string();
-                    changed = true;
-                }
-            }
-        });
+        changed |= ui.device_field(
+            "Device:",
+            &mut config.device,
+            device_ids,
+            "Select actuator...",
+        );
 
         // Mode toggle (Absolute / Relative)
         ui.horizontal(|ui| {
@@ -137,19 +129,7 @@ impl PropertyInspector {
         let mut changed = false;
 
         // Device selection with autocomplete
-        ui.horizontal(|ui| {
-            ui.label("Actuator:");
-            if device_ids.is_empty() {
-                changed |= ui.text_edit_singleline(actuator).changed();
-            } else {
-                let mut selector = DeviceSelector::new(device_ids);
-                selector.set_selected(actuator);
-                if selector.show(ui, "Select actuator...") {
-                    *actuator = selector.selected().to_string();
-                    changed = true;
-                }
-            }
-        });
+        changed |= ui.device_field("Actuator:", actuator, device_ids, "Select actuator...");
 
         changed |= Self::float_field(ui, "Start", start);
         changed |= Self::float_field(ui, "Stop", stop);
@@ -167,19 +147,12 @@ impl PropertyInspector {
         let mut changed = false;
 
         // Device selection with autocomplete
-        ui.horizontal(|ui| {
-            ui.label("Detector:");
-            if device_ids.is_empty() {
-                changed |= ui.text_edit_singleline(&mut config.detector).changed();
-            } else {
-                let mut selector = DeviceSelector::new(device_ids);
-                selector.set_selected(&config.detector);
-                if selector.show(ui, "Select detector...") {
-                    config.detector = selector.selected().to_string();
-                    changed = true;
-                }
-            }
-        });
+        changed |= ui.device_field(
+            "Detector:",
+            &mut config.detector,
+            device_ids,
+            "Select detector...",
+        );
 
         // Exposure control with optional override
         ui.horizontal(|ui| {
@@ -281,63 +254,10 @@ impl PropertyInspector {
                 timeout_ms,
             } => {
                 // Device selector
-                ui.horizontal(|ui| {
-                    ui.label("Device:");
-                    if device_ids.is_empty() {
-                        changed |= ui.text_edit_singleline(device_id).changed();
-                    } else {
-                        let mut selector = DeviceSelector::new(device_ids);
-                        selector.set_selected(device_id);
-                        if selector.show(ui, "Select device...") {
-                            *device_id = selector.selected().to_string();
-                            changed = true;
-                        }
-                    }
-                });
+                changed |= ui.device_field("Device:", device_id, device_ids, "Select device...");
 
                 // Operator selector
-                ui.horizontal(|ui| {
-                    ui.label("Operator:");
-                    egui::ComboBox::from_id_salt("threshold_op")
-                        .selected_text(match operator {
-                            ThresholdOp::LessThan => "Less Than",
-                            ThresholdOp::GreaterThan => "Greater Than",
-                            ThresholdOp::EqualWithin { .. } => "Equal Within",
-                        })
-                        .show_ui(ui, |ui| {
-                            let before = operator.clone();
-                            if ui
-                                .selectable_label(
-                                    matches!(operator, ThresholdOp::LessThan),
-                                    "Less Than",
-                                )
-                                .clicked()
-                            {
-                                *operator = ThresholdOp::LessThan;
-                            }
-                            if ui
-                                .selectable_label(
-                                    matches!(operator, ThresholdOp::GreaterThan),
-                                    "Greater Than",
-                                )
-                                .clicked()
-                            {
-                                *operator = ThresholdOp::GreaterThan;
-                            }
-                            if ui
-                                .selectable_label(
-                                    matches!(operator, ThresholdOp::EqualWithin { .. }),
-                                    "Equal Within",
-                                )
-                                .clicked()
-                            {
-                                *operator = ThresholdOp::EqualWithin { tolerance: 0.01 };
-                            }
-                            if *operator != before {
-                                changed = true;
-                            }
-                        });
-                });
+                changed |= ui.threshold_op_selector(operator, "threshold_op");
 
                 // Value field
                 changed |= Self::float_field(ui, "Value", value);
@@ -356,19 +276,7 @@ impl PropertyInspector {
                 timeout_ms,
             } => {
                 // Device selector
-                ui.horizontal(|ui| {
-                    ui.label("Device:");
-                    if device_ids.is_empty() {
-                        changed |= ui.text_edit_singleline(device_id).changed();
-                    } else {
-                        let mut selector = DeviceSelector::new(device_ids);
-                        selector.set_selected(device_id);
-                        if selector.show(ui, "Select device...") {
-                            *device_id = selector.selected().to_string();
-                            changed = true;
-                        }
-                    }
-                });
+                changed |= ui.device_field("Device:", device_id, device_ids, "Select device...");
 
                 changed |= Self::float_field(ui, "Tolerance", tolerance);
                 changed |= Self::float_field(ui, "Duration (ms)", duration_ms);
@@ -453,63 +361,10 @@ impl PropertyInspector {
                 max_iterations,
             } => {
                 // Device selector
-                ui.horizontal(|ui| {
-                    ui.label("Device:");
-                    if device_ids.is_empty() {
-                        changed |= ui.text_edit_singleline(device_id).changed();
-                    } else {
-                        let mut selector = DeviceSelector::new(device_ids);
-                        selector.set_selected(device_id);
-                        if selector.show(ui, "Select device...") {
-                            *device_id = selector.selected().to_string();
-                            changed = true;
-                        }
-                    }
-                });
+                changed |= ui.device_field("Device:", device_id, device_ids, "Select device...");
 
                 // Operator selector
-                ui.horizontal(|ui| {
-                    ui.label("Operator:");
-                    egui::ComboBox::from_id_salt("loop_condition_op")
-                        .selected_text(match operator {
-                            ThresholdOp::LessThan => "Less Than",
-                            ThresholdOp::GreaterThan => "Greater Than",
-                            ThresholdOp::EqualWithin { .. } => "Equal Within",
-                        })
-                        .show_ui(ui, |ui| {
-                            let before = operator.clone();
-                            if ui
-                                .selectable_label(
-                                    matches!(operator, ThresholdOp::LessThan),
-                                    "Less Than",
-                                )
-                                .clicked()
-                            {
-                                *operator = ThresholdOp::LessThan;
-                            }
-                            if ui
-                                .selectable_label(
-                                    matches!(operator, ThresholdOp::GreaterThan),
-                                    "Greater Than",
-                                )
-                                .clicked()
-                            {
-                                *operator = ThresholdOp::GreaterThan;
-                            }
-                            if ui
-                                .selectable_label(
-                                    matches!(operator, ThresholdOp::EqualWithin { .. }),
-                                    "Equal Within",
-                                )
-                                .clicked()
-                            {
-                                *operator = ThresholdOp::EqualWithin { tolerance: 0.01 };
-                            }
-                            if *operator != before {
-                                changed = true;
-                            }
-                        });
-                });
+                changed |= ui.threshold_op_selector(operator, "loop_condition_op");
 
                 // Value field
                 changed |= Self::float_field(ui, "Value", value);
@@ -603,19 +458,12 @@ impl PropertyInspector {
         });
 
         // Actuator selection
-        ui.horizontal(|ui| {
-            ui.label("Actuator:");
-            if device_ids.is_empty() {
-                changed |= ui.text_edit_singleline(&mut dim.actuator).changed();
-            } else {
-                let mut selector = DeviceSelector::new(device_ids);
-                selector.set_selected(&dim.actuator);
-                if selector.show(ui, "Select actuator...") {
-                    dim.actuator = selector.selected().to_string();
-                    changed = true;
-                }
-            }
-        });
+        changed |= ui.device_field(
+            "Actuator:",
+            &mut dim.actuator,
+            device_ids,
+            "Select actuator...",
+        );
 
         // Range fields
         ui.horizontal(|ui| {
@@ -749,18 +597,9 @@ impl PropertyInspector {
                             value,
                         } => {
                             ui.label("Threshold:");
-                            if device_ids.is_empty() {
-                                changed |= ui.text_edit_singleline(device_id).changed();
-                            } else {
-                                let mut selector = DeviceSelector::new(device_ids);
-                                selector.set_selected(device_id);
-                                if selector.show(ui, "Device...") {
-                                    *device_id = selector.selected().to_string();
-                                    changed = true;
-                                }
-                            }
+                            changed |= ui.device_field("", device_id, device_ids, "Device...");
 
-                            // Operator selector
+                            // Operator selector (compact version)
                             egui::ComboBox::from_id_salt("trigger_op")
                                 .selected_text(match operator {
                                     crate::graph::nodes::ThresholdOp::LessThan => "<",
@@ -821,16 +660,7 @@ impl PropertyInspector {
                             min_height,
                         } => {
                             ui.label("Peak:");
-                            if device_ids.is_empty() {
-                                changed |= ui.text_edit_singleline(device_id).changed();
-                            } else {
-                                let mut selector = DeviceSelector::new(device_ids);
-                                selector.set_selected(device_id);
-                                if selector.show(ui, "Device...") {
-                                    *device_id = selector.selected().to_string();
-                                    changed = true;
-                                }
-                            }
+                            changed |= ui.device_field("", device_id, device_ids, "Device...");
                             ui.label("prom:");
                             changed |= ui
                                 .add(egui::DragValue::new(min_prominence).speed(0.1))
@@ -919,5 +749,104 @@ impl PropertyInspector {
             ui.add_space(20.0);
             ui.label("Select a node to edit its properties");
         });
+    }
+}
+
+/// Extension trait for device-related UI helpers.
+trait DeviceUiExt {
+    /// Show device selector with autocomplete or fallback text field.
+    ///
+    /// Returns `true` if the value changed.
+    fn device_field(
+        &mut self,
+        label: &str,
+        value: &mut String,
+        device_ids: &[String],
+        placeholder: &str,
+    ) -> bool;
+
+    /// Show threshold operator selector ComboBox.
+    ///
+    /// Returns `true` if the operator changed.
+    fn threshold_op_selector(
+        &mut self,
+        operator: &mut crate::graph::nodes::ThresholdOp,
+        id_salt: impl std::hash::Hash,
+    ) -> bool;
+}
+
+impl DeviceUiExt for Ui {
+    fn device_field(
+        &mut self,
+        label: &str,
+        value: &mut String,
+        device_ids: &[String],
+        placeholder: &str,
+    ) -> bool {
+        self.horizontal(|ui| {
+            ui.label(label);
+            if device_ids.is_empty() {
+                ui.text_edit_singleline(value).changed()
+            } else {
+                let mut selector = DeviceSelector::new(device_ids);
+                selector.set_selected(value);
+                if selector.show(ui, placeholder) {
+                    *value = selector.selected().to_string();
+                    true
+                } else {
+                    false
+                }
+            }
+        })
+        .inner
+    }
+
+    fn threshold_op_selector(
+        &mut self,
+        operator: &mut crate::graph::nodes::ThresholdOp,
+        id_salt: impl std::hash::Hash,
+    ) -> bool {
+        use crate::graph::nodes::ThresholdOp;
+
+        self.horizontal(|ui| {
+            ui.label("Operator:");
+            egui::ComboBox::from_id_salt(id_salt)
+                .selected_text(match operator {
+                    ThresholdOp::LessThan => "Less Than",
+                    ThresholdOp::GreaterThan => "Greater Than",
+                    ThresholdOp::EqualWithin { .. } => "Equal Within",
+                })
+                .show_ui(ui, |ui| {
+                    let before = operator.clone();
+                    if ui
+                        .selectable_label(matches!(operator, ThresholdOp::LessThan), "Less Than")
+                        .clicked()
+                    {
+                        *operator = ThresholdOp::LessThan;
+                    }
+                    if ui
+                        .selectable_label(
+                            matches!(operator, ThresholdOp::GreaterThan),
+                            "Greater Than",
+                        )
+                        .clicked()
+                    {
+                        *operator = ThresholdOp::GreaterThan;
+                    }
+                    if ui
+                        .selectable_label(
+                            matches!(operator, ThresholdOp::EqualWithin { .. }),
+                            "Equal Within",
+                        )
+                        .clicked()
+                    {
+                        *operator = ThresholdOp::EqualWithin { tolerance: 0.01 };
+                    }
+                    *operator != before
+                })
+                .inner
+                .unwrap_or(false)
+        })
+        .inner
     }
 }
