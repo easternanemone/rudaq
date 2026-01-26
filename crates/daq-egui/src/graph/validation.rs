@@ -1,6 +1,6 @@
 //! Connection validation logic for experiment graphs.
 
-use super::nodes::{ExperimentNode, NestedScanConfig};
+use super::nodes::{AdaptiveScanConfig, ExperimentNode, NestedScanConfig, TriggerCondition};
 
 /// Pin types for connection validation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -245,7 +245,49 @@ fn warn_relative_moves_in_loop(
     None
 }
 
-/// Validate all loop bodies in the graph (Loop and NestedScan nodes).
+/// Validate AdaptiveScan configuration.
+pub fn validate_adaptive_scan(config: &AdaptiveScanConfig) -> Vec<String> {
+    let mut errors = Vec::new();
+
+    // Validate base scan
+    if config.scan.actuator.is_empty() {
+        errors.push("Adaptive scan: device not selected".to_string());
+    }
+    if config.scan.points == 0 {
+        errors.push("Adaptive scan: points must be > 0".to_string());
+    }
+
+    // Validate triggers
+    if config.triggers.is_empty() {
+        errors.push("Adaptive scan: at least one trigger required".to_string());
+    }
+
+    for (i, trigger) in config.triggers.iter().enumerate() {
+        match trigger {
+            TriggerCondition::Threshold { device_id, .. } => {
+                if device_id.is_empty() {
+                    errors.push(format!("Trigger {}: device not selected", i + 1));
+                }
+            }
+            TriggerCondition::PeakDetection {
+                device_id,
+                min_prominence,
+                ..
+            } => {
+                if device_id.is_empty() {
+                    errors.push(format!("Trigger {}: device not selected", i + 1));
+                }
+                if *min_prominence <= 0.0 {
+                    errors.push(format!("Trigger {}: prominence must be > 0", i + 1));
+                }
+            }
+        }
+    }
+
+    errors
+}
+
+/// Validate all loop bodies in the graph (Loop, NestedScan, and AdaptiveScan nodes).
 #[allow(dead_code)]
 pub fn validate_loop_bodies(
     snarl: &egui_snarl::Snarl<ExperimentNode>,
@@ -279,6 +321,12 @@ pub fn validate_loop_bodies(
                 // Warn about relative moves in body
                 if let Some(warning) = warn_relative_moves_in_loop(node_id, snarl) {
                     errors.push((node_id, warning));
+                }
+            }
+            ExperimentNode::AdaptiveScan(config) => {
+                // Validate AdaptiveScan configuration
+                for error in validate_adaptive_scan(config) {
+                    errors.push((node_id, error));
                 }
             }
             _ => {}
@@ -670,7 +718,11 @@ mod tests {
         };
 
         let errors = validate_nested_scan(&config);
-        assert!(errors.is_empty(), "Valid config should have no errors: {:?}", errors);
+        assert!(
+            errors.is_empty(),
+            "Valid config should have no errors: {:?}",
+            errors
+        );
     }
 
     #[test]
@@ -725,9 +777,210 @@ mod tests {
         // Validate - should warn about relative move in body
         let warnings = validate_loop_bodies(&snarl);
         assert!(
-            warnings.iter().any(|(_, msg)| msg.contains("Relative move")),
+            warnings
+                .iter()
+                .any(|(_, msg)| msg.contains("Relative move")),
             "Should warn about relative move in NestedScan body: {:?}",
             warnings
+        );
+    }
+
+    #[test]
+    fn test_adaptive_scan_validation_empty_actuator() {
+        use crate::graph::nodes::{
+            AdaptiveAction, AdaptiveScanConfig, ScanDimension, TriggerCondition, TriggerLogic,
+        };
+
+        let config = AdaptiveScanConfig {
+            scan: ScanDimension {
+                actuator: String::new(), // Empty
+                dimension_name: "pos".to_string(),
+                start: 0.0,
+                stop: 100.0,
+                points: 10,
+            },
+            triggers: vec![TriggerCondition::default()],
+            trigger_logic: TriggerLogic::Any,
+            action: AdaptiveAction::Zoom2x,
+            require_approval: false,
+        };
+
+        let errors = validate_adaptive_scan(&config);
+        assert!(
+            errors.iter().any(|e| e.contains("device not selected")),
+            "Should catch empty actuator: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_adaptive_scan_validation_no_triggers() {
+        use crate::graph::nodes::{
+            AdaptiveAction, AdaptiveScanConfig, ScanDimension, TriggerLogic,
+        };
+
+        let config = AdaptiveScanConfig {
+            scan: ScanDimension {
+                actuator: "stage".to_string(),
+                dimension_name: "pos".to_string(),
+                start: 0.0,
+                stop: 100.0,
+                points: 10,
+            },
+            triggers: vec![], // No triggers
+            trigger_logic: TriggerLogic::Any,
+            action: AdaptiveAction::Zoom2x,
+            require_approval: false,
+        };
+
+        let errors = validate_adaptive_scan(&config);
+        assert!(
+            errors.iter().any(|e| e.contains("at least one trigger")),
+            "Should catch empty triggers: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_adaptive_scan_validation_trigger_no_device() {
+        use crate::graph::nodes::{
+            AdaptiveAction, AdaptiveScanConfig, ScanDimension, ThresholdOp, TriggerCondition,
+            TriggerLogic,
+        };
+
+        let config = AdaptiveScanConfig {
+            scan: ScanDimension {
+                actuator: "stage".to_string(),
+                dimension_name: "pos".to_string(),
+                start: 0.0,
+                stop: 100.0,
+                points: 10,
+            },
+            triggers: vec![TriggerCondition::Threshold {
+                device_id: String::new(), // Empty device
+                operator: ThresholdOp::GreaterThan,
+                value: 100.0,
+            }],
+            trigger_logic: TriggerLogic::Any,
+            action: AdaptiveAction::Zoom2x,
+            require_approval: false,
+        };
+
+        let errors = validate_adaptive_scan(&config);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.contains("Trigger 1") && e.contains("device not selected")),
+            "Should catch trigger without device: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_adaptive_scan_validation_peak_prominence() {
+        use crate::graph::nodes::{
+            AdaptiveAction, AdaptiveScanConfig, ScanDimension, TriggerCondition, TriggerLogic,
+        };
+
+        let config = AdaptiveScanConfig {
+            scan: ScanDimension {
+                actuator: "stage".to_string(),
+                dimension_name: "pos".to_string(),
+                start: 0.0,
+                stop: 100.0,
+                points: 10,
+            },
+            triggers: vec![TriggerCondition::PeakDetection {
+                device_id: "sensor".to_string(),
+                min_prominence: -1.0, // Invalid
+                min_height: None,
+            }],
+            trigger_logic: TriggerLogic::Any,
+            action: AdaptiveAction::Zoom2x,
+            require_approval: false,
+        };
+
+        let errors = validate_adaptive_scan(&config);
+        assert!(
+            errors.iter().any(|e| e.contains("prominence must be > 0")),
+            "Should catch invalid prominence: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_adaptive_scan_validation_valid() {
+        use crate::graph::nodes::{
+            AdaptiveAction, AdaptiveScanConfig, ScanDimension, ThresholdOp, TriggerCondition,
+            TriggerLogic,
+        };
+
+        let config = AdaptiveScanConfig {
+            scan: ScanDimension {
+                actuator: "wavelength".to_string(),
+                dimension_name: "lambda".to_string(),
+                start: 400.0,
+                stop: 800.0,
+                points: 50,
+            },
+            triggers: vec![
+                TriggerCondition::Threshold {
+                    device_id: "power_meter".to_string(),
+                    operator: ThresholdOp::GreaterThan,
+                    value: 1000.0,
+                },
+                TriggerCondition::PeakDetection {
+                    device_id: "power_meter".to_string(),
+                    min_prominence: 100.0,
+                    min_height: Some(500.0),
+                },
+            ],
+            trigger_logic: TriggerLogic::Any,
+            action: AdaptiveAction::MoveToPeak,
+            require_approval: true,
+        };
+
+        let errors = validate_adaptive_scan(&config);
+        assert!(
+            errors.is_empty(),
+            "Valid config should have no errors: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_adaptive_scan_in_graph_validation() {
+        use crate::graph::nodes::{
+            AdaptiveAction, AdaptiveScanConfig, ScanDimension, TriggerLogic,
+        };
+
+        let mut snarl = egui_snarl::Snarl::new();
+
+        // Create AdaptiveScan node with invalid config (no triggers)
+        snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            ExperimentNode::AdaptiveScan(AdaptiveScanConfig {
+                scan: ScanDimension {
+                    actuator: "stage".to_string(),
+                    dimension_name: "pos".to_string(),
+                    start: 0.0,
+                    stop: 100.0,
+                    points: 10,
+                },
+                triggers: vec![], // Invalid - no triggers
+                trigger_logic: TriggerLogic::Any,
+                action: AdaptiveAction::Zoom2x,
+                require_approval: false,
+            }),
+        );
+
+        let errors = validate_loop_bodies(&snarl);
+        assert!(
+            errors
+                .iter()
+                .any(|(_, msg)| msg.contains("at least one trigger")),
+            "Should catch no triggers in graph validation: {:?}",
+            errors
         );
     }
 }

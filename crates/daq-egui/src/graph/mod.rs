@@ -29,7 +29,8 @@ pub use translation::{
 };
 #[allow(unused_imports)]
 pub use validation::{
-    input_pin_type, output_pin_type, validate_connection, validate_graph_structure, PinType,
+    input_pin_type, output_pin_type, validate_adaptive_scan, validate_connection,
+    validate_graph_structure, PinType,
 };
 pub use viewer::ExperimentViewer;
 
