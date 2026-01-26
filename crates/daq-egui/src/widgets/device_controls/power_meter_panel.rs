@@ -40,10 +40,9 @@
 
 use egui::Ui;
 use tokio::runtime::Runtime;
-use tokio::sync::mpsc;
 
 use crate::client::DaqClient;
-use crate::widgets::device_controls::DeviceControlWidget;
+use crate::widgets::device_controls::{DeviceControlWidget, DevicePanelState};
 use crate::widgets::Gauge;
 use daq_proto::daq::DeviceInfo;
 
@@ -64,36 +63,18 @@ enum ActionResult {
 
 /// Newport 1830-C Power Meter control panel
 pub struct PowerMeterControlPanel {
+    /// Common panel state (channels, errors, device_id, etc.)
+    panel_state: DevicePanelState<ActionResult>,
     state: MeterState,
     wavelength_input: String,
-    action_tx: mpsc::Sender<ActionResult>,
-    action_rx: mpsc::Receiver<ActionResult>,
-    actions_in_flight: usize,
-    error: Option<String>,
-    status: Option<String>,
-    device_id: Option<String>,
-    initial_fetch_done: bool,
-    /// Auto-refresh enabled
-    auto_refresh: bool,
-    /// Last refresh time for auto-refresh
-    last_refresh: Option<std::time::Instant>,
 }
 
 impl Default for PowerMeterControlPanel {
     fn default() -> Self {
-        let (action_tx, action_rx) = mpsc::channel(16);
         Self {
+            panel_state: DevicePanelState::new(),
             state: MeterState::default(),
             wavelength_input: "800".to_string(),
-            action_tx,
-            action_rx,
-            actions_in_flight: 0,
-            error: None,
-            status: None,
-            device_id: None,
-            initial_fetch_done: false,
-            auto_refresh: true,
-            last_refresh: None,
         }
     }
 }
@@ -148,8 +129,8 @@ impl PowerMeterControlPanel {
     }
 
     fn poll_results(&mut self) {
-        while let Ok(result) = self.action_rx.try_recv() {
-            self.actions_in_flight = self.actions_in_flight.saturating_sub(1);
+        while let Ok(result) = self.panel_state.action_rx.try_recv() {
+            self.panel_state.action_completed();
 
             match result {
                 ActionResult::ReadPower(result) => match result {
@@ -157,10 +138,10 @@ impl PowerMeterControlPanel {
                         let power_mw = Self::normalize_power_to_mw(power, &units);
                         self.state.power_mw = Some(power_mw);
                         self.state.loading = false;
-                        self.error = None; // Clear any previous error on success
+                        self.panel_state.error = None; // Clear any previous error on success
                     }
                     Err(e) => {
-                        self.error = Some(format!("Read failed: {}", e));
+                        self.panel_state.set_error(format!("Read failed: {}", e));
                         self.state.loading = false;
                     }
                 },
@@ -174,11 +155,10 @@ impl PowerMeterControlPanel {
                     Ok(wl) => {
                         self.state.wavelength_nm = Some(wl);
                         self.wavelength_input = format!("{:.0}", wl);
-                        self.status = Some(format!("Calibration wavelength set to {} nm", wl));
-                        self.error = None;
+                        self.panel_state.set_status(format!("Calibration wavelength set to {} nm", wl));
                     }
                     Err(e) => {
-                        self.error = Some(format!("Failed to set wavelength: {}", e));
+                        self.panel_state.set_error(format!("Failed to set wavelength: {}", e));
                     }
                 },
             }
@@ -190,9 +170,9 @@ impl PowerMeterControlPanel {
             return;
         };
 
-        self.actions_in_flight += 1;
+        self.panel_state.action_started();
         let mut client = client.clone();
-        let tx = self.action_tx.clone();
+        let tx = self.panel_state.action_tx.clone();
         let device_id = device_id.to_string();
 
         runtime.spawn(async move {
@@ -204,7 +184,7 @@ impl PowerMeterControlPanel {
             let _ = tx.send(ActionResult::ReadPower(result)).await;
         });
 
-        self.last_refresh = Some(std::time::Instant::now());
+        self.panel_state.mark_refreshed();
     }
 
     fn fetch_wavelength(
@@ -217,9 +197,9 @@ impl PowerMeterControlPanel {
             return;
         };
 
-        self.actions_in_flight += 1;
+        self.panel_state.action_started();
         let mut client = client.clone();
-        let tx = self.action_tx.clone();
+        let tx = self.panel_state.action_tx.clone();
         let device_id = device_id.to_string();
 
         runtime.spawn(async move {
@@ -239,13 +219,13 @@ impl PowerMeterControlPanel {
         wavelength_nm: f64,
     ) {
         let Some(client) = client else {
-            self.error = Some("Not connected".to_string());
+            self.panel_state.set_error("Not connected");
             return;
         };
 
-        self.actions_in_flight += 1;
+        self.panel_state.action_started();
         let mut client = client.clone();
-        let tx = self.action_tx.clone();
+        let tx = self.panel_state.action_tx.clone();
         let device_id = device_id.to_string();
 
         runtime.spawn(async move {
@@ -269,23 +249,18 @@ impl DeviceControlWidget for PowerMeterControlPanel {
         self.poll_results();
 
         let device_id = device.id.clone();
-        self.device_id = Some(device_id.clone());
+        self.panel_state.device_id = Some(device_id.clone());
 
         // Initial fetch
-        if !self.initial_fetch_done && client.is_some() {
-            self.initial_fetch_done = true;
+        if !self.panel_state.initial_fetch_done && client.is_some() {
+            self.panel_state.initial_fetch_done = true;
             tracing::info!("[PowerMeter] Initial fetch for device={}", device_id);
             self.read_power(client.as_deref_mut(), runtime, &device_id);
             self.fetch_wavelength(client.as_deref_mut(), runtime, &device_id);
         }
 
         // Auto-refresh logic
-        let should_refresh = self.auto_refresh
-            && self.actions_in_flight == 0
-            && self
-                .last_refresh
-                .map(|t| t.elapsed() >= Self::REFRESH_INTERVAL)
-                .unwrap_or(true);
+        let should_refresh = self.panel_state.should_refresh(Self::REFRESH_INTERVAL);
 
         if should_refresh && client.is_some() {
             tracing::debug!("[PowerMeter] Auto-refresh read for device={}", device_id);
@@ -300,15 +275,15 @@ impl DeviceControlWidget for PowerMeterControlPanel {
         // Header
         ui.horizontal(|ui| {
             ui.heading("⚡ Power Meter");
-            if self.state.loading || self.actions_in_flight > 0 {
+            if self.state.loading || self.panel_state.is_busy() {
                 ui.spinner();
             }
         });
 
-        if let Some(ref err) = self.error {
+        if let Some(ref err) = self.panel_state.error {
             ui.colored_label(egui::Color32::RED, err);
         }
-        if let Some(ref status) = self.status {
+        if let Some(ref status) = self.panel_state.status {
             ui.colored_label(egui::Color32::GREEN, status);
         }
 
@@ -363,7 +338,7 @@ impl DeviceControlWidget for PowerMeterControlPanel {
                 if let Ok(wl) = self.wavelength_input.parse::<f64>() {
                     self.set_wavelength(client.as_deref_mut(), runtime, &device_id, wl);
                 } else {
-                    self.error = Some("Invalid wavelength".to_string());
+                    self.panel_state.error = Some("Invalid wavelength".to_string());
                 }
             }
 
@@ -383,7 +358,7 @@ impl DeviceControlWidget for PowerMeterControlPanel {
 
         // Controls
         ui.horizontal(|ui| {
-            ui.checkbox(&mut self.auto_refresh, "Auto-refresh");
+            ui.checkbox(&mut self.panel_state.auto_refresh, "Auto-refresh");
 
             if ui.button("🔄 Read Now").clicked() {
                 self.read_power(client, runtime, &device_id);
@@ -391,7 +366,7 @@ impl DeviceControlWidget for PowerMeterControlPanel {
         });
 
         // Request repaint for auto-refresh
-        if self.auto_refresh || self.actions_in_flight > 0 {
+        if self.panel_state.auto_refresh || self.panel_state.is_busy() {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(100));
         }
