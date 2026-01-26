@@ -662,7 +662,7 @@ async fn test_safety_shutter_on_drop() {
     sleep(Duration::from_millis(500)).await;
 
     // Create new connection to verify shutter state
-    let driver = MaiTaiDriver::new_async(PORT).await.expect("Could not reconnect");
+    let driver = MaiTaiDriver::new_async_default(PORT).await.expect("Could not reconnect");
 
     // Note: MaiTai may not auto-close shutter on disconnect
     // This test documents the behavior
