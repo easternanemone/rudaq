@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 /// Error injection configuration for mock devices
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ErrorConfig {
     /// Per-operation failure rate (0.0 to 1.0)
     failure_rates: Arc<HashMap<&'static str, f64>>,
@@ -40,7 +40,7 @@ pub enum ErrorScenario {
     },
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct ErrorState {
     /// Operation counters for FailAfterN scenarios
     operation_counts: HashMap<&'static str, u32>,

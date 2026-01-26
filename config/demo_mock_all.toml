@@ -1,0 +1,39 @@
+# Demo configuration with all mock devices
+# This demonstrates the full mock driver system with all 6 device types
+
+[[devices]]
+id = "mock_camera"
+type = "mock_camera"
+enabled = true
+[devices.config]
+width = 1024
+height = 1024
+
+[[devices]]
+id = "mock_stage"
+type = "mock_stage"
+enabled = true
+
+[[devices]]
+id = "mock_power_meter"
+type = "mock_power_meter"
+enabled = true
+[devices.config]
+base_power = 0.001
+
+[[devices]]
+id = "mock_laser"
+type = "mock_laser"
+enabled = true
+
+[[devices]]
+id = "mock_rotator"
+type = "mock_rotator"
+enabled = true
+
+[[devices]]
+id = "mock_daq_ao"
+type = "mock_daq_output"
+enabled = true
+[devices.config]
+channel = 0
