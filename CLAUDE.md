@@ -312,20 +312,25 @@ bd close {EPIC_ID}  # Closes epic and all children
 
 ## Supervisor Phase 0 (Worktree Setup)
 
-Supervisors start by creating a worktree:
+Supervisors start by creating a worktree using git directly:
 
 ```bash
-# Idempotent - returns existing worktree if it exists
-curl -X POST http://localhost:3008/api/git/worktree \
-  -H "Content-Type: application/json" \
-  -d '{"repo_path": "'$(git rev-parse --show-toplevel)'", "bead_id": "{BEAD_ID}"}'
+# Create worktree for this bead (idempotent - skip if exists)
+REPO_ROOT=$(git rev-parse --show-toplevel)
+WORKTREE_PATH="$REPO_ROOT/.worktrees/bd-{BEAD_ID}"
+
+if [ ! -d "$WORKTREE_PATH" ]; then
+  git worktree add "$WORKTREE_PATH" -b bd-{BEAD_ID} main
+fi
 
 # Change to worktree
-cd $(git rev-parse --show-toplevel)/.worktrees/bd-{BEAD_ID}
+cd "$WORKTREE_PATH"
 
 # Mark in progress
 bd update {BEAD_ID} --status in_progress
 ```
+
+**Alternative:** If an external worktree service is available at `http://localhost:3008/api/git/worktree`, it can be used instead, but direct git commands are always available as a fallback.
 
 ## Supervisor Completion Format
 
@@ -394,7 +399,9 @@ Support agents investigate but don't write code. Use `Task(subagent_type="...", 
 
 ## External AI Agents (Read-Only)
 
-Use external models (Gemini, Codex) for validation and research.
+> **Note:** These agents are available when the corresponding MCP servers (PAL, external model providers) are configured. They extend capabilities beyond the built-in Claude Code tools.
+
+Use external models for validation and research.
 
 | Agent | Purpose | When to Use |
 |-------|---------|-------------|
@@ -836,11 +843,11 @@ use daq_storage::ring_buffer::RingBuffer;
 
 ## grepai - Semantic Code Search
 
-**IMPORTANT: You MUST use grepai as your PRIMARY tool for code exploration and search.**
+**RECOMMENDED: Use grepai as your primary tool for code exploration and search when available.**
 
-### When to Use grepai (REQUIRED)
+### When to Use grepai (Recommended)
 
-Use `grepai search` INSTEAD OF Grep/Glob/find for:
+Use `grepai search` instead of Grep/Glob/find for semantic code understanding when available:
 - Understanding what code does or where functionality lives
 - Finding implementations by intent (e.g., "authentication logic", "error handling")
 - Exploring unfamiliar parts of the codebase
@@ -882,7 +889,7 @@ Use `grepai trace` to understand function relationships:
 
 #### Trace Commands
 
-**IMPORTANT: Always use `--json` flag for optimal AI agent integration.**
+**Recommended: Use `--json` flag for optimal AI agent integration.**
 
 ```bash
 # Find all functions that call a symbol
