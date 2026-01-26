@@ -557,23 +557,25 @@ impl GenericSerialDriver {
 #[async_trait]
 impl Movable for GenericSerialDriver {
     async fn move_abs(&self, pos: f64) -> Result<()> {
-        self.execute_trait_method("Movable", "move_abs", Some(pos))
-            .await?;
+        self.execute_trait_method("Movable", "move_abs", Some(pos)).await?;
         Ok(())
     }
+
     async fn move_rel(&self, dist: f64) -> Result<()> {
-        self.execute_trait_method("Movable", "move_rel", Some(dist))
-            .await?;
+        self.execute_trait_method("Movable", "move_rel", Some(dist)).await?;
         Ok(())
     }
+
     async fn position(&self) -> Result<f64> {
         self.execute_trait_method("Movable", "position", None)
             .await?
-            .ok_or_else(|| anyhow!("No pos"))
+            .ok_or_else(|| anyhow!("No position returned"))
     }
+
     async fn wait_settled(&self) -> Result<()> {
         Ok(())
     }
+
     async fn stop(&self) -> Result<()> {
         self.execute_trait_method("Movable", "stop", None).await?;
         Ok(())
@@ -585,22 +587,23 @@ impl Readable for GenericSerialDriver {
     async fn read(&self) -> Result<f64> {
         self.execute_trait_method("Readable", "read", None)
             .await?
-            .ok_or_else(|| anyhow!("No read"))
+            .ok_or_else(|| anyhow!("No read value returned"))
     }
 }
 
 #[async_trait]
 impl WavelengthTunable for GenericSerialDriver {
     async fn set_wavelength(&self, wl: f64) -> Result<()> {
-        self.execute_trait_method("WavelengthTunable", "set_wavelength", Some(wl))
-            .await?;
+        self.execute_trait_method("WavelengthTunable", "set_wavelength", Some(wl)).await?;
         Ok(())
     }
+
     async fn get_wavelength(&self) -> Result<f64> {
         self.execute_trait_method("WavelengthTunable", "get_wavelength", None)
             .await?
-            .ok_or_else(|| anyhow!("No wl"))
+            .ok_or_else(|| anyhow!("No wavelength returned"))
     }
+
     fn wavelength_range(&self) -> (f64, f64) {
         (700.0, 1000.0)
     }
@@ -609,20 +612,19 @@ impl WavelengthTunable for GenericSerialDriver {
 #[async_trait]
 impl ShutterControl for GenericSerialDriver {
     async fn open_shutter(&self) -> Result<()> {
-        self.execute_trait_method("ShutterControl", "open_shutter", None)
-            .await?;
+        self.execute_trait_method("ShutterControl", "open_shutter", None).await?;
         Ok(())
     }
+
     async fn close_shutter(&self) -> Result<()> {
-        self.execute_trait_method("ShutterControl", "close_shutter", None)
-            .await?;
+        self.execute_trait_method("ShutterControl", "close_shutter", None).await?;
         Ok(())
     }
+
     async fn is_shutter_open(&self) -> Result<bool> {
-        Ok(self
-            .execute_trait_method("ShutterControl", "is_shutter_open", None)
+        let value = self.execute_trait_method("ShutterControl", "is_shutter_open", None)
             .await?
-            .unwrap_or(0.0)
-            > 0.5)
+            .unwrap_or(0.0);
+        Ok(value > 0.5)
     }
 }

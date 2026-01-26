@@ -78,7 +78,7 @@ use daq_core::capabilities::{
     Settable, ShutterControl, Stageable, Triggerable, WavelengthTunable,
 };
 use daq_core::data::Frame;
-use daq_core::driver::{DeviceComponents, DeviceLifecycle, DriverFactory};
+use daq_core::driver::{Capability, DeviceComponents, DeviceLifecycle, DriverFactory};
 use daq_core::error::DaqError;
 use daq_core::pipeline::MeasurementSource;
 
@@ -302,34 +302,6 @@ fn validate_ell14_address(address: &str) -> Result<(), DaqError> {
 pub type DeviceId = String;
 
 /// Capabilities a device can have (for introspection)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Capability {
-    /// Can move to positions (stages, rotation mounts)
-    Movable,
-    /// Can read scalar values (power meters, temperature sensors)
-    Readable,
-    /// Can be armed and triggered (cameras, pulse generators)
-    Triggerable,
-    /// Produces image frames (cameras)
-    FrameProducer,
-    /// Has exposure/integration time control
-    ExposureControl,
-    /// Has settable parameters (QCodes/ScopeFoundry pattern)
-    Settable,
-    /// Has shutter control (lasers) - bd-pwjo
-    ShutterControl,
-    /// Has wavelength tuning (tunable lasers) - bd-pwjo
-    WavelengthTunable,
-    /// Has emission on/off control (lasers) - bd-pwjo
-    EmissionControl,
-    /// Can execute structured JSON commands - bd-cdh5.4
-    Commandable,
-    /// Can be staged/unstaged for acquisition sequences (Bluesky pattern) - bd-7aq6
-    Stageable,
-    /// Has observable parameters with subscriptions (Parameterized trait)
-    Parameterized,
-}
-
 // =============================================================================
 // Driver Types (Configuration)
 // =============================================================================
