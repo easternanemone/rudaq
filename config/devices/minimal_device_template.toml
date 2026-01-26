@@ -1,0 +1,85 @@
+# config/devices/minimal_device_template.toml
+# ============================================================================
+# MINIMAL DEVICE CONFIG TEMPLATE
+# ============================================================================
+#
+# This template shows ONLY the required fields for a GenericSerialDriver config.
+# Copy this file and add sections as needed for your device.
+#
+# For a comprehensive example with ALL available options, see:
+#   config/devices/sample_temperature_controller.toml
+
+# ==============================================================================
+# REQUIRED: Device Identity
+# ==============================================================================
+
+[device]
+name = "My Device"                    # Human-readable name (REQUIRED)
+protocol = "my_protocol"              # Unique protocol identifier (REQUIRED)
+
+# Optional identity fields (uncomment as needed):
+# description = "Device description"
+# manufacturer = "Manufacturer Name"
+# model = "Model Number"
+# category = "other"                  # stage, sensor, source, detector, modulator, analyzer, data_acquisition, other
+# capabilities = ["Readable"]         # Movable, Readable, Settable, ShutterControl, WavelengthTunable, etc.
+
+# ==============================================================================
+# REQUIRED: Connection Settings
+# ==============================================================================
+
+[connection]
+type = "serial"                       # REQUIRED: serial, rs485, tcp, udp
+
+# All other settings have sensible defaults:
+# baud_rate = 9600
+# data_bits = 8
+# parity = "none"
+# stop_bits = 1
+# flow_control = "none"
+# timeout_ms = 1000
+# terminator_tx = ""
+# terminator_rx = "\r\n"
+
+# ==============================================================================
+# OPTIONAL: Add commands as needed
+# ==============================================================================
+
+# Simplest command (no parameters, no response parsing):
+# [commands.identify]
+# template = "*IDN?"
+# expects_response = true
+
+# Command with parameter:
+# [commands.set_value]
+# template = "SET ${value}"
+# parameters = { value = "float" }
+# expects_response = false
+
+# ==============================================================================
+# OPTIONAL: Add response parsing as needed
+# ==============================================================================
+
+# Simple response with one value:
+# [responses.reading]
+# pattern = "^(?P<value>[+-]?\\d+\\.?\\d*)$"
+# [responses.reading.fields.value]
+# type = "float"
+
+# ==============================================================================
+# That's it! Everything else is optional.
+# ==============================================================================
+#
+# Optional sections you can add:
+#
+# [parameters.*]       - Device parameters with types, ranges, defaults
+# [conversions.*]      - Unit conversion formulas (evalexpr syntax)
+# [error_codes.*]      - Error code mapping with recovery actions
+# [validation.*]       - Parameter validation rules
+# [trait_mapping.*]    - Map trait methods to commands
+# [[init_sequence]]    - Commands to run on connect
+# [scripts.*]          - Rhai scripts for complex operations
+# [ui]                 - Control panel configuration
+# [default_retry]      - Default retry behavior
+# [binary_commands.*]  - Binary protocol commands (Modbus, etc.)
+# [binary_responses.*] - Binary response parsing
