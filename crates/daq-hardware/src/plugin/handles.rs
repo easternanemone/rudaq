@@ -455,15 +455,40 @@ impl ExposureControl for PluginExposureControlHandle {
 ///
 /// Implements the `FrameProducer` trait by delegating to the underlying `GenericDriver`.
 ///
-/// # Example
+/// # Example: Primary Consumer (Pooled Frames)
 ///
 /// ```rust,ignore
+/// use daq_core::capabilities::FrameProducer;
+///
 /// let handle = PluginFrameProducerHandle::new(driver.clone(), false);
-/// let rx = handle.subscribe_frames().await.unwrap();
+/// let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+/// handle.register_primary_output(tx).await?;
 /// handle.start_stream().await?;
-/// while let Ok(frame) = rx.recv().await {
+/// while let Some(frame) = rx.recv().await {
 ///     println!("Frame: {}x{}", frame.width, frame.height);
+///     // LoanedFrame automatically returns to pool on drop
 /// }
+/// handle.stop_stream().await?;
+/// ```
+///
+/// # Example: Secondary Observer (Taps)
+///
+/// ```rust,ignore
+/// use daq_core::capabilities::{FrameProducer, FrameObserver};
+/// use daq_core::data::FrameView;
+///
+/// struct MyObserver;
+/// impl FrameObserver for MyObserver {
+///     fn on_frame(&self, frame: &FrameView<'_>) {
+///         println!("Tap: {}x{}", frame.width, frame.height);
+///     }
+/// }
+///
+/// let handle = PluginFrameProducerHandle::new(driver.clone(), false);
+/// let observer_handle = handle.register_observer(Box::new(MyObserver)).await?;
+/// handle.start_stream().await?;
+/// // MyObserver::on_frame() called for each frame
+/// handle.unregister_observer(observer_handle).await?;
 /// handle.stop_stream().await?;
 /// ```
 pub struct PluginFrameProducerHandle {

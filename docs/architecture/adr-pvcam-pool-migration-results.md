@@ -1,9 +1,10 @@
 # ADR: PVCAM Memory Pool Migration Results
 
-**Status:** Implemented
+**Status:** Migration Complete
 **Date:** 2026-01-17
 **Author:** Architecture Review
 **Related Issues:** bd-0dax (epic), bd-0dax.7.4
+**Last Updated:** 2026-01-26
 
 ---
 
@@ -260,13 +261,17 @@ See [ADR: Buffer Pool Error Handling Strategy](adr-pool-error-handling.md) for d
 
 ---
 
-## Remaining Work
+## Status Summary
 
-1. **Wire primary_tx in frame loops (bd-5oss)**: The `register_primary_output()` API is defined but needs integration into the PVCAM frame acquisition loop.
+The migration from deprecated `subscribe_frames()` to the new pooled frame APIs is complete across the codebase:
 
-2. **Hardware validation on maitai (bd-0dax.7.2)**: Full test matrix execution on real PVCAM hardware to verify zero-allocation behavior under load.
+1. **Primary frame delivery (bd-0dax.5)**: `register_primary_output()` is fully integrated into PVCAM and generic driver frame loops, delivering `LoanedFrame` ownership to primary consumers.
 
-3. **Allocation benchmarks (bd-0dax.7.1)**: Criterion benchmarks comparing old vs new allocation patterns.
+2. **Frame observers/taps (bd-0dax.4)**: `register_observer()` and `unregister_observer()` provide non-blocking secondary access via `FrameView` references for monitoring, experiment capture, and UI preview.
+
+3. **Deprecation warnings**: The old `subscribe_frames()` and `take_frame_receiver()` methods are marked deprecated and documented to use the new APIs instead.
+
+4. **Documentation updated**: All docstrings, examples, and guides reference the new zero-allocation APIs.
 
 ---
 

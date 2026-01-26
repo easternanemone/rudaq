@@ -400,19 +400,24 @@ pub type LoanedFrame = daq_pool::Loaned<daq_pool::FrameData>;
 /// # Contract
 /// - `start_stream()` begins continuous acquisition
 /// - `stop_stream()` halts acquisition
-/// - Frames are delivered via `register_primary_output()` channel (preferred)
+/// - Frames are delivered via `register_primary_output()` (primary consumer) or `register_observer()` (secondary consumers)
 /// - `resolution()` is immutable (cannot be changed via this trait)
 ///
 /// # Frame Delivery
 ///
-/// ## Preferred: `register_primary_output()` (zero-allocation)
+/// ## Recommended: `register_primary_output()` (zero-allocation, single primary consumer)
 /// Call `register_primary_output()` BEFORE `start_stream()` to register a channel
 /// that will receive `LoanedFrame` objects with ownership. The primary consumer
-/// owns the frames and controls when they return to the pool.
+/// owns frames and controls when they return to the pre-allocated pool.
 ///
-/// ## Legacy: `subscribe_frames()` (deprecated)
-/// Returns a broadcast receiver for `Arc<Frame>`. Multiple subscribers receive
-/// the same frames but with heap allocation overhead.
+/// ## Secondary: `register_observer()` (zero-copy, multiple tap consumers)
+/// Register frame observers that receive borrowed `FrameView<'_>` references for
+/// non-blocking secondary access. Observers must NOT block and should copy data
+/// if persistence is needed. Multiple observers can be registered concurrently.
+///
+/// ## Legacy: `subscribe_frames()` (deprecated - do not use)
+/// Returns a broadcast receiver for `Arc<Frame>`. Deprecated in favor of
+/// `register_primary_output()` which provides better performance through pooling.
 #[async_trait]
 pub trait FrameProducer: Send + Sync {
     /// Start continuous frame acquisition
@@ -465,7 +470,7 @@ pub trait FrameProducer: Send + Sync {
 
     /// Take the frame receiver for consuming streamed frames
     ///
-    /// **DEPRECATED**: Use `subscribe_frames()` instead for multi-subscriber support.
+    /// **DEPRECATED**: Use `register_primary_output()` instead for zero-allocation pooled frames.
     ///
     /// This can only be called once - subsequent calls return None.
     /// Call this BEFORE `start_stream()` to receive frames.
@@ -475,7 +480,7 @@ pub trait FrameProducer: Send + Sync {
     /// - None if receiver was already taken or not supported by this device
     #[deprecated(
         since = "0.2.0",
-        note = "Use subscribe_frames() for multi-subscriber support"
+        note = "Use register_primary_output() for zero-allocation pooled frame delivery"
     )]
     async fn take_frame_receiver(&self) -> Option<tokio::sync::mpsc::Receiver<crate::data::Frame>> {
         // Default: no frame receiver support
@@ -484,28 +489,56 @@ pub trait FrameProducer: Send + Sync {
 
     /// Subscribe to the frame stream
     ///
-    /// **DEPRECATED**: Use `register_primary_output()` for zero-allocation pooled frames.
-    /// This method will be removed in a future release.
+    /// **DEPRECATED**: Use `register_primary_output()` for zero-allocation pooled frames,
+    /// or `register_observer()` for secondary frame access. This method will be removed
+    /// in a future release.
     ///
     /// Returns a broadcast receiver that will receive `Arc<Frame>` for each captured frame.
-    /// Multiple subscribers can receive the same frames without copying pixel data.
+    /// Multiple subscribers can receive the same frames but with heap allocation overhead.
     /// Can be called multiple times to create additional subscribers.
     ///
     /// # Returns
     /// - Some(receiver) if subscription succeeded
     /// - None if streaming is not supported by this device
     ///
-    /// # Example
+    /// # Migration Guide
+    ///
+    /// **For primary consumers (owns frames):**
     /// ```rust,ignore
+    /// // Old (deprecated): broadcast with Arc allocation
     /// let rx = camera.subscribe_frames().await?;
     /// while let Ok(frame) = rx.recv().await {
-    ///     // Process Arc<Frame> without copying pixel data
+    ///     println!("Frame: {}x{}", frame.width, frame.height);
+    /// }
+    ///
+    /// // New (recommended): pooled frames with zero allocation
+    /// let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+    /// camera.register_primary_output(tx).await?;
+    /// camera.start_stream().await?;
+    /// while let Some(frame) = rx.recv().await {
+    ///     // LoanedFrame - from pre-allocated pool, auto-returned on drop
     ///     println!("Frame: {}x{}", frame.width, frame.height);
     /// }
     /// ```
+    ///
+    /// **For secondary consumers (observers only):**
+    /// ```rust,ignore
+    /// // Old (deprecated): multiple broadcast receivers with allocation
+    /// let rx = camera.subscribe_frames().await?;
+    ///
+    /// // New (recommended): register observer for non-blocking tap
+    /// struct MyObserver;
+    /// impl FrameObserver for MyObserver {
+    ///     fn on_frame(&self, frame: &FrameView<'_>) {
+    ///         // Process frame without copying
+    ///         println!("Tap: {}x{}", frame.width, frame.height);
+    ///     }
+    /// }
+    /// let handle = camera.register_observer(Box::new(MyObserver)).await?;
+    /// ```
     #[deprecated(
         since = "0.3.0",
-        note = "Use register_primary_output() for zero-allocation pooled frames"
+        note = "Use register_primary_output() for primary consumers or register_observer() for secondary access"
     )]
     async fn subscribe_frames(
         &self,
