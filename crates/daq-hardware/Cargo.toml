@@ -71,6 +71,10 @@ optional = true
 path = "../daq-driver-red-pitaya"
 optional = true
 
+[dependencies.daq-driver-generic]
+path = "../daq-driver-generic"
+optional = true
+
 [dev-dependencies]
 tempfile = "3.10"
 
@@ -101,6 +105,7 @@ newport = ["serial", "dep:daq-driver-newport"]            # Newport stages
 spectra_physics = ["serial", "dep:daq-driver-spectra-physics"]    # Spectra-Physics lasers
 newport_power_meter = ["newport"] # Newport 1830-C power meter (included in newport)
 red_pitaya = ["dep:daq-driver-red-pitaya"]      # Red Pitaya PID controller
+generic = ["dep:daq-driver-generic"] # Config-driven generic driver
 
 # PVCAM camera support
 pvcam = ["dep:daq-driver-pvcam"]                           # Mock driver (fast compile)
@@ -112,7 +117,7 @@ comedi = ["dep:daq-driver-comedi"]                         # Mock driver (fast c
 comedi_hardware = ["comedi", "daq-driver-comedi/hardware"] # Real hardware (requires comedilib)
 
 # Convenience feature: all hardware drivers (with mock PVCAM and Comedi)
-all_hardware = ["thorlabs", "newport", "spectra_physics", "newport_power_meter", "pvcam", "comedi", "red_pitaya"]
+all_hardware = ["thorlabs", "newport", "spectra_physics", "newport_power_meter", "pvcam", "comedi", "red_pitaya", "generic"]
 
 # Full feature set
 full = ["all_hardware", "simulator"]

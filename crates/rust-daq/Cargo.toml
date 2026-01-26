@@ -38,6 +38,7 @@ daq-driver-thorlabs = { path = "../daq-driver-thorlabs", optional = true }
 daq-driver-newport = { path = "../daq-driver-newport", optional = true }
 daq-driver-spectra-physics = { path = "../daq-driver-spectra-physics", optional = true }
 daq-driver-comedi = { path = "../daq-driver-comedi", optional = true }
+daq-driver-generic = { path = "../daq-driver-generic", optional = true }
 
 # Memory Allocator (Microsoft Rust Guidelines: M-MIMALLOC-APPS)
 # mimalloc removed (moved to daq-bin)
@@ -170,6 +171,7 @@ thorlabs = ["serial", "dep:daq-driver-thorlabs", "daq-hardware/thorlabs"]
 newport = ["serial", "dep:daq-driver-newport", "daq-hardware/newport"]
 spectra_physics = ["serial", "dep:daq-driver-spectra-physics", "daq-hardware/spectra_physics"]
 newport_power_meter = ["newport"]
+generic = ["serial", "dep:daq-driver-generic", "daq-hardware/generic"]
 
 # PVCAM camera support
 pvcam = ["serial", "daq-hardware/pvcam"]
@@ -181,7 +183,7 @@ comedi = ["dep:daq-driver-comedi", "daq-hardware/comedi", "daq-server/comedi"]
 comedi_hardware = ["comedi", "daq-driver-comedi/hardware", "daq-hardware/comedi_hardware", "daq-server/comedi_hardware"]
 
 # All hardware drivers (with mock PVCAM and Comedi)
-all_hardware = ["thorlabs", "newport", "spectra_physics", "newport_power_meter", "pvcam", "comedi"]
+all_hardware = ["thorlabs", "newport", "spectra_physics", "newport_power_meter", "pvcam", "comedi", "generic"]
 
 # Networking and server
 networking = []
