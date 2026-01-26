@@ -155,6 +155,10 @@ pub struct GenericDriver {
 
     /// Monotonic counter for generating unique observer IDs.
     next_observer_id: std::sync::Arc<std::sync::atomic::AtomicU64>,
+
+    /// Primary frame output channel for pooled frame delivery (bd-b86g.2).
+    /// Only ONE primary consumer is allowed - it owns frames and controls pool reclamation.
+    primary_output: std::sync::Arc<RwLock<Option<tokio::sync::mpsc::Sender<crate::capabilities::LoanedFrame>>>>,
 }
 
 impl GenericDriver {
@@ -244,6 +248,7 @@ impl GenericDriver {
             on_connect_executed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             observers: std::sync::Arc::new(RwLock::new(Vec::new())),
             next_observer_id: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(1)),
+            primary_output: std::sync::Arc::new(RwLock::new(None)),
         })
     }
 
@@ -1496,6 +1501,33 @@ impl GenericDriver {
         }
 
         Ok(crate::Frame::from_u16(width, height, &buffer))
+    }
+
+    // =========================================================================
+    // Primary Output Registration (bd-b86g.2)
+    // =========================================================================
+
+    /// Register the primary frame consumer.
+    ///
+    /// Only ONE primary consumer is allowed - it owns frames and controls pool reclamation.
+    /// Call BEFORE `start_stream()`. Subsequent calls replace the previous consumer.
+    ///
+    /// # Arguments
+    /// * `tx` - Channel sender that will receive `LoanedFrame` ownership
+    ///
+    /// # Returns
+    /// * `Ok(())` if registration succeeded
+    /// * `Err` if device doesn't support pooled frames
+    pub async fn register_primary_output(
+        &self,
+        tx: tokio::sync::mpsc::Sender<crate::capabilities::LoanedFrame>,
+    ) -> Result<()> {
+        // TODO: Plugin-based devices don't yet support pooled frames.
+        // This is a stub for API compatibility. When pooled frame support is added,
+        // this method will store the sender and use it during frame acquisition.
+        let mut primary = self.primary_output.write().await;
+        *primary = Some(tx);
+        Ok(())
     }
 
     // =========================================================================

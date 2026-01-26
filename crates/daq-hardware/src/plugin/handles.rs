@@ -520,6 +520,28 @@ impl FrameProducer for PluginFrameProducerHandle {
     fn frame_count(&self) -> u64 {
         self.driver.frame_count()
     }
+
+    async fn register_primary_output(
+        &self,
+        tx: tokio::sync::mpsc::Sender<crate::capabilities::LoanedFrame>,
+    ) -> Result<()> {
+        self.driver.register_primary_output(tx).await
+    }
+
+    async fn register_observer(
+        &self,
+        observer: Box<dyn crate::capabilities::FrameObserver>,
+    ) -> Result<crate::capabilities::ObserverHandle> {
+        self.driver.register_observer(observer).await
+    }
+
+    async fn unregister_observer(&self, handle: crate::capabilities::ObserverHandle) -> Result<()> {
+        self.driver.unregister_observer(handle).await
+    }
+
+    fn supports_observers(&self) -> bool {
+        self.driver.supports_observers()
+    }
 }
 
 // =============================================================================
