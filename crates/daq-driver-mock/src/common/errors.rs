@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 /// Error injection configuration for mock devices
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ErrorConfig {
     /// Per-operation failure rate (0.0 to 1.0)
     failure_rates: Arc<HashMap<&'static str, f64>>,
@@ -24,16 +24,23 @@ pub struct ErrorConfig {
 #[derive(Debug, Clone)]
 pub enum ErrorScenario {
     /// Fail after N successful operations
-    FailAfterN { operation: &'static str, count: u32 },
+    FailAfterN {
+        operation: &'static str,
+        count: u32,
+    },
     /// Timeout on specific operation
-    Timeout { operation: &'static str },
+    Timeout {
+        operation: &'static str,
+    },
     /// Simulate communication loss
     CommunicationLoss,
     /// Hardware fault with specific code
-    HardwareFault { code: u32 },
+    HardwareFault {
+        code: u32,
+    },
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct ErrorState {
     /// Operation counters for FailAfterN scenarios
     operation_counts: HashMap<&'static str, u32>,
@@ -139,7 +146,9 @@ impl ErrorConfig {
                         ));
                     }
                 }
-                ErrorScenario::Timeout { operation: op } if *op == operation => {
+                ErrorScenario::Timeout {
+                    operation: op,
+                } if *op == operation => {
                     return Err(DriverError::new(
                         driver_type,
                         DriverErrorKind::Timeout,
@@ -189,9 +198,7 @@ impl ErrorConfig {
         }
 
         // Increment operation counter for FailAfterN tracking
-        if self.scenarios.iter().any(
-            |s| matches!(s, ErrorScenario::FailAfterN { operation: op, .. } if *op == operation),
-        ) {
+        if self.scenarios.iter().any(|s| matches!(s, ErrorScenario::FailAfterN { operation: op, .. } if *op == operation)) {
             state.operation_counts.entry(operation).or_insert(0);
         }
 
@@ -233,11 +240,7 @@ mod tests {
             }
         }
         // Expect roughly 50% failures
-        assert!(
-            failures > 400 && failures < 600,
-            "Got {} failures",
-            failures
-        );
+        assert!(failures > 400 && failures < 600, "Got {} failures", failures);
     }
 
     #[test]
@@ -268,7 +271,9 @@ mod tests {
 
     #[test]
     fn test_timeout_scenario() {
-        let config = ErrorConfig::scenario(ErrorScenario::Timeout { operation: "move" });
+        let config = ErrorConfig::scenario(ErrorScenario::Timeout {
+            operation: "move",
+        });
 
         let result = config.check_operation("test_driver", "move");
         assert!(result.is_err());
@@ -336,7 +341,9 @@ mod tests {
                 operation: "read",
                 count: 2,
             },
-            ErrorScenario::Timeout { operation: "move" },
+            ErrorScenario::Timeout {
+                operation: "move",
+            },
         ]);
 
         // Read should work twice

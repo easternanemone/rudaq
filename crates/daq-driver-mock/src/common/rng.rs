@@ -72,6 +72,14 @@ impl Default for MockRng {
     }
 }
 
+impl std::fmt::Debug for MockRng {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MockRng")
+            .field("inner", &"<Mutex<ChaCha8Rng>>")
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
