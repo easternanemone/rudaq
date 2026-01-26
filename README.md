@@ -144,12 +144,27 @@ See [**Testing Guide**](docs/guides/testing.md) for comprehensive testing docume
 
 ## 📚 Documentation
 
--   [**Demo Mode Guide**](DEMO.md): Try rust-daq without hardware in 30 seconds.
--   [**Testing Guide**](docs/guides/testing.md): Test runner setup, timing tests, hardware validation.
--   [**System Architecture**](docs/architecture/ARCHITECTURE.md): Detailed breakdown of system design.
--   [**Feature Matrix**](docs/architecture/FEATURE_MATRIX.md): Guide to cargo features and build profiles.
--   [**Benchmarks**](docs/benchmarks/tee.md): Tee pipeline throughput/latency numbers and how to run `tee_bench` (see CI artifact `tee-bench-*` for latest sample outputs).
--   [**Platform Notes**](docs/troubleshooting/PLATFORM_NOTES.md): Linux (Wayland/X11), macOS, and Windows-specific setup.
+**[📖 Documentation Hub](docs/README.md)** - Complete navigation guide to all documentation.
+
+### Quick Links
+
+| Category | Resource |
+|----------|----------|
+| **Getting Started** | [Demo Mode Guide](DEMO.md) - Try without hardware |
+| **User Guides** | [Scripting Guide](docs/guides/scripting.md) · [Storage Formats](docs/guides/storage-formats.md) |
+| **Developer Guides** | [Hardware Drivers](docs/guides/hardware-drivers.md) · [Testing Guide](docs/guides/testing.md) |
+| **Architecture** | [System Architecture](docs/architecture/ARCHITECTURE.md) · [Feature Matrix](docs/architecture/FEATURE_MATRIX.md) |
+
+### Crate Documentation
+
+| Crate | Purpose |
+|-------|---------|
+| [daq-core](crates/daq-core/README.md) | Foundation types, parameters, error handling |
+| [daq-hardware](crates/daq-hardware/README.md) | Hardware abstraction, capability traits |
+| [daq-scripting](crates/daq-scripting/README.md) | Rhai scripting engine bindings |
+| [daq-server](crates/daq-server/README.md) | gRPC services and client examples |
+
+See the [Documentation Hub](docs/README.md) for the complete list of all crate READMEs and guides.
 
 ## 📄 License
 
