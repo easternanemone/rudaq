@@ -849,7 +849,7 @@ mod hardware_tests {
         println!("Hardware Test: Wavelength Get/Set on {}", port_name);
 
         // Create driver
-        let meter = Newport1830CDriver::new(&port_name).expect("Failed to open port");
+        let meter = Newport1830CDriver::new_async(&port_name).await.expect("Failed to open port");
 
         // Query initial wavelength
         let initial_wavelength = meter
@@ -901,7 +901,7 @@ mod hardware_tests {
         let port_name = get_serial_port();
         println!("Hardware Test: Range and Units Query on {}", port_name);
 
-        let meter = Newport1830CDriver::new(&port_name).expect("Failed to open port");
+        let meter = Newport1830CDriver::new_async(&port_name).await.expect("Failed to open port");
 
         // Query range
         let range = meter.query_range().await.expect("Failed to query range");
@@ -936,7 +936,7 @@ mod hardware_tests {
         let port_name = get_serial_port();
         println!("Hardware Test: WavelengthTunable Trait on {}", port_name);
 
-        let meter = Newport1830CDriver::new(&port_name).expect("Failed to open port");
+        let meter = Newport1830CDriver::new_async(&port_name).await.expect("Failed to open port");
 
         // Test wavelength_range()
         let (min, max) = meter.wavelength_range();
