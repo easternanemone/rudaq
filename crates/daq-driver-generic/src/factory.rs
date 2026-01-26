@@ -1,5 +1,5 @@
 use crate::driver::{GenericSerialDriver, SharedPort};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use daq_plugin_api::config::InstrumentConfig;
 use daq_core::driver::{
     Capability as CoreCapability,

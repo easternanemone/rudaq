@@ -4,7 +4,7 @@
 //! configurations at runtime, enabling new devices to be added without code changes.
 
 use daq_core::capabilities::{Movable, Readable, ShutterControl, WavelengthTunable};
-use daq_plugin_api::config::{InstrumentConfig, DeviceConfig, ErrorSeverity, ResponseFieldType, RetryConfig, ConnectionType};
+use daq_plugin_api::config::{InstrumentConfig, ErrorSeverity, ResponseFieldType};
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use evalexpr::{eval_number_with_context, HashMapContext, Value, ContextWithMutableVariables};
@@ -19,7 +19,6 @@ static INTERPOLATION_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\{([^}]+)\}").expect("Invalid interpolation regex"));
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::Mutex;
-use tracing::{debug, instrument, trace, warn};
 
 // Rhai scripting support (optional)
 #[cfg(feature = "scripting")]
@@ -239,28 +238,29 @@ impl GenericSerialDriver {
         placeholder: &str,
         params: &HashMap<String, f64>,
     ) -> Result<String> {
+        // Check for format specifier
         if let Some((name, format)) = placeholder.split_once(':') {
             let value = self.get_param_value(name, params).await?;
             self.format_value(value, format)
         } else {
-            let value = self.get_param_value(placeholder, params).await?;
+            // Special handling for address (string parameter) - check BEFORE get_param_value
             if placeholder == "address" {
                 Ok(self.address.clone())
             } else {
+                let value = self.get_param_value(placeholder, params).await?;
                 Ok(value.to_string())
             }
         }
     }
 
     async fn get_param_value(&self, name: &str, params: &HashMap<String, f64>) -> Result<f64> {
+        // Check provided params first
         if let Some(&value) = params.get(name) {
             return Ok(value);
         }
+        // Fall back to stored parameters
         if let Some(value) = self.get_parameter(name).await {
             return Ok(value);
-        }
-        if name == "address" {
-            return self.address.parse().map_err(|_| anyhow!("Address not numeric: {}", self.address));
         }
         Err(anyhow!("Parameter not found: {}", name))
     }
@@ -363,6 +363,23 @@ impl GenericSerialDriver {
     }
 
     pub async fn run_init_sequence(&self) -> Result<()> { Ok(()) }
+
+    /// Check if a response contains a device error code.
+    /// Returns `Some(DeviceError)` if an error is detected, `None` otherwise.
+    pub fn check_for_error(&self, response: &str) -> Option<DeviceError> {
+        for (code, error_config) in &self.config.error_codes {
+            if response.contains(code) {
+                return Some(DeviceError {
+                    code: code.clone(),
+                    name: error_config.name.clone(),
+                    description: error_config.description.clone(),
+                    severity: error_config.severity,
+                    recoverable: error_config.recoverable,
+                });
+            }
+        }
+        None
+    }
 
     pub async fn execute_trait_method(&self, trait_name: &str, method_name: &str, input_value: Option<f64>) -> Result<Option<f64>> {
         let trait_mapping = self.config.trait_mapping.traits.get(trait_name).or_else(|| {

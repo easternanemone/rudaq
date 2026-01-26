@@ -29,5 +29,9 @@ optional = true
 default = []
 scripting = ["dep:rhai"]
 
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "io-util", "sync"] }
+tempfile = "3"
+
 [lints]
 workspace = true
