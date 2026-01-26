@@ -10,10 +10,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use egui::Ui;
 use tokio::runtime::Runtime;
-use tokio::sync::mpsc;
 
 use crate::client::DaqClient;
-use crate::widgets::device_controls::DeviceControlWidget;
+use crate::widgets::device_controls::{DeviceControlWidget, DevicePanelState};
 use daq_proto::daq::DeviceInfo;
 
 /// Global counter for unique panel instance IDs (for diagnostic logging)
@@ -37,45 +36,26 @@ enum ActionResult {
 pub struct RotatorControlPanel {
     /// Unique instance ID for diagnostic logging (identifies duplicate panels)
     panel_instance_id: u64,
+    /// Common panel state (channels, errors, device_id, etc.)
+    panel_state: DevicePanelState<ActionResult>,
     state: RotatorState,
     position_input: String,
-    action_tx: mpsc::Sender<ActionResult>,
-    action_rx: mpsc::Receiver<ActionResult>,
-    /// User-initiated actions in flight (move, home) - disables controls
-    actions_in_flight: usize,
     /// Status refresh request in flight - does NOT disable controls
     refresh_in_flight: bool,
-    error: Option<String>,
-    status: Option<String>,
-    device_id: Option<String>,
-    initial_fetch_done: bool,
-    /// Auto-refresh enabled
-    auto_refresh: bool,
-    /// Last refresh time for auto-refresh
-    last_refresh: Option<std::time::Instant>,
     /// Last command time for debouncing rapid clicks
     last_command_time: Option<std::time::Instant>,
 }
 
 impl Default for RotatorControlPanel {
     fn default() -> Self {
-        let (action_tx, action_rx) = mpsc::channel(16);
         let panel_instance_id = PANEL_INSTANCE_COUNTER.fetch_add(1, Ordering::Relaxed);
         tracing::debug!(panel_instance_id, "RotatorControlPanel instance created");
         Self {
             panel_instance_id,
+            panel_state: DevicePanelState::new(),
             state: RotatorState::default(),
             position_input: "0.0".to_string(),
-            action_tx,
-            action_rx,
-            actions_in_flight: 0,
             refresh_in_flight: false,
-            error: None,
-            status: None,
-            device_id: None,
-            initial_fetch_done: false,
-            auto_refresh: true,
-            last_refresh: None,
             last_command_time: None,
         }
     }
@@ -96,7 +76,7 @@ impl RotatorControlPanel {
     }
 
     fn poll_results(&mut self) {
-        while let Ok(result) = self.action_rx.try_recv() {
+        while let Ok(result) = self.panel_state.action_rx.try_recv() {
             match result {
                 ActionResult::FetchState(result) => {
                     // Status refresh complete - does not affect user action count
@@ -107,39 +87,37 @@ impl RotatorControlPanel {
                             if let Some(pos) = self.state.position_deg {
                                 self.position_input = format!("{:.2}", pos);
                             }
-                            self.error = None;
+                            self.panel_state.error = None;
                         }
                         Err(e) => {
-                            self.error = Some(format!("Failed to fetch state: {}", e));
+                            self.panel_state.set_error(format!("Failed to fetch state: {}", e));
                         }
                     }
                 }
                 ActionResult::Move(result) => {
                     // User action complete
-                    self.actions_in_flight = self.actions_in_flight.saturating_sub(1);
+                    self.panel_state.action_completed();
                     match result {
                         Ok(()) => {
-                            self.status = Some("Move completed".to_string());
+                            self.panel_state.set_status("Move completed");
                             self.state.moving = false;
-                            self.error = None;
                         }
                         Err(e) => {
-                            self.error = Some(format!("Move failed: {}", e));
+                            self.panel_state.set_error(format!("Move failed: {}", e));
                             self.state.moving = false;
                         }
                     }
                 }
                 ActionResult::Home(result) => {
                     // User action complete
-                    self.actions_in_flight = self.actions_in_flight.saturating_sub(1);
+                    self.panel_state.action_completed();
                     match result {
                         Ok(()) => {
-                            self.status = Some("Home completed".to_string());
+                            self.panel_state.set_status("Home completed");
                             self.state.moving = false;
-                            self.error = None;
                         }
                         Err(e) => {
-                            self.error = Some(format!("Home failed: {}", e));
+                            self.panel_state.set_error(format!("Home failed: {}", e));
                             self.state.moving = false;
                         }
                     }
@@ -156,7 +134,7 @@ impl RotatorControlPanel {
         // Track refresh separately - doesn't disable controls
         self.refresh_in_flight = true;
         let mut client = client.clone();
-        let tx = self.action_tx.clone();
+        let tx = self.panel_state.action_tx.clone();
         let device_id = device_id.to_string();
 
         runtime.spawn(async move {
@@ -170,7 +148,7 @@ impl RotatorControlPanel {
             let _ = tx.send(ActionResult::FetchState(state_result)).await;
         });
 
-        self.last_refresh = Some(std::time::Instant::now());
+        self.panel_state.mark_refreshed();
     }
 
     fn move_absolute(
@@ -181,7 +159,7 @@ impl RotatorControlPanel {
         position: f64,
     ) {
         let Some(client) = client else {
-            self.error = Some("Not connected".to_string());
+            self.panel_state.set_error("Not connected");
             return;
         };
 
@@ -201,17 +179,17 @@ impl RotatorControlPanel {
         }
 
         self.state.moving = true;
-        self.actions_in_flight += 1;
+        self.panel_state.action_started();
         self.last_command_time = Some(std::time::Instant::now());
         tracing::info!(
             panel_instance_id = self.panel_instance_id,
             device_id,
             position,
-            actions_in_flight = self.actions_in_flight,
+            actions_in_flight = self.panel_state.actions_in_flight,
             "Move absolute command sent"
         );
         let mut client = client.clone();
-        let tx = self.action_tx.clone();
+        let tx = self.panel_state.action_tx.clone();
         let device_id = device_id.to_string();
 
         runtime.spawn(async move {
@@ -232,7 +210,7 @@ impl RotatorControlPanel {
         delta: f64,
     ) {
         let Some(client) = client else {
-            self.error = Some("Not connected".to_string());
+            self.panel_state.set_error("Not connected");
             return;
         };
 
@@ -252,17 +230,17 @@ impl RotatorControlPanel {
         }
 
         self.state.moving = true;
-        self.actions_in_flight += 1;
+        self.panel_state.action_started();
         self.last_command_time = Some(std::time::Instant::now());
         tracing::info!(
             panel_instance_id = self.panel_instance_id,
             device_id,
             delta,
-            actions_in_flight = self.actions_in_flight,
+            actions_in_flight = self.panel_state.actions_in_flight,
             "Jog command sent"
         );
         let mut client = client.clone();
-        let tx = self.action_tx.clone();
+        let tx = self.panel_state.action_tx.clone();
         let device_id = device_id.to_string();
 
         runtime.spawn(async move {
@@ -277,7 +255,7 @@ impl RotatorControlPanel {
 
     fn home(&mut self, client: Option<&mut DaqClient>, runtime: &Runtime, device_id: &str) {
         let Some(client) = client else {
-            self.error = Some("Not connected".to_string());
+            self.panel_state.set_error("Not connected");
             return;
         };
 
@@ -296,16 +274,16 @@ impl RotatorControlPanel {
         }
 
         self.state.moving = true;
-        self.actions_in_flight += 1;
+        self.panel_state.action_started();
         self.last_command_time = Some(std::time::Instant::now());
         tracing::info!(
             panel_instance_id = self.panel_instance_id,
             device_id,
-            actions_in_flight = self.actions_in_flight,
+            actions_in_flight = self.panel_state.actions_in_flight,
             "Home command sent"
         );
         let mut client = client.clone();
-        let tx = self.action_tx.clone();
+        let tx = self.panel_state.action_tx.clone();
         let device_id = device_id.to_string();
 
         runtime.spawn(async move {
@@ -331,21 +309,17 @@ impl DeviceControlWidget for RotatorControlPanel {
         self.poll_results();
 
         let device_id = device.id.clone();
-        self.device_id = Some(device_id.clone());
+        self.panel_state.device_id = Some(device_id.clone());
 
         // Initial fetch
-        if !self.initial_fetch_done && client.is_some() {
-            self.initial_fetch_done = true;
+        if !self.panel_state.initial_fetch_done && client.is_some() {
+            self.panel_state.initial_fetch_done = true;
             self.fetch_state(client.as_deref_mut(), runtime, &device_id);
         }
 
         // Auto-refresh logic - only refresh if no refresh already in flight
-        let should_refresh = self.auto_refresh
-            && !self.refresh_in_flight
-            && self
-                .last_refresh
-                .map(|t| t.elapsed() >= Self::REFRESH_INTERVAL)
-                .unwrap_or(true);
+        let should_refresh = self.panel_state.should_refresh(Self::REFRESH_INTERVAL)
+            && !self.refresh_in_flight;
 
         if should_refresh && client.is_some() {
             self.fetch_state(client.as_deref_mut(), runtime, &device_id);
@@ -354,7 +328,7 @@ impl DeviceControlWidget for RotatorControlPanel {
         // Header
         ui.horizontal(|ui| {
             ui.heading("🔄 Rotator");
-            if self.state.moving || self.actions_in_flight > 0 {
+            if self.state.moving || self.panel_state.is_busy() {
                 ui.spinner();
                 ui.label("Moving...");
             } else if self.refresh_in_flight {
@@ -362,10 +336,10 @@ impl DeviceControlWidget for RotatorControlPanel {
             }
         });
 
-        if let Some(ref err) = self.error {
+        if let Some(ref err) = self.panel_state.error {
             ui.colored_label(egui::Color32::RED, err);
         }
-        if let Some(ref status) = self.status {
+        if let Some(ref status) = self.panel_state.status {
             ui.colored_label(egui::Color32::GREEN, status);
         }
 
@@ -387,7 +361,7 @@ impl DeviceControlWidget for RotatorControlPanel {
         ui.add_space(8.0);
 
         // Jog buttons row - only disable during user actions (move/home), NOT during status refresh
-        let is_busy = self.state.moving || self.actions_in_flight > 0;
+        let is_busy = self.state.moving || self.panel_state.is_busy();
 
         ui.horizontal(|ui| {
             ui.label("Jog:");
@@ -440,7 +414,7 @@ impl DeviceControlWidget for RotatorControlPanel {
                 if let Ok(pos) = self.position_input.parse::<f64>() {
                     self.move_absolute(client.as_deref_mut(), runtime, &device_id, pos);
                 } else {
-                    self.error = Some("Invalid position value".to_string());
+                    self.panel_state.error = Some("Invalid position value".to_string());
                 }
             }
 
@@ -478,7 +452,7 @@ impl DeviceControlWidget for RotatorControlPanel {
                 self.home(client.as_deref_mut(), runtime, &device_id);
             }
 
-            ui.checkbox(&mut self.auto_refresh, "Auto-refresh");
+            ui.checkbox(&mut self.panel_state.auto_refresh, "Auto-refresh");
 
             if ui.button("🔄 Refresh").clicked() {
                 self.fetch_state(client, runtime, &device_id);
@@ -486,7 +460,7 @@ impl DeviceControlWidget for RotatorControlPanel {
         });
 
         // Request repaint for auto-refresh or while busy
-        if self.auto_refresh || self.actions_in_flight > 0 || self.refresh_in_flight {
+        if self.panel_state.auto_refresh || self.panel_state.is_busy() || self.refresh_in_flight {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(100));
         }
@@ -510,7 +484,7 @@ mod tests {
 
         // No actions should be in flight initially
         assert_eq!(
-            panel.actions_in_flight, 0,
+            panel.panel_state.actions_in_flight, 0,
             "No actions should be in flight on creation"
         );
 
@@ -522,23 +496,23 @@ mod tests {
 
         // Auto-refresh should be enabled by default
         assert!(
-            panel.auto_refresh,
+            panel.panel_state.auto_refresh,
             "Auto-refresh should be enabled by default"
         );
 
         // No error or status messages initially
-        assert!(panel.error.is_none(), "Error should be None on creation");
-        assert!(panel.status.is_none(), "Status should be None on creation");
+        assert!(panel.panel_state.error.is_none(), "Error should be None on creation");
+        assert!(panel.panel_state.status.is_none(), "Status should be None on creation");
 
         // Device ID not set until UI is rendered with device info
         assert!(
-            panel.device_id.is_none(),
+            panel.panel_state.device_id.is_none(),
             "Device ID should be None on creation"
         );
 
         // Initial fetch not done yet
         assert!(
-            !panel.initial_fetch_done,
+            !panel.panel_state.initial_fetch_done,
             "Initial fetch should not be done on creation"
         );
 
@@ -550,7 +524,7 @@ mod tests {
 
         // Last refresh and command time should be None
         assert!(
-            panel.last_refresh.is_none(),
+            panel.panel_state.last_refresh.is_none(),
             "Last refresh should be None on creation"
         );
         assert!(
@@ -697,26 +671,26 @@ mod tests {
         let mut panel = RotatorControlPanel::default();
 
         // Initially zero
-        assert_eq!(panel.actions_in_flight, 0);
+        assert_eq!(panel.panel_state.actions_in_flight, 0);
 
         // Increment
-        panel.actions_in_flight += 1;
-        assert_eq!(panel.actions_in_flight, 1);
+        panel.panel_state.actions_in_flight += 1;
+        assert_eq!(panel.panel_state.actions_in_flight, 1);
 
-        panel.actions_in_flight += 1;
-        assert_eq!(panel.actions_in_flight, 2);
+        panel.panel_state.actions_in_flight += 1;
+        assert_eq!(panel.panel_state.actions_in_flight, 2);
 
-        // Decrement with saturating_sub (as used in poll_results)
-        panel.actions_in_flight = panel.actions_in_flight.saturating_sub(1);
-        assert_eq!(panel.actions_in_flight, 1);
+        // Decrement with action_completed (uses saturating_sub)
+        panel.panel_state.action_completed();
+        assert_eq!(panel.panel_state.actions_in_flight, 1);
 
-        panel.actions_in_flight = panel.actions_in_flight.saturating_sub(1);
-        assert_eq!(panel.actions_in_flight, 0);
+        panel.panel_state.action_completed();
+        assert_eq!(panel.panel_state.actions_in_flight, 0);
 
-        // saturating_sub at zero should stay at zero
-        panel.actions_in_flight = panel.actions_in_flight.saturating_sub(1);
+        // action_completed at zero should stay at zero
+        panel.panel_state.action_completed();
         assert_eq!(
-            panel.actions_in_flight, 0,
+            panel.panel_state.actions_in_flight, 0,
             "saturating_sub should not go negative"
         );
     }
@@ -762,29 +736,29 @@ mod tests {
 
         // Initially both false/zero
         assert!(!panel.refresh_in_flight);
-        assert_eq!(panel.actions_in_flight, 0);
+        assert_eq!(panel.panel_state.actions_in_flight, 0);
 
         // Setting refresh_in_flight should not affect actions_in_flight
         panel.refresh_in_flight = true;
         assert!(panel.refresh_in_flight);
         assert_eq!(
-            panel.actions_in_flight, 0,
+            panel.panel_state.actions_in_flight, 0,
             "refresh should not affect actions count"
         );
 
         // Setting actions_in_flight should not affect refresh_in_flight
-        panel.actions_in_flight = 1;
+        panel.panel_state.actions_in_flight = 1;
         assert!(
             panel.refresh_in_flight,
             "actions should not affect refresh flag"
         );
-        assert_eq!(panel.actions_in_flight, 1);
+        assert_eq!(panel.panel_state.actions_in_flight, 1);
 
         // Clear refresh but keep action
         panel.refresh_in_flight = false;
         assert!(!panel.refresh_in_flight);
         assert_eq!(
-            panel.actions_in_flight, 1,
+            panel.panel_state.actions_in_flight, 1,
             "clearing refresh should not affect actions"
         );
     }

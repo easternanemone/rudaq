@@ -42,7 +42,8 @@ use rhai::{Dynamic, Engine, EvalAltResult, Map};
 use daq_experiment::plans_imperative::ImperativePlan;
 
 use crate::plan_bindings::PlanHandle;
-use crate::yield_handle::{YieldHandle, YieldResult};
+use crate::rhai_error;
+use crate::yield_handle::{YieldHandle, YieldResult}; // bd-q2kl.5
 
 /// Register yield-related functions with the Rhai engine
 ///
@@ -121,17 +122,14 @@ fn yield_plan_impl(
     plan: PlanHandle,
 ) -> Result<YieldResult, Box<EvalAltResult>> {
     // Take the plan from the handle
-    let plan = plan.take().ok_or_else(|| {
-        Box::new(EvalAltResult::ErrorRuntime(
-            "Plan already consumed".into(),
-            rhai::Position::NONE,
-        ))
-    })?;
+    let plan = plan
+        .take()
+        .ok_or_else(|| rhai_error("yield_plan", "Plan already consumed"))?;
 
     // Yield the plan and wait for result
     handle
         .yield_plan(plan)
-        .map_err(|e| Box::new(EvalAltResult::ErrorRuntime(e.into(), rhai::Position::NONE)))
+        .map_err(|e| rhai_error("yield_plan", e))
 }
 
 /// Implementation of yield_move helper
@@ -153,7 +151,7 @@ fn yield_move_impl(
 
     handle
         .yield_plan(plan)
-        .map_err(|e| Box::new(EvalAltResult::ErrorRuntime(e.into(), rhai::Position::NONE)))
+        .map_err(|e| rhai_error("yield_move", e))
 }
 
 /// Implementation of yield_set helper (string value)
@@ -177,7 +175,7 @@ fn yield_set_impl(
 
     handle
         .yield_plan(plan)
-        .map_err(|e| Box::new(EvalAltResult::ErrorRuntime(e.into(), rhai::Position::NONE)))
+        .map_err(|e| rhai_error("yield_set", e))
 }
 
 /// Implementation of yield_set helper (f64 value)
@@ -209,7 +207,7 @@ fn yield_wait_impl(
 
     handle
         .yield_plan(plan)
-        .map_err(|e| Box::new(EvalAltResult::ErrorRuntime(e.into(), rhai::Position::NONE)))
+        .map_err(|e| rhai_error("yield_wait", e))
 }
 
 /// Implementation of yield_trigger helper
@@ -229,7 +227,7 @@ fn yield_trigger_impl(
 
     handle
         .yield_plan(plan)
-        .map_err(|e| Box::new(EvalAltResult::ErrorRuntime(e.into(), rhai::Position::NONE)))
+        .map_err(|e| rhai_error("yield_trigger", e))
 }
 
 /// Implementation of yield_read helper
@@ -249,7 +247,7 @@ fn yield_read_impl(
 
     handle
         .yield_plan(plan)
-        .map_err(|e| Box::new(EvalAltResult::ErrorRuntime(e.into(), rhai::Position::NONE)))
+        .map_err(|e| rhai_error("yield_read", e))
 }
 
 #[cfg(test)]

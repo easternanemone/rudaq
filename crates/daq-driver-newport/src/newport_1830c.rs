@@ -41,14 +41,12 @@ use daq_core::driver::{Capability, DeviceComponents, DriverFactory};
 use daq_core::error::DaqError;
 use daq_core::observable::ParameterSet;
 use daq_core::parameter::Parameter;
+use daq_core::serial::{drain_serial_buffer, open_serial_async, wrap_shared, SharedPort};
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::Mutex;
-use tokio::task::spawn_blocking;
-use tokio_serial::SerialPortBuilderExt;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use tracing::instrument;
 
 // =============================================================================
@@ -125,11 +123,6 @@ impl DriverFactory for Newport1830CFactory {
 // Newport1830CDriver
 // =============================================================================
 
-pub trait SerialPortIO: AsyncRead + AsyncWrite + Unpin + Send {}
-impl<T: AsyncRead + AsyncWrite + Unpin + Send> SerialPortIO for T {}
-type DynSerial = Box<dyn SerialPortIO>;
-type SharedPort = Arc<Mutex<BufReader<DynSerial>>>;
-
 /// Driver for Newport 1830-C optical power meter
 ///
 /// Implements Readable and WavelengthTunable capability traits.
@@ -158,25 +151,20 @@ impl Newport1830CDriver {
     /// - Serial port cannot be opened
     /// - Device doesn't respond to wavelength query
     pub async fn new_async(port_path: &str) -> Result<Self> {
-        let port_path_owned = port_path.to_string();
+        // Use shared serial port opening utility
+        let port = open_serial_async(port_path, 9600, "Newport 1830-C").await?;
+        let shared = wrap_shared(Box::new(port));
 
-        // Use spawn_blocking to avoid blocking the async runtime
-        let port = spawn_blocking(move || {
-            tokio_serial::new(&port_path_owned, 9600)
-                .data_bits(tokio_serial::DataBits::Eight)
-                .parity(tokio_serial::Parity::None)
-                .stop_bits(tokio_serial::StopBits::One)
-                .flow_control(tokio_serial::FlowControl::None)
-                .open_native_async()
-                .context(format!(
-                    "Failed to open Newport 1830-C serial port: {}",
-                    port_path_owned
-                ))
-        })
-        .await
-        .context("spawn_blocking for Newport 1830-C port opening failed")??;
+        let driver = Self::build(shared);
 
-        let driver = Self::build(Arc::new(Mutex::new(BufReader::new(Box::new(port)))));
+        // Drain any stale data from buffer
+        {
+            let mut guard = driver.port.lock().await;
+            let discarded = drain_serial_buffer(guard.get_mut(), 50).await;
+            if discarded > 0 {
+                tracing::debug!(bytes = discarded, "Discarded stale data from buffer");
+            }
+        }
 
         // Disable echo mode (E0) FIRST to prevent command echoes in responses.
         // The 1830-C has E0/E1 for echo off/on. Without this, responses may include

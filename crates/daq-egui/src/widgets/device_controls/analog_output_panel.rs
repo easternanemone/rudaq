@@ -9,10 +9,9 @@
 use egui::Ui;
 use serde_json::json;
 use tokio::runtime::Runtime;
-use tokio::sync::mpsc;
 
 use crate::client::DaqClient;
-use crate::widgets::device_controls::DeviceControlWidget;
+use crate::widgets::device_controls::{DeviceControlWidget, DevicePanelState};
 use daq_proto::daq::DeviceInfo;
 
 /// Async action results
@@ -22,22 +21,12 @@ enum ActionResult {
 
 /// Analog Output control panel for DAC devices
 pub struct AnalogOutputControlPanel {
+    /// Common panel state (channels, errors, device_id, etc.)
+    panel_state: DevicePanelState<ActionResult>,
     /// Current voltage setpoint
     voltage: f64,
     /// Voltage input as string for text editing
     voltage_input: String,
-    /// Action channel sender
-    action_tx: mpsc::Sender<ActionResult>,
-    /// Action channel receiver
-    action_rx: mpsc::Receiver<ActionResult>,
-    /// Number of actions in flight
-    actions_in_flight: usize,
-    /// Error message
-    error: Option<String>,
-    /// Status message
-    status: Option<String>,
-    /// Device ID (cached)
-    device_id: Option<String>,
     /// Min voltage (from metadata or default)
     min_voltage: f64,
     /// Max voltage (from metadata or default)
@@ -46,16 +35,10 @@ pub struct AnalogOutputControlPanel {
 
 impl Default for AnalogOutputControlPanel {
     fn default() -> Self {
-        let (action_tx, action_rx) = mpsc::channel(16);
         Self {
+            panel_state: DevicePanelState::new(),
             voltage: 0.0,
             voltage_input: "0.000".to_string(),
-            action_tx,
-            action_rx,
-            actions_in_flight: 0,
-            error: None,
-            status: None,
-            device_id: None,
             min_voltage: -10.0,
             max_voltage: 10.0,
         }
@@ -64,19 +47,18 @@ impl Default for AnalogOutputControlPanel {
 
 impl AnalogOutputControlPanel {
     fn poll_results(&mut self) {
-        while let Ok(result) = self.action_rx.try_recv() {
-            self.actions_in_flight = self.actions_in_flight.saturating_sub(1);
+        while let Ok(result) = self.panel_state.action_rx.try_recv() {
+            self.panel_state.action_completed();
 
             match result {
                 ActionResult::WriteVoltage(result) => match result {
                     Ok(voltage) => {
                         self.voltage = voltage;
                         self.voltage_input = format!("{:.3}", voltage);
-                        self.status = Some(format!("Set to {:.3} V", voltage));
-                        self.error = None;
+                        self.panel_state.set_status(format!("Set to {:.3} V", voltage));
                     }
                     Err(e) => {
-                        self.error = Some(format!("Write failed: {}", e));
+                        self.panel_state.set_error(format!("Write failed: {}", e));
                     }
                 },
             }
@@ -91,13 +73,13 @@ impl AnalogOutputControlPanel {
         voltage: f64,
     ) {
         let Some(client) = client.as_mut() else {
-            self.error = Some("Not connected".to_string());
+            self.panel_state.set_error("Not connected");
             return;
         };
 
-        self.actions_in_flight += 1;
+        self.panel_state.action_started();
         let mut client = (*client).clone();
-        let tx = self.action_tx.clone();
+        let tx = self.panel_state.action_tx.clone();
         let device_id = device_id.to_string();
         let voltage = voltage.clamp(self.min_voltage, self.max_voltage);
 
@@ -125,20 +107,20 @@ impl DeviceControlWidget for AnalogOutputControlPanel {
         self.poll_results();
 
         let device_id = device.id.clone();
-        self.device_id = Some(device_id.clone());
+        self.panel_state.device_id = Some(device_id.clone());
 
         // Header
         ui.horizontal(|ui| {
             ui.heading("⚡ Analog Output");
-            if self.actions_in_flight > 0 {
+            if self.panel_state.is_busy() {
                 ui.spinner();
             }
         });
 
-        if let Some(ref err) = self.error {
+        if let Some(ref err) = self.panel_state.error {
             ui.colored_label(egui::Color32::RED, err);
         }
-        if let Some(ref status) = self.status {
+        if let Some(ref status) = self.panel_state.status {
             ui.colored_label(egui::Color32::GREEN, status);
         }
 
@@ -156,7 +138,7 @@ impl DeviceControlWidget for AnalogOutputControlPanel {
         ui.add_space(8.0);
 
         // Voltage slider
-        let is_busy = self.actions_in_flight > 0;
+        let is_busy = self.panel_state.is_busy();
 
         ui.horizontal(|ui| {
             ui.label("Voltage:");
@@ -191,7 +173,7 @@ impl DeviceControlWidget for AnalogOutputControlPanel {
                     let v = v.clamp(self.min_voltage, self.max_voltage);
                     self.write_voltage(&mut client, runtime, &device_id, v);
                 } else {
-                    self.error = Some("Invalid voltage value".to_string());
+                    self.panel_state.error = Some("Invalid voltage value".to_string());
                 }
             }
 
@@ -236,7 +218,7 @@ impl DeviceControlWidget for AnalogOutputControlPanel {
         });
 
         // Request repaint while busy
-        if self.actions_in_flight > 0 {
+        if self.panel_state.is_busy() {
             ui.ctx().request_repaint();
         }
     }
@@ -268,17 +250,17 @@ mod tests {
 
         // No actions should be in flight initially
         assert_eq!(
-            panel.actions_in_flight, 0,
+            panel.panel_state.actions_in_flight, 0,
             "No actions should be in flight on creation"
         );
 
         // No error or status messages initially
-        assert!(panel.error.is_none(), "Error should be None on creation");
-        assert!(panel.status.is_none(), "Status should be None on creation");
+        assert!(panel.panel_state.error.is_none(), "Error should be None on creation");
+        assert!(panel.panel_state.status.is_none(), "Status should be None on creation");
 
         // Device ID not set until UI is rendered with device info
         assert!(
-            panel.device_id.is_none(),
+            panel.panel_state.device_id.is_none(),
             "Device ID should be None on creation"
         );
     }
@@ -330,7 +312,7 @@ mod tests {
         let panel = AnalogOutputControlPanel::default();
 
         assert_eq!(
-            panel.actions_in_flight, 0,
+            panel.panel_state.actions_in_flight, 0,
             "Actions in flight should start at 0"
         );
     }

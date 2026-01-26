@@ -30,60 +30,19 @@
 //! ```
 
 use chrono::Utc;
-use rhai::{Array, Dynamic, Engine, EvalAltResult, Position};
+use rhai::{Array, Dynamic, Engine, EvalAltResult};
 use std::sync::Arc;
-use tokio::runtime::{Handle, RuntimeFlavor};
 use tokio::sync::broadcast;
-use tokio::task::block_in_place;
 
-use daq_core::core::Measurement;
-
-// Re-use the run_blocking helper pattern (for future async Comedi operations)
-#[allow(dead_code)]
-fn run_blocking<Fut, T, E>(label: &str, fut: Fut) -> Result<T, Box<EvalAltResult>>
-where
-    Fut: std::future::Future<Output = Result<T, E>> + Send,
-    T: Send,
-    E: std::fmt::Display,
-{
-    let handle = Handle::try_current().map_err(|e| {
-        Box::new(EvalAltResult::ErrorRuntime(
-            format!("{}: missing Tokio runtime ({})", label, e).into(),
-            Position::NONE,
-        ))
-    })?;
-
-    if handle.runtime_flavor() == RuntimeFlavor::CurrentThread {
-        return Err(Box::new(EvalAltResult::ErrorRuntime(
-            format!(
-                "{}: Tokio current-thread runtime cannot run blocking hardware calls. \
-                 Use the multi-thread runtime.",
-                label
-            )
-            .into(),
-            Position::NONE,
-        )));
-    }
-
-    block_in_place(|| handle.block_on(fut)).map_err(|e| {
-        Box::new(EvalAltResult::ErrorRuntime(
-            format!("{}: {}", label, e).into(),
-            Position::NONE,
-        ))
-    })
-}
+use crate::rhai_error;
+use daq_core::core::Measurement; // bd-q2kl.5
 
 // Simpler helper for synchronous operations that may error
 fn map_error<T, E: std::fmt::Display>(
     label: &str,
     result: Result<T, E>,
 ) -> Result<T, Box<EvalAltResult>> {
-    result.map_err(|e| {
-        Box::new(EvalAltResult::ErrorRuntime(
-            format!("{}: {}", label, e).into(),
-            Position::NONE,
-        ))
-    })
+    result.map_err(|e| rhai_error(label, e))
 }
 
 // =============================================================================
