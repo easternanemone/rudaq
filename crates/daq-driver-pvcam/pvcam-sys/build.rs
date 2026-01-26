@@ -72,10 +72,10 @@ fn print_env_diagnostics() {
     eprintln!("LD_LIBRARY_PATH: {:?}", env::var("LD_LIBRARY_PATH").ok());
 
     if let Some(found) = find_pvcam_sdk() {
-        eprintln!("Auto-detected SDK at: {:?}", found);
+        eprintln!("Auto-detected SDK at: {}", found.display());
     }
     if let Some(found) = find_pvcam_lib() {
-        eprintln!("Auto-detected lib at: {:?}", found);
+        eprintln!("Auto-detected lib at: {}", found.display());
     }
     eprintln!("===============================");
     eprintln!();

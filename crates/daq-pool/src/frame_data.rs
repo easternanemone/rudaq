@@ -226,7 +226,7 @@ mod tests {
     #[should_panic(expected = "frame data")]
     fn test_copy_from_sdk_overflow_panics() {
         let mut frame = FrameData::with_capacity(100);
-        let src_data = vec![0u8; 200];
+        let src_data = [0u8; 200];
 
         unsafe {
             frame.copy_from_sdk(src_data.as_ptr(), src_data.len());

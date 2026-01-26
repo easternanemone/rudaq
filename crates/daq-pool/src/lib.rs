@@ -631,7 +631,7 @@ mod tests {
 
         // Indices should be 0, 1, 2 (in some order)
         let mut indices = vec![item0.slot_index(), item1.slot_index(), item2.slot_index()];
-        indices.sort();
+        indices.sort_unstable();
         assert_eq!(indices, vec![0, 1, 2]);
     }
 
@@ -669,7 +669,7 @@ mod tests {
         let mut churner_tasks = tokio::task::JoinSet::new();
 
         // Spawn tasks that rapidly access held items via Deref (should NOT take lock)
-        for item in held_items.into_iter() {
+        for item in held_items {
             let slow = slow_accesses.clone();
             let total = total_accesses.clone();
             let barrier = barrier.clone();
@@ -768,7 +768,7 @@ mod tests {
         let mut tasks = tokio::task::JoinSet::new();
 
         // Spawn readers that hammer their items
-        for item in items.into_iter() {
+        for item in items {
             let max_lat = max_latency.clone();
 
             tasks.spawn(async move {
