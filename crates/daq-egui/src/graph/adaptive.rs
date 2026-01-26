@@ -26,7 +26,11 @@ pub struct DetectedPeak {
 ///
 /// # Returns
 /// Vector of detected peaks sorted by height (highest first)
-pub fn detect_peaks(signal: &[f64], min_prominence: f64, min_height: Option<f64>) -> Vec<DetectedPeak> {
+pub fn detect_peaks(
+    signal: &[f64],
+    min_prominence: f64,
+    min_height: Option<f64>,
+) -> Vec<DetectedPeak> {
     if signal.is_empty() {
         return Vec::new();
     }
@@ -49,7 +53,11 @@ pub fn detect_peaks(signal: &[f64], min_prominence: f64, min_height: Option<f64>
         .collect();
 
     // Sort by height descending
-    peaks.sort_by(|a, b| b.height.partial_cmp(&a.height).unwrap_or(std::cmp::Ordering::Equal));
+    peaks.sort_by(|a, b| {
+        b.height
+            .partial_cmp(&a.height)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     peaks
 }
@@ -103,9 +111,13 @@ pub fn evaluate_triggers(
 
     for (idx, trigger) in triggers.iter().enumerate() {
         let fired = match trigger {
-            TriggerCondition::Threshold { operator, value, .. } => {
+            TriggerCondition::Threshold {
+                operator, value, ..
+            } => {
                 // Check if any signal value crosses threshold
-                signal.iter().any(|&v| evaluate_threshold(v, operator, *value))
+                signal
+                    .iter()
+                    .any(|&v| evaluate_threshold(v, operator, *value))
             }
             TriggerCondition::PeakDetection {
                 min_prominence,

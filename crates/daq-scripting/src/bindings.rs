@@ -39,48 +39,11 @@ use chrono::Utc;
 use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, NativeCallContext, Position};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::runtime::{Handle, RuntimeFlavor};
 use tokio::sync::broadcast;
-use tokio::task::block_in_place;
 
+use crate::run_blocking;
 use daq_core::core::Measurement;
-use daq_hardware::capabilities::{Camera, Movable, Readable, ShutterControl};
-
-// Helper to execute async hardware calls from synchronous Rhai functions without
-// risking deadlock on a current-thread runtime. Returns a Rhai-compatible error
-// with a clear message when the runtime flavor is unsupported.
-fn run_blocking<Fut, T, E>(label: &str, fut: Fut) -> Result<T, Box<EvalAltResult>>
-where
-    Fut: std::future::Future<Output = Result<T, E>> + Send,
-    T: Send,
-    E: std::fmt::Display,
-{
-    let handle = Handle::try_current().map_err(|e| {
-        Box::new(EvalAltResult::ErrorRuntime(
-            format!("{}: missing Tokio runtime ({})", label, e).into(),
-            Position::NONE,
-        ))
-    })?;
-
-    if handle.runtime_flavor() == RuntimeFlavor::CurrentThread {
-        return Err(Box::new(EvalAltResult::ErrorRuntime(
-            format!(
-                "{}: Tokio current-thread runtime cannot run blocking hardware calls. \
-                 Use the multi-thread runtime (#[tokio::main(flavor = \"multi_thread\")]).",
-                label
-            )
-            .into(),
-            Position::NONE,
-        )));
-    }
-
-    block_in_place(|| handle.block_on(fut)).map_err(|e| {
-        Box::new(EvalAltResult::ErrorRuntime(
-            format!("{}: {}", label, e).into(),
-            Position::NONE,
-        ))
-    })
-}
+use daq_hardware::capabilities::{Camera, Movable, Readable, ShutterControl}; // bd-q2kl.5
 
 // =============================================================================
 // Handle Types - Rhai-Compatible Wrappers
@@ -510,18 +473,15 @@ pub fn register_hardware(engine: &mut Engine) {
 
     // sleep(0.5) - Async-aware sleep using Tokio (avoids blocking the runtime)
     engine.register_fn("sleep", |seconds: f64| {
-        if let Ok(handle) = Handle::try_current() {
-            if handle.runtime_flavor() == RuntimeFlavor::CurrentThread {
-                // Avoid deadlock: fall back to std::thread::sleep on current-thread runtime
-                std::thread::sleep(Duration::from_secs_f64(seconds));
-                return;
-            }
+        // Use run_blocking helper which handles runtime checks internally
+        // If it fails (no runtime or wrong flavor), fall back to std::thread::sleep
+        let sleep_future = async move {
+            tokio::time::sleep(Duration::from_secs_f64(seconds)).await;
+            Ok::<(), String>(())
+        };
 
-            block_in_place(|| {
-                handle.block_on(tokio::time::sleep(Duration::from_secs_f64(seconds)))
-            });
-        } else {
-            // No runtime available; use blocking sleep as a safe fallback
+        if run_blocking("sleep", sleep_future).is_err() {
+            // Fallback to blocking sleep if runtime is unavailable or wrong flavor
             std::thread::sleep(Duration::from_secs_f64(seconds));
         }
     });
@@ -1487,7 +1447,7 @@ mod tests {
         let start = std::time::Instant::now();
         // We need to run this in a spawn_blocking or similar if calling from async test directly,
         // but rhai_fn is registered with block_in_place.
-        // However, calling engine.eval from async context is tricky if the fn calls block_in_place.
+        // However, calling engine.eval is tricky if the fn calls block_in_place.
         // Actually, block_in_place works inside a multithreaded runtime.
 
         // Note: engine.eval is synchronous.

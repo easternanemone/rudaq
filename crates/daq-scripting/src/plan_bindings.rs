@@ -25,15 +25,16 @@
 //! }
 //! ```
 
-use crate::rhai::{Engine, EvalAltResult, Position};
+use crate::rhai::{Engine, EvalAltResult};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::runtime::Handle;
 use tokio::task::block_in_place;
 
+use crate::rhai_error;
 use daq_experiment::plans::{Count, GridScan, LineScan, Plan};
 use daq_experiment::run_engine::RunEngine;
-use daq_hardware::registry::DeviceRegistry;
+use daq_hardware::registry::DeviceRegistry; // bd-q2kl.5
 
 // =============================================================================
 // RunEngine Handle - Rhai-Compatible Wrapper
@@ -97,20 +98,19 @@ impl PlanHandle {
 fn validate_points(points: i64) -> Result<usize, Box<EvalAltResult>> {
     const MAX_SCAN_POINTS: i64 = 1_000_000;
     if points <= 0 {
-        return Err(Box::new(EvalAltResult::ErrorRuntime(
-            format!("points must be positive, got {}", points).into(),
-            Position::NONE,
-        )));
+        return Err(rhai_error(
+            "validate_points",
+            format!("points must be positive, got {}", points),
+        ));
     }
     if points > MAX_SCAN_POINTS {
-        return Err(Box::new(EvalAltResult::ErrorRuntime(
+        return Err(rhai_error(
+            "validate_points",
             format!(
                 "points exceeds maximum ({}), got {}",
                 MAX_SCAN_POINTS, points
-            )
-            .into(),
-            Position::NONE,
-        )));
+            ),
+        ));
     }
     Ok(points as usize)
 }
@@ -258,12 +258,9 @@ pub fn register_plans(engine: &mut Engine) {
     engine.register_fn(
         "queue",
         |re: &mut RunEngineHandle, plan: PlanHandle| -> Result<String, Box<EvalAltResult>> {
-            let boxed_plan = plan.take().ok_or_else(|| {
-                Box::new(EvalAltResult::ErrorRuntime(
-                    "Plan already consumed".into(),
-                    Position::NONE,
-                ))
-            })?;
+            let boxed_plan = plan
+                .take()
+                .ok_or_else(|| rhai_error("queue", "Plan already consumed"))?;
 
             let run_uid =
                 block_in_place(|| Handle::current().block_on(re.engine.queue(boxed_plan)));
@@ -278,12 +275,9 @@ pub fn register_plans(engine: &mut Engine) {
          plan: PlanHandle,
          metadata: crate::rhai::Map|
          -> Result<String, Box<EvalAltResult>> {
-            let boxed_plan = plan.take().ok_or_else(|| {
-                Box::new(EvalAltResult::ErrorRuntime(
-                    "Plan already consumed".into(),
-                    Position::NONE,
-                ))
-            })?;
+            let boxed_plan = plan
+                .take()
+                .ok_or_else(|| rhai_error("queue_with_metadata", "Plan already consumed"))?;
 
             // Convert Rhai Map to HashMap<String, String>
             let mut meta: HashMap<String, String> = HashMap::new();
@@ -302,12 +296,8 @@ pub fn register_plans(engine: &mut Engine) {
     engine.register_fn(
         "start",
         |re: &mut RunEngineHandle| -> Result<(), Box<EvalAltResult>> {
-            block_in_place(|| Handle::current().block_on(re.engine.start())).map_err(|e| {
-                Box::new(EvalAltResult::ErrorRuntime(
-                    format!("RunEngine start failed: {}", e).into(),
-                    Position::NONE,
-                ))
-            })
+            block_in_place(|| Handle::current().block_on(re.engine.start()))
+                .map_err(|e| rhai_error("RunEngine start", e))
         },
     );
 
@@ -315,12 +305,8 @@ pub fn register_plans(engine: &mut Engine) {
     engine.register_fn(
         "pause",
         |re: &mut RunEngineHandle| -> Result<(), Box<EvalAltResult>> {
-            block_in_place(|| Handle::current().block_on(re.engine.pause())).map_err(|e| {
-                Box::new(EvalAltResult::ErrorRuntime(
-                    format!("RunEngine pause failed: {}", e).into(),
-                    Position::NONE,
-                ))
-            })
+            block_in_place(|| Handle::current().block_on(re.engine.pause()))
+                .map_err(|e| rhai_error("RunEngine pause", e))
         },
     );
 
@@ -328,12 +314,8 @@ pub fn register_plans(engine: &mut Engine) {
     engine.register_fn(
         "resume",
         |re: &mut RunEngineHandle| -> Result<(), Box<EvalAltResult>> {
-            block_in_place(|| Handle::current().block_on(re.engine.resume())).map_err(|e| {
-                Box::new(EvalAltResult::ErrorRuntime(
-                    format!("RunEngine resume failed: {}", e).into(),
-                    Position::NONE,
-                ))
-            })
+            block_in_place(|| Handle::current().block_on(re.engine.resume()))
+                .map_err(|e| rhai_error("RunEngine resume", e))
         },
     );
 
@@ -341,12 +323,8 @@ pub fn register_plans(engine: &mut Engine) {
     engine.register_fn(
         "abort",
         |re: &mut RunEngineHandle, reason: &str| -> Result<(), Box<EvalAltResult>> {
-            block_in_place(|| Handle::current().block_on(re.engine.abort(reason))).map_err(|e| {
-                Box::new(EvalAltResult::ErrorRuntime(
-                    format!("RunEngine abort failed: {}", e).into(),
-                    Position::NONE,
-                ))
-            })
+            block_in_place(|| Handle::current().block_on(re.engine.abort(reason)))
+                .map_err(|e| rhai_error("RunEngine abort", e))
         },
     );
 
@@ -354,12 +332,8 @@ pub fn register_plans(engine: &mut Engine) {
     engine.register_fn(
         "halt",
         |re: &mut RunEngineHandle| -> Result<(), Box<EvalAltResult>> {
-            block_in_place(|| Handle::current().block_on(re.engine.halt())).map_err(|e| {
-                Box::new(EvalAltResult::ErrorRuntime(
-                    format!("RunEngine halt failed: {}", e).into(),
-                    Position::NONE,
-                ))
-            })
+            block_in_place(|| Handle::current().block_on(re.engine.halt()))
+                .map_err(|e| rhai_error("RunEngine halt", e))
         },
     );
 
