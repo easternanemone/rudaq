@@ -216,7 +216,7 @@ fn save_to_hdf5_2d(
     use ndarray::Array2;
     let power_array = Array2::from_shape_vec((n_angles, n_voltages), power_flat)
         .map_err(|e| format!("Failed to create 2D array: {}", e))?;
-    power_ds.write(&power_array)?;
+    power_ds.write(power_array.view())?;
 
     power_ds
         .new_attr::<hdf5::types::VarLenUnicode>()
