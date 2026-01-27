@@ -20,8 +20,8 @@ if [[ "$FILE_PATH" == *"/.worktrees/"* ]] || [[ "$FILE_PATH" == *"\.worktrees\"*
   exit 0
 fi
 
-# Get current working directory
-CWD=$(pwd)
+# Get current working directory (may fail if CWD deleted)
+CWD=$(pwd 2>/dev/null || echo "/tmp")
 
 # Allow if currently inside a .worktrees/ directory
 if [[ "$CWD" == *"/.worktrees/"* ]] || [[ "$CWD" == *"\.worktrees\"* ]]; then

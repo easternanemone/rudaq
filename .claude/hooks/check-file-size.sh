@@ -9,7 +9,8 @@
 # Token estimation: ~4 characters per token (conservative)
 # Behavior: Suggests RLM tools but does NOT block the read
 
-set -euo pipefail
+# Fail gracefully - hooks should never crash
+set +e
 
 # Read the hook input (tool name and arguments)
 input=$(cat)

@@ -2,7 +2,8 @@
 # Hook: Validate all epic children are complete before closing
 # Prevents closing an epic when children are still open
 
-set -euo pipefail
+# Fail gracefully - hooks should never crash
+set +e
 
 TOOL_INPUT="${CLAUDE_TOOL_INPUT:-}"
 
