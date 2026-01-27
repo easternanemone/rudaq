@@ -1745,7 +1745,12 @@ impl Ell14Driver {
                         continue;
                     } else {
                         // Final attempt failed
-                        return Err(last_error.unwrap());
+                        return Err(last_error.unwrap_or_else(|| {
+                            anyhow!(
+                                "ELL14 device info request failed after {} retries",
+                                MAX_RETRIES
+                            )
+                        }));
                     }
                 }
 
@@ -1778,7 +1783,12 @@ impl Ell14Driver {
             }
         }
 
-        Err(last_error.unwrap())
+        Err(last_error.unwrap_or_else(|| {
+            anyhow!(
+                "ELL14 device info request failed after {} retries",
+                MAX_RETRIES
+            )
+        }))
     }
 
     /// Parse device info response data (after 'IN' marker and length validation)

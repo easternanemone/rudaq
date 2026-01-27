@@ -1405,29 +1405,29 @@ mod tests {
     use crate::config::load_device_config_from_str;
     use std::io::Cursor;
 
-    /// Mock serial port for testing
+    /// Mock serial port for testing (uses std::sync::Mutex for sync poll methods)
     struct MockPort {
-        write_buf: Arc<Mutex<Vec<u8>>>,
-        read_buf: Arc<Mutex<Cursor<Vec<u8>>>>,
+        write_buf: Arc<std::sync::Mutex<Vec<u8>>>,
+        read_buf: Arc<std::sync::Mutex<Cursor<Vec<u8>>>>,
     }
 
     impl MockPort {
         fn new() -> Self {
             Self {
-                write_buf: Arc::new(Mutex::new(Vec::new())),
-                read_buf: Arc::new(Mutex::new(Cursor::new(Vec::new()))),
+                write_buf: Arc::new(std::sync::Mutex::new(Vec::new())),
+                read_buf: Arc::new(std::sync::Mutex::new(Cursor::new(Vec::new()))),
             }
         }
 
         #[allow(dead_code)]
         fn set_response(&self, response: &str) {
-            let mut buf = self.read_buf.try_lock().unwrap();
+            let mut buf = self.read_buf.lock().unwrap_or_else(|p| p.into_inner());
             *buf = Cursor::new(response.as_bytes().to_vec());
         }
 
         #[allow(dead_code)]
         fn get_written(&self) -> String {
-            let buf = self.write_buf.try_lock().unwrap();
+            let buf = self.write_buf.lock().unwrap_or_else(|p| p.into_inner());
             String::from_utf8_lossy(&buf).to_string()
         }
     }
@@ -1438,7 +1438,7 @@ mod tests {
             _cx: &mut std::task::Context<'_>,
             buf: &mut tokio::io::ReadBuf<'_>,
         ) -> std::task::Poll<std::io::Result<()>> {
-            let mut read_buf = self.read_buf.try_lock().unwrap();
+            let mut read_buf = self.read_buf.lock().unwrap_or_else(|p| p.into_inner());
             let data = read_buf.get_ref();
             let pos = read_buf.position() as usize;
             let remaining = &data[pos..];
@@ -1455,7 +1455,7 @@ mod tests {
             _cx: &mut std::task::Context<'_>,
             buf: &[u8],
         ) -> std::task::Poll<std::io::Result<usize>> {
-            let mut write_buf = self.write_buf.try_lock().unwrap();
+            let mut write_buf = self.write_buf.lock().unwrap_or_else(|p| p.into_inner());
             write_buf.extend_from_slice(buf);
             std::task::Poll::Ready(Ok(buf.len()))
         }
