@@ -5,11 +5,12 @@
 //! information and subsystems.
 
 use std::ffi::{CStr, CString};
+use std::path::Path;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 use comedi_sys::{comedi_t, lsampl_t};
 
@@ -134,6 +135,133 @@ impl SubdeviceInfo {
             (self.maxdata as f64 + 1.0).log2() as u32
         }
     }
+}
+
+/// Information about a discovered Comedi device.
+///
+/// This struct contains basic information obtained during device discovery,
+/// without requiring full device access. It's returned by [`comedi_discover`].
+#[derive(Debug, Clone)]
+pub struct DiscoveredDevice {
+    /// Path to the device (e.g., "/dev/comedi0")
+    pub path: String,
+    /// Board name (e.g., "pci-mio-16xe-10"), if accessible
+    pub board_name: Option<String>,
+    /// Driver name (e.g., "ni_pcimio"), if accessible
+    pub driver_name: Option<String>,
+    /// Number of subdevices, if accessible
+    pub n_subdevices: Option<u32>,
+    /// Error message if device couldn't be fully accessed
+    pub error: Option<String>,
+}
+
+impl DiscoveredDevice {
+    /// Returns true if the device was successfully opened and queried.
+    pub fn is_accessible(&self) -> bool {
+        self.error.is_none()
+    }
+}
+
+/// Discover all available Comedi devices on the system.
+///
+/// This function scans `/dev/comedi*` for Comedi device nodes and attempts
+/// to gather basic information about each one. Devices that exist but cannot
+/// be opened (e.g., due to permissions) are still included in the results
+/// with an error message.
+///
+/// # Returns
+///
+/// A vector of [`DiscoveredDevice`] structs, one for each device found.
+/// The vector may be empty if no Comedi devices are present.
+///
+/// # Example
+///
+/// ```no_run
+/// use daq_driver_comedi::comedi_discover;
+///
+/// let devices = comedi_discover();
+/// for dev in &devices {
+///     if dev.is_accessible() {
+///         println!("{}: {} ({})",
+///             dev.path,
+///             dev.board_name.as_deref().unwrap_or("unknown"),
+///             dev.driver_name.as_deref().unwrap_or("unknown"));
+///     } else {
+///         println!("{}: {} (inaccessible)",
+///             dev.path,
+///             dev.error.as_deref().unwrap_or("unknown error"));
+///     }
+/// }
+/// ```
+pub fn comedi_discover() -> Vec<DiscoveredDevice> {
+    let mut devices = Vec::new();
+
+    // Comedi supports up to 16 minor devices (comedi0 through comedi15)
+    for i in 0..16 {
+        let path = format!("/dev/comedi{}", i);
+
+        // Check if the device node exists
+        if !Path::new(&path).exists() {
+            trace!(path = %path, "Device node does not exist, skipping");
+            continue;
+        }
+
+        trace!(path = %path, "Found device node, attempting to open");
+
+        // Try to open the device and gather information
+        match ComediDevice::open(&path) {
+            Ok(device) => {
+                let board_name = device.board_name();
+                let driver_name = device.driver_name();
+                let n_subdevices = device.n_subdevices();
+
+                info!(
+                    path = %path,
+                    board = %board_name,
+                    driver = %driver_name,
+                    subdevices = n_subdevices,
+                    "Discovered Comedi device"
+                );
+
+                devices.push(DiscoveredDevice {
+                    path,
+                    board_name: Some(board_name),
+                    driver_name: Some(driver_name),
+                    n_subdevices: Some(n_subdevices),
+                    error: None,
+                });
+            }
+            Err(e) => {
+                // Device exists but couldn't be opened
+                let error_msg = match &e {
+                    ComediError::PermissionDenied { .. } => {
+                        warn!(path = %path, "Permission denied accessing Comedi device");
+                        "Permission denied (try adding user to comedi group or check udev rules)"
+                            .to_string()
+                    }
+                    ComediError::DeviceBusy { .. } => {
+                        warn!(path = %path, "Comedi device is busy");
+                        "Device is busy (in use by another process)".to_string()
+                    }
+                    _ => {
+                        warn!(path = %path, error = %e, "Failed to open Comedi device");
+                        e.to_string()
+                    }
+                };
+
+                devices.push(DiscoveredDevice {
+                    path,
+                    board_name: None,
+                    driver_name: None,
+                    n_subdevices: None,
+                    error: Some(error_msg),
+                });
+            }
+        }
+    }
+
+    info!(count = devices.len(), "Comedi device discovery complete");
+    devices
 }
 
 /// Information about the Comedi device.
@@ -545,5 +673,49 @@ mod tests {
             ..info.clone()
         };
         assert_eq!(info_12bit.resolution_bits(), 12);
+    }
+
+    #[test]
+    fn test_discovered_device_is_accessible() {
+        // Test accessible device
+        let accessible = DiscoveredDevice {
+            path: "/dev/comedi0".to_string(),
+            board_name: Some("ni_pcimio".to_string()),
+            driver_name: Some("ni_pcimio".to_string()),
+            n_subdevices: Some(14),
+            error: None,
+        };
+        assert!(accessible.is_accessible());
+        assert!(accessible.board_name.is_some());
+        assert!(accessible.n_subdevices.is_some());
+
+        // Test inaccessible device
+        let inaccessible = DiscoveredDevice {
+            path: "/dev/comedi1".to_string(),
+            board_name: None,
+            driver_name: None,
+            n_subdevices: None,
+            error: Some("Permission denied".to_string()),
+        };
+        assert!(!inaccessible.is_accessible());
+        assert!(inaccessible.board_name.is_none());
+        assert!(inaccessible.error.is_some());
+    }
+
+    #[test]
+    fn test_comedi_discover_returns_vec() {
+        // comedi_discover() should always return a Vec (possibly empty)
+        // This test validates the function signature and basic behavior
+        // without requiring actual hardware
+        let devices = comedi_discover();
+        // Should return a Vec (may be empty if no devices present)
+        assert!(devices.len() <= 16); // Max 16 comedi devices possible
+
+        // Verify all returned devices have valid paths
+        for dev in &devices {
+            assert!(dev.path.starts_with("/dev/comedi"));
+            // Every device should either be accessible or have an error
+            assert!(dev.is_accessible() || dev.error.is_some());
+        }
     }
 }

@@ -136,6 +136,7 @@ pub fn link() {
     std::hint::black_box(std::any::TypeId::of::<ComediDevice>());
 }
 
+pub mod calibration;
 pub mod continuous;
 pub mod device;
 pub mod error;
@@ -150,7 +151,9 @@ pub use continuous::{
     ContinuousStats, ContinuousStream, ContinuousStreamBuilder, SampleBatch, SinkConfig,
     SinkReceiver,
 };
-pub use device::{ComediDevice, DeviceInfo, SubdeviceInfo, SubdeviceType};
+pub use device::{
+    comedi_discover, ComediDevice, DeviceInfo, DiscoveredDevice, SubdeviceInfo, SubdeviceType,
+};
 pub use error::{ComediError, Result};
 pub use hal::{ReadableAnalogInput, ReadableCounter, SettableAnalogOutput, SwitchableDigitalIO};
 pub use multi_channel::ComediMultiChannelAcquisition;
@@ -171,4 +174,10 @@ pub use timing::{
 pub use factory::{
     ComediAnalogInputConfig, ComediAnalogInputDriver, ComediAnalogInputFactory,
     ComediAnalogOutputConfig, ComediAnalogOutputDriver, ComediAnalogOutputFactory,
+};
+
+// Calibration exports
+pub use calibration::{
+    CalibrationData, CalibrationInfo, CalibrationManager, CalibrationPolynomial,
+    CalibrationSetting, CalibrationStatus, ConversionDirection, MAX_POLYNOMIAL_COEFFICIENTS,
 };
