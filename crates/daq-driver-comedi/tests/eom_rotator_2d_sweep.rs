@@ -214,7 +214,7 @@ fn save_to_hdf5_2d(
     
     // Write using ndarray for proper 2D shape handling
     use ndarray::Array2;
-    let power_array = Array2::from_shape_vec((n_angles, n_voltages), power_flat)
+    let power_array = Array2::from_shape_vec((n_angles, n_voltages), power_flat.clone())
         .map_err(|e| format!("Failed to create 2D array: {}", e))?;
     power_ds.write(power_array.view())?;
 
