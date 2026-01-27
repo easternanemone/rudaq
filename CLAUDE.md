@@ -170,8 +170,6 @@ After connecting GUI to daemon:
 
 Supervisors read the bead comments for full investigation context, then execute confidently.
 
-### Rhai Scripted Experiments Build
-
 ## Beads Commands
 
 ```bash
@@ -797,6 +795,40 @@ template = "MA${position}"
 ```
 
 See `config/devices/ell14.toml` for a complete example.
+
+### Rhai Scripted Experiments Build
+
+Build and run Rhai experiment scripts on maitai:
+
+```bash
+# CRITICAL: Must use hardware_factories feature (NOT scripting_full alone)
+cargo build --release -p daq-scripting --features hardware_factories
+
+# Available script runners:
+./target/release/rhai-runner script.rhai        # Generic runner
+./target/release/run_waveplate_cal_test         # Quick 4D test (24 points)
+./target/release/run_waveplate_cal              # Full calibration (~3 hours)
+```
+
+**Key Rhai Functions:**
+
+| Function | Description |
+|----------|-------------|
+| `create_maitai_tunable(port)` | MaiTai laser with wavelength control |
+| `create_newport_1830c(port)` | Newport 1830-C power meter |
+| `create_elliptec(port, addr)` | ELL14 rotator on RS-485 bus |
+| `with_shutter_open(shutter, fn)` | Safe shutter wrapper (auto-closes on error) |
+
+**Shutter Safety:** Always use `with_shutter_open()`:
+```rhai
+let laser = create_maitai_tunable(MAITAI_PORT);
+with_shutter_open(laser.as_shutter(), || {
+    // Shutter auto-closes even on error
+    power_meter.read()
+});
+```
+
+See `docs/guides/rhai-scripting.md` for complete documentation.
 
 ## gRPC Security
 
