@@ -435,6 +435,33 @@ Questions:
 )
 ```
 
+### PAL Model Selection (IMPORTANT)
+
+When using PAL MCP tools (`pal___chat`, `pal___analyze`, etc.), **explicitly specify the model**:
+
+| Alias | Model | Use Case |
+|-------|-------|----------|
+| `g3-pro` | gemini-3-pro-preview | **Preferred** - Best for architectural review, finds subtle issues |
+| `pro` | gemini-2.5-pro | General purpose, good but less thorough |
+| `flash` | gemini-2.5-flash | Fast, simple queries |
+| `sonnet` | claude-sonnet-4.5 | Alternative perspective |
+
+**Example:** Gemini 3 Pro found a critical `eframe::Storage` dependency in `connection.rs` that Gemini 2.5 Pro missed during the daq-client extraction planning (2026-01-27).
+
+```python
+# WRONG - defaults to gemini-2.5-pro
+proxy_pal___chat(model="pro", prompt="Review this plan...")
+
+# CORRECT - explicitly use gemini-3-pro-preview
+proxy_pal___chat(model="g3-pro", prompt="Review this plan...")
+```
+
+**Always use `g3-pro` for:**
+- Architectural decisions
+- Dependency analysis
+- Code extraction/refactoring plans
+- Security reviews
+
 ### Size Limits (DoS Prevention)
 
 ```rust
