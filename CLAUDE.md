@@ -731,7 +731,24 @@ This allows self-test without affecting the EOM amplifier on DAC0.
 1. Loopback cable: DAC1 → ACH0 (already connected)
 2. ACH0 switch on BNC-2110: Set to FS (Floating Source)
 3. Use `input_mode = "rse"` in config
-4. Expected accuracy: ±100mV (uncalibrated hardware)
+4. Expected accuracy: ±100mV (uncalibrated), ±2mV (after calibration)
+
+**Calibration:**
+
+The NI PCI-MIO-16XE-10 supports software calibration to improve accuracy:
+
+```bash
+# Run calibration (requires root)
+sudo bash scripts/calibrate-comedi.sh
+
+# With verification
+sudo bash scripts/calibrate-comedi.sh --verify
+
+# Or manually
+sudo comedi_calibrate -f /dev/comedi0
+```
+
+See `docs/guides/comedi-setup.md#calibration` for full details.
 
 **Test Commands:**
 ```bash

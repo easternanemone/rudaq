@@ -259,8 +259,128 @@ sudo comedi_config /dev/comedi0 ni_pcimio
 3. Read data more frequently
 4. Check system load
 
+## Calibration
+
+The NI PCI-MIO-16XE-10 supports software calibration via `comedi_calibrate`. Without
+calibration, expect ~50mV DC offset and ±100mV accuracy. After calibration, accuracy
+improves to ~1-2mV.
+
+### Prerequisites
+
+```bash
+# Ensure comedilib is installed
+sudo apt-get install libcomedi-dev comedilib
+
+# Verify comedi_calibrate is available
+which comedi_calibrate
+```
+
+### Running Calibration
+
+```bash
+# Full autocalibration (recommended)
+sudo comedi_calibrate -f /dev/comedi0
+
+# Reset and fresh calibration
+sudo comedi_calibrate --reset --calibrate -f /dev/comedi0
+
+# Verbose output for debugging
+sudo comedi_calibrate -v -f /dev/comedi0
+```
+
+### Calibration Script
+
+A convenience script is provided at `scripts/calibrate-comedi.sh`:
+
+```bash
+# Run calibration on maitai
+sudo bash scripts/calibrate-comedi.sh
+
+# Verify calibration
+sudo bash scripts/calibrate-comedi.sh --verify
+```
+
+### Calibration Files
+
+Calibration data is stored in:
+- System: `/etc/comedi/calibrations/`
+- User: `~/.comedi_calibrations/`
+
+```bash
+# Check existing calibrations
+ls -la /etc/comedi/calibrations/
+ls -la ~/.comedi_calibrations/
+
+# View calibration details
+comedi_calibrate -f /dev/comedi0 --dump
+```
+
+### How It Works
+
+The NI PCI-MIO-16XE-10 has internal precision voltage references. The calibration
+utility:
+
+1. Measures internal reference voltages
+2. Calculates gain and offset corrections
+3. Programs the onboard calibration DACs
+4. Stores coefficients in a calibration file
+
+This is **soft calibration** - no EEPROM is modified, so it's safe to run repeatedly.
+
+### When to Recalibrate
+
+- After significant temperature changes (>10°C)
+- After the system has been powered off for extended periods
+- If measurement accuracy degrades
+- Periodically (monthly recommended for precision work)
+
+### Applying Calibration in Rust
+
+The Comedi driver automatically looks for calibration files. To ensure calibration
+is applied, the calibration file must exist before opening the device:
+
+```rust
+use daq_driver_comedi::ComediDevice;
+
+// Calibration is automatically applied if file exists
+let device = ComediDevice::open("/dev/comedi0")?;
+
+// Check if calibration was loaded (future feature)
+// device.is_calibrated()
+```
+
+### Troubleshooting Calibration
+
+**"comedi_calibrate: command not found"**
+```bash
+sudo apt-get install comedilib
+```
+
+**"Cannot open /dev/comedi0"**
+```bash
+# Check device exists
+ls -la /dev/comedi0
+
+# Load driver if needed
+sudo modprobe ni_pcimio
+```
+
+**"Calibration failed: unsupported board"**
+```bash
+# Check board type
+comedi_board_info /dev/comedi0
+
+# Some boards don't support software calibration
+```
+
+**Calibration doesn't improve accuracy**
+- Ensure the calibration file is being read (check permissions)
+- Verify the file timestamp matches the last calibration run
+- Try removing old calibration files and recalibrating
+
 ## References
 
 - [Comedi Project](https://www.comedi.org/)
 - [Comedilib Documentation](https://www.comedi.org/doc/index.html)
 - [NI PCI-MIO-16XE-10 Specifications](https://www.ni.com/docs/en-US/bundle/pci-mio-16xe-10-specs/page/specs.html)
+- [comedi_calibrate Man Page](https://manpages.ubuntu.com/manpages/focal/man8/comedi_calibrate.8.html)
