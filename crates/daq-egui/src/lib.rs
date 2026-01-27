@@ -6,6 +6,11 @@ pub mod gui_log_layer;
 pub mod reconnect;
 
 #[cfg(feature = "standalone")]
+pub mod connection_state_ext;
+#[cfg(feature = "standalone")]
+pub use connection_state_ext::ConnectionStateExt;
+
+#[cfg(feature = "standalone")]
 pub mod app;
 #[cfg(feature = "standalone")]
 pub mod graph;

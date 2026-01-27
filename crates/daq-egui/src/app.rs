@@ -12,6 +12,7 @@ use crate::client::DaqClient;
 use crate::connection::{
     load_daemon_address, resolve_address, save_daemon_address, AddressSource, DaemonAddress,
 };
+use crate::connection_state_ext::ConnectionStateExt;
 use crate::daemon_launcher::{AutoConnectState, DaemonLauncher, DaemonMode};
 use crate::icons;
 use crate::layout;

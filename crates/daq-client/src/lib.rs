@@ -7,9 +7,7 @@
 pub mod client;
 pub mod connection;
 pub mod error;
-
-// These modules will be added in subsequent subtasks:
-// pub mod reconnect;   // bd-xrnw.4
+pub mod reconnect;
 
 pub use client::{ChannelConfig, DaqClient};
 pub use connection::{
@@ -17,3 +15,4 @@ pub use connection::{
     DEFAULT_GRPC_PORT, STORAGE_KEY_DAEMON_ADDR,
 };
 pub use error::{ClientError, Result};
+pub use reconnect::{ConnectionManager, ConnectionState, ReconnectConfig};
