@@ -1,4 +1,13 @@
 //! Devices panel - list and control hardware devices.
+//!
+//! **DEPRECATED**: This panel is superseded by [`InstrumentManagerPanel`](super::instrument_manager)
+//! which provides a hierarchical tree view with better device organization.
+//! DevicesPanel will be removed in a future release.
+//!
+//! Use InstrumentManagerPanel for:
+//! - Hierarchical device grouping by category
+//! - Device-specific control panels (MaiTai, PowerMeter, Rotators, etc.)
+//! - PVCAM PP Features and Smart Streaming
 
 use eframe::egui;
 use tokio::runtime::Runtime;

@@ -623,6 +623,43 @@ impl ComediDevice {
         // SAFETY: handle is valid
         unsafe { comedi_sys::comedi_fileno(self.handle()) }
     }
+
+    /// Create a calibration manager for this device.
+    ///
+    /// The calibration manager handles loading and applying calibration
+    /// data for accurate ADC/DAC conversions.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use daq_driver_comedi::ComediDevice;
+    ///
+    /// let device = ComediDevice::open("/dev/comedi0")?;
+    /// let calibration = device.calibration_manager();
+    ///
+    /// // Load default calibration
+    /// calibration.load_default()?;
+    ///
+    /// // Apply calibration to a raw reading
+    /// let raw = 32768;
+    /// let voltage = calibration.to_physical(raw, 0, 0, 0);
+    /// ```
+    pub fn calibration_manager(&self) -> crate::calibration::CalibrationManager {
+        crate::calibration::CalibrationManager::new(self.clone())
+    }
+
+    /// Check if this device has a calibration subdevice (EEPROM).
+    ///
+    /// NI DAQ boards typically have a calibration subdevice that contains
+    /// factory calibration data.
+    pub fn has_calibration_subdevice(&self) -> bool {
+        self.find_subdevice(SubdeviceType::Calibration).is_some()
+    }
+
+    /// Get the calibration subdevice index, if present.
+    pub fn calibration_subdevice(&self) -> Option<u32> {
+        self.find_subdevice(SubdeviceType::Calibration)
+    }
 }
 
 impl std::fmt::Debug for ComediDevice {

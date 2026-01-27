@@ -1,7 +1,24 @@
 //! Instrument Manager Panel - hierarchical device tree view
 //!
-//! Displays registered hardware grouped by type (Cameras, Stages, Detectors, etc.)
-//! with expandable nodes showing device state and quick actions.
+//! The primary panel for viewing and controlling all registered hardware devices.
+//! Displays devices grouped by type (Cameras, Stages, Detectors, etc.) with
+//! expandable nodes showing device state and quick actions.
+//!
+//! ## Features
+//! - Hierarchical tree view with device grouping by category
+//! - Device-specific control panels (MaiTai, PowerMeter, Rotators, Stages, PVCAM)
+//! - Real-time state updates (position, readings, streaming status)
+//! - Pop-out support for device panels
+//! - PVCAM-specific features: PP Features reset, Smart Streaming configuration
+//!
+//! ## Device Panel Routing
+//! Devices are routed to specialized panels based on driver type:
+//! - `maitai` → MaiTaiControlPanel
+//! - `newport_1830c` → PowerMeterControlPanel
+//! - `ell14` → RotatorControlPanel
+//! - `pvcam`/`prime` → PVCAM panel with PP Features and Smart Streaming
+//! - Movable devices → StageControlPanel
+//! - Others → Generic control panel
 
 mod dispatch;
 mod types;
