@@ -82,11 +82,11 @@ BEAD_ID_FROM_RESPONSE=$(echo "$LAST_RESPONSE" | grep -oE "BEAD [A-Za-z0-9._-]+" 
 IS_EPIC_CHILD="false"
 [[ "$BEAD_ID_FROM_RESPONSE" == *"."* ]] && IS_EPIC_CHILD="true"
 
-# Check 2: Comment required
+# Check 2: Comment required (documents work for audit trail)
 HAS_COMMENT=$(grep -c '"bd comment\|"command":"bd comment' "$AGENT_TRANSCRIPT" 2>/dev/null) || HAS_COMMENT=0
 if [[ "$HAS_COMMENT" -lt 1 ]]; then
-  cat << 'EOF'
-{"decision":"block","reason":"Work verification failed: no comment on bead.\n\nRun: bd comment {BEAD_ID} \"Completed: [summary]\""}
+  cat << EOF
+{"decision":"block","reason":"Work verification failed: no comment on bead '${BEAD_ID_FROM_RESPONSE}'.\n\nWHY: Comments create an audit trail of what was changed and why.\n\nRun: bd comment ${BEAD_ID_FROM_RESPONSE} \"Completed: [brief summary]\"\n\nExample: bd comment ${BEAD_ID_FROM_RESPONSE} \"Fixed overflow with saturating_add\""}
 EOF
   exit 0
 fi
@@ -96,8 +96,8 @@ REPO_ROOT=$(cd "$(git rev-parse --git-common-dir)/.." 2>/dev/null && pwd)
 WORKTREE_PATH="$REPO_ROOT/.worktrees/bd-${BEAD_ID_FROM_RESPONSE}"
 
 if [[ ! -d "$WORKTREE_PATH" ]]; then
-  cat << 'EOF'
-{"decision":"block","reason":"Work verification failed: worktree not found.\n\nCreate worktree first via API."}
+  cat << EOF
+{"decision":"block","reason":"Work verification failed: worktree not found.\n\nExpected: ${WORKTREE_PATH}\n\nWHY: Supervisors must work in isolated worktrees, not on main.\n\nCreate: git worktree add .worktrees/bd-${BEAD_ID_FROM_RESPONSE} -b bd-${BEAD_ID_FROM_RESPONSE} main"}
 EOF
   exit 0
 fi
@@ -105,8 +105,10 @@ fi
 # Check 4: Uncommitted changes
 UNCOMMITTED=$(git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null)
 if [[ -n "$UNCOMMITTED" ]]; then
-  cat << 'EOF'
-{"decision":"block","reason":"Work verification failed: uncommitted changes.\n\nRun in worktree:\n  git add -A && git commit -m \"...\""}
+  UNCOMMITTED_PREVIEW=$(echo "$UNCOMMITTED" | head -3 | tr '\n' ' ')
+  UNCOMMITTED_COUNT=$(echo "$UNCOMMITTED" | wc -l | tr -d ' ')
+  cat << EOF
+{"decision":"block","reason":"Work verification failed: ${UNCOMMITTED_COUNT} uncommitted file(s).\n\nFiles: ${UNCOMMITTED_PREVIEW}\n\nWHY: All changes must be committed before completion.\n\nRun: cd ${WORKTREE_PATH} && git add -A && git commit -m \"fix: ...\""}
 EOF
   exit 0
 fi
@@ -117,8 +119,8 @@ if [[ -n "$HAS_REMOTE" ]]; then
   BRANCH="bd-${BEAD_ID_FROM_RESPONSE}"
   REMOTE_EXISTS=$(git -C "$WORKTREE_PATH" ls-remote --heads origin "$BRANCH" 2>/dev/null)
   if [[ -z "$REMOTE_EXISTS" ]]; then
-    cat << 'EOF'
-{"decision":"block","reason":"Work verification failed: branch not pushed.\n\nRun: git push -u origin bd-{BEAD_ID}"}
+    cat << EOF
+{"decision":"block","reason":"Work verification failed: branch '${BRANCH}' not pushed.\n\nWHY: Work must be pushed for review and merge.\n\nRun: git -C ${WORKTREE_PATH} push -u origin ${BRANCH}"}
 EOF
     exit 0
   fi
@@ -130,7 +132,7 @@ EXPECTED_STATUS="inreview"
 # Epic children also use inreview (done status not supported in bd)
 if [[ "$BEAD_STATUS" != "$EXPECTED_STATUS" ]]; then
   cat << EOF
-{"decision":"block","reason":"Work verification failed: bead status is '${BEAD_STATUS}'.\n\nRun: bd update ${BEAD_ID_FROM_RESPONSE} --status ${EXPECTED_STATUS}"}
+{"decision":"block","reason":"Work verification failed: bead status is '${BEAD_STATUS}', expected '${EXPECTED_STATUS}'.\n\nWHY: Status 'inreview' signals work is ready for merge.\n\nRun: bd update ${BEAD_ID_FROM_RESPONSE} --status ${EXPECTED_STATUS}"}
 EOF
   exit 0
 fi
@@ -143,7 +145,7 @@ CHAR_COUNT=${#DECODED_RESPONSE}
 
 if [[ "$LINE_COUNT" -gt 50 ]] || [[ "$CHAR_COUNT" -gt 3000 ]]; then
   cat << EOF
-{"decision":"block","reason":"Work verification failed: response too verbose (${LINE_COUNT} lines, ${CHAR_COUNT} chars). Max: 50 lines, 3000 chars.\n\nTip: Keep completion report concise. Details go in bead comments."}
+{"decision":"block","reason":"Work verification failed: response too verbose (${LINE_COUNT} lines, ${CHAR_COUNT} chars). Max: 50 lines, 3000 chars.\n\nWHY: Concise reports reduce token waste. Details go in bead comments.\n\nFormat:\n  BEAD {ID} COMPLETE\n  Worktree: .worktrees/bd-{ID}\n  Files: [names]\n  Summary: [1 line]"}
 EOF
   exit 0
 fi
