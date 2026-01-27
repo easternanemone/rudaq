@@ -786,15 +786,8 @@ fn register_hardware_factories(engine: &mut Engine) {
         "move_abs",
         |handle: &mut Ell14Handle, pos: f64| -> Result<Dynamic, Box<EvalAltResult>> {
             // Validate soft limits
-            if pos < handle.soft_limits.min || pos > handle.soft_limits.max {
-                return Err(Box::new(EvalAltResult::ErrorRuntime(
-                    format!(
-                        "Position {} outside soft limits [{}, {}]",
-                        pos, handle.soft_limits.min, handle.soft_limits.max
-                    )
-                    .into(),
-                    Position::NONE,
-                )));
+            if let Err(e) = handle.soft_limits.validate(pos) {
+                return Err(Box::new(EvalAltResult::ErrorRuntime(e.into(), Position::NONE)));
             }
             run_blocking("ELL14 move_abs", handle.driver.move_abs(pos))?;
             Ok(Dynamic::UNIT)
@@ -831,7 +824,10 @@ fn register_hardware_factories(engine: &mut Engine) {
     engine.register_fn(
         "velocity",
         |handle: &mut Ell14Handle| -> Result<i64, Box<EvalAltResult>> {
-            let percent = run_blocking("ELL14 velocity", handle.driver.cached_velocity())?;
+            let driver = handle.driver.clone();
+            let percent = run_blocking("ELL14 velocity", async move {
+                Ok::<u8, anyhow::Error>(driver.cached_velocity().await)
+            })?;
             Ok(percent as i64)
         },
     );
