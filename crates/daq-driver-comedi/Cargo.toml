@@ -37,6 +37,7 @@ futures = "0.3"
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
 tempfile = "3"
+serialport = "4"
 
 [features]
 default = []
