@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-daq-core = { path = "../daq-core" }
+daq-core = { path = "../daq-core", features = ["serial"] }
 daq-hardware = { path = "../daq-hardware" }
 daq-experiment = { path = "../daq-experiment" }
 daq-driver-mock = { path = "../daq-driver-mock" }
@@ -37,10 +37,14 @@ hdf5_scripting = ["dep:hdf5"]
 comedi_scripting = ["dep:daq-driver-comedi"]
 # Marker feature for cfg guards on hardware factory functions
 hardware_factories = []
-# Full scripting support with all hardware drivers and HDF5 storage
-# This is the RECOMMENDED feature for scripted experiments on maitai
+
+# Generic Serial Driver support for Rhai
+generic_driver = ["daq-hardware/serial", "daq-hardware/scripting"]
+
+# Full scripting - RECOMMENDED
 scripting_full = [
     "hardware_factories",
+    "generic_driver",
     "dep:daq-driver-thorlabs",
     "dep:daq-driver-newport",
     "dep:daq-driver-spectra-physics",
