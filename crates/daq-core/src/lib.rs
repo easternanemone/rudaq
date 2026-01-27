@@ -58,6 +58,7 @@ pub mod error_recovery;
 pub mod experiment;
 pub mod health;
 pub mod limits;
+pub mod log_scrubbing;
 pub mod modules;
 pub mod observable;
 pub mod parameter;
