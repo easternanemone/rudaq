@@ -50,6 +50,7 @@ cd ~/rust-daq
 | `create_maitai_tunable(port)` | `MaiTaiLaser` | MaiTai with wavelength control |
 | `create_newport_1830c(port)` | `Newport1830C` | Power meter |
 | `create_elliptec(port, addr)` | `Ell14` | ELL14 rotator |
+| `create_comedi(device)` | `ComediDAQ` | Comedi DAQ (requires `comedi_scripting` feature) |
 | `create_hdf5(path)` | `Hdf5File` | HDF5 file for data storage |
 
 ### MaiTai Laser Methods (MaiTaiLaser type)
@@ -103,6 +104,36 @@ rotator.wait_settled();     // Wait for motion complete
 // Query
 let pos = rotator.position();   // Current position
 let vel = rotator.velocity();   // Cached velocity (0-100%)
+```
+
+### Comedi DAQ Methods (requires `comedi_scripting` feature)
+
+```rhai
+let daq = create_comedi("/dev/comedi0");
+
+// Device info
+print("Board: " + daq.board_name());
+print("Driver: " + daq.driver_name());
+print("AI channels: " + daq.n_ai_channels());
+print("AO channels: " + daq.n_ao_channels());
+print("DIO channels: " + daq.n_dio_channels());
+
+// Analog input
+let voltage = daq.read_voltage(0);              // Read AI channel 0
+let v = daq.read_voltage_range(0, 1);           // Read with specific range
+
+// Analog output (EOM control)
+daq.write_voltage(1, 2.5);                      // Write 2.5V to AO channel 1
+// WARNING: AO channel 0 controls EOM - be careful!
+
+// Digital I/O
+daq.set_dio(0, true);                           // Set DIO channel 0 high
+let state = daq.get_dio(1);                     // Read DIO channel 1
+```
+
+**Building with Comedi support:**
+```bash
+cargo build --release -p daq-scripting --features scripting_full_comedi
 ```
 
 ### HDF5 Data Storage
@@ -297,9 +328,11 @@ with_shutter_open(shutter, || {
 
 | Feature | Description |
 |---------|-------------|
-| `hardware_factories` | **Required** - Enables device factory functions |
-| `hdf5_scripting` | HDF5 data storage (included in hardware_factories) |
-| `scripting_full` | Alias, but does NOT enable factories alone |
+| `hardware_factories` | Marker feature for cfg guards (enabled by scripting_full) |
+| `hdf5_scripting` | HDF5 data storage |
+| `comedi_scripting` | Comedi DAQ support (requires comedilib on Linux) |
+| `scripting_full` | **Recommended** - All serial hardware + HDF5 |
+| `scripting_full_comedi` | scripting_full + Comedi DAQ support |
 
 ## Related Documentation
 

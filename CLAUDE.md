@@ -801,8 +801,11 @@ See `config/devices/ell14.toml` for a complete example.
 Build and run Rhai experiment scripts on maitai:
 
 ```bash
-# CRITICAL: Must use hardware_factories feature (NOT scripting_full alone)
-cargo build --release -p daq-scripting --features hardware_factories
+# Standard build (serial hardware + HDF5)
+cargo build --release -p daq-scripting --features scripting_full
+
+# With Comedi DAQ support (requires comedilib on Linux)
+cargo build --release -p daq-scripting --features scripting_full_comedi
 
 # Available script runners:
 ./target/release/rhai-runner script.rhai        # Generic runner
@@ -817,7 +820,16 @@ cargo build --release -p daq-scripting --features hardware_factories
 | `create_maitai_tunable(port)` | MaiTai laser with wavelength control |
 | `create_newport_1830c(port)` | Newport 1830-C power meter |
 | `create_elliptec(port, addr)` | ELL14 rotator on RS-485 bus |
+| `create_comedi(device)` | Comedi DAQ (AI/AO/DIO) - requires `comedi_scripting` |
 | `with_shutter_open(shutter, fn)` | Safe shutter wrapper (auto-closes on error) |
+
+**Comedi DAQ Example:**
+```rhai
+let daq = create_comedi("/dev/comedi0");
+let voltage = daq.read_voltage(0);      // Read AI channel 0
+daq.write_voltage(1, 2.5);              // Write 2.5V to AO channel 1
+// WARNING: AO0 controls EOM - don't write arbitrary values!
+```
 
 **Shutter Safety:** Always use `with_shutter_open()`:
 ```rhai

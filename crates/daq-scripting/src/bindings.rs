@@ -1137,6 +1137,269 @@ fn register_hardware_factories(engine: &mut Engine) {
             driver: laser.driver.clone(),
         }
     });
+
+    // Register Comedi functions if feature is enabled
+    #[cfg(feature = "comedi_scripting")]
+    register_comedi_functions(engine);
+}
+
+// =============================================================================
+// Comedi DAQ Functions (feature-gated)
+// =============================================================================
+
+/// Handle for Comedi DAQ device in Rhai scripts
+#[cfg(feature = "comedi_scripting")]
+#[derive(Clone)]
+pub struct ComediHandle {
+    /// The underlying Comedi device
+    device: Arc<daq_driver_comedi::ComediDevice>,
+}
+
+#[cfg(feature = "comedi_scripting")]
+fn register_comedi_functions(engine: &mut Engine) {
+    use daq_driver_comedi::{ComediDevice, Range as ComediRange};
+
+    engine.register_type_with_name::<ComediHandle>("ComediDAQ");
+
+    // create_comedi(device_path) - Open Comedi device
+    engine.register_fn(
+        "create_comedi",
+        |device_path: &str| -> Result<ComediHandle, Box<EvalAltResult>> {
+            let device = ComediDevice::open(device_path).map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Failed to open Comedi device '{}': {}", device_path, e).into(),
+                    Position::NONE,
+                ))
+            })?;
+
+            tracing::info!(
+                device = %device_path,
+                board = %device.board_name(),
+                driver = %device.driver_name(),
+                "Comedi device opened"
+            );
+
+            Ok(ComediHandle {
+                device: Arc::new(device),
+            })
+        },
+    );
+
+    // comedi.board_name() - Get board name
+    engine.register_fn("board_name", |comedi: &mut ComediHandle| -> String {
+        comedi.device.board_name()
+    });
+
+    // comedi.driver_name() - Get driver name
+    engine.register_fn("driver_name", |comedi: &mut ComediHandle| -> String {
+        comedi.device.driver_name()
+    });
+
+    // comedi.read_voltage(channel) - Read voltage from analog input channel
+    // Uses default range (index 0) and ground reference
+    engine.register_fn(
+        "read_voltage",
+        |comedi: &mut ComediHandle, channel: i64| -> Result<f64, Box<EvalAltResult>> {
+            let ai = comedi.device.analog_input().map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Failed to get analog input subsystem: {}", e).into(),
+                    Position::NONE,
+                ))
+            })?;
+
+            let range = ai.range_info(channel as u32, 0).map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Failed to get range info for channel {}: {}", channel, e).into(),
+                    Position::NONE,
+                ))
+            })?;
+
+            let voltage = ai.read_voltage(channel as u32, range).map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Failed to read voltage from channel {}: {}", channel, e).into(),
+                    Position::NONE,
+                ))
+            })?;
+
+            Ok(voltage)
+        },
+    );
+
+    // comedi.read_voltage_range(channel, range_index) - Read voltage with specific range
+    engine.register_fn(
+        "read_voltage_range",
+        |comedi: &mut ComediHandle,
+         channel: i64,
+         range_index: i64|
+         -> Result<f64, Box<EvalAltResult>> {
+            let ai = comedi.device.analog_input().map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Failed to get analog input subsystem: {}", e).into(),
+                    Position::NONE,
+                ))
+            })?;
+
+            let range = ai.range_info(channel as u32, range_index as u32).map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!(
+                        "Failed to get range {} for channel {}: {}",
+                        range_index, channel, e
+                    )
+                    .into(),
+                    Position::NONE,
+                ))
+            })?;
+
+            let voltage = ai.read_voltage(channel as u32, range).map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Failed to read voltage from channel {}: {}", channel, e).into(),
+                    Position::NONE,
+                ))
+            })?;
+
+            Ok(voltage)
+        },
+    );
+
+    // comedi.write_voltage(channel, voltage) - Write voltage to analog output channel
+    // Uses default range (index 0)
+    engine.register_fn(
+        "write_voltage",
+        |comedi: &mut ComediHandle, channel: i64, voltage: f64| -> Result<Dynamic, Box<EvalAltResult>> {
+            let ao = comedi.device.analog_output().map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Failed to get analog output subsystem: {}", e).into(),
+                    Position::NONE,
+                ))
+            })?;
+
+            let range = ao.range_info(channel as u32, 0).map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Failed to get range info for channel {}: {}", channel, e).into(),
+                    Position::NONE,
+                ))
+            })?;
+
+            ao.write_voltage(channel as u32, voltage, range).map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!(
+                        "Failed to write voltage {} to channel {}: {}",
+                        voltage, channel, e
+                    )
+                    .into(),
+                    Position::NONE,
+                ))
+            })?;
+
+            tracing::debug!(channel = channel, voltage = voltage, "Comedi AO write");
+            Ok(Dynamic::UNIT)
+        },
+    );
+
+    // comedi.set_dio(channel, value) - Set digital output channel
+    engine.register_fn(
+        "set_dio",
+        |comedi: &mut ComediHandle, channel: i64, value: bool| -> Result<Dynamic, Box<EvalAltResult>> {
+            let dio = comedi.device.digital_io().map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Failed to get digital I/O subsystem: {}", e).into(),
+                    Position::NONE,
+                ))
+            })?;
+
+            // Configure as output first
+            dio.configure(channel as u32, daq_driver_comedi::subsystem::DioDirection::Output)
+                .map_err(|e| {
+                    Box::new(EvalAltResult::ErrorRuntime(
+                        format!("Failed to configure channel {} as output: {}", channel, e).into(),
+                        Position::NONE,
+                    ))
+                })?;
+
+            dio.write(channel as u32, value).map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Failed to write to DIO channel {}: {}", channel, e).into(),
+                    Position::NONE,
+                ))
+            })?;
+
+            tracing::debug!(channel = channel, value = value, "Comedi DIO write");
+            Ok(Dynamic::UNIT)
+        },
+    );
+
+    // comedi.get_dio(channel) - Read digital input channel
+    engine.register_fn(
+        "get_dio",
+        |comedi: &mut ComediHandle, channel: i64| -> Result<bool, Box<EvalAltResult>> {
+            let dio = comedi.device.digital_io().map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Failed to get digital I/O subsystem: {}", e).into(),
+                    Position::NONE,
+                ))
+            })?;
+
+            // Configure as input first
+            dio.configure(channel as u32, daq_driver_comedi::subsystem::DioDirection::Input)
+                .map_err(|e| {
+                    Box::new(EvalAltResult::ErrorRuntime(
+                        format!("Failed to configure channel {} as input: {}", channel, e).into(),
+                        Position::NONE,
+                    ))
+                })?;
+
+            let value = dio.read(channel as u32).map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Failed to read DIO channel {}: {}", channel, e).into(),
+                    Position::NONE,
+                ))
+            })?;
+
+            Ok(value)
+        },
+    );
+
+    // comedi.n_ai_channels() - Get number of analog input channels
+    engine.register_fn(
+        "n_ai_channels",
+        |comedi: &mut ComediHandle| -> Result<i64, Box<EvalAltResult>> {
+            let ai = comedi.device.analog_input().map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Failed to get analog input subsystem: {}", e).into(),
+                    Position::NONE,
+                ))
+            })?;
+            Ok(ai.n_channels() as i64)
+        },
+    );
+
+    // comedi.n_ao_channels() - Get number of analog output channels
+    engine.register_fn(
+        "n_ao_channels",
+        |comedi: &mut ComediHandle| -> Result<i64, Box<EvalAltResult>> {
+            let ao = comedi.device.analog_output().map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Failed to get analog output subsystem: {}", e).into(),
+                    Position::NONE,
+                ))
+            })?;
+            Ok(ao.n_channels() as i64)
+        },
+    );
+
+    // comedi.n_dio_channels() - Get number of digital I/O channels
+    engine.register_fn(
+        "n_dio_channels",
+        |comedi: &mut ComediHandle| -> Result<i64, Box<EvalAltResult>> {
+            let dio = comedi.device.digital_io().map_err(|e| {
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Failed to get digital I/O subsystem: {}", e).into(),
+                    Position::NONE,
+                ))
+            })?;
+            Ok(dio.n_channels() as i64)
+        },
+    );
 }
 
 // =============================================================================
