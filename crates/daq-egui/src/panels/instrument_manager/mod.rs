@@ -21,7 +21,7 @@ use crate::client::DaqClient;
 use crate::panels::ComediPanel;
 use crate::widgets::{
     offline_notice, DeviceControlWidget, MaiTaiControlPanel, OfflineContext,
-    PowerMeterControlPanel, RotatorControlPanel, StageControlPanel,
+    PowerMeterControlPanel, RotatorControlPanel, SmartStreamEditor, StageControlPanel,
 };
 use daq_proto::daq::DeviceInfo;
 
@@ -138,6 +138,8 @@ pub struct InstrumentManagerPanel {
     stage_panels: HashMap<String, StageControlPanel>,
     /// Comedi DAQ control panels
     comedi_panels: HashMap<String, ComediPanel>,
+    /// PVCAM Smart Stream editors (keyed by device_id)
+    smart_stream_editors: HashMap<String, SmartStreamEditor>,
 
     /// Pending pop-out request containing full device info
     /// Checked by DaqApp after each ui() call
@@ -155,13 +157,14 @@ enum ContextAction {
 /// Control panel actions (collected during UI render, executed after)
 #[derive(Clone, Debug)]
 enum ControlAction {
-    MoveAbs(String, f64),     // device_id, position
-    MoveRel(String, f64),     // device_id, delta
-    Read(String),             // device_id
-    StartStream(String),      // device_id
-    StopStream(String),       // device_id
-    SetExposure(String, f64), // device_id, exposure_ms
-    RefreshState(String),     // device_id
+    MoveAbs(String, f64),                   // device_id, position
+    MoveRel(String, f64),                   // device_id, delta
+    Read(String),                           // device_id
+    StartStream(String),                    // device_id
+    StopStream(String),                     // device_id
+    SetExposure(String, f64),               // device_id, exposure_ms
+    RefreshState(String),                   // device_id
+    ExecuteCommand(String, String, String), // device_id, command, args
 }
 
 impl Default for InstrumentManagerPanel {
@@ -198,6 +201,7 @@ impl Default for InstrumentManagerPanel {
             rotator_panels: HashMap::new(),
             stage_panels: HashMap::new(),
             comedi_panels: HashMap::new(),
+            smart_stream_editors: HashMap::new(),
             pending_pop_out: None,
         }
     }
@@ -219,6 +223,7 @@ impl InstrumentManagerPanel {
         self.initial_refresh_done = false;
         self.groups.clear();
         self.device_states.clear();
+        self.smart_stream_editors.clear();
         self.error = None;
         self.status = None;
     }
@@ -1456,6 +1461,14 @@ impl InstrumentManagerPanel {
             return;
         }
 
+        // Check for PVCAM camera
+        if driver_lower.contains("pvcam") || driver_lower.contains("prime") {
+            ui.push_id(("instr_mgr", &device_id), |ui| {
+                self.render_pvcam_control_panel(ui, &device, client, runtime);
+            });
+            return;
+        }
+
         // Check for ESP300 stage or other movable devices
         if device.is_movable {
             let panel = self.stage_panels.entry(device_id.clone()).or_default();
@@ -1521,6 +1534,103 @@ impl InstrumentManagerPanel {
                 actions.push(action);
             }
         }
+
+        // Quick actions
+        ui.add_space(8.0);
+        ui.separator();
+        ui.horizontal(|ui| {
+            if ui.button("📋 Parameters").clicked() {
+                self.pending_action = Some((
+                    device_id.clone(),
+                    device.name.clone(),
+                    ContextAction::ViewParameters,
+                ));
+            }
+            if ui.button("🔄 Refresh State").clicked() {
+                actions.push(ControlAction::RefreshState(device_id.clone()));
+            }
+        });
+
+        // Execute collected actions
+        for action in actions {
+            self.execute_control_action(action, client.as_deref_mut(), runtime);
+        }
+    }
+
+    /// Render PVCAM-specific control panel with PP Features and Smart Streaming
+    fn render_pvcam_control_panel(
+        &mut self,
+        ui: &mut egui::Ui,
+        device: &DeviceInfo,
+        mut client: Option<&mut DaqClient>,
+        runtime: &Runtime,
+    ) {
+        let device_id = device.id.clone();
+
+        // Clone state to avoid borrow issues
+        let state = self.device_states.get(&device_id).cloned();
+        let is_online = state.as_ref().map(|s| s.online).unwrap_or(false);
+        let op_pending = self.operation_pending.get(&device_id).cloned();
+
+        ui.horizontal(|ui| {
+            ui.heading(&device.name);
+            if is_online {
+                ui.colored_label(egui::Color32::GREEN, "● Online");
+            } else {
+                ui.colored_label(egui::Color32::RED, "● Offline");
+            }
+            if let Some(op) = &op_pending {
+                ui.spinner();
+                ui.label(op);
+            }
+        });
+
+        ui.separator();
+
+        // Camera controls (exposure, streaming)
+        let mut actions = Vec::new();
+        if device.is_frame_producer {
+            if let Some(action) = self.render_camera_controls(ui, &device_id, state.as_ref()) {
+                actions.push(action);
+            }
+        }
+
+        // PP Features section (PVCAM-specific)
+        // Note: Full PP parameter editing requires parameter caching infrastructure.
+        // For now, only the Reset button is functional.
+        ui.add_space(8.0);
+        egui::CollapsingHeader::new("✨ PP Features")
+            .id_salt(egui::Id::new("pp_header").with(&device_id))
+            .show(ui, |ui| {
+                if ui.button("🔄 Reset All to Defaults").clicked() {
+                    actions.push(ControlAction::ExecuteCommand(
+                        device_id.clone(),
+                        "reset_pp".to_string(),
+                        "{}".to_string(),
+                    ));
+                }
+                ui.weak("PP parameter editing not yet available in this panel.");
+            });
+
+        // Smart Streaming section (PVCAM-specific)
+        ui.add_space(8.0);
+        egui::CollapsingHeader::new("🚀 Smart Streaming")
+            .id_salt(egui::Id::new("ss_header").with(&device_id))
+            .show(ui, |ui| {
+                let smart_stream_editor = self
+                    .smart_stream_editors
+                    .entry(device_id.clone())
+                    .or_default();
+                if smart_stream_editor.ui(ui, &device_id) {
+                    let args = serde_json::json!({ "exposures": smart_stream_editor.exposures })
+                        .to_string();
+                    actions.push(ControlAction::ExecuteCommand(
+                        device_id.clone(),
+                        "upload_smart_stream".to_string(),
+                        args,
+                    ));
+                }
+            });
 
         // Quick actions
         ui.add_space(8.0);
@@ -1755,7 +1865,43 @@ impl InstrumentManagerPanel {
             ControlAction::RefreshState(device_id) => {
                 self.refresh_single_device(client, runtime, device_id);
             }
+            ControlAction::ExecuteCommand(device_id, command, args) => {
+                self.execute_device_command(client, runtime, device_id, command, args);
+            }
         }
+    }
+
+    /// Execute a device command (e.g., reset_pp, upload_smart_stream)
+    fn execute_device_command(
+        &mut self,
+        client: Option<&mut DaqClient>,
+        runtime: &Runtime,
+        device_id: String,
+        command: String,
+        args: String,
+    ) {
+        let Some(client) = client else {
+            self.error = Some("Not connected to daemon".to_string());
+            return;
+        };
+
+        let mut client = client.clone();
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
+        let cmd_name = command.clone();
+
+        runtime.spawn(async move {
+            let result = client
+                .execute_device_command(&device_id, &command, &args)
+                .await;
+            let _ = tx
+                .send(ActionResult::SetParameter {
+                    _device_id: device_id,
+                    param_name: cmd_name,
+                    result: result.map(|_| "OK".to_string()).map_err(|e| e.to_string()),
+                })
+                .await;
+        });
     }
 
     /// Set exposure for a camera
