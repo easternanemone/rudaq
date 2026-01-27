@@ -23,7 +23,7 @@ config = { version = "0.14.0", features = ["toml"] }
 arrow = { version = "57", optional = true, features = ["ipc"] }
 daq-pool = { path = "../daq-pool" }
 sha2 = "0.10"  # For graph file hashing
-regex-lite = "0.1" # For log scrubbing
+regex-lite = "0.1"  # Lightweight regex for log scrubbing
 
 # Serial port support (optional, for driver crates)
 tokio-serial = { version = "5.4", optional = true }
