@@ -13,8 +13,8 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-use crate::client::DaqClient;
 use crate::widgets::{offline_notice, MetadataEditor, OfflineContext};
+use daq_client::DaqClient;
 use daq_proto::daq::Document;
 
 /// Scan mode selection (1D vs 2D)

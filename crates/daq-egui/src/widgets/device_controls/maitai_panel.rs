@@ -12,9 +12,9 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use tracing;
 
-use crate::client::DaqClient;
 use crate::widgets::device_controls::DeviceControlWidget;
 use crate::widgets::Gauge;
+use daq_client::DaqClient;
 use daq_proto::daq::DeviceInfo;
 
 /// Polling interval for state updates (1 second)

@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
-use crate::client::DaqClient;
 use crate::widgets::{offline_notice, OfflineContext};
+use daq_client::DaqClient;
 
 use super::{AnalogReference, NI_VOLTAGE_RANGES};
 

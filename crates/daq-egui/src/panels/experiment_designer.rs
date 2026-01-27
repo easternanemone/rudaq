@@ -9,7 +9,6 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use undo::Record;
 
-use crate::client::DaqClient;
 use crate::graph::commands::{AddNodeData, GraphEdit, ModifyNodeData};
 use crate::graph::{
     graph_to_rhai_script, load_graph, save_graph, EngineStateLocal, ExecutionState, ExperimentNode,
@@ -24,6 +23,7 @@ use crate::widgets::{
     show_adaptive_alert, AdaptiveAlertData, AdaptiveAlertResponse, EditableParameter,
     PropertyInspector, RuntimeParameterEditResult, RuntimeParameterEditor,
 };
+use daq_client::DaqClient;
 use daq_experiment::Plan;
 use daq_proto::daq::StreamQuality;
 use futures::StreamExt;

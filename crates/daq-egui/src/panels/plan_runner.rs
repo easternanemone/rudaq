@@ -5,7 +5,7 @@
 //! - Starting/pausing/resuming/aborting execution
 //! - Monitoring engine status and queue length
 
-use crate::client::DaqClient;
+use daq_client::DaqClient;
 use eframe::egui;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;

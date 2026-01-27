@@ -18,7 +18,7 @@ use std::time::Instant;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
-use crate::client::DaqClient;
+use daq_client::DaqClient;
 
 /// Maximum points to keep per channel (prevents unbounded memory growth)
 const MAX_POINTS_PER_CHANNEL: usize = 10_000;

@@ -19,7 +19,7 @@ use egui::Ui;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
-use crate::client::DaqClient;
+use daq_client::DaqClient;
 use daq_proto::daq::DeviceInfo;
 
 /// Trait for device-specific control panel widgets

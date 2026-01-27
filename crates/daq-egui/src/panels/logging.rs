@@ -12,6 +12,7 @@ use std::collections::VecDeque;
 use std::sync::mpsc;
 use std::time::Instant;
 
+use crate::connection_state_ext::ConnectionStateExt;
 use eframe::egui;
 
 /// Maximum number of log entries to keep in memory

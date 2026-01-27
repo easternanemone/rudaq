@@ -41,9 +41,9 @@
 use egui::Ui;
 use tokio::runtime::Runtime;
 
-use crate::client::DaqClient;
 use crate::widgets::device_controls::{DeviceControlWidget, DevicePanelState};
 use crate::widgets::Gauge;
+use daq_client::DaqClient;
 use daq_proto::daq::DeviceInfo;
 
 /// Power meter state cached from the daemon

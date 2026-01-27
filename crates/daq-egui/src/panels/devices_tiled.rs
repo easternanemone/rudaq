@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
-use crate::client::DaqClient;
+use daq_client::DaqClient;
 
 /// A single device pane
 #[derive(Clone)]

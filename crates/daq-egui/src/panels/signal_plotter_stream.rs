@@ -16,8 +16,8 @@
 // TODO(bd-yu38): Streaming integration not yet wired up to main UI
 #![allow(dead_code)]
 
-use crate::client::DaqClient;
 use crate::panels::signal_plotter::{ObservableUpdate, SignalPlotterPanel};
+use daq_client::DaqClient;
 use tokio::sync::mpsc as tokio_mpsc;
 
 /// Stream subscription handle

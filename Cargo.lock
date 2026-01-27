@@ -2630,6 +2630,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "daq-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "daq-proto",
+ "futures",
+ "prost 0.12.6",
+ "serde",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tonic 0.10.2",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "daq-core"
 version = "0.1.0"
 dependencies = [
@@ -2834,6 +2851,7 @@ dependencies = [
  "bytemuck",
  "chrono",
  "clap",
+ "daq-client",
  "daq-core",
  "daq-driver-pvcam",
  "daq-experiment",

@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
-use crate::client::DaqClient;
 use crate::widgets::{offline_notice, OfflineContext};
+use daq_client::DaqClient;
 
 /// Result types for different async actions
 #[derive(Debug)]

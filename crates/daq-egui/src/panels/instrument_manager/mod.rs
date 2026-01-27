@@ -34,12 +34,12 @@ use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
-use crate::client::DaqClient;
 use crate::panels::ComediPanel;
 use crate::widgets::{
     offline_notice, DeviceControlWidget, MaiTaiControlPanel, OfflineContext,
     PowerMeterControlPanel, RotatorControlPanel, SmartStreamEditor, StageControlPanel,
 };
+use daq_client::DaqClient;
 use daq_proto::daq::DeviceInfo;
 
 /// Timeout for individual device state fetch (prevents stalls from hung devices)

@@ -4,6 +4,7 @@ members = [
     "crates/rust-daq",
     # "crates/rust-daq/pvcam-sys", # Moved to daq-driver-pvcam
     "crates/daq-core",
+    "crates/daq-client",
     "crates/daq-pool",
     "crates/daq-plugin-api",
     "crates/daq-plugin-example",

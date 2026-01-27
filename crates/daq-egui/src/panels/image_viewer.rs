@@ -18,10 +18,10 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 
-use crate::client::DaqClient;
 use crate::icons;
 use crate::layout::{self, colors};
 use crate::widgets::{Histogram, HistogramPosition, ParameterCache, RoiSelector};
+use daq_client::DaqClient;
 use daq_proto::compression::decompress_frame;
 use daq_proto::daq::{FrameData, StreamQuality};
 

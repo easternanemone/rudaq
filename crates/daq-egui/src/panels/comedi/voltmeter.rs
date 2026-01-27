@@ -10,7 +10,7 @@ use std::time::Instant;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
-use crate::client::DaqClient;
+use daq_client::DaqClient;
 
 /// Maximum history for statistics
 const MAX_HISTORY: usize = 1000;

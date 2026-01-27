@@ -4,8 +4,8 @@ use eframe::egui;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
-use crate::client::DaqClient;
 use crate::widgets::{offline_notice, OfflineContext};
+use daq_client::DaqClient;
 
 /// Pending action for storage panel
 enum PendingAction {

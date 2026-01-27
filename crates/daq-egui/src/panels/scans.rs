@@ -4,8 +4,8 @@ use eframe::egui;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
-use crate::client::DaqClient;
 use crate::widgets::{offline_notice, OfflineContext};
+use daq_client::DaqClient;
 use daq_proto::daq::{AxisConfig, ScanConfig};
 
 /// Axis configuration for the wizard

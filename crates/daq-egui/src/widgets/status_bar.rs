@@ -10,7 +10,7 @@ use eframe::egui;
 
 use crate::icons;
 use crate::layout::{self, colors};
-use crate::reconnect::ConnectionState;
+use daq_client::reconnect::ConnectionState;
 
 /// Status bar widget displaying connection state and contextual information.
 ///

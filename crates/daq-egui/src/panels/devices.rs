@@ -13,12 +13,12 @@ use eframe::egui;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
-use crate::client::DaqClient;
 use crate::icons;
 use crate::layout;
 use crate::widgets::{
     filter_parameters, group_parameters_by_prefix, offline_notice, OfflineContext, ParameterCache,
 };
+use daq_client::DaqClient;
 
 const LAYOUT_CHANGING_PARAMS: &[&str] =
     &["readout.port", "readout.speed_mode", "readout.gain_mode"];

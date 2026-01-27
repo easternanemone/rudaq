@@ -7,8 +7,8 @@ use serde_json::json;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
-use crate::client::DaqClient;
 use crate::widgets::{offline_notice, OfflineContext};
+use daq_client::DaqClient;
 
 use super::NI_VOLTAGE_RANGES;
 

@@ -11,8 +11,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use egui::Ui;
 use tokio::runtime::Runtime;
 
-use crate::client::DaqClient;
 use crate::widgets::device_controls::{DeviceControlWidget, DevicePanelState};
+use daq_client::DaqClient;
 use daq_proto::daq::DeviceInfo;
 
 /// Global counter for unique panel instance IDs (for diagnostic logging)
