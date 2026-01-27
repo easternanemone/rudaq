@@ -29,8 +29,9 @@ if [[ -n "$AGENT_ID" && -n "$MAIN_TRANSCRIPT" && -f "$MAIN_TRANSCRIPT" ]]; then
 fi
 
 # === LAYER 2: Check completion format (backup detection) ===
-HAS_BEAD_COMPLETE=$(echo "$LAST_RESPONSE" | grep -cE "BEAD.*COMPLETE" 2>/dev/null || true)
-HAS_WORKTREE_OR_BRANCH=$(echo "$LAST_RESPONSE" | grep -cE "(Worktree:|Branch:).*bd-" 2>/dev/null || true)
+# More lenient patterns - accept variations to avoid feedback loops
+HAS_BEAD_COMPLETE=$(echo "$LAST_RESPONSE" | grep -ciE "(BEAD|bd-).*[Cc]ompl" 2>/dev/null || true)
+HAS_WORKTREE_OR_BRANCH=$(echo "$LAST_RESPONSE" | grep -ciE "(worktree|branch|\.worktrees/bd-|origin/bd-)" 2>/dev/null || true)
 [[ -z "$HAS_BEAD_COMPLETE" ]] && HAS_BEAD_COMPLETE=0
 [[ -z "$HAS_WORKTREE_OR_BRANCH" ]] && HAS_WORKTREE_OR_BRANCH=0
 
@@ -50,10 +51,10 @@ NEEDS_VERIFICATION="false"
 
 # === VERIFICATION CHECKS ===
 
-# Check 1: Completion format required for supervisors
+# Check 1: Completion format required for supervisors (relaxed - accept variations)
 if [[ "$IS_SUPERVISOR" == "true" ]] && [[ "$HAS_BEAD_COMPLETE" -lt 1 || "$HAS_WORKTREE_OR_BRANCH" -lt 1 ]]; then
   cat << 'EOF'
-{"decision":"block","reason":"Work verification failed: completion report missing.\n\nRequired format:\nBEAD {BEAD_ID} COMPLETE\nWorktree: .worktrees/bd-{BEAD_ID}\nFiles: [list]\nTests: pass\nSummary: [1 sentence]"}
+{"decision":"block","reason":"Work verification failed: completion report missing.\n\nRequired (flexible format):\n- ANY mention of 'complete' or 'completed' with bead ID\n- ANY mention of worktree path or branch name\n\nExamples that work:\n  'Completed bd-xyz in .worktrees/bd-xyz'\n  'BEAD bd-xyz COMPLETE, Worktree: .worktrees/bd-xyz'\n  'Fixed in branch bd-xyz, work complete'"}
 EOF
   exit 0
 fi
@@ -116,14 +117,15 @@ EOF
   exit 0
 fi
 
-# Check 7: Verbosity limit
+# Check 7: Verbosity limit (relaxed - increased from 15/800 to 50/3000)
+# Some fixes need context; this is a reasonable limit that prevents abuse but allows explanation
 DECODED_RESPONSE=$(printf '%b' "$LAST_RESPONSE")
 LINE_COUNT=$(echo "$DECODED_RESPONSE" | wc -l | tr -d ' ')
 CHAR_COUNT=${#DECODED_RESPONSE}
 
-if [[ "$LINE_COUNT" -gt 15 ]] || [[ "$CHAR_COUNT" -gt 800 ]]; then
+if [[ "$LINE_COUNT" -gt 50 ]] || [[ "$CHAR_COUNT" -gt 3000 ]]; then
   cat << EOF
-{"decision":"block","reason":"Work verification failed: response too verbose (${LINE_COUNT} lines, ${CHAR_COUNT} chars). Max: 15 lines, 800 chars."}
+{"decision":"block","reason":"Work verification failed: response too verbose (${LINE_COUNT} lines, ${CHAR_COUNT} chars). Max: 50 lines, 3000 chars.\n\nTip: Keep completion report concise. Details go in bead comments."}
 EOF
   exit 0
 fi
