@@ -10,6 +10,24 @@ AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty')
 
 [[ -z "$AGENT_TRANSCRIPT" || ! -f "$AGENT_TRANSCRIPT" ]] && echo '{"decision":"approve"}' && exit 0
 
+# === SIMPLE TASK BYPASS ===
+# If prompt contains SIMPLE_TASK marker, skip strict validation
+# Only check for basic completion signal to prevent 67k+ token waste on trivial fixes
+if [[ -n "$MAIN_TRANSCRIPT" && -f "$MAIN_TRANSCRIPT" ]]; then
+  HAS_SIMPLE_TASK=$(grep -c "SIMPLE_TASK: true" "$MAIN_TRANSCRIPT" 2>/dev/null || echo "0")
+  if [[ "$HAS_SIMPLE_TASK" -gt 0 ]]; then
+    # Extract last response (needs to be defined here for early exit)
+    SIMPLE_TASK_RESPONSE=$(tail -200 "$AGENT_TRANSCRIPT" | jq -rs '
+      [.[] | select(.message?.role == "assistant" and .message?.content != null)
+       | .message.content[] | select(.text != null) | .text] | last // ""
+    ' 2>/dev/null || echo "")
+    # Check for any completion signal
+    if echo "$SIMPLE_TASK_RESPONSE" | grep -qiE "(complete|finished|done)"; then
+      echo '{"decision":"approve"}' && exit 0
+    fi
+  fi
+fi
+
 # Extract last assistant text response
 LAST_RESPONSE=$(tail -200 "$AGENT_TRANSCRIPT" | jq -rs '
   [.[] | select(.message?.role == "assistant" and .message?.content != null)
