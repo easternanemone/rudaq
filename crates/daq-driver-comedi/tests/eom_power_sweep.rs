@@ -174,11 +174,11 @@ fn save_to_hdf5(
     voltage_ds
         .new_attr::<hdf5::types::VarLenUnicode>()
         .create("units")?
-        .write_scalar(&hdf5::types::VarLenUnicode::from("V"))?;
+        .write_scalar(&"V".parse::<hdf5::types::VarLenUnicode>().unwrap())?;
     voltage_ds
         .new_attr::<hdf5::types::VarLenUnicode>()
         .create("long_name")?
-        .write_scalar(&hdf5::types::VarLenUnicode::from("EOM Control Voltage"))?;
+        .write_scalar(&"EOM Control Voltage".parse::<hdf5::types::VarLenUnicode>().unwrap())?;
 
     // Create power dataset (data variable)
     let power_ds = file
@@ -191,28 +191,28 @@ fn save_to_hdf5(
     power_ds
         .new_attr::<hdf5::types::VarLenUnicode>()
         .create("units")?
-        .write_scalar(&hdf5::types::VarLenUnicode::from("W"))?;
+        .write_scalar(&"W".parse::<hdf5::types::VarLenUnicode>().unwrap())?;
     power_ds
         .new_attr::<hdf5::types::VarLenUnicode>()
         .create("long_name")?
-        .write_scalar(&hdf5::types::VarLenUnicode::from("Optical Power"))?;
+        .write_scalar(&"Optical Power".parse::<hdf5::types::VarLenUnicode>().unwrap())?;
     // Link to coordinate dimension (xarray convention)
     power_ds
         .new_attr::<hdf5::types::VarLenUnicode>()
         .create("_ARRAY_DIMENSIONS")?
-        .write(&[hdf5::types::VarLenUnicode::from("voltage")])?;
+        .write(&["voltage".parse::<hdf5::types::VarLenUnicode>().unwrap()])?;
 
     // Add global attributes (experiment metadata)
     let timestamp_str = Local::now().to_rfc3339();
     file.new_attr::<hdf5::types::VarLenUnicode>()
         .create("experiment")?
-        .write_scalar(&hdf5::types::VarLenUnicode::from("EOM Power Sweep"))?;
+        .write_scalar(&"EOM Power Sweep".parse::<hdf5::types::VarLenUnicode>().unwrap())?;
     file.new_attr::<hdf5::types::VarLenUnicode>()
         .create("timestamp")?
-        .write_scalar(&hdf5::types::VarLenUnicode::from(timestamp_str.as_str()))?;
+        .write_scalar(&timestamp_str.parse::<hdf5::types::VarLenUnicode>().unwrap())?;
     file.new_attr::<hdf5::types::VarLenUnicode>()
         .create("instrument")?
-        .write_scalar(&hdf5::types::VarLenUnicode::from("MaiTai + Comedi DAQ + Newport 1830-C"))?;
+        .write_scalar(&"MaiTai + Comedi DAQ + Newport 1830-C".parse::<hdf5::types::VarLenUnicode>().unwrap())?;
     file.new_attr::<f64>().create("voltage_min")?.write_scalar(&voltage_min)?;
     file.new_attr::<f64>().create("voltage_max")?.write_scalar(&voltage_max)?;
     file.new_attr::<f64>().create("voltage_step")?.write_scalar(&voltage_step)?;
