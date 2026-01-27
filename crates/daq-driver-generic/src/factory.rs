@@ -94,7 +94,7 @@ impl DriverFactoryTrait for GenericSerialDriverFactory {
             let resolved_path = instance.port.clone();
 
             let shared_port = {
-                let mut cache = port_cache.lock().unwrap();
+                let mut cache = port_cache.lock().unwrap_or_else(|p| p.into_inner());
                 if let Some(p) = cache.get(&resolved_path) {
                     p.clone()
                 } else {

@@ -29,7 +29,7 @@ impl HealthServiceImpl {
 
     /// Update the serving status of a service
     pub fn set_serving_status(&self, service: &str, status: ServingStatus) {
-        let mut statuses = self.statuses.lock().unwrap();
+        let mut statuses = self.statuses.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(tx) = statuses.get(service) {
             let _ = tx.send(status);
         } else {
@@ -51,7 +51,7 @@ impl Health for HealthServiceImpl {
     ) -> Result<Response<HealthCheckResponse>, Status> {
         let service = request.into_inner().service;
         let status = {
-            let statuses = self.statuses.lock().unwrap();
+            let statuses = self.statuses.lock().unwrap_or_else(|p| p.into_inner());
             if service.is_empty() {
                 // Overall server status
                 ServingStatus::Serving
@@ -76,7 +76,7 @@ impl Health for HealthServiceImpl {
         let service = request.into_inner().service;
 
         let rx = {
-            let mut statuses = self.statuses.lock().unwrap();
+            let mut statuses = self.statuses.lock().unwrap_or_else(|p| p.into_inner());
             if service.is_empty() {
                 // Overall health - simplified to always SERVING for now
                 let (_, rx) = watch::channel(ServingStatus::Serving);

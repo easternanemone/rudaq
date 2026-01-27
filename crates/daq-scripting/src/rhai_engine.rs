@@ -353,7 +353,7 @@ impl RhaiEngine {
         handle: Arc<crate::yield_handle::YieldHandle>,
     ) -> Result<(), ScriptError> {
         // Store in scope as Dynamic
-        let mut scope = self.scope.lock().unwrap();
+        let mut scope = self.scope.lock().unwrap_or_else(|p| p.into_inner());
         scope.push("__yield_handle", handle);
         Ok(())
     }
@@ -365,7 +365,7 @@ impl RhaiEngine {
     where
         T: Clone + Send + Sync + 'static,
     {
-        let mut scope_guard = self.scope.lock().unwrap();
+        let mut scope_guard = self.scope.lock().unwrap_or_else(|p| p.into_inner());
         self.engine
             .eval_with_scope::<T>(&mut scope_guard, script)
             .map_err(Self::convert_rhai_error)
@@ -465,7 +465,7 @@ impl ScriptEngine for RhaiEngine {
 
         // Execute in a blocking task to avoid blocking the async runtime
         tokio::task::spawn_blocking(move || {
-            let mut scope_guard = scope.lock().unwrap();
+            let mut scope_guard = scope.lock().unwrap_or_else(|p| p.into_inner());
             let result = engine
                 .eval_with_scope::<Dynamic>(&mut scope_guard, &script)
                 .map_err(Self::convert_rhai_error)?;
@@ -540,7 +540,7 @@ impl ScriptEngine for RhaiEngine {
 
     fn set_global(&mut self, name: &str, value: ScriptValue) -> Result<(), ScriptError> {
         let dynamic = Self::script_value_to_dynamic(value)?;
-        let mut scope = self.scope.lock().unwrap();
+        let mut scope = self.scope.lock().unwrap_or_else(|p| p.into_inner());
 
         // Check if variable exists, if so update it, otherwise push new
         if scope.get_value::<Dynamic>(name).is_some() {
@@ -553,7 +553,7 @@ impl ScriptEngine for RhaiEngine {
     }
 
     fn get_global(&self, name: &str) -> Result<ScriptValue, ScriptError> {
-        let scope = self.scope.lock().unwrap();
+        let scope = self.scope.lock().unwrap_or_else(|p| p.into_inner());
 
         scope
             .get_value::<Dynamic>(name)
@@ -564,7 +564,7 @@ impl ScriptEngine for RhaiEngine {
     }
 
     fn clear_globals(&mut self) {
-        let mut scope = self.scope.lock().unwrap();
+        let mut scope = self.scope.lock().unwrap_or_else(|p| p.into_inner());
         *scope = Scope::new();
     }
 

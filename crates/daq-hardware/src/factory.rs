@@ -606,7 +606,7 @@ impl DriverFactoryTrait for GenericSerialDriverFactory {
                 .map_err(|e| anyhow!("Failed to resolve port '{}': {}", instance.port, e))?;
 
             let shared_port = {
-                let cache = port_cache.lock().unwrap();
+                let cache = port_cache.lock().unwrap_or_else(|p| p.into_inner());
                 cache.get(&resolved_path).cloned()
             };
 
@@ -633,7 +633,7 @@ impl DriverFactoryTrait for GenericSerialDriverFactory {
 
                     // Cache it
                     {
-                        let mut cache = port_cache.lock().unwrap();
+                        let mut cache = port_cache.lock().unwrap_or_else(|p| p.into_inner());
                         cache.insert(resolved_path, shared.clone());
                     }
 
