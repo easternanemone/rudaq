@@ -6,8 +6,12 @@ publish = false
 
 [dependencies]
 rust_daq = { path = "../rust-daq", features = ["full"] }
+daq-core = { path = "../daq-core" }
 daq-storage = { path = "../daq-storage" }
 daq-proto = { path = "../daq-proto" }
+daq-driver-comedi = { path = "../daq-driver-comedi", optional = true }
+daq-driver-spectra-physics = { path = "../daq-driver-spectra-physics", optional = true }
+daq-driver-newport = { path = "../daq-driver-newport", optional = true }
 tokio = { version = "1.36", features = ["full"] }
 tonic = "0.10"
 futures = "0.3"
@@ -15,4 +19,20 @@ anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tracing-subscriber = "0.3"
+tracing = "0.1"
 lz4_flex = "0.11"
+clap = { version = "4", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+hdf5 = { package = "hdf5-metno", version = "0.11.0", optional = true }
+
+[features]
+default = []
+comedi = ["dep:daq-driver-comedi", "daq-driver-comedi/hardware"]
+spectra_physics = ["dep:daq-driver-spectra-physics"]
+newport = ["dep:daq-driver-newport"]
+hdf5 = ["dep:hdf5"]
+hardware_examples = ["comedi", "spectra_physics", "newport", "hdf5"]
+
+[[example]]
+name = "eom_power_sweep"
+required-features = ["comedi", "spectra_physics", "newport", "hdf5"]
