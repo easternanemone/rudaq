@@ -131,6 +131,7 @@ docs/MORPH_*.md
 .docker-data/
 .claude/*
 !.claude/settings.json
+!.claude/hooks/
 .node_modules
 .jules
 .tmp
