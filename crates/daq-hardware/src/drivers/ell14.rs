@@ -103,6 +103,7 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{broadcast, Mutex};
 use tokio::task::spawn_blocking;
+use tokio::time::sleep;
 use tokio_serial::SerialPortBuilderExt;
 use tracing::instrument;
 
@@ -800,6 +801,9 @@ impl Ell14Driver {
             address.to_string(),
             Self::DEFAULT_PULSES_PER_DEGREE,
         );
+
+        // Allow RS-485 bus to settle after previous device activity
+        sleep(Duration::from_millis(50)).await;
 
         // Query device for actual calibration - FAIL if device doesn't respond
         let info = driver.get_device_info().await.context(format!(
@@ -1597,7 +1601,7 @@ impl Ell14Driver {
             if let Ok(resp) = self.transaction("gs").await {
                 if let Some(idx) = resp.find("GS") {
                     let hex_str = resp[idx + 2..].trim();
-                    if hex_str == "0" || hex_str == "00" {
+                    if hex_str.is_empty() || hex_str == "0" || hex_str == "00" {
                         return Ok(());
                     }
                 }
@@ -1699,91 +1703,135 @@ impl Ell14Driver {
     ///   - Travel (8): "10168000" hex
     ///   - Pulses/unit (8): "00023000" hex
     pub async fn get_device_info(&self) -> Result<DeviceInfo> {
-        let resp = self.transaction("in").await?;
+        // Minimum length MUST be 30 chars to extract calibration data (pulses_per_unit)
+        // OLD_FW_LEN contains: type(2) + serial(8) + year(4) + fw(2) + hw(1) + travel(5) + pulses(8) = 30
+        const MIN_LEN_FOR_CALIBRATION: usize = 30; // Minimum to extract pulses_per_unit
+        const OLD_FW_LEN: usize = 30; // Older firmware (v15-v17)
+        const NEW_FW_LEN: usize = 33; // Newer firmware (original spec)
+        const MAX_RETRIES: usize = 5;
+        const RETRY_DELAY_MS: u64 = 200;
 
-        if let Some(idx) = resp.find("IN") {
-            let data = resp[idx + 2..].trim();
+        let mut last_error = None;
 
-            // Validate response length - support both older (30 char) and newer (33 char) formats
-            // Common fields (first 17 chars) are the same in both formats
-            const MIN_LEN: usize = 25; // Minimum for basic parsing
-            const OLD_FW_LEN: usize = 30; // Older firmware (v15-v17)
-            const NEW_FW_LEN: usize = 33; // Newer firmware (original spec)
+        // Retry loop for truncated responses (RS-485 bus contention)
+        for attempt in 1..=MAX_RETRIES {
+            let resp = self.transaction("in").await?;
 
-            if data.len() < MIN_LEN {
-                return Err(anyhow!(
-                    "ELL14 device info response too short: got {} chars, expected at least {} chars. \
-                    Response: {:?}. This may indicate a communication error or incompatible firmware.",
-                    data.len(), MIN_LEN, data
-                ));
+            if let Some(idx) = resp.find("IN") {
+                let data = resp[idx + 2..].trim();
+
+                // Check if response is too short - retry if so
+                // Require at least 30 chars to extract pulses_per_unit calibration data
+                if data.len() < MIN_LEN_FOR_CALIBRATION {
+                    last_error = Some(anyhow!(
+                        "ELL14 device info response too short on attempt {}/{}: got {} chars, expected at least {} chars. \
+                        Response: {:?}. This may indicate RS-485 bus contention.",
+                        attempt, MAX_RETRIES, data.len(), MIN_LEN_FOR_CALIBRATION, data
+                    ));
+
+                    if attempt < MAX_RETRIES {
+                        tracing::warn!(
+                            "Truncated device info response (attempt {}/{}): got {} chars, retrying after {}ms",
+                            attempt, MAX_RETRIES, data.len(), RETRY_DELAY_MS
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_millis(RETRY_DELAY_MS))
+                            .await;
+                        continue;
+                    } else {
+                        // Final attempt failed
+                        return Err(last_error.unwrap());
+                    }
+                }
+
+                // Valid response - parse it
+                if data.len() != OLD_FW_LEN && data.len() != NEW_FW_LEN {
+                    tracing::warn!(
+                        "ELL14 device info response has unexpected length {}: {:?}. \
+                        Expected {} (older firmware) or {} (newer firmware). Attempting to parse anyway.",
+                        data.len(), data, OLD_FW_LEN, NEW_FW_LEN
+                    );
+                }
+
+                return Self::parse_device_info_response(data);
             }
 
-            if data.len() != OLD_FW_LEN && data.len() != NEW_FW_LEN && data.len() < MIN_LEN {
+            // No 'IN' marker found
+            last_error = Some(anyhow!(
+                "Failed to parse device info (attempt {}/{}): no 'IN' marker found in response: {:?}",
+                attempt, MAX_RETRIES, resp
+            ));
+
+            if attempt < MAX_RETRIES {
                 tracing::warn!(
-                    "ELL14 device info response has unexpected length {}: {:?}. \
-                    Expected {} (older firmware) or {} (newer firmware). Attempting to parse anyway.",
-                    data.len(), data, OLD_FW_LEN, NEW_FW_LEN
+                    "No 'IN' marker in response (attempt {}/{}), retrying after {}ms",
+                    attempt,
+                    MAX_RETRIES,
+                    RETRY_DELAY_MS
                 );
+                tokio::time::sleep(tokio::time::Duration::from_millis(RETRY_DELAY_MS)).await;
             }
-
-            // Parse device type (2 hex chars -> device number)
-            let device_type_hex = &data[0..2];
-            let device_type = u8::from_str_radix(device_type_hex, 16)
-                .map(|n| format!("ELL{}", n))
-                .unwrap_or_else(|_| device_type_hex.to_string());
-
-            // Serial number (8 chars)
-            let serial = data[2..10].to_string();
-
-            // Year (4 ASCII chars, not hex)
-            let year = data[10..14].parse::<u16>().unwrap_or(0);
-
-            // Firmware (2 chars)
-            let firmware = data[14..16].to_string();
-
-            // Thread type (1 char at position 16)
-            let hardware = if data.len() >= 17 {
-                Some(data[16..17].to_string())
-            } else {
-                None
-            };
-
-            // Parse travel and pulses_per_unit based on response length
-            let (travel, pulses_per_unit) = if data.len() >= NEW_FW_LEN {
-                // Newer firmware format: Travel (8 hex) at [17:25], Pulses/unit (8 hex) at [25:33]
-                let travel = u32::from_str_radix(&data[17..25], 16).unwrap_or(0);
-                let pulses_per_unit = u32::from_str_radix(&data[25..33], 16).unwrap_or(0);
-                (travel, pulses_per_unit)
-            } else if data.len() >= OLD_FW_LEN {
-                // Older firmware format: Travel (5 hex) at [17:22], Pulses/unit (8 hex) at [22:30]
-                let travel = u32::from_str_radix(&data[17..22], 16).unwrap_or(0);
-                let pulses_per_unit = u32::from_str_radix(&data[22..30], 16).unwrap_or(0);
-                (travel, pulses_per_unit)
-            } else {
-                // Partial response - extract what we can
-                let travel = if data.len() >= 22 {
-                    u32::from_str_radix(&data[17..22], 16).unwrap_or(0)
-                } else {
-                    0
-                };
-                (travel, 0)
-            };
-
-            return Ok(DeviceInfo {
-                device_type,
-                serial,
-                year,
-                firmware,
-                hardware,
-                travel,
-                pulses_per_unit,
-            });
         }
 
-        Err(anyhow!(
-            "Failed to parse device info: no 'IN' marker found in response: {:?}",
-            resp
-        ))
+        Err(last_error.unwrap())
+    }
+
+    /// Parse device info response data (after 'IN' marker and length validation)
+    fn parse_device_info_response(data: &str) -> Result<DeviceInfo> {
+        const OLD_FW_LEN: usize = 30;
+        const NEW_FW_LEN: usize = 33;
+
+        // Parse device type (2 hex chars -> device number)
+        let device_type_hex = &data[0..2];
+        let device_type = u8::from_str_radix(device_type_hex, 16)
+            .map(|n| format!("ELL{}", n))
+            .unwrap_or_else(|_| device_type_hex.to_string());
+
+        // Serial number (8 chars)
+        let serial = data[2..10].to_string();
+
+        // Year (4 ASCII chars, not hex)
+        let year = data[10..14].parse::<u16>().unwrap_or(0);
+
+        // Firmware (2 chars)
+        let firmware = data[14..16].to_string();
+
+        // Thread type (1 char at position 16)
+        let hardware = if data.len() >= 17 {
+            Some(data[16..17].to_string())
+        } else {
+            None
+        };
+
+        // Parse travel and pulses_per_unit based on response length
+        let (travel, pulses_per_unit) = if data.len() >= NEW_FW_LEN {
+            // Newer firmware format: Travel (8 hex) at [17:25], Pulses/unit (8 hex) at [25:33]
+            let travel = u32::from_str_radix(&data[17..25], 16).unwrap_or(0);
+            let pulses_per_unit = u32::from_str_radix(&data[25..33], 16).unwrap_or(0);
+            (travel, pulses_per_unit)
+        } else if data.len() >= OLD_FW_LEN {
+            // Older firmware format: Travel (5 hex) at [17:22], Pulses/unit (8 hex) at [22:30]
+            let travel = u32::from_str_radix(&data[17..22], 16).unwrap_or(0);
+            let pulses_per_unit = u32::from_str_radix(&data[22..30], 16).unwrap_or(0);
+            (travel, pulses_per_unit)
+        } else {
+            // Partial response - extract what we can
+            let travel = if data.len() >= 22 {
+                u32::from_str_radix(&data[17..22], 16).unwrap_or(0)
+            } else {
+                0
+            };
+            (travel, 0)
+        };
+
+        Ok(DeviceInfo {
+            device_type,
+            serial,
+            year,
+            firmware,
+            hardware,
+            travel,
+            pulses_per_unit,
+        })
     }
 
     // =========================================================================
@@ -2056,7 +2104,12 @@ impl Ell14Driver {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
 
         while tokio::time::Instant::now() < deadline {
-            match tokio::time::timeout(Duration::from_millis(500), port.read(&mut buf)).await {
+            match tokio::time::timeout(
+                Duration::from_millis(500),
+                tokio::io::AsyncReadExt::read(&mut *port, &mut buf),
+            )
+            .await
+            {
                 Ok(Ok(n)) if n > 0 => {
                     response_buf.extend_from_slice(&buf[..n]);
                     // Check if we have complete data (522 bytes after "CS" marker)
@@ -3032,6 +3085,7 @@ mod tests {
             };
 
             // Parse as u32 first, then reinterpret as i32 for signed positions
+            // (ELL14 returns positions as 32-bit two's complement hex)
             let pulses_unsigned = u32::from_str_radix(hex_clean, 16)
                 .context(format!("Failed to parse position hex: {}", hex_clean))?;
             let pulses = pulses_unsigned as i32;
@@ -3155,6 +3209,7 @@ mod tests {
         // Spawn a task to send mock responses
         let response_task = tokio::spawn(async move {
             let mut buf = vec![0u8; 64];
+
             // Read the set jog step command
             let _n = host.read(&mut buf).await.unwrap();
             // Send back a success response
@@ -3173,6 +3228,88 @@ mod tests {
         // The command should have been sent (may timeout waiting for response, but that's OK for this test)
         // We're mainly testing that the API works
         assert!(result.is_ok() || result.is_err()); // Just verify it doesn't panic
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_device_info_retries_on_truncated_response() -> Result<()> {
+        use tokio::io::AsyncWriteExt;
+
+        let (mut host, device) = tokio::io::duplex(256);
+        let port: SharedPort = Arc::new(Mutex::new(Box::new(device)));
+
+        let driver = Ell14Driver::with_test_port(port, "2", 398.2222);
+
+        // Spawn a task to send mock responses
+        let response_task = tokio::spawn(async move {
+            let mut buf = vec![0u8; 64];
+
+            // First attempt: send truncated response (16 chars - simulates bus contention)
+            let _n = host.read(&mut buf).await.unwrap();
+            host.write_all(b"2IN0E14002842202115\n").await.unwrap(); // 16 chars after IN
+
+            // Second attempt: send full valid response
+            let _n = host.read(&mut buf).await.unwrap();
+            host.write_all(b"2IN0E1400284220211500046000023000\n")
+                .await
+                .unwrap(); // 33 chars
+        });
+
+        // This should retry once and succeed on second attempt
+        let result = driver.get_device_info().await;
+
+        // Wait for response task
+        let _ = tokio::time::timeout(Duration::from_millis(500), response_task).await;
+
+        assert!(
+            result.is_ok(),
+            "Expected get_device_info to succeed after retry, got: {:?}",
+            result
+        );
+        let info = result.unwrap();
+        assert_eq!(info.device_type, "ELL14");
+        assert_eq!(info.serial, "14002842");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_device_info_fails_after_max_retries() -> Result<()> {
+        use tokio::io::AsyncWriteExt;
+
+        let (mut host, device) = tokio::io::duplex(256);
+        let port: SharedPort = Arc::new(Mutex::new(Box::new(device)));
+
+        let driver = Ell14Driver::with_test_port(port, "2", 398.2222);
+
+        // Spawn a task to send mock responses
+        let response_task = tokio::spawn(async move {
+            let mut buf = vec![0u8; 64];
+
+            // Send truncated responses for all 5 attempts (matches MAX_RETRIES)
+            for _ in 0..5 {
+                let _n = host.read(&mut buf).await.unwrap();
+                host.write_all(b"2IN0E14002842202115\n").await.unwrap(); // Always 16 chars (too short)
+            }
+        });
+
+        // This should fail after 5 attempts
+        let result = driver.get_device_info().await;
+
+        // Wait for response task
+        let _ = tokio::time::timeout(Duration::from_millis(1000), response_task).await;
+
+        assert!(
+            result.is_err(),
+            "Expected get_device_info to fail after max retries"
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("too short") || err.contains("attempt 5/5"),
+            "Error should mention truncated response or final attempt: {}",
+            err
+        );
 
         Ok(())
     }

@@ -2672,6 +2672,8 @@ dependencies = [
  "parking_lot 0.12.5",
  "serde",
  "serde_json",
+ "serialport",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "toml 0.9.11+spec-1.1.0",

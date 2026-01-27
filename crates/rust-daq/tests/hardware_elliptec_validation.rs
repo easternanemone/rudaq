@@ -1531,16 +1531,23 @@ async fn test_mechanical_backlash() {
 #[tokio::test]
 async fn test_simultaneous_movement_two_devices() {
     println!("\n=== Test: Simultaneous Movement Two Devices (bd-e52e.10) ===");
+
+    // Allow RS-485 bus to settle after previous tests (critical for sequential test execution)
+    sleep(Duration::from_millis(500)).await;
+
     let bus = Ell14Bus::open(&get_elliptec_port())
         .await
         .expect("Failed to open ELL14 bus");
 
     // Create two drivers for concurrent control
+    // Add delays between driver creation to allow RS-485 bus to settle (prevents contention)
     let driver_2 = create_driver(&bus, "2").await;
+    sleep(Duration::from_millis(50)).await;
     let driver_3 = create_driver(&bus, "3").await;
 
-    // Get initial positions
+    // Get initial positions (with delays to avoid contention)
     let initial_2 = driver_2.position().await.expect("Failed to get position 2");
+    sleep(Duration::from_millis(50)).await;
     let initial_3 = driver_3.position().await.expect("Failed to get position 3");
     println!(
         "Initial positions: Rot2={:.2}°, Rot3={:.2}°",
