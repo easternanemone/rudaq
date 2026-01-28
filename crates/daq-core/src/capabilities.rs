@@ -374,11 +374,23 @@ pub trait FrameObserver: Send + Sync {
     /// Called synchronously for each frame during acquisition.
     ///
     /// This method is called from the frame loop before the frame is
-    /// delivered to primary consumers. It MUST NOT block.
+    /// delivered to primary consumers. It MUST NOT block and MUST complete
+    /// quickly (ideally < 100µs, definitely < 1ms).
     ///
     /// # Arguments
     ///
     /// - `frame`: Zero-copy view into frame data (valid only for this call)
+    ///
+    /// # Performance Warning
+    ///
+    /// Implementations MUST return immediately. Do NOT perform I/O, heavy
+    /// computation, or lock acquisition here. If persistence or complex
+    /// processing is needed, push data to a channel for processing in a separate
+    /// task.
+    ///
+    /// Blocking or slow observers will stall the entire hardware driver loop,
+    /// potentially causing buffer overflows in the SDK and dropping frames for
+    /// all consumers.
     fn on_frame(&self, frame: &crate::data::FrameView<'_>);
 
     /// Optional: Return a descriptive name for this observer (for debugging/logging).

@@ -1432,7 +1432,17 @@ impl GenericDriver {
                 if !observers.is_empty() {
                     let frame_view = daq_core::data::FrameView::from_frame(&frame);
                     for (_id, observer) in observers.iter() {
+                        let start = std::time::Instant::now();
                         observer.on_frame(&frame_view);
+                        let elapsed = start.elapsed();
+                        if elapsed > Duration::from_micros(100) {
+                            tracing::warn!(
+                                "FrameObserver '{}' took too long: {:?}. \
+                                 Observers MUST return immediately (<100µs).",
+                                observer.name(),
+                                elapsed
+                            );
+                        }
                     }
                 }
             }
