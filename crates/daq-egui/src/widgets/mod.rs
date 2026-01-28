@@ -9,6 +9,7 @@ pub mod device_controls;
 pub mod device_selector;
 pub mod gauge;
 pub mod histogram;
+pub mod line_profile;
 pub mod metadata_editor;
 pub mod node_palette;
 pub mod offline_notice;
@@ -32,6 +33,7 @@ pub use device_controls::{
 pub use device_selector::DeviceSelector;
 pub use gauge::*;
 pub use histogram::*;
+pub use line_profile::*;
 pub use metadata_editor::MetadataEditor;
 #[allow(unused_imports)]
 pub use node_palette::{NodePalette, NodeType};
