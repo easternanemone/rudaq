@@ -5,6 +5,7 @@
 
 pub mod adaptive_alert;
 pub mod auto_scale_plot;
+pub mod colorbar;
 pub mod device_controls;
 pub mod device_selector;
 pub mod double_slider;
@@ -26,6 +27,7 @@ pub mod toggle;
 
 #[allow(unused_imports)]
 pub use auto_scale_plot::{AutoScalePlot, AxisLockState};
+pub use colorbar::{Colorbar, ColorbarOrientation, ColormapTrait};
 pub use device_controls::{
     AnalogOutputControlPanel, DeviceControlWidget, MaiTaiControlPanel, PowerMeterControlPanel,
     RotatorControlPanel, StageControlPanel,

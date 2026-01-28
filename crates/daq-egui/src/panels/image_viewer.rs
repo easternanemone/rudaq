@@ -122,6 +122,8 @@ struct RgbaConversionRequest {
     /// Percentile thresholds for auto-percentile mode (bd-j6xm)
     percentile_low: f32,
     percentile_high: f32,
+    /// Colorbar midpoint for gamma-like adjustment (bd-07j1)
+    colorbar_midpoint: f32,
 }
 
 /// Result of background RGBA conversion (bd-xifj)
@@ -188,6 +190,7 @@ fn convert_frame_to_rgba_into(req: &RgbaConversionRequest, buffer: &mut Vec<u8>)
     let display_min = req.display_min;
     let display_max = req.display_max;
     let auto_contrast = req.auto_contrast;
+    let colorbar_midpoint = req.colorbar_midpoint;
     let data = &req.data;
 
     // Guard against zero or invalid dimensions
@@ -257,6 +260,14 @@ fn convert_frame_to_rgba_into(req: &RgbaConversionRequest, buffer: &mut Vec<u8>)
     // Compute contrast range (avoid division by zero)
     let range = (effective_max - effective_min).max(0.001);
 
+    // Apply colorbar midpoint adjustment (bd-07j1)
+    // Convert midpoint to gamma: gamma = -log(0.5) / log(midpoint)
+    let gamma = if colorbar_midpoint > 0.0 && colorbar_midpoint < 1.0 && colorbar_midpoint != 0.5 {
+        -0.693147 / colorbar_midpoint.ln() // -ln(0.5) = 0.693147
+    } else {
+        1.0 // Linear (no adjustment)
+    };
+
     match bit_depth {
         8 => {
             // 8-bit grayscale
@@ -272,7 +283,13 @@ fn convert_frame_to_rgba_into(req: &RgbaConversionRequest, buffer: &mut Vec<u8>)
                 };
 
                 let scaled = scale_mode.apply(contrasted);
-                let [r, g, b] = colormap.apply(scaled);
+                // Apply colorbar midpoint adjustment (bd-07j1)
+                let adjusted = if gamma != 1.0 {
+                    scaled.powf(gamma).clamp(0.0, 1.0)
+                } else {
+                    scaled
+                };
+                let [r, g, b] = colormap.apply(adjusted);
                 buffer[i * 4] = r;
                 buffer[i * 4 + 1] = g;
                 buffer[i * 4 + 2] = b;
@@ -298,7 +315,13 @@ fn convert_frame_to_rgba_into(req: &RgbaConversionRequest, buffer: &mut Vec<u8>)
                 };
 
                 let scaled = scale_mode.apply(contrasted);
-                let [r, g, b] = colormap.apply(scaled);
+                // Apply colorbar midpoint adjustment (bd-07j1)
+                let adjusted = if gamma != 1.0 {
+                    scaled.powf(gamma).clamp(0.0, 1.0)
+                } else {
+                    scaled
+                };
+                let [r, g, b] = colormap.apply(adjusted);
                 buffer[i * 4] = r;
                 buffer[i * 4 + 1] = g;
                 buffer[i * 4 + 2] = b;
@@ -562,6 +585,13 @@ impl Colormap {
             Self::Plasma => &PLASMA_LUT,
             Self::Magma => &MAGMA_LUT,
         }
+    }
+}
+
+// Implement ColormapTrait for Colorbar widget (bd-07j1)
+impl crate::widgets::ColormapTrait for Colormap {
+    fn apply(&self, value: f32) -> [u8; 3] {
+        Colormap::apply(self, value)
     }
 }
 
@@ -1010,6 +1040,12 @@ pub struct ImageViewerPanel {
     crosshair_enabled: bool,
     /// Locked crosshair position (pixel coordinates)
     crosshair_locked_pos: Option<(i32, i32)>,
+
+    // -- Interactive Colorbar (bd-07j1) --
+    /// Interactive colorbar widget for midpoint adjustment
+    colorbar: crate::widgets::Colorbar,
+    /// Show colorbar in the image viewer
+    show_colorbar: bool,
 }
 
 impl Default for ImageViewerPanel {
@@ -1100,6 +1136,12 @@ impl Default for ImageViewerPanel {
             // Crosshair (bd-pgcb)
             crosshair_enabled: false,
             crosshair_locked_pos: None,
+
+            // Interactive colorbar (bd-07j1)
+            colorbar: crate::widgets::Colorbar::new()
+                .orientation(crate::widgets::ColorbarOrientation::Vertical)
+                .units("counts"),
+            show_colorbar: true,
         }
     }
 }
@@ -1213,6 +1255,7 @@ impl ImageViewerPanel {
                 contrast_mode: self.contrast_mode,
                 percentile_low: self.percentile_low,
                 percentile_high: self.percentile_high,
+                colorbar_midpoint: self.colorbar.midpoint,
             };
 
             match tx.try_send(request) {
@@ -2274,6 +2317,16 @@ impl ImageViewerPanel {
         self.histogram
             .from_frame_data(&frame.data, frame.width, frame.height, frame.bit_depth);
 
+        // bd-07j1: Update colorbar range from frame data
+        let bit_max = match frame.bit_depth {
+            8 => 255.0,
+            12 => 4095.0,
+            16 => 65535.0,
+            _ => 65535.0,
+        };
+        self.colorbar.min_value = 0.0;
+        self.colorbar.max_value = bit_max;
+
         // bd-xifj: Submit frame for background RGBA conversion to prevent UI freezes
         // The converted RGBA will be applied to texture when polled in drain_updates
         let _submitted = self.submit_for_rgba_conversion(&frame);
@@ -2542,6 +2595,22 @@ impl ImageViewerPanel {
                         ui.selectable_value(&mut self.scale_mode, ScaleMode::Log, "Log");
                         ui.selectable_value(&mut self.scale_mode, ScaleMode::Sqrt, "Sqrt");
                     });
+
+                // bd-07j1: Colorbar toggle
+                if ui
+                    .selectable_label(
+                        self.show_colorbar,
+                        if self.show_colorbar {
+                            "Bar [ON]"
+                        } else {
+                            "Bar"
+                        },
+                    )
+                    .on_hover_text("Show interactive colorbar")
+                    .clicked()
+                {
+                    self.show_colorbar = !self.show_colorbar;
+                }
 
                 ui.separator();
 
@@ -2885,10 +2954,15 @@ impl ImageViewerPanel {
             };
 
             if let Some(texture) = &self.texture {
+                // bd-07j1: Reserve space for colorbar if enabled
+                let colorbar_width = if self.show_colorbar { 60.0 } else { 0.0 };
+                let image_available =
+                    egui::vec2(available_size.x - colorbar_width, available_size.y);
+
                 // Calculate fit zoom if needed - continuously fit when auto_fit is enabled
                 if self.auto_fit && self.width > 0 && self.height > 0 {
-                    let scale_x = available_size.x / self.width as f32;
-                    let scale_y = available_size.y / self.height as f32;
+                    let scale_x = image_available.x / self.width as f32;
+                    let scale_y = image_available.y / self.height as f32;
                     // Allow upscaling to fill available space (remove .min(1.0) cap)
                     self.zoom = scale_x.min(scale_y);
                     self.pan = egui::Vec2::ZERO;
@@ -2910,124 +2984,111 @@ impl ImageViewerPanel {
                 let pixel_scale_x = self.pixel_scale_x;
                 let pixel_scale_y = self.pixel_scale_y;
                 let scale_unit = self.scale_unit.clone();
-                let last_frame_data = self.last_frame_data.as_ref().map(|d| d.clone());
+                let last_frame_data = self.last_frame_data.as_ref().cloned();
                 let roi_selection_mode = self.roi_selector.selection_mode;
 
                 // Track crosshair lock changes to apply after closure
                 let mut crosshair_lock_action: Option<Option<(i32, i32)>> = None;
 
-                // Scrollable/pannable area
-                egui::ScrollArea::both()
-                    .id_salt("image_scroll")
-                    .show(ui, |ui| {
-                        let (rect, response) = ui.allocate_exact_size(
-                            available_size.max(image_size),
-                            egui::Sense::click_and_drag(),
-                        );
+                // bd-07j1: Horizontal layout for image + colorbar
+                ui.horizontal(|ui| {
+                    // Scrollable/pannable area for image
+                    egui::ScrollArea::both()
+                        .id_salt("image_scroll")
+                        .show(ui, |ui| {
+                            let (rect, response) = ui.allocate_exact_size(
+                                image_available.max(image_size),
+                                egui::Sense::click_and_drag(),
+                            );
 
-                        // Calculate image offset (centered)
-                        let offset = (available_size - image_size) / 2.0 + self.pan;
-                        let image_rect = egui::Rect::from_min_size(rect.min + offset, image_size);
+                            // Calculate image offset (centered)
+                            let offset = (image_available - image_size) / 2.0 + self.pan;
+                            let image_rect =
+                                egui::Rect::from_min_size(rect.min + offset, image_size);
 
-                        // Handle ROI selection or pan depending on mode
-                        if self.roi_selector.selection_mode {
-                            // ROI selection mode
-                            let roi_finalized = self.roi_selector.handle_input(
-                                &response,
+                            // Handle ROI selection or pan depending on mode
+                            if self.roi_selector.selection_mode {
+                                // ROI selection mode
+                                let roi_finalized = self.roi_selector.handle_input(
+                                    &response,
+                                    rect,
+                                    (self.width, self.height),
+                                    self.zoom,
+                                    self.pan,
+                                );
+
+                                // If ROI was finalized and we have frame data, compute statistics
+                                if roi_finalized {
+                                    if let (Some(roi), Some(frame_data)) =
+                                        (self.roi_selector.roi(), &self.last_frame_data)
+                                    {
+                                        self.roi_selector.set_roi_from_frame(
+                                            roi.clone(),
+                                            frame_data,
+                                            self.width,
+                                            self.height,
+                                            self.bit_depth,
+                                        );
+                                    }
+                                }
+                            } else {
+                                // Pan mode
+                                if response.dragged() {
+                                    self.pan += response.drag_delta();
+                                }
+                            }
+
+                            // Handle zoom with scroll wheel (always active)
+                            if response.hovered() {
+                                let scroll_delta = ui.input(|i| i.raw_scroll_delta.y);
+                                if scroll_delta != 0.0 {
+                                    let zoom_factor = 1.0 + scroll_delta * 0.001;
+                                    self.zoom = (self.zoom * zoom_factor).clamp(0.1, 10.0);
+                                }
+                            }
+
+                            // Draw the image
+                            ui.painter().image(
+                                texture.id(),
+                                image_rect,
+                                egui::Rect::from_min_max(
+                                    egui::pos2(0.0, 0.0),
+                                    egui::pos2(1.0, 1.0),
+                                ),
+                                egui::Color32::WHITE,
+                            );
+
+                            // Draw ROI overlay
+                            self.roi_selector.draw_overlay(
+                                ui.painter(),
                                 rect,
                                 (self.width, self.height),
                                 self.zoom,
                                 self.pan,
                             );
 
-                            // If ROI was finalized and we have frame data, compute statistics
-                            if roi_finalized {
-                                if let (Some(roi), Some(frame_data)) =
-                                    (self.roi_selector.roi(), &self.last_frame_data)
+                            // Draw histogram overlay if positioned on image
+                            if self.histogram_position.is_overlay() {
+                                let hist_size = egui::vec2(180.0, 80.0);
+                                let hist_rect =
+                                    self.histogram_position.overlay_rect(image_rect, hist_size);
+
+                                // Create a child UI at the overlay position
+                                let mut hist_ui = ui.new_child(
+                                    egui::UiBuilder::new()
+                                        .max_rect(hist_rect)
+                                        .layout(egui::Layout::left_to_right(egui::Align::Min)),
+                                );
+                                self.histogram.show_overlay(&mut hist_ui, hist_size);
+                            }
+
+                            // Crosshair cursor with pixel readout (bd-pgcb)
+                            if crosshair_enabled {
+                                // Determine crosshair position (locked or hover)
+                                let crosshair_pixel_pos = if let Some(locked_pos) = crosshair_locked_pos
                                 {
-                                    self.roi_selector.set_roi_from_frame(
-                                        roi.clone(),
-                                        frame_data,
-                                        self.width,
-                                        self.height,
-                                        self.bit_depth,
-                                    );
-                                }
-                            }
-                        } else {
-                            // Pan mode
-                            if response.dragged() {
-                                self.pan += response.drag_delta();
-                            }
-                        }
-
-                        // Handle zoom with scroll wheel (always active)
-                        if response.hovered() {
-                            let scroll_delta = ui.input(|i| i.raw_scroll_delta.y);
-                            if scroll_delta != 0.0 {
-                                let zoom_factor = 1.0 + scroll_delta * 0.001;
-                                self.zoom = (self.zoom * zoom_factor).clamp(0.1, 10.0);
-                            }
-                        }
-
-                        // Draw the image
-                        ui.painter().image(
-                            texture.id(),
-                            image_rect,
-                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                            egui::Color32::WHITE,
-                        );
-
-                        // Draw ROI overlay
-                        self.roi_selector.draw_overlay(
-                            ui.painter(),
-                            rect,
-                            (self.width, self.height),
-                            self.zoom,
-                            self.pan,
-                        );
-
-                        // Draw histogram overlay if positioned on image
-                        if self.histogram_position.is_overlay() {
-                            let hist_size = egui::vec2(180.0, 80.0);
-                            let hist_rect =
-                                self.histogram_position.overlay_rect(image_rect, hist_size);
-
-                            // Create a child UI at the overlay position
-                            let mut hist_ui = ui.new_child(
-                                egui::UiBuilder::new()
-                                    .max_rect(hist_rect)
-                                    .layout(egui::Layout::left_to_right(egui::Align::Min)),
-                            );
-                            self.histogram.show_overlay(&mut hist_ui, hist_size);
-                        }
-
-                        // Crosshair cursor with pixel readout (bd-pgcb)
-                        if crosshair_enabled {
-                            // Determine crosshair position (locked or hover)
-                            let crosshair_pixel_pos = if let Some(locked_pos) = crosshair_locked_pos
-                            {
-                                Some(locked_pos)
-                            } else if let Some(hover_pos) = response.hover_pos() {
-                                let image_pos = hover_pos - rect.min - offset;
-                                let pixel_x = (image_pos.x / zoom) as i32;
-                                let pixel_y = (image_pos.y / zoom) as i32;
-                                if pixel_x >= 0
-                                    && pixel_x < width as i32
-                                    && pixel_y >= 0
-                                    && pixel_y < height as i32
-                                {
-                                    Some((pixel_x, pixel_y))
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            };
-
-                            // Handle click to lock/unlock crosshair (defer mutation)
-                            if response.clicked() && !roi_selection_mode {
-                                if let Some(hover_pos) = response.interact_pointer_pos() {
+                                    Some(locked_pos)
+                                } else if let Some(hover_pos) = response.hover_pos() {
                                     let image_pos = hover_pos - rect.min - offset;
                                     let pixel_x = (image_pos.x / zoom) as i32;
                                     let pixel_y = (image_pos.y / zoom) as i32;
@@ -3036,170 +3097,196 @@ impl ImageViewerPanel {
                                         && pixel_y >= 0
                                         && pixel_y < height as i32
                                     {
-                                        // Toggle lock: if already locked at this position, unlock
-                                        if crosshair_locked_pos == Some((pixel_x, pixel_y)) {
-                                            crosshair_lock_action = Some(None);
-                                        } else {
-                                            crosshair_lock_action = Some(Some((pixel_x, pixel_y)));
-                                        }
+                                        Some((pixel_x, pixel_y))
+                                    } else {
+                                        None
                                     }
-                                }
-                            }
-
-                            // Draw crosshair and readout if position is valid
-                            if let Some((pixel_x, pixel_y)) = crosshair_pixel_pos {
-                                // Convert pixel coordinates to screen coordinates
-                                let screen_x =
-                                    rect.min.x + offset.x + (pixel_x as f32 + 0.5) * zoom;
-                                let screen_y =
-                                    rect.min.y + offset.y + (pixel_y as f32 + 0.5) * zoom;
-                                let crosshair_pos = egui::pos2(screen_x, screen_y);
-
-                                let painter = ui.painter();
-                                let crosshair_color = if crosshair_locked_pos.is_some() {
-                                    egui::Color32::from_rgb(255, 200, 0) // Yellow when locked
-                                } else {
-                                    egui::Color32::from_rgb(0, 255, 0) // Green when hovering
-                                };
-                                let stroke = egui::Stroke::new(1.5, crosshair_color);
-
-                                // Draw crosshair lines
-                                let line_length = 15.0;
-                                painter.line_segment(
-                                    [
-                                        egui::pos2(crosshair_pos.x - line_length, crosshair_pos.y),
-                                        egui::pos2(crosshair_pos.x - 3.0, crosshair_pos.y),
-                                    ],
-                                    stroke,
-                                );
-                                painter.line_segment(
-                                    [
-                                        egui::pos2(crosshair_pos.x + 3.0, crosshair_pos.y),
-                                        egui::pos2(crosshair_pos.x + line_length, crosshair_pos.y),
-                                    ],
-                                    stroke,
-                                );
-                                painter.line_segment(
-                                    [
-                                        egui::pos2(crosshair_pos.x, crosshair_pos.y - line_length),
-                                        egui::pos2(crosshair_pos.x, crosshair_pos.y - 3.0),
-                                    ],
-                                    stroke,
-                                );
-                                painter.line_segment(
-                                    [
-                                        egui::pos2(crosshair_pos.x, crosshair_pos.y + 3.0),
-                                        egui::pos2(crosshair_pos.x, crosshair_pos.y + line_length),
-                                    ],
-                                    stroke,
-                                );
-
-                                // Draw center dot
-                                painter.circle_filled(crosshair_pos, 2.0, crosshair_color);
-
-                                // Get pixel intensity value
-                                let pixel_value = if let Some(frame_data) = &last_frame_data {
-                                    get_pixel_value_inline(
-                                        frame_data,
-                                        pixel_x as u32,
-                                        pixel_y as u32,
-                                        width,
-                                        height,
-                                        bit_depth,
-                                    )
                                 } else {
                                     None
                                 };
 
-                                // Build readout text
-                                let mut readout_lines = Vec::new();
-                                readout_lines.push(format!("X: {} px, Y: {} px", pixel_x, pixel_y));
-
-                                // Physical coordinates if calibrated
-                                if let (Some(scale_x), Some(scale_y)) =
-                                    (pixel_scale_x, pixel_scale_y)
-                                {
-                                    let phys_x = pixel_x as f64 * scale_x;
-                                    let phys_y = pixel_y as f64 * scale_y;
-                                    readout_lines.push(format!(
-                                        "X: {:.2} {}, Y: {:.2} {}",
-                                        phys_x, &scale_unit, phys_y, &scale_unit
-                                    ));
+                                // Handle click to lock/unlock crosshair (defer mutation)
+                                if response.clicked() && !roi_selection_mode {
+                                    if let Some(hover_pos) = response.interact_pointer_pos() {
+                                        let image_pos = hover_pos - rect.min - offset;
+                                        let pixel_x = (image_pos.x / zoom) as i32;
+                                        let pixel_y = (image_pos.y / zoom) as i32;
+                                        if pixel_x >= 0
+                                            && pixel_x < width as i32
+                                            && pixel_y >= 0
+                                            && pixel_y < height as i32
+                                        {
+                                            // Toggle lock: if already locked at this position, unlock
+                                            if crosshair_locked_pos == Some((pixel_x, pixel_y)) {
+                                                crosshair_lock_action = Some(None);
+                                            } else {
+                                                crosshair_lock_action = Some(Some((pixel_x, pixel_y)));
+                                            }
+                                        }
+                                    }
                                 }
 
-                                // Pixel intensity
-                                if let Some(value) = pixel_value {
-                                    readout_lines.push(format!("Intensity: {}", value));
+                                // Draw crosshair and readout if position is valid
+                                if let Some((pixel_x, pixel_y)) = crosshair_pixel_pos {
+                                    // Convert pixel coordinates to screen coordinates
+                                    let screen_x =
+                                        rect.min.x + offset.x + (pixel_x as f32 + 0.5) * zoom;
+                                    let screen_y =
+                                        rect.min.y + offset.y + (pixel_y as f32 + 0.5) * zoom;
+                                    let crosshair_pos = egui::pos2(screen_x, screen_y);
+
+                                    let painter = ui.painter();
+                                    let crosshair_color = if crosshair_locked_pos.is_some() {
+                                        egui::Color32::from_rgb(255, 200, 0) // Yellow when locked
+                                    } else {
+                                        egui::Color32::from_rgb(0, 255, 0) // Green when hovering
+                                    };
+                                    let stroke = egui::Stroke::new(1.5, crosshair_color);
+
+                                    // Draw crosshair lines
+                                    let line_length = 15.0;
+                                    painter.line_segment(
+                                        [
+                                            egui::pos2(crosshair_pos.x - line_length, crosshair_pos.y),
+                                            egui::pos2(crosshair_pos.x - 3.0, crosshair_pos.y),
+                                        ],
+                                        stroke,
+                                    );
+                                    painter.line_segment(
+                                        [
+                                            egui::pos2(crosshair_pos.x + 3.0, crosshair_pos.y),
+                                            egui::pos2(crosshair_pos.x + line_length, crosshair_pos.y),
+                                        ],
+                                        stroke,
+                                    );
+                                    painter.line_segment(
+                                        [
+                                            egui::pos2(crosshair_pos.x, crosshair_pos.y - line_length),
+                                            egui::pos2(crosshair_pos.x, crosshair_pos.y - 3.0),
+                                        ],
+                                        stroke,
+                                    );
+                                    painter.line_segment(
+                                        [
+                                            egui::pos2(crosshair_pos.x, crosshair_pos.y + 3.0),
+                                            egui::pos2(crosshair_pos.x, crosshair_pos.y + line_length),
+                                        ],
+                                        stroke,
+                                    );
+
+                                    // Draw center dot
+                                    painter.circle_filled(crosshair_pos, 2.0, crosshair_color);
+
+                                    // Get pixel intensity value
+                                    let pixel_value = if let Some(frame_data) = &last_frame_data {
+                                        get_pixel_value_inline(
+                                            frame_data,
+                                            pixel_x as u32,
+                                            pixel_y as u32,
+                                            width,
+                                            height,
+                                            bit_depth,
+                                        )
+                                    } else {
+                                        None
+                                    };
+
+                                    // Build readout text
+                                    let mut readout_lines = Vec::new();
+                                    readout_lines.push(format!("X: {} px, Y: {} px", pixel_x, pixel_y));
+
+                                    // Physical coordinates if calibrated
+                                    if let (Some(scale_x), Some(scale_y)) =
+                                        (pixel_scale_x, pixel_scale_y)
+                                    {
+                                        let phys_x = pixel_x as f64 * scale_x;
+                                        let phys_y = pixel_y as f64 * scale_y;
+                                        readout_lines.push(format!(
+                                            "X: {:.2} {}, Y: {:.2} {}",
+                                            phys_x, &scale_unit, phys_y, &scale_unit
+                                        ));
+                                    }
+
+                                    // Pixel intensity
+                                    if let Some(value) = pixel_value {
+                                        readout_lines.push(format!("Intensity: {}", value));
+                                    }
+
+                                    // Draw readout panel (top-left corner of image)
+                                    let panel_padding = 8.0;
+                                    let panel_pos = egui::pos2(
+                                        image_rect.min.x + panel_padding,
+                                        image_rect.min.y + panel_padding,
+                                    );
+                                    let text_galley = painter.layout_no_wrap(
+                                        readout_lines.join("\n"),
+                                        egui::FontId::monospace(12.0),
+                                        crosshair_color,
+                                    );
+                                    let panel_rect = egui::Rect::from_min_size(
+                                        panel_pos,
+                                        text_galley.size() + egui::vec2(8.0, 8.0),
+                                    );
+                                    painter.rect_filled(
+                                        panel_rect,
+                                        4.0,
+                                        egui::Color32::from_black_alpha(180),
+                                    );
+                                    painter.galley(
+                                        panel_pos + egui::vec2(4.0, 4.0),
+                                        text_galley,
+                                        crosshair_color,
+                                    );
                                 }
-
-                                // Draw readout panel (top-left corner of image)
-                                let panel_padding = 8.0;
-                                let panel_pos = egui::pos2(
-                                    image_rect.min.x + panel_padding,
-                                    image_rect.min.y + panel_padding,
-                                );
-                                let text_galley = painter.layout_no_wrap(
-                                    readout_lines.join("\n"),
-                                    egui::FontId::monospace(12.0),
-                                    crosshair_color,
-                                );
-                                let panel_rect = egui::Rect::from_min_size(
-                                    panel_pos,
-                                    text_galley.size() + egui::vec2(8.0, 8.0),
-                                );
-                                painter.rect_filled(
-                                    panel_rect,
-                                    4.0,
-                                    egui::Color32::from_black_alpha(200),
-                                );
-                                painter.rect_stroke(
-                                    panel_rect,
-                                    4.0,
-                                    egui::Stroke::new(1.0, crosshair_color),
-                                    egui::StrokeKind::Outside,
-                                );
-                                painter.galley(
-                                    panel_pos + egui::vec2(4.0, 4.0),
-                                    text_galley,
-                                    crosshair_color,
-                                );
+                            } else {
+                                // Simple hover text when crosshair is disabled (bd-07j1)
+                                if let Some(pos) = response.hover_pos() {
+                                    let image_pos = pos - rect.min - offset;
+                                    let pixel_x = (image_pos.x / self.zoom) as i32;
+                                    let pixel_y = (image_pos.y / self.zoom) as i32;
+                                    if pixel_x >= 0
+                                        && pixel_x < self.width as i32
+                                        && pixel_y >= 0
+                                        && pixel_y < self.height as i32
+                                    {
+                                        // Build hover text with pixel and optional physical coordinates
+                                        let hover_text = if let (Some(scale_x), Some(scale_y)) =
+                                            (self.pixel_scale_x, self.pixel_scale_y)
+                                        {
+                                            let phys_x = pixel_x as f64 * scale_x;
+                                            let phys_y = pixel_y as f64 * scale_y;
+                                            format!(
+                                                "Pixel: ({}, {}) | {:.2} {} x {:.2} {}",
+                                                pixel_x,
+                                                pixel_y,
+                                                phys_x,
+                                                &self.scale_unit,
+                                                phys_y,
+                                                &self.scale_unit
+                                            )
+                                        } else {
+                                            format!("Pixel: ({}, {})", pixel_x, pixel_y)
+                                        };
+                                        response.on_hover_text(hover_text);
+                                    }
+                                }
                             }
-                        }
+                        });
 
-                        // Show pixel coordinates on hover
-                        if let Some(pos) = response.hover_pos() {
-                            let image_pos = pos - rect.min - offset;
-                            let pixel_x = (image_pos.x / self.zoom) as i32;
-                            let pixel_y = (image_pos.y / self.zoom) as i32;
-                            if pixel_x >= 0
-                                && pixel_x < self.width as i32
-                                && pixel_y >= 0
-                                && pixel_y < self.height as i32
-                            {
-                                // Build hover text with pixel and optional physical coordinates
-                                let hover_text = if let (Some(scale_x), Some(scale_y)) =
-                                    (self.pixel_scale_x, self.pixel_scale_y)
-                                {
-                                    let phys_x = pixel_x as f64 * scale_x;
-                                    let phys_y = pixel_y as f64 * scale_y;
-                                    format!(
-                                        "Pixel: ({}, {}) | {:.2} {} × {:.2} {}",
-                                        pixel_x,
-                                        pixel_y,
-                                        phys_x,
-                                        &self.scale_unit,
-                                        phys_y,
-                                        &self.scale_unit
-                                    )
-                                } else {
-                                    format!("Pixel: ({}, {})", pixel_x, pixel_y)
-                                };
-                                response.on_hover_text(hover_text);
+                    // bd-07j1: Colorbar widget
+                    if self.show_colorbar {
+                        ui.add_space(4.0);
+                        ui.vertical(|ui| {
+                            let colorbar_size = egui::vec2(40.0, image_available.y - 20.0);
+                            if self.colorbar.show(ui, &self.colormap, colorbar_size) {
+                                // Midpoint changed - request repaint to update image
+                                ui.ctx().request_repaint();
                             }
-                        }
-                    });
+                        });
+                    }
+                });
 
-                // Apply crosshair lock changes after closure
+                // Apply crosshair lock changes after closure (bd-pgcb)
                 if let Some(action) = crosshair_lock_action {
                     self.crosshair_locked_pos = action;
                 }
