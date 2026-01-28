@@ -20,11 +20,16 @@
 //! - Movable devices → StageControlPanel
 //! - Others → Generic control panel
 
+mod config_loader;
+mod config_renderer;
+#[cfg(test)]
+mod config_tests;
 mod dispatch;
 mod types;
 
 // Note: dispatch module contains PanelType and determine_panel_type for future panel routing
 // Currently the panel selection logic is inline in render_device_control_panel
+use config_loader::DeviceConfigCache;
 pub use types::{DeviceCategory, DeviceGroup, ParameterInfo, PopOutRequest};
 
 use eframe::egui;
@@ -161,6 +166,9 @@ pub struct InstrumentManagerPanel {
     /// Pending pop-out request containing full device info
     /// Checked by DaqApp after each ui() call
     pending_pop_out: Option<DeviceInfo>,
+
+    /// Device configuration cache for UI config loading
+    device_config_cache: DeviceConfigCache,
 }
 
 /// Context menu actions
@@ -220,6 +228,7 @@ impl Default for InstrumentManagerPanel {
             comedi_panels: HashMap::new(),
             smart_stream_editors: HashMap::new(),
             pending_pop_out: None,
+            device_config_cache: DeviceConfigCache::new(),
         }
     }
 }
@@ -619,6 +628,13 @@ impl InstrumentManagerPanel {
 
     /// Render the instrument manager panel
     pub fn ui(&mut self, ui: &mut egui::Ui, mut client: Option<&mut DaqClient>, runtime: &Runtime) {
+        // Load device configs on first run
+        if self.device_config_cache.protocols().count() == 0 {
+            if let Err(e) = self.device_config_cache.load_all() {
+                tracing::warn!("Failed to load device configs: {}", e);
+            }
+        }
+
         let should_fetch_states = self.poll_async_results(ui.ctx(), client.as_deref_mut(), runtime);
 
         // Fetch device states if refresh completed
@@ -1421,7 +1437,21 @@ impl InstrumentManagerPanel {
 
         ui.separator();
 
-        // Determine which device-specific panel to use based on driver type and capabilities
+        // Try config-driven rendering first
+        if let Some(device_config) = self
+            .device_config_cache
+            .get_by_driver_type(&device.driver_type)
+        {
+            if let Some(ui_config) = &device_config.ui {
+                if let Some(control_panel_config) = &ui_config.control_panel {
+                    // Use config-driven rendering
+                    config_renderer::render_config_panel(ui, &device, control_panel_config);
+                    return;
+                }
+            }
+        }
+
+        // Fallback: Determine which device-specific panel to use based on driver type and capabilities
         let driver_lower = device.driver_type.to_lowercase();
 
         // Check for MaiTai laser
