@@ -103,7 +103,7 @@ pub struct ParamSetResult {
     pub error: Option<String>,
 }
 
-/// Request for background RGBA conversion (bd-xifj)
+/// Request for background RGBA conversion (bd-xifj, bd-j6xm)
 struct RgbaConversionRequest {
     /// Raw frame data
     data: Vec<u8>,
@@ -117,6 +117,11 @@ struct RgbaConversionRequest {
     display_min: f32,
     display_max: f32,
     auto_contrast: bool,
+    /// Contrast enhancement mode (bd-j6xm)
+    contrast_mode: ContrastMode,
+    /// Percentile thresholds for auto-percentile mode (bd-j6xm)
+    percentile_low: f32,
+    percentile_high: f32,
 }
 
 /// Result of background RGBA conversion (bd-xifj)
@@ -182,11 +187,34 @@ fn convert_frame_to_rgba_into(req: &RgbaConversionRequest, buffer: &mut Vec<u8>)
         _ => 65535.0,
     };
 
-    // Compute min/max for auto-contrast
-    let (effective_min, effective_max) = if auto_contrast {
-        compute_minmax_from_data(data, bit_depth, bit_max)
-    } else {
-        (display_min, display_max)
+    // Compute min/max and optional histogram equalization LUT (bd-j6xm)
+    let (effective_min, effective_max, hist_lut) = match req.contrast_mode {
+        ContrastMode::Manual => (display_min, display_max, None),
+        ContrastMode::AutoSimple => (
+            compute_minmax_from_data(data, bit_depth, bit_max).0,
+            compute_minmax_from_data(data, bit_depth, bit_max).1,
+            None,
+        ),
+        ContrastMode::AutoPercentile => {
+            let (min, max) = compute_percentile_minmax(
+                data,
+                bit_depth,
+                bit_max,
+                req.percentile_low,
+                req.percentile_high,
+            );
+            (min, max, None)
+        }
+        ContrastMode::HistogramEq => {
+            let histogram = build_histogram(data, bit_depth, 256);
+            let lut = compute_histogram_equalization_lut(&histogram, pixel_count);
+            (0.0, 1.0, Some(lut))
+        }
+        ContrastMode::Clahe => {
+            let histogram = build_histogram(data, bit_depth, 256);
+            let lut = compute_clahe_lut(&histogram, pixel_count, 2.0);
+            (0.0, 1.0, Some(lut))
+        }
     };
 
     // Compute contrast range (avoid division by zero)
@@ -197,7 +225,15 @@ fn convert_frame_to_rgba_into(req: &RgbaConversionRequest, buffer: &mut Vec<u8>)
             // 8-bit grayscale
             for (i, &pixel) in data.iter().take(pixel_count).enumerate() {
                 let normalized = pixel as f32 / bit_max;
-                let contrasted = ((normalized - effective_min) / range).clamp(0.0, 1.0);
+
+                // Apply histogram equalization if LUT available, otherwise linear contrast
+                let contrasted = if let Some(ref lut) = hist_lut {
+                    let bin = ((normalized * 255.0) as usize).min(255);
+                    lut[bin]
+                } else {
+                    ((normalized - effective_min) / range).clamp(0.0, 1.0)
+                };
+
                 let scaled = scale_mode.apply(contrasted);
                 let [r, g, b] = colormap.apply(scaled);
                 buffer[i * 4] = r;
@@ -215,7 +251,15 @@ fn convert_frame_to_rgba_into(req: &RgbaConversionRequest, buffer: &mut Vec<u8>)
                 }
                 let pixel = u16::from_le_bytes([data[byte_idx], data[byte_idx + 1]]);
                 let normalized = pixel as f32 / bit_max;
-                let contrasted = ((normalized - effective_min) / range).clamp(0.0, 1.0);
+
+                // Apply histogram equalization if LUT available, otherwise linear contrast
+                let contrasted = if let Some(ref lut) = hist_lut {
+                    let bin = ((normalized * 255.0) as usize).min(255);
+                    lut[bin]
+                } else {
+                    ((normalized - effective_min) / range).clamp(0.0, 1.0)
+                };
+
                 let scaled = scale_mode.apply(contrasted);
                 let [r, g, b] = colormap.apply(scaled);
                 buffer[i * 4] = r;
@@ -271,6 +315,149 @@ fn compute_minmax_from_data(data: &[u8], bit_depth: u32, bit_max: f32) -> (f32, 
     } else {
         (0.0, 1.0)
     }
+}
+
+/// Compute percentile-based min/max for outlier-robust auto-contrast (bd-j6xm)
+///
+/// Percentiles should be in range 0.0-100.0 (e.g., 0.1 and 99.9)
+fn compute_percentile_minmax(
+    data: &[u8],
+    bit_depth: u32,
+    bit_max: f32,
+    low: f32,
+    high: f32,
+) -> (f32, f32) {
+    // Collect pixel values into a sorted vec for percentile computation
+    let mut values: Vec<f32> = Vec::new();
+
+    match bit_depth {
+        8 => {
+            values.reserve(data.len());
+            for &pixel in data {
+                values.push(pixel as f32);
+            }
+        }
+        12 | 16 => {
+            values.reserve(data.len() / 2);
+            for chunk in data.chunks_exact(2) {
+                let pixel = u16::from_le_bytes([chunk[0], chunk[1]]);
+                values.push(pixel as f32);
+            }
+        }
+        _ => {
+            return (0.0, 1.0);
+        }
+    }
+
+    if values.is_empty() {
+        return (0.0, 1.0);
+    }
+
+    // Sort for percentile calculation
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Calculate percentile indices
+    let low_idx =
+        ((low / 100.0) * (values.len() as f32)).clamp(0.0, (values.len() - 1) as f32) as usize;
+    let high_idx =
+        ((high / 100.0) * (values.len() as f32)).clamp(0.0, (values.len() - 1) as f32) as usize;
+
+    let min_val = values[low_idx];
+    let max_val = values[high_idx];
+
+    // Normalize to 0.0-1.0 range
+    if min_val < max_val {
+        (min_val / bit_max, max_val / bit_max)
+    } else {
+        (0.0, 1.0)
+    }
+}
+
+/// Build histogram for image data (bd-j6xm)
+fn build_histogram(data: &[u8], bit_depth: u32, bins: usize) -> Vec<u32> {
+    let mut hist = vec![0u32; bins];
+
+    let bin_scale = (bins - 1) as f32
+        / match bit_depth {
+            8 => 255.0,
+            12 => 4095.0,
+            16 => 65535.0,
+            _ => 65535.0,
+        };
+
+    match bit_depth {
+        8 => {
+            for &pixel in data {
+                let bin = ((pixel as f32 * bin_scale) as usize).min(bins - 1);
+                hist[bin] += 1;
+            }
+        }
+        12 | 16 => {
+            for chunk in data.chunks_exact(2) {
+                let pixel = u16::from_le_bytes([chunk[0], chunk[1]]);
+                let bin = ((pixel as f32 * bin_scale) as usize).min(bins - 1);
+                hist[bin] += 1;
+            }
+        }
+        _ => {}
+    }
+
+    hist
+}
+
+/// Apply histogram equalization mapping (bd-j6xm)
+///
+/// Returns a lookup table mapping input intensity (0.0-1.0) to output intensity (0.0-1.0)
+fn compute_histogram_equalization_lut(histogram: &[u32], total_pixels: usize) -> Vec<f32> {
+    let bins = histogram.len();
+    let mut lut = vec![0.0f32; bins];
+
+    // Compute cumulative distribution function
+    let mut cdf = vec![0u32; bins];
+    cdf[0] = histogram[0];
+    for i in 1..bins {
+        cdf[i] = cdf[i - 1] + histogram[i];
+    }
+
+    // Find first non-zero value for normalization
+    let cdf_min = *cdf.iter().find(|&&x| x > 0).unwrap_or(&0);
+    let cdf_range = (total_pixels as u32).saturating_sub(cdf_min).max(1);
+
+    // Build equalization lookup table
+    for i in 0..bins {
+        lut[i] = (cdf[i].saturating_sub(cdf_min) as f32 / cdf_range as f32).clamp(0.0, 1.0);
+    }
+
+    lut
+}
+
+/// Apply Contrast Limited Adaptive Histogram Equalization (CLAHE) (bd-j6xm)
+///
+/// Simplified implementation with fixed clip limit. For better quality, consider using
+/// a proper CLAHE library with tile-based processing.
+fn compute_clahe_lut(histogram: &[u32], total_pixels: usize, clip_limit: f32) -> Vec<f32> {
+    let bins = histogram.len();
+
+    // Clip histogram to limit contrast enhancement
+    let clip_value = (clip_limit * total_pixels as f32 / bins as f32) as u32;
+    let mut clipped_hist = histogram.to_vec();
+    let mut excess = 0u32;
+
+    for count in clipped_hist.iter_mut() {
+        if *count > clip_value {
+            excess += *count - clip_value;
+            *count = clip_value;
+        }
+    }
+
+    // Redistribute excess evenly
+    let redistribute = excess / bins as u32;
+    for count in clipped_hist.iter_mut() {
+        *count += redistribute;
+    }
+
+    // Apply histogram equalization on clipped histogram
+    compute_histogram_equalization_lut(&clipped_hist, total_pixels)
 }
 
 /// Whitelist for quick access camera parameters
@@ -456,6 +643,44 @@ const fn const_pow_0_7(x: f64) -> f64 {
     // Simplified: use linear interpolation between x and sqrt(x)
     // x^0.7 ≈ 0.4*x + 0.6*sqrt(x) (rough approximation)
     sqrt_x * 0.7 + x * 0.3
+}
+
+/// Contrast enhancement mode (bd-j6xm)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ContrastMode {
+    /// Manual min/max control
+    #[default]
+    Manual,
+    /// Simple min/max from all pixels
+    AutoSimple,
+    /// Percentile-based (ignore outliers)
+    AutoPercentile,
+    /// Histogram equalization
+    HistogramEq,
+    /// Contrast Limited Adaptive Histogram Equalization
+    Clahe,
+}
+
+impl ContrastMode {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Manual => "Manual",
+            Self::AutoSimple => "Auto (Simple)",
+            Self::AutoPercentile => "Auto (Percentile)",
+            Self::HistogramEq => "Histogram Eq",
+            Self::Clahe => "CLAHE",
+        }
+    }
+
+    pub fn all() -> &'static [Self] {
+        &[
+            Self::Manual,
+            Self::AutoSimple,
+            Self::AutoPercentile,
+            Self::HistogramEq,
+            Self::Clahe,
+        ]
+    }
 }
 
 /// Scale mode for pixel intensity mapping
@@ -654,8 +879,14 @@ pub struct ImageViewerPanel {
     display_min: f32,
     /// Display maximum (0.0-1.0 normalized) - pixels at or above this are white
     display_max: f32,
-    /// Auto-contrast mode - automatically compute min/max from frame data
+    /// Auto-contrast mode - automatically compute min/max from frame data (deprecated, use contrast_mode)
     auto_contrast: bool,
+    /// Contrast enhancement mode (bd-j6xm)
+    contrast_mode: ContrastMode,
+    /// Low percentile for auto-percentile mode (0.0-100.0) (bd-j6xm)
+    percentile_low: f32,
+    /// High percentile for auto-percentile mode (0.0-100.0) (bd-j6xm)
+    percentile_high: f32,
     /// Async action receiver
     action_rx: std::sync::mpsc::Receiver<ImageViewerAction>,
     /// Async action sender
@@ -772,6 +1003,9 @@ impl Default for ImageViewerPanel {
             display_min: 0.0,
             display_max: 1.0,
             auto_contrast: true,
+            contrast_mode: ContrastMode::AutoPercentile,
+            percentile_low: 0.1,
+            percentile_high: 99.9,
             action_rx,
             action_tx,
             last_refresh: None,
@@ -929,6 +1163,9 @@ impl ImageViewerPanel {
                 display_min: self.display_min,
                 display_max: self.display_max,
                 auto_contrast: self.auto_contrast,
+                contrast_mode: self.contrast_mode,
+                percentile_low: self.percentile_low,
+                percentile_high: self.percentile_high,
             };
 
             match tx.try_send(request) {
@@ -2233,29 +2470,62 @@ impl ImageViewerPanel {
 
                 ui.separator();
 
-                // === Contrast ===
-                ui.checkbox(&mut self.auto_contrast, "Auto Contrast");
-                if !self.auto_contrast {
-                    ui.add(
-                        egui::DragValue::new(&mut self.display_min)
-                            .speed(0.01)
-                            .range(0.0..=1.0)
-                            .prefix("Min: ")
-                            .max_decimals(2),
-                    );
-                    ui.add(
-                        egui::DragValue::new(&mut self.display_max)
-                            .speed(0.01)
-                            .range(0.0..=1.0)
-                            .prefix("Max: ")
-                            .max_decimals(2),
-                    );
-                } else {
-                    ui.weak(format!(
-                        "{:.0}%-{:.0}%",
-                        self.display_min * 100.0,
-                        self.display_max * 100.0
-                    ));
+                // === Contrast Enhancement (bd-j6xm) ===
+                ui.label("Contrast:");
+                egui::ComboBox::from_id_salt("contrast_mode_selector")
+                    .width(100.0)
+                    .selected_text(self.contrast_mode.label())
+                    .show_ui(ui, |ui| {
+                        for &mode in ContrastMode::all() {
+                            ui.selectable_value(&mut self.contrast_mode, mode, mode.label());
+                        }
+                    });
+
+                // Show controls based on mode
+                match self.contrast_mode {
+                    ContrastMode::Manual => {
+                        ui.add(
+                            egui::DragValue::new(&mut self.display_min)
+                                .speed(0.01)
+                                .range(0.0..=1.0)
+                                .prefix("Min: ")
+                                .max_decimals(2),
+                        );
+                        ui.add(
+                            egui::DragValue::new(&mut self.display_max)
+                                .speed(0.01)
+                                .range(0.0..=1.0)
+                                .prefix("Max: ")
+                                .max_decimals(2),
+                        );
+                    }
+                    ContrastMode::AutoPercentile => {
+                        // Show percentile controls
+                        ui.add(
+                            egui::DragValue::new(&mut self.percentile_low)
+                                .speed(0.1)
+                                .range(0.0..=100.0)
+                                .prefix("Low: ")
+                                .suffix("%")
+                                .max_decimals(1),
+                        );
+                        ui.add(
+                            egui::DragValue::new(&mut self.percentile_high)
+                                .speed(0.1)
+                                .range(0.0..=100.0)
+                                .prefix("High: ")
+                                .suffix("%")
+                                .max_decimals(1),
+                        );
+                    }
+                    ContrastMode::AutoSimple | ContrastMode::HistogramEq | ContrastMode::Clahe => {
+                        // Show computed min/max from last frame
+                        ui.weak(format!(
+                            "{:.0}%-{:.0}%",
+                            self.display_min * 100.0,
+                            self.display_max * 100.0
+                        ));
+                    }
                 }
 
                 ui.separator();
