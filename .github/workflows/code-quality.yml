@@ -24,6 +24,8 @@ jobs:
     name: Complexity Analysis
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Only run on main push or if PR has 'ci:full' label
+    if: github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'ci:full')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -91,6 +93,8 @@ jobs:
     name: Duplicate Code Detection
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Only run on main push or if PR has 'ci:full' label
+    if: github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'ci:full')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -168,6 +172,8 @@ jobs:
     name: Tech Debt Tracking
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Only run on main push or if PR has 'ci:full' label
+    if: github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'ci:full')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -243,6 +249,8 @@ jobs:
     name: AGENTS.md Validation
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Only run on main push or if PR has 'ci:full' label
+    if: github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'ci:full')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
