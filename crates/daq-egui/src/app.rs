@@ -21,6 +21,7 @@ use crate::panels::{
     InstrumentManagerPanel, LoggingPanel, ModulesPanel, PlanRunnerPanel, RunComparisonPanel,
     RunHistoryPanel, ScanBuilderPanel, ScansPanel, ScriptsPanel, SignalPlotterPanel, StoragePanel,
 };
+use crate::shortcuts::{CheatSheetPanel, ShortcutAction, ShortcutContext, ShortcutManager};
 use crate::theme::{self, ThemePreference};
 use crate::widgets::{
     AnalogOutputControlPanel, DeviceControlWidget, MaiTaiControlPanel, PowerMeterControlPanel,
@@ -155,6 +156,15 @@ pub struct DaqApp {
     pvcam_streaming: bool,
     #[cfg(all(feature = "rerun_viewer", feature = "pvcam"))]
     pvcam_task: Option<tokio::task::JoinHandle<()>>,
+
+    /// Keyboard shortcuts manager
+    shortcut_manager: ShortcutManager,
+
+    /// Cheat sheet panel (shown with Shift+?)
+    cheat_sheet_panel: CheatSheetPanel,
+
+    /// Cheat sheet visibility state
+    show_cheat_sheet: bool,
 }
 
 /// Action to perform on the UI state
@@ -270,6 +280,12 @@ impl DaqApp {
             .and_then(|s| eframe::get_value(s, "theme_preference"))
             .unwrap_or_default();
         theme::apply_theme(&cc.egui_ctx, theme_preference);
+
+        // Load or initialize keyboard shortcuts
+        let shortcut_manager: ShortcutManager = cc
+            .storage
+            .and_then(|s| eframe::get_value(s, "shortcut_manager"))
+            .unwrap_or_default();
 
         // Configure egui style with consistent spacing
         let mut style = (*cc.egui_ctx.style()).clone();
@@ -505,6 +521,9 @@ impl DaqApp {
             pvcam_streaming: false,
             #[cfg(all(feature = "rerun_viewer", feature = "pvcam"))]
             pvcam_task: None,
+            shortcut_manager,
+            cheat_sheet_panel: CheatSheetPanel::new(),
+            show_cheat_sheet: false,
         }
     }
 
@@ -1277,6 +1296,21 @@ impl DaqApp {
 
         self.was_connected = is_connected;
     }
+
+    /// Check and handle global keyboard shortcuts
+    fn check_global_shortcuts(&mut self, ctx: &egui::Context) {
+        // Check toggle cheat sheet (Shift+?)
+        if self.shortcut_manager.check_action(
+            ctx,
+            ShortcutContext::Global,
+            ShortcutAction::ToggleCheatSheet,
+        ) {
+            self.show_cheat_sheet = !self.show_cheat_sheet;
+        }
+
+        // Note: Other global shortcuts (OpenSettings, SaveCurrent) will be handled
+        // by specific panels or settings UI when implemented
+    }
 }
 
 struct DaqTabViewer<'a> {
@@ -1590,9 +1624,11 @@ impl eframe::App for DaqApp {
         // Detect connection state transitions (for panel refresh on connect)
         self.detect_connection_transitions();
 
-        // Handle keyboard shortcuts
+        // Check global keyboard shortcuts
+        self.check_global_shortcuts(ctx);
+
+        // Handle additional keyboard shortcuts (Ctrl+, opens settings)
         ctx.input(|i| {
-            // Ctrl+, opens settings (standard shortcut on many platforms)
             if i.modifiers.command && i.key_pressed(egui::Key::Comma) {
                 self.settings_window.open();
             }
@@ -1738,6 +1774,12 @@ impl eframe::App for DaqApp {
         }
 
         self.dock_state = Some(dock_state);
+
+        // Render cheat sheet panel if visible
+        if self.show_cheat_sheet {
+            self.cheat_sheet_panel
+                .show(ctx, &mut self.show_cheat_sheet, &self.shortcut_manager);
+        }
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -1756,6 +1798,9 @@ impl eframe::App for DaqApp {
 
         // Persist application settings
         eframe::set_value(storage, "app_settings", &self.app_settings);
+
+        // Persist keyboard shortcuts
+        eframe::set_value(storage, "shortcut_manager", &self.shortcut_manager);
 
         // Persist device panel info for layout restoration
         let persisted_panels: HashMap<usize, PersistedPanelInfo> = self
