@@ -678,6 +678,15 @@ impl PvcamDriver {
 
                 let conn_guard = conn_arc.lock().await;
 
+                // TOCTOU fix (bd-pti9): Re-check streaming status after acquiring lock.
+                // start_stream() could have been called while we were waiting for the mutex.
+                if streaming_check.get() {
+                    tracing::trace!(
+                        "Drift polling skipped (streaming started while waiting for lock)"
+                    );
+                    continue;
+                }
+
                 // Poll Temperature
                 if let Ok(temp) = PvcamFeatures::get_temperature(&conn_guard) {
                     let _ = temperature_param.set(temp).await;
@@ -1446,6 +1455,11 @@ impl PvcamDriver {
 
             // Close existing connection
             conn.close();
+
+            // Full SDK teardown (bd-a2iv): uninitialize() decrements ref count and
+            // calls pl_pvcam_uninit() if we're the last connection. This ensures
+            // the SDK is fully reset, not just the camera handle.
+            conn.uninitialize();
 
             // Reinitialize SDK (ref counting handles multiple instances)
             conn.initialize()?;
