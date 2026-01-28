@@ -276,11 +276,11 @@ impl DaqApp {
             .enable_all()
             .build()
             .expect("Failed to create tokio runtime");
-        // Start daemon launcher if in LocalAuto mode
+        // Start daemon launcher if in LocalAuto or LabHardware mode
         let daemon_launcher = if daemon_mode.should_auto_start() {
             let port = daemon_mode.port().unwrap_or(50051);
             let mut launcher = DaemonLauncher::new(port);
-            if let Err(e) = launcher.start() {
+            if let Err(e) = launcher.start_with_mode(&daemon_mode) {
                 tracing::error!("Failed to start daemon: {}", e);
             }
             Some(launcher)
@@ -579,7 +579,7 @@ impl DaqApp {
         if mode.should_auto_start() {
             let port = mode.port().unwrap_or(50051);
             let mut launcher = DaemonLauncher::new(port);
-            if let Err(e) = launcher.start() {
+            if let Err(e) = launcher.start_with_mode(&mode) {
                 self.logging_panel
                     .error("Daemon", &format!("Failed to start: {}", e));
             }
@@ -657,7 +657,7 @@ impl DaqApp {
                                 ui.small(err);
                             }
                             if ui.button("Restart Daemon").clicked() {
-                                if let Err(e) = launcher.start() {
+                                if let Err(e) = launcher.start_with_mode(&self.daemon_mode) {
                                     self.logging_panel.error("Daemon", &e);
                                 } else {
                                     self.auto_connect_state = AutoConnectState::WaitingForDaemon {
