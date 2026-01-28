@@ -2297,6 +2297,26 @@ impl ImageViewerPanel {
                 {
                     self.roi_selector.selection_mode = !self.roi_selector.selection_mode;
                 }
+
+                // ROI mode selector (Rectangle/Polygon)
+                use crate::widgets::roi_selector::RoiMode;
+                if roi_selected {
+                    let mode_label = match self.roi_selector.mode {
+                        RoiMode::Rectangle => "□",
+                        RoiMode::Polygon => "⬡",
+                    };
+                    if ui
+                        .button(mode_label)
+                        .on_hover_text("Switch ROI mode (Rectangle/Polygon)")
+                        .clicked()
+                    {
+                        self.roi_selector.mode = match self.roi_selector.mode {
+                            RoiMode::Rectangle => RoiMode::Polygon,
+                            RoiMode::Polygon => RoiMode::Rectangle,
+                        };
+                    }
+                }
+
                 if self.roi_selector.roi().is_some()
                     && ui
                         .button(icons::action::DELETE)
@@ -2304,6 +2324,15 @@ impl ImageViewerPanel {
                         .clicked()
                 {
                     self.roi_selector.clear();
+                }
+
+                if !self.roi_selector.rois().is_empty()
+                    && ui
+                        .button("Clear All")
+                        .on_hover_text("Clear all ROIs")
+                        .clicked()
+                {
+                    self.roi_selector.clear_all();
                 }
 
                 ui.separator();
@@ -2535,7 +2564,7 @@ impl ImageViewerPanel {
                                     (self.roi_selector.roi(), &self.last_frame_data)
                                 {
                                     self.roi_selector.set_roi_from_frame(
-                                        *roi,
+                                        roi.clone(),
                                         frame_data,
                                         self.width,
                                         self.height,
@@ -2674,12 +2703,29 @@ impl ImageViewerPanel {
                                         {
                                             if let Some(roi) = self.roi_selector.roi() {
                                                 if let Some(dev_id) = self.device_id.clone() {
-                                                    let roi_json = serde_json::json!({
-                                                        "x": roi.x,
-                                                        "y": roi.y,
-                                                        "width": roi.width,
-                                                        "height": roi.height
-                                                    });
+                                                    use crate::widgets::roi_selector::RoiShape;
+                                                    let roi_json = match roi {
+                                                        RoiShape::Rectangle { x, y, width, height } => {
+                                                            serde_json::json!({
+                                                                "type": "rectangle",
+                                                                "x": x,
+                                                                "y": y,
+                                                                "width": width,
+                                                                "height": height
+                                                            })
+                                                        }
+                                                        RoiShape::Polygon { .. } => {
+                                                            // For hardware ROI, convert polygon to bounding box
+                                                            let (min_x, min_y, max_x, max_y) = roi.bounding_box();
+                                                            serde_json::json!({
+                                                                "type": "rectangle",
+                                                                "x": min_x,
+                                                                "y": min_y,
+                                                                "width": max_x.saturating_sub(min_x),
+                                                                "height": max_y.saturating_sub(min_y)
+                                                            })
+                                                        }
+                                                    };
                                                     self.pending_param_updates.push((
                                                         dev_id,
                                                         "roi".to_string(),
