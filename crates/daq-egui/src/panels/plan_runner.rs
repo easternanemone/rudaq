@@ -18,6 +18,22 @@ enum ActionResult {
         run_uid: String,
         queue_position: u32,
     },
+    StartEngine {
+        success: bool,
+        error: Option<String>,
+    },
+    PauseEngine {
+        success: bool,
+        paused_at: Option<String>,
+    },
+    ResumeEngine {
+        success: bool,
+        error: Option<String>,
+    },
+    AbortPlan {
+        success: bool,
+        error: Option<String>,
+    },
 }
 
 /// Pending action to execute
@@ -27,6 +43,14 @@ enum PendingAction {
         parameters: std::collections::HashMap<String, String>,
         device_mapping: std::collections::HashMap<String, String>,
         metadata: std::collections::HashMap<String, String>,
+    },
+    StartEngine,
+    PauseEngine {
+        defer: bool,
+    },
+    ResumeEngine,
+    AbortPlan {
+        run_uid: Option<String>,
     },
 }
 
@@ -115,6 +139,44 @@ impl PlanRunnerPanel {
                                 ));
                                 self.error = None;
                                 self.queue_length += 1; // Basic local update
+                            } else {
+                                self.error = error;
+                            }
+                        }
+                        ActionResult::StartEngine { success, error } => {
+                            if success {
+                                self.status = Some("Engine started".to_string());
+                                self.error = None;
+                                self.engine_state = "Running".to_string();
+                            } else {
+                                self.error = error;
+                            }
+                        }
+                        ActionResult::PauseEngine { success, paused_at } => {
+                            if success {
+                                self.status = paused_at
+                                    .map(|at| format!("Engine paused at: {}", at))
+                                    .or_else(|| Some("Engine paused".to_string()));
+                                self.error = None;
+                                self.engine_state = "Paused".to_string();
+                            } else {
+                                self.error = Some("Failed to pause engine".to_string());
+                            }
+                        }
+                        ActionResult::ResumeEngine { success, error } => {
+                            if success {
+                                self.status = Some("Engine resumed".to_string());
+                                self.error = None;
+                                self.engine_state = "Running".to_string();
+                            } else {
+                                self.error = error;
+                            }
+                        }
+                        ActionResult::AbortPlan { success, error } => {
+                            if success {
+                                self.status = Some("Plan aborted".to_string());
+                                self.error = None;
+                                self.engine_state = "Idle".to_string();
                             } else {
                                 self.error = error;
                             }
@@ -281,23 +343,19 @@ impl PlanRunnerPanel {
 
             ui.horizontal(|ui| {
                 if ui.button("▶ Start").clicked() {
-                    // TODO: Call RunEngineService.StartEngine
-                    self.engine_state = "Running".to_string();
+                    self.pending_action = Some(PendingAction::StartEngine);
                 }
 
                 if ui.button("⏸ Pause").clicked() {
-                    // TODO: Call RunEngineService.PauseEngine
-                    self.engine_state = "Paused".to_string();
+                    self.pending_action = Some(PendingAction::PauseEngine { defer: false });
                 }
 
                 if ui.button("▶ Resume").clicked() {
-                    // TODO: Call RunEngineService.ResumeEngine
-                    self.engine_state = "Running".to_string();
+                    self.pending_action = Some(PendingAction::ResumeEngine);
                 }
 
                 if ui.button("⏹ Abort").clicked() {
-                    // TODO: Call RunEngineService.AbortPlan
-                    self.engine_state = "Idle".to_string();
+                    self.pending_action = Some(PendingAction::AbortPlan { run_uid: None });
                 }
             });
         });
@@ -311,7 +369,7 @@ impl PlanRunnerPanel {
             ui.label("✅ UI controls laid out");
             ui.label("✅ Connected to RunEngineServiceClient");
             ui.label("✅ Implemented gRPC call for QueuePlan");
-            ui.label("⏳ TODO: Implement start, pause, resume, abort");
+            ui.label("✅ Implemented start, pause, resume, abort (bd-xrkv)");
             ui.label("⏳ TODO: Poll get_engine_status for status updates");
             ui.label("⏳ TODO: Validate plan parameters before queueing");
         });
@@ -328,6 +386,15 @@ impl PlanRunnerPanel {
         client: Option<&mut DaqClient>,
         runtime: &Runtime,
     ) {
+        let Some(client) = client else {
+            self.error = Some("Not connected to daemon".to_string());
+            return;
+        };
+
+        let mut client = client.clone();
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
+
         match action {
             PendingAction::QueuePlan {
                 plan_type,
@@ -335,15 +402,6 @@ impl PlanRunnerPanel {
                 device_mapping,
                 metadata,
             } => {
-                let Some(client) = client else {
-                    self.error = Some("Not connected to daemon".to_string());
-                    return;
-                };
-
-                let mut client = client.clone();
-                let tx = self.action_tx.clone();
-                self.action_in_flight = self.action_in_flight.saturating_add(1);
-
                 runtime.spawn(async move {
                     let result = client
                         .queue_plan(&plan_type, parameters, device_mapping, metadata)
@@ -365,6 +423,90 @@ impl PlanRunnerPanel {
                             error: Some(e.to_string()),
                             run_uid: String::new(),
                             queue_position: 0,
+                        },
+                    };
+                    let _ = tx.send(action_result).await;
+                });
+            }
+            PendingAction::StartEngine => {
+                runtime.spawn(async move {
+                    let result = client.start_engine().await;
+
+                    let action_result = match result {
+                        Ok(response) => ActionResult::StartEngine {
+                            success: response.success,
+                            error: if response.success {
+                                None
+                            } else {
+                                Some(response.error_message)
+                            },
+                        },
+                        Err(e) => ActionResult::StartEngine {
+                            success: false,
+                            error: Some(e.to_string()),
+                        },
+                    };
+                    let _ = tx.send(action_result).await;
+                });
+            }
+            PendingAction::PauseEngine { defer } => {
+                runtime.spawn(async move {
+                    let result = client.pause_engine(defer).await;
+
+                    let action_result = match result {
+                        Ok(response) => ActionResult::PauseEngine {
+                            success: response.success,
+                            paused_at: if response.success && !response.paused_at.is_empty() {
+                                Some(response.paused_at)
+                            } else {
+                                None
+                            },
+                        },
+                        Err(e) => ActionResult::PauseEngine {
+                            success: false,
+                            paused_at: Some(format!("Error: {}", e)),
+                        },
+                    };
+                    let _ = tx.send(action_result).await;
+                });
+            }
+            PendingAction::ResumeEngine => {
+                runtime.spawn(async move {
+                    let result = client.resume_engine().await;
+
+                    let action_result = match result {
+                        Ok(response) => ActionResult::ResumeEngine {
+                            success: response.success,
+                            error: if response.success {
+                                None
+                            } else {
+                                Some(response.error_message)
+                            },
+                        },
+                        Err(e) => ActionResult::ResumeEngine {
+                            success: false,
+                            error: Some(e.to_string()),
+                        },
+                    };
+                    let _ = tx.send(action_result).await;
+                });
+            }
+            PendingAction::AbortPlan { run_uid } => {
+                runtime.spawn(async move {
+                    let result = client.abort_plan(run_uid.as_deref()).await;
+
+                    let action_result = match result {
+                        Ok(response) => ActionResult::AbortPlan {
+                            success: response.success,
+                            error: if response.success {
+                                None
+                            } else {
+                                Some(response.error_message)
+                            },
+                        },
+                        Err(e) => ActionResult::AbortPlan {
+                            success: false,
+                            error: Some(e.to_string()),
                         },
                     };
                     let _ = tx.send(action_result).await;
