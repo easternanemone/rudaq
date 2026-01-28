@@ -1,3 +1,4 @@
+#![cfg(feature = "generic_driver")]
 //! Unit Tests for GenericDriverHandle
 //!
 //! Tests for GenericDriverHandle that don't require hardware or serial ports.

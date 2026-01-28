@@ -33,6 +33,7 @@ use tracing::instrument;
 ///
 /// Provides direct access to NI PCI-MIO-16XE-10 capabilities through Comedi drivers.
 /// Complements HardwareService for DAQ-specific operations.
+#[derive(Clone)]
 pub struct NiDaqServiceImpl {
     /// Device registry for looking up Comedi devices
     registry: Arc<DeviceRegistry>,

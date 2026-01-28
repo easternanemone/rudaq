@@ -1,3 +1,4 @@
+#![cfg(feature = "generic_driver")]
 //! Rhai Script Integration Tests for GenericDriverHandle
 //!
 //! Tests that execute actual Rhai scripts with GenericDriverHandle.

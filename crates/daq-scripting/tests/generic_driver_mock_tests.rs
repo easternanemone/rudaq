@@ -1,3 +1,4 @@
+#![cfg(feature = "generic_driver")]
 //! Mock Serial Port Tests for GenericSerialDriver
 //!
 //! Tests verifying command formatting and response parsing using mock serial ports.

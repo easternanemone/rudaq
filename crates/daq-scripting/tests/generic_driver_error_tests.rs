@@ -1,3 +1,4 @@
+#![cfg(feature = "generic_driver")]
 //! Error Handling Tests for GenericDriverHandle
 //!
 //! Tests verifying helpful error messages for common failure cases.
