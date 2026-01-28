@@ -13,6 +13,8 @@ pub use connection_state_ext::ConnectionStateExt;
 #[cfg(feature = "standalone")]
 pub mod app;
 #[cfg(feature = "standalone")]
+pub mod export;
+#[cfg(feature = "standalone")]
 pub mod graph;
 #[cfg(feature = "standalone")]
 pub mod icons;

@@ -368,6 +368,46 @@ impl SignalPlotterPanel {
         }
     }
 
+    /// Export all visible traces to CSV
+    fn export_to_csv(&mut self, path: std::path::PathBuf) {
+        use crate::export::{signal::SignalTraceData, SignalExportOptions};
+
+        // Collect visible traces
+        let traces: Vec<SignalTraceData> = self
+            .traces
+            .iter()
+            .filter(|t| t.visible)
+            .map(|t| {
+                SignalTraceData::from_deque(
+                    t.label.clone(),
+                    t.device_id.clone(),
+                    t.observable_name.clone(),
+                    &t.points,
+                )
+            })
+            .collect();
+
+        if traces.is_empty() {
+            self.export_status = Some(("No visible traces to export".to_string(), true));
+            return;
+        }
+
+        // Export with default options
+        let options = SignalExportOptions::default();
+        match crate::export::signal::export_signal_traces(&path, &traces, &options) {
+            Ok(_) => {
+                let filename = path.file_name().unwrap_or_default().to_string_lossy();
+                self.export_status = Some((
+                    format!("✓ Exported {} traces to {}", traces.len(), filename),
+                    false,
+                ));
+            }
+            Err(e) => {
+                self.export_status = Some((format!("Export failed: {}", e), true));
+            }
+        }
+    }
+
     /// Render the signal plotter
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         // Drain any pending async updates first
@@ -535,6 +575,42 @@ impl SignalPlotterPanel {
                 if ui.button("⏵ Live").clicked() {
                     self.frozen = false;
                     self.frozen_time_offset = 0.0;
+                }
+            }
+        });
+
+        // Export controls row
+        ui.horizontal(|ui| {
+            ui.label("Export:");
+
+            // Export button
+            if ui.button("📁 Export to CSV").clicked() {
+                // Open file dialog
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("signal_data.csv")
+                    .add_filter("CSV Files", &["csv"])
+                    .add_filter("All Files", &["*"])
+                    .save_file()
+                {
+                    self.export_to_csv(path);
+                }
+            }
+
+            // Show export status
+            if let Some((msg, is_error)) = &self.export_status {
+                let color = if *is_error {
+                    egui::Color32::RED
+                } else {
+                    egui::Color32::GREEN
+                };
+                ui.colored_label(color, msg);
+
+                // Auto-clear after 5 seconds
+                if ui.ctx().input(|i| i.time) > 0.0 {
+                    // Clear on next frame (simple timeout)
+                    if ui.button("✕").clicked() {
+                        self.export_status = None;
+                    }
                 }
             }
         });
