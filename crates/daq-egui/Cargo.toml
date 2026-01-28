@@ -76,6 +76,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono.workspace = true
 serde_json.workspace = true
 futures.workspace = true
+toml.workspace = true  # For parsing device config files
 
 # CLI parsing and daemon process management
 clap = { version = "4", features = ["derive"] }
@@ -84,6 +85,7 @@ which = "6"  # Find daemon binary in PATH
 # Local PVCAM driver (only needed if running daemon locally, not for gRPC streaming)
 daq-core = { path = "../daq-core", optional = true }
 daq-driver-pvcam = { path = "../daq-driver-pvcam", optional = true }
+daq-hardware = { path = "../daq-hardware" }  # For device UI config schema
 rfd = "0.17.2"
 
 # Peak detection for adaptive scans
