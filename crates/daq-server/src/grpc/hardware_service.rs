@@ -2775,7 +2775,13 @@ mod tests {
         let resp = response.into_inner();
 
         assert!(resp.success);
-        assert!(resp.value > 0.0);
+        // MockPowerMeter base=1e-6W, shot noise = 0.01*sqrt(1e-6) = 1e-5
+        // Use fixed tolerance of 1.5e-5 (value can be slightly negative due to noise)
+        assert!(
+            (resp.value - 1e-6).abs() < 1.5e-5,
+            "Reading {} deviates more than 1.5e-5 from base 1e-6",
+            resp.value
+        );
     }
 
     /// Test that ReadValueResponse includes the measurement units from device metadata.
