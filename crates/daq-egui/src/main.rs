@@ -11,7 +11,7 @@
 //! # Connect to a remote daemon (skip auto-start)
 //! rust-daq-gui --daemon-url http://192.168.1.100:50051
 //!
-//! # Use lab hardware (future - currently placeholder)
+//! # Use lab hardware (auto-starts daemon with --lab-hardware flag)
 //! rust-daq-gui --lab-hardware
 //! ```
 
@@ -61,10 +61,10 @@ struct Cli {
     #[arg(long, value_name = "URL")]
     daemon_url: Option<String>,
 
-    /// Use real lab hardware configuration (future implementation)
+    /// Use real lab hardware configuration
     ///
-    /// TODO: When implemented, this will launch the daemon with --lab-hardware flag
-    /// to use the pre-configured lab setup at maitai@100.117.5.12
+    /// Launches the daemon with --lab-hardware flag to use the pre-configured
+    /// lab setup (see config/maitai_hardware.toml)
     #[arg(long)]
     lab_hardware: bool,
 

@@ -13,8 +13,7 @@ pub enum DaemonMode {
     LocalAuto { port: u16 },
     /// Connect to a remote daemon at the specified URL (no auto-start)
     Remote { url: String },
-    /// Use real lab hardware configuration (future implementation)
-    /// TODO: When implemented, this will launch the daemon with --lab-hardware flag
+    /// Auto-start a local daemon with lab hardware configuration
     LabHardware { port: u16 },
 }
 
@@ -37,9 +36,7 @@ impl DaemonMode {
 
     /// Check if this mode requires auto-starting a local daemon
     pub fn should_auto_start(&self) -> bool {
-        matches!(self, Self::LocalAuto { .. })
-        // TODO: When LabHardware is implemented, include it here:
-        // matches!(self, Self::LocalAuto { .. } | Self::LabHardware { .. })
+        matches!(self, Self::LocalAuto { .. } | Self::LabHardware { .. })
     }
 
     /// Get a human-readable label for this mode
@@ -114,7 +111,19 @@ impl DaemonLauncher {
             .map_err(|_| "rust-daq-daemon binary not found in PATH or alongside GUI".to_string())
     }
 
-    /// Start the daemon process
+    /// Start the daemon process based on the specified mode
+    pub fn start_with_mode(&mut self, mode: &DaemonMode) -> Result<(), String> {
+        match mode {
+            DaemonMode::LocalAuto { .. } => self.start(),
+            DaemonMode::LabHardware { .. } => self.start_with_lab_hardware(),
+            DaemonMode::Remote { .. } => Err(
+                "Cannot start daemon in Remote mode (should connect to existing daemon)"
+                    .to_string(),
+            ),
+        }
+    }
+
+    /// Start the daemon process with mock hardware (default)
     pub fn start(&mut self) -> Result<(), String> {
         if self.is_running() {
             tracing::debug!("Daemon already running on port {}", self.port);
@@ -146,12 +155,43 @@ impl DaemonLauncher {
         Ok(())
     }
 
-    /// Start the daemon with lab hardware configuration (future implementation)
-    #[allow(dead_code)]
+    /// Start the daemon with lab hardware configuration
     pub fn start_with_lab_hardware(&mut self) -> Result<(), String> {
-        // TODO: Implement when lab hardware support is ready
-        // This will use: daemon_bin.arg("daemon").arg("--port").arg(...).arg("--lab-hardware")
-        Err("Lab hardware mode not yet implemented".to_string())
+        if self.is_running() {
+            tracing::debug!(
+                "Daemon already running on port {} (lab hardware mode)",
+                self.port
+            );
+            return Ok(());
+        }
+
+        let daemon_bin = Self::find_daemon_binary()?;
+
+        tracing::info!(
+            "Starting daemon with lab hardware: {} daemon --port {} --lab-hardware",
+            daemon_bin.display(),
+            self.port
+        );
+
+        let child = Command::new(&daemon_bin)
+            .arg("daemon")
+            .arg("--port")
+            .arg(self.port.to_string())
+            .arg("--lab-hardware")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("Failed to start daemon with lab hardware: {}", e))?;
+
+        self.child = Some(child);
+        self.started_at = Some(Instant::now());
+        self.last_error = None;
+
+        tracing::info!(
+            "Started local daemon on port {} with lab hardware configuration",
+            self.port
+        );
+        Ok(())
     }
 
     /// Check if the daemon process is currently running
@@ -243,10 +283,11 @@ mod tests {
     #[test]
     fn test_daemon_mode_lab_hardware() {
         let mode = DaemonMode::LabHardware { port: 50052 };
-        // Currently lab hardware doesn't auto-start (TODO)
-        assert!(!mode.should_auto_start());
+        // Lab hardware mode should auto-start with --lab-hardware flag
+        assert!(mode.should_auto_start());
         assert_eq!(mode.daemon_url(), "http://127.0.0.1:50052");
         assert_eq!(mode.label(), "Lab Hardware");
+        assert_eq!(mode.port(), Some(50052));
     }
 
     #[test]
@@ -255,5 +296,18 @@ mod tests {
         assert_eq!(launcher.port(), 50051);
         assert!(launcher.last_error().is_none());
         assert!(launcher.uptime().is_none());
+    }
+
+    #[test]
+    fn test_start_with_mode_rejects_remote() {
+        let mut launcher = DaemonLauncher::new(50051);
+        let remote_mode = DaemonMode::Remote {
+            url: "http://example.com:50051".to_string(),
+        };
+        let result = launcher.start_with_mode(&remote_mode);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Cannot start daemon in Remote mode"));
     }
 }
