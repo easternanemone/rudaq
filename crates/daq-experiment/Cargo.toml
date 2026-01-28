@@ -6,10 +6,10 @@ edition = "2021"
 [dependencies]
 daq-core = { path = "../daq-core" }
 daq-hardware = { path = "../daq-hardware" }
-anyhow = "1.0"
-tokio = { version = "1.36", features = ["sync", "time", "macros", "rt"] }
-tracing = "0.1"
-serde_json = "1.0"
+anyhow.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
+tracing.workspace = true
+serde_json.workspace = true
 # async-recursion might be needed for nested plans if we implement them
 # futures = "0.3"
 

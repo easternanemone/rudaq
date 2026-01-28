@@ -8,15 +8,15 @@ daq-core = { path = "../daq-core", features = ["serial"] }
 daq-hardware = { path = "../daq-hardware" }
 daq-experiment = { path = "../daq-experiment" }
 daq-driver-mock = { path = "../daq-driver-mock" }
-thiserror = "1.0"
-async-trait = "0.1"
-tokio = { version = "1.36", features = ["sync", "time", "rt", "rt-multi-thread", "macros", "signal"] }
-chrono = "0.4"
+thiserror.workspace = true
+async-trait.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "rt", "rt-multi-thread", "macros", "signal"] }
+chrono.workspace = true
 rhai = { version = "1.19", features = ["sync"] }
 pyo3 = { version = "0.24", features = ["auto-initialize"], optional = true }
-tracing = "0.1"
+tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-anyhow = "1.0"
+anyhow.workspace = true
 
 # Optional hardware driver dependencies for factory functions
 daq-driver-thorlabs = { path = "../daq-driver-thorlabs", optional = true }

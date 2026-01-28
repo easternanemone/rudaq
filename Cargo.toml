@@ -34,6 +34,38 @@ exclude = [
     "crates/daq-examples",
 ]
 
+# Shared dependency versions across all crates
+[workspace.dependencies]
+# Async runtime and utilities
+tokio = { version = "1.36", default-features = false, features = ["sync", "macros", "rt"] }
+futures = "0.3"
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.9.8"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging and tracing
+tracing = "0.1"
+
+# gRPC and protobuf
+tonic = { version = "0.10", default-features = false }
+prost = "0.12"
+
+# Storage
+hdf5 = { package = "hdf5-metno", version = "0.11.0" }
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Dev dependencies
+tempfile = "3.15"
+
 # Workspace-wide lints (applied to all crates)
 [workspace.lints.clippy]
 # Enable pedantic lints for stricter code quality

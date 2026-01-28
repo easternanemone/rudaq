@@ -1,9 +1,9 @@
 # ADR: Capability System Consolidation
 
-**Status:** Implemented  
-**Date:** 2026-01-27 (Completed 2026-01-28)  
+**Status:** Proposed  
+**Date:** 2026-01-27  
 **Authors:** Gemini 3 Pro Analysis, Brian Squires  
-**Epic:** bd-4myc (closed)
+**Epic:** bd-4myc
 
 ## Context
 
@@ -117,34 +117,21 @@ message DeviceInfo {
 
 ## Canonical Capability Strings
 
-| Rust Variant | `as_str()` Value | Proto Legacy Flag (deprecated) |
-|--------------|------------------|--------------------------------|
-| `Movable` | `"movable"` | `is_movable` |
-| `Readable` | `"readable"` | `is_readable` |
-| `Triggerable` | `"triggerable"` | `is_triggerable` |
-| `FrameProducer` | `"frame_producer"` | `is_frame_producer` |
-| `ExposureControl` | `"exposure_controllable"` | `is_exposure_controllable` |
-| `ShutterControl` | `"shutter_controllable"` | `is_shutter_controllable` |
-| `WavelengthTunable` | `"wavelength_tunable"` | `is_wavelength_tunable` |
-| `EmissionControl` | `"emission_controllable"` | `is_emission_controllable` |
-| `Parameterized` | `"parameterized"` | `is_parameterized` |
-| `Settable` | `"settable"` | (none) |
-| `Commandable` | `"commandable"` | (none) |
-| `Stageable` | `"stageable"` | (none) |
+| Rust Variant | Canonical String | Proto Legacy Flag | Notes |
+|--------------|------------------|-------------------|-------|
+| `Movable` | `"Movable"` | `is_movable` | |
+| `Readable` | `"Readable"` | `is_readable` | |
+| `Triggerable` | `"Triggerable"` | `is_triggerable` | |
+| `FrameProducer` | `"FrameProducer"` | `is_frame_producer` | |
+| `ExposureControllable` | `"ExposureControllable"` | `is_exposure_controllable` | |
+| `ShutterControllable` | `"ShutterControllable"` | `is_shutter_controllable` | |
+| `WavelengthTunable` | `"WavelengthTunable"` | `is_wavelength_tunable` | |
+| `EmissionControllable` | `"EmissionControllable"` | `is_emission_controllable` | |
+| `Parameterized` | `"Parameterized"` | `is_parameterized` (new) | Maps to Plugin "Settable" |
+| `Scriptable` | `"Scriptable"` | (none) | Plugin-only |
+| `Loggable` | `"Loggable"` | (none) | Plugin-only |
 
-**Casing Contract:** snake_case for proto transport. Use `Capability::as_str()` as the single source of truth.
-
-## Client Migration Guide
-
-**Deprecated (do not use in new code):**
-```rust
-if device_info.is_movable { ... }  // DEPRECATED
-```
-
-**Preferred:**
-```rust
-if device_info.capabilities.contains(&"movable".to_string()) { ... }
-```
+**Casing Contract:** PascalCase. Clients normalize to lowercase for comparison.
 
 ## Implementation Warnings
 

@@ -10,7 +10,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
-tempfile = "3"
+tempfile.workspace = true
 
 [dependencies.rust_daq]
 path = ".."
@@ -23,7 +23,7 @@ test = false
 doc = false
 bench = false
 
-# RingBuffer concurrent access fuzz target  
+# RingBuffer concurrent access fuzz target
 [[bin]]
 name = "ring_buffer_concurrent"
 path = "fuzz_targets/ring_buffer_concurrent.rs"

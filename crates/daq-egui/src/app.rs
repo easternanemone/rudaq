@@ -213,6 +213,8 @@ impl From<PersistedPanelInfo> for DeviceInfo {
             is_shutter_controllable: info.is_shutter_controllable,
             is_wavelength_tunable: info.is_wavelength_tunable,
             is_emission_controllable: info.is_emission_controllable,
+            is_parameterized: false,
+            capabilities: vec![],
             metadata: None,
         }
     }

@@ -11,30 +11,30 @@ repository = "https://github.com/TheFermiSea/rust-daq"
 daq-core = { path = "../daq-core", features = ["serial"] }
 
 # Async runtime
-tokio = { version = "1", features = ["sync", "time", "io-util", "rt"] }
-async-trait = "0.1"
-futures = "0.3"
+tokio = { workspace = true, features = ["sync", "time", "io-util", "rt"] }
+async-trait.workspace = true
+futures.workspace = true
 
 # Serial communication
 tokio-serial = "5.4"
 serialport = "4"
 
 # Error handling
-anyhow = "1"
-thiserror = "1"
+anyhow.workspace = true
+thiserror.workspace = true
 
 # Configuration
-serde = { version = "1", features = ["derive"] }
-toml = "0.9.8"
+serde = { workspace = true, features = ["derive"] }
+toml.workspace = true
 
 # Concurrency
 parking_lot = "0.12"
 
 # Logging
-tracing = "0.1"
+tracing.workspace = true
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [lints]
 workspace = true

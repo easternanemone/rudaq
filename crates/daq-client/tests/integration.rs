@@ -5,6 +5,7 @@
 //! DAEMON_URL=http://maitai-eos:50051 cargo test -p daq-client --test integration -- --ignored
 //! ```
 
+use daq_client::connection::AddressSource;
 use daq_client::connection::DaemonAddress;
 use daq_client::DaqClient;
 use std::str::FromStr;
@@ -17,7 +18,7 @@ fn daemon_url() -> String {
 /// Helper to skip test gracefully if daemon is unavailable
 async fn try_connect() -> Option<DaqClient> {
     let url = daemon_url();
-    let addr = DaemonAddress::from_str(&url).ok()?;
+    let addr = DaemonAddress::parse(&url, AddressSource::UserInput).ok()?;
     DaqClient::connect(&addr).await.ok()
 }
 
@@ -25,7 +26,8 @@ async fn try_connect() -> Option<DaqClient> {
 #[ignore]
 async fn test_connect_to_daemon() {
     let url = daemon_url();
-    let addr = DaemonAddress::from_str(&url).expect("Failed to parse daemon URL");
+    let addr =
+        DaemonAddress::parse(&url, AddressSource::UserInput).expect("Failed to parse daemon URL");
 
     let result = DaqClient::connect(&addr).await;
 
@@ -40,8 +42,8 @@ async fn test_connect_to_daemon() {
 #[tokio::test]
 #[ignore]
 async fn test_connect_invalid_address() {
-    let addr =
-        DaemonAddress::from_str("http://invalid-host:99999").expect("Failed to parse invalid URL");
+    let addr = DaemonAddress::parse("http://invalid-host:99999", AddressSource::UserInput)
+        .expect("Failed to parse invalid URL");
 
     let result = DaqClient::connect(&addr).await;
 
@@ -142,7 +144,7 @@ async fn test_read_value() {
     let readable_device = devices.iter().find(|d| {
         d.capabilities.iter().any(|c| {
             // Capability is an enum, check for Readable variant
-            matches!(c, 1) // Readable = 1 in protobuf enum
+            c == "readable"
         })
     });
 

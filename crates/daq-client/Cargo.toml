@@ -11,23 +11,23 @@ path = "src/lib.rs"
 [dependencies]
 # gRPC client
 daq-proto = { path = "../daq-proto" }
-tonic = { version = "0.10", default-features = false, features = ["transport", "prost", "codegen"] }
-prost = "0.12"
+tonic = { workspace = true, default-features = false, features = ["transport", "prost", "codegen"] }
+prost.workspace = true
 
 # Async runtime
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time"] }
-futures = "0.3"
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros", "time"] }
+futures.workspace = true
 
 # Error handling and utilities
-thiserror = "1.0"
-anyhow = "1.0"
-tracing = "0.1"
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
 url = "2"
-serde = { version = "1.0", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
-tempfile = "3"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time", "test-util"] }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros", "time", "test-util"] }
 
 [lints]
 workspace = true

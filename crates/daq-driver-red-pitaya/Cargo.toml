@@ -8,16 +8,16 @@ keywords = ["daq", "red-pitaya", "pid", "laser", "instrumentation"]
 
 [dependencies]
 daq-core = { path = "../daq-core" }
-anyhow = "1.0"
-async-trait = "0.1"
-futures = "0.3"
-tokio = { version = "1", features = ["sync", "time", "net", "io-util"] }
-tracing = "0.1"
-serde = { version = "1", features = ["derive"] }
-toml = "0.9"
+anyhow.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "net", "io-util"] }
+tracing.workspace = true
+serde = { workspace = true, features = ["derive"] }
+toml.workspace = true
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [features]
 default = []

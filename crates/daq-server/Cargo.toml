@@ -4,20 +4,20 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1.36", features = ["full"] }
-tonic = { version = "0.10", features = ["tls"] }
-prost = "0.12"
-async-trait = "0.1"
-futures = "0.3"
-tracing = "0.1"
+tokio = { workspace = true, features = ["full"] }
+tonic = { workspace = true, features = ["tls"] }
+prost.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+tracing.workspace = true
 log = "0.4"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 figment = { version = "0.10", features = ["toml", "env"] }
 http = "0.2"
 jsonwebtoken = "9.3"
 dirs = "4.0"
-anyhow = "1.0"
+anyhow.workspace = true
 
 # NOTE (bd-5bfv): Use default-features = false to prevent cascading defaults.
 # Hardware features are defined in daq-hardware and re-exported here as pass-throughs.
@@ -33,7 +33,7 @@ lz4_flex = "0.11"
 tokio-serial = { version = "5.4", optional = true }
 hdf5 = { package = "hdf5-metno", version = "0.11.0", optional = true }
 uuid = { version = "1.10", features = ["v4", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { workspace = true, features = ["serde"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 sha2 = "0.10"
 tower-http = { version = "0.4", features = ["cors", "trace"], optional = true }
@@ -84,8 +84,8 @@ all_hardware = ["thorlabs", "newport", "spectra_physics", "newport_power_meter",
 
 [dev-dependencies]
 config = "0.14.1"
-tempfile = "3.10"
-toml = "0.9.8"
+tempfile.workspace = true
+toml.workspace = true
 
 [lints]
 workspace = true

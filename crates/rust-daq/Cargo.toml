@@ -55,32 +55,32 @@ arrow = { version = "57", optional = true, features = ["ipc"] }
 csv = { version = "1.3.0", optional = true }
 matrw = { version = "0.1.2", optional = true }
 # netcdf = { version = "0.9.0", optional = true }
-chrono = { version = "0.4.38", features = ["serde"] }
+chrono = { workspace = true, features = ["serde"] }
 
 # Serialization & Configuration
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 config = { version = "0.14.0", features = ["toml"] }
-toml = "0.8.12"
+toml.workspace = true
 # V5 configuration system (Figment-based)
 figment = { version = "0.10", features = ["toml", "env"] }
 
 # Error Handling
-anyhow = "1.0.82"
-thiserror = "1.0.59"
+anyhow.workspace = true
+thiserror.workspace = true
 
 # Scripting
 
 # Logging
 log = "0.4.21"
-tracing = "0.1"
+tracing.workspace = true
 
 # CLI
 # clap removed (moved to daq-bin)
 
 # Concurrency & Async
-async-trait = "0.1.79"
-futures = "0.3.30"
+async-trait.workspace = true
+futures.workspace = true
 
 # gRPC & Protobuf (for remote control API)
 # tonic = { version = "0.10", default-features = false, features = ["prost", "codegen"] }
@@ -101,7 +101,7 @@ tonic-build = "0.11"
 egui_kittest = "0.30"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-tempfile = "3.10.1"
+tempfile.workspace = true
 serial_test = "3.1.1"
 tokio-test = "0.4"
 tracing-test = "0.2"
@@ -115,9 +115,9 @@ daq-driver-pvcam = { path = "../daq-driver-pvcam", features = ["mock"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 hostname = "0.4"
 # tokio moved to shared dependencies
-tokio = { version = "1.36", default-features = false, features = ["sync", "macros", "rt-multi-thread", "time", "fs"] }
-tonic = { version = "0.10", default-features = false, features = ["transport", "prost", "codegen"] }
-prost = "0.12"
+tokio = { workspace = true, default-features = false, features = ["sync", "macros", "rt-multi-thread", "time", "fs"] }
+tonic = { workspace = true, default-features = false, features = ["transport", "prost", "codegen"] }
+prost.workspace = true
 serialport = { version = "4.3.0", optional = true }
 tokio-serial = { version = "5.4", optional = true }
 # pvcam-sys = { path = "pvcam-sys", optional = true }
