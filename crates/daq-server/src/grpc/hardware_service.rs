@@ -2749,7 +2749,52 @@ mod tests {
         let devices = response.into_inner().devices;
 
         assert_eq!(devices.len(), 1);
-        assert!(devices[0].is_movable);
+        // Use new capabilities list (preferred over deprecated boolean flags)
+        assert!(
+            devices[0].capabilities.contains(&"movable".to_string()),
+            "Device should have 'movable' in capabilities list"
+        );
+        // Deprecated: is_movable boolean flag - kept for backwards compatibility
+        #[allow(deprecated)]
+        let _ = devices[0].is_movable; // Accessing triggers deprecation warning at compile time
+    }
+
+    /// Test that DeviceInfo includes the dynamic capabilities list (bd-4myc).
+    ///
+    /// The `capabilities` field is the canonical source of truth for device capabilities.
+    /// Boolean flags like `is_movable` are deprecated and should not be used in new code.
+    #[tokio::test]
+    async fn test_device_info_capabilities_list() {
+        let registry = create_mock_registry().await.unwrap();
+        let service = HardwareServiceImpl::new(Arc::new(registry));
+
+        let request = Request::new(ListDevicesRequest {
+            capability_filter: None,
+        });
+        let response = service.list_devices(request).await.unwrap();
+        let devices = response.into_inner().devices;
+
+        // Find mock_stage and verify its capabilities list
+        let stage = devices.iter().find(|d| d.id == "mock_stage").unwrap();
+        assert!(
+            stage.capabilities.contains(&"movable".to_string()),
+            "mock_stage should have 'movable' capability"
+        );
+        assert!(
+            stage.capabilities.contains(&"parameterized".to_string()),
+            "mock_stage should have 'parameterized' capability"
+        );
+
+        // Find mock_camera and verify its capabilities
+        let camera = devices.iter().find(|d| d.id == "mock_camera").unwrap();
+        assert!(
+            camera.capabilities.contains(&"frame_producer".to_string()),
+            "mock_camera should have 'frame_producer' capability"
+        );
+        assert!(
+            camera.capabilities.contains(&"triggerable".to_string()),
+            "mock_camera should have 'triggerable' capability"
+        );
     }
 
     #[tokio::test]
