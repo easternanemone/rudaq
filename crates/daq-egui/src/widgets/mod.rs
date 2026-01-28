@@ -7,6 +7,7 @@ pub mod adaptive_alert;
 pub mod auto_scale_plot;
 pub mod device_controls;
 pub mod device_selector;
+pub mod double_slider;
 pub mod gauge;
 pub mod histogram;
 pub mod metadata_editor;
@@ -30,6 +31,7 @@ pub use device_controls::{
 };
 #[allow(unused_imports)]
 pub use device_selector::DeviceSelector;
+pub use double_slider::{double_slider, DoubleSlider};
 pub use gauge::*;
 pub use histogram::*;
 pub use metadata_editor::MetadataEditor;
