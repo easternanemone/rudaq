@@ -157,6 +157,7 @@ fn print_results(results: &[BenchmarkResult], baseline: &BenchmarkResult) {
 }
 
 /// Main benchmark test
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_allocation_benchmark() {
     println!();
@@ -208,6 +209,7 @@ fn test_allocation_benchmark() {
 }
 
 /// Test that demonstrates the pattern for PVCAM frame acquisition
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_frame_acquisition_pattern() {
     let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");

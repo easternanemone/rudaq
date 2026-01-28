@@ -92,7 +92,7 @@ type FactoryFn<T> = Arc<dyn Fn() -> T + Send + Sync>;
 pub struct Pool<T> {
     /// Pre-allocated items in UnsafeCell.
     /// RwLock only taken for: acquire (pointer cache), release (reset), grow()
-    slots: RwLock<Vec<UnsafeCell<T>>>,
+    slots: RwLock<Vec<Box<UnsafeCell<T>>>>,
     /// Lock-free queue of available slot indices
     free_indices: SegQueue<usize>,
     /// Semaphore counting available items
@@ -134,7 +134,9 @@ impl<T: Send + 'static> Pool<T> {
         assert!(size > 0, "pool size must be greater than 0");
 
         // Pre-allocate all slots
-        let slots: Vec<UnsafeCell<T>> = (0..size).map(|_| UnsafeCell::new(factory())).collect();
+        let slots: Vec<Box<UnsafeCell<T>>> = (0..size)
+            .map(|_| Box::new(UnsafeCell::new(factory())))
+            .collect();
 
         // Initialize free list with all indices
         let free_indices = SegQueue::new();
@@ -189,7 +191,7 @@ impl<T: Send + 'static> Pool<T> {
 
         // Add new slots
         for _ in 0..count {
-            slots.push(UnsafeCell::new((self.factory)()));
+            slots.push(Box::new(UnsafeCell::new((self.factory)())));
         }
 
         // Add new indices to free list
@@ -232,7 +234,7 @@ impl<T: Send + 'static> Pool<T> {
         // This allows lock-free access in get()/get_mut()
         let slot_ptr = {
             let slots = self.slots.read();
-            slots[idx].get()
+            slots[idx].as_ref().get()
         };
 
         Loaned {
@@ -262,7 +264,7 @@ impl<T: Send + 'static> Pool<T> {
         // Cache slot pointer (bd-0dax.1.6 fix)
         let slot_ptr = {
             let slots = self.slots.read();
-            slots[idx].get()
+            slots[idx].as_ref().get()
         };
 
         Some(Loaned {
@@ -306,7 +308,7 @@ impl<T: Send + 'static> Pool<T> {
         // Cache slot pointer (bd-0dax.1.6 fix)
         let slot_ptr = {
             let slots = self.slots.read();
-            slots[idx].get()
+            slots[idx].as_ref().get()
         };
 
         Some(Loaned {
@@ -342,7 +344,7 @@ impl<T: Send + 'static> Pool<T> {
         if let Some(reset_fn) = &self.reset_fn {
             // SAFETY: We hold exclusive access to this slot
             let slots = self.slots.read();
-            let item = unsafe { &mut *slots[idx].get() };
+            let item = unsafe { &mut *slots[idx].as_ref().get() };
             reset_fn(item);
         }
 
@@ -642,6 +644,7 @@ mod tests {
     /// take the lock). If get() took the lock, we'd see contention spikes.
     ///
     /// Related issue: bd-0dax.7.3
+    #[cfg_attr(miri, ignore)] // Miri is too slow for timing assertions
     #[tokio::test]
     async fn test_no_rwlock_contention_on_access() {
         use std::sync::atomic::{AtomicU64, Ordering};
@@ -748,6 +751,7 @@ mod tests {
     ///
     /// This test specifically checks that multiple Loaned items can be accessed
     /// simultaneously without any locking overhead.
+    #[cfg_attr(miri, ignore)] // Miri is too slow for timing assertions
     #[tokio::test]
     async fn test_concurrent_readers_no_contention() {
         use std::sync::atomic::{AtomicU64, Ordering};
@@ -856,6 +860,7 @@ mod pool_timing_tests {
         println!("  Max:  {:?}", max);
     }
 
+    #[cfg_attr(miri, ignore)] // Miri is too slow for timing assertions
     #[tokio::test]
     async fn test_pool_acquire_release_timing() {
         // Create pool with 10 x 1MB buffers (representative of frame buffers)
@@ -1007,6 +1012,7 @@ mod pool_timing_tests {
         assert_eq!(pool.size(), 8, "Pool grew unexpectedly during test");
     }
 
+    #[cfg_attr(miri, ignore)] // Miri is too slow for timing assertions
     #[tokio::test]
     async fn test_try_acquire_timing() {
         let pool = Pool::new_simple(10, || vec![0u8; 1024]);
@@ -1079,6 +1085,7 @@ mod pool_timing_tests {
         );
     }
 
+    #[cfg_attr(miri, ignore)] // Miri is too slow for timing assertions
     #[tokio::test]
     async fn test_pool_contention_under_pressure() {
         // Small pool (4 slots) with many concurrent tasks to test contention
@@ -1186,4 +1193,59 @@ mod pool_timing_tests {
             direct_time
         );
     }
+}
+
+/// Test that specifically verifies the Box indirection fix (bd-s9u7.1).
+///
+/// This test would trigger undefined behavior with Vec<UnsafeCell<T>>
+/// because grow() causes Vec reallocation, invalidating cached pointers
+/// in existing Loaned instances.
+///
+/// With Vec<Box<UnsafeCell<T>>>, Box contents stay at stable addresses
+/// even when the Vec reallocates, so cached pointers remain valid.
+#[tokio::test]
+async fn test_grow_while_loaned_items_held() {
+    // Create small pool that will need to grow
+    let pool = Pool::new_simple(2, || vec![0u8; 1024]);
+
+    // Acquire both slots
+    let mut item1 = pool.acquire().await;
+    let mut item2 = pool.acquire().await;
+
+    // Write data to items
+    item1[0] = 42;
+    item1[1] = 43;
+    item2[0] = 84;
+    item2[1] = 85;
+
+    // Pool is now exhausted - next acquire will trigger grow()
+    // This grow() will reallocate the Vec, which would invalidate
+    // item1 and item2's cached pointers if they pointed into the Vec directly.
+    let mut item3 = pool.acquire_or_grow();
+    item3[0] = 126;
+
+    // Verify the original items' data is still accessible
+    // (would be UB/corruption with the old implementation)
+    assert_eq!(item1[0], 42, "item1 data corrupted after grow");
+    assert_eq!(item1[1], 43, "item1 data corrupted after grow");
+    assert_eq!(item2[0], 84, "item2 data corrupted after grow");
+    assert_eq!(item2[1], 85, "item2 data corrupted after grow");
+    assert_eq!(item3[0], 126, "item3 data incorrect");
+
+    // Verify we can still mutate through the old references
+    item1[2] = 99;
+    assert_eq!(item1[2], 99);
+    item2[2] = 100;
+    assert_eq!(item2[2], 100);
+
+    // Pool should have grown to 4 slots
+    assert_eq!(
+        pool.size(),
+        10,
+        "pool should have grown from 2 to 10 (grows by max(current, 8))"
+    );
+    assert_eq!(pool.initial_size(), 2, "initial size should remain 2");
+
+    // Verify pool did grow (the key safety property we're testing)
+    assert!(pool.size() > 2, "pool must have grown to avoid exhaustion");
 }
