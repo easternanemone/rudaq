@@ -631,11 +631,11 @@ impl DaqApp {
                         ui.close();
                     }
 
-                    // Lab Hardware - placeholder for future implementation
-                    ui.add_enabled_ui(false, |ui| {
-                        ui.button("Lab Hardware (TODO)")
-                            .on_hover_text("Not yet implemented");
-                    });
+                    // Lab Hardware - auto-start daemon with real hardware config
+                    if ui.button("Lab Hardware").clicked() {
+                        self.switch_daemon_mode(DaemonMode::LabHardware { port: 50051 });
+                        ui.close();
+                    }
 
                     ui.separator();
 
