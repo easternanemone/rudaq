@@ -8,8 +8,8 @@ use crate::grpc::proto::{
     HealthUpdate, ModuleHealthStatus as ProtoModuleHealthStatus, StreamHealthUpdatesRequest,
     SystemHealthStatus as ProtoSystemHealthStatus, health_service_server::HealthService,
 };
-use daq_core::health::{ErrorSeverity, SystemHealth, SystemHealthMonitor};
-use daq_core::limits::HEALTH_CHECK_INTERVAL;
+use common::health::{ErrorSeverity, SystemHealth, SystemHealthMonitor};
+use common::limits::HEALTH_CHECK_INTERVAL;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::interval;

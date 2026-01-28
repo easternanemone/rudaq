@@ -50,7 +50,7 @@ impl ChannelConfig {
         }
     }
 }
-use daq_proto::daq::{
+use protocol::daq::{
     control_service_client::ControlServiceClient,
     hardware_service_client::HardwareServiceClient,
     module_service_client::ModuleServiceClient,
@@ -218,13 +218,13 @@ impl DaqClient {
     /// This is used by the ConnectionManager to detect stale connections.
     pub async fn health_check(&mut self) -> Result<()> {
         self.control
-            .get_daemon_info(daq_proto::daq::DaemonInfoRequest {})
+            .get_daemon_info(protocol::daq::DaemonInfoRequest {})
             .await?;
         Ok(())
     }
 
     /// Get daemon information (version, capabilities, etc.)
-    pub async fn get_daemon_info(&mut self) -> Result<daq_proto::daq::DaemonInfoResponse> {
+    pub async fn get_daemon_info(&mut self) -> Result<protocol::daq::DaemonInfoResponse> {
         let response = self.control.get_daemon_info(DaemonInfoRequest {}).await?;
         Ok(response.into_inner())
     }
@@ -234,7 +234,7 @@ impl DaqClient {
     // =========================================================================
 
     /// List all devices
-    pub async fn list_devices(&mut self) -> Result<Vec<daq_proto::daq::DeviceInfo>> {
+    pub async fn list_devices(&mut self) -> Result<Vec<protocol::daq::DeviceInfo>> {
         tracing::debug!("DaqClient::list_devices() - sending gRPC request");
         let response = self
             .hardware
@@ -258,8 +258,8 @@ impl DaqClient {
     pub async fn list_devices_full(
         &mut self,
     ) -> Result<(
-        Vec<daq_proto::daq::DeviceInfo>,
-        Vec<daq_proto::daq::RegistrationFailure>,
+        Vec<protocol::daq::DeviceInfo>,
+        Vec<protocol::daq::RegistrationFailure>,
     )> {
         let response = self
             .hardware
@@ -275,7 +275,7 @@ impl DaqClient {
     pub async fn get_device_state(
         &mut self,
         device_id: &str,
-    ) -> Result<daq_proto::daq::DeviceStateResponse> {
+    ) -> Result<protocol::daq::DeviceStateResponse> {
         let response = self
             .hardware
             .get_device_state(DeviceStateRequest {
@@ -290,7 +290,7 @@ impl DaqClient {
         &mut self,
         device_id: &str,
         position: f64,
-    ) -> Result<daq_proto::daq::MoveResponse> {
+    ) -> Result<protocol::daq::MoveResponse> {
         let response = self
             .hardware
             .move_absolute(MoveRequest {
@@ -308,7 +308,7 @@ impl DaqClient {
         &mut self,
         device_id: &str,
         distance: f64,
-    ) -> Result<daq_proto::daq::MoveResponse> {
+    ) -> Result<protocol::daq::MoveResponse> {
         let response = self
             .hardware
             .move_relative(MoveRequest {
@@ -325,7 +325,7 @@ impl DaqClient {
     pub async fn read_value(
         &mut self,
         device_id: &str,
-    ) -> Result<daq_proto::daq::ReadValueResponse> {
+    ) -> Result<protocol::daq::ReadValueResponse> {
         let response = self
             .hardware
             .read_value(ReadValueRequest {
@@ -340,13 +340,13 @@ impl DaqClient {
     // =========================================================================
 
     /// List all scripts
-    pub async fn list_scripts(&mut self) -> Result<Vec<daq_proto::daq::ScriptInfo>> {
+    pub async fn list_scripts(&mut self) -> Result<Vec<protocol::daq::ScriptInfo>> {
         let response = self.control.list_scripts(ListScriptsRequest {}).await?;
         Ok(response.into_inner().scripts)
     }
 
     /// List all executions
-    pub async fn list_executions(&mut self) -> Result<Vec<daq_proto::daq::ScriptStatus>> {
+    pub async fn list_executions(&mut self) -> Result<Vec<protocol::daq::ScriptStatus>> {
         let response = self
             .control
             .list_executions(ListExecutionsRequest {
@@ -413,7 +413,7 @@ impl DaqClient {
     // =========================================================================
 
     /// List all scans
-    pub async fn list_scans(&mut self) -> Result<Vec<daq_proto::daq::ScanStatus>> {
+    pub async fn list_scans(&mut self) -> Result<Vec<protocol::daq::ScanStatus>> {
         let response = self
             .scan
             .list_scans(ListScansRequest { state_filter: None })
@@ -425,7 +425,7 @@ impl DaqClient {
     pub async fn create_scan(
         &mut self,
         config: ScanConfig,
-    ) -> Result<daq_proto::daq::CreateScanResponse> {
+    ) -> Result<protocol::daq::CreateScanResponse> {
         let response = self
             .scan
             .create_scan(CreateScanRequest {
@@ -436,7 +436,7 @@ impl DaqClient {
     }
 
     /// Start a scan
-    pub async fn start_scan(&mut self, scan_id: &str) -> Result<daq_proto::daq::StartScanResponse> {
+    pub async fn start_scan(&mut self, scan_id: &str) -> Result<protocol::daq::StartScanResponse> {
         let response = self
             .scan
             .start_scan(StartScanRequest {
@@ -447,7 +447,7 @@ impl DaqClient {
     }
 
     /// Pause a scan
-    pub async fn pause_scan(&mut self, scan_id: &str) -> Result<daq_proto::daq::PauseScanResponse> {
+    pub async fn pause_scan(&mut self, scan_id: &str) -> Result<protocol::daq::PauseScanResponse> {
         let response = self
             .scan
             .pause_scan(PauseScanRequest {
@@ -461,7 +461,7 @@ impl DaqClient {
     pub async fn resume_scan(
         &mut self,
         scan_id: &str,
-    ) -> Result<daq_proto::daq::ResumeScanResponse> {
+    ) -> Result<protocol::daq::ResumeScanResponse> {
         let response = self
             .scan
             .resume_scan(ResumeScanRequest {
@@ -476,7 +476,7 @@ impl DaqClient {
         &mut self,
         scan_id: &str,
         emergency: bool,
-    ) -> Result<daq_proto::daq::StopScanResponse> {
+    ) -> Result<protocol::daq::StopScanResponse> {
         let response = self
             .scan
             .stop_scan(StopScanRequest {
@@ -492,7 +492,7 @@ impl DaqClient {
     // =========================================================================
 
     /// Get storage configuration
-    pub async fn get_storage_config(&mut self) -> Result<daq_proto::daq::StorageConfig> {
+    pub async fn get_storage_config(&mut self) -> Result<protocol::daq::StorageConfig> {
         let response = self
             .storage
             .get_storage_config(GetStorageConfigRequest {})
@@ -501,7 +501,7 @@ impl DaqClient {
     }
 
     /// Get recording status
-    pub async fn get_recording_status(&mut self) -> Result<daq_proto::daq::RecordingStatus> {
+    pub async fn get_recording_status(&mut self) -> Result<protocol::daq::RecordingStatus> {
         let response = self
             .storage
             .get_recording_status(GetRecordingStatusRequest { recording_id: None })
@@ -513,7 +513,7 @@ impl DaqClient {
     pub async fn start_recording(
         &mut self,
         name: &str,
-    ) -> Result<daq_proto::daq::StartRecordingResponse> {
+    ) -> Result<protocol::daq::StartRecordingResponse> {
         let response = self
             .storage
             .start_recording(StartRecordingRequest {
@@ -528,7 +528,7 @@ impl DaqClient {
     }
 
     /// Stop recording
-    pub async fn stop_recording(&mut self) -> Result<daq_proto::daq::StopRecordingResponse> {
+    pub async fn stop_recording(&mut self) -> Result<protocol::daq::StopRecordingResponse> {
         let response = self
             .storage
             .stop_recording(StopRecordingRequest {
@@ -540,7 +540,7 @@ impl DaqClient {
     }
 
     /// List acquisitions
-    pub async fn list_acquisitions(&mut self) -> Result<Vec<daq_proto::daq::AcquisitionSummary>> {
+    pub async fn list_acquisitions(&mut self) -> Result<Vec<protocol::daq::AcquisitionSummary>> {
         let response = self
             .storage
             .list_acquisitions(ListAcquisitionsRequest {
@@ -559,7 +559,7 @@ impl DaqClient {
     // =========================================================================
 
     /// List module types
-    pub async fn list_module_types(&mut self) -> Result<Vec<daq_proto::daq::ModuleTypeSummary>> {
+    pub async fn list_module_types(&mut self) -> Result<Vec<protocol::daq::ModuleTypeSummary>> {
         let response = self
             .module
             .list_module_types(ListModuleTypesRequest {
@@ -570,7 +570,7 @@ impl DaqClient {
     }
 
     /// List module instances
-    pub async fn list_modules(&mut self) -> Result<Vec<daq_proto::daq::ModuleStatus>> {
+    pub async fn list_modules(&mut self) -> Result<Vec<protocol::daq::ModuleStatus>> {
         let response = self
             .module
             .list_modules(ListModulesRequest {
@@ -586,7 +586,7 @@ impl DaqClient {
         &mut self,
         type_id: &str,
         name: &str,
-    ) -> Result<daq_proto::daq::CreateModuleResponse> {
+    ) -> Result<protocol::daq::CreateModuleResponse> {
         let response = self
             .module
             .create_module(CreateModuleRequest {
@@ -602,7 +602,7 @@ impl DaqClient {
     pub async fn start_module(
         &mut self,
         module_id: &str,
-    ) -> Result<daq_proto::daq::StartModuleResponse> {
+    ) -> Result<protocol::daq::StartModuleResponse> {
         let response = self
             .module
             .start_module(StartModuleRequest {
@@ -616,7 +616,7 @@ impl DaqClient {
     pub async fn stop_module(
         &mut self,
         module_id: &str,
-    ) -> Result<daq_proto::daq::StopModuleResponse> {
+    ) -> Result<protocol::daq::StopModuleResponse> {
         let response = self
             .module
             .stop_module(StopModuleRequest {
@@ -634,7 +634,7 @@ impl DaqClient {
         module_id: &str,
         role_id: &str,
         device_id: &str,
-    ) -> Result<daq_proto::daq::AssignDeviceResponse> {
+    ) -> Result<protocol::daq::AssignDeviceResponse> {
         let response = self
             .module
             .assign_device(AssignDeviceRequest {
@@ -652,7 +652,7 @@ impl DaqClient {
         &mut self,
         device_id: &str,
         frame_count: Option<u32>,
-    ) -> Result<daq_proto::daq::StartStreamResponse> {
+    ) -> Result<protocol::daq::StartStreamResponse> {
         let response = self
             .hardware
             .start_stream(StartStreamRequest {
@@ -667,7 +667,7 @@ impl DaqClient {
     pub async fn stop_stream(
         &mut self,
         device_id: &str,
-    ) -> Result<daq_proto::daq::StopStreamResponse> {
+    ) -> Result<protocol::daq::StopStreamResponse> {
         let response = self
             .hardware
             .stop_stream(StopStreamRequest {
@@ -713,7 +713,7 @@ impl DaqClient {
     pub async fn list_parameters(
         &mut self,
         device_id: &str,
-    ) -> Result<Vec<daq_proto::daq::ParameterDescriptor>> {
+    ) -> Result<Vec<protocol::daq::ParameterDescriptor>> {
         let response = self
             .hardware
             .list_parameters(ListParametersRequest {
@@ -728,7 +728,7 @@ impl DaqClient {
         &mut self,
         device_id: &str,
         name: &str,
-    ) -> Result<daq_proto::daq::ParameterValue> {
+    ) -> Result<protocol::daq::ParameterValue> {
         let response = self
             .hardware
             .get_parameter(GetParameterRequest {
@@ -745,7 +745,7 @@ impl DaqClient {
         device_id: &str,
         name: &str,
         value: &str,
-    ) -> Result<daq_proto::daq::SetParameterResponse> {
+    ) -> Result<protocol::daq::SetParameterResponse> {
         let response = self
             .hardware
             .set_parameter(SetParameterRequest {
@@ -763,7 +763,7 @@ impl DaqClient {
         device_id: &str,
         command: &str,
         args: &str,
-    ) -> Result<daq_proto::daq::DeviceCommandResponse> {
+    ) -> Result<protocol::daq::DeviceCommandResponse> {
         let response = self
             .hardware
             .execute_device_command(DeviceCommandRequest {
@@ -838,7 +838,7 @@ impl DaqClient {
         &mut self,
         run_uid: Option<String>,
         doc_types: Vec<i32>,
-    ) -> Result<impl futures::Stream<Item = Result<daq_proto::daq::Document, tonic::Status>>> {
+    ) -> Result<impl futures::Stream<Item = Result<protocol::daq::Document, tonic::Status>>> {
         let response = self
             .run_engine
             .stream_documents(StreamDocumentsRequest { run_uid, doc_types })

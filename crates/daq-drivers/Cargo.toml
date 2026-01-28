@@ -6,7 +6,7 @@ description = "Metacrate aggregating all rust-daq driver crates with unified fea
 
 [dependencies]
 # Core dependency for DriverFactory trait
-daq-core = { path = "../daq-core" }
+common = { path = "../common" }
 
 # Driver crates (all optional, enabled via features)
 #

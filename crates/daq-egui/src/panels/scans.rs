@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};
 use daq_client::DaqClient;
-use daq_proto::daq::{AxisConfig, ScanConfig};
+use protocol::daq::{AxisConfig, ScanConfig};
 
 /// Axis configuration for the wizard
 #[derive(Clone)]
@@ -42,8 +42,8 @@ enum ScanActionResult {
     Refresh(
         Result<
             (
-                Vec<daq_proto::daq::ScanStatus>,
-                Vec<daq_proto::daq::DeviceInfo>,
+                Vec<protocol::daq::ScanStatus>,
+                Vec<protocol::daq::DeviceInfo>,
             ),
             String,
         >,
@@ -70,9 +70,9 @@ enum ScanActionResult {
 /// Scans panel state
 pub struct ScansPanel {
     /// Cached scan list
-    scans: Vec<daq_proto::daq::ScanStatus>,
+    scans: Vec<protocol::daq::ScanStatus>,
     /// Available devices (for wizard)
-    devices: Vec<daq_proto::daq::DeviceInfo>,
+    devices: Vec<protocol::daq::DeviceInfo>,
     /// Last refresh timestamp
     last_refresh: Option<std::time::Instant>,
     /// Error message
@@ -352,7 +352,7 @@ impl ScansPanel {
     }
 
     /// Render a single scan as a card
-    fn render_scan_card(&mut self, ui: &mut egui::Ui, scan: &daq_proto::daq::ScanStatus) {
+    fn render_scan_card(&mut self, ui: &mut egui::Ui, scan: &protocol::daq::ScanStatus) {
         let state_color = match scan.state {
             1 => egui::Color32::GRAY,   // CREATED
             2 => egui::Color32::YELLOW, // RUNNING

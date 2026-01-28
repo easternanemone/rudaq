@@ -26,7 +26,7 @@ cargo install cargo-nextest --locked
 cargo nextest run
 
 # Run tests for a specific crate
-cargo nextest run -p daq-core
+cargo nextest run -p common
 
 # Run a single test by name
 cargo nextest run test_name
@@ -89,7 +89,7 @@ Hardware tests that share resources are serialized using test groups:
 Located inline in source files (`#[cfg(test)]` modules):
 
 ```bash
-cargo nextest run -p daq-core
+cargo nextest run -p common
 cargo nextest run -p daq-hardware
 cargo nextest run -p daq-storage
 ```
@@ -169,7 +169,7 @@ Nextest supports powerful filter expressions:
 cargo nextest run -E 'test(/timing/)'
 
 # Tests in specific package
-cargo nextest run -E 'package(daq-core)'
+cargo nextest run -E 'package(common)'
 
 # Combine filters
 cargo nextest run -E 'test(/grpc/) & not test(/streaming/)'

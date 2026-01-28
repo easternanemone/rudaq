@@ -30,7 +30,7 @@ pub mod run_engine;
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use daq_core::modules::{
+use common::modules::{
     ModuleDataPoint, ModuleEvent, ModuleEventSeverity, ModuleState, ModuleTypeInfo,
 };
 use daq_hardware::capabilities::Readable;
@@ -43,7 +43,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 // Re-export for convenience
-pub use daq_core::observable::{Observable, ObservableMetadata, ParameterSet};
+pub use common::observable::{Observable, ObservableMetadata, ParameterSet};
 pub use document::{DataKey, Document, StopReason};
 pub use power_monitor::PowerMonitor;
 pub use run_engine::{RunConfig, RunEngine, RunReport};

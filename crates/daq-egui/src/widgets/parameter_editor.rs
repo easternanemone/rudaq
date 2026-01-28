@@ -12,7 +12,7 @@ use eframe::egui;
 /// Cached parameter value with editing state
 #[derive(Clone)]
 pub struct ParameterCache {
-    pub descriptor: daq_proto::daq::ParameterDescriptor,
+    pub descriptor: protocol::daq::ParameterDescriptor,
     pub current_value: String,
     pub edit_buffer: String,
     pub is_editing: bool,
@@ -20,7 +20,7 @@ pub struct ParameterCache {
 }
 
 impl ParameterCache {
-    pub fn new(descriptor: daq_proto::daq::ParameterDescriptor, value: String) -> Self {
+    pub fn new(descriptor: protocol::daq::ParameterDescriptor, value: String) -> Self {
         Self {
             descriptor,
             current_value: value.clone(),

@@ -101,7 +101,7 @@ impl Colorbar {
             // gamma = -log(0.5) / log(midpoint)
             // This ensures: adjusted(midpoint) = 0.5
             let gamma = if self.midpoint > 0.0 && self.midpoint < 1.0 {
-                -0.693147 / self.midpoint.ln() // -ln(0.5) = 0.693147
+                -std::f32::consts::LN_2 / self.midpoint.ln()
             } else {
                 1.0
             };

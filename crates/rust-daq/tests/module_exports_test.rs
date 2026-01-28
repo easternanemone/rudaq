@@ -149,9 +149,9 @@ fn verify_device_id_export() {
 
 #[test]
 fn verify_capability_enum_export() {
-    // Verify Capability enum is exported from daq-core
+    // Verify Capability enum is exported from common
     fn _check_type_exists<T>() {}
-    _check_type_exists::<daq_core::driver::Capability>();
+    _check_type_exists::<common::driver::Capability>();
 }
 
 // =============================================================================
@@ -398,15 +398,14 @@ fn verify_complete_grpc_api() {
     // Verify complete gRPC API surface is accessible
 
     // Services
-    use daq_proto::daq::module_service_server::ModuleService;
     use daq_server::grpc::HardwareServiceImpl;
     use daq_server::grpc::ModuleServiceImpl;
+    use protocol::daq::module_service_server::ModuleService;
 
     // Verify service exports
     fn _check_service_types() {
         // Ensure services implement their traits
-        fn _assert_hardware_service<T: daq_proto::daq::hardware_service_server::HardwareService>() {
-        }
+        fn _assert_hardware_service<T: protocol::daq::hardware_service_server::HardwareService>() {}
         _assert_hardware_service::<HardwareServiceImpl>();
 
         fn _assert_module_service<T: ModuleService>() {}

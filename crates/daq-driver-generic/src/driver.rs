@@ -5,7 +5,7 @@
 
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use daq_core::capabilities::{Movable, Readable, ShutterControl, WavelengthTunable};
+use common::capabilities::{Movable, Readable, ShutterControl, WavelengthTunable};
 use daq_plugin_api::config::{ErrorSeverity, InstrumentConfig, ResponseFieldType};
 use evalexpr::{eval_number_with_context, ContextWithMutableVariables, HashMapContext, Value};
 use regex::Regex;

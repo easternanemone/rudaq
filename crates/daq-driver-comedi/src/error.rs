@@ -3,7 +3,7 @@
 //! This module provides a comprehensive error type that covers all possible
 //! failure modes when interacting with Comedi devices.
 
-use daq_core::error::{DaqError, DriverError, DriverErrorKind};
+use common::error::{DaqError, DriverError, DriverErrorKind};
 use std::ffi::CStr;
 use std::fmt;
 use thiserror::Error;

@@ -57,7 +57,7 @@ mimalloc = { version = "0.1", optional = true }
 bytemuck = { version = "1.14", optional = true }
 
 # gRPC client
-daq-proto = { path = "../daq-proto" }
+protocol = { path = "../protocol" }
 daq-experiment = { path = "../daq-experiment" }
 # LZ4 decompression for frame streaming (bd-7rk0: gRPC improvements)
 lz4_flex = "0.11"
@@ -84,7 +84,7 @@ which = "6"  # Find daemon binary in PATH
 dirs = "5.0"  # Standard directory paths for settings defaults
 
 # Local PVCAM driver (only needed if running daemon locally, not for gRPC streaming)
-daq-core = { path = "../daq-core", optional = true }
+common = { path = "../common", optional = true }
 daq-driver-pvcam = { path = "../daq-driver-pvcam", optional = true }
 daq-hardware = { path = "../daq-hardware" }  # For device UI config schema
 rfd = "0.17.2"
@@ -110,7 +110,7 @@ rerun_viewer = ["dep:rerun", "dep:mimalloc", "dep:bytemuck", "dep:egui_dock", "d
 # Local PVCAM driver support (for running daemon locally)
 # - pvcam: enables mock mode (no SDK required)
 # - pvcam_sdk: enables real hardware mode (requires PVCAM SDK)
-pvcam = ["dep:daq-core", "dep:daq-driver-pvcam"]
+pvcam = ["dep:common", "dep:daq-driver-pvcam"]
 pvcam_sdk = ["pvcam", "daq-driver-pvcam/pvcam_sdk"]
 pvcam_hardware = ["pvcam_sdk"]
 

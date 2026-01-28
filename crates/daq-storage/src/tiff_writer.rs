@@ -18,7 +18,7 @@
 //!
 //! ```rust,ignore
 //! use daq_storage::tiff_writer::TiffWriter;
-//! use daq_pool::FrameData;
+//! use pool::FrameData;
 //!
 //! // From a LoanedFrame (zero-allocation path)
 //! let loaned_frame: LoanedFrame = camera.receive_frame().await?;
@@ -29,7 +29,7 @@
 //!
 //! ```rust,ignore
 //! use daq_storage::tiff_writer::TiffWriter;
-//! use daq_core::data::Frame;
+//! use common::data::Frame;
 //!
 //! let frame = Frame { width: 2048, height: 2048, bit_depth: 16, data: vec![0u8; 8388608], ..Default::default() };
 //! TiffWriter::write_frame(&frame, "output.tiff")?;
@@ -45,9 +45,9 @@
 //! ```
 
 use anyhow::{anyhow, Context, Result};
-use daq_core::data::Frame;
-use daq_pool::FrameData;
+use common::data::Frame;
 use image::{GrayImage, ImageBuffer, Luma};
+use pool::FrameData;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
@@ -56,7 +56,7 @@ use std::path::Path;
 ///
 /// This represents a frame buffer loaned from a pre-allocated pool,
 /// enabling zero-allocation frame handling for high-FPS scenarios.
-pub type LoanedFrame = daq_pool::Loaned<FrameData>;
+pub type LoanedFrame = pool::Loaned<FrameData>;
 
 /// TIFF export functionality for camera frames.
 ///
@@ -145,7 +145,7 @@ impl TiffWriter {
     ///
     /// ```rust,ignore
     /// use daq_storage::tiff_writer::TiffWriter;
-    /// use daq_pool::FrameData;
+    /// use pool::FrameData;
     ///
     /// // From a LoanedFrame
     /// let loaned_frame: LoanedFrame = pool.acquire().await;

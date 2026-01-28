@@ -19,7 +19,7 @@ Existing hand-coded drivers to match:
 @crates/daq-hardware/src/drivers/maitai.rs
 
 Capability traits to implement:
-@crates/daq-core/src/capabilities.rs (Readable, WavelengthTunable, ShutterControl)
+@crates/common/src/capabilities.rs (Readable, WavelengthTunable, ShutterControl)
 
 Key differences from ELL14:
 - ESP300: SCPI-like commands (`{axis}PA{position}`), different response format, multi-axis

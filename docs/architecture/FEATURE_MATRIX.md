@@ -61,7 +61,7 @@ Use these for common build configurations:
 
 **Storage Feature Propagation:**
 - `storage_hdf5` propagates to `daq-storage/storage_hdf5`
-- `storage_arrow` propagates to `daq-storage/storage_arrow` and `daq-core/storage_arrow`
+- `storage_arrow` propagates to `daq-storage/storage_arrow` and `common/storage_arrow`
 
 ---
 

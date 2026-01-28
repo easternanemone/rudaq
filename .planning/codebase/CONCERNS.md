@@ -87,7 +87,7 @@
 
 **Script Size DoS (MAX_SCRIPT_SIZE):**
 - Risk: Scripts uploaded via gRPC are limited to 1MB but no rate limiting on uploads
-- Files: `crates/daq-core/src/limits.rs` line 60, `crates/daq-server/src/grpc/plugin_service.rs`
+- Files: `crates/common/src/limits.rs` line 60, `crates/daq-server/src/grpc/plugin_service.rs`
 - Current mitigation: Size limit only
 - Recommendations:
   1. Add per-client rate limiting on script uploads
@@ -96,7 +96,7 @@
 
 **Frame Data Size Validation:**
 - Risk: `MAX_FRAME_BYTES` (100 MB) may allow OOM DoS on clients with limited memory
-- Files: `crates/daq-core/src/limits.rs` lines 56, 97-100
+- Files: `crates/common/src/limits.rs` lines 56, 97-100
 - Current mitigation: Size validation exists
 - Recommendations:
   1. Make frame size configurable per deployment
@@ -150,7 +150,7 @@
 - Test coverage: `crates/daq-server/src/grpc/error_mapping_tests.rs` covers error cases; add tests for capability queries
 
 **Parameter Observable Mutations (Reactive State):**
-- Files: `crates/daq-core/src/parameter.rs`, `crates/daq-core/src/observable.rs`
+- Files: `crates/common/src/parameter.rs`, `crates/common/src/observable.rs`
 - Why fragile: Parameters are mutated via async callbacks from hardware; subscription channels can be full, causing frame drops
 - Safe modification:
   1. Verify all parameter mutations use `set()` method (don't bypass via Arc<Mutex<>>)

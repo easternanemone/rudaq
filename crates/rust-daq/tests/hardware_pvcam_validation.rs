@@ -76,7 +76,7 @@
 //!   -- --test-threads=1
 //! ```
 
-use daq_core::parameter::Parameter;
+use common::parameter::Parameter;
 use rust_daq::hardware::capabilities::{
     ExposureControl, Frame, FrameProducer, Parameterized, Readable, Triggerable,
 };

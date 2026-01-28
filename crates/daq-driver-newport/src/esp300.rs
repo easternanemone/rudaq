@@ -12,7 +12,7 @@
 //!
 //! ```rust,ignore
 //! use daq_driver_newport::Esp300Factory;
-//! use daq_core::driver::DriverFactory;
+//! use common::driver::DriverFactory;
 //!
 //! // Register the factory
 //! registry.register_factory(Box::new(Esp300Factory));
@@ -27,12 +27,12 @@
 
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use daq_core::capabilities::{Movable, Parameterized};
-use daq_core::driver::{Capability, DeviceComponents, DriverFactory};
-use daq_core::error::DaqError;
-use daq_core::observable::ParameterSet;
-use daq_core::parameter::Parameter;
-use daq_core::serial::{open_serial_async, wrap_shared, SharedPort};
+use common::capabilities::{Movable, Parameterized};
+use common::driver::{Capability, DeviceComponents, DriverFactory};
+use common::error::DaqError;
+use common::observable::ParameterSet;
+use common::parameter::Parameter;
+use common::serial::{open_serial_async, wrap_shared, SharedPort};
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use std::sync::Arc;

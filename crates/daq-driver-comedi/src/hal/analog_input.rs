@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use daq_core::capabilities::Readable;
+use common::capabilities::Readable;
 use parking_lot::RwLock;
 
 use crate::subsystem::analog_input::AnalogInput;
@@ -21,7 +21,7 @@ use crate::subsystem::{AnalogReference, Range};
 /// # Example
 ///
 /// ```rust,ignore
-/// use daq_core::capabilities::Readable;
+/// use common::capabilities::Readable;
 /// use daq_driver_comedi::hal::ReadableAnalogInput;
 ///
 /// let ai = device.analog_input(0)?;

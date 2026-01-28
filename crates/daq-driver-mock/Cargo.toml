@@ -8,8 +8,8 @@ repository = "https://github.com/TheFermiSea/rust-daq"
 
 [dependencies]
 # Core dependencies
-daq-core = { path = "../daq-core" }
-daq-pool = { path = "../daq-pool" }
+common = { path = "../common" }
+pool = { path = "../pool" }
 
 # Async runtime
 tokio = { workspace = true, features = ["sync", "time"] }

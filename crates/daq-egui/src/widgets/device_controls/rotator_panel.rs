@@ -13,7 +13,7 @@ use tokio::runtime::Runtime;
 
 use crate::widgets::device_controls::{DeviceControlWidget, DevicePanelState};
 use daq_client::DaqClient;
-use daq_proto::daq::DeviceInfo;
+use protocol::daq::DeviceInfo;
 
 /// Global counter for unique panel instance IDs (for diagnostic logging)
 static PANEL_INSTANCE_COUNTER: AtomicU64 = AtomicU64::new(0);

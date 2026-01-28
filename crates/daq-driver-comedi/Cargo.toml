@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 comedi-sys = { path = "../comedi-sys" }
 
 # Core DAQ traits
-daq-core = { path = "../daq-core" }
+common = { path = "../common" }
 
 # Async runtime
 tokio = { workspace = true, features = ["sync", "rt", "time"] }

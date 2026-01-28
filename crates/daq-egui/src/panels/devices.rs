@@ -42,8 +42,8 @@ struct ParamSetResult {
 /// Cached device information
 #[derive(Clone)]
 struct DeviceCache {
-    info: daq_proto::daq::DeviceInfo,
-    state: Option<daq_proto::daq::DeviceStateResponse>,
+    info: protocol::daq::DeviceInfo,
+    state: Option<protocol::daq::DeviceStateResponse>,
     /// Cached parameters for this device (bd-cdh5.1)
     parameters: Vec<ParameterCache>,
     /// Whether parameters have been loaded
@@ -199,7 +199,7 @@ impl Default for DevicesPanel {
     }
 }
 
-fn infer_device_icon(info: &daq_proto::daq::DeviceInfo) -> &'static str {
+fn infer_device_icon(info: &protocol::daq::DeviceInfo) -> &'static str {
     if info.is_frame_producer {
         return icons::device::CAMERA;
     }

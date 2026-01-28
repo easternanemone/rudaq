@@ -7,7 +7,7 @@
 //! DAQ_DAEMON_URL=http://100.117.5.12:50051 cargo run --example trigger_test
 //! ```
 
-use daq_proto::daq::{
+use protocol::daq::{
     hardware_service_client::HardwareServiceClient,
     ListParametersRequest, GetParameterRequest, SetParameterRequest,
     ListDevicesRequest,

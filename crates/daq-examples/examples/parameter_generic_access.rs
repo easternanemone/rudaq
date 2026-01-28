@@ -4,7 +4,7 @@
 //! without knowing their concrete types at compile time.
 
 use anyhow::Result;
-use daq_core::observable::{Observable, ParameterSet};
+use common::observable::{Observable, ParameterSet};
 
 fn main() -> Result<()> {
     println!("=== Generic Parameter Access Example ===\n");

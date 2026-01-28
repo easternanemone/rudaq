@@ -29,10 +29,10 @@
 use crate::common::{ErrorConfig, MockMode, MockRng};
 use anyhow::Result;
 use async_trait::async_trait;
-use daq_core::capabilities::{Parameterized, Readable};
-use daq_core::driver::{Capability, DeviceComponents, DriverFactory};
-use daq_core::observable::ParameterSet;
-use daq_core::parameter::Parameter;
+use common::capabilities::{Parameterized, Readable};
+use common::driver::{Capability, DeviceComponents, DriverFactory};
+use common::observable::ParameterSet;
+use common::parameter::Parameter;
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use std::sync::Arc;

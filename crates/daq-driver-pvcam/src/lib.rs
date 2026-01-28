@@ -31,15 +31,15 @@ pub fn link() {
 
 use anyhow::Result;
 use async_trait::async_trait;
-use daq_core::capabilities::{
+use common::capabilities::{
     Commandable, ExposureControl, Frame, FrameObserver, FrameProducer, LoanedFrame, ObserverHandle,
     Parameterized, Triggerable,
 };
-use daq_core::core::Roi;
-use daq_core::error::DaqError;
-use daq_core::observable::ParameterSet;
-use daq_core::parameter::Parameter;
-use daq_core::pipeline::MeasurementSource;
+use common::core::Roi;
+use common::error::DaqError;
+use common::observable::ParameterSet;
+use common::parameter::Parameter;
+use common::pipeline::MeasurementSource;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;

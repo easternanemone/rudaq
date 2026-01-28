@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use daq_core::capabilities::Settable;
+use common::capabilities::Settable;
 use parking_lot::RwLock;
 use serde_json::Value;
 
@@ -26,7 +26,7 @@ use crate::subsystem::Range;
 /// # Example
 ///
 /// ```rust,ignore
-/// use daq_core::capabilities::Settable;
+/// use common::capabilities::Settable;
 /// use daq_driver_comedi::hal::SettableAnalogOutput;
 /// use serde_json::json;
 ///

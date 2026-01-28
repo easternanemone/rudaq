@@ -122,7 +122,7 @@ The workspace is organized into specialized crates. Each has its own detailed RE
 
 | Crate | Purpose | README |
 |-------|---------|--------|
-| **daq-core** | Foundation types, parameters, error handling | [daq-core README](../crates/daq-core/README.md) |
+| **common** | Foundation types, parameters, error handling | [common README](../crates/common/README.md) |
 | **daq-hardware** | Hardware abstraction layer and device registry | [daq-hardware README](../crates/daq-hardware/README.md) |
 | **daq-driver-pvcam** | Photometrics PVCAM camera driver | [daq-driver-pvcam README](../crates/daq-driver-pvcam/README.md) |
 | **daq-driver-comedi** | Linux Comedi DAQ board driver | [daq-driver-comedi README](../crates/daq-driver-comedi/README.md) |
@@ -248,7 +248,7 @@ docs/
     └── *.md                           (v0.6.0 releases, roadmap)
 
 crates/
-├── daq-core/README.md                 (Foundation types)
+├── common/README.md                 (Foundation types)
 ├── daq-hardware/README.md             (HAL and device registry)
 ├── daq-scripting/README.md            (Rhai scripting)
 ├── daq-pool/README.md                 (Object pool)

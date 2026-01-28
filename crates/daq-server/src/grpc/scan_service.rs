@@ -53,7 +53,7 @@ use crate::grpc::proto::{
     StartScanResponse, StopScanRequest, StopScanResponse, StreamScanProgressRequest,
     scan_service_server::ScanService,
 };
-use daq_core::limits::RPC_TIMEOUT;
+use common::limits::RPC_TIMEOUT;
 use daq_hardware::registry::DeviceRegistry;
 use daq_storage::ring_buffer::RingBuffer;
 use log::warn;

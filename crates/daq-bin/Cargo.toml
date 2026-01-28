@@ -11,7 +11,7 @@ path = "src/main.rs"
 rust_daq = { path = "../rust-daq", features = ["server", "all_hardware", "serial", "modules", "storage_csv", "mock"] }
 daq-server = { path = "../daq-server" }
 daq-hardware = { path = "../daq-hardware" }
-daq-proto = { path = "../daq-proto" }
+protocol = { path = "../protocol" }
 daq-storage = { path = "../daq-storage" }
 daq-scripting = { path = "../daq-scripting" }
 anyhow.workspace = true

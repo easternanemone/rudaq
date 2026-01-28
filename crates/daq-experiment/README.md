@@ -227,7 +227,7 @@ async fn main() -> anyhow::Result<()> {
 
 ## See Also
 
-- [`daq-core`](../daq-core/) - Capability traits and frame types
+- [`common`](../common/) - Capability traits and frame types
 - [`daq-hardware`](../daq-hardware/) - Device registry and drivers
 - [`daq-scripting`](../daq-scripting/) - Rhai scripting integration
 - [`daq-storage`](../daq-storage/) - Data persistence

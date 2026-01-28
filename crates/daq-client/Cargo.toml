@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 # gRPC client
-daq-proto = { path = "../daq-proto" }
+protocol = { path = "../protocol" }
 tonic = { workspace = true, default-features = false, features = ["transport", "prost", "codegen"] }
 prost.workspace = true
 

@@ -39,7 +39,7 @@
 use super::{Module, ModuleContext};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use daq_core::modules::{
+use common::modules::{
     ModuleEventSeverity, ModuleParameter, ModuleRole, ModuleState, ModuleTypeInfo,
 };
 use std::collections::{HashMap, VecDeque};

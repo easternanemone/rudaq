@@ -32,7 +32,7 @@ use crate::hardware::capabilities::Readable;
 use crate::hardware::registry::DeviceRegistry;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use daq_core::modules::{
+use common::modules::{
     ModuleDataPoint, ModuleEvent, ModuleEventSeverity, ModuleState, ModuleTypeInfo,
 };
 use std::collections::HashMap;

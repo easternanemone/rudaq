@@ -32,10 +32,10 @@ use tonic::Request;
 
 use daq_experiment::RunEngine;
 use daq_hardware::registry::DeviceRegistry;
-use daq_proto::daq::control_service_client::ControlServiceClient;
-use daq_proto::daq::control_service_server::ControlServiceServer;
-use daq_proto::daq::DaemonInfoRequest;
 use daq_server::grpc::server::DaqServer;
+use protocol::daq::control_service_client::ControlServiceClient;
+use protocol::daq::control_service_server::ControlServiceServer;
+use protocol::daq::DaemonInfoRequest;
 
 /// Timeout for individual gRPC requests to prevent test hangs.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);

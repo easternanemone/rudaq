@@ -29,7 +29,7 @@
 //! ```
 
 use anyhow::Result;
-use daq_core::core::Measurement;
+use common::core::Measurement;
 use rust_daq::hardware::capabilities::{FrameProducer, Movable, Readable, Triggerable};
 use rust_daq::hardware::mock::{MockCamera, MockPowerMeter, MockStage};
 use std::sync::Arc;
@@ -85,9 +85,9 @@ async fn acquire_camera_image(
         name: name.to_string(),
         width,
         height,
-        buffer: daq_core::core::PixelBuffer::U16(pixels),
+        buffer: common::core::PixelBuffer::U16(pixels),
         unit: "counts".to_string(),
-        metadata: daq_core::core::ImageMetadata {
+        metadata: common::core::ImageMetadata {
             exposure_ms: Some(100.0),
             gain: Some(1.0),
             binning: Some((1, 1)),

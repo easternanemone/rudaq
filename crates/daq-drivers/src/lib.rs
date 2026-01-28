@@ -65,7 +65,7 @@
 //! ```
 
 // Re-export core types for convenience
-pub use daq_core::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
+pub use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
 
 // =============================================================================
 // Driver Crate Re-exports

@@ -342,7 +342,7 @@ impl VoltmeterPanel {
 
         // Spawn background task to handle streaming
         runtime.spawn(async move {
-            use daq_proto::ni_daq::{
+            use protocol::ni_daq::{
                 ni_daq_service_client::NiDaqServiceClient, StreamAnalogInputRequest,
             };
             use tonic::transport::Channel;
@@ -365,7 +365,7 @@ impl VoltmeterPanel {
                 sample_rate_hz,
                 range_index: 0,
                 stop_condition: Some(
-                    daq_proto::ni_daq::stream_analog_input_request::StopCondition::Continuous(true),
+                    protocol::ni_daq::stream_analog_input_request::StopCondition::Continuous(true),
                 ),
                 buffer_size: 256,
             };

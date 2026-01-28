@@ -19,7 +19,7 @@
 **Run Commands:**
 ```bash
 cargo nextest run                    # Run all tests (parallel)
-cargo nextest run -p daq-core        # Run tests in specific crate
+cargo nextest run -p common        # Run tests in specific crate
 cargo nextest run test_name          # Run single test by name
 cargo test --doc                     # Run doctests (doctests in comments/docs)
 cargo nextest run --profile hardware # Run hardware tests on maitai machine
@@ -242,7 +242,7 @@ async fn test_with_fixture() {
 
 **Requirements:**
 - No enforced minimum (coverage tracking is optional)
-- Core library (`daq-core`) aims for high coverage (critical for downstream users)
+- Core library (`common`) aims for high coverage (critical for downstream users)
 - Driver implementations tested via integration tests
 
 **View Coverage:**

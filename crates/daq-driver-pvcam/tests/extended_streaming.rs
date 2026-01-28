@@ -3,7 +3,7 @@
 
 //! Extended streaming test to reproduce ~50 frame halt issue
 
-use daq_core::capabilities::{ExposureControl, FrameProducer};
+use common::capabilities::{ExposureControl, FrameProducer};
 use daq_driver_pvcam::PvcamDriver;
 use std::env;
 use std::time::{Duration, Instant};

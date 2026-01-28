@@ -218,7 +218,7 @@ fn test_create_plugin_module_via_registry() -> Result<()> {
 
 #[tokio::test]
 async fn test_plugin_module_lifecycle() -> Result<()> {
-    use daq_core::modules::ModuleState;
+    use common::modules::ModuleState;
     use std::collections::HashMap;
 
     let path = plugin_path();

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::grpc::map_daq_error_to_status;
-    use daq_core::error::{DaqError, DriverError, DriverErrorKind};
+    use common::error::{DaqError, DriverError, DriverErrorKind};
     use tonic::Code;
 
     fn assert_status_code(err: DaqError, expected: Code) {

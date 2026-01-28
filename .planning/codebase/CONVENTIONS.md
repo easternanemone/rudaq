@@ -64,7 +64,7 @@
 **Order:**
 1. Standard library imports (`std::`, `core::`)
 2. External crates (alphabetical): `anyhow`, `async_trait`, `futures`, `tokio`, `tonic`, `tracing`
-3. Internal crates (alphabetical): `daq_core::`, `daq_hardware::`, `daq_proto::`
+3. Internal crates (alphabetical): `common::`, `daq_hardware::`, `daq_proto::`
 4. Traits and prelude imports (after concrete types)
 5. Re-exports with `pub use` statements follow module declarations
 
@@ -74,7 +74,7 @@
 - Crate-level re-exports in `lib.rs` provide convenient access
 - Example from `rust_daq` (lib.rs lines 5-22):
   ```rust
-  pub use daq_core::capabilities;
+  pub use common::capabilities;
   pub use registry::{DeviceRegistry, DeviceInfo, register_all_factories};
   pub use factory::DriverFactory;
   ```
@@ -89,10 +89,10 @@
 
 **Patterns:**
 - Use `Result<T>` (alias: `AppResult<T>`) for fallible operations
-- Return `DaqError` enum for all application errors (defined in `daq_core::error`)
+- Return `DaqError` enum for all application errors (defined in `common::error`)
 - Use `?` operator to propagate errors
 - Use `#[from]` attribute for automatic conversion: `#[error("...")]` on enum variants
-- Example from `daq_core/error.rs`:
+- Example from `common/error.rs`:
   ```rust
   #[derive(Error, Debug)]
   pub enum DaqError {
@@ -228,7 +228,7 @@
 - Test code (`#[cfg(test)]`) stays in same file, after implementation
 - Protocol definitions in separate `proto` crate (tonic/protobuf)
 - Driver implementations in dedicated crates (`daq-driver-*`)
-- Hardware abstraction traits in `daq-core::capabilities`
+- Hardware abstraction traits in `common::capabilities`
 
 ## Async/Await Patterns
 

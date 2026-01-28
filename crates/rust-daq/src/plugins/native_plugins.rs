@@ -6,7 +6,7 @@
 use crate::modules::{Module, ModuleContext};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use daq_core::modules::{
+use common::modules::{
     ModuleDataPoint, ModuleEvent, ModuleEventSeverity, ModuleParameter, ModuleRole, ModuleState,
     ModuleTypeInfo,
 };

@@ -8,7 +8,7 @@ repository = "https://github.com/TheFermiSea/rust-daq"
 
 [dependencies]
 # Core dependencies (DriverFactory trait, capabilities)
-daq-core = { path = "../daq-core", features = ["serial"] }
+common = { path = "../common", features = ["serial"] }
 
 # Async runtime
 tokio = { workspace = true, features = ["sync", "time", "io-util", "rt"] }

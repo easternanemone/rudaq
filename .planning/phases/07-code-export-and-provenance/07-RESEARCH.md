@@ -6,7 +6,7 @@
 
 ## Summary
 
-Phase 7 requires bidirectional translation between visual experiment graphs and executable Rhai scripts, plus comprehensive provenance tracking for reproducibility. The project already has strong foundations: `daq-scripting` provides Rhai integration, `daq-egui/src/graph` contains the visual graph system, and `daq-core::experiment::document` implements Bluesky-style document streaming with `ExperimentManifest` for hardware parameter snapshots.
+Phase 7 requires bidirectional translation between visual experiment graphs and executable Rhai scripts, plus comprehensive provenance tracking for reproducibility. The project already has strong foundations: `daq-scripting` provides Rhai integration, `daq-egui/src/graph` contains the visual graph system, and `common::experiment::document` implements Bluesky-style document streaming with `ExperimentManifest` for hardware parameter snapshots.
 
 **Key findings:**
 - Rhai code generation is straightforward text templating from ExperimentNode AST (no complex parser needed)
@@ -67,7 +67,7 @@ crates/daq-egui/src/
 └── widgets/
     └── script_editor.rs    # Full script editing mode (optional for Phase 7)
 
-crates/daq-core/src/experiment/
+crates/common/src/experiment/
 ├── document.rs             # Existing (add git hash to ExperimentManifest)
 └── provenance.rs           # New: Provenance helpers (git hash, graph version)
 ```
@@ -190,7 +190,7 @@ fn main() {
     vergen(Config::default()).unwrap();
 }
 
-// In daq-core/src/experiment/provenance.rs
+// In common/src/experiment/provenance.rs
 impl ExperimentManifest {
     pub fn with_provenance(mut self, graph_file: Option<&Path>) -> Self {
         // Add git commit hash (set at build time)
@@ -380,7 +380,7 @@ fn main() {
         .expect("Failed to extract git metadata");
 }
 
-// In daq-core/src/experiment/provenance.rs:
+// In common/src/experiment/provenance.rs:
 impl ExperimentManifest {
     pub fn capture_build_info(&mut self) {
         self.system_info.insert(
@@ -448,7 +448,7 @@ impl ExperimentManifest {
 - Existing codebase:
   - `crates/daq-scripting/src/rhai_engine.rs` - Rhai integration
   - `crates/daq-egui/src/graph/translation.rs` - Graph → Plan translation pattern
-  - `crates/daq-core/src/experiment/document.rs` - ExperimentManifest structure
+  - `crates/common/src/experiment/document.rs` - ExperimentManifest structure
 
 ### Secondary (MEDIUM confidence)
 - [W3C PROV Standard](https://www.w3.org/TR/prov-overview/) (via WebSearch) - Provenance metadata standards

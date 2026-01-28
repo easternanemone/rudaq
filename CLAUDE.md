@@ -42,7 +42,7 @@ source config/hosts/maitai.env           # Or use host-specific config
 cargo build                              # Default features (mock hardware)
 cargo nextest run                        # Run all tests (recommended)
 cargo nextest run test_name              # Single test
-cargo nextest run -p daq-core            # Specific crate
+cargo nextest run -p common            # Specific crate
 cargo test --doc                         # Doctests (not in nextest)
 
 # Quality Checks
@@ -378,7 +378,7 @@ Supervisors write code in worktrees. Use `Task(subagent_type="...", prompt="BEAD
 | **egui-supervisor** (Eve) | `daq-egui` - GUI, visualization, UX |
 | **driver-supervisor** (Diana) | `daq-driver-*`, `comedi-sys`, `daq-hardware` - FFI, hardware |
 | **scripting-supervisor** (Sage) | `daq-scripting`, `daq-experiment` - DSL, automation |
-| **core-supervisor** (Corey) | `daq-core`, `daq-server`, `daq-storage`, `daq-plugin-*`, `daq-proto`, `daq-pool` |
+| **core-supervisor** (Corey) | `common`, `daq-server`, `daq-storage`, `daq-plugin-*`, `daq-proto`, `daq-pool` |
 | **python-supervisor** (Tessa) | `python/` - Python client library |
 | **infra-supervisor** (Olive) | `.github/`, CI/CD pipelines |
 
@@ -465,7 +465,7 @@ proxy_pal___chat(model="g3-pro", prompt="Review this plan...")
 ### Size Limits (DoS Prevention)
 
 ```rust
-use daq_core::limits::{validate_frame_size, MAX_SCRIPT_SIZE, MAX_FRAME_BYTES};
+use common::limits::{validate_frame_size, MAX_SCRIPT_SIZE, MAX_FRAME_BYTES};
 
 let frame_size = validate_frame_size(width, height, bytes_per_pixel)?;
 ```
@@ -509,10 +509,10 @@ let rotator = bus.device("2").await?;  // Validates & loads calibration
 
 **5. DriverFactory Pattern (Plugin Architecture):**
 
-Driver crates implement `daq_core::driver::DriverFactory` for registry integration:
+Driver crates implement `common::driver::DriverFactory` for registry integration:
 
 ```rust
-use daq_core::driver::{DriverFactory, DeviceComponents, Capability};
+use common::driver::{DriverFactory, DeviceComponents, Capability};
 use futures::future::BoxFuture;
 
 pub struct MyDriverFactory;
@@ -970,7 +970,7 @@ cargo modules structure --package daq-hardware --max-depth 3
 // Recommended: use prelude or direct crate imports
 use rust_daq::prelude::*;
 // or
-use daq_core::error::DaqError;
+use common::error::DaqError;
 use daq_storage::ring_buffer::RingBuffer;
 ```
 

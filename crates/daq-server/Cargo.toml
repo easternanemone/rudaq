@@ -21,11 +21,11 @@ anyhow.workspace = true
 
 # NOTE (bd-5bfv): Use default-features = false to prevent cascading defaults.
 # Hardware features are defined in daq-hardware and re-exported here as pass-throughs.
-daq-core = { path = "../daq-core" }
+common = { path = "../common" }
 daq-hardware = { path = "../daq-hardware", default-features = false }
 daq-storage = { path = "../daq-storage" }
 daq-scripting = { path = "../daq-scripting", optional = true }
-daq-proto = { path = "../daq-proto" }
+protocol = { path = "../protocol" }
 daq-driver-comedi = { path = "../daq-driver-comedi", optional = true }
 # LZ4 compression for frame streaming (bd-7rk0: gRPC improvements)
 lz4_flex = "0.11"

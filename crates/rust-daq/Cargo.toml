@@ -23,8 +23,8 @@ workspace = true
 # Async Runtime
 # tokio replaced below with correct features
 
-daq-core = { path = "../daq-core" }
-daq-proto = { path = "../daq-proto" }
+common = { path = "../common" }
+protocol = { path = "../protocol" }
 daq-hardware = { path = "../daq-hardware", default-features = false }
 daq-storage = { path = "../daq-storage", default-features = false }
 daq-server = { path = "../daq-server", optional = true }
@@ -139,7 +139,7 @@ full = ["storage_csv", "storage_arrow", "storage_matlab", "serial", "modules", "
 # Storage backends
 storage_csv = ["dep:csv"]
 storage_hdf5 = ["dep:hdf5", "daq-storage/storage_hdf5"]
-storage_arrow = ["dep:arrow", "daq-storage/storage_arrow", "daq-core/storage_arrow"]
+storage_arrow = ["dep:arrow", "daq-storage/storage_arrow", "common/storage_arrow"]
 storage_matlab = ["dep:matrw"]
 
 # Serial communication (async via tokio-serial)

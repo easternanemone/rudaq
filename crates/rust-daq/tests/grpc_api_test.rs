@@ -16,7 +16,7 @@
 
 #![cfg(feature = "networking")]
 
-use daq_proto::daq::{
+use protocol::daq::{
     DataPoint, MeasurementRequest, ScriptStatus, StartRequest, StartResponse, StatusRequest,
     StopRequest, StopResponse, SystemStatus, UploadRequest, UploadResponse,
 };

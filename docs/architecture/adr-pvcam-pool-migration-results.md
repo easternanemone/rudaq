@@ -107,7 +107,7 @@ Design choices:
 
 ### 3. FrameView (Zero-Copy Borrowed Access)
 
-Added `FrameView<'a>` to `daq-core::data` for observer pattern:
+Added `FrameView<'a>` to `common::data` for observer pattern:
 
 ```rust
 pub struct FrameView<'a> {
@@ -127,7 +127,7 @@ Benefits:
 
 ### 4. FrameObserver Trait
 
-Added observer pattern to `daq-core::capabilities`:
+Added observer pattern to `common::capabilities`:
 
 ```rust
 pub trait FrameObserver: Send + Sync {
@@ -156,7 +156,7 @@ Added `TapRegistry` to `daq-storage` for managing frame observers:
 
 ### 6. FrameProducer Trait Updates
 
-Updated `FrameProducer` trait in `daq-core::capabilities`:
+Updated `FrameProducer` trait in `common::capabilities`:
 
 ```rust
 pub type LoanedFrame = daq_pool::Loaned<daq_pool::FrameData>;

@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use daq_core::capabilities::{Settable, Switchable};
+use common::capabilities::{Settable, Switchable};
 use parking_lot::RwLock;
 use serde_json::Value;
 
@@ -23,7 +23,7 @@ use crate::subsystem::digital_io::{DigitalIO, DioDirection};
 /// # Example
 ///
 /// ```rust,ignore
-/// use daq_core::capabilities::Switchable;
+/// use common::capabilities::Switchable;
 /// use daq_driver_comedi::hal::SwitchableDigitalIO;
 ///
 /// let dio = device.digital_io(0)?;

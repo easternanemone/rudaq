@@ -15,7 +15,7 @@
 //! - **Internal**: Server-side bugs (I/O errors, processing failures)
 //! - **Aborted**: Operation was aborted (unexpected EOF)
 
-use daq_core::error::{DaqError, DriverError};
+use common::error::{DaqError, DriverError};
 use std::str::FromStr;
 use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Code, Status};
@@ -74,7 +74,7 @@ fn status_with_metadata(
 /// # Examples
 ///
 /// ```
-/// use daq_core::error::DaqError;
+/// use common::error::DaqError;
 /// use daq_server::grpc::map_daq_error_to_status;
 /// use tonic::Code;
 ///
@@ -101,28 +101,27 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
             None,
         ),
         DaqError::Driver(ref err) => match err.kind {
-            daq_core::error::DriverErrorKind::Configuration
-            | daq_core::error::DriverErrorKind::InvalidParameter => {
+            common::error::DriverErrorKind::Configuration
+            | common::error::DriverErrorKind::InvalidParameter => {
                 status_with_metadata(Code::InvalidArgument, err.to_string(), "driver", Some(err))
             }
-            daq_core::error::DriverErrorKind::Initialization => status_with_metadata(
+            common::error::DriverErrorKind::Initialization => status_with_metadata(
                 Code::FailedPrecondition,
                 err.to_string(),
                 "driver",
                 Some(err),
             ),
-            daq_core::error::DriverErrorKind::Communication
-            | daq_core::error::DriverErrorKind::Hardware => {
+            common::error::DriverErrorKind::Communication
+            | common::error::DriverErrorKind::Hardware => {
                 status_with_metadata(Code::Unavailable, err.to_string(), "driver", Some(err))
             }
-            daq_core::error::DriverErrorKind::Timeout => {
+            common::error::DriverErrorKind::Timeout => {
                 status_with_metadata(Code::DeadlineExceeded, err.to_string(), "driver", Some(err))
             }
-            daq_core::error::DriverErrorKind::Permission => {
+            common::error::DriverErrorKind::Permission => {
                 status_with_metadata(Code::PermissionDenied, err.to_string(), "driver", Some(err))
             }
-            daq_core::error::DriverErrorKind::Shutdown
-            | daq_core::error::DriverErrorKind::Unknown => {
+            common::error::DriverErrorKind::Shutdown | common::error::DriverErrorKind::Unknown => {
                 status_with_metadata(Code::Internal, err.to_string(), "driver", Some(err))
             }
         },

@@ -36,7 +36,7 @@ use crate::config::load_device_config;
 use crate::config::schema::DeviceConfig;
 use crate::drivers::generic_serial::{GenericSerialDriver, SharedPort};
 use anyhow::{anyhow, Context, Result};
-use daq_core::driver::{
+use common::driver::{
     Capability as CoreCapability, DeviceComponents, DriverFactory as DriverFactoryTrait,
 };
 use enum_dispatch::enum_dispatch;

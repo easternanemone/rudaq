@@ -72,8 +72,8 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use daq_core::core::{ImageMetadata, Measurement, PixelBuffer};
-use daq_core::pipeline::MeasurementSink;
+use common::core::{ImageMetadata, Measurement, PixelBuffer};
+use common::pipeline::MeasurementSink;
 use rerun::archetypes::{Scalars, Tensor};
 use rerun::sink::FileSink;
 use rerun::{MemoryLimit, RecordingStream, RecordingStreamBuilder, ServerOptions};

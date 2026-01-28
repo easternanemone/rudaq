@@ -464,7 +464,7 @@ impl OscilloscopePanel {
         // Spawn background task to handle streaming
         runtime.spawn(async move {
             // Import NI DAQ proto types
-            use daq_proto::ni_daq::{
+            use protocol::ni_daq::{
                 ni_daq_service_client::NiDaqServiceClient, StreamAnalogInputRequest,
             };
             use tonic::transport::Channel;
@@ -489,7 +489,7 @@ impl OscilloscopePanel {
                 sample_rate_hz,
                 range_index: 0, // Default range
                 stop_condition: Some(
-                    daq_proto::ni_daq::stream_analog_input_request::StopCondition::Continuous(true),
+                    protocol::ni_daq::stream_analog_input_request::StopCondition::Continuous(true),
                 ),
                 buffer_size: 1024,
             };

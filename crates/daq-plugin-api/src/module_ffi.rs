@@ -8,7 +8,7 @@ use abi_stable::sabi_trait;
 use abi_stable::std_types::{RBox, RHashMap, ROption, RResult, RString, RVec};
 use abi_stable::StableAbi;
 
-/// FFI-safe module state (mirrors daq_core::modules::ModuleState)
+/// FFI-safe module state (mirrors common::modules::ModuleState)
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, StableAbi)]
 pub enum FfiModuleState {
@@ -55,7 +55,7 @@ pub struct FfiModuleParameter {
     pub required: bool,
 }
 
-/// FFI-safe module type information (mirrors daq_core::modules::ModuleTypeInfo)
+/// FFI-safe module type information (mirrors common::modules::ModuleTypeInfo)
 #[repr(C)]
 #[derive(Debug, Clone, StableAbi)]
 pub struct FfiModuleTypeInfo {

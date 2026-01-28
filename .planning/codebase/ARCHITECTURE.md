@@ -16,9 +16,9 @@
 
 ## Layers
 
-**Foundation (daq-core):**
+**Foundation (common):**
 - Purpose: Defines all core abstractions, error types, and fundamental protocols
-- Location: `crates/daq-core/src/`
+- Location: `crates/common/src/`
 - Contains: Capability traits, Parameter<T>, Observable types, driver factory interface, error types, limits
 - Depends on: Tokio, async-trait, anyhow
 - Used by: All other crates, acts as the contract layer
@@ -27,49 +27,49 @@
 - Purpose: Registry, device composition, configuration, and driver management
 - Location: `crates/daq-hardware/src/`
 - Contains: DeviceRegistry, DeviceComponents, DriverFactory implementations, capability introspection, port resolver
-- Depends on: daq-core, individual driver crates
+- Depends on: common, individual driver crates
 - Used by: daq-bin (daemon), daq-server (gRPC), daq-egui (GUI), daq-experiment (plans)
 
 **Driver Layer (daq-driver-*):**
 - Purpose: Individual hardware driver implementations with DriverFactory trait
 - Location: `crates/daq-driver-{mock,thorlabs,newport,spectra-physics,pvcam,comedi}/src/`
 - Contains: Device-specific drivers, serial communication, hardware initialization
-- Depends on: daq-core, possibly daq-hardware traits
+- Depends on: common, possibly daq-hardware traits
 - Used by: Registered in DeviceRegistry at startup; accessed via capability traits
 
 **Storage & Processing (daq-storage, daq-pool):**
 - Purpose: Data persistence and high-performance frame buffering
 - Location: `crates/daq-storage/src/`, `crates/daq-pool/src/`
 - Contains: Ring buffers, writers (CSV, HDF5, Arrow, TIFF), async buffer pools, document writers
-- Depends on: daq-core (Frame types)
+- Depends on: common (Frame types)
 - Used by: daq-server, daq-egui, experiments
 
 **Experiment Orchestration (daq-experiment):**
 - Purpose: Bluesky-style plan execution, RunEngine state management
 - Location: `crates/daq-experiment/src/`
 - Contains: Plans, PlanRegistry, RunEngine, document types (Start, Descriptor, Event, Stop)
-- Depends on: daq-core, daq-hardware
+- Depends on: common, daq-hardware
 - Used by: daq-server (RunEngineService), daq-scripting (plan runners)
 
 **Scripting Engine (daq-scripting):**
 - Purpose: Rhai script execution with hardware bindings, optional Python support
 - Location: `crates/daq-scripting/src/`
 - Contains: RhaiEngine, script bindings for cameras/stages, ComediBindings, yield channel infrastructure
-- Depends on: daq-core, daq-hardware, daq-experiment (for plan bindings)
+- Depends on: common, daq-hardware, daq-experiment (for plan bindings)
 - Used by: daq-bin (run command), daq-server (script upload/execute)
 
 **Communication (daq-proto):**
 - Purpose: Protobuf definitions and type conversions between domain and transport layers
 - Location: `crates/daq-proto/src/`
 - Contains: Generated proto types (daq.proto, health.proto, ni_daq.proto), conversion traits, compression/downsampling
-- Depends on: daq-core (for converting to/from domain types)
+- Depends on: common (for converting to/from domain types)
 - Used by: daq-server (gRPC), GUI clients, remote clients
 
 **Backend (daq-server):**
 - Purpose: gRPC server with multi-service architecture
 - Location: `crates/daq-server/src/grpc/`
 - Contains: HardwareService, RunEngineService, ScriptingService (optional), ModuleService (optional), ControlService
-- Depends on: daq-core, daq-hardware, daq-proto, daq-experiment, daq-scripting (optional)
+- Depends on: common, daq-hardware, daq-proto, daq-experiment, daq-scripting (optional)
 - Used by: daq-bin (daemon mode), remote clients via gRPC
 
 **Frontend (daq-egui):**
@@ -145,13 +145,13 @@
 - Purpose: Define what hardware can do without monolithic device traits
 - Examples: `Movable`, `Readable`, `FrameProducer`, `Triggerable`, `ExposureControl`, `WavelengthTunable`, `ShutterControl`, `EmissionControl`, `Parameterized`
 - Pattern: Each trait is small, async, and composable; devices implement multiple traits
-- Files: `crates/daq-core/src/capabilities.rs` (trait definitions)
+- Files: `crates/common/src/capabilities.rs` (trait definitions)
 
 **Parameter<T>:**
 - Purpose: Reactive state with hardware callbacks; replaces raw Mutex/RwLock
 - Pattern: Holds value T, wraps in Arc<RwLock<T>>, optionally connected to async hardware write function
 - Usage: `let wavelength = Parameter::new("wavelength_nm", 800.0).connect_to_hardware_write(...)`
-- Files: `crates/daq-core/src/parameter.rs`
+- Files: `crates/common/src/parameter.rs`
 
 **DeviceRegistry:**
 - Purpose: Central runtime registry of discovered devices with capability introspection
@@ -163,13 +163,13 @@
 - Purpose: Plugin interface for dynamic driver registration
 - Pattern: Factories implement trait, build() returns DeviceComponents with capabilities
 - Usage: `impl DriverFactory for Ell14Factory { fn build() -> DeviceComponents { ... } }`
-- Files: `crates/daq-core/src/driver.rs`, individual driver crate implementations
+- Files: `crates/common/src/driver.rs`, individual driver crate implementations
 
 **DeviceComponents:**
 - Purpose: Lightweight wrapper carrying device + all its capabilities
 - Pattern: Builder-style type with optional Arc<dyn Capability1>, Arc<dyn Capability2>, etc.
 - Usage: `DeviceComponents::new().with_movable(driver).with_parameterized(driver)`
-- Files: `crates/daq-core/src/driver.rs`
+- Files: `crates/common/src/driver.rs`
 
 **RunEngine:**
 - Purpose: State machine executing Plans (Bluesky-inspired) with pause/resume
@@ -199,13 +199,13 @@
 - Purpose: Reactive property with async watchers
 - Pattern: Watches can subscribe to value changes, invoked whenever set() called
 - Usage: `let obs = Observable::new(42); obs.watch(|val| async move { println!("{}", val); }).await`
-- Files: `crates/daq-core/src/observable.rs`
+- Files: `crates/common/src/observable.rs`
 
 **Document (Bluesky Model):**
 - Purpose: Structured data flow from experiments
 - Pattern: StartDoc (metadata), Descriptor (schema), Event (data), StopDoc (summary)
 - Usage: Emitted by RunEngine, written to storage, consumed by GUI/analysis
-- Files: `crates/daq-core/src/experiment/document.rs`
+- Files: `crates/common/src/experiment/document.rs`
 
 ## Entry Points
 
@@ -236,16 +236,16 @@
 
 **Patterns:**
 
-1. **Domain Layer (daq-core):** Uses `anyhow::Result<T>` for internal errors
-   - File: `crates/daq-core/src/error.rs`
+1. **Domain Layer (common):** Uses `anyhow::Result<T>` for internal errors
+   - File: `crates/common/src/error.rs`
    - Example: `driver.move_abs(x).await.context("Failed to move stage")?`
 
 2. **gRPC Layer (daq-server):** Converts domain errors to gRPC Status codes
    - File: `crates/daq-server/src/grpc/error_mapping.rs`
    - Pattern: `anyhow::Error` → `tonic::Status` with error code + message
 
-3. **Recovery Layer (daq-core):** Implements fallback strategies
-   - File: `crates/daq-core/src/error_recovery.rs`
+3. **Recovery Layer (common):** Implements fallback strategies
+   - File: `crates/common/src/error_recovery.rs`
    - Example: Retry with exponential backoff, degrade to mock driver
 
 4. **Driver Layer:** Serial communication errors get retry logic
@@ -260,7 +260,7 @@
 - Files: `crates/daq-egui/src/gui_log_layer.rs`, individual driver crate logs
 
 **Validation:**
-- Size limits: `crates/daq-core/src/limits.rs` enforces MAX_SCRIPT_SIZE, MAX_FRAME_BYTES, etc.
+- Size limits: `crates/common/src/limits.rs` enforces MAX_SCRIPT_SIZE, MAX_FRAME_BYTES, etc.
 - Device validation: Serial drivers query device identity (`*IDN?`) on connect
 - Configuration: Figment-based validation in config loading
 

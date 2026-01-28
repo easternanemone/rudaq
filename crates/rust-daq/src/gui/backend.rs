@@ -21,8 +21,8 @@ use tonic_web_wasm_client::Client as WasmClient;
 // struct WasmClient;
 use tracing::{debug, error, info, warn};
 
-use daq_proto::daq::hardware_service_client::HardwareServiceClient;
-use daq_proto::daq::{
+use protocol::daq::hardware_service_client::HardwareServiceClient;
+use protocol::daq::{
     DeviceInfo as ProtoDeviceInfo, DeviceStateSubscribeRequest, ListDevicesRequest,
     ListParametersRequest, MoveRequest, ParameterDescriptor as ProtoParameterDescriptor,
     ReadValueRequest, SetParameterRequest,
@@ -695,10 +695,10 @@ impl Backend {
             const MAX_BACKOFF_MS: u64 = 5_000;
 
             loop {
-                let request = daq_proto::daq::StreamFramesRequest {
+                let request = protocol::daq::StreamFramesRequest {
                     device_id: device_id_task.clone(),
                     max_fps: 30,
-                    quality: daq_proto::daq::StreamQuality::Full.into(),
+                    quality: protocol::daq::StreamQuality::Full.into(),
                 };
 
                 match client.stream_frames(request).await {

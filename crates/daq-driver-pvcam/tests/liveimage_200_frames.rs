@@ -4,7 +4,7 @@
 //! This test verifies that the Rust PVCAM driver can stream 200 frames
 //! continuously, matching the behavior of the C++ LiveImage SDK example.
 
-use daq_core::capabilities::{ExposureControl, FrameProducer};
+use common::capabilities::{ExposureControl, FrameProducer};
 use daq_driver_pvcam::PvcamDriver;
 use std::time::{Duration, Instant};
 

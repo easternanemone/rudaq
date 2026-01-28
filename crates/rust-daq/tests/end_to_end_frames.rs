@@ -11,7 +11,7 @@
     missing_docs
 )]
 
-use daq_core::experiment::document::Document;
+use common::experiment::document::Document;
 use daq_experiment::plans::Count;
 use daq_experiment::run_engine::RunEngine;
 use daq_hardware::registry::{DeviceConfig, DeviceRegistry, DriverType};

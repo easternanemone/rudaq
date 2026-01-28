@@ -15,10 +15,10 @@
 //! NiDaqService accesses Comedi drivers directly for low-level DAQ operations.
 
 use anyhow::Error as AnyError;
-use daq_core::limits::RPC_TIMEOUT;
+use common::limits::RPC_TIMEOUT;
 use daq_hardware::registry::DeviceRegistry;
-use daq_proto::ni_daq::ni_daq_service_server::NiDaqService;
-use daq_proto::ni_daq::*;
+use protocol::ni_daq::ni_daq_service_server::NiDaqService;
+use protocol::ni_daq::*;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};

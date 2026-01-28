@@ -5,16 +5,16 @@ use crate::pattern::generate_test_pattern;
 use crate::common::{ErrorConfig, MockMode, MockRng, TimingConfig};
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use daq_core::capabilities::{
+use common::capabilities::{
     ExposureControl, FrameObserver, FrameProducer, LoanedFrame, ObserverHandle, Parameterized,
     Stageable, Triggerable,
 };
-use daq_core::data::{Frame, FrameView};
-use daq_core::driver::{Capability, DeviceComponents, DriverFactory};
-use daq_core::observable::ParameterSet;
-use daq_core::parameter::Parameter;
-use daq_pool::{FrameData, Pool};
+use common::data::{Frame, FrameView};
+use common::driver::{Capability, DeviceComponents, DriverFactory};
+use common::observable::ParameterSet;
+use common::parameter::Parameter;
 use futures::future::BoxFuture;
+use pool::{FrameData, Pool};
 use serde::Deserialize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -931,7 +931,7 @@ impl FrameProducer for MockCamera {
 }
 
 #[async_trait]
-impl daq_core::pipeline::MeasurementSource for MockCamera {
+impl common::pipeline::MeasurementSource for MockCamera {
     type Output = Arc<Frame>;
     type Error = anyhow::Error;
 
@@ -985,7 +985,7 @@ impl Stageable for MockCamera {
 mod tests {
     use super::*;
     use crate::common::ErrorScenario;
-    use daq_core::data::FrameView;
+    use common::data::FrameView;
 
     /// Test observer that counts frames received.
     struct CountingObserver {

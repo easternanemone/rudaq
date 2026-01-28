@@ -43,7 +43,7 @@ pub mod storage_service;
 
 /// Protocol Buffer definitions for the DAQ Control Service
 ///
-/// Re-exported from daq-proto crate to maintain API compatibility.
+/// Re-exported from protocol crate to maintain API compatibility.
 #[allow(missing_docs)]
 pub mod proto {
     //! Generated Protocol Buffer definitions from `proto/daq.proto`
@@ -55,18 +55,18 @@ pub mod proto {
     //! - Server and client implementations for all services
     //! - Request/Response message types for all RPC methods
     //!
-    //! Note: These types are generated in the daq-proto crate and
+    //! Note: These types are generated in the protocol crate and
     //! re-exported here for backwards compatibility.
 
-    pub use daq_proto::daq::*;
+    pub use protocol::daq::*;
 
     pub mod health {
-        pub use daq_proto::health::*;
+        pub use protocol::health::*;
     }
 }
 
 /// Re-export compression helpers for frame streaming (bd-7rk0)
-pub use daq_proto::compression;
+pub use protocol::compression;
 
 pub use hardware_service::HardwareServiceImpl;
 pub use health_service::HealthServiceImpl;
@@ -330,7 +330,7 @@ pub use proto::{
 // Re-export NI DAQ Service types (bd-czem)
 /// NI DAQ Service for Comedi hardware control
 pub mod ni_daq_proto {
-    pub use daq_proto::ni_daq::*;
+    pub use protocol::ni_daq::*;
 }
-pub use daq_proto::ni_daq::ni_daq_service_client::NiDaqServiceClient;
-pub use daq_proto::ni_daq::ni_daq_service_server::{NiDaqService, NiDaqServiceServer};
+pub use protocol::ni_daq::ni_daq_service_client::NiDaqServiceClient;
+pub use protocol::ni_daq::ni_daq_service_server::{NiDaqService, NiDaqServiceServer};

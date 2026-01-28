@@ -7,7 +7,7 @@
 ```
 rust-daq/
 ├── crates/                          # Workspace crates (monorepo pattern)
-│   ├── daq-core/                    # Foundation: traits, errors, types
+│   ├── common/                    # Foundation: traits, errors, types
 │   │   └── src/
 │   │       ├── lib.rs               # Module organization
 │   │       ├── capabilities.rs      # Trait definitions (Movable, Readable, etc.)
@@ -268,7 +268,7 @@ rust-daq/
 
 ## Directory Purposes
 
-**crates/daq-core/:**
+**crates/common/:**
 - Purpose: Foundation abstractions - traits, types, error handling
 - Contains: Capability traits (Movable, Readable, FrameProducer, etc.), Parameter<T>, Observable<T>, error types, limits enforcement
 - Key files: `capabilities.rs` (trait definitions), `parameter.rs` (reactive state), `driver.rs` (plugin interface)
@@ -361,7 +361,7 @@ rust-daq/
 - `config/mock_hardware.toml` - Mock device configuration
 
 **Core Logic:**
-- `crates/daq-core/src/driver.rs` - DriverFactory plugin interface
+- `crates/common/src/driver.rs` - DriverFactory plugin interface
 - `crates/daq-hardware/src/registry.rs` - DeviceRegistry (runtime device lookup)
 - `crates/daq-experiment/src/run_engine.rs` - Plan execution and orchestration
 - `crates/daq-server/src/grpc/hardware_service.rs` - gRPC device listing and streaming
@@ -375,7 +375,7 @@ rust-daq/
 
 **Testing:**
 - `crates/daq-driver-mock/src/` - Mock implementations for all devices
-- `crates/daq-core/examples/` - Example code and review checks
+- `crates/common/examples/` - Example code and review checks
 - Individual crates: `tests/` directories with integration tests
 
 **GUI:**
@@ -395,7 +395,7 @@ rust-daq/
 - Feature: `snake_case` in Cargo.toml (e.g., `pvcam_hardware`, `storage_hdf5`)
 
 **Directories:**
-- Crate names: `daq-{component}` or `{vendor}-sys` (e.g., `daq-core`, `daq-storage`, `comedi-sys`)
+- Crate names: `daq-{component}` or `{vendor}-sys` (e.g., `common`, `daq-storage`, `comedi-sys`)
 - Module subdirs: Flat structure preferred (one file per module); complex modules get subdirs (e.g., `panels/`, `drivers/`, `grpc/`)
 - Config: Lowercase with dashes for machine/host names (e.g., `maitai_hardware.toml`, `hosts/maitai.env`)
 
@@ -419,8 +419,8 @@ rust-daq/
 4. Register in composition root: `daq-bin/src/main.rs` calls `registry.register_factory(Box::new(MyFactory))`
 
 **New Capability Trait:**
-1. Define in `crates/daq-core/src/capabilities.rs` (async, Send + Sync)
-2. Add variant to `Capability` enum in `daq-core/src/driver.rs`
+1. Define in `crates/common/src/capabilities.rs` (async, Send + Sync)
+2. Add variant to `Capability` enum in `common/src/driver.rs`
 3. Add field to `DeviceComponents` struct (e.g., `.with_my_capability(driver)`)
 4. Update gRPC service if remote access needed: `crates/daq-server/src/grpc/hardware_service.rs`
 
@@ -449,7 +449,7 @@ rust-daq/
 4. Register in `StorageFormat` enum in `crates/daq-storage/src/comedi_writer.rs`
 
 **Utility Functions (Shared Code):**
-1. If crate-independent: Add to `crates/daq-core/src/` new module
+1. If crate-independent: Add to `crates/common/src/` new module
 2. If hardware-specific: Add to driver crate's utilities module
 3. If UI: Add to `crates/daq-egui/src/widgets/` for reusable components
 4. Cross-crate imports via `use rust_daq::prelude::*` or direct crate imports

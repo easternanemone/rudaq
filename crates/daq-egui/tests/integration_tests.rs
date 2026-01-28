@@ -45,7 +45,7 @@ mod grpc_client_tests {
     /// Test gRPC connection error handling
     #[tokio::test]
     async fn test_grpc_connection_to_invalid_daemon() {
-        use daq_proto::daq::hardware_service_client::HardwareServiceClient;
+        use protocol::daq::hardware_service_client::HardwareServiceClient;
         use tonic::transport::Channel;
 
         // Try to connect to non-existent daemon
@@ -65,7 +65,7 @@ mod grpc_client_tests {
     /// Test that gRPC client can be created with valid configuration
     #[tokio::test]
     async fn test_grpc_client_creation() {
-        use daq_proto::daq::hardware_service_client::HardwareServiceClient;
+        use protocol::daq::hardware_service_client::HardwareServiceClient;
         use tonic::transport::Channel;
 
         // Create channel endpoint (doesn't connect yet)
@@ -233,8 +233,8 @@ mod daemon_lifecycle_tests {
     #[tokio::test]
     #[ignore = "Requires running daemon - enable for full E2E testing"]
     async fn test_gui_connects_to_running_daemon() {
-        use daq_proto::daq::hardware_service_client::HardwareServiceClient;
-        use daq_proto::daq::ListDevicesRequest;
+        use protocol::daq::hardware_service_client::HardwareServiceClient;
+        use protocol::daq::ListDevicesRequest;
         use tonic::transport::Channel;
 
         // Assume daemon is running on default port (started externally)

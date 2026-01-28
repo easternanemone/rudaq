@@ -59,7 +59,7 @@
 use crate::modules::{Module, ModuleContext};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use daq_core::modules::{ModuleParameter, ModuleRole, ModuleState, ModuleTypeInfo};
+use common::modules::{ModuleParameter, ModuleRole, ModuleState, ModuleTypeInfo};
 use daq_scripting::rhai::{Array, Dynamic, Map};
 use daq_scripting::{RhaiEngine, ScriptEngine, ScriptError, ScriptValue};
 use std::collections::HashMap;

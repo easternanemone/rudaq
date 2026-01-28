@@ -16,7 +16,7 @@ use tokio::time::{interval, Duration};
 
 use super::ring_buffer::RingBuffer;
 #[cfg(feature = "storage_hdf5")]
-use daq_core::observable::ParameterSet;
+use common::observable::ParameterSet;
 
 /// Background HDF5 writer that persists ring buffer data
 ///
@@ -312,8 +312,8 @@ impl HDF5Writer {
     /// NOTE: This is a blocking synchronous method called from within spawn_blocking
     #[cfg(all(feature = "storage_hdf5", feature = "networking"))]
     fn write_protobuf_to_hdf5_blocking(group: &hdf5::Group, data: &[u8]) -> Result<usize> {
-        use daq_proto::daq::ScanProgress;
         use prost::Message;
+        use protocol::daq::ScanProgress;
         use std::collections::HashMap;
 
         // Decode length-prefixed messages from buffer
@@ -507,7 +507,7 @@ impl HDF5Writer {
     #[cfg(feature = "storage_hdf5")]
     pub async fn write_manifest(
         &self,
-        manifest: &daq_core::experiment::document::ExperimentManifest,
+        manifest: &common::experiment::document::ExperimentManifest,
     ) -> Result<()> {
         // Clone manifest for move into blocking task
         let manifest = manifest.clone();
@@ -645,7 +645,7 @@ impl HDF5Writer {
     #[cfg(not(feature = "storage_hdf5"))]
     pub async fn write_manifest(
         &self,
-        _manifest: &daq_core::experiment::document::ExperimentManifest,
+        _manifest: &common::experiment::document::ExperimentManifest,
     ) -> Result<()> {
         // Gracefully degrade when HDF5 not available
         Ok(())

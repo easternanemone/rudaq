@@ -53,9 +53,9 @@ use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info, instrument, warn};
 
 use super::plans::{Plan, PlanCommand};
-use daq_core::capabilities::{FrameObserver, ObserverHandle};
-use daq_core::data::FrameView;
-use daq_core::experiment::document::{
+use common::capabilities::{FrameObserver, ObserverHandle};
+use common::data::FrameView;
+use common::experiment::document::{
     new_uid, DataKey, DescriptorDoc, Document, EventDoc, ExperimentManifest, StartDoc, StopDoc,
 };
 use daq_hardware::registry::DeviceRegistry;

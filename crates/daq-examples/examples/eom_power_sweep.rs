@@ -30,7 +30,7 @@
 use anyhow::{Context, Result};
 use chrono::Local;
 use clap::Parser;
-use daq_core::capabilities::{Readable, ShutterControl};
+use common::capabilities::{Readable, ShutterControl};
 use daq_driver_comedi::ComediDevice;
 use std::path::PathBuf;
 use std::time::Duration;

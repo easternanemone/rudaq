@@ -20,7 +20,7 @@ Fix 15 technical debt issues in the driver and scripting infrastructure, validat
 ```
 rust-daq/
 ├── crates/
-│   ├── daq-core/              # Foundation types, DriverFactory trait
+│   ├── common/              # Foundation types, DriverFactory trait
 │   ├── daq-hardware/
 │   │   ├── src/drivers/
 │   │   │   └── generic_serial.rs  # H1, M4 issues
@@ -167,7 +167,7 @@ pub async fn set_wavelength_and_wait(&self, target: f64, tolerance: f64, timeout
 **Fix:** Use `tokio::time::sleep` in async helper
 
 #### L2: Duplicate DriverFactory Concepts
-**Files:** `factory.rs:140-348` vs `daq-core/src/driver.rs:473-520`
+**Files:** `factory.rs:140-348` vs `common/src/driver.rs:473-520`
 **Fix:** Rename hardware struct or factor shared mapping into single helper
 
 #### L3: Binary Commands Not Implemented

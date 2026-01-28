@@ -8,7 +8,7 @@
 
 #![allow(dead_code)]
 
-use daq_proto::daq::DeviceInfo;
+use protocol::daq::DeviceInfo;
 
 /// The type of control panel to use for a device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

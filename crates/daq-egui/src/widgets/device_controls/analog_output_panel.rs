@@ -12,7 +12,7 @@ use tokio::runtime::Runtime;
 
 use crate::widgets::device_controls::{DeviceControlWidget, DevicePanelState};
 use daq_client::DaqClient;
-use daq_proto::daq::DeviceInfo;
+use protocol::daq::DeviceInfo;
 
 /// Async action results
 enum ActionResult {

@@ -5,9 +5,9 @@ edition = "2021"
 description = "High-throughput storage and buffering for rust-daq"
 
 [dependencies]
-daq-core = { path = "../daq-core" }
-daq-pool = { path = "../daq-pool" }
-daq-proto = { path = "../daq-proto" }
+common = { path = "../common" }
+pool = { path = "../pool" }
+protocol = { path = "../protocol" }
 
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

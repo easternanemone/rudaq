@@ -82,7 +82,7 @@ cargo run --bin rust-daq-daemon -- run examples/demo_scan.rhai
 
 | Tier | Crates | Purpose |
 |------|--------|---------|
-| **Core** | `daq-core`, `daq-hardware` | Foundations: error handling, device traits, registry |
+| **Core** | `common`, `daq-hardware` | Foundations: error handling, device traits, registry |
 | **Drivers** | `daq-driver-pvcam`, `daq-driver-*` | Hardware integrations |
 | **Engine** | `daq-experiment`, `daq-scripting` | Orchestration and automation |
 | **Interfaces** | `daq-server`, `daq-egui`, `daq-proto` | gRPC, GUI, and network protocol |
@@ -300,7 +300,7 @@ We use [cargo-nextest](https://nexte.st/) for fast, parallel testing:
 cargo nextest run
 
 # Run specific crate tests
-cargo nextest run -p daq-core
+cargo nextest run -p common
 cargo nextest run -p daq-hardware
 
 # Run with CI profile (includes retries for flaky tests)
@@ -339,7 +339,7 @@ See [Testing Guide](docs/guides/testing.md) for comprehensive testing documentat
 
 Each crate has detailed README with API examples:
 
-- [**daq-core**](crates/daq-core/README.md) - Foundation types, error handling, observable parameters
+- [**common**](crates/common/README.md) - Foundation types, error handling, observable parameters
 - [**daq-hardware**](crates/daq-hardware/README.md) - HAL, device registry, driver factory
 - [**daq-scripting**](crates/daq-scripting/README.md) - Rhai engine integration
 - [**daq-egui**](crates/daq-egui/README.md) - Desktop GUI components
@@ -380,7 +380,7 @@ See [Performance Analysis](docs/architecture/analysis-pvcam-performance-gap.md) 
 Implement the `DriverFactory` trait:
 
 ```rust
-use daq_core::driver::{DriverFactory, DeviceComponents, Capability};
+use common::driver::{DriverFactory, DeviceComponents, Capability};
 use futures::future::BoxFuture;
 
 pub struct MyDriverFactory;

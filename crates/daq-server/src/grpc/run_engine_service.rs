@@ -10,7 +10,7 @@ use crate::grpc::proto::{
     ResumeEngineResponse, StartEngineRequest, StartEngineResponse, StreamDocumentsRequest,
     run_engine_service_server::RunEngineService,
 };
-use daq_experiment::Document; // Re-exported from daq_core
+use daq_experiment::Document; // Re-exported from common
 use daq_experiment::plans::{CountBuilder, GridScanBuilder, LineScanBuilder, PlanRegistry};
 use daq_experiment::run_engine::RunEngine;
 use daq_storage::DocumentWriter;

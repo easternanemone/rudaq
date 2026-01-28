@@ -88,7 +88,7 @@ expression = "MIT"
 license-files = []
 
 [[licenses.clarify]]
-crate = "daq-core"
+crate = "common"
 expression = "MIT"
 license-files = []
 
@@ -118,7 +118,7 @@ expression = "MIT"
 license-files = []
 
 [[licenses.clarify]]
-crate = "daq-proto"
+crate = "protocol"
 expression = "MIT"
 license-files = []
 

@@ -15,7 +15,7 @@ use tracing;
 use crate::widgets::device_controls::DeviceControlWidget;
 use crate::widgets::Gauge;
 use daq_client::DaqClient;
-use daq_proto::daq::DeviceInfo;
+use protocol::daq::DeviceInfo;
 
 /// Polling interval for state updates (1 second)
 const POLL_INTERVAL: Duration = Duration::from_secs(1);

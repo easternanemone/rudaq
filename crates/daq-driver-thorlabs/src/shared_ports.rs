@@ -3,13 +3,13 @@
 //! Multiple ELL14 devices can share a single serial port. This module
 //! provides a static registry to track and reuse open ports.
 
-use daq_core::serial::open_serial_async;
+use common::serial::open_serial_async;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
 // Re-export SharedPort type for backward compatibility
-pub use daq_core::serial::SharedPortUnbuffered as SharedPort;
+pub use common::serial::SharedPortUnbuffered as SharedPort;
 
 /// Module-local registry for shared serial ports.
 static SHARED_PORTS: OnceLock<RwLock<HashMap<String, SharedPort>>> = OnceLock::new();
@@ -100,7 +100,7 @@ pub async fn get_or_open_port_with_baud(
 
     // Open new port using shared utility
     let stream = open_serial_async(port_path, baud_rate, "ELL14").await?;
-    let shared = daq_core::serial::wrap_shared_unbuffered(Box::new(stream));
+    let shared = common::serial::wrap_shared_unbuffered(Box::new(stream));
 
     // Store in registry
     register_port(port_path, shared.clone());

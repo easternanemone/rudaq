@@ -27,7 +27,7 @@ pub struct DevicePane {
 }
 
 impl DevicePane {
-    pub fn from_device_info(info: &daq_proto::daq::DeviceInfo) -> Self {
+    pub fn from_device_info(info: &protocol::daq::DeviceInfo) -> Self {
         Self {
             device_id: info.id.clone(),
             device_name: info.name.clone(),
@@ -43,7 +43,7 @@ impl DevicePane {
         }
     }
 
-    pub fn update_state(&mut self, state: &daq_proto::daq::DeviceStateResponse) {
+    pub fn update_state(&mut self, state: &protocol::daq::DeviceStateResponse) {
         self.online = state.online;
         self.position = state.position;
         self.last_reading = state.last_reading;

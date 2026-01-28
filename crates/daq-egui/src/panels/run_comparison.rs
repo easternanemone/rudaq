@@ -17,7 +17,7 @@ enum PendingAction {
 
 /// Result from an async action
 enum ActionResult {
-    Refresh(Result<Vec<daq_proto::daq::AcquisitionSummary>, String>),
+    Refresh(Result<Vec<protocol::daq::AcquisitionSummary>, String>),
     LoadRunData {
         run_id: String,
         result: Result<RunData, String>,
@@ -40,7 +40,7 @@ struct RunData {
 /// Run comparison panel state
 pub struct RunComparisonPanel {
     /// All acquisitions loaded from server
-    available_runs: Vec<daq_proto::daq::AcquisitionSummary>,
+    available_runs: Vec<protocol::daq::AcquisitionSummary>,
     /// Selected run IDs (checkboxes)
     selected_run_ids: HashSet<String>,
     /// Loaded run data (ready for plotting)

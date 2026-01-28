@@ -2174,6 +2174,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "common"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow 57.2.0",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "config",
+ "futures",
+ "getrandom 0.2.17",
+ "hostname",
+ "parking_lot 0.12.5",
+ "pool",
+ "regex-lite",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-serial",
+ "toml 0.9.11+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "wasm-timer",
+]
+
+[[package]]
 name = "concat-idents"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2618,11 +2649,11 @@ dependencies = [
  "anyhow",
  "clap",
  "daq-hardware",
- "daq-proto",
  "daq-scripting",
  "daq-server",
  "daq-storage",
  "mimalloc",
+ "protocol",
  "rust_daq",
  "tokio",
  "tracing",
@@ -2634,9 +2665,9 @@ name = "daq-client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "daq-proto",
  "futures",
  "prost 0.12.6",
+ "protocol",
  "serde",
  "tempfile",
  "thiserror 1.0.69",
@@ -2644,37 +2675,6 @@ dependencies = [
  "tonic 0.10.2",
  "tracing",
  "url",
-]
-
-[[package]]
-name = "daq-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arrow 57.2.0",
- "async-trait",
- "bytes",
- "chrono",
- "config",
- "daq-pool",
- "futures",
- "getrandom 0.2.17",
- "hostname",
- "parking_lot 0.12.5",
- "regex-lite",
- "schemars",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tokio-serial",
- "toml 0.9.11+spec-1.1.0",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "wasm-timer",
 ]
 
 [[package]]
@@ -2686,7 +2686,7 @@ dependencies = [
  "bitflags 2.10.0",
  "chrono",
  "comedi-sys",
- "daq-core",
+ "common",
  "futures",
  "hdf5-metno",
  "libc",
@@ -2708,7 +2708,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "daq-core",
+ "common",
  "daq-plugin-api",
  "evalexpr",
  "futures",
@@ -2730,9 +2730,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "daq-core",
- "daq-pool",
+ "common",
  "futures",
+ "pool",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "serde",
@@ -2748,7 +2748,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "daq-core",
+ "common",
  "futures",
  "log",
  "serde",
@@ -2767,12 +2767,12 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bytes",
+ "common",
  "criterion",
- "daq-core",
- "daq-pool",
  "lazy_static",
  "once_cell",
  "parking_lot 0.12.5",
+ "pool",
  "pvcam-sys",
  "serde_json",
  "tokio",
@@ -2786,7 +2786,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "daq-core",
+ "common",
  "futures",
  "serde",
  "tokio",
@@ -2800,7 +2800,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "daq-core",
+ "common",
  "futures",
  "log",
  "serde",
@@ -2818,7 +2818,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "daq-core",
+ "common",
  "futures",
  "parking_lot 0.12.5",
  "serde",
@@ -2834,7 +2834,7 @@ dependencies = [
 name = "daq-drivers"
 version = "0.1.0"
 dependencies = [
- "daq-core",
+ "common",
  "daq-driver-comedi",
  "daq-driver-generic",
  "daq-driver-mock",
@@ -2852,13 +2852,12 @@ dependencies = [
  "bytemuck",
  "chrono",
  "clap",
+ "common",
  "csv",
  "daq-client",
- "daq-core",
  "daq-driver-pvcam",
  "daq-experiment",
  "daq-hardware",
- "daq-proto",
  "daq-storage",
  "dark-light",
  "dirs 5.0.1",
@@ -2879,6 +2878,7 @@ dependencies = [
  "once_cell",
  "ordered-float 4.6.0",
  "prost 0.12.6",
+ "protocol",
  "rerun",
  "rfd 0.17.2",
  "serde",
@@ -2899,7 +2899,7 @@ name = "daq-experiment"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "daq-core",
+ "common",
  "daq-hardware",
  "serde_json",
  "tokio",
@@ -2912,8 +2912,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "common",
  "crc",
- "daq-core",
  "daq-driver-comedi",
  "daq-driver-generic",
  "daq-driver-mock",
@@ -2922,7 +2922,6 @@ dependencies = [
  "daq-driver-red-pitaya",
  "daq-driver-spectra-physics",
  "daq-driver-thorlabs",
- "daq-pool",
  "dashmap",
  "dirs 5.0.1",
  "enum_dispatch",
@@ -2932,6 +2931,7 @@ dependencies = [
  "hot-lib-reloader",
  "log",
  "notify 6.1.1",
+ "pool",
  "rand 0.8.5",
  "regex",
  "rhai",
@@ -2970,36 +2970,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "daq-pool"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "crossbeam-queue",
- "parking_lot 0.12.5",
- "tokio",
- "tokio-test",
- "tracing",
-]
-
-[[package]]
-name = "daq-proto"
-version = "0.1.0"
-dependencies = [
- "daq-core",
- "lz4_flex 0.11.5",
- "prost 0.12.6",
- "tonic 0.10.2",
- "tonic-build",
-]
-
-[[package]]
 name = "daq-scripting"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
- "daq-core",
+ "common",
  "daq-driver-comedi",
  "daq-driver-mock",
  "daq-driver-newport",
@@ -3025,12 +3002,11 @@ dependencies = [
  "async-trait",
  "bincode",
  "chrono",
+ "common",
  "config",
- "daq-core",
  "daq-driver-comedi",
  "daq-experiment",
  "daq-hardware",
- "daq-proto",
  "daq-scripting",
  "daq-storage",
  "dirs 4.0.0",
@@ -3045,6 +3021,7 @@ dependencies = [
  "lz4_flex 0.11.5",
  "prometheus",
  "prost 0.12.6",
+ "protocol",
  "rerun",
  "serde",
  "serde_json",
@@ -3071,15 +3048,15 @@ dependencies = [
  "bincode",
  "bytes",
  "chrono",
- "daq-core",
- "daq-pool",
- "daq-proto",
+ "common",
  "hdf5-metno",
  "image",
  "memmap2 0.9.9",
  "object_store 0.11.2",
  "parquet 57.2.0",
+ "pool",
  "prost 0.12.6",
+ "protocol",
  "serde",
  "serde_json",
  "tempfile",
@@ -8536,6 +8513,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
 
 [[package]]
+name = "pool"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "crossbeam-queue",
+ "parking_lot 0.12.5",
+ "tokio",
+ "tokio-test",
+ "tracing",
+]
+
+[[package]]
 name = "portable-atomic"
 version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8825,6 +8814,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e36c2f31e0a47f9280fb347ef5e461ffcd2c52dd520d8e216b52f93b0b0d7d6"
 dependencies = [
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "protocol"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "lz4_flex 0.11.5",
+ "prost 0.12.6",
+ "tonic 0.10.2",
+ "tonic-build",
 ]
 
 [[package]]
@@ -11442,10 +11442,10 @@ dependencies = [
  "arrow 57.2.0",
  "async-trait",
  "chrono",
+ "common",
  "config",
  "criterion",
  "csv",
- "daq-core",
  "daq-driver-comedi",
  "daq-driver-generic",
  "daq-driver-mock",
@@ -11456,7 +11456,6 @@ dependencies = [
  "daq-experiment",
  "daq-hardware",
  "daq-plugin-api",
- "daq-proto",
  "daq-scripting",
  "daq-server",
  "daq-storage",
@@ -11476,6 +11475,7 @@ dependencies = [
  "nix 0.29.0",
  "notify 7.0.0",
  "prost 0.12.6",
+ "protocol",
  "serde",
  "serde_json",
  "serial_test",

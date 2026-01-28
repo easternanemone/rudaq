@@ -6,9 +6,9 @@
 compile_error!("pvcam_grpc_harness requires the 'server' feature");
 
 use anyhow::{Context, Result};
-use daq_core::health::SystemHealthMonitor;
-use daq_proto::daq::hardware_service_client::HardwareServiceClient;
-use daq_proto::daq::{
+use common::health::SystemHealthMonitor;
+use protocol::daq::hardware_service_client::HardwareServiceClient;
+use protocol::daq::{
     SetParameterRequest, StartStreamRequest, StopStreamRequest, StreamFramesRequest, StreamQuality,
 };
 use rust_daq::hardware::registry::create_lab_registry;

@@ -1,6 +1,6 @@
 //! ROI control test
 
-use daq_proto::daq::{
+use protocol::daq::{
     hardware_service_client::HardwareServiceClient,
     GetParameterRequest, SetParameterRequest, ListDevicesRequest,
 };

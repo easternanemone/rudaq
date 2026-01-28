@@ -51,7 +51,7 @@ source scripts/build-maitai.sh
 
 ### Key directories
 - `crates/` — Workspace with all crates
-  - `daq-core` — Foundation types, errors, `Parameter<T>`, capability traits
+  - `common` — Foundation types, errors, `Parameter<T>`, capability traits
   - `daq-hardware` — HAL with capability traits (`Movable`, `Readable`, `FrameProducer`)
   - `daq-driver-*` — Hardware drivers (mock, pvcam, thorlabs, newport, spectra-physics)
   - `daq-server` — gRPC server implementation
@@ -76,7 +76,7 @@ source scripts/build-maitai.sh
 **USE** `Parameter<T>` with async hardware callbacks:
 
 ```rust
-use daq_core::parameter::Parameter;
+use common::parameter::Parameter;
 use futures::future::BoxFuture;
 
 let wavelength = Parameter::new("wavelength_nm", 800.0)
@@ -106,7 +106,7 @@ impl Movable for MyDriver {
 ### DriverFactory Pattern
 
 ```rust
-use daq_core::driver::{DriverFactory, DeviceComponents, Capability};
+use common::driver::{DriverFactory, DeviceComponents, Capability};
 
 impl DriverFactory for MyDriverFactory {
     fn driver_type(&self) -> &'static str { "my_driver" }
@@ -128,7 +128,7 @@ impl DriverFactory for MyDriverFactory {
 // Recommended: use prelude or direct crate imports
 use rust_daq::prelude::*;
 // or
-use daq_core::error::DaqError;
+use common::error::DaqError;
 use daq_storage::ring_buffer::RingBuffer;
 ```
 

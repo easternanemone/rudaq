@@ -47,7 +47,7 @@
 #![allow(rustdoc::invalid_html_tags)]
 #![allow(rustdoc::broken_intra_doc_links)]
 
-pub use daq_core::capabilities;
+pub use common::capabilities;
 pub mod config;
 pub mod drivers;
 pub mod factory;

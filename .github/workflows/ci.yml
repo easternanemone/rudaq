@@ -299,13 +299,13 @@ jobs:
           set -e
           {
             echo "=== Tee bench: 50k msgs, payload 0 ==="
-            TEE_BENCH_MESSAGES=50000 TEE_BENCH_PAYLOAD=0 cargo run -p daq-core --example tee_bench --release
+            TEE_BENCH_MESSAGES=50000 TEE_BENCH_PAYLOAD=0 cargo run -p common --example tee_bench --release
             echo
             echo "=== Tee bench: 50k msgs, payload 256 ==="
-            TEE_BENCH_MESSAGES=50000 TEE_BENCH_PAYLOAD=256 cargo run -p daq-core --example tee_bench --release
+            TEE_BENCH_MESSAGES=50000 TEE_BENCH_PAYLOAD=256 cargo run -p common --example tee_bench --release
             echo
             echo "=== Tee bench: 20k msgs, payload 256, buffer 32 (backpressure) ==="
-            TEE_BENCH_MESSAGES=20000 TEE_BENCH_PAYLOAD=256 TEE_BENCH_BUFFER=32 cargo run -p daq-core --example tee_bench --release
+            TEE_BENCH_MESSAGES=20000 TEE_BENCH_PAYLOAD=256 TEE_BENCH_BUFFER=32 cargo run -p common --example tee_bench --release
           } | tee tee_bench_output.txt
 
       - name: Upload bench output

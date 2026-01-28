@@ -4,8 +4,8 @@ Synthetic benchmark for the Tee (reliable mpsc + lossy broadcast) path.
 
 Commands:
 ```
-TEE_BENCH_MESSAGES=100000 TEE_BENCH_LATENCY=1 cargo run -p daq-core --example tee_bench --release
-TEE_BENCH_MESSAGES=50000 TEE_BENCH_BUFFER=32 cargo run -p daq-core --example tee_bench --release
+TEE_BENCH_MESSAGES=100000 TEE_BENCH_LATENCY=1 cargo run -p common --example tee_bench --release
+TEE_BENCH_MESSAGES=50000 TEE_BENCH_BUFFER=32 cargo run -p common --example tee_bench --release
 ```
 
 Latest run (2025-12-12, Apple M-series laptop):

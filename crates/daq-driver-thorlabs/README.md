@@ -35,7 +35,7 @@ address = "2"  # ELL14 device address (0-F)
 
 ```rust
 use daq_driver_thorlabs::Ell14Factory;
-use daq_core::driver::DriverFactory;
+use common::driver::DriverFactory;
 
 // Register the factory
 registry.register_factory(Box::new(Ell14Factory));

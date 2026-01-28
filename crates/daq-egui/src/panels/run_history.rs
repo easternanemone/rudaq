@@ -17,7 +17,7 @@ enum PendingAction {
 
 /// Result from an async action
 enum ActionResult {
-    Refresh(Result<Vec<daq_proto::daq::AcquisitionSummary>, String>),
+    Refresh(Result<Vec<protocol::daq::AcquisitionSummary>, String>),
     #[cfg(feature = "storage_hdf5")]
     SaveAnnotation(Result<(), String>),
     #[cfg(feature = "storage_hdf5")]
@@ -27,9 +27,9 @@ enum ActionResult {
 /// Run history panel state
 pub struct RunHistoryPanel {
     /// All acquisitions loaded from server
-    acquisitions: Vec<daq_proto::daq::AcquisitionSummary>,
+    acquisitions: Vec<protocol::daq::AcquisitionSummary>,
     /// Filtered acquisitions (after search)
-    filtered_acquisitions: Vec<daq_proto::daq::AcquisitionSummary>,
+    filtered_acquisitions: Vec<protocol::daq::AcquisitionSummary>,
     /// Search query text
     search_query: String,
     /// Selected run index in filtered_acquisitions

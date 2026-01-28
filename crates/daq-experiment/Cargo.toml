@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-daq-core = { path = "../daq-core" }
+common = { path = "../common" }
 daq-hardware = { path = "../daq-hardware" }
 anyhow.workspace = true
 tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }

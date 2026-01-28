@@ -42,7 +42,7 @@ wavelength_nm = 800  # Optional: initial wavelength
 
 ```rust
 use daq_driver_spectra_physics::MaiTaiFactory;
-use daq_core::driver::DriverFactory;
+use common::driver::DriverFactory;
 
 // Register the factory
 registry.register_factory(Box::new(MaiTaiFactory));

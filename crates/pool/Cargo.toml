@@ -1,0 +1,20 @@
+[package]
+name = "pool"
+version = "0.1.0"
+edition = "2021"
+description = "Zero-allocation object pool for high-performance frame handling"
+license = "MIT"
+
+[dependencies]
+bytes = "1.11"
+crossbeam-queue = "0.3"
+parking_lot = "0.12"
+tokio = { workspace = true, features = ["sync", "time"] }
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+tokio-test = "0.4"
+
+[lints]
+workspace = true

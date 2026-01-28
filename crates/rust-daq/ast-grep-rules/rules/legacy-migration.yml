@@ -2,7 +2,7 @@ id: use-v2-instrument-trait
 language: rust
 rule:
   pattern: "impl crate::core::Instrument for $NAME"
-message: "The V1 `crate::core::Instrument` trait is deprecated. Please use the V2 `daq_core::Instrument` trait instead."
+message: "The V1 `crate::core::Instrument` trait is deprecated. Please use the V2 `common::Instrument` trait instead."
 severity: warning
 files:
   - "crates/daq-hardware/src/"
@@ -11,7 +11,7 @@ id: use-v2-measurement
 language: rust
 rule:
   pattern: "InstrumentMeasurement"
-message: "The V1 `InstrumentMeasurement` is deprecated. Please use `daq_core::Measurement` instead."
+message: "The V1 `InstrumentMeasurement` is deprecated. Please use `common::Measurement` instead."
 files:
   - "crates/**"
 ignores:
@@ -26,11 +26,11 @@ severity: info
 files:
   - "src/"
 ---
-id: use-daq-core-result
+id: use-common-result
 language: rust
 rule:
   pattern: "fn $NAME($$$) -> anyhow::Result<$TYPE>"
-message: "Prefer using `daq_core::Result<T>` (which is a type alias for `Result<T, DaqError>`) over `anyhow::Result<T>` for more specific error handling."
+message: "Prefer using `common::Result<T>` (which is a type alias for `Result<T, DaqError>`) over `anyhow::Result<T>` for more specific error handling."
 severity: hint
 ---
 id: incomplete-migration-todo

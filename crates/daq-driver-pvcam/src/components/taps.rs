@@ -53,10 +53,10 @@
 //! registry.unregister(handle);
 //! ```
 
-use daq_core::capabilities::FrameObserver;
-use daq_core::data::Frame;
-use daq_pool::FrameData;
+use common::capabilities::FrameObserver;
+use common::data::Frame;
 use parking_lot::RwLock;
+use pool::FrameData;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -96,7 +96,7 @@ pub trait FrameTap: Send + Sync {
     /// - `frame`: Reference to the frame data (valid only for this call)
     fn inspect(&self, frame: &FrameData);
 
-    /// Inspect a Frame (daq_core::data::Frame) without blocking.
+    /// Inspect a Frame (common::data::Frame) without blocking.
     ///
     /// This is a compatibility method for frame loops that still use the
     /// Frame type instead of FrameData. Default implementation creates a
@@ -104,7 +104,7 @@ pub trait FrameTap: Send + Sync {
     ///
     /// # Arguments
     ///
-    /// - `frame`: Reference to the daq_core Frame (valid only for this call)
+    /// - `frame`: Reference to the common Frame (valid only for this call)
     fn inspect_frame(&self, frame: &Frame) {
         // Default: create FrameSnapshot which provides FrameData-like access
         let snapshot = FrameSnapshot::from_frame(frame);
@@ -258,7 +258,7 @@ impl TapRegistry {
         }
     }
 
-    /// Apply all registered taps to a Frame (daq_core::data::Frame).
+    /// Apply all registered taps to a Frame (common::data::Frame).
     ///
     /// This is a compatibility method that converts the Frame to a temporary
     /// FrameData view for tap inspection. This is useful during the transition
@@ -266,7 +266,7 @@ impl TapRegistry {
     ///
     /// # Arguments
     ///
-    /// - `frame`: Reference to the daq_core Frame
+    /// - `frame`: Reference to the common Frame
     ///
     /// # Performance Note
     ///
@@ -311,7 +311,7 @@ impl TapRegistry {
     ///
     /// # Arguments
     ///
-    /// - `frame`: Reference to the daq_core Frame
+    /// - `frame`: Reference to the common Frame
     #[inline]
     pub fn apply_frame_with_pixels(&self, frame: &Frame) {
         self.frames_processed.fetch_add(1, Ordering::Relaxed);
@@ -392,7 +392,7 @@ impl FrameSnapshot {
         }
     }
 
-    /// Create a snapshot from a daq_core Frame by copying the pixel data.
+    /// Create a snapshot from a common Frame by copying the pixel data.
     ///
     /// This is a compatibility method for code that uses the Frame type
     /// instead of FrameData.
@@ -730,7 +730,7 @@ impl FrameTap for MetricsTap {
 // ObserverAdapter - Bridge from generic FrameObserver to internal FrameTap
 // ============================================================================
 
-/// Adapter that bridges from `daq_core::capabilities::FrameObserver` to internal `FrameTap`.
+/// Adapter that bridges from `common::capabilities::FrameObserver` to internal `FrameTap`.
 ///
 /// This allows external crates (like daq-server) to register generic frame observers
 /// without depending on the internal tap system. The adapter converts each `inspect()`
@@ -739,8 +739,8 @@ impl FrameTap for MetricsTap {
 /// # Example
 ///
 /// ```ignore
-/// use daq_core::capabilities::FrameObserver;
-/// use daq_core::data::FrameView;
+/// use common::capabilities::FrameObserver;
+/// use common::data::FrameView;
 ///
 /// struct MyObserver;
 ///
@@ -778,7 +778,7 @@ impl FrameTap for ObserverAdapter {
     fn inspect(&self, frame: &FrameData) {
         // Create zero-copy FrameView from FrameData (bd-gtvu optimization)
         // This borrows pixel data directly - no allocation!
-        let mut view = daq_core::data::FrameView::new(
+        let mut view = common::data::FrameView::new(
             frame.width,
             frame.height,
             frame.bit_depth,
@@ -820,7 +820,7 @@ impl FrameTap for ObserverAdapter {
 
     fn inspect_frame(&self, frame: &Frame) {
         // Convert Frame to FrameView (zero-copy borrow)
-        let view = daq_core::data::FrameView::from_frame(frame);
+        let view = common::data::FrameView::from_frame(frame);
         // Measure observer timing and log warnings for slow observers
         let start = std::time::Instant::now();
         self.observer.on_frame(&view);

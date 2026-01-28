@@ -29,7 +29,7 @@ use crate::widgets::{
 };
 use daq_client::reconnect::{friendly_error_message, ConnectionManager, ConnectionState};
 use daq_client::DaqClient;
-use daq_proto::daq::DeviceInfo;
+use protocol::daq::DeviceInfo;
 
 /// Layout version constant. Increment this when the default dock layout changes
 /// to force users with stale saved layouts to get the new default.
@@ -924,8 +924,8 @@ impl DaqApp {
 
     #[cfg(all(feature = "rerun_viewer", feature = "pvcam"))]
     fn start_pvcam_stream(&mut self) {
-        use daq_core::capabilities::{FrameObserver, FrameProducer};
-        use daq_core::data::FrameView;
+        use common::capabilities::{FrameObserver, FrameProducer};
+        use common::data::FrameView;
         use daq_driver_pvcam::PvcamDriver;
         use rerun::archetypes::Tensor;
         use rerun::RecordingStreamBuilder;

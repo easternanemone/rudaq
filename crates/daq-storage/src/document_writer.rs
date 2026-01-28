@@ -15,13 +15,13 @@
 #[cfg(feature = "storage_hdf5")]
 use anyhow::anyhow;
 use anyhow::Result;
-use daq_core::experiment::document::Document;
+use common::experiment::document::Document;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "storage_hdf5")]
-use daq_core::experiment::document::{EventDoc, StartDoc};
+use common::experiment::document::{EventDoc, StartDoc};
 
 /// HDF5 Writer for RunEngine Documents
 pub struct DocumentWriter {
@@ -43,7 +43,7 @@ struct ActiveRun {
 
 #[allow(dead_code)]
 struct DescriptorInfo {
-    data_keys: HashMap<String, daq_core::experiment::document::DataKey>,
+    data_keys: HashMap<String, common::experiment::document::DataKey>,
 }
 
 impl DocumentWriter {
@@ -316,7 +316,7 @@ mod tests {
     #[allow(unused_imports)]
     use super::*;
     #[allow(unused_imports)]
-    use daq_core::experiment::document::{DescriptorDoc, StopDoc};
+    use common::experiment::document::{DescriptorDoc, StopDoc};
     #[allow(unused_imports)]
     use tempfile::TempDir;
 
@@ -349,7 +349,7 @@ mod tests {
         let mut data_keys = HashMap::new();
         data_keys.insert(
             "det1".to_string(),
-            daq_core::experiment::document::DataKey {
+            common::experiment::document::DataKey {
                 source: "det1".to_string(),
                 dtype: "number".to_string(),
                 shape: vec![],
@@ -362,7 +362,7 @@ mod tests {
         // Add array key (camera frame)
         data_keys.insert(
             "cam1".to_string(),
-            daq_core::experiment::document::DataKey {
+            common::experiment::document::DataKey {
                 source: "cam1".to_string(),
                 dtype: "uint16".to_string(),
                 shape: vec![10, 10], // 10x10 frame

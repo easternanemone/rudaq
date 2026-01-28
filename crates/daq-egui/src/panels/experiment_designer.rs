@@ -25,8 +25,8 @@ use crate::widgets::{
 };
 use daq_client::DaqClient;
 use daq_experiment::Plan;
-use daq_proto::daq::StreamQuality;
 use futures::StreamExt;
+use protocol::daq::StreamQuality;
 
 /// Type alias for camera detector info: (device_id, title)
 type CameraInfo = (String, String);
@@ -1752,7 +1752,7 @@ impl ExperimentDesignerPanel {
                         while let Some(result) = stream.next().await {
                             match result {
                                 Ok(doc) => {
-                                    use daq_proto::daq::document::Payload;
+                                    use protocol::daq::document::Payload;
                                     if let Some(Payload::Event(event)) = doc.payload {
                                         // Extract values for configured plot devices
                                         let timestamp_secs = event.time_ns as f64 / 1_000_000_000.0;

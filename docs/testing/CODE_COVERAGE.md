@@ -69,7 +69,7 @@ Each CI run produces:
 
 Priority order for adding tests:
 
-1. **Core abstractions** (`daq-core`) - Error handling, capabilities, parameters
+1. **Core abstractions** (`common`) - Error handling, capabilities, parameters
 2. **Server logic** (`daq-server`) - gRPC handlers, request validation
 3. **Hardware abstraction** (`daq-hardware`) - Device registry, configuration
 4. **Drivers** (`daq-driver-*`) - Mock device behavior

@@ -34,10 +34,10 @@
 use crate::capabilities::{Movable, Parameterized};
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use daq_core::error::DaqError;
-use daq_core::error_recovery::RetryPolicy;
-use daq_core::observable::ParameterSet;
-use daq_core::parameter::Parameter;
+use common::error::DaqError;
+use common::error_recovery::RetryPolicy;
+use common::observable::ParameterSet;
+use common::parameter::Parameter;
 use futures::future::BoxFuture;
 use std::future::Future;
 use std::sync::Arc;

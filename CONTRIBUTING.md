@@ -71,7 +71,7 @@ cargo test
 cargo nextest run test_name
 
 # Run tests for a specific crate
-cargo nextest run -p daq-core
+cargo nextest run -p common
 
 # Run with verbose output
 cargo nextest run -- --nocapture
@@ -252,7 +252,7 @@ bd close bd-123 --reason "Completed"
 ```
 rust-daq/
 ├── crates/
-│   ├── daq-core/        # Core types, traits, errors
+│   ├── common/        # Core types, traits, errors
 │   ├── daq-pool/        # Zero-allocation frame pooling
 │   ├── daq-hardware/    # Device registry, drivers
 │   ├── daq-storage/     # Ring buffers, file writers
@@ -266,8 +266,8 @@ rust-daq/
 
 ### Key Abstractions
 
-1. **Capability Traits** (`daq-core`): `Movable`, `Readable`, `FrameProducer`
-2. **Parameter System** (`daq-core`): Reactive parameters with hardware sync
+1. **Capability Traits** (`common`): `Movable`, `Readable`, `FrameProducer`
+2. **Parameter System** (`common`): Reactive parameters with hardware sync
 3. **Device Registry** (`daq-hardware`): Central device management
 4. **Plans** (`daq-experiment`): Declarative experiment sequences
 5. **Document Model** (`daq-experiment`): Bluesky-style structured metadata

@@ -32,8 +32,8 @@ graph TD
 ```
 
 ### Learning Order
-1. **Capabilities** (`daq-core`): The atomic building blocks of hardware support.
-2. **Parameters** (`daq-core`): How state is managed and synchronized.
+1. **Capabilities** (`common`): The atomic building blocks of hardware support.
+2. **Parameters** (`common`): How state is managed and synchronized.
 3. **Drivers** (`daq-hardware`): How concrete hardware implements capabilities.
 4. **Frame Pipeline** (`daq-pool`, `daq-storage`): How high-speed data moves efficiently.
 5. **Orchestration** (`daq-experiment`): How experiments are defined and executed.
@@ -44,7 +44,7 @@ graph TD
 
 In `rust-daq`, a "Device" is not a monolithic struct. Instead, devices implement **Capability Traits**. This allows the system to treat a camera, a spectrometer, and a DAQ card uniformly based on what they *do*, not what they *are*.
 
-**Location:** `crates/daq-core/src/capabilities.rs`
+**Location:** `crates/common/src/capabilities.rs`
 
 ### Key Traits
 
@@ -105,7 +105,7 @@ Managing instrument state (exposure time, position, temperature) is complex. The
 2. **GUI**: User interface widgets (Sliders, ComboBoxes).
 3. **Storage**: Recording values when they change.
 
-**Location:** `crates/daq-core/src/parameter.rs`
+**Location:** `crates/common/src/parameter.rs`
 
 ### Architecture
 `Parameter<T>` is built on top of `Observable<T>`, which uses `tokio::sync::watch` for efficient broadcast of updates.

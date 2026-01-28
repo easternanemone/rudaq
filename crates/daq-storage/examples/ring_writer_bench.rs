@@ -11,7 +11,7 @@
 //! cargo run -p daq-storage --example ring_writer_bench --release
 //! ```
 
-use daq_core::core::{Measurement, PixelBuffer};
+use common::core::{Measurement, PixelBuffer};
 use daq_storage::ring_buffer::RingBuffer;
 use std::path::Path;
 use std::time::Instant;
@@ -46,7 +46,7 @@ fn main() {
         height: 64,
         buffer: PixelBuffer::U8(vec![0; 64 * 64]),
         unit: "arb".to_string(),
-        metadata: daq_core::core::ImageMetadata::default(),
+        metadata: common::core::ImageMetadata::default(),
         timestamp: chrono::Utc::now(),
     };
 

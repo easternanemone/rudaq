@@ -59,7 +59,7 @@ Existing codebase context:
 
 **Constraints:**
 - No changes to existing driver code in this phase
-- Keep daq-hardware as the home for this module (not daq-core)
+- Keep daq-hardware as the home for this module (not common)
 - Support both TOML and YAML parsing (TOML primary)
 </requirements>
 

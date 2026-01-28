@@ -42,10 +42,10 @@ use tracing_subscriber::Layer;
 
 use daq_experiment::RunEngine;
 use daq_hardware::registry::DeviceRegistry;
-use daq_proto::daq::hardware_service_client::HardwareServiceClient;
-use daq_proto::daq::hardware_service_server::HardwareServiceServer;
-use daq_proto::daq::ListDevicesRequest;
 use daq_server::grpc::hardware_service::HardwareServiceImpl;
+use protocol::daq::hardware_service_client::HardwareServiceClient;
+use protocol::daq::hardware_service_server::HardwareServiceServer;
+use protocol::daq::ListDevicesRequest;
 
 /// Custom header name for request ID (commonly used convention)
 const REQUEST_ID_HEADER: &str = "x-request-id";

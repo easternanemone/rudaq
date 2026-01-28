@@ -112,7 +112,7 @@ pub fn register_all(registry: &impl FactoryRegistry) {
 /// without depending on daq-hardware directly.
 pub trait FactoryRegistry {
     /// Register a driver factory.
-    fn register_factory(&self, factory: Box<dyn daq_core::driver::DriverFactory>);
+    fn register_factory(&self, factory: Box<dyn ::common::driver::DriverFactory>);
 }
 
 #[cfg(test)]

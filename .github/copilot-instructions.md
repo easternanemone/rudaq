@@ -26,7 +26,7 @@
 
 **USE** `Parameter<T>` with async hardware callbacks:
 ```rust
-use daq_core::parameter::Parameter;
+use common::parameter::Parameter;
 use futures::future::BoxFuture;
 
 let mut param = Parameter::new("wavelength_nm", 800.0)
@@ -78,7 +78,7 @@ bd close <id> --reason "Done"
 ```bash
 cargo build                        # Default features
 cargo build --all-features         # All features
-cargo test -p daq-core             # Test specific crate
+cargo test -p common             # Test specific crate
 cargo clippy --all-targets --all-features
 ```
 

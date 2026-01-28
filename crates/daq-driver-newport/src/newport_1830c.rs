@@ -22,7 +22,7 @@
 //!
 //! ```rust,ignore
 //! use daq_driver_newport::Newport1830CFactory;
-//! use daq_core::driver::DriverFactory;
+//! use common::driver::DriverFactory;
 //!
 //! // Register the factory
 //! registry.register_factory(Box::new(Newport1830CFactory));
@@ -36,12 +36,12 @@
 
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use daq_core::capabilities::{Parameterized, Readable, WavelengthTunable};
-use daq_core::driver::{Capability, DeviceComponents, DriverFactory};
-use daq_core::error::DaqError;
-use daq_core::observable::ParameterSet;
-use daq_core::parameter::Parameter;
-use daq_core::serial::{drain_serial_buffer, open_serial_async, wrap_shared, SharedPort};
+use common::capabilities::{Parameterized, Readable, WavelengthTunable};
+use common::driver::{Capability, DeviceComponents, DriverFactory};
+use common::error::DaqError;
+use common::observable::ParameterSet;
+use common::parameter::Parameter;
+use common::serial::{drain_serial_buffer, open_serial_async, wrap_shared, SharedPort};
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use std::sync::Arc;

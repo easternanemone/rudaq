@@ -35,7 +35,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use crate::rhai_error;
-use daq_core::core::Measurement; // bd-q2kl.5
+use common::core::Measurement; // bd-q2kl.5
 
 // Simpler helper for synchronous operations that may error
 fn map_error<T, E: std::fmt::Display>(

@@ -38,7 +38,7 @@ use arrow::datatypes::{DataType, Field, Schema};
 #[cfg(feature = "storage_arrow")]
 use arrow::record_batch::RecordBatch;
 #[cfg(feature = "storage_arrow")]
-use daq_core::experiment::document::Document;
+use common::experiment::document::Document;
 
 /// Internal state for an active run
 #[cfg(feature = "storage_arrow")]
@@ -491,7 +491,7 @@ mod tests {
     #[tokio::test]
     #[cfg(feature = "storage_arrow")]
     async fn test_arrow_writer_basic() {
-        use daq_core::experiment::document::{DataKey, DescriptorDoc, EventDoc, StartDoc, StopDoc};
+        use common::experiment::document::{DataKey, DescriptorDoc, EventDoc, StartDoc, StopDoc};
         use tempfile::TempDir;
 
         let temp_dir = TempDir::new().unwrap();
@@ -576,7 +576,7 @@ mod tests {
     #[tokio::test]
     #[cfg(feature = "storage_parquet")]
     async fn test_parquet_writer_basic() {
-        use daq_core::experiment::document::{DataKey, DescriptorDoc, EventDoc, StartDoc, StopDoc};
+        use common::experiment::document::{DataKey, DescriptorDoc, EventDoc, StartDoc, StopDoc};
         use tempfile::TempDir;
 
         let temp_dir = TempDir::new().unwrap();

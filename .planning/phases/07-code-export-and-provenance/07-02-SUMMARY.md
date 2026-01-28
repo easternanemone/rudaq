@@ -11,10 +11,10 @@ tech-stack:
   patterns: [build-script-metadata-capture, option-env-macro]
 key-files:
   created:
-    - crates/daq-core/build.rs
+    - crates/common/build.rs
   modified:
-    - crates/daq-core/src/experiment/document.rs
-    - crates/daq-core/Cargo.toml
+    - crates/common/src/experiment/document.rs
+    - crates/common/Cargo.toml
 decisions:
   - id: use-manual-git-commands
     choice: Manual git command execution in build.rs
@@ -59,7 +59,7 @@ Added comprehensive provenance tracking to `ExperimentManifest` for scientific r
 ### 1. Build Script Git Metadata Capture
 
 ```rust
-// crates/daq-core/build.rs
+// crates/common/build.rs
 fn main() {
     // Git commit SHA
     Command::new("git").args(&["rev-parse", "HEAD"]).output()
@@ -128,7 +128,7 @@ Called by `RunEngine` when executing from saved `.expgraph` files.
 ## Test Coverage
 
 ```bash
-$ cargo test -p daq-core document
+$ cargo test -p common document
 running 10 tests
 test test_manifest_git_provenance ... ok        # Verifies SHA capture
 test test_manifest_graph_provenance ... ok      # Verifies SHA256 hashing
@@ -193,7 +193,7 @@ assert manifest["graph_hash"] == "a3f5..."  # Graph verified
 ## Files Modified
 
 ```
-crates/daq-core/
+crates/common/
 ├── build.rs                     # NEW: Git metadata capture at build time
 ├── Cargo.toml                   # Added sha2, tempfile, build script
 └── src/experiment/document.rs   # Extended ExperimentManifest with provenance

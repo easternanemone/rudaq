@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# NOTE (bd-n80s): This crate depends only on daq-core, NOT daq-hardware.
+# NOTE (bd-n80s): This crate depends only on common, NOT daq-hardware.
 # daq-hardware depends on daq-driver-pvcam (for the driver implementation),
-# so any traits/types needed here must come from daq-core to avoid cycles.
-daq-core = { path = "../daq-core" }
-daq-pool = { path = "../daq-pool" }
+# so any traits/types needed here must come from common to avoid cycles.
+common = { path = "../common" }
+pool = { path = "../pool" }
 bytes = "1.11"
 parking_lot = "0.12"
 pvcam-sys = { path = "pvcam-sys", optional = true }

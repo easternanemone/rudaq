@@ -15,7 +15,7 @@ use tokio::task::JoinHandle;
 
 use crate::widgets::{offline_notice, MetadataEditor, OfflineContext};
 use daq_client::DaqClient;
-use daq_proto::daq::Document;
+use protocol::daq::Document;
 
 /// Scan mode selection (1D vs 2D)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -56,7 +56,7 @@ enum PendingAction {
 
 /// Result of an async action
 enum ActionResult {
-    DevicesLoaded(Result<Vec<daq_proto::daq::DeviceInfo>, String>),
+    DevicesLoaded(Result<Vec<protocol::daq::DeviceInfo>, String>),
     ScanStarted {
         run_uid: String,
         error: Option<String>,
@@ -87,7 +87,7 @@ struct CompletionSummary {
 /// Scan Builder panel state
 pub struct ScanBuilderPanel {
     // Device cache (refreshed from daemon)
-    devices: Vec<daq_proto::daq::DeviceInfo>,
+    devices: Vec<protocol::daq::DeviceInfo>,
     last_device_refresh: Option<Instant>,
 
     // Scan mode toggle
@@ -323,7 +323,7 @@ impl ScanBuilderPanel {
 
     /// Handle a received document
     fn handle_document(&mut self, doc: Document) {
-        use daq_proto::daq::document::Payload;
+        use protocol::daq::document::Payload;
 
         match doc.payload {
             Some(Payload::Start(start)) => {
@@ -362,7 +362,7 @@ impl ScanBuilderPanel {
     }
 
     /// Process an event document for 1D plot data
-    fn process_event_for_plot(&mut self, event: &daq_proto::daq::EventDocument) {
+    fn process_event_for_plot(&mut self, event: &protocol::daq::EventDocument) {
         // Extract actuator position from event.data
         // The positions may be in the data map with the actuator device_id as key
         // Or we may need to use seq_num as fallback
@@ -385,7 +385,7 @@ impl ScanBuilderPanel {
     }
 
     /// Process an event document for 2D plot data
-    fn process_event_for_plot_2d(&mut self, event: &daq_proto::daq::EventDocument) {
+    fn process_event_for_plot_2d(&mut self, event: &protocol::daq::EventDocument) {
         // Extract X position
         let x_pos = self
             .selected_actuator_x

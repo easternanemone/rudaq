@@ -1,7 +1,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 //! Comedi HAL Trait Compliance Test Suite
 //!
-//! Verifies that Comedi driver implementations properly satisfy daq-core
+//! Verifies that Comedi driver implementations properly satisfy common
 //! capability traits for interoperability with the unified HAL.
 //!
 //! # Environment Variables
@@ -31,7 +31,7 @@
 
 #![cfg(feature = "hardware")]
 
-use daq_core::capabilities::{Readable, Settable};
+use common::capabilities::{Readable, Settable};
 use daq_driver_comedi::hal::{
     ReadableAnalogInput, ReadableCounter, SettableAnalogOutput, SwitchableDigitalIO,
 };

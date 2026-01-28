@@ -47,7 +47,7 @@
 //! - Ubuntu: `sudo apt-get install libhdf5-dev`
 //! - If HDF5 is not available, those tests will be skipped automatically.
 
-use daq_core::core::Measurement;
+use common::core::Measurement;
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -99,7 +99,7 @@ fn create_test_spectrum(name: &str, n_bins: usize) -> Measurement {
 /// Create an image measurement for testing
 #[allow(dead_code)]
 fn _create_test_image(name: &str, width: u32, height: u32) -> Measurement {
-    use daq_core::core::{ImageMetadata, PixelBuffer};
+    use common::core::{ImageMetadata, PixelBuffer};
 
     let pixel_count = (width * height) as usize;
     let pixels: Vec<u16> = (0..pixel_count).map(|i| (i % 65536) as u16).collect();

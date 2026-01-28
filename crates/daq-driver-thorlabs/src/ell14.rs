@@ -36,7 +36,7 @@
 //!
 //! ```rust,ignore
 //! use daq_driver_thorlabs::Ell14Factory;
-//! use daq_core::driver::DriverFactory;
+//! use common::driver::DriverFactory;
 //!
 //! // Register the factory
 //! registry.register_factory(Box::new(Ell14Factory));
@@ -52,11 +52,11 @@
 use crate::shared_ports::{get_or_open_port, get_or_open_port_with_timeout, SharedPort};
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use daq_core::capabilities::{Movable, Parameterized};
-use daq_core::driver::{Capability, DeviceComponents, DriverFactory};
-use daq_core::error::DaqError;
-use daq_core::observable::ParameterSet;
-use daq_core::parameter::Parameter;
+use common::capabilities::{Movable, Parameterized};
+use common::driver::{Capability, DeviceComponents, DriverFactory};
+use common::error::DaqError;
+use common::observable::ParameterSet;
+use common::parameter::Parameter;
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use std::sync::Arc;

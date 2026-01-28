@@ -39,7 +39,7 @@ The project is structured as a Cargo workspace with distinct responsibilities:
 *   **`daq-plugin-api`**: Native FFI plugin system using `abi_stable` for cross-version binary compatibility. Enables third-party Rust plugins without recompilation.
 
 ### 4. Core
-*   **`daq-core`**: The foundation. Defines shared types (`Parameter<T>`, `Observable<T>`), error handling, size limits (`limits.rs`), and module domain types.
+*   **`common`**: The foundation. Defines shared types (`Parameter<T>`, `Observable<T>`), error handling, size limits (`limits.rs`), and module domain types.
 
 ### 5. FFI Bindings
 *   **`pvcam-sys`**: Raw FFI bindings to the PVCAM C library (nested under `daq-driver-pvcam`).
@@ -125,7 +125,7 @@ Experiments are written in [Rhai](https://rhai.rs), a scripting language designe
 .
 ├── crates/
 │   ├── daq-bin/            # Application entry points (daemon, CLI)
-│   ├── daq-core/           # Foundation types, errors, parameters, limits
+│   ├── common/           # Foundation types, errors, parameters, limits
 │   ├── daq-driver-comedi/  # Comedi DAQ driver for Linux boards
 │   ├── daq-driver-pvcam/   # PVCAM camera driver
 │   │   └── pvcam-sys/      # Raw FFI bindings to PVCAM

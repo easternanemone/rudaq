@@ -62,8 +62,8 @@
 //! Requires `generic_driver` feature (included in `scripting_full`).
 
 use crate::{rhai_error, run_blocking, SoftLimits};
-use daq_core::capabilities::{Movable, Readable, ShutterControl, WavelengthTunable};
-use daq_core::serial::open_serial_async;
+use common::capabilities::{Movable, Readable, ShutterControl, WavelengthTunable};
+use common::serial::open_serial_async;
 use daq_hardware::config::load_device_config;
 use daq_hardware::drivers::generic_serial::{GenericSerialDriver, SharedPort};
 use rhai::{Dynamic, Engine, EvalAltResult, Map, Position};

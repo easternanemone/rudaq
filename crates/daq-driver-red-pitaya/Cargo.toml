@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 keywords = ["daq", "red-pitaya", "pid", "laser", "instrumentation"]
 
 [dependencies]
-daq-core = { path = "../daq-core" }
+common = { path = "../common" }
 anyhow.workspace = true
 async-trait.workspace = true
 futures.workspace = true

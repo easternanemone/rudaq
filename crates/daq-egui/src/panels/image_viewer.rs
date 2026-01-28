@@ -22,8 +22,8 @@ use crate::icons;
 use crate::layout::{self, colors};
 use crate::widgets::{Histogram, HistogramPosition, ParameterCache, RoiSelector};
 use daq_client::DaqClient;
-use daq_proto::compression::decompress_frame;
-use daq_proto::daq::{FrameData, StreamQuality};
+use protocol::compression::decompress_frame;
+use protocol::daq::{FrameData, StreamQuality};
 
 /// Maximum frame queue depth (prevents memory buildup if GUI is slow)
 /// We only keep the latest frame anyway, so 4 frames is sufficient
@@ -263,7 +263,7 @@ fn convert_frame_to_rgba_into(req: &RgbaConversionRequest, buffer: &mut Vec<u8>)
     // Apply colorbar midpoint adjustment (bd-07j1)
     // Convert midpoint to gamma: gamma = -log(0.5) / log(midpoint)
     let gamma = if colorbar_midpoint > 0.0 && colorbar_midpoint < 1.0 && colorbar_midpoint != 0.5 {
-        -0.693147 / colorbar_midpoint.ln() // -ln(0.5) = 0.693147
+        -std::f32::consts::LN_2 / colorbar_midpoint.ln()
     } else {
         1.0 // Linear (no adjustment)
     };
@@ -862,7 +862,7 @@ enum ImageViewerAction {
         total_samples: u64,
     },
     /// Recording status update (bd-3pdi.5.3)
-    RecordingStatus(Option<daq_proto::daq::RecordingStatus>),
+    RecordingStatus(Option<protocol::daq::RecordingStatus>),
 }
 
 /// Connection state for camera device (bd-12qt)
@@ -1017,7 +1017,7 @@ pub struct ImageViewerPanel {
     /// Current output path (when recording)
     recording_output_path: Option<String>,
     /// Recording status from server
-    recording_status: Option<daq_proto::daq::RecordingStatus>,
+    recording_status: Option<protocol::daq::RecordingStatus>,
     /// Last recording status poll time
     last_recording_poll: Option<Instant>,
 
@@ -1384,7 +1384,7 @@ impl ImageViewerPanel {
                         .filter(|d| {
                             // Check is_frame_producer flag or camera category
                             d.is_frame_producer
-                                || d.category == daq_proto::daq::DeviceCategory::Camera as i32
+                                || d.category == protocol::daq::DeviceCategory::Camera as i32
                         })
                         .map(|d| d.id)
                         .collect();

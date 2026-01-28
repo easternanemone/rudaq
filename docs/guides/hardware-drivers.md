@@ -96,7 +96,7 @@ The **DriverFactory** trait is the entry point for driver registration. Every dr
 ### Template Structure
 
 ```rust
-use daq_core::driver::{DriverFactory, DeviceComponents, Capability};
+use common::driver::{DriverFactory, DeviceComponents, Capability};
 use futures::future::BoxFuture;
 use anyhow::Result;
 use serde::Deserialize;
@@ -226,7 +226,7 @@ impl DriverFactory for YourDeviceFactory {
 Used for stages, rotation mounts, linear actuators.
 
 ```rust
-use daq_core::capabilities::Movable;
+use common::capabilities::Movable;
 use async_trait::async_trait;
 use anyhow::Result;
 
@@ -308,7 +308,7 @@ impl Movable for YourDevice {
 Used for power meters, temperature sensors, photodiodes.
 
 ```rust
-use daq_core::capabilities::Readable;
+use common::capabilities::Readable;
 use async_trait::async_trait;
 use anyhow::Result;
 
@@ -348,7 +348,7 @@ impl Readable for YourDevice {
 Used for cameras, pulse generators, data acquisition devices.
 
 ```rust
-use daq_core::capabilities::Triggerable;
+use common::capabilities::Triggerable;
 use async_trait::async_trait;
 use anyhow::Result;
 
@@ -384,8 +384,8 @@ impl Triggerable for YourDevice {
 Used for image acquisition. This is more complex due to buffering requirements.
 
 ```rust
-use daq_core::capabilities::FrameProducer;
-use daq_core::data::Frame;
+use common::capabilities::FrameProducer;
+use common::data::Frame;
 use async_trait::async_trait;
 use anyhow::Result;
 use std::sync::Arc;
@@ -430,9 +430,9 @@ impl FrameProducer for YourDevice {
 Allows reading/writing device parameters with change notifications.
 
 ```rust
-use daq_core::capabilities::Parameterized;
-use daq_core::observable::ParameterSet;
-use daq_core::parameter::Parameter;
+use common::capabilities::Parameterized;
+use common::observable::ParameterSet;
+use common::parameter::Parameter;
 use async_trait::async_trait;
 use anyhow::Result;
 
@@ -1132,7 +1132,7 @@ After implementing DriverFactory, register it at startup:
 ```rust
 // In main.rs or your initialization code
 use daq_driver_yourdevice::YourDeviceFactory;
-use daq_core::registry::DeviceRegistry;
+use common::registry::DeviceRegistry;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -1165,7 +1165,7 @@ async fn main() -> Result<()> {
 
 ## See Also
 
-- [daq-core driver.rs](../../crates/daq-core/src/driver.rs) - DriverFactory trait definition
-- [daq-core capabilities.rs](../../crates/daq-core/src/capabilities.rs) - Capability trait definitions
+- [common driver.rs](../../crates/common/src/driver.rs) - DriverFactory trait definition
+- [common capabilities.rs](../../crates/common/src/capabilities.rs) - Capability trait definitions
 - [Scripting Guide](./scripting.md) - How users control drivers via Rhai
 - [Testing Guide](./testing.md) - General testing strategies for rust-daq

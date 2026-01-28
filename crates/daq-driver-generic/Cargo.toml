@@ -5,7 +5,7 @@ edition = "2021"
 description = "Generic config-driven serial driver for rust-daq"
 
 [dependencies]
-daq-core = { path = "../daq-core" }
+common = { path = "../common" }
 daq-plugin-api = { path = "../daq-plugin-api" }
 anyhow.workspace = true
 async-trait.workspace = true

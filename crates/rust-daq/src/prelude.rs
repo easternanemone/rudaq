@@ -26,7 +26,7 @@
 //! `rust_daq::error`), creating ambiguity about whether code lived in `rust-daq` or a
 //! dependency crate. The prelude pattern makes it explicit:
 //!
-//! - `rust_daq::prelude::core` → clearly from `daq-core` crate
+//! - `rust_daq::prelude::core` → clearly from `common` crate
 //! - `rust_daq::prelude::hardware` → clearly from `daq-hardware` crate
 //! - `rust_daq::prelude::scripting` → clearly from `daq-scripting` crate (optional)
 //!
@@ -37,20 +37,20 @@
 // =============================================================================
 
 /// Core domain types and utilities
-pub use daq_core::core;
+pub use common::core;
 
 /// Error handling and DaqError type
-pub use daq_core::error;
+pub use common::error;
 
 // =============================================================================
 // Reactive Programming
 // =============================================================================
 
 /// Observable pattern for reactive state management
-pub use daq_core::observable;
+pub use common::observable;
 
 /// Reactive Parameter<T> system with async hardware callbacks
-pub use daq_core::parameter;
+pub use common::parameter;
 
 // =============================================================================
 // Hardware Abstraction Layer

@@ -43,7 +43,7 @@ use anyhow::{anyhow, Result};
 // mpsc and watch channels used indirectly through YieldChannelBuilder
 use tracing::{debug, error, info, warn};
 
-use daq_core::experiment::document::Document;
+use common::experiment::document::Document;
 use daq_experiment::plans::Plan;
 use daq_experiment::plans_imperative::ImperativePlan;
 use daq_experiment::run_engine::RunEngine;

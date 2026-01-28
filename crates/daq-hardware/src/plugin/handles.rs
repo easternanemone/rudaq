@@ -458,7 +458,7 @@ impl ExposureControl for PluginExposureControlHandle {
 /// # Example: Primary Consumer (Pooled Frames)
 ///
 /// ```rust,ignore
-/// use daq_core::capabilities::FrameProducer;
+/// use common::capabilities::FrameProducer;
 ///
 /// let handle = PluginFrameProducerHandle::new(driver.clone(), false);
 /// let (tx, mut rx) = tokio::sync::mpsc::channel(32);
@@ -474,8 +474,8 @@ impl ExposureControl for PluginExposureControlHandle {
 /// # Example: Secondary Observer (Taps)
 ///
 /// ```rust,ignore
-/// use daq_core::capabilities::{FrameProducer, FrameObserver};
-/// use daq_core::data::FrameView;
+/// use common::capabilities::{FrameProducer, FrameObserver};
+/// use common::data::FrameView;
 ///
 /// struct MyObserver;
 /// impl FrameObserver for MyObserver {

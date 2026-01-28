@@ -73,14 +73,14 @@
 //! ```
 
 use anyhow::{anyhow, Result};
-use daq_core::capabilities::{
+use common::capabilities::{
     Commandable, EmissionControl, ExposureControl, FrameProducer, Movable, Parameterized, Readable,
     Settable, ShutterControl, Stageable, Triggerable, WavelengthTunable,
 };
-use daq_core::data::Frame;
-use daq_core::driver::{Capability, DeviceComponents, DeviceLifecycle, DriverFactory};
-use daq_core::error::DaqError;
-use daq_core::pipeline::MeasurementSource;
+use common::data::Frame;
+use common::driver::{Capability, DeviceComponents, DeviceLifecycle, DriverFactory};
+use common::error::DaqError;
+use common::pipeline::MeasurementSource;
 
 #[cfg(feature = "serial")]
 use crate::plugin::driver::GenericDriver;
@@ -553,7 +553,7 @@ pub struct DeviceMetadata {
     ///
     /// Drivers should set this explicitly. The gRPC layer will fall back to
     /// string-based driver name inference only if this is None.
-    pub category: Option<daq_core::capabilities::DeviceCategory>,
+    pub category: Option<common::capabilities::DeviceCategory>,
     /// For Movable devices: position units (e.g., "mm", "degrees")
     pub position_units: Option<String>,
     /// For Movable devices: min position
@@ -760,9 +760,9 @@ impl DeviceRegistry {
     ) -> Result<(), DaqError> {
         if let Some(hook) = lifecycle {
             hook.on_register().await.map_err(|e| {
-                DaqError::Driver(daq_core::error::DriverError::new(
+                DaqError::Driver(common::error::DriverError::new(
                     driver_type,
-                    daq_core::error::DriverErrorKind::Initialization,
+                    common::error::DriverErrorKind::Initialization,
                     format!(
                         "Lifecycle on_register failed for device '{}': {}",
                         device_id, e
@@ -781,9 +781,9 @@ impl DeviceRegistry {
     ) -> Result<(), DaqError> {
         if let Some(hook) = lifecycle {
             hook.on_unregister().await.map_err(|e| {
-                DaqError::Driver(daq_core::error::DriverError::new(
+                DaqError::Driver(common::error::DriverError::new(
                     driver_type,
-                    daq_core::error::DriverErrorKind::Shutdown,
+                    common::error::DriverErrorKind::Shutdown,
                     format!(
                         "Lifecycle on_unregister failed for device '{}': {}",
                         device_id, e
@@ -863,7 +863,7 @@ impl DeviceRegistry {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use daq_core::driver::DriverFactory;
+    /// use common::driver::DriverFactory;
     ///
     /// struct MyMotorFactory;
     /// impl DriverFactory for MyMotorFactory {
@@ -997,9 +997,9 @@ impl DeviceRegistry {
 
         // Validate configuration
         factory.validate(&config).map_err(|e| {
-            DaqError::Driver(daq_core::error::DriverError::new(
+            DaqError::Driver(common::error::DriverError::new(
                 driver_type,
-                daq_core::error::DriverErrorKind::Configuration,
+                common::error::DriverErrorKind::Configuration,
                 format!(
                     "Configuration validation failed for device '{}' ({}): {}",
                     device_id, driver_type, e
@@ -1016,9 +1016,9 @@ impl DeviceRegistry {
         );
 
         let components = factory.build(config).await.map_err(|e| {
-            DaqError::Driver(daq_core::error::DriverError::new(
+            DaqError::Driver(common::error::DriverError::new(
                 driver_type,
-                daq_core::error::DriverErrorKind::Initialization,
+                common::error::DriverErrorKind::Initialization,
                 format!(
                     "Factory build failed for device '{}' ({}): {}",
                     device_id, driver_type, e
@@ -1071,7 +1071,7 @@ impl DeviceRegistry {
             },
         };
 
-        // Convert daq_core::driver::DeviceMetadata to local DeviceMetadata
+        // Convert common::driver::DeviceMetadata to local DeviceMetadata
         let metadata = DeviceMetadata {
             category: components.metadata.category,
             position_units: components.metadata.position_units.clone(),
@@ -1152,9 +1152,9 @@ impl DeviceRegistry {
         })?;
 
         let registered = self.instantiate_device(config).await.map_err(|e| {
-            DaqError::Driver(daq_core::error::DriverError::new(
+            DaqError::Driver(common::error::DriverError::new(
                 &driver_type,
-                daq_core::error::DriverErrorKind::Initialization,
+                common::error::DriverErrorKind::Initialization,
                 e.to_string(),
             ))
         })?;
@@ -1203,9 +1203,9 @@ impl DeviceRegistry {
             .create_registered_plugin(config, driver)
             .await
             .map_err(|e| {
-                DaqError::Driver(daq_core::error::DriverError::new(
+                DaqError::Driver(common::error::DriverError::new(
                     "plugin",
-                    daq_core::error::DriverErrorKind::Initialization,
+                    common::error::DriverErrorKind::Initialization,
                     e.to_string(),
                 ))
             })?;
@@ -2627,7 +2627,7 @@ height = 240
         unregistered: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     }
 
-    impl daq_core::driver::DeviceLifecycle for TestLifecycle {
+    impl common::driver::DeviceLifecycle for TestLifecycle {
         fn on_register(&self) -> futures::future::BoxFuture<'static, Result<()>> {
             let counter = self.registered.clone();
             Box::pin(async move {
@@ -2646,10 +2646,10 @@ height = 240
     }
 
     struct TestFactory {
-        lifecycle: std::sync::Arc<dyn daq_core::driver::DeviceLifecycle>,
+        lifecycle: std::sync::Arc<dyn common::driver::DeviceLifecycle>,
     }
 
-    impl daq_core::driver::DriverFactory for TestFactory {
+    impl common::driver::DriverFactory for TestFactory {
         fn driver_type(&self) -> &'static str {
             "test_factory"
         }
@@ -2679,10 +2679,10 @@ height = 240
 
     struct LifecycleFactory {
         driver_type: &'static str,
-        lifecycle: std::sync::Arc<dyn daq_core::driver::DeviceLifecycle>,
+        lifecycle: std::sync::Arc<dyn common::driver::DeviceLifecycle>,
     }
 
-    impl daq_core::driver::DriverFactory for LifecycleFactory {
+    impl common::driver::DriverFactory for LifecycleFactory {
         fn driver_type(&self) -> &'static str {
             self.driver_type
         }
@@ -2743,7 +2743,7 @@ height = 240
         unregistered: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     }
 
-    impl daq_core::driver::DeviceLifecycle for FailingLifecycle {
+    impl common::driver::DeviceLifecycle for FailingLifecycle {
         fn on_register(&self) -> futures::future::BoxFuture<'static, Result<()>> {
             Box::pin(async { Err(anyhow!("boom")) })
         }
@@ -2786,7 +2786,7 @@ height = 240
         fail_on_unregister: bool,
     }
 
-    impl daq_core::driver::DeviceLifecycle for CountingLifecycle {
+    impl common::driver::DeviceLifecycle for CountingLifecycle {
         fn on_unregister(&self) -> futures::future::BoxFuture<'static, Result<()>> {
             let counter = self.unregistered.clone();
             let fail = self.fail_on_unregister;

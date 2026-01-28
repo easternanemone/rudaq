@@ -34,8 +34,8 @@ pub mod plans_daq;
 pub mod plans_imperative;
 pub mod run_engine;
 
-// Re-export document types from daq-core
-pub use daq_core::experiment::document::{
+// Re-export document types from common
+pub use common::experiment::document::{
     DataKey, DescriptorDoc, Document, EventDoc, ExperimentManifest, StartDoc, StopDoc,
 };
 pub use plans::{Plan, PlanCommand, PlanRegistry};

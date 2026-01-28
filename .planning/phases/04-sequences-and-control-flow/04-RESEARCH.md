@@ -223,7 +223,7 @@ fn translate_loop_node(
 **When to use:** All Move nodes to control whether motion is fire-and-forget or blocking
 **Example:**
 ```rust
-// Source: Movable trait in daq-core/src/capabilities.rs (lines 168-220)
+// Source: Movable trait in common/src/capabilities.rs (lines 168-220)
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MoveConfig {
@@ -515,7 +515,7 @@ Things that couldn't be fully resolved:
 - egui-snarl crate (v0.9.0): https://github.com/zakarumych/egui-snarl - Node graph architecture
 - egui_autocomplete docs: https://docs.rs/egui_autocomplete/latest/egui_autocomplete/ - API usage patterns
 - Bluesky ophyd Status objects: https://blueskyproject.io/ophyd/status.html - Settling time patterns
-- daq-core capabilities.rs (lines 168-220): Movable trait with wait_settled
+- common capabilities.rs (lines 168-220): Movable trait with wait_settled
 - daq-egui translation.rs (lines 240-286): Existing node translation patterns
 
 ### Secondary (MEDIUM confidence)

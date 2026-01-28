@@ -8,5 +8,5 @@ rule:
     - pattern: anyhow::anyhow!($$$)
     - pattern: anyhow::bail!($$$)
 files:
-  - "crates/daq-core/"
+  - "crates/common/"
   - "crates/daq-hardware/"

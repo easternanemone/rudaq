@@ -39,8 +39,8 @@
 use super::{Module, ModuleContext};
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use daq_core::limits::SHUTDOWN_TIMEOUT;
-use daq_core::modules::{
+use common::limits::SHUTDOWN_TIMEOUT;
+use common::modules::{
     ModuleEventSeverity, ModuleParameter, ModuleRole, ModuleState, ModuleTypeInfo,
 };
 use std::collections::{HashMap, VecDeque};

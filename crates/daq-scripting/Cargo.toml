@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-daq-core = { path = "../daq-core", features = ["serial"] }
+common = { path = "../common", features = ["serial"] }
 daq-hardware = { path = "../daq-hardware" }
 daq-experiment = { path = "../daq-experiment" }
 daq-driver-mock = { path = "../daq-driver-mock" }

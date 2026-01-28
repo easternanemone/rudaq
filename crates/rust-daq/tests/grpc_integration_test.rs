@@ -20,12 +20,12 @@
 
 #[cfg(feature = "server")]
 mod camera_integration_tests {
-    use daq_proto::daq::hardware_service_server::HardwareService;
-    use daq_proto::daq::{
+    use daq_server::grpc::hardware_service::HardwareServiceImpl;
+    use protocol::daq::hardware_service_server::HardwareService;
+    use protocol::daq::{
         ArmRequest, DeviceStateRequest, ListDevicesRequest, StartStreamRequest, StopStreamRequest,
         StreamFramesRequest, StreamQuality, TriggerRequest,
     };
-    use daq_server::grpc::hardware_service::HardwareServiceImpl;
     use rust_daq::hardware::registry::{DeviceConfig, DeviceRegistry, DriverType};
     use std::sync::Arc;
     use std::time::{Duration, Instant};
@@ -399,12 +399,12 @@ mod camera_integration_tests {
 
 #[cfg(feature = "server")]
 mod scan_integration_tests {
-    use daq_proto::daq::scan_service_server::ScanService;
-    use daq_proto::daq::{
+    use daq_server::grpc::scan_service::ScanServiceImpl;
+    use protocol::daq::scan_service_server::ScanService;
+    use protocol::daq::{
         AxisConfig, CreateScanRequest, GetScanStatusRequest, ScanConfig, ScanState, ScanType,
         StartScanRequest, StreamScanProgressRequest,
     };
-    use daq_server::grpc::scan_service::ScanServiceImpl;
     use rust_daq::hardware::registry::{DeviceConfig, DeviceRegistry, DriverType};
     use serial_test::serial;
     use std::sync::Arc;

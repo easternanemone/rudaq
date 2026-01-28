@@ -2,7 +2,7 @@
 //!
 //! Ensures all expected parameters are registered and have correct attributes.
 
-use daq_core::capabilities::Parameterized;
+use common::capabilities::Parameterized;
 use daq_driver_pvcam::PvcamDriver;
 use serde_json::json;
 

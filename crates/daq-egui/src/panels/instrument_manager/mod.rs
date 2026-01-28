@@ -45,7 +45,7 @@ use crate::widgets::{
     PowerMeterControlPanel, RotatorControlPanel, SmartStreamEditor, StageControlPanel,
 };
 use daq_client::DaqClient;
-use daq_proto::daq::DeviceInfo;
+use protocol::daq::DeviceInfo;
 
 /// Timeout for individual device state fetch (prevents stalls from hung devices)
 const DEVICE_STATE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);

@@ -80,15 +80,15 @@ use crate::grpc::{
     },
 };
 use anyhow::Error as AnyError;
-use daq_core::capabilities::FrameObserver;
-use daq_core::data::FrameView;
-use daq_core::driver::Capability;
-use daq_core::error::DaqError;
-use daq_core::limits::{FPS_WINDOW, MAX_STREAMS_PER_CLIENT, RPC_TIMEOUT};
-use daq_core::observable::Observable;
-use daq_core::parameter::Parameter;
+use common::capabilities::FrameObserver;
+use common::data::FrameView;
+use common::driver::Capability;
+use common::error::DaqError;
+use common::limits::{FPS_WINDOW, MAX_STREAMS_PER_CLIENT, RPC_TIMEOUT};
+use common::observable::Observable;
+use common::parameter::Parameter;
 use daq_hardware::registry::DeviceRegistry;
-use daq_proto::downsample::{downsample_2x2, downsample_4x4};
+use protocol::downsample::{downsample_2x2, downsample_4x4};
 use serde_json;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
@@ -2643,12 +2643,12 @@ fn device_info_to_proto(info: &daq_hardware::registry::DeviceInfo) -> DeviceInfo
 /// 2. String-based inference from driver type
 /// 3. Capability-based inference
 fn get_device_category(
-    explicit_category: Option<daq_core::capabilities::DeviceCategory>,
+    explicit_category: Option<common::capabilities::DeviceCategory>,
     driver_type: &str,
     capabilities: &[Capability],
-) -> daq_proto::DeviceCategory {
-    use daq_core::capabilities::DeviceCategory as CoreCategory;
-    use daq_proto::DeviceCategory as ProtoCategory;
+) -> protocol::DeviceCategory {
+    use common::capabilities::DeviceCategory as CoreCategory;
+    use protocol::DeviceCategory as ProtoCategory;
 
     // 1. Use explicit category from metadata if set by driver
     if let Some(category) = explicit_category {
@@ -3198,7 +3198,7 @@ mod tests {
         let client_ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100));
 
         // Should be able to acquire up to MAX_STREAMS_PER_CLIENT streams
-        for i in 0..daq_core::limits::MAX_STREAMS_PER_CLIENT {
+        for i in 0..common::limits::MAX_STREAMS_PER_CLIENT {
             assert!(
                 limiter.try_acquire(client_ip).is_ok(),
                 "Failed to acquire stream slot {}",
@@ -3229,7 +3229,7 @@ mod tests {
         let client2 = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 101));
 
         // Fill up client1's slots
-        for _ in 0..daq_core::limits::MAX_STREAMS_PER_CLIENT {
+        for _ in 0..common::limits::MAX_STREAMS_PER_CLIENT {
             assert!(limiter.try_acquire(client1).is_ok());
         }
 

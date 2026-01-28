@@ -1,6 +1,6 @@
 //! Hardware Abstraction Layer (HAL) trait implementations.
 //!
-//! This module implements daq-core capability traits for Comedi subsystems,
+//! This module implements common capability traits for Comedi subsystems,
 //! enabling them to integrate with the unified hardware abstraction layer.
 //!
 //! # Implemented Traits
@@ -13,7 +13,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use daq_core::capabilities::Readable;
+//! use common::capabilities::Readable;
 //! use daq_driver_comedi::hal::ReadableAnalogInput;
 //!
 //! let device = ComediDevice::open("/dev/comedi0")?;

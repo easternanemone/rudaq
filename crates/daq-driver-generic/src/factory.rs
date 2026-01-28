@@ -1,6 +1,6 @@
 use crate::driver::{GenericSerialDriver, SharedPort};
 use anyhow::{anyhow, Result};
-use daq_core::driver::{
+use common::driver::{
     Capability as CoreCapability, DeviceComponents, DriverFactory as DriverFactoryTrait,
 };
 use daq_plugin_api::config::InstrumentConfig;
@@ -109,14 +109,12 @@ impl DriverFactoryTrait for GenericSerialDriverFactory {
             let driver = GenericSerialDriver::new(inst_config, shared_port, &instance.address)?;
             let driver_arc = Arc::new(driver);
             Ok(DeviceComponents {
-                movable: Some(driver_arc.clone() as Arc<dyn daq_core::capabilities::Movable>),
-                readable: Some(driver_arc.clone() as Arc<dyn daq_core::capabilities::Readable>),
+                movable: Some(driver_arc.clone() as Arc<dyn common::capabilities::Movable>),
+                readable: Some(driver_arc.clone() as Arc<dyn common::capabilities::Readable>),
                 wavelength_tunable: Some(
-                    driver_arc.clone() as Arc<dyn daq_core::capabilities::WavelengthTunable>
+                    driver_arc.clone() as Arc<dyn common::capabilities::WavelengthTunable>
                 ),
-                shutter_control: Some(
-                    driver_arc as Arc<dyn daq_core::capabilities::ShutterControl>,
-                ),
+                shutter_control: Some(driver_arc as Arc<dyn common::capabilities::ShutterControl>),
                 ..Default::default()
             })
         })

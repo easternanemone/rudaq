@@ -50,7 +50,7 @@ port = 5000
 
 ```rust
 use daq_driver_red_pitaya::RedPitayaPidFactory;
-use daq_core::driver::DriverFactory;
+use common::driver::DriverFactory;
 
 // Register the factory
 registry.register_factory(Box::new(RedPitayaPidFactory));

@@ -42,7 +42,7 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 
 use crate::run_blocking;
-use daq_core::core::Measurement;
+use common::core::Measurement;
 use daq_hardware::capabilities::{Camera, Movable, Readable, ShutterControl}; // bd-q2kl.5
 
 // =============================================================================

@@ -35,7 +35,7 @@ axis = 1  # Axis 1, 2, or 3
 
 ```rust
 use daq_driver_newport::Esp300Factory;
-use daq_core::driver::DriverFactory;
+use common::driver::DriverFactory;
 
 // Register the factory
 registry.register_factory(Box::new(Esp300Factory));
@@ -102,7 +102,7 @@ port = "/dev/ttyS0"
 
 ```rust
 use daq_driver_newport::Newport1830CFactory;
-use daq_core::driver::DriverFactory;
+use common::driver::DriverFactory;
 
 // Register the factory
 registry.register_factory(Box::new(Newport1830CFactory));

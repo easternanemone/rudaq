@@ -19,7 +19,7 @@
 //! **Or import directly from focused crates:**
 //!
 //! ```rust,ignore
-//! use daq_core::error::DaqError;
+//! use common::error::DaqError;
 //! use daq_storage::ring_buffer::RingBuffer;
 //! use daq_hardware::capabilities::Movable;
 //! ```
@@ -43,10 +43,10 @@
 //! - **[`log_capture`]**: Log capture for GUI display (requires `gui_egui` feature, non-WASM only)
 //!
 //! **Deprecated Re-exports (will be removed in 0.6.0):**
-//! - `rust_daq::core` → Use `rust_daq::prelude::core` or `daq_core::core`
-//! - `rust_daq::error` → Use `rust_daq::prelude::error` or `daq_core::error`
-//! - `rust_daq::observable` → Use `rust_daq::prelude::observable` or `daq_core::observable`
-//! - `rust_daq::parameter` → Use `rust_daq::prelude::parameter` or `daq_core::parameter`
+//! - `rust_daq::core` → Use `rust_daq::prelude::core` or `common::core`
+//! - `rust_daq::error` → Use `rust_daq::prelude::error` or `common::error`
+//! - `rust_daq::observable` → Use `rust_daq::prelude::observable` or `common::observable`
+//! - `rust_daq::parameter` → Use `rust_daq::prelude::parameter` or `common::parameter`
 //! - `rust_daq::experiment` → Use `rust_daq::prelude::experiment` or `daq_experiment`
 //! - `rust_daq::scripting` → Use `rust_daq::prelude::scripting` or `daq_scripting` (requires `scripting` feature)
 //!
@@ -82,13 +82,13 @@ pub mod prelude;
     since = "0.5.0",
     note = "Use `rust_daq::prelude::core` instead. Root re-exports will be removed in 0.6.0"
 )]
-pub use daq_core::core;
+pub use common::core;
 
 #[deprecated(
     since = "0.5.0",
     note = "Use `rust_daq::prelude::error` instead. Root re-exports will be removed in 0.6.0"
 )]
-pub use daq_core::error;
+pub use common::error;
 pub mod validation;
 
 // Phase 1: Architectural redesign - New core abstractions
@@ -96,13 +96,13 @@ pub mod validation;
     since = "0.5.0",
     note = "Use `rust_daq::prelude::observable` instead. Root re-exports will be removed in 0.6.0"
 )]
-pub use daq_core::observable;
+pub use common::observable;
 
 #[deprecated(
     since = "0.5.0",
     note = "Use `rust_daq::prelude::parameter` instead. Root re-exports will be removed in 0.6.0"
 )]
-pub use daq_core::parameter;
+pub use common::parameter;
 
 // V5 Headless-First Architecture (bd-oq51)
 #[cfg(not(target_arch = "wasm32"))]
@@ -137,12 +137,12 @@ pub mod plugins;
 pub use daq_scripting as scripting;
 #[cfg(target_arch = "wasm32")]
 pub mod grpc {
-    // Re-export generated types from daq-proto for WASM
+    // Re-export generated types from protocol for WASM
     // This avoids needing to compile protos in the WASM build script
-    pub use daq_proto::daq::*;
+    pub use protocol::daq::*;
 
     // Explicitly re-export service clients if expected by consumer code
-    pub use daq_proto::daq::hardware_service_client::HardwareServiceClient;
+    pub use protocol::daq::hardware_service_client::HardwareServiceClient;
 }
 #[cfg(not(target_arch = "wasm32"))]
 // pub mod health; // moved to daq-server

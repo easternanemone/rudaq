@@ -162,6 +162,6 @@ See `examples/` in the workspace root:
 
 ## See Also
 
-- [`daq-core`](../daq-core/) - Frame types and core abstractions
+- [`common`](../common/) - Frame types and core abstractions
 - [`daq-pool`](../daq-pool/) - Zero-allocation frame pooling
 - [`daq-experiment`](../daq-experiment/) - Experiment orchestration

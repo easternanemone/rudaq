@@ -1,15 +1,15 @@
 //! Type definitions for the Instrument Manager Panel.
 //!
 //! Note: DeviceCategory here is a GUI-specific type with `from_device_info()` inference
-//! and icon methods. It mirrors `daq_core::capabilities::DeviceCategory` but adds
-//! GUI presentation logic that depends on `daq_proto::daq::DeviceInfo`.
+//! and icon methods. It mirrors `common::capabilities::DeviceCategory` but adds
+//! GUI presentation logic that depends on `protocol::daq::DeviceInfo`.
 
-use daq_proto::daq::DeviceInfo;
+use protocol::daq::DeviceInfo;
 
 /// Device category for grouping in the tree view.
 ///
 /// This is a GUI-specific type that provides inference from `DeviceInfo` proto
-/// and presentation methods (icons, labels). Mirrors `daq_core::capabilities::DeviceCategory`.
+/// and presentation methods (icons, labels). Mirrors `common::capabilities::DeviceCategory`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DeviceCategory {
     Camera,
@@ -32,7 +32,7 @@ impl DeviceCategory {
         }
     }
 
-    /// Icon for UI display (aligned with daq-core::capabilities::DeviceCategory)
+    /// Icon for UI display (aligned with common::capabilities::DeviceCategory)
     pub fn icon(&self) -> &'static str {
         match self {
             Self::Camera => "📷",

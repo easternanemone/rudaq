@@ -8,8 +8,8 @@
 
 #![cfg(feature = "hardware_tests")]
 
-use daq_proto::ni_daq::ni_daq_service_client::NiDaqServiceClient;
-use daq_proto::ni_daq::{
+use protocol::ni_daq::ni_daq_service_client::NiDaqServiceClient;
+use protocol::ni_daq::{
     ConfigureCounterRequest, CounterEdge, CounterMode, ReadCounterRequest, ResetCounterRequest,
 };
 use tonic::transport::Channel;

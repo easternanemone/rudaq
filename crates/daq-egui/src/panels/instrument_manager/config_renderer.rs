@@ -3,8 +3,8 @@
 //! Renders device control panels based on UiConfig from TOML files
 
 use daq_hardware::config::schema::{ControlPanelConfig, ControlSection, PresetValue};
-use daq_proto::daq::DeviceInfo;
 use eframe::egui;
+use protocol::daq::DeviceInfo;
 
 /// Render a control panel based on configuration
 pub fn render_config_panel(ui: &mut egui::Ui, _device: &DeviceInfo, config: &ControlPanelConfig) {

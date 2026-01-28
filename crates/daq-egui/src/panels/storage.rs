@@ -16,9 +16,9 @@ enum PendingAction {
 
 /// Result data from a Refresh action (boxed to reduce enum size variance).
 type RefreshData = (
-    Option<daq_proto::daq::StorageConfig>,
-    Option<daq_proto::daq::RecordingStatus>,
-    Vec<daq_proto::daq::AcquisitionSummary>,
+    Option<protocol::daq::StorageConfig>,
+    Option<protocol::daq::RecordingStatus>,
+    Vec<protocol::daq::AcquisitionSummary>,
 );
 
 enum StorageActionResult {
@@ -31,11 +31,11 @@ enum StorageActionResult {
 /// Storage panel state
 pub struct StoragePanel {
     /// Storage configuration
-    config: Option<daq_proto::daq::StorageConfig>,
+    config: Option<protocol::daq::StorageConfig>,
     /// Current recording status
-    recording_status: Option<daq_proto::daq::RecordingStatus>,
+    recording_status: Option<protocol::daq::RecordingStatus>,
     /// List of acquisitions
-    acquisitions: Vec<daq_proto::daq::AcquisitionSummary>,
+    acquisitions: Vec<protocol::daq::AcquisitionSummary>,
     /// Last refresh timestamp
     last_refresh: Option<std::time::Instant>,
     /// Recording name input

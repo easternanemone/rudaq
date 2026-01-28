@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Unsafe Sync Implementation** (bd-y7xg): Removed unsafe `Sync` impl for `PageAlignedBuffer`, now uses proper `UnsafeCell` pattern
 - **Feature Flag Duplication** (bd-5bfv): Added `default-features = false` to `daq-hardware` dependency in `daq-server` to prevent cascading defaults
-- **Circular Dependency Documentation** (bd-n80s): Documented why `daq-driver-pvcam` only depends on `daq-core`
+- **Circular Dependency Documentation** (bd-n80s): Documented why `daq-driver-pvcam` only depends on `common`
 - **Clippy Warnings** (bd-hq39): Fixed unused imports with proper `#[cfg(feature)]` attributes
 - **Formatting Issues**: Fixed with `cargo fmt --all`
 

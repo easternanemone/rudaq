@@ -45,9 +45,9 @@ use crate::capabilities::{
 };
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use daq_core::error::DaqError;
-use daq_core::observable::ParameterSet;
-use daq_core::parameter::Parameter;
+use common::error::DaqError;
+use common::observable::ParameterSet;
+use common::parameter::Parameter;
 use futures::future::BoxFuture;
 use std::sync::Arc;
 use std::time::Duration;

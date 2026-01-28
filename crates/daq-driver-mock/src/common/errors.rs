@@ -1,10 +1,10 @@
 //! Error injection framework for mock devices.
 //!
 //! Enables configurable failures and error scenarios for resilience testing.
-//! Integrates with daq-core's DriverError infrastructure.
+//! Integrates with common's DriverError infrastructure.
 
 use super::rng::MockRng;
-use daq_core::error::{DriverError, DriverErrorKind};
+use common::error::{DriverError, DriverErrorKind};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

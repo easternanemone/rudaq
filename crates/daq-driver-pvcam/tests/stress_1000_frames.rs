@@ -23,11 +23,11 @@
 
 mod common;
 
+use common::capabilities::{ExposureControl, FrameProducer};
 use common::{
     assert_errors_within_limit, assert_fps_near, assert_frame_count_min,
     assert_no_duplicate_frames, durations, exposures, FrameTracker, TestStats,
 };
-use daq_core::capabilities::{ExposureControl, FrameProducer};
 use daq_driver_pvcam::PvcamDriver;
 use std::env;
 use std::time::{Duration, Instant};

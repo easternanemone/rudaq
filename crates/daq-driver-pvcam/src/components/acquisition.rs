@@ -57,13 +57,13 @@ use crate::components::taps::TapRegistry;
 use anyhow::{anyhow, bail, Result};
 #[cfg(feature = "pvcam_sdk")]
 use bytes::Bytes;
-use daq_core::core::Roi;
-use daq_core::data::Frame;
-use daq_core::parameter::Parameter;
+use common::core::Roi;
+use common::data::Frame;
+use common::parameter::Parameter;
 #[cfg(feature = "pvcam_sdk")]
-use daq_pool::buffer_pool::BufferPool;
+use pool::buffer_pool::BufferPool;
 // bd-5oss: Frame pool for mock mode primary_tx delivery
-use daq_pool::{FrameData, Pool};
+use pool::{FrameData, Pool};
 #[cfg(feature = "pvcam_sdk")]
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 #[cfg(feature = "pvcam_sdk")]
@@ -1114,7 +1114,7 @@ pub struct PvcamAcquisition {
     /// Primary output channel for zero-allocation frame delivery (bd-0dax.5).
     /// Single consumer receives LoanedFrame ownership for high-performance streaming.
     pub primary_tx:
-        Arc<Mutex<Option<tokio::sync::mpsc::Sender<daq_core::capabilities::LoanedFrame>>>>,
+        Arc<Mutex<Option<tokio::sync::mpsc::Sender<common::capabilities::LoanedFrame>>>>,
 
     /// Tap registry for synchronous frame observers (bd-0dax.4).
     /// Taps are called with borrowed frame references before broadcast.
@@ -1327,7 +1327,7 @@ impl PvcamAcquisition {
     /// * `tx` - Channel sender that will receive `LoanedFrame` ownership
     pub async fn register_primary_output(
         &self,
-        tx: tokio::sync::mpsc::Sender<daq_core::capabilities::LoanedFrame>,
+        tx: tokio::sync::mpsc::Sender<common::capabilities::LoanedFrame>,
     ) -> anyhow::Result<()> {
         let mut primary = self.primary_tx.lock().await;
         *primary = Some(tx);
@@ -2376,7 +2376,7 @@ impl PvcamAcquisition {
 
                 // Legacy paths: Arc<Frame> for broadcast and reliable channels
                 // Populate frame metadata using builder pattern (bd-183h)
-                let ext_metadata = daq_core::data::FrameMetadata {
+                let ext_metadata = common::data::FrameMetadata {
                     binning: Some(binning),
                     ..Default::default()
                 };
@@ -2681,7 +2681,7 @@ impl PvcamAcquisition {
                         frame_count.store(total_frames, Ordering::SeqCst);
 
                         // Build frame (matching mock and hardware path patterns)
-                        let ext_metadata = daq_core::data::FrameMetadata {
+                        let ext_metadata = common::data::FrameMetadata {
                             binning: Some(binning),
                             ..Default::default()
                         };
@@ -3563,7 +3563,7 @@ impl PvcamAcquisition {
                 }
 
                 // Add extended metadata (bd-183h)
-                let ext_metadata = daq_core::data::FrameMetadata {
+                let ext_metadata = common::data::FrameMetadata {
                     binning: Some(binning),
                     ..Default::default()
                 };

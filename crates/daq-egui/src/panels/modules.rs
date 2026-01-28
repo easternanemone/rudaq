@@ -19,8 +19,8 @@ enum ModuleActionResult {
     Refresh(
         Result<
             (
-                Vec<daq_proto::daq::ModuleTypeSummary>,
-                Vec<daq_proto::daq::ModuleStatus>,
+                Vec<protocol::daq::ModuleTypeSummary>,
+                Vec<protocol::daq::ModuleStatus>,
             ),
             String,
         >,
@@ -42,9 +42,9 @@ enum ModuleActionResult {
 /// Modules panel state
 pub struct ModulesPanel {
     /// Available module types
-    module_types: Vec<daq_proto::daq::ModuleTypeSummary>,
+    module_types: Vec<protocol::daq::ModuleTypeSummary>,
     /// Active module instances
-    modules: Vec<daq_proto::daq::ModuleStatus>,
+    modules: Vec<protocol::daq::ModuleStatus>,
     /// Selected module type for creation
     selected_type: Option<String>,
     /// New module name input
@@ -244,7 +244,7 @@ impl ModulesPanel {
     }
 
     /// Render a module instance card
-    fn render_module_card(&mut self, ui: &mut egui::Ui, module: &daq_proto::daq::ModuleStatus) {
+    fn render_module_card(&mut self, ui: &mut egui::Ui, module: &protocol::daq::ModuleStatus) {
         let state_color = match module.state {
             1 => egui::Color32::GRAY,       // CREATED
             2 => egui::Color32::BLUE,       // CONFIGURED

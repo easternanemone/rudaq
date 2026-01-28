@@ -16,7 +16,7 @@
 //! cargo test -p daq-driver-pvcam --test driver_test --features "pvcam_sdk,hardware_tests"
 //! ```
 
-use daq_core::capabilities::{ExposureControl, FrameProducer, Parameterized, Triggerable};
+use common::capabilities::{ExposureControl, FrameProducer, Parameterized, Triggerable};
 use daq_driver_pvcam::PvcamDriver;
 use std::time::Duration;
 

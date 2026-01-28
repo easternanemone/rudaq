@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-daq-core = { path = "../daq-core" }
-daq-pool = { path = "../daq-pool" }
+common = { path = "../common" }
+pool = { path = "../pool" }
 async-trait.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true

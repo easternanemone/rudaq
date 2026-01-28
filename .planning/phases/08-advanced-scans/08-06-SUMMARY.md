@@ -109,7 +109,7 @@ _Note: Task 2 changes were incorporated into commits ab9806b0 and e206ad2e by a 
 
 ## Issues Encountered
 
-- **External changes blocking build:** Parallel session modified daq-core with breaking changes (platform.rs/platform/ conflict, missing figment/schemars deps). Temporarily restored tracked files to verify my changes compiled.
+- **External changes blocking build:** Parallel session modified common with breaking changes (platform.rs/platform/ conflict, missing figment/schemars deps). Temporarily restored tracked files to verify my changes compiled.
 - **Task 2 merged by parallel session:** The 08-07 plan was executed in parallel, incorporating my Task 2 changes into their commits.
 
 ## User Setup Required

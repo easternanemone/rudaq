@@ -21,11 +21,11 @@
 use crate::scpi::{MockScpiClient, ScpiClient, DEFAULT_PORT};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use daq_core::capabilities::{Parameterized, Readable};
-use daq_core::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
-use daq_core::error::DaqError;
-use daq_core::observable::ParameterSet;
-use daq_core::parameter::Parameter;
+use common::capabilities::{Parameterized, Readable};
+use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
+use common::error::DaqError;
+use common::observable::ParameterSet;
+use common::parameter::Parameter;
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use std::sync::Arc;

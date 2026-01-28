@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use daq_core::capabilities::Movable;
-use daq_core::driver::{DeviceComponents, DriverFactory};
-use daq_core::error::DaqError;
+use common::capabilities::Movable;
+use common::driver::{DeviceComponents, DriverFactory};
+use common::error::DaqError;
 use daq_hardware::DeviceRegistry;
 use daq_server::grpc::{HardwareService, HardwareServiceImpl, proto::MoveRequest};
 use futures::future::BoxFuture;

@@ -102,8 +102,8 @@ pub use capabilities::{ExposureControl, FrameProducer, Movable, Readable, Trigge
 
 /// Thread-safe frame reference for camera/image data
 ///
-/// Uses daq_core::data types for interoperability.
-pub use daq_core::data::{Frame, FrameRef};
+/// Uses common::data types for interoperability.
+pub use common::data::{Frame, FrameRef};
 
 // =============================================================================
 // Useful Types Migrated from core_v3
@@ -113,6 +113,6 @@ pub use daq_core::data::{Frame, FrameRef};
 ///
 /// Defines a rectangular crop region within sensor area.
 /// Used by cameras that support ROI to reduce readout time and data volume.
-pub use daq_core::core::Roi;
+pub use common::core::Roi;
 
-// Frame struct removed (using daq_core::data::Frame)
+// Frame struct removed (using common::data::Frame)

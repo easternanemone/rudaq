@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use daq_core::capabilities::{Readable, Settable};
+use common::capabilities::{Readable, Settable};
 use serde_json::Value;
 
 use crate::subsystem::counter::Counter;
@@ -21,7 +21,7 @@ use crate::subsystem::counter::Counter;
 /// # Example
 ///
 /// ```rust,ignore
-/// use daq_core::capabilities::Readable;
+/// use common::capabilities::Readable;
 /// use daq_driver_comedi::hal::ReadableCounter;
 ///
 /// let counter = device.counter(0)?;

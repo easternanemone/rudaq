@@ -16,7 +16,7 @@
 //! let driver = GenericSerialDriver::new(config, shared_port, "2")?;
 //!
 //! // Use via capability traits
-//! use daq_core::capabilities::Movable;
+//! use common::capabilities::Movable;
 //! driver.move_abs(45.0).await?;
 //! ```
 

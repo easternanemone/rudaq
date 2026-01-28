@@ -44,7 +44,7 @@ for info in registry.list_devices() {
 
 ## Capability Traits
 
-Fine-grained traits for device behavior (re-exported from `daq-core`):
+Fine-grained traits for device behavior (re-exported from `common`):
 
 | Trait | Purpose | Example Devices |
 |-------|---------|-----------------|
@@ -62,7 +62,7 @@ Fine-grained traits for device behavior (re-exported from `daq-core`):
 Use the `DriverFactory` trait:
 
 ```rust
-use daq_core::driver::{DriverFactory, DeviceComponents, Capability};
+use common::driver::{DriverFactory, DeviceComponents, Capability};
 
 pub struct MyDriverFactory;
 
@@ -170,7 +170,7 @@ all_hardware = ["thorlabs", "newport", "spectra_physics", "pvcam", "comedi"]
 
 ## Related Crates
 
-- [`daq-core`](../daq-core) - Capability traits and error types
+- [`common`](../common) - Capability traits and error types
 - [`daq-driver-pvcam`](../daq-driver-pvcam) - PVCAM camera driver
 - [`daq-driver-thorlabs`](../daq-driver-thorlabs) - Thorlabs ELL14 driver
 - [`daq-driver-newport`](../daq-driver-newport) - Newport drivers

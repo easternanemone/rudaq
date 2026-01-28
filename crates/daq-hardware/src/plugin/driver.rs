@@ -17,10 +17,10 @@ use tokio::sync::{Mutex, RwLock};
 use tokio_serial::SerialStream;
 
 use crate::plugin::schema::{CommandSequence, InstrumentConfig, ValueType};
-use daq_core::driver::DeviceLifecycle;
-use daq_core::error::DaqError;
-use daq_core::limits::{self, validate_frame_size};
-use daq_core::observable::ParameterSet; // NEW: For Parameterized trait implementation
+use common::driver::DeviceLifecycle;
+use common::error::DaqError;
+use common::limits::{self, validate_frame_size};
+use common::observable::ParameterSet; // NEW: For Parameterized trait implementation
 use futures::future::BoxFuture;
 
 // =============================================================================
@@ -1430,7 +1430,7 @@ impl GenericDriver {
             {
                 let observers = self.observers.read().await;
                 if !observers.is_empty() {
-                    let frame_view = daq_core::data::FrameView::from_frame(&frame);
+                    let frame_view = common::data::FrameView::from_frame(&frame);
                     for (_id, observer) in observers.iter() {
                         let start = std::time::Instant::now();
                         observer.on_frame(&frame_view);
@@ -2071,7 +2071,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_device_lifecycle_on_register_skips_if_already_executed() {
-        use daq_core::driver::DeviceLifecycle;
+        use common::driver::DeviceLifecycle;
 
         let config = create_lifecycle_config();
         let driver = GenericDriver::new_mock(config).unwrap();
@@ -2090,7 +2090,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_device_lifecycle_on_register_executes_if_not_done() {
-        use daq_core::driver::DeviceLifecycle;
+        use common::driver::DeviceLifecycle;
 
         let config = create_lifecycle_config();
         let driver = GenericDriver::new_mock(config).unwrap();
@@ -2108,7 +2108,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_device_lifecycle_on_unregister() {
-        use daq_core::driver::DeviceLifecycle;
+        use common::driver::DeviceLifecycle;
 
         let config = create_lifecycle_config();
         let driver = GenericDriver::new_mock(config).unwrap();

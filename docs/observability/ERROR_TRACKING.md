@@ -48,10 +48,10 @@ export SENTRY_DSN="https://your-key@sentry.io/your-project"
 
 ### Error Tracking Module
 
-The `daq_core::error_tracking` module provides:
+The `common::error_tracking` module provides:
 
 ```rust
-use daq_core::error_tracking::{self, MessageLevel};
+use common::error_tracking::{self, MessageLevel};
 
 // Initialize (returns a guard that must stay alive)
 let _guard = error_tracking::init("my-app", "1.0.0");
@@ -84,7 +84,7 @@ The default configuration:
 To customize:
 
 ```rust
-use daq_core::error_tracking::{init_with_config, ErrorTrackingConfig};
+use common::error_tracking::{init_with_config, ErrorTrackingConfig};
 
 let _guard = init_with_config(ErrorTrackingConfig {
     app_name: "daq-daemon".to_string(),

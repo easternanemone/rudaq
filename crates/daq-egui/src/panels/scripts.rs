@@ -17,8 +17,8 @@ enum ActionResult {
     Refresh(
         Result<
             (
-                Vec<daq_proto::daq::ScriptInfo>,
-                Vec<daq_proto::daq::ScriptStatus>,
+                Vec<protocol::daq::ScriptInfo>,
+                Vec<protocol::daq::ScriptStatus>,
             ),
             String,
         >,
@@ -32,9 +32,9 @@ enum ActionResult {
 /// Scripts panel state
 pub struct ScriptsPanel {
     /// Cached script list
-    scripts: Vec<daq_proto::daq::ScriptInfo>,
+    scripts: Vec<protocol::daq::ScriptInfo>,
     /// Cached execution list
-    executions: Vec<daq_proto::daq::ScriptStatus>,
+    executions: Vec<protocol::daq::ScriptStatus>,
     /// Selected script ID
     selected_script: Option<String>,
     /// Selected execution ID (for stop action)

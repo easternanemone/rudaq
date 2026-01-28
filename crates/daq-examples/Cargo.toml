@@ -6,9 +6,9 @@ publish = false
 
 [dependencies]
 rust_daq = { path = "../rust-daq", features = ["full"] }
-daq-core = { path = "../daq-core" }
+common = { path = "../common" }
 daq-storage = { path = "../daq-storage" }
-daq-proto = { path = "../daq-proto" }
+protocol = { path = "../protocol" }
 daq-driver-comedi = { path = "../daq-driver-comedi", optional = true }
 daq-driver-spectra-physics = { path = "../daq-driver-spectra-physics", optional = true }
 daq-driver-newport = { path = "../daq-driver-newport", optional = true }

@@ -3,8 +3,8 @@
 //! Gathers OS-level metrics (CPU, RAM, Disk) and reports them to the
 //! SystemHealthMonitor.
 
-use daq_core::health::{ErrorSeverity, SystemHealthMonitor};
-use daq_core::limits::HEALTH_CHECK_INTERVAL;
+use common::health::{ErrorSeverity, SystemHealthMonitor};
+use common::limits::HEALTH_CHECK_INTERVAL;
 use std::sync::Arc;
 use std::time::Duration;
 use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};

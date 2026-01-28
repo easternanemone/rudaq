@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
-use daq_core::driver::{DeviceComponents, DeviceLifecycle, DriverFactory};
+use common::driver::{DeviceComponents, DeviceLifecycle, DriverFactory};
 use daq_hardware::DeviceRegistry;
 
 struct RecordingLifecycle {

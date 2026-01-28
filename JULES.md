@@ -28,7 +28,7 @@ rust-daq is a Rust-based data acquisition system with V5 headless-first architec
 
 ### Crate Structure
 
-- `crates/daq-core/` - Domain types, parameters, error handling
+- `crates/common/` - Domain types, parameters, error handling
 - `crates/daq-hardware/` - HAL, capability traits, drivers
 - `crates/daq-driver-pvcam/` - PVCAM camera driver
 - `crates/daq-proto/` - Protobuf definitions
@@ -40,7 +40,7 @@ rust-daq is a Rust-based data acquisition system with V5 headless-first architec
 ### Key Patterns
 
 1. **Import from prelude**: Use `rust_daq::prelude::*` or import directly from focused crates
-2. **Error handling**: Use `DaqError` from `daq-core`
+2. **Error handling**: Use `DaqError` from `common`
 3. **Async**: All hardware methods are async, use tokio runtime
 4. **Parameters**: Use `Parameter<T>` for reactive hardware state
 
@@ -93,7 +93,7 @@ Check `Cargo.toml` for available features. Common ones:
 - Prime BSI camera: 2048x2048 pixels max
 - ROI must not exceed sensor dimensions
 - Binning must divide evenly into dimensions
-- See `crates/daq-core/src/limits.rs` for size limits
+- See `crates/common/src/limits.rs` for size limits
 
 ## PR Checklist
 

@@ -23,7 +23,7 @@ rust-daq implements a **headless-first V5 architecture** for scientific instrume
 - Enables remote control, multiple clients, headless deployment
 
 **Modular Crate Structure:**
-- `daq-core`: Foundation types, capabilities, errors
+- `common`: Foundation types, capabilities, errors
 - `daq-hardware`: Capability-based HAL with real drivers (PVCAM, Thorlabs ELL14, Newport ESP300, MaiTai laser)
 - `daq-experiment`: RunEngine with Bluesky-inspired Plan system
 - `daq-scripting`: Rhai embedded scripting (Python planned)

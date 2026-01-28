@@ -1,6 +1,6 @@
 //! List all camera parameters
 
-use daq_proto::daq::{
+use protocol::daq::{
     hardware_service_client::HardwareServiceClient,
     ListParametersRequest, ListDevicesRequest,
 };

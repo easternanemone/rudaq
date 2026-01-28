@@ -20,7 +20,7 @@ Currently, adding a new capability (e.g., "Spectrometer") requires touching **6 
 
 | Layer | File | Change Required |
 |-------|------|-----------------|
-| Core | `daq-core/src/driver.rs` | Add to `Capability` enum |
+| Core | `common/src/driver.rs` | Add to `Capability` enum |
 | Schema | `daq-hardware/src/plugin/schema.rs` | Add to `CapabilitiesConfig` struct |
 | Registry (struct) | `daq-hardware/src/registry.rs` | Add `Option<Arc<dyn Trait>>` field |
 | Registry (introspection) | `daq-hardware/src/registry.rs` | Update `capabilities()` method |
@@ -153,7 +153,7 @@ message DeviceInfo {
 
 ## References
 
-- `crates/daq-core/src/driver.rs` - Capability enum
+- `crates/common/src/driver.rs` - Capability enum
 - `crates/daq-hardware/src/registry.rs` - Registry introspection
 - `crates/daq-hardware/src/plugin/schema.rs` - TOML schema
 - `crates/daq-server/src/grpc/hardware_service.rs` - Proto translation

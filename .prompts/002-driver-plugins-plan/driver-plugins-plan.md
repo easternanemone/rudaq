@@ -827,8 +827,8 @@ pub struct Ell14Driver { /* ... */ }
 
 ### Internal Dependencies
 
-- `daq-core::capabilities` - Trait definitions (no changes needed)
-- `daq-core::parameter` - Parameter system (no changes needed)
+- `common::capabilities` - Trait definitions (no changes needed)
+- `common::parameter` - Parameter system (no changes needed)
 - `daq-scripting` - Rhai integration (Phase 5)
 
 ## Open Questions

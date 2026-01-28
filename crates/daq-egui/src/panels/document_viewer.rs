@@ -6,9 +6,9 @@
 //! - Event: Measurement data points
 //! - Stop: Run completion status
 
-use daq_proto::daq::Document;
 use eframe::egui;
 use futures::StreamExt;
+use protocol::daq::Document;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -224,7 +224,7 @@ impl DocumentViewerPanel {
 }
 
 fn format_document(doc: &Document) -> String {
-    use daq_proto::daq::document::Payload;
+    use protocol::daq::document::Payload;
     match &doc.payload {
         Some(Payload::Start(start)) => {
             format!(

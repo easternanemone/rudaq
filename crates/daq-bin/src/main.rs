@@ -38,9 +38,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::signal;
 
-use daq_proto::daq::*;
 #[cfg(feature = "networking")]
 use daq_server::grpc::start_server_with_hardware;
+use protocol::daq::*;
 #[cfg(feature = "networking")]
 use std::collections::HashMap;
 
@@ -454,7 +454,7 @@ async fn start_daemon(
 
 #[cfg(feature = "networking")]
 async fn handle_client_command(cmd: ClientCommands) -> Result<()> {
-    use daq_proto::daq::control_service_client::ControlServiceClient;
+    use protocol::daq::control_service_client::ControlServiceClient;
 
     match cmd {
         ClientCommands::Upload { script, name, addr } => {
@@ -580,7 +580,7 @@ async fn handle_client_command(cmd: ClientCommands) -> Result<()> {
             wait,
             addr,
         } => {
-            use daq_proto::daq::hardware_service_client::HardwareServiceClient;
+            use protocol::daq::hardware_service_client::HardwareServiceClient;
 
             println!(
                 "🔄 Moving device {} to {} on daemon at {}",

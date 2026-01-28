@@ -14,12 +14,12 @@
 //!
 //! # Frame Data Location
 //!
-//! `FrameData` is defined in `daq_pool::FrameData` for sharing across crates.
+//! `FrameData` is defined in `pool::FrameData` for sharing across crates.
 //! This avoids coupling `daq-server` to `daq-driver-pvcam`.
 //!
 //! # Safety
 //!
-//! The `FramePool` uses the `daq_pool::Pool` which provides:
+//! The `FramePool` uses the `pool::Pool` which provides:
 //! - Semaphore-based slot tracking
 //! - Lock-free access after acquisition (bd-0dax.1.6 RwLock fix)
 //! - Configurable timeout for backpressure detection (bd-0dax.3.6)
@@ -28,7 +28,7 @@
 //!
 //! ```ignore
 //! use crate::components::frame_pool::{create_frame_pool, FramePool, LoanedFrame};
-//! use daq_pool::FrameData;
+//! use pool::FrameData;
 //!
 //! // Create pool matching SDK buffer count (30 slots default, ~240MB for 8MB frames)
 //! let pool = create_frame_pool(30, 8 * 1024 * 1024);
@@ -40,11 +40,11 @@
 //! }
 //! ```
 
-use daq_pool::{Loaned, Pool};
+use pool::{Loaned, Pool};
 use std::sync::Arc;
 
 // Re-export FrameData from daq_pool for backwards compatibility
-pub use daq_pool::FrameData;
+pub use pool::FrameData;
 
 /// Default pool size: 30 frames provides ~300ms headroom at 100 FPS.
 ///
@@ -125,7 +125,7 @@ pub fn create_default_frame_pool(frame_capacity: usize) -> FramePool {
 mod tests {
     use super::*;
 
-    // Note: FrameData unit tests are in daq_pool::frame_data::tests
+    // Note: FrameData unit tests are in pool::frame_data::tests
 
     #[tokio::test]
     async fn test_frame_pool_creation() {

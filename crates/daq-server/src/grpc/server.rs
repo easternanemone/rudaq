@@ -10,19 +10,19 @@ use crate::grpc::proto::{
 use crate::grpc::run_engine_service::RunEngineServiceImpl;
 #[cfg(feature = "serial")]
 use crate::grpc::{PluginServiceImpl, PluginServiceServer};
-use daq_core::core::Measurement;
+use common::core::Measurement;
 #[cfg(feature = "scripting")]
-use daq_core::limits;
+use common::limits;
 #[cfg(feature = "scripting")]
 use daq_scripting::ScriptEngine; // Trait import
-// use daq_core::error::DaqError; // Unused
+// use common::error::DaqError; // Unused
 #[cfg(feature = "scripting")]
 use daq_experiment::RunEngine;
-use daq_proto::daq::{UploadRequest, UploadResponse};
 #[cfg(feature = "scripting")]
 use daq_scripting::RhaiEngine;
 #[cfg(feature = "scripting")]
 use daq_scripting::ScriptPlanRunner;
+use protocol::daq::{UploadRequest, UploadResponse};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -1121,7 +1121,7 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
     Ok(())
 }
 
-use daq_core::pipeline::{MeasurementSink, Tee};
+use common::pipeline::{MeasurementSink, Tee};
 
 // ... (existing imports)
 
@@ -1148,7 +1148,7 @@ use daq_core::pipeline::{MeasurementSink, Tee};
 pub async fn start_server_with_hardware(
     addr: std::net::SocketAddr,
     registry: std::sync::Arc<daq_hardware::registry::DeviceRegistry>,
-    health_monitor: std::sync::Arc<daq_core::health::SystemHealthMonitor>,
+    health_monitor: std::sync::Arc<common::health::SystemHealthMonitor>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::grpc::hardware_service::HardwareServiceImpl;
     use crate::grpc::module_service::ModuleServiceImpl;
@@ -1162,7 +1162,7 @@ pub async fn start_server_with_hardware(
     use crate::grpc::proto::health::health_server::HealthServer;
     use crate::grpc::proto::health_service_server::HealthServiceServer; // Custom HealthService
     use crate::grpc::proto::module_service_server::ModuleServiceServer;
-    use daq_proto::ni_daq::ni_daq_service_server::NiDaqServiceServer;
+    use protocol::ni_daq::ni_daq_service_server::NiDaqServiceServer;
     // use crate::grpc::proto::plugin_service_server::PluginServiceServer; // Unused
     use crate::grpc::proto::preset_service_server::PresetServiceServer;
     use crate::grpc::proto::scan_service_server::ScanServiceServer;
@@ -1322,23 +1322,23 @@ pub async fn start_server_with_hardware(
                     let buffer = match frame.bit_depth {
                         16 => {
                             if let Some(slice) = frame.as_u16_slice() {
-                                daq_core::core::PixelBuffer::U16(slice.to_vec())
+                                common::core::PixelBuffer::U16(slice.to_vec())
                             } else {
                                 // Convert Bytes to Vec<u8> for PixelBuffer
-                                daq_core::core::PixelBuffer::U8(frame.data.to_vec())
+                                common::core::PixelBuffer::U8(frame.data.to_vec())
                             }
                         }
                         // Convert Bytes to Vec<u8> for PixelBuffer
-                        _ => daq_core::core::PixelBuffer::U8(frame.data.to_vec()),
+                        _ => common::core::PixelBuffer::U8(frame.data.to_vec()),
                     };
 
-                    let measurement = daq_core::core::Measurement::Image {
+                    let measurement = common::core::Measurement::Image {
                         name: device_id_clone.clone(),
                         width: frame.width,
                         height: frame.height,
                         buffer,
                         unit: "counts".to_string(),
-                        metadata: daq_core::core::ImageMetadata::default(),
+                        metadata: common::core::ImageMetadata::default(),
                         timestamp: chrono::Utc::now(),
                     };
 

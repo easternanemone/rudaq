@@ -12,7 +12,7 @@
 //! cargo test -p daq-driver-pvcam --test frame_loss_metrics_test
 //! ```
 
-use daq_core::parameter::Parameter;
+use common::parameter::Parameter;
 use std::sync::atomic::Ordering;
 
 // Import the acquisition module to access PvcamAcquisition
