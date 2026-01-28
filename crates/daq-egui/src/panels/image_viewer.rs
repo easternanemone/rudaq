@@ -138,6 +138,43 @@ struct RgbaConversionResult {
     computed_max: f32,
 }
 
+/// Helper function to get pixel value from frame data (bd-pgcb)
+///
+/// Used by crosshair feature. Free function to avoid borrow checker issues in closures.
+fn get_pixel_value_inline(
+    frame_data: &[u8],
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    bit_depth: u32,
+) -> Option<u32> {
+    if x >= width || y >= height {
+        return None;
+    }
+
+    let pixel_index = (y * width + x) as usize;
+
+    match bit_depth {
+        8 => {
+            // 8-bit grayscale: 1 byte per pixel
+            frame_data.get(pixel_index).map(|&b| b as u32)
+        }
+        12 | 16 => {
+            // 12-bit or 16-bit: 2 bytes per pixel (little-endian)
+            let byte_index = pixel_index * 2;
+            if byte_index + 1 < frame_data.len() {
+                let low = frame_data[byte_index] as u32;
+                let high = frame_data[byte_index + 1] as u32;
+                Some(low | (high << 8))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Convert raw frame data to RGBA, reusing the provided buffer (bd-wdx3, bd-xifj)
 ///
 /// This is a free function that can be called from both the UI thread and background threads.
@@ -967,6 +1004,12 @@ pub struct ImageViewerPanel {
     pending_rgba: Option<RgbaConversionResult>,
     /// Sender to recycle used buffers back to the converter thread (bd-wdx3)
     rgba_recycle_tx: Option<std::sync::mpsc::Sender<Vec<u8>>>,
+
+    // -- Crosshair Feature (bd-pgcb) --
+    /// Enable crosshair cursor display
+    crosshair_enabled: bool,
+    /// Locked crosshair position (pixel coordinates)
+    crosshair_locked_pos: Option<(i32, i32)>,
 }
 
 impl Default for ImageViewerPanel {
@@ -1053,6 +1096,10 @@ impl Default for ImageViewerPanel {
             rgba_request_tx: None,
             pending_rgba: None,
             rgba_recycle_tx: None,
+
+            // Crosshair (bd-pgcb)
+            crosshair_enabled: false,
+            crosshair_locked_pos: None,
         }
     }
 }
@@ -1720,6 +1767,34 @@ impl ImageViewerPanel {
     #[allow(dead_code)]
     pub fn get_sender(&self) -> Option<FrameUpdateSender> {
         self.frame_tx.clone()
+    }
+
+    /// Get pixel intensity value at given coordinates (bd-pgcb)
+    pub(crate) fn get_pixel_value(&self, frame_data: &[u8], x: u32, y: u32) -> Option<u32> {
+        if x >= self.width || y >= self.height {
+            return None;
+        }
+
+        let pixel_index = (y * self.width + x) as usize;
+
+        match self.bit_depth {
+            8 => {
+                // 8-bit grayscale: 1 byte per pixel
+                frame_data.get(pixel_index).map(|&b| b as u32)
+            }
+            12 | 16 => {
+                // 12-bit or 16-bit: 2 bytes per pixel (little-endian)
+                let byte_index = pixel_index * 2;
+                if byte_index + 1 < frame_data.len() {
+                    let low = frame_data[byte_index] as u32;
+                    let high = frame_data[byte_index + 1] as u32;
+                    Some(low | (high << 8))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
     }
 
     /// Start streaming frames from a device (public API for external control)
@@ -2578,6 +2653,27 @@ impl ImageViewerPanel {
 
                 ui.separator();
 
+                // === Crosshair Toggle (bd-pgcb) ===
+                if ui
+                    .selectable_label(
+                        self.crosshair_enabled,
+                        if self.crosshair_enabled {
+                            "⊕ [ON]"
+                        } else {
+                            "⊕"
+                        },
+                    )
+                    .on_hover_text("Toggle crosshair cursor\nClick to lock position")
+                    .clicked()
+                {
+                    self.crosshair_enabled = !self.crosshair_enabled;
+                    if !self.crosshair_enabled {
+                        self.crosshair_locked_pos = None;
+                    }
+                }
+
+                ui.separator();
+
                 ui.checkbox(&mut self.show_roi_panel, "Stats");
                 ui.checkbox(&mut self.show_controls, "Controls");
 
@@ -2775,6 +2871,22 @@ impl ImageViewerPanel {
                     self.height as f32 * self.zoom,
                 );
 
+                // Extract crosshair state for use in closure (bd-pgcb)
+                let crosshair_enabled = self.crosshair_enabled;
+                let crosshair_locked_pos = self.crosshair_locked_pos;
+                let width = self.width;
+                let height = self.height;
+                let bit_depth = self.bit_depth;
+                let zoom = self.zoom;
+                let pixel_scale_x = self.pixel_scale_x;
+                let pixel_scale_y = self.pixel_scale_y;
+                let scale_unit = self.scale_unit.clone();
+                let last_frame_data = self.last_frame_data.as_ref().map(|d| d.clone());
+                let roi_selection_mode = self.roi_selector.selection_mode;
+
+                // Track crosshair lock changes to apply after closure
+                let mut crosshair_lock_action: Option<Option<(i32, i32)>> = None;
+
                 // Scrollable/pannable area
                 egui::ScrollArea::both()
                     .id_salt("image_scroll")
@@ -2861,6 +2973,170 @@ impl ImageViewerPanel {
                             self.histogram.show_overlay(&mut hist_ui, hist_size);
                         }
 
+                        // Crosshair cursor with pixel readout (bd-pgcb)
+                        if crosshair_enabled {
+                            // Determine crosshair position (locked or hover)
+                            let crosshair_pixel_pos = if let Some(locked_pos) = crosshair_locked_pos
+                            {
+                                Some(locked_pos)
+                            } else if let Some(hover_pos) = response.hover_pos() {
+                                let image_pos = hover_pos - rect.min - offset;
+                                let pixel_x = (image_pos.x / zoom) as i32;
+                                let pixel_y = (image_pos.y / zoom) as i32;
+                                if pixel_x >= 0
+                                    && pixel_x < width as i32
+                                    && pixel_y >= 0
+                                    && pixel_y < height as i32
+                                {
+                                    Some((pixel_x, pixel_y))
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            };
+
+                            // Handle click to lock/unlock crosshair (defer mutation)
+                            if response.clicked() && !roi_selection_mode {
+                                if let Some(hover_pos) = response.interact_pointer_pos() {
+                                    let image_pos = hover_pos - rect.min - offset;
+                                    let pixel_x = (image_pos.x / zoom) as i32;
+                                    let pixel_y = (image_pos.y / zoom) as i32;
+                                    if pixel_x >= 0
+                                        && pixel_x < width as i32
+                                        && pixel_y >= 0
+                                        && pixel_y < height as i32
+                                    {
+                                        // Toggle lock: if already locked at this position, unlock
+                                        if crosshair_locked_pos == Some((pixel_x, pixel_y)) {
+                                            crosshair_lock_action = Some(None);
+                                        } else {
+                                            crosshair_lock_action = Some(Some((pixel_x, pixel_y)));
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Draw crosshair and readout if position is valid
+                            if let Some((pixel_x, pixel_y)) = crosshair_pixel_pos {
+                                // Convert pixel coordinates to screen coordinates
+                                let screen_x =
+                                    rect.min.x + offset.x + (pixel_x as f32 + 0.5) * zoom;
+                                let screen_y =
+                                    rect.min.y + offset.y + (pixel_y as f32 + 0.5) * zoom;
+                                let crosshair_pos = egui::pos2(screen_x, screen_y);
+
+                                let painter = ui.painter();
+                                let crosshair_color = if crosshair_locked_pos.is_some() {
+                                    egui::Color32::from_rgb(255, 200, 0) // Yellow when locked
+                                } else {
+                                    egui::Color32::from_rgb(0, 255, 0) // Green when hovering
+                                };
+                                let stroke = egui::Stroke::new(1.5, crosshair_color);
+
+                                // Draw crosshair lines
+                                let line_length = 15.0;
+                                painter.line_segment(
+                                    [
+                                        egui::pos2(crosshair_pos.x - line_length, crosshair_pos.y),
+                                        egui::pos2(crosshair_pos.x - 3.0, crosshair_pos.y),
+                                    ],
+                                    stroke,
+                                );
+                                painter.line_segment(
+                                    [
+                                        egui::pos2(crosshair_pos.x + 3.0, crosshair_pos.y),
+                                        egui::pos2(crosshair_pos.x + line_length, crosshair_pos.y),
+                                    ],
+                                    stroke,
+                                );
+                                painter.line_segment(
+                                    [
+                                        egui::pos2(crosshair_pos.x, crosshair_pos.y - line_length),
+                                        egui::pos2(crosshair_pos.x, crosshair_pos.y - 3.0),
+                                    ],
+                                    stroke,
+                                );
+                                painter.line_segment(
+                                    [
+                                        egui::pos2(crosshair_pos.x, crosshair_pos.y + 3.0),
+                                        egui::pos2(crosshair_pos.x, crosshair_pos.y + line_length),
+                                    ],
+                                    stroke,
+                                );
+
+                                // Draw center dot
+                                painter.circle_filled(crosshair_pos, 2.0, crosshair_color);
+
+                                // Get pixel intensity value
+                                let pixel_value = if let Some(frame_data) = &last_frame_data {
+                                    get_pixel_value_inline(
+                                        frame_data,
+                                        pixel_x as u32,
+                                        pixel_y as u32,
+                                        width,
+                                        height,
+                                        bit_depth,
+                                    )
+                                } else {
+                                    None
+                                };
+
+                                // Build readout text
+                                let mut readout_lines = Vec::new();
+                                readout_lines.push(format!("X: {} px, Y: {} px", pixel_x, pixel_y));
+
+                                // Physical coordinates if calibrated
+                                if let (Some(scale_x), Some(scale_y)) =
+                                    (pixel_scale_x, pixel_scale_y)
+                                {
+                                    let phys_x = pixel_x as f64 * scale_x;
+                                    let phys_y = pixel_y as f64 * scale_y;
+                                    readout_lines.push(format!(
+                                        "X: {:.2} {}, Y: {:.2} {}",
+                                        phys_x, &scale_unit, phys_y, &scale_unit
+                                    ));
+                                }
+
+                                // Pixel intensity
+                                if let Some(value) = pixel_value {
+                                    readout_lines.push(format!("Intensity: {}", value));
+                                }
+
+                                // Draw readout panel (top-left corner of image)
+                                let panel_padding = 8.0;
+                                let panel_pos = egui::pos2(
+                                    image_rect.min.x + panel_padding,
+                                    image_rect.min.y + panel_padding,
+                                );
+                                let text_galley = painter.layout_no_wrap(
+                                    readout_lines.join("\n"),
+                                    egui::FontId::monospace(12.0),
+                                    crosshair_color,
+                                );
+                                let panel_rect = egui::Rect::from_min_size(
+                                    panel_pos,
+                                    text_galley.size() + egui::vec2(8.0, 8.0),
+                                );
+                                painter.rect_filled(
+                                    panel_rect,
+                                    4.0,
+                                    egui::Color32::from_black_alpha(200),
+                                );
+                                painter.rect_stroke(
+                                    panel_rect,
+                                    4.0,
+                                    egui::Stroke::new(1.0, crosshair_color),
+                                    egui::StrokeKind::Outside,
+                                );
+                                painter.galley(
+                                    panel_pos + egui::vec2(4.0, 4.0),
+                                    text_galley,
+                                    crosshair_color,
+                                );
+                            }
+                        }
+
                         // Show pixel coordinates on hover
                         if let Some(pos) = response.hover_pos() {
                             let image_pos = pos - rect.min - offset;
@@ -2893,6 +3169,11 @@ impl ImageViewerPanel {
                             }
                         }
                     });
+
+                // Apply crosshair lock changes after closure
+                if let Some(action) = crosshair_lock_action {
+                    self.crosshair_locked_pos = action;
+                }
             } else {
                 // No image - show placeholder
                 ui.centered_and_justified(|ui| {
