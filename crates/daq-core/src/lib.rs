@@ -70,3 +70,6 @@ pub mod driver;
 // Serial port abstractions for driver crates (requires "serial" feature)
 #[cfg(feature = "serial")]
 pub mod serial;
+
+// Arrow extension metadata helpers for Python interop
+pub mod arrow_metadata;
