@@ -30,6 +30,8 @@ object_store = { version = "0.11", optional = true }
 tokio = { workspace = true, features = ["sync", "fs"] }
 tracing.workspace = true
 anyhow.workspace = true
+prometheus = { version = "0.14", optional = true }
+lazy_static = { version = "1.4", optional = true }
 
 [dev-dependencies]
 bytes = "1.5"
@@ -46,6 +48,7 @@ storage_parquet = ["dep:parquet", "dep:arrow"]
 storage_tiff = ["dep:image"]
 storage_zarr = ["dep:zarrs", "dep:object_store"]
 networking = []
+metrics = ["dep:prometheus", "dep:lazy_static", "pool/metrics"]
 
 # Examples that require specific features (bd-jnfu.13)
 [lints]

@@ -374,7 +374,7 @@ impl MockPowerMeter {
         let power_param = Parameter::new("base_power", base_power)
             .with_description("Base power reading for simulated measurements")
             .with_unit("W")
-            .with_range(0.0, 10.0); // 0 to 10W range
+            .with_range_introspectable(0.0, 10.0); // 0 to 10W range
 
         params.register(power_param.clone());
 
@@ -627,7 +627,7 @@ impl MockPowerMeterBuilder {
         let power_param = Parameter::new("base_power", self.base_power)
             .with_description("Base power reading for simulated measurements")
             .with_unit("W")
-            .with_range(0.0, 10.0);
+            .with_range_introspectable(0.0, 10.0);
 
         params.register(power_param.clone());
 

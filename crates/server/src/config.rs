@@ -60,6 +60,8 @@ pub struct StorageSettings {
     pub ring_buffer_size_mb: usize,
     pub hdf5_path: PathBuf,
     pub output_directory: PathBuf,
+    /// Channel capacity for ring buffer taps (frames buffered per tap)
+    pub tap_channel_size: usize,
 }
 
 impl Default for StorageSettings {
@@ -81,6 +83,7 @@ impl Default for StorageSettings {
             ring_buffer_size_mb: 100,
             hdf5_path,
             output_directory: PathBuf::from("./data"),
+            tap_channel_size: 32,
         }
     }
 }

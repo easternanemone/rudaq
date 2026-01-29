@@ -2874,6 +2874,9 @@ impl PvcamAcquisition {
             );
         }
 
+        // Backpressure monitoring (bd-izdj.1)
+        let mut backpressure_paused = false;
+
         let mut status: i16 = 0;
         let mut bytes_arrived: uns32 = 0;
         let mut buffer_cnt: uns32 = 0;
@@ -3116,6 +3119,8 @@ impl PvcamAcquisition {
 
             // FLAT STRUCTURE: ONE frame per wait, matching minimal test pattern exactly.
             // No inner loop - just try to get the frame and process it.
+
+            // No inner loop - just try to get the frame and process it.
             let frame_ptr = match ffi_safe::get_oldest_frame(hcam, &mut frame_info) {
                 Ok(ptr) => ptr,
                 Err(()) => {
@@ -3198,6 +3203,40 @@ impl PvcamAcquisition {
                 continue;
             }
 
+            // Backpressure handling (bd-izdj.1)
+            // Pause frame processing when pool availability drops below 20%.
+            if backpressure_paused {
+                if buffer_pool.is_recovered() {
+                    backpressure_paused = false;
+                    tracing::warn!(
+                        available = buffer_pool.available(),
+                        capacity = buffer_pool.size(),
+                        "Buffer pool recovered - resuming frame processing"
+                    );
+                } else {
+                    dropped_frames.fetch_add(1, Ordering::Relaxed);
+                    if use_callback {
+                        callback_ctx.consume_one();
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                    continue;
+                }
+            } else if buffer_pool.is_under_pressure() {
+                backpressure_paused = true;
+                buffer_pool.record_exhaustion_event();
+                tracing::warn!(
+                    available = buffer_pool.available(),
+                    capacity = buffer_pool.size(),
+                    "Buffer pool under pressure - pausing frame processing"
+                );
+                dropped_frames.fetch_add(1, Ordering::Relaxed);
+                if use_callback {
+                    callback_ctx.consume_one();
+                }
+                std::thread::sleep(Duration::from_millis(1));
+                continue;
+            }
+
             // Step 2: Copy pixel data AFTER unlock
             // In CIRC_NO_OVERWRITE mode, the frame_ptr data is still valid because
             // the SDK won't reuse this buffer slot until all 20 slots are filled.
@@ -3238,6 +3277,8 @@ impl PvcamAcquisition {
                     // This indicates backpressure (consumers too slow).
                     // Dropping frames maintains real-time performance at the cost of completeness.
                     POOL_MISSES.fetch_add(1, Ordering::Relaxed);
+                    backpressure_paused = true;
+                    buffer_pool.record_exhaustion_event();
                     let drop_count = dropped_frames.fetch_add(1, Ordering::Relaxed) + 1;
                     let misses = POOL_MISSES.load(Ordering::Relaxed);
 
@@ -3258,7 +3299,7 @@ impl PvcamAcquisition {
                             pool_misses = misses,
                             pool_available = buffer_pool.available(),
                             pool_size = buffer_pool.size(),
-                            "Buffer pool exhausted - dropping frame (bd-dmbl). \
+                            "Buffer pool exhausted - dropping frame and pausing processing (bd-dmbl). \
                              Consumers may be too slow or pool size too small."
                         );
                     }

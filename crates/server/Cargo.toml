@@ -55,7 +55,7 @@ server = ["dep:tonic-web", "dep:tower-http"]
 modules = []
 networking = []
 scripting = ["dep:scripting"]
-metrics = ["dep:prometheus", "dep:lazy_static", "dep:hyper"]
+metrics = ["dep:prometheus", "dep:lazy_static", "dep:hyper", "storage/metrics"]
 rerun_sink = ["dep:rerun"]
 
 # Storage backends (pass-through to daq-storage)

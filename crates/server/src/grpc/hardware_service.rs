@@ -37,6 +37,7 @@ use crate::grpc::{
         ObservableValue,
         ParameterChange,
         ParameterDescriptor,
+        ParameterMetadata as ProtoParameterMetadata,
         ParameterValue,
         PositionUpdate,
         ReadValueRequest,
@@ -85,7 +86,7 @@ use common::data::FrameView;
 use common::driver::Capability;
 use common::error::DaqError;
 use common::limits::{FPS_WINDOW, MAX_STREAMS_PER_CLIENT, RPC_TIMEOUT};
-use common::observable::Observable;
+use common::observable::{Observable, ParameterMetadata as CommonParameterMetadata};
 use common::parameter::Parameter;
 use hardware::registry::DeviceRegistry;
 use protocol::downsample::{downsample_2x2, downsample_4x4};
@@ -710,6 +711,31 @@ impl HardwareService for HardwareServiceImpl {
             "not found or not movable"
         );
 
+        // Parameter bounds validation (bd-izdj.3)
+        if let Some(meta) = self
+            .registry
+            .get_parameter_metadata(&req.device_id, "position")
+        {
+            // Validate against min_position if set
+            if let Some(min) = meta.min_value {
+                if req.value < min {
+                    return Err(Status::invalid_argument(format!(
+                        "Target position {} is below minimum {}",
+                        req.value, min
+                    )));
+                }
+            }
+            // Validate against max_position if set
+            if let Some(max) = meta.max_value {
+                if req.value > max {
+                    return Err(Status::invalid_argument(format!(
+                        "Target position {} is above maximum {}",
+                        req.value, max
+                    )));
+                }
+            }
+        }
+
         self.await_with_timeout("move_abs", movable.move_abs(req.value))
             .await?;
 
@@ -780,6 +806,50 @@ impl HardwareService for HardwareServiceImpl {
             &req.device_id,
             "not found or not movable"
         );
+
+        // Parameter bounds validation (bd-izdj.3)
+        // For relative moves, we need to know current position to validate bounds
+        if let Some(info) = self.registry.get_device_info(&req.device_id) {
+            // Only check if bounds are defined
+            if info.metadata.min_position.is_some() || info.metadata.max_position.is_some() {
+                // We must get current position to validate target
+                // Note: This adds a read operation before the move, but safety is priority
+                match movable.position().await {
+                    Ok(current_pos) => {
+                        let target = current_pos + req.value;
+
+                        if let Some(min) = info.metadata.min_position {
+                            if target < min {
+                                return Err(Status::invalid_argument(format!(
+                                    "Relative move to {} is below minimum {}",
+                                    target, min
+                                )));
+                            }
+                        }
+
+                        if let Some(max) = info.metadata.max_position {
+                            if target > max {
+                                return Err(Status::invalid_argument(format!(
+                                    "Relative move to {} is above maximum {}",
+                                    target, max
+                                )));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            device_id = %req.device_id,
+                            error = %e,
+                            "Failed to read current position for bounds validation"
+                        );
+                        return Err(Status::unavailable(format!(
+                            "Cannot validate relative move: failed to read current position: {}",
+                            e
+                        )));
+                    }
+                }
+            }
+        }
 
         self.await_with_timeout("move_rel", movable.move_rel(req.value))
             .await?;
@@ -2023,12 +2093,16 @@ impl HardwareService for HardwareServiceImpl {
             let param_set = parameterized.parameters();
             for param_name in param_set.names() {
                 if let Some(param) = param_set.get(param_name) {
-                    let metadata = param.metadata();
+                    let observable_metadata = param.metadata();
+                    let cached_metadata = self
+                        .registry
+                        .get_parameter_metadata(&req.device_id, param_name)
+                        .unwrap_or_else(|| CommonParameterMetadata::from(&observable_metadata));
 
                     // Use introspectable dtype from metadata if available,
                     // otherwise infer from current value (best-effort fallback)
-                    let dtype = if !metadata.dtype.is_empty() {
-                        metadata.dtype.clone()
+                    let dtype = if !cached_metadata.dtype.is_empty() {
+                        cached_metadata.dtype.clone()
                     } else {
                         // Fallback: infer dtype from current value
                         match param.get_json() {
@@ -2047,17 +2121,20 @@ impl HardwareService for HardwareServiceImpl {
                         }
                     };
 
+                    let proto_metadata = proto_parameter_metadata(&cached_metadata);
+
                     parameters.push(ParameterDescriptor {
                         device_id: req.device_id.clone(),
-                        name: metadata.name.clone(),
-                        description: metadata.description.clone().unwrap_or_default(),
+                        name: observable_metadata.name.clone(),
+                        description: cached_metadata.description.clone().unwrap_or_default(),
                         dtype,
-                        units: metadata.units.clone().unwrap_or_default(),
+                        units: cached_metadata.units.clone().unwrap_or_default(),
                         readable: true,
-                        writable: !metadata.read_only,
-                        min_value: metadata.min_value, // Phase 2 (bd-cdh5.2): introspectable from metadata
-                        max_value: metadata.max_value, // Phase 2 (bd-cdh5.2): introspectable from metadata
-                        enum_values: metadata.enum_values.clone(), // Phase 2 (bd-cdh5.2): introspectable from metadata
+                        writable: !cached_metadata.read_only,
+                        min_value: cached_metadata.min_value,
+                        max_value: cached_metadata.max_value,
+                        enum_values: cached_metadata.enum_values.clone(),
+                        metadata: Some(proto_metadata),
                     });
                 }
             }
@@ -2077,12 +2154,44 @@ impl HardwareService for HardwareServiceImpl {
     ) -> Result<Response<ParameterValue>, Status> {
         let req = request.into_inner();
 
-        // Try legacy Settable trait first (backwards compatibility)
+        // New path - use Parameterized trait first (synchronous cache)
+        if let Some(parameterized) = self.registry.get_parameterized(&req.device_id) {
+            let params = parameterized.parameters();
+            if let Some(param) = params.get(&req.parameter_name) {
+                let value = param.get_json().map_err(|e| {
+                    map_hardware_error_to_status(&format!("Failed to get parameter: {}", e))
+                })?;
+                let units = self
+                    .registry
+                    .get_parameter_metadata(&req.device_id, &req.parameter_name)
+                    .and_then(|meta| meta.units)
+                    .unwrap_or_default();
+                let timestamp_ns = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0);
+
+                return Ok(Response::new(ParameterValue {
+                    device_id: req.device_id,
+                    name: req.parameter_name,
+                    value: value.to_string(),
+                    units,
+                    timestamp_ns,
+                }));
+            }
+        }
+
+        // Try legacy Settable trait as a fallback (asynchronous hardware read)
         if let Some(settable) = self.registry.get_settable(&req.device_id) {
             // Get the parameter value
             let value = settable.get_value(&req.parameter_name).await.map_err(|e| {
                 map_hardware_error_to_status(&format!("Failed to get parameter: {}", e))
             })?;
+            let units = self
+                .registry
+                .get_parameter_metadata(&req.device_id, &req.parameter_name)
+                .and_then(|meta| meta.units)
+                .unwrap_or_default();
 
             // Get timestamp
             let timestamp_ns = SystemTime::now()
@@ -2094,31 +2203,9 @@ impl HardwareService for HardwareServiceImpl {
                 device_id: req.device_id,
                 name: req.parameter_name,
                 value: value.to_string(),
-                units: String::new(), // Would need parameter metadata
+                units,
                 timestamp_ns,
             }));
-        }
-
-        // New path - use Parameterized trait
-        if let Some(parameterized) = self.registry.get_parameterized(&req.device_id) {
-            let params = parameterized.parameters();
-            if let Some(param) = params.get(&req.parameter_name) {
-                let value = param.get_json().map_err(|e| {
-                    map_hardware_error_to_status(&format!("Failed to get parameter: {}", e))
-                })?;
-                let timestamp_ns = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map(|d| d.as_nanos() as u64)
-                    .unwrap_or(0);
-
-                return Ok(Response::new(ParameterValue {
-                    device_id: req.device_id,
-                    name: req.parameter_name,
-                    value: value.to_string(),
-                    units: String::new(), // Could extract from metadata
-                    timestamp_ns,
-                }));
-            }
         }
 
         // Neither Settable nor Parameterized - device not found
@@ -2137,6 +2224,9 @@ impl HardwareService for HardwareServiceImpl {
 
         // Try legacy Settable trait first (backwards compatibility)
         if let Some(settable) = self.registry.get_settable(&req.device_id) {
+            let metadata = self
+                .registry
+                .get_parameter_metadata(&req.device_id, &req.parameter_name);
             // Get old value before setting (for change notification)
             let old_value = settable
                 .get_value(&req.parameter_name)
@@ -2152,6 +2242,8 @@ impl HardwareService for HardwareServiceImpl {
                 })
                 .map_err(|e| Status::invalid_argument(format!("Invalid value format: {}", e)))?;
 
+            validate_parameter_value(&req.parameter_name, metadata.as_ref(), &json_value)?;
+
             // Set the parameter
             settable
                 .set_value(&req.parameter_name, json_value)
@@ -2165,13 +2257,18 @@ impl HardwareService for HardwareServiceImpl {
                 .map(|v| v.to_string())
                 .unwrap_or_else(|_| req.value.clone());
 
+            let units = metadata
+                .as_ref()
+                .and_then(|meta| meta.units.clone())
+                .unwrap_or_default();
+
             // Broadcast parameter change notification (ignore send errors - no subscribers is ok)
             let _ = self.param_change_tx.send(ParameterChange {
                 device_id: req.device_id.clone(),
                 name: req.parameter_name.clone(),
                 old_value,
                 new_value: actual_value.clone(),
-                units: String::new(), // Would need parameter metadata for units
+                units,
                 timestamp_ns: now_ns(),
                 source: "user".to_string(),
             });
@@ -2185,6 +2282,9 @@ impl HardwareService for HardwareServiceImpl {
 
         // New path - use Parameterized trait
         if let Some(parameterized) = self.registry.get_parameterized(&req.device_id) {
+            let metadata = self
+                .registry
+                .get_parameter_metadata(&req.device_id, &req.parameter_name);
             let params = parameterized.parameters();
 
             if let Some(param) = params.get(&req.parameter_name) {
@@ -2200,6 +2300,8 @@ impl HardwareService for HardwareServiceImpl {
                         Status::invalid_argument(format!("Invalid value format: {}", e))
                     })?;
 
+                validate_parameter_value(&req.parameter_name, metadata.as_ref(), &json_value)?;
+
                 // Set the parameter (synchronous call, no await needed)
                 param.set_json(json_value).map_err(|e| {
                     Status::invalid_argument(format!("Failed to set parameter: {}", e))
@@ -2210,13 +2312,18 @@ impl HardwareService for HardwareServiceImpl {
                     .map(|v| v.to_string())
                     .unwrap_or_else(|_| req.value.clone());
 
+                let units = metadata
+                    .as_ref()
+                    .and_then(|meta| meta.units.clone())
+                    .unwrap_or_default();
+
                 // Broadcast parameter change notification
                 let _ = self.param_change_tx.send(ParameterChange {
                     device_id: req.device_id.clone(),
                     name: req.parameter_name.clone(),
                     old_value,
                     new_value: actual_value.clone(),
-                    units: String::new(), // Could get from metadata
+                    units,
                     timestamp_ns: now_ns(),
                     source: "user".to_string(),
                 });
@@ -2515,6 +2622,91 @@ fn now_ns() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos() as u64
+}
+
+fn proto_parameter_metadata(meta: &CommonParameterMetadata) -> ProtoParameterMetadata {
+    ProtoParameterMetadata {
+        min_value: meta.min_value,
+        max_value: meta.max_value,
+        step: meta.step,
+        units: meta.units.clone().unwrap_or_default(),
+        read_only: meta.read_only,
+        dtype: meta.dtype.clone(),
+        enum_values: meta.enum_values.clone(),
+        description: meta.description.clone().unwrap_or_default(),
+    }
+}
+
+fn extract_numeric_value(value: &serde_json::Value) -> Option<f64> {
+    match value {
+        serde_json::Value::Number(num) => num.as_f64(),
+        _ => None,
+    }
+}
+
+fn validate_parameter_value(
+    name: &str,
+    metadata: Option<&CommonParameterMetadata>,
+    value: &serde_json::Value,
+) -> Result<(), Status> {
+    let Some(meta) = metadata else {
+        return Ok(());
+    };
+
+    if meta.read_only {
+        return Err(Status::invalid_argument(format!(
+            "Parameter '{}' is read-only",
+            name
+        )));
+    }
+
+    if !meta.enum_values.is_empty() || meta.dtype == "enum" {
+        let value_str = value.as_str().ok_or_else(|| {
+            Status::invalid_argument(format!("Parameter '{}' expects an enum string value", name))
+        })?;
+        if !meta.enum_values.iter().any(|v| v == value_str) {
+            return Err(Status::invalid_argument(format!(
+                "Parameter '{}' value '{}' is not in allowed set {:?}",
+                name, value_str, meta.enum_values
+            )));
+        }
+    }
+
+    if meta.min_value.is_some() || meta.max_value.is_some() {
+        let numeric = extract_numeric_value(value).ok_or_else(|| {
+            Status::invalid_argument(format!("Parameter '{}' expects a numeric value", name))
+        })?;
+        if let Some(min) = meta.min_value {
+            if numeric < min {
+                return Err(Status::invalid_argument(format!(
+                    "Parameter '{}' value {} below minimum {}",
+                    name, numeric, min
+                )));
+            }
+        }
+        if let Some(max) = meta.max_value {
+            if numeric > max {
+                return Err(Status::invalid_argument(format!(
+                    "Parameter '{}' value {} exceeds max {}",
+                    name, numeric, max
+                )));
+            }
+        }
+        if let Some(step) = meta.step {
+            // Align relative to min or zero
+            let origin = meta.min_value.unwrap_or(0.0);
+            let rem = (numeric - origin) % step;
+            // Use a small epsilon for floating point comparison
+            if rem.abs() > 1e-10 && (rem - step).abs() > 1e-10 {
+                return Err(Status::invalid_argument(format!(
+                    "Parameter '{}' value {} is not a multiple of step {}",
+                    name, numeric, step
+                )));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn monitor_parameter<T: std::fmt::Display + Clone + Send + Sync + 'static>(
@@ -3182,7 +3374,26 @@ mod tests {
         assert_eq!(p.dtype, "float"); // inferred from f64
         assert!(p.writable);
         assert!(p.readable);
-        // units might differ based on mock implementation details
+        assert_eq!(p.units, "mm");
+        assert!(p.metadata.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_set_parameter_out_of_bounds_returns_invalid_argument() {
+        let registry = create_mock_registry().await.unwrap();
+        let service = HardwareServiceImpl::new(Arc::new(registry));
+
+        let request = Request::new(SetParameterRequest {
+            device_id: "mock_power_meter".to_string(),
+            parameter_name: "base_power".to_string(),
+            value: "20.0".to_string(),
+        });
+
+        let result = service.set_parameter(request).await;
+        assert!(result.is_err());
+        let status = result.unwrap_err();
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+        assert!(status.message().contains("exceeds max"));
     }
 
     // =========================================================================

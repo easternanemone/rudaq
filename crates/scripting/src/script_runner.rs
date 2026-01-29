@@ -303,9 +303,8 @@ impl ScriptPlanRunner {
                         }
                         Err(tokio::sync::oneshot::error::TryRecvError::Empty) => continue,
                         Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                            // Sender dropped - thread panicked
-                            script_final_result =
-                                Some(Err(tokio::sync::oneshot::error::RecvError {}));
+                            // Sender dropped - thread panicked or exited
+                            // We break here, and script_done_rx.await below will return the RecvError
                             break;
                         }
                     }
@@ -364,7 +363,7 @@ impl ScriptPlanRunner {
         yield_handle: Arc<crate::yield_handle::YieldHandle>,
     ) -> Result<()> {
         // Create Rhai engine with yield support
-        let mut engine = RhaiEngine::new()?;
+        let mut engine = RhaiEngine::with_yield_support()?;
 
         // Register the yield handle
         engine.set_yield_handle(yield_handle.clone())?;

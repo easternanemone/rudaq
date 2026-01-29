@@ -828,6 +828,9 @@ impl DaqApp {
                     ConnectionState::Error { message, retriable } => {
                         Some((message.clone(), *retriable))
                     }
+                    ConnectionState::CircuitBreaker { last_error, .. } => {
+                        Some((last_error.clone(), true))
+                    }
                     _ => None,
                 };
                 let seconds_until_retry = self.connection.seconds_until_retry();
@@ -1132,6 +1135,18 @@ impl DaqApp {
                         &format!("Reconnecting (attempt {}): {}", attempt, err),
                     );
                 }
+            }
+            ConnectionState::CircuitBreaker { last_error, .. } => {
+                if self.logging_panel.connection_status != LogConnectionStatus::CircuitBreaker {
+                    self.logging_panel.connection_status = LogConnectionStatus::CircuitBreaker;
+                    self.logging_panel.warn(
+                        "Connection",
+                        &format!("Circuit breaker open: {}", last_error),
+                    );
+                }
+            }
+            ConnectionState::HalfOpen { .. } => {
+                self.logging_panel.connection_status = LogConnectionStatus::Connecting;
             }
             _ => {}
         }

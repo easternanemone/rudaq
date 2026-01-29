@@ -48,7 +48,7 @@ use tokio::sync::mpsc;
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 
-use crate::tap_registry::TapRegistry;
+use crate::tap_registry::{TapHealth, TapRegistry};
 
 #[cfg(feature = "storage_arrow")]
 use arrow::record_batch::RecordBatch;
@@ -232,7 +232,7 @@ impl RingBuffer {
     /// # Example
     /// ```no_run
     /// use std::path::Path;
-    /// use daq_storage::ring_buffer::RingBuffer;
+    /// use storage::ring_buffer::RingBuffer;
     ///
     /// let rb = RingBuffer::create(Path::new("/tmp/my_ring_buffer"), 100).unwrap();
     /// ```
@@ -575,7 +575,7 @@ impl RingBuffer {
     /// # Example
     /// ```no_run
     /// # use std::path::Path;
-    /// # use daq_storage::ring_buffer::RingBuffer;
+    /// # use storage::ring_buffer::RingBuffer;
     /// # async fn example() -> anyhow::Result<()> {
     /// let rb = RingBuffer::create(Path::new("/tmp/test.buf"), 10)?;
     ///
@@ -600,6 +600,21 @@ impl RingBuffer {
         Ok(rx)
     }
 
+    /// Update the tap channel capacity for future registrations.
+    pub fn set_tap_channel_capacity(&self, capacity: usize) {
+        self.taps.set_channel_capacity(capacity);
+    }
+
+    /// Snapshot tap health metrics for all active taps.
+    pub fn tap_health(&self) -> Vec<TapHealth> {
+        self.taps.tap_health()
+    }
+
+    /// Snapshot tap health for a specific tap.
+    pub fn tap_health_for(&self, id: &str) -> Option<TapHealth> {
+        self.taps.tap_health_for(id)
+    }
+
     /// Unregister a tap consumer.
     ///
     /// # Arguments
@@ -611,7 +626,7 @@ impl RingBuffer {
     /// # Example
     /// ```no_run
     /// # use std::path::Path;
-    /// # use daq_storage::ring_buffer::RingBuffer;
+    /// # use storage::ring_buffer::RingBuffer;
     /// # fn example() -> anyhow::Result<()> {
     /// let rb = RingBuffer::create(Path::new("/tmp/test.buf"), 10)?;
     /// let _rx = rb.register_tap("preview".to_string(), 10)?;
@@ -868,7 +883,7 @@ impl RingBuffer {
     ///
     /// ```no_run
     /// # use std::path::Path;
-    /// # use daq_storage::ring_buffer::RingBuffer;
+    /// # use storage::ring_buffer::RingBuffer;
     /// # fn main() -> anyhow::Result<()> {
     /// let rb = RingBuffer::create(Path::new("/tmp/test.buf"), 100)?;
     /// assert_eq!(rb.capacity(), 100 * 1024 * 1024); // 100 MB
@@ -910,7 +925,7 @@ impl RingBuffer {
     ///
     /// ```no_run
     /// # use std::path::Path;
-    /// # use daq_storage::ring_buffer::RingBuffer;
+    /// # use storage::ring_buffer::RingBuffer;
     /// # fn main() -> anyhow::Result<()> {
     /// let rb = RingBuffer::create(Path::new("/tmp/test.buf"), 100)?;
     /// let stream_id = rb.stream_id();
@@ -968,7 +983,7 @@ impl RingBuffer {
     ///
     /// ```no_run
     /// # use std::path::Path;
-    /// # use daq_storage::ring_buffer::RingBuffer;
+    /// # use storage::ring_buffer::RingBuffer;
     /// # fn main() -> anyhow::Result<()> {
     /// let rb = RingBuffer::create(Path::new("/tmp/test.buf"), 1)?;
     ///
@@ -1013,7 +1028,7 @@ impl RingBuffer {
     ///
     /// ```no_run
     /// # use std::path::Path;
-    /// # use daq_storage::ring_buffer::RingBuffer;
+    /// # use storage::ring_buffer::RingBuffer;
     /// # fn main() -> anyhow::Result<()> {
     /// let rb = RingBuffer::create(Path::new("/tmp/test.buf"), 1)?;
     ///
@@ -1101,7 +1116,7 @@ impl RingBuffer {
 /// ```no_run
 /// # use std::path::Path;
 /// # use std::sync::Arc;
-/// # use daq_storage::ring_buffer::{RingBuffer, AsyncRingBuffer};
+/// # use storage::ring_buffer::{RingBuffer, AsyncRingBuffer};
 /// # async fn example() -> anyhow::Result<()> {
 /// let rb = Arc::new(RingBuffer::create(Path::new("/tmp/test.buf"), 10)?);
 /// let async_rb = AsyncRingBuffer::new(rb);
@@ -1126,7 +1141,7 @@ impl AsyncRingBuffer {
     /// ```no_run
     /// # use std::path::Path;
     /// # use std::sync::Arc;
-    /// # use daq_storage::ring_buffer::{RingBuffer, AsyncRingBuffer};
+    /// # use storage::ring_buffer::{RingBuffer, AsyncRingBuffer};
     /// # fn example() -> anyhow::Result<()> {
     /// let rb = Arc::new(RingBuffer::create(Path::new("/tmp/test.buf"), 10)?);
     /// let async_rb = AsyncRingBuffer::new(rb);
@@ -1152,7 +1167,7 @@ impl AsyncRingBuffer {
     /// ```no_run
     /// # use std::path::Path;
     /// # use std::sync::Arc;
-    /// # use daq_storage::ring_buffer::{RingBuffer, AsyncRingBuffer};
+    /// # use storage::ring_buffer::{RingBuffer, AsyncRingBuffer};
     /// # async fn example() -> anyhow::Result<()> {
     /// let rb = Arc::new(RingBuffer::create(Path::new("/tmp/test.buf"), 10)?);
     /// let async_rb = AsyncRingBuffer::new(rb);
@@ -1185,7 +1200,7 @@ impl AsyncRingBuffer {
     /// ```no_run
     /// # use std::path::Path;
     /// # use std::sync::Arc;
-    /// # use daq_storage::ring_buffer::{RingBuffer, AsyncRingBuffer};
+    /// # use storage::ring_buffer::{RingBuffer, AsyncRingBuffer};
     /// # async fn example() -> anyhow::Result<()> {
     /// let rb = Arc::new(RingBuffer::create(Path::new("/tmp/test.buf"), 10)?);
     /// let async_rb = AsyncRingBuffer::new(rb);

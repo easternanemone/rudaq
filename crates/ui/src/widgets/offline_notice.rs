@@ -98,6 +98,7 @@ pub fn offline_notice(ui: &mut egui::Ui, is_offline: bool, context: OfflineConte
         });
 
         ui.add_space(16.0);
+        ui.label("If retries are paused due to a circuit breaker, check the status bar countdown.");
 
         // What's available offline
         ui.collapsing("What works offline?", |ui| {

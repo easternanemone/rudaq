@@ -80,6 +80,7 @@ use common::capabilities::{
 use common::data::Frame;
 use common::driver::{Capability, DeviceComponents, DeviceLifecycle, DriverFactory};
 use common::error::DaqError;
+use common::observable::ParameterMetadata;
 use common::pipeline::MeasurementSource;
 
 #[cfg(feature = "serial")]
@@ -611,6 +612,8 @@ struct RegisteredDevice {
     /// Enables generic code to enumerate and subscribe to device parameters.
     /// Populated during device registration if driver implements Parameterized trait.
     parameterized: Option<Arc<dyn Parameterized>>,
+    /// Cached parameter metadata for fast validation (bd-izdj.3)
+    parameter_metadata: HashMap<String, ParameterMetadata>,
     /// ShutterControl implementation (if supported) - laser shutter
     shutter_control: Option<Arc<dyn ShutterControl>>,
     /// EmissionControl implementation (if supported) - laser on/off
@@ -624,6 +627,22 @@ struct RegisteredDevice {
 }
 
 impl RegisteredDevice {
+    fn build_parameter_metadata(
+        parameterized: &Option<Arc<dyn Parameterized>>,
+    ) -> HashMap<String, ParameterMetadata> {
+        let Some(parameterized) = parameterized else {
+            return HashMap::new();
+        };
+
+        let mut metadata = HashMap::new();
+        for name in parameterized.parameters().names() {
+            if let Some(param) = parameterized.parameters().get(name) {
+                metadata.insert(name.to_string(), ParameterMetadata::from(&param.metadata()));
+            }
+        }
+        metadata
+    }
+
     /// Compute capabilities from the actual registered trait objects.
     ///
     /// This introspects which trait implementations are present rather than
@@ -1087,6 +1106,9 @@ impl DeviceRegistry {
             max_wavelength_nm: components.metadata.max_wavelength_nm,
         };
 
+        let parameter_metadata =
+            RegisteredDevice::build_parameter_metadata(&components.parameterized);
+
         // Log the actual driver_type for debugging (not the synthetic one)
         tracing::debug!(
             driver_type = %driver_type,
@@ -1107,6 +1129,7 @@ impl DeviceRegistry {
             stageable: components.stageable,
             commandable: components.commandable,
             parameterized: components.parameterized,
+            parameter_metadata,
             shutter_control: components.shutter_control,
             emission_control: components.emission_control,
             wavelength_tunable: components.wavelength_tunable,
@@ -1429,6 +1452,13 @@ impl DeviceRegistry {
             .and_then(|d| d.parameterized.clone())
     }
 
+    /// Get cached parameter metadata for a specific parameter (bd-izdj.3).
+    pub fn get_parameter_metadata(&self, device_id: &str, name: &str) -> Option<ParameterMetadata> {
+        self.devices
+            .get(device_id)
+            .and_then(|d| d.parameter_metadata.get(name).cloned())
+    }
+
     /// Get a device as ShutterControl (if it supports this capability)
     pub fn get_shutter_control(&self, id: &str) -> Option<Arc<dyn ShutterControl>> {
         self.devices.get(id).and_then(|d| d.shutter_control.clone())
@@ -1492,6 +1522,8 @@ impl DeviceRegistry {
                 let driver = Arc::new(crate::drivers::mock::MockStage::with_position(
                     initial_position,
                 ));
+                let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
+                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -1504,7 +1536,8 @@ impl DeviceRegistry {
                     settable: None,
                     stageable: None,
                     commandable: None,
-                    parameterized: Some(driver.clone()),
+                    parameterized,
+                    parameter_metadata,
                     shutter_control: None,
                     emission_control: None,
                     wavelength_tunable: None,
@@ -1520,6 +1553,8 @@ impl DeviceRegistry {
 
             DriverType::MockPowerMeter { reading } => {
                 let driver = Arc::new(crate::drivers::mock::MockPowerMeter::new(reading));
+                let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
+                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -1532,7 +1567,8 @@ impl DeviceRegistry {
                     settable: None,
                     stageable: None,
                     commandable: None,
-                    parameterized: Some(driver.clone()),
+                    parameterized,
+                    parameter_metadata,
                     shutter_control: None,
                     emission_control: None,
                     wavelength_tunable: None,
@@ -1546,6 +1582,8 @@ impl DeviceRegistry {
 
             DriverType::MockCamera { width, height } => {
                 let driver = Arc::new(crate::drivers::mock::MockCamera::new(width, height));
+                let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
+                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -1558,7 +1596,8 @@ impl DeviceRegistry {
                     settable: None,
                     stageable: Some(driver.clone()),
                     commandable: None,
-                    parameterized: Some(driver.clone()),
+                    parameterized,
+                    parameter_metadata,
                     shutter_control: None,
                     emission_control: None,
                     wavelength_tunable: None,
@@ -1583,6 +1622,8 @@ impl DeviceRegistry {
                     crate::drivers::pvcam::PvcamDriver::new_async(camera_name.clone()).await?,
                 );
                 let (width, height) = driver.resolution();
+                let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
+                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -1595,7 +1636,8 @@ impl DeviceRegistry {
                     settable: None,
                     stageable: None,
                     commandable: Some(driver.clone()),
-                    parameterized: Some(driver.clone()),
+                    parameterized,
+                    parameter_metadata,
                     shutter_control: None,
                     emission_control: None,
                     wavelength_tunable: None,
@@ -1621,6 +1663,8 @@ impl DeviceRegistry {
                 // subsystems (AnalogInput, AnalogOutput, etc.) need to be accessed separately.
                 // For registry purposes, we register the device as having Readable/Settable capabilities.
                 // TODO: Implement HAL trait wrappers for Comedi subsystems
+                let parameterized: Option<Arc<dyn Parameterized>> = None;
+                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -1633,7 +1677,8 @@ impl DeviceRegistry {
                     settable: None,
                     stageable: None,
                     commandable: None,
-                    parameterized: None,
+                    parameterized,
+                    parameter_metadata,
                     shutter_control: None,
                     emission_control: None,
                     wavelength_tunable: None,
@@ -1675,6 +1720,8 @@ impl DeviceRegistry {
                     )
                     .await?,
                 );
+                let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
+                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -1687,7 +1734,8 @@ impl DeviceRegistry {
                     settable: None,
                     stageable: None,
                     commandable: None,
-                    parameterized: Some(driver.clone()),
+                    parameterized,
+                    parameter_metadata,
                     shutter_control: None,
                     emission_control: None,
                     wavelength_tunable: None,
@@ -1709,6 +1757,8 @@ impl DeviceRegistry {
                 );
                 // Newport1830C implements WavelengthTunable (bd-3xw2.5)
                 let wavelength_range = driver.wavelength_range();
+                let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
+                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -1721,7 +1771,8 @@ impl DeviceRegistry {
                     settable: None,
                     stageable: None,
                     commandable: None,
-                    parameterized: Some(driver.clone()),
+                    parameterized,
+                    parameter_metadata,
                     shutter_control: None,
                     emission_control: None,
                     wavelength_tunable: Some(driver),
@@ -1741,6 +1792,8 @@ impl DeviceRegistry {
                 let driver = Arc::new(
                     daq_driver_spectra_physics::MaiTaiDriver::new_async_default(&port).await?,
                 );
+                let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
+                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -1753,7 +1806,8 @@ impl DeviceRegistry {
                     settable: None,
                     stageable: None,
                     commandable: None,
-                    parameterized: Some(driver.clone()),
+                    parameterized,
+                    parameter_metadata,
                     shutter_control: Some(driver.clone()),
                     emission_control: Some(driver.clone()),
                     wavelength_tunable: Some(driver),
@@ -1770,6 +1824,8 @@ impl DeviceRegistry {
                 // Use new_async() to validate device responds correctly on connection
                 let driver =
                     Arc::new(crate::drivers::esp300::Esp300Driver::new_async(&port, axis).await?);
+                let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
+                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -1782,7 +1838,8 @@ impl DeviceRegistry {
                     settable: None,
                     stageable: None,
                     commandable: None,
-                    parameterized: Some(driver),
+                    parameterized,
+                    parameter_metadata,
                     shutter_control: None,
                     emission_control: None,
                     wavelength_tunable: None,
@@ -1928,6 +1985,8 @@ impl DeviceRegistry {
 
         // Note: FrameProducer, Triggerable, and ExposureControl are not yet
         // supported by the plugin system, so we leave them as None
+        let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
+        let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
 
         Ok(RegisteredDevice {
             config,
@@ -1941,7 +2000,8 @@ impl DeviceRegistry {
             settable: None,
             stageable: None,
             commandable: None,
-            parameterized: Some(driver.clone()), // bd-plb6: Wire Parameterized for plugin devices
+            parameterized, // bd-plb6: Wire Parameterized for plugin devices
+            parameter_metadata,
             shutter_control: None,
             emission_control: None,
             wavelength_tunable: None,

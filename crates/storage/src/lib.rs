@@ -12,7 +12,7 @@
 //! ## Quick Example
 //!
 //! ```rust,ignore
-//! use daq_storage::ring_buffer::RingBuffer;
+//! use storage::ring_buffer::RingBuffer;
 //! use std::path::Path;
 //!
 //! // Create a ring buffer with 100 frame slots

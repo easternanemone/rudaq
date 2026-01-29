@@ -26,8 +26,8 @@
 
 use lazy_static::lazy_static;
 use prometheus::{
-    Encoder, IntCounter, IntGauge, Registry, TextEncoder, register_int_counter_with_registry,
-    register_int_gauge_with_registry,
+    Encoder, IntCounter, IntGauge, Registry, TextEncoder, gather,
+    register_int_counter_with_registry, register_int_gauge_with_registry,
 };
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -225,7 +225,8 @@ async fn handle_metrics_request(
         (&hyper::Method::GET, "/metrics") => {
             // Gather and encode metrics
             let encoder = TextEncoder::new();
-            let metric_families = REGISTRY.gather();
+            let mut metric_families = REGISTRY.gather();
+            metric_families.extend(gather());
             let mut buffer = Vec::new();
 
             match encoder.encode(&metric_families, &mut buffer) {

@@ -57,6 +57,27 @@ use std::time::Duration;
 use tokio::sync::Semaphore;
 use tracing::info;
 
+#[cfg(feature = "metrics")]
+use lazy_static::lazy_static;
+#[cfg(feature = "metrics")]
+use prometheus::{register_int_counter, register_int_gauge, IntCounter, IntGauge};
+
+#[cfg(feature = "metrics")]
+lazy_static! {
+    static ref BUFFER_POOL_AVAILABLE: IntGauge = register_int_gauge!(
+        "buffer_pool_available",
+        "Current number of available buffers in the pool"
+    )
+    .expect("Failed to register buffer_pool_available");
+    static ref BUFFER_POOL_TOTAL: IntGauge =
+        register_int_gauge!("buffer_pool_total", "Total number of buffers in the pool")
+            .expect("Failed to register buffer_pool_total");
+    static ref BUFFER_POOL_EXHAUSTION_EVENTS: IntCounter = register_int_counter!(
+        "buffer_pool_exhaustion_events_total",
+        "Total number of buffer pool exhaustion events"
+    )
+    .expect("Failed to register buffer_pool_exhaustion_events_total");
+}
 /// Internal state for the buffer pool.
 ///
 /// Wrapped in Arc for shared ownership between pool and PooledBuffer instances.
@@ -75,6 +96,17 @@ struct BufferPoolInner {
     total_acquires: AtomicU64,
     /// Metrics: total returns
     total_returns: AtomicU64,
+}
+
+#[cfg(feature = "metrics")]
+fn update_metrics(pool: &BufferPoolInner) {
+    BUFFER_POOL_AVAILABLE.set(pool.available.load(Ordering::Relaxed) as i64);
+    BUFFER_POOL_TOTAL.set(pool.pool_size as i64);
+}
+
+#[cfg(feature = "metrics")]
+fn record_exhaustion_event() {
+    BUFFER_POOL_EXHAUSTION_EVENTS.inc();
 }
 
 /// Pool of pre-allocated byte buffers for zero-allocation frame handling.
@@ -117,7 +149,7 @@ impl BufferPool {
             "BufferPool created"
         );
 
-        Self {
+        let pool = Self {
             inner: Arc::new(BufferPoolInner {
                 free_buffers,
                 semaphore: Semaphore::new(pool_size),
@@ -127,7 +159,10 @@ impl BufferPool {
                 total_acquires: AtomicU64::new(0),
                 total_returns: AtomicU64::new(0),
             }),
-        }
+        };
+        #[cfg(feature = "metrics")]
+        update_metrics(&pool.inner);
+        pool
     }
 
     /// Try to acquire a buffer without blocking.
@@ -136,14 +171,30 @@ impl BufferPool {
     #[must_use]
     pub fn try_acquire(&self) -> Option<PooledBuffer> {
         // Try to acquire semaphore permit without blocking
-        let permit = self.inner.semaphore.try_acquire().ok()?;
+        let permit = match self.inner.semaphore.try_acquire() {
+            Ok(permit) => permit,
+            Err(_) => {
+                #[cfg(feature = "metrics")]
+                record_exhaustion_event();
+                return None;
+            }
+        };
 
         // Pop a buffer from the free queue
-        let buffer = self.inner.free_buffers.pop()?;
+        let buffer = match self.inner.free_buffers.pop() {
+            Some(buffer) => buffer,
+            None => {
+                #[cfg(feature = "metrics")]
+                record_exhaustion_event();
+                return None;
+            }
+        };
 
         // Update metrics
         self.inner.available.fetch_sub(1, Ordering::Relaxed);
         self.inner.total_acquires.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "metrics")]
+        update_metrics(&self.inner);
 
         // Forget the permit - we'll re-add it when buffer is returned
         std::mem::forget(permit);
@@ -160,17 +211,30 @@ impl BufferPool {
     /// Returns `None` if the timeout expires before a buffer becomes available.
     pub async fn try_acquire_timeout(&self, timeout: Duration) -> Option<PooledBuffer> {
         // Try to acquire semaphore permit with timeout
-        let permit = tokio::time::timeout(timeout, self.inner.semaphore.acquire())
-            .await
-            .ok()?
-            .ok()?;
+        let permit = match tokio::time::timeout(timeout, self.inner.semaphore.acquire()).await {
+            Ok(Ok(permit)) => permit,
+            _ => {
+                #[cfg(feature = "metrics")]
+                record_exhaustion_event();
+                return None;
+            }
+        };
 
         // Pop a buffer from the free queue
-        let buffer = self.inner.free_buffers.pop()?;
+        let buffer = match self.inner.free_buffers.pop() {
+            Some(buffer) => buffer,
+            None => {
+                #[cfg(feature = "metrics")]
+                record_exhaustion_event();
+                return None;
+            }
+        };
 
         // Update metrics
         self.inner.available.fetch_sub(1, Ordering::Relaxed);
         self.inner.total_acquires.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "metrics")]
+        update_metrics(&self.inner);
 
         // Forget the permit - we'll re-add it when buffer is returned
         std::mem::forget(permit);
@@ -219,10 +283,52 @@ impl BufferPool {
         self.inner.available.load(Ordering::Relaxed)
     }
 
+    /// Number of currently available buffers (alias for metrics).
+    #[must_use]
+    pub fn available_buffers(&self) -> usize {
+        self.available()
+    }
+
+    /// Check if the pool is under pressure (low availability).
+    ///
+    /// Returns true if availability is below 20% of capacity.
+    #[must_use]
+    pub fn is_under_pressure(&self) -> bool {
+        let threshold = (self.size() * 20) / 100;
+        if threshold == 0 {
+            return self.available() == 0;
+        }
+        self.available() < threshold
+    }
+
+    /// Check if the pool has recovered from pressure.
+    ///
+    /// Returns true if availability is above 50% of capacity.
+    #[must_use]
+    pub fn is_recovered(&self) -> bool {
+        let threshold = (self.size() * 50) / 100;
+        if threshold == 0 {
+            return self.available() > 0;
+        }
+        self.available() > threshold
+    }
+
     /// Total number of buffers in the pool.
     #[must_use]
     pub fn size(&self) -> usize {
         self.inner.pool_size
+    }
+
+    /// Total number of buffers in the pool (alias for metrics).
+    #[must_use]
+    pub fn total_buffers(&self) -> usize {
+        self.size()
+    }
+
+    /// Record a pool exhaustion event for observability.
+    pub fn record_exhaustion_event(&self) {
+        #[cfg(feature = "metrics")]
+        record_exhaustion_event();
     }
 
     /// Capacity of each buffer in bytes.
@@ -405,6 +511,8 @@ impl Drop for PooledBuffer {
             self.pool.free_buffers.push(buffer);
             self.pool.available.fetch_add(1, Ordering::Relaxed);
             self.pool.total_returns.fetch_add(1, Ordering::Relaxed);
+            #[cfg(feature = "metrics")]
+            update_metrics(&self.pool);
 
             // Re-add the semaphore permit
             self.pool.semaphore.add_permits(1);
@@ -451,6 +559,8 @@ impl Drop for BufferOwner {
         self.pool.free_buffers.push(buffer);
         self.pool.available.fetch_add(1, Ordering::Relaxed);
         self.pool.total_returns.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "metrics")]
+        update_metrics(&self.pool);
 
         // Re-add the semaphore permit
         self.pool.semaphore.add_permits(1);
@@ -815,6 +925,30 @@ mod tests {
             pool.total_returns(),
             4,
             "Final return count should be 4 (matching acquires)"
+        );
+    }
+
+    #[test]
+    fn test_under_pressure_and_recovered_thresholds() {
+        let pool = BufferPool::new(10, 256);
+        assert!(!pool.is_under_pressure());
+
+        let mut held = Vec::new();
+        for _ in 0..9 {
+            held.push(pool.try_acquire().expect("buffer"));
+        }
+        assert!(
+            pool.is_under_pressure(),
+            "Pool should be under pressure when <20% available"
+        );
+        assert!(!pool.is_recovered());
+
+        for _ in 0..5 {
+            drop(held.pop());
+        }
+        assert!(
+            pool.is_recovered(),
+            "Pool should be recovered when >50% available"
         );
     }
 

@@ -13,13 +13,22 @@
 //!      ▲                          │
 //!      │                    success/failure
 //!      │                          ▼
-//!      │                    Connected / Error
+//!      │                       Connected
 //!      │                          │
 //!      │                  transport error / health fail
 //!      │                          ▼
-//!      └──cancel()────────── Reconnecting
+//!      │                    Reconnecting
+//!      │                          │
+//!      │                   max attempts / failures
+//!      │                          ▼
+//!      │                   CircuitBreaker (cooldown)
+//!      │                          │
+//!      │                     cooldown elapsed
+//!      │                          ▼
+//!      └─────────────────────── HalfOpen (probe)
 //! ```
 
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
@@ -55,6 +64,20 @@ pub enum ConnectionState {
         last_error: String,
     },
 
+    /// Circuit breaker open - cooldown before retrying.
+    CircuitBreaker {
+        /// When the cooldown period ends
+        cooldown_until: Instant,
+        /// The error that opened the circuit
+        last_error: String,
+    },
+
+    /// Circuit breaker half-open - probing connectivity.
+    HalfOpen {
+        /// The error that opened the circuit
+        last_error: String,
+    },
+
     /// Connection failed with an error.
     Error {
         /// Human-readable error message
@@ -64,11 +87,136 @@ pub enum ConnectionState {
     },
 }
 
+/// Circuit Breaker for connection protection (bd-izdj.4)
+/// Prevents hammering a failing service.
+#[derive(Debug, Clone)]
+struct CircuitBreaker {
+    state: BreakerState,
+    failure_times: VecDeque<Instant>,
+    threshold: u32,
+    window: Duration,
+    cooldown: Duration,
+}
+
+#[derive(Debug, Clone)]
+enum BreakerState {
+    Closed,
+    Open { until: Instant, last_error: String },
+    HalfOpen { last_error: String },
+}
+
+impl CircuitBreaker {
+    fn new(config: &ReconnectConfig) -> Self {
+        Self {
+            state: BreakerState::Closed,
+            failure_times: VecDeque::new(),
+            threshold: config.circuit_breaker_threshold,
+            window: config.circuit_breaker_window,
+            cooldown: config.circuit_breaker_cooldown,
+        }
+    }
+
+    fn update_config(&mut self, config: &ReconnectConfig) {
+        self.threshold = config.circuit_breaker_threshold;
+        self.window = config.circuit_breaker_window;
+        self.cooldown = config.circuit_breaker_cooldown;
+    }
+
+    fn record_success(&mut self) {
+        self.state = BreakerState::Closed;
+        self.failure_times.clear();
+    }
+
+    fn record_failure(&mut self, error: String) -> Option<Instant> {
+        let now = Instant::now();
+        self.prune_failures(now);
+
+        match &self.state {
+            BreakerState::HalfOpen { .. } => return Some(self.open(error, now)),
+            BreakerState::Open { until, .. } => {
+                let until = *until;
+                self.state = BreakerState::Open {
+                    until,
+                    last_error: error,
+                };
+                return Some(until);
+            }
+            BreakerState::Closed => {}
+        }
+
+        if self.threshold == 0 {
+            return None;
+        }
+
+        self.failure_times.push_back(now);
+        if self.failure_times.len() >= self.threshold as usize {
+            return Some(self.open(error, now));
+        }
+
+        None
+    }
+
+    fn open_forced(&mut self, error: String) -> Instant {
+        self.open(error, Instant::now())
+    }
+
+    fn open(&mut self, error: String, now: Instant) -> Instant {
+        let until = now + self.cooldown;
+        self.failure_times.clear();
+        self.state = BreakerState::Open {
+            until,
+            last_error: error,
+        };
+        until
+    }
+
+    fn prune_failures(&mut self, now: Instant) {
+        while let Some(front) = self.failure_times.front() {
+            if now.duration_since(*front) > self.window {
+                self.failure_times.pop_front();
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn enter_half_open_if_ready(&mut self) -> Option<String> {
+        let now = Instant::now();
+        match &self.state {
+            BreakerState::Open { until, last_error } if now >= *until => {
+                let last_error = last_error.clone();
+                self.state = BreakerState::HalfOpen {
+                    last_error: last_error.clone(),
+                };
+                Some(last_error)
+            }
+            _ => None,
+        }
+    }
+
+    fn open_state(&self) -> Option<(Instant, String)> {
+        match &self.state {
+            BreakerState::Open { until, last_error } => Some((*until, last_error.clone())),
+            _ => None,
+        }
+    }
+
+    fn half_open_error(&self) -> Option<String> {
+        match &self.state {
+            BreakerState::HalfOpen { last_error } => Some(last_error.clone()),
+            _ => None,
+        }
+    }
+}
+
 impl ConnectionState {
     /// Returns true if a connection attempt is in progress.
     #[must_use]
     pub fn is_connecting(&self) -> bool {
-        matches!(self, Self::Connecting | Self::Reconnecting { .. })
+        matches!(
+            self,
+            Self::Connecting | Self::Reconnecting { .. } | Self::HalfOpen { .. }
+        )
     }
 
     /// Returns true if connected.
@@ -81,7 +229,7 @@ impl ConnectionState {
     #[must_use]
     #[allow(dead_code)]
     pub fn is_error(&self) -> bool {
-        matches!(self, Self::Error { .. })
+        matches!(self, Self::Error { .. } | Self::CircuitBreaker { .. })
     }
 
     /// Returns the error message if in error or reconnecting state.
@@ -90,6 +238,8 @@ impl ConnectionState {
         match self {
             Self::Error { message, .. } => Some(message),
             Self::Reconnecting { last_error, .. } => Some(last_error),
+            Self::CircuitBreaker { last_error, .. } => Some(last_error),
+            Self::HalfOpen { last_error } => Some(last_error),
             _ => None,
         }
     }
@@ -102,6 +252,8 @@ impl ConnectionState {
             Self::Connecting => "Connecting...",
             Self::Connected { .. } => "Connected",
             Self::Reconnecting { .. } => "Reconnecting...",
+            Self::CircuitBreaker { .. } => "Circuit breaker",
+            Self::HalfOpen { .. } => "Probing...",
             Self::Error { .. } => "Error",
         }
     }
@@ -117,6 +269,8 @@ impl PartialEq for ConnectionState {
             (Self::Reconnecting { attempt: a1, .. }, Self::Reconnecting { attempt: a2, .. }) => {
                 a1 == a2
             }
+            (Self::CircuitBreaker { .. }, Self::CircuitBreaker { .. }) => true,
+            (Self::HalfOpen { .. }, Self::HalfOpen { .. }) => true,
             (
                 Self::Error {
                     message: m1,
@@ -147,6 +301,12 @@ pub struct ReconnectConfig {
     pub jitter: bool,
     /// Whether auto-reconnect is enabled.
     pub enabled: bool,
+    /// Circuit breaker: failures required to trip.
+    pub circuit_breaker_threshold: u32,
+    /// Circuit breaker: failure window length.
+    pub circuit_breaker_window: Duration,
+    /// Circuit breaker: cooldown before probe.
+    pub circuit_breaker_cooldown: Duration,
 }
 
 impl Default for ReconnectConfig {
@@ -158,6 +318,9 @@ impl Default for ReconnectConfig {
             max_attempts: 0, // Unlimited
             jitter: true,
             enabled: true,
+            circuit_breaker_threshold: 5,
+            circuit_breaker_window: Duration::from_secs(30),
+            circuit_breaker_cooldown: Duration::from_secs(60),
         }
     }
 }
@@ -298,15 +461,18 @@ pub struct ConnectionManager {
     cancel_handle: Option<tokio::sync::oneshot::Sender<()>>,
     /// Current reconnect attempt (0 if not reconnecting)
     reconnect_attempt: u32,
+    /// Circuit breaker for failure protection
+    circuit_breaker: CircuitBreaker,
 }
 
 impl ConnectionManager {
     /// Create a new connection manager.
     pub fn new() -> Self {
         let (tx, rx) = mpsc::channel(4);
+        let config = ReconnectConfig::default();
         Self {
             state: ConnectionState::Disconnected,
-            config: ReconnectConfig::default(),
+            config: config.clone(),
             health_config: HealthConfig::default(),
             health_status: HealthStatus {
                 last_check: None,
@@ -322,6 +488,7 @@ impl ConnectionManager {
             rx,
             cancel_handle: None,
             reconnect_attempt: 0,
+            circuit_breaker: CircuitBreaker::new(&config),
         }
     }
 
@@ -329,7 +496,7 @@ impl ConnectionManager {
     #[allow(dead_code)]
     pub fn with_config(config: ReconnectConfig) -> Self {
         let mut manager = Self::new();
-        manager.config = config;
+        manager.set_config(config);
         manager
     }
 
@@ -350,6 +517,7 @@ impl ConnectionManager {
     #[allow(dead_code)]
     pub fn set_config(&mut self, config: ReconnectConfig) {
         self.config = config;
+        self.circuit_breaker.update_config(&self.config);
     }
 
     /// Get the health check configuration.
@@ -474,6 +642,29 @@ impl ConnectionManager {
         };
     }
 
+    fn open_circuit(&mut self, error: String) {
+        let cooldown_until = self.circuit_breaker.open_forced(error.clone());
+        self.state = ConnectionState::CircuitBreaker {
+            cooldown_until,
+            last_error: error,
+        };
+        self.reconnect_attempt = 0;
+    }
+
+    fn advance_circuit_breaker(
+        &mut self,
+        address: &DaemonAddress,
+        runtime: &tokio::runtime::Runtime,
+    ) {
+        if let Some(last_error) = self.circuit_breaker.enter_half_open_if_ready() {
+            self.state = ConnectionState::HalfOpen { last_error };
+        }
+
+        if matches!(self.state, ConnectionState::HalfOpen { .. }) && !self.is_busy() {
+            self.spawn_connect_task(address.clone(), runtime, None);
+        }
+    }
+
     /// Start a connection attempt.
     ///
     /// Returns `false` if a connection is already in progress.
@@ -483,8 +674,23 @@ impl ConnectionManager {
             return false;
         }
 
-        self.state = ConnectionState::Connecting;
+        self.circuit_breaker.enter_half_open_if_ready();
+        if let Some((cooldown_until, last_error)) = self.circuit_breaker.open_state() {
+            tracing::warn!("Connection attempt blocked by circuit breaker");
+            self.state = ConnectionState::CircuitBreaker {
+                cooldown_until,
+                last_error,
+            };
+            return false;
+        }
+
         self.reconnect_attempt = 0;
+        if let Some(last_error) = self.circuit_breaker.half_open_error() {
+            self.state = ConnectionState::HalfOpen { last_error };
+        } else {
+            self.state = ConnectionState::Connecting;
+        }
+
         tracing::info!(
             "Connecting to {} ({})",
             address.as_str(),
@@ -502,6 +708,19 @@ impl ConnectionManager {
         runtime: &tokio::runtime::Runtime,
         error: String,
     ) {
+        if let Some(cooldown_until) = self.circuit_breaker.record_failure(error.clone()) {
+            tracing::warn!(
+                "Circuit breaker opened - cooling down for {:.1}s",
+                self.config.circuit_breaker_cooldown.as_secs_f64()
+            );
+            self.state = ConnectionState::CircuitBreaker {
+                cooldown_until,
+                last_error: error,
+            };
+            self.reconnect_attempt = 0;
+            return;
+        }
+
         self.reconnect_attempt += 1;
 
         if !self.config.should_retry(self.reconnect_attempt) {
@@ -509,10 +728,7 @@ impl ConnectionManager {
                 "Max reconnect attempts ({}) reached",
                 self.config.max_attempts
             );
-            self.state = ConnectionState::Error {
-                message: format!("{} (max retries exceeded)", error),
-                retriable: false,
-            };
+            self.open_circuit(format!("{} (max retries exceeded)", error));
             return;
         }
 
@@ -618,6 +834,7 @@ impl ConnectionManager {
         runtime: &tokio::runtime::Runtime,
         address: &DaemonAddress,
     ) -> Option<(DaqClient, Option<String>)> {
+        self.advance_circuit_breaker(address, runtime);
         let result = match self.rx.try_recv() {
             Ok(r) => r,
             Err(_) => return None,
@@ -642,6 +859,7 @@ impl ConnectionManager {
                     connected_at: Instant::now(),
                 };
                 self.reconnect_attempt = 0;
+                self.circuit_breaker.record_success();
                 self.reset_health_status(); // Reset health tracking for new connection
                 tracing::info!("Connected to {}", connected_addr.as_str());
                 Some((*client, daemon_version))
@@ -663,6 +881,11 @@ impl ConnectionManager {
                 }
 
                 tracing::error!("Connection to {} failed: {}", failed_addr.as_str(), error);
+
+                if matches!(self.state, ConnectionState::HalfOpen { .. }) {
+                    self.open_circuit(error);
+                    return None;
+                }
 
                 if retriable && self.config.enabled {
                     // Start reconnection
@@ -687,15 +910,24 @@ impl ConnectionManager {
     /// Get seconds until next reconnect attempt, if reconnecting.
     #[must_use]
     pub fn seconds_until_retry(&self) -> Option<f64> {
-        if let ConnectionState::Reconnecting { next_retry_at, .. } = &self.state {
-            let now = Instant::now();
-            if *next_retry_at > now {
-                Some((*next_retry_at - now).as_secs_f64())
-            } else {
-                Some(0.0)
+        match &self.state {
+            ConnectionState::Reconnecting { next_retry_at, .. } => {
+                let now = Instant::now();
+                if *next_retry_at > now {
+                    Some((*next_retry_at - now).as_secs_f64())
+                } else {
+                    Some(0.0)
+                }
             }
-        } else {
-            None
+            ConnectionState::CircuitBreaker { cooldown_until, .. } => {
+                let now = Instant::now();
+                if *cooldown_until > now {
+                    Some((*cooldown_until - now).as_secs_f64())
+                } else {
+                    Some(0.0)
+                }
+            }
+            _ => None,
         }
     }
 
@@ -809,6 +1041,7 @@ mod tests {
             max_attempts: 0,
             jitter: false,
             enabled: true,
+            ..Default::default()
         };
 
         assert_eq!(config.delay_for_attempt(1), Duration::from_secs(1));
@@ -884,6 +1117,21 @@ mod tests {
             "Reconnecting..."
         );
         assert_eq!(
+            ConnectionState::CircuitBreaker {
+                cooldown_until: Instant::now(),
+                last_error: "test".into()
+            }
+            .label(),
+            "Circuit breaker"
+        );
+        assert_eq!(
+            ConnectionState::HalfOpen {
+                last_error: "test".into()
+            }
+            .label(),
+            "Probing..."
+        );
+        assert_eq!(
             ConnectionState::Error {
                 message: "test".into(),
                 retriable: true
@@ -891,6 +1139,28 @@ mod tests {
             .label(),
             "Error"
         );
+    }
+
+    #[test]
+    fn test_circuit_breaker_state_transitions() {
+        let config = ReconnectConfig {
+            circuit_breaker_threshold: 2,
+            circuit_breaker_window: Duration::from_millis(50),
+            circuit_breaker_cooldown: Duration::from_millis(10),
+            ..Default::default()
+        };
+        let mut breaker = CircuitBreaker::new(&config);
+
+        assert!(breaker.record_failure("err1".into()).is_none());
+        let opened = breaker.record_failure("err2".into());
+        assert!(opened.is_some());
+
+        std::thread::sleep(Duration::from_millis(15));
+        let half_open = breaker.enter_half_open_if_ready();
+        assert_eq!(half_open.as_deref(), Some("err2"));
+
+        let reopened = breaker.record_failure("probe failed".into());
+        assert!(reopened.is_some());
     }
 
     #[test]

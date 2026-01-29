@@ -705,6 +705,21 @@ message ParameterDescriptor {
   optional double min_value = 10;
   optional double max_value = 11;
   repeated string enum_values = 12;  // For enum type
+
+  // Structured metadata for validation and UI hints
+  optional ParameterMetadata metadata = 13;
+}
+
+// Parameter metadata for validation and UI hints
+message ParameterMetadata {
+  optional double min_value = 1;
+  optional double max_value = 2;
+  optional double step = 3;
+  string units = 4;
+  bool read_only = 5;
+  string dtype = 6;
+  repeated string enum_values = 7;
+  string description = 8;
 }
 
 message GetParameterRequest {
@@ -1815,6 +1830,9 @@ service StorageService {
   // Python/Julia clients can use this to discover the buffer location and
   // parameters needed to safely read data without gRPC overhead.
   rpc GetRingBufferTapInfo(GetRingBufferTapInfoRequest) returns (RingBufferTapInfo);
+
+  // Get tap health and backpressure statistics.
+  rpc GetTapStatus(GetTapStatusRequest) returns (GetTapStatusResponse);
 }
 
 // --------------------------------------------------------------------------
@@ -2119,6 +2137,25 @@ message RingBufferTapInfo {
   // Data format information
   string data_format = 20;           // "arrow_ipc", "raw", etc.
   optional string arrow_schema_json = 21;  // Arrow schema if applicable
+}
+
+message GetTapStatusRequest {
+  // Optional tap ID to filter. If omitted, returns all taps.
+  optional string tap_id = 1;
+}
+
+message TapStatus {
+  string tap_id = 1;
+  uint32 nth_frame = 2;
+  uint64 delivered_frames = 3;
+  uint64 dropped_frames = 4;
+  uint32 channel_capacity = 5;
+  uint32 channel_available = 6;
+  double channel_utilization = 7;
+}
+
+message GetTapStatusResponse {
+  repeated TapStatus taps = 1;
 }
 
 // =============================================================================

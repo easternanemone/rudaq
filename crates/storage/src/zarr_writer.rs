@@ -29,7 +29,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use daq_storage::zarr_writer::{ZarrWriter, ZarrArrayBuilder};
+//! use storage::zarr_writer::{ZarrWriter, ZarrArrayBuilder};
 //! use std::path::Path;
 //!
 //! #[tokio::main]

@@ -1131,7 +1131,7 @@ pub async fn start_server_with_hardware(
     let ring_buffer_size = storage_settings.ring_buffer_size_mb as u64;
 
     let ring_buffer = match tokio::task::spawn_blocking(move || {
-        RingBuffer::create(&ring_buffer_path, ring_buffer_size)
+        RingBuffer::create(&ring_buffer_path, ring_buffer_size as usize)
     })
     .await
     {
@@ -1158,6 +1158,10 @@ pub async fn start_server_with_hardware(
             None
         }
     };
+
+    if let Some(ref rb) = ring_buffer {
+        rb.set_tap_channel_capacity(storage_settings.tap_channel_size);
+    }
 
     // Spawn HDF5Writer background task if ring buffer is available
     // This is the "Business in the Back" of The Mullet Strategy
@@ -1385,7 +1389,7 @@ pub async fn start_server_with_hardware(
     };
 
     let preset_server = PresetServiceImpl::new(registry, default_preset_storage_path());
-    let storage_server = StorageServiceImpl::new(ring_buffer.clone());
+    let storage_server = StorageServiceImpl::new(ring_buffer.clone(), storage_settings);
 
     // Standard gRPC Health Check (grpc.health.v1)
     let standard_health_service = crate::grpc::health_service::HealthServiceImpl::new();

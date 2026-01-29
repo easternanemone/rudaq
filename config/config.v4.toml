@@ -33,3 +33,6 @@ allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
 # Directory where persistent recordings (HDF5) are saved.
 # output_directory = "./data"
+
+# Tap channel size (frames buffered per tap consumer).
+# tap_channel_size = 32

@@ -14,8 +14,8 @@
 //!
 //! ```no_run
 //! use std::path::Path;
-//! use daq_storage::ring_buffer::RingBuffer;
-//! use daq_storage::ring_buffer_reader::RingBufferReader;
+//! use storage::ring_buffer::RingBuffer;
+//! use storage::ring_buffer_reader::RingBufferReader;
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(Serialize, Deserialize, Debug)]
@@ -59,7 +59,7 @@ use tokio::sync::mpsc::Receiver;
 /// # Example
 ///
 /// ```no_run
-/// # use daq_storage::ring_buffer_reader::RingBufferReader;
+/// # use storage::ring_buffer_reader::RingBufferReader;
 /// # use tokio::sync::mpsc;
 /// # async fn example() {
 /// let (_tx, rx) = mpsc::channel(16);
@@ -99,8 +99,8 @@ impl RingBufferReader {
     ///
     /// ```no_run
     /// # use std::path::Path;
-    /// # use daq_storage::ring_buffer::RingBuffer;
-    /// # use daq_storage::ring_buffer_reader::RingBufferReader;
+    /// # use storage::ring_buffer::RingBuffer;
+    /// # use storage::ring_buffer_reader::RingBufferReader;
     /// # fn example() -> anyhow::Result<()> {
     /// let rb = RingBuffer::create(Path::new("/tmp/test.buf"), 10)?;
     /// let rx = rb.register_tap("client_1".to_string(), 1)?;
@@ -132,8 +132,8 @@ impl RingBufferReader {
     ///
     /// ```no_run
     /// # use std::path::Path;
-    /// # use daq_storage::ring_buffer::RingBuffer;
-    /// # use daq_storage::ring_buffer_reader::RingBufferReader;
+    /// # use storage::ring_buffer::RingBuffer;
+    /// # use storage::ring_buffer_reader::RingBufferReader;
     /// # use tokio::sync::mpsc;
     /// # async fn example() {
     /// # let (_tx, rx) = mpsc::channel(16);
@@ -176,8 +176,8 @@ impl RingBufferReader {
     ///
     /// ```no_run
     /// # use std::path::Path;
-    /// # use daq_storage::ring_buffer::RingBuffer;
-    /// # use daq_storage::ring_buffer_reader::RingBufferReader;
+    /// # use storage::ring_buffer::RingBuffer;
+    /// # use storage::ring_buffer_reader::RingBufferReader;
     /// # use serde::Deserialize;
     /// # use tokio::sync::mpsc;
     /// #[derive(Deserialize)]
@@ -217,8 +217,8 @@ impl RingBufferReader {
     ///
     /// ```no_run
     /// # use std::path::Path;
-    /// # use daq_storage::ring_buffer::RingBuffer;
-    /// # use daq_storage::ring_buffer_reader::RingBufferReader;
+    /// # use storage::ring_buffer::RingBuffer;
+    /// # use storage::ring_buffer_reader::RingBufferReader;
     /// # use tokio::sync::mpsc;
     /// # async fn example() {
     /// # let (_tx, rx) = mpsc::channel(16);
@@ -261,8 +261,8 @@ impl RingBufferReader {
     ///
     /// ```no_run
     /// # use std::path::Path;
-    /// # use daq_storage::ring_buffer::RingBuffer;
-    /// # use daq_storage::ring_buffer_reader::RingBufferReader;
+    /// # use storage::ring_buffer::RingBuffer;
+    /// # use storage::ring_buffer_reader::RingBufferReader;
     /// # use tokio::sync::mpsc;
     /// # fn example() {
     /// # let (_tx, rx) = mpsc::channel(16);
@@ -327,7 +327,7 @@ impl ReaderStats {
     /// # Example
     ///
     /// ```
-    /// # use daq_storage::ring_buffer_reader::ReaderStats;
+    /// # use storage::ring_buffer_reader::ReaderStats;
     /// let stats = ReaderStats {
     ///     frames_received: 90,
     ///     frames_dropped: 10,

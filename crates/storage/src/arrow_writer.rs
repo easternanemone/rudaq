@@ -81,7 +81,7 @@ struct BufferedEvent {
 /// # Example
 ///
 /// ```ignore
-/// use daq_storage::arrow_writer::ArrowDocumentWriter;
+/// use storage::arrow_writer::ArrowDocumentWriter;
 /// use std::path::PathBuf;
 ///
 /// let writer = ArrowDocumentWriter::new(PathBuf::from("/data/runs"));
@@ -288,7 +288,7 @@ fn flush_arrow_buffer(run: &mut ActiveArrowRun) -> Result<()> {
 /// # Example
 ///
 /// ```ignore
-/// use daq_storage::arrow_writer::ParquetDocumentWriter;
+/// use storage::arrow_writer::ParquetDocumentWriter;
 /// use std::path::PathBuf;
 ///
 /// let writer = ParquetDocumentWriter::new(PathBuf::from("/data/runs"));

@@ -258,6 +258,14 @@ impl StatusBar {
                 colors::RECONNECTING,
                 "Reconnecting...",
             ),
+            ConnectionState::CircuitBreaker { .. } => {
+                (icons::status::ERROR, colors::ERROR, "Circuit breaker open")
+            }
+            ConnectionState::HalfOpen { .. } => (
+                icons::status::LOADING,
+                colors::CONNECTING,
+                "Probing connection...",
+            ),
             ConnectionState::Error { .. } => {
                 (icons::status::ERROR, colors::ERROR, "Connection error")
             }
@@ -270,6 +278,16 @@ impl StatusBar {
             ConnectionState::Reconnecting { attempt, .. } => {
                 format!("Reconnecting (attempt {})", attempt)
             }
+            ConnectionState::CircuitBreaker { cooldown_until, .. } => {
+                let now = std::time::Instant::now();
+                let remaining = if *cooldown_until > now {
+                    (*cooldown_until - now).as_secs_f64()
+                } else {
+                    0.0
+                };
+                format!("Circuit breaker open ({:.0}s)", remaining)
+            }
+            ConnectionState::HalfOpen { .. } => "Probing connection...".to_string(),
             ConnectionState::Error { message, .. } => {
                 format!("Error: {}", message)
             }

@@ -79,7 +79,7 @@
 //! }
 //! ```
 
-use crate::observable::ParameterSet;
+use crate::observable::{ParameterMetadata, ParameterSet};
 use anyhow::Result;
 use async_trait::async_trait;
 
@@ -1038,6 +1038,13 @@ pub trait Loggable: Send + Sync {
 pub trait Parameterized: Send + Sync {
     /// Get device's parameter registry
     fn parameters(&self) -> &ParameterSet;
+
+    /// Get metadata for a specific parameter (cached by registry on registration).
+    fn get_parameter_metadata(&self, name: &str) -> Option<ParameterMetadata> {
+        self.parameters()
+            .get(name)
+            .map(|param| ParameterMetadata::from(&param.metadata()))
+    }
 }
 
 // =============================================================================

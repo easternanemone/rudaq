@@ -12,10 +12,11 @@ use crate::grpc::proto::{
     AcquisitionInfo, AcquisitionSummary, ConfigureStorageRequest, ConfigureStorageResponse,
     DeleteAcquisitionRequest, DeleteAcquisitionResponse, FlushToStorageRequest,
     FlushToStorageResponse, GetAcquisitionInfoRequest, GetRecordingStatusRequest,
-    GetRingBufferTapInfoRequest, GetStorageConfigRequest, Hdf5Config, Hdf5Structure,
-    ListAcquisitionsRequest, ListAcquisitionsResponse, RecordingProgress, RecordingState,
-    RecordingStatus, RingBufferTapInfo, StartRecordingRequest, StartRecordingResponse,
-    StopRecordingRequest, StopRecordingResponse, StorageConfig, StreamRecordingProgressRequest,
+    GetRingBufferTapInfoRequest, GetStorageConfigRequest, GetTapStatusRequest,
+    GetTapStatusResponse, Hdf5Config, Hdf5Structure, ListAcquisitionsRequest,
+    ListAcquisitionsResponse, RecordingProgress, RecordingState, RecordingStatus,
+    RingBufferTapInfo, StartRecordingRequest, StartRecordingResponse, StopRecordingRequest,
+    StopRecordingResponse, StorageConfig, StreamRecordingProgressRequest, TapStatus,
     storage_service_server::StorageService,
 };
 use std::collections::HashMap;
@@ -1050,6 +1051,42 @@ impl StorageService for StorageServiceImpl {
             data_format: "arrow_ipc".to_string(),
             arrow_schema_json,
         }))
+    }
+
+    async fn get_tap_status(
+        &self,
+        request: Request<GetTapStatusRequest>,
+    ) -> Result<Response<GetTapStatusResponse>, Status> {
+        let req = request.into_inner();
+        let ring_buffer = self
+            .ring_buffer
+            .as_ref()
+            .ok_or_else(|| Status::unavailable("Ring buffer not configured"))?;
+
+        let taps = if let Some(tap_id) = req.tap_id {
+            if let Some(h) = ring_buffer.tap_health_for(&tap_id) {
+                vec![h]
+            } else {
+                return Err(Status::not_found(format!("Tap '{}' not found", tap_id)));
+            }
+        } else {
+            ring_buffer.tap_health()
+        };
+
+        let taps = taps
+            .into_iter()
+            .map(|tap| TapStatus {
+                tap_id: tap.id,
+                nth_frame: tap.nth_frame as u32,
+                delivered_frames: tap.delivered_frames,
+                dropped_frames: tap.dropped_frames,
+                channel_capacity: tap.channel_capacity as u32,
+                channel_available: tap.channel_available as u32,
+                channel_utilization: tap.channel_utilization,
+            })
+            .collect();
+
+        Ok(Response::new(GetTapStatusResponse { taps }))
     }
 }
 

@@ -26,7 +26,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use daq_storage::comedi_writer::{ComediStreamWriter, ChannelConfig};
+//! use storage::comedi_writer::{ComediStreamWriter, ChannelConfig};
 //! use std::path::Path;
 //!
 //! #[tokio::main]

@@ -17,7 +17,7 @@
 //! ## Single Frame Export (Pooled - Zero-Copy, Recommended)
 //!
 //! ```rust,ignore
-//! use daq_storage::tiff_writer::TiffWriter;
+//! use storage::tiff_writer::TiffWriter;
 //! use pool::FrameData;
 //!
 //! // From a LoanedFrame (zero-allocation path)
@@ -28,7 +28,7 @@
 //! ## Single Frame Export (Legacy)
 //!
 //! ```rust,ignore
-//! use daq_storage::tiff_writer::TiffWriter;
+//! use storage::tiff_writer::TiffWriter;
 //! use common::data::Frame;
 //!
 //! let frame = Frame { width: 2048, height: 2048, bit_depth: 16, data: vec![0u8; 8388608], ..Default::default() };
@@ -38,7 +38,7 @@
 //! ## Stack Export
 //!
 //! ```rust,ignore
-//! use daq_storage::tiff_writer::TiffWriter;
+//! use storage::tiff_writer::TiffWriter;
 //!
 //! let frames: Vec<Frame> = acquire_frames();
 //! TiffWriter::write_stack(&frames, "stack.tiff")?;
@@ -144,7 +144,7 @@ impl TiffWriter {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use daq_storage::tiff_writer::TiffWriter;
+    /// use storage::tiff_writer::TiffWriter;
     /// use pool::FrameData;
     ///
     /// // From a LoanedFrame

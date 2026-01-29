@@ -24,6 +24,7 @@ members = [
     "crates/hardware",
     "crates/scripting",
     "crates/bin", "crates/server", "crates/experiment",
+    "crates/storage",
     "crates/ui",
     # "crates/examples",
 ]

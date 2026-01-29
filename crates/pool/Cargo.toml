@@ -11,10 +11,16 @@ crossbeam-queue = "0.3"
 parking_lot = "0.12"
 tokio = { workspace = true, features = ["sync", "time"] }
 tracing.workspace = true
+prometheus = { version = "0.14", optional = true }
+lazy_static = { version = "1.4", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 tokio-test = "0.4"
+
+[features]
+default = []
+metrics = ["dep:prometheus", "dep:lazy_static"]
 
 [lints]
 workspace = true

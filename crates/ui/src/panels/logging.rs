@@ -292,6 +292,7 @@ pub enum ConnectionStatus {
     Disconnected,
     Connecting,
     Connected,
+    CircuitBreaker,
     Error,
 }
 
@@ -320,6 +321,7 @@ impl ConnectionStatus {
             Self::Disconnected => "Disconnected",
             Self::Connecting => "Connecting...",
             Self::Connected => "Connected",
+            Self::CircuitBreaker => "Circuit breaker",
             Self::Error => "Error",
         }
     }
@@ -329,6 +331,7 @@ impl ConnectionStatus {
             Self::Disconnected => egui::Color32::GRAY,
             Self::Connecting => egui::Color32::YELLOW,
             Self::Connected => egui::Color32::GREEN,
+            Self::CircuitBreaker => egui::Color32::RED,
             Self::Error => egui::Color32::RED,
         }
     }

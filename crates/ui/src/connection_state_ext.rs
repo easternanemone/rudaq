@@ -16,6 +16,8 @@ impl ConnectionStateExt for ConnectionState {
             Self::Connecting => egui::Color32::YELLOW,
             Self::Connected { .. } => egui::Color32::GREEN,
             Self::Reconnecting { .. } => egui::Color32::YELLOW,
+            Self::CircuitBreaker { .. } => egui::Color32::RED,
+            Self::HalfOpen { .. } => egui::Color32::YELLOW,
             Self::Error { .. } => egui::Color32::RED,
         }
     }

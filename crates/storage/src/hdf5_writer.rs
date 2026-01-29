@@ -8,7 +8,7 @@
 //! The background writer translates Protobuf → HDF5 at 1 Hz without blocking
 //! the hardware loop.
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -39,8 +39,8 @@ use common::observable::ParameterSet;
 /// # Example
 ///
 /// ```no_run
-/// use daq_storage::ring_buffer::RingBuffer;
-/// use daq_storage::hdf5_writer::HDF5Writer;
+/// use storage::ring_buffer::RingBuffer;
+/// use storage::hdf5_writer::HDF5Writer;
 /// use std::sync::Arc;
 /// use std::path::Path;
 ///
@@ -391,7 +391,7 @@ impl HDF5Writer {
         if !timestamps.is_empty() {
             group
                 .new_dataset::<u64>()
-                .create("timestamps", timestamps.len())?
+                .create("timestamps")?
                 .write(&timestamps)?;
         }
 
@@ -399,7 +399,7 @@ impl HDF5Writer {
         if !point_indices.is_empty() {
             group
                 .new_dataset::<u32>()
-                .create("point_indices", point_indices.len())?
+                .create("point_indices")?
                 .write(&point_indices)?;
         }
 
@@ -409,7 +409,7 @@ impl HDF5Writer {
             for (device_id, positions) in &axis_positions {
                 axes_group
                     .new_dataset::<f64>()
-                    .create(device_id, positions.len())?
+                    .create(device_id.as_str())?
                     .write(positions)?;
             }
         }
@@ -420,7 +420,7 @@ impl HDF5Writer {
             for (device_id, values) in &data_values {
                 data_group
                     .new_dataset::<f64>()
-                    .create(device_id, values.len())?
+                    .create(device_id.as_str())?
                     .write(values)?;
             }
         }
@@ -696,7 +696,7 @@ impl HDF5Writer {
 
                         group
                             .new_dataset::<f64>()
-                            .create(dataset_name, values.len())?
+                            .create(dataset_name.as_str())?
                             .write(&values)?;
                     }
                     arrow::datatypes::DataType::Int64 => {
@@ -710,7 +710,7 @@ impl HDF5Writer {
 
                         group
                             .new_dataset::<i64>()
-                            .create(dataset_name, values.len())?
+                            .create(dataset_name.as_str())?
                             .write(&values)?;
                     }
                     _ => {

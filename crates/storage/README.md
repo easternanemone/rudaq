@@ -27,7 +27,7 @@ This crate provides the storage layer for rust-daq, handling:
 Memory-mapped circular buffer optimized for high-FPS camera streaming:
 
 ```rust,ignore
-use daq_storage::ring_buffer::RingBuffer;
+use storage::ring_buffer::RingBuffer;
 use std::path::Path;
 
 // Create a ring buffer with 100 frame slots
@@ -50,7 +50,7 @@ let frame = buffer.read_latest()?;
 
 #### HDF5 Writer
 ```rust,ignore
-use daq_storage::hdf5_writer::Hdf5Writer;
+use storage::hdf5_writer::Hdf5Writer;
 
 let writer = Hdf5Writer::create("experiment.h5")?;
 writer.write_frame("camera_1", &frame)?;
@@ -60,7 +60,7 @@ writer.flush()?;
 
 #### Arrow/Parquet Writer
 ```rust,ignore
-use daq_storage::arrow_writer::ArrowWriter;
+use storage::arrow_writer::ArrowWriter;
 
 let writer = ArrowWriter::new("data.parquet")?;
 writer.append_batch(&record_batch)?;
@@ -69,7 +69,7 @@ writer.finish()?;
 
 #### Zarr V3 Writer
 ```rust,ignore
-use daq_storage::zarr_writer::ZarrWriter;
+use storage::zarr_writer::ZarrWriter;
 
 let writer = ZarrWriter::create("experiment.zarr", shape, chunks)?;
 writer.write_chunk(coords, &data)?;
@@ -77,7 +77,7 @@ writer.write_chunk(coords, &data)?;
 
 #### TIFF Writer
 ```rust,ignore
-use daq_storage::tiff_writer::TiffWriter;
+use storage::tiff_writer::TiffWriter;
 
 let writer = TiffWriter::create("stack.tiff")?;
 writer.write_frame(&frame)?;  // Appends to stack
@@ -89,7 +89,7 @@ writer.finish()?;
 For external consumers (Python, visualization):
 
 ```rust,ignore
-use daq_storage::ring_buffer_reader::RingBufferReader;
+use storage::ring_buffer_reader::RingBufferReader;
 
 let reader = RingBufferReader::open("/tmp/daq_ring")?;
 while let Some(frame) = reader.read_next()? {

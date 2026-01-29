@@ -308,6 +308,12 @@ pub struct ObservableMetadata {
     #[serde(default)]
     pub max_value: Option<f64>,
 
+    /// Step size for numeric constraints (introspectable).
+    ///
+    /// When set, the GUI may use this as the increment step for sliders/inputs.
+    #[serde(default)]
+    pub step: Option<f64>,
+
     /// Enum values for choice constraints (introspectable).
     ///
     /// Populated by `with_choices_introspectable()`. When non-empty, the GUI
@@ -317,6 +323,39 @@ pub struct ObservableMetadata {
     /// per the proto contract (daq.proto:610).
     #[serde(default)]
     pub enum_values: Vec<String>,
+}
+
+/// Structured parameter metadata for validation and UI hints.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParameterMetadata {
+    pub description: Option<String>,
+    pub units: Option<String>,
+    pub read_only: bool,
+    #[serde(default)]
+    pub dtype: String,
+    #[serde(default)]
+    pub min_value: Option<f64>,
+    #[serde(default)]
+    pub max_value: Option<f64>,
+    #[serde(default)]
+    pub step: Option<f64>,
+    #[serde(default)]
+    pub enum_values: Vec<String>,
+}
+
+impl From<&ObservableMetadata> for ParameterMetadata {
+    fn from(metadata: &ObservableMetadata) -> Self {
+        Self {
+            description: metadata.description.clone(),
+            units: metadata.units.clone(),
+            read_only: metadata.read_only,
+            dtype: metadata.dtype.clone(),
+            min_value: metadata.min_value,
+            max_value: metadata.max_value,
+            step: metadata.step,
+            enum_values: metadata.enum_values.clone(),
+        }
+    }
 }
 
 impl<T> Observable<T>
@@ -337,6 +376,7 @@ where
                     dtype: String::new(),
                     min_value: None,
                     max_value: None,
+                    step: None,
                     enum_values: Vec::new(),
                 },
                 validator: None,
