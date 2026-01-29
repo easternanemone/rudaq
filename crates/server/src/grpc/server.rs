@@ -1127,19 +1127,32 @@ pub async fn start_server_with_hardware(
 
     // Create ring buffer for scan data persistence (The Mullet Strategy)
     // Use /dev/shm on Linux, /tmp on macOS for memory-mapped storage
-    let ring_buffer_path = &storage_settings.ring_buffer_path;
+    let ring_buffer_path = storage_settings.ring_buffer_path.clone();
+    let ring_buffer_size = storage_settings.ring_buffer_size_mb as u64;
 
-    let ring_buffer = match RingBuffer::create(
-        ring_buffer_path,
-        storage_settings.ring_buffer_size_mb as u64,
-    ) {
-        Ok(rb) => {
-            println!("  - RingBuffer: {} (100 MB)", ring_buffer_path.display());
+    let ring_buffer = match tokio::task::spawn_blocking(move || {
+        RingBuffer::create(&ring_buffer_path, ring_buffer_size)
+    })
+    .await
+    {
+        Ok(Ok(rb)) => {
+            println!(
+                "  - RingBuffer: {} ({} MB)",
+                storage_settings.ring_buffer_path.display(),
+                ring_buffer_size
+            );
             Some(std::sync::Arc::<storage::ring_buffer::RingBuffer>::new(rb))
+        }
+        Ok(Err(e)) => {
+            eprintln!(
+                "Warning: Failed to create ring buffer: {}. Scan data will not be persisted.",
+                e
+            );
+            None
         }
         Err(e) => {
             eprintln!(
-                "Warning: Failed to create ring buffer: {}. Scan data will not be persisted.",
+                "Warning: Ring buffer creation task panicked or was cancelled: {}",
                 e
             );
             None
