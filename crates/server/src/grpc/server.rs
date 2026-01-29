@@ -41,13 +41,11 @@ use tonic::{Request, Response, Status};
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use uuid::Uuid;
 
-use figment::{
-    Figment,
-    providers::{Env, Format, Serialized, Toml},
-};
 use http::HeaderValue;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use serde::{Deserialize, Serialize};
+
+use crate::config::{GrpcSettings, ServerConfig};
 
 #[cfg(feature = "storage_hdf5")]
 use storage::hdf5_writer::HDF5Writer;
@@ -74,76 +72,12 @@ struct ExecutionState {
     current_line: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-#[serde(default)]
-struct GrpcConfigFile {
-    grpc: GrpcSettings,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-struct GrpcSettings {
-    tls_cert_path: Option<PathBuf>,
-    tls_key_path: Option<PathBuf>,
-    auth_enabled: bool,
-    auth_token: Option<String>,
-    allowed_origins: Vec<String>,
-    bind_address: Option<IpAddr>,
-}
-
-impl Default for GrpcSettings {
-    fn default() -> Self {
-        Self {
-            tls_cert_path: None,
-            tls_key_path: None,
-            auth_enabled: false,
-            auth_token: None,
-            allowed_origins: Vec::new(),
-            bind_address: Some(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)),
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 struct JwtClaims {
     exp: Option<usize>,
     iss: Option<String>,
     aud: Option<String>,
     sub: Option<String>,
-}
-
-impl GrpcSettings {
-    fn load() -> Result<Self, Box<dyn std::error::Error>> {
-        let config_path = PathBuf::from("config/config.v4.toml");
-        let mut figment = Figment::from(Serialized::defaults(GrpcConfigFile::default()))
-            .merge(Env::prefixed("RUSTDAQ_").split("__"));
-
-        if config_path.exists() {
-            figment = figment.merge(Toml::file(&config_path));
-        } else {
-            eprintln!(
-                "⚠️  gRPC config file not found at {} (using defaults/env overrides)",
-                config_path.display()
-            );
-        }
-
-        let settings: GrpcConfigFile = figment.extract()?;
-        Ok(settings.grpc)
-    }
-
-    fn auth_token(&self) -> Option<&str> {
-        self.auth_token
-            .as_deref()
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-    }
-
-    fn bind_socket(&self, default_port: u16) -> SocketAddr {
-        let bind_ip = self
-            .bind_address
-            .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
-        SocketAddr::new(bind_ip, default_port)
-    }
 }
 
 fn build_tls_config(
@@ -1050,7 +984,9 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
     use crate::grpc::proto::health::health_check_response::ServingStatus;
     use crate::grpc::proto::health::health_server::HealthServer;
 
-    let grpc_settings = GrpcSettings::load()?;
+    let config = ServerConfig::load()?;
+    let grpc_settings = config.grpc;
+
     if grpc_settings.auth_enabled && grpc_settings.auth_token().is_none() {
         return Err("grpc.auth_enabled is true but grpc.auth_token is not configured".into());
     }
@@ -1171,7 +1107,10 @@ pub async fn start_server_with_hardware(
     use crate::grpc::scan_service::ScanServiceImpl;
     use crate::grpc::storage_service::StorageServiceImpl;
 
-    let grpc_settings = GrpcSettings::load()?;
+    let config = ServerConfig::load()?;
+    let grpc_settings = config.grpc;
+    let storage_settings = config.storage;
+
     if grpc_settings.auth_enabled && grpc_settings.auth_token().is_none() {
         return Err("grpc.auth_enabled is true but grpc.auth_token is not configured".into());
     }
@@ -1188,13 +1127,12 @@ pub async fn start_server_with_hardware(
 
     // Create ring buffer for scan data persistence (The Mullet Strategy)
     // Use /dev/shm on Linux, /tmp on macOS for memory-mapped storage
-    let ring_buffer_path = if cfg!(target_os = "linux") {
-        Path::new("/dev/shm/rust_daq_scan_data.buf")
-    } else {
-        Path::new("/tmp/rust_daq_scan_data.buf")
-    };
+    let ring_buffer_path = &storage_settings.ring_buffer_path;
 
-    let ring_buffer = match RingBuffer::create(ring_buffer_path, 100) {
+    let ring_buffer = match RingBuffer::create(
+        ring_buffer_path,
+        storage_settings.ring_buffer_size_mb as u64,
+    ) {
         Ok(rb) => {
             println!("  - RingBuffer: {} (100 MB)", ring_buffer_path.display());
             Some(std::sync::Arc::<storage::ring_buffer::RingBuffer>::new(rb))
@@ -1211,11 +1149,7 @@ pub async fn start_server_with_hardware(
     // Spawn HDF5Writer background task if ring buffer is available
     // This is the "Business in the Back" of The Mullet Strategy
     if let Some(ref rb) = ring_buffer {
-        let hdf5_output_path = if cfg!(target_os = "linux") {
-            Path::new("/tmp/rust_daq_scan_data.h5")
-        } else {
-            Path::new("/tmp/rust_daq_scan_data.h5")
-        };
+        let hdf5_output_path = &storage_settings.hdf5_path;
 
         match HDF5Writer::new(hdf5_output_path, rb.clone()) {
             Ok(writer) => {

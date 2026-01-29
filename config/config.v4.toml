@@ -15,3 +15,21 @@ auth_enabled = false
 
 # Allowed origins for gRPC-web (CORS). Keep this list tight.
 allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+[storage]
+# Path to the memory-mapped ring buffer file.
+# On Linux, use /dev/shm for performance. On macOS, use /tmp.
+# Defaults:
+# Linux: /dev/shm/rust_daq_scan_data.buf
+# macOS: /tmp/rust_daq_scan_data.buf
+# ring_buffer_path = "/tmp/rust_daq_scan_data.buf"
+
+# Size of the ring buffer in MB.
+# ring_buffer_size_mb = 100
+
+# Path to the HDF5 output file for scan data persistence.
+# Defaults: /tmp/rust_daq_scan_data.h5
+# hdf5_path = "/tmp/rust_daq_scan_data.h5"
+
+# Directory where persistent recordings (HDF5) are saved.
+# output_directory = "./data"

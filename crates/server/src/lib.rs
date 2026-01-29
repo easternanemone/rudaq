@@ -52,6 +52,7 @@
 #![allow(clippy::if_same_then_else)]
 #![allow(clippy::io_other_error)]
 
+pub mod config;
 pub mod grpc;
 pub mod health;
 #[cfg(feature = "modules")]

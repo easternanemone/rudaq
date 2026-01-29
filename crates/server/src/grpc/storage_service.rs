@@ -31,6 +31,8 @@ use tokio::task::JoinHandle;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
+use crate::config::StorageSettings as ConfigStorageSettings;
+
 #[cfg(feature = "storage_hdf5")]
 use crate::data::ring_buffer::RingBuffer;
 
@@ -236,9 +238,12 @@ pub struct StorageServiceImpl {
 
 impl StorageServiceImpl {
     /// Create a new StorageService
-    pub fn new(ring_buffer: Option<Arc<RingBuffer>>) -> Self {
+    pub fn new(ring_buffer: Option<Arc<RingBuffer>>, config: ConfigStorageSettings) -> Self {
+        let mut settings = StorageSettings::default();
+        settings.output_directory = config.output_directory;
+
         Self {
-            settings: Arc::new(RwLock::new(StorageSettings::default())),
+            settings: Arc::new(RwLock::new(settings)),
             current_recording: Arc::new(RwLock::new(None)),
             acquisitions: Arc::new(RwLock::new(HashMap::new())),
             is_recording: AtomicBool::new(false),
@@ -1058,7 +1063,7 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let ring_path = temp_dir.path().join("ring.buf");
         let ring_buffer = Arc::new(RingBuffer::create(&ring_path, 4).unwrap());
-        let service = StorageServiceImpl::new(Some(ring_buffer));
+        let service = StorageServiceImpl::new(Some(ring_buffer), ConfigStorageSettings::default());
 
         let request = Request::new(ConfigureStorageRequest {
             output_directory: temp_dir.path().to_string_lossy().to_string(),
@@ -1083,7 +1088,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_start_stop_recording() {
-        let service = StorageServiceImpl::new(None);
+        let service = StorageServiceImpl::new(None, ConfigStorageSettings::default());
         let temp_dir = tempfile::tempdir().unwrap();
 
         // Configure storage first
@@ -1140,7 +1145,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_acquisitions() {
-        let service = StorageServiceImpl::new(None);
+        let service = StorageServiceImpl::new(None, ConfigStorageSettings::default());
 
         let request = Request::new(ListAcquisitionsRequest {
             name_pattern: None,
@@ -1237,7 +1242,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_start_recording_path_traversal_blocked() {
-        let service = StorageServiceImpl::new(None);
+        let service = StorageServiceImpl::new(None, ConfigStorageSettings::default());
         let temp_dir = tempfile::tempdir().unwrap();
 
         // Configure storage first
