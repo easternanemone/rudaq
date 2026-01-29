@@ -740,10 +740,12 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "hardware")]
     fn test_comedi_discover_returns_vec() {
         // comedi_discover() should always return a Vec (possibly empty)
         // This test validates the function signature and basic behavior
-        // without requiring actual hardware
+        // without requiring actual hardware. Only run when comedi-sdk is enabled
+        // (bd-2m11.1): otherwise comedi_discover() panics.
         let devices = comedi_discover();
         // Should return a Vec (may be empty if no devices present)
         assert!(devices.len() <= 16); // Max 16 comedi devices possible

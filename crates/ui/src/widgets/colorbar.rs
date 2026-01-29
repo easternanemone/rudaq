@@ -97,15 +97,13 @@ impl Colorbar {
             // Fast path for linear mapping
             value
         } else {
-            // Convert midpoint to gamma:
-            // gamma = -log(0.5) / log(midpoint)
-            // This ensures: adjusted(midpoint) = 0.5
-            let gamma = if self.midpoint > 0.0 && self.midpoint < 1.0 {
-                -std::f32::consts::LN_2 / self.midpoint.ln()
-            } else {
-                1.0
-            };
-            value.powf(gamma).clamp(0.0, 1.0)
+            // Convert midpoint to gamma: gamma = ln(midpoint) / ln(0.5).
+            // This ensures: adjusted(midpoint) = 0.5. midpoint < 0.5 -> gamma > 1 (darkens);
+            // midpoint > 0.5 -> gamma < 1 (brightens). (bd-2m11.2: was inverted.)
+            // Clamp midpoint to avoid ln(0) / ln(1) NaN/Inf (PR review).
+            let midpoint = self.midpoint.clamp(1.0e-6, 1.0 - 1.0e-6);
+            let gamma = midpoint.ln() / 0.5_f32.ln();
+            value.clamp(0.0, 1.0).powf(gamma).clamp(0.0, 1.0)
         }
     }
 

@@ -3305,20 +3305,33 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_device_info_retries_on_truncated_response() -> Result<()> {
-        use tokio::io::AsyncWriteExt;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         let (mut host, device) = tokio::io::duplex(256);
         let port: SharedPort = Arc::new(Mutex::new(Box::new(device)));
 
         let driver = Ell14Driver::with_test_port(port, "2", 398.2222);
 
-        // Spawn a task to send mock responses
+        // Spawn a task to send mock responses (bd-2m11.5: mock must handle retries).
+        // First request -> truncated (16 chars); second request -> full (30 chars).
         let response_task = tokio::spawn(async move {
             let mut buf = vec![0u8; 64];
 
-            // First attempt: send truncated response (16 chars - simulates bus contention)
-            let _n = host.read(&mut buf).await.unwrap();
-            host.write_all(b"2IN0E14002842202115\n").await.unwrap(); // 16 chars
+            // First attempt: truncated response (simulates bus contention)
+            host.read(&mut buf)
+                .await
+                .expect("Mock should receive first request");
+            host.write_all(b"2IN0E14002842202115\n")
+                .await
+                .expect("Mock should send truncated response"); // 16 chars
+
+            // Second attempt (after driver retry): full 30-char response
+            host.read(&mut buf)
+                .await
+                .expect("Mock should receive second request after retry");
+            host.write_all(b"2IN0E140028422021150168000023000\n")
+                .await
+                .expect("Mock should send full response"); // 30 chars after IN
         });
 
         // This should retry once and succeed on second attempt
