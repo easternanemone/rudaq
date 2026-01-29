@@ -130,10 +130,9 @@ pub struct CallbackContext {
     pub pending_frames: std::sync::atomic::AtomicU32,
     /// Latest frame info from callback (informational, not for loss detection)
     pub latest_frame_nr: AtomicI32,
-    /// Condvar for efficient waiting (reduces CPU vs polling)
-    pub condvar: std::sync::Condvar,
-    /// Mutex paired with condvar - MUST be locked when notifying to avoid missed wakeups
-    pub mutex: std::sync::Mutex<bool>, // bool indicates "notified" state
+    /// Notify for efficient async waiting (bd-8hlm)
+    /// Replaces Condvar/Mutex to avoid blocking the async runtime
+    pub notify: tokio::sync::Notify,
     /// Shutdown signal to exit the wait loop
     pub shutdown: AtomicBool,
 
@@ -164,8 +163,7 @@ impl CallbackContext {
         Self {
             pending_frames: std::sync::atomic::AtomicU32::new(0),
             latest_frame_nr: AtomicI32::new(-1),
-            condvar: std::sync::Condvar::new(),
-            mutex: std::sync::Mutex::new(false),
+            notify: tokio::sync::Notify::new(),
             shutdown: AtomicBool::new(false),
             // SDK pattern fields
             hcam: AtomicI16::new(hcam),
@@ -215,20 +213,9 @@ impl CallbackContext {
                 "CallbackContext::signal_frame_ready - incrementing pending_frames"
             );
         }
-        // CRITICAL: Always notify, even if mutex is poisoned
-        // Use match to handle both Ok and Err cases
-        let mut guard = match self.mutex.lock() {
-            Ok(g) => g,
-            Err(poisoned) => {
-                tracing::warn!(
-                    frame_nr,
-                    "CallbackContext::signal_frame_ready - mutex poisoned, recovering"
-                );
-                poisoned.into_inner()
-            }
-        };
-        *guard = true; // Set notified flag
-        self.condvar.notify_one();
+        // Notify async waiter (bd-8hlm)
+        // Notify::notify_one() is non-blocking and safe to call from any context
+        self.notify.notify_one();
     }
 
     /// Wait for frames to be available with timeout
@@ -241,24 +228,14 @@ impl CallbackContext {
     /// This method handles poisoned mutex gracefully by using `into_inner()` to
     /// continue operation. This ensures the frame loop doesn't deadlock if the
     /// mutex was poisoned by an earlier panic elsewhere.
-    pub fn wait_for_frames(&self, timeout_ms: u64) -> u32 {
-        // Check if shutdown requested
+    pub async fn wait_for_frames(&self, timeout_ms: u64) -> u32 {
         if self.shutdown.load(Ordering::Acquire) {
             tracing::trace!("wait_for_frames: shutdown requested, returning 0");
             return 0;
         }
 
         // bd-fast-path-2026-01-17: CRITICAL FIX - Check pending_frames FIRST.
-        // The previous "no fast path" approach caused deadlocks:
-        // - Flattened loop processes ONE frame per wake
-        // - Multiple frames can arrive while processing (interrupt coalescing)
-        // - Consumer resets notified flag, processes one frame, returns to wait
-        // - But pending_frames > 0 - there's MORE work to do!
-        // - Consumer sleeps waiting for NEW notification that never comes
-        // - Buffer fills (~50 frames), camera stops in CIRC_NO_OVERWRITE mode
-        // - DEADLOCK: consumer sleeping, camera can't write
-        //
-        // Fix: If we have pending work, return immediately - don't wait for new signal.
+        // Fast path: if pending frames exist, return immediately
         let pending = self.pending_frames.load(Ordering::Acquire);
         if pending > 0 {
             tracing::trace!(
@@ -269,45 +246,20 @@ impl CallbackContext {
         }
 
         // No pending frames - wait for notification
-        let guard = match self.mutex.lock() {
-            Ok(g) => g,
-            Err(poisoned) => {
-                tracing::warn!("wait_for_frames: mutex poisoned, continuing with recovered guard");
-                poisoned.into_inner()
-            }
-        };
-
+        // Async wait for notification with timeout
         let timeout_duration = Duration::from_millis(timeout_ms);
-
-        // Simple predicate like minimal test: wait while NOT notified (and not shutdown)
-        let result = self
-            .condvar
-            .wait_timeout_while(guard, timeout_duration, |notified| {
-                !*notified && !self.shutdown.load(Ordering::Acquire)
-            });
-
-        match result {
-            Ok((mut guard, timeout_result)) => {
-                // ALWAYS reset notified flag (critical - minimal test does this)
-                *guard = false;
-
-                if timeout_result.timed_out() {
-                    tracing::trace!(timeout_ms, "wait_for_frames: timed out");
-                    0 // Return 0 on timeout
-                } else {
-                    // Signal received - return pending count
-                    self.pending_frames.load(Ordering::Acquire).max(1)
-                }
+        match timeout(timeout_duration, self.notify.notified()).await {
+            Ok(_) => {
+                // Notified - return pending count
+                // If spuriously notified, this returns 0 which is handled by caller
+                self.pending_frames.load(Ordering::Acquire)
             }
-            Err(poisoned) => {
-                let (mut guard, _timeout_result) = poisoned.into_inner();
-                *guard = false;
-                tracing::warn!("wait_for_frames: recovered from poisoned condvar wait");
-                0 // Treat poisoned mutex as timeout
+            Err(_) => {
+                tracing::trace!(timeout_ms, "wait_for_frames: timed out");
+                0 // Return 0 on timeout
             }
         }
     }
-
     /// Decrement the pending frames counter after successfully retrieving a frame
     #[inline]
     pub fn consume_one(&self) {
@@ -331,13 +283,9 @@ impl CallbackContext {
             "CallbackContext::signal_shutdown called"
         );
         self.shutdown.store(true, Ordering::Release);
-        if let Ok(mut guard) = self.mutex.lock() {
-            *guard = true;
-            self.condvar.notify_all();
-            tracing::debug!("CallbackContext::signal_shutdown - condvar notified");
-        } else {
-            tracing::warn!("CallbackContext::signal_shutdown - mutex lock failed");
-        }
+        // Notify all waiters
+        self.notify.notify_waiters();
+        tracing::debug!("CallbackContext::signal_shutdown - notify_waiters called");
     }
 
     /// Reset context state for new acquisition
@@ -351,9 +299,7 @@ impl CallbackContext {
         self.pending_frames.store(0, Ordering::SeqCst);
         self.latest_frame_nr.store(-1, Ordering::SeqCst);
         self.shutdown.store(false, Ordering::SeqCst);
-        if let Ok(mut guard) = self.mutex.lock() {
-            *guard = false;
-        }
+        // No need to reset notify manually as it's stateless
         // Reset SDK pattern fields
         self.frame_ptr.store(std::ptr::null_mut(), Ordering::SeqCst);
         if let Ok(mut guard) = self.frame_info.lock() {
@@ -3012,7 +2958,12 @@ impl PvcamAcquisition {
                 // Callback mode (bd-ek9n.2): Wait on condvar with timeout
                 // Returns number of pending frames (0 on timeout/shutdown)
                 let wait_start = std::time::Instant::now();
-                let pending = callback_ctx.wait_for_frames(CALLBACK_WAIT_TIMEOUT_MS);
+                // bd-async-8hlm: Use async wait_for_frames inside spawn_blocking context.
+                // Since we are in a spawn_blocking task, we can use block_on
+                // for the notification. Notify is async-only, so we use
+                // tokio::runtime::Handle::current().block_on to await the async function.
+                let pending = tokio::runtime::Handle::current()
+                    .block_on(callback_ctx.wait_for_frames(CALLBACK_WAIT_TIMEOUT_MS));
                 let wait_elapsed_ms = wait_start.elapsed().as_millis();
 
                 // TRACING: Wait result (bd-trace-2026-01-11)

@@ -115,7 +115,7 @@ pub struct DaqApp {
     auto_connect_state: AutoConnectState,
 
     /// Receiver for tracing log events (forwarded to logging panel)
-    log_receiver: std::sync::mpsc::Receiver<crate::gui_log_layer::GuiLogEvent>,
+    log_receiver: tokio::sync::mpsc::Receiver<crate::gui_log_layer::GuiLogEvent>,
 
     /// Theme preference (light/dark/system)
     theme_preference: ThemePreference,
@@ -267,7 +267,7 @@ impl DaqApp {
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         daemon_mode: DaemonMode,
-        log_receiver: std::sync::mpsc::Receiver<crate::gui_log_layer::GuiLogEvent>,
+        log_receiver: tokio::sync::mpsc::Receiver<crate::gui_log_layer::GuiLogEvent>,
     ) -> Self {
         // Load phosphor icons into egui fonts
         let mut fonts = egui::FontDefinitions::default();

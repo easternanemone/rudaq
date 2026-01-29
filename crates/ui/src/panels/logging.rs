@@ -9,8 +9,8 @@
 //! - Text search filtering
 
 use std::collections::VecDeque;
-use std::sync::mpsc;
 use std::time::Instant;
+use tokio::sync::mpsc;
 
 use crate::connection_state_ext::ConnectionStateExt;
 use eframe::egui;
@@ -441,7 +441,7 @@ pub struct LoggingPanel {
     /// Export in progress flag (bd-tjwm.8)
     export_in_progress: bool,
     /// Export result receiver (bd-tjwm.8)
-    export_rx: Option<mpsc::Receiver<Result<(usize, String), String>>>,
+    export_rx: Option<std::sync::mpsc::Receiver<Result<(usize, String), String>>>,
 
     // Status indicators
     pub connection_status: ConnectionStatus,
@@ -630,7 +630,7 @@ impl LoggingPanel {
 
         let path = self.export_path.clone();
         let content = self.generate_export();
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = std::sync::mpsc::channel();
 
         self.export_in_progress = true;
         self.export_status = Some(("Exporting...".to_string(), true));
@@ -657,10 +657,10 @@ impl LoggingPanel {
                     self.export_in_progress = false;
                     self.export_rx = None;
                 }
-                Err(mpsc::TryRecvError::Empty) => {
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
                     // Still in progress
                 }
-                Err(mpsc::TryRecvError::Disconnected) => {
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     self.export_status = Some(("Export thread crashed".to_string(), false));
                     self.export_in_progress = false;
                     self.export_rx = None;

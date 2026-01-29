@@ -713,81 +713,14 @@ impl RingBuffer {
                 return Vec::new();
             }
 
-            // SAFETY: header is valid for the lifetime of self
-            unsafe {
-                debug_assert!(HEADER_SIZE + self.capacity as usize <= self.mmap.len());
-
-                // Load epoch BEFORE read (must be even = no write in progress)
-                let epoch_before = (*self.header).write_epoch.load(Ordering::Acquire);
-
-                // If epoch is odd, a write is in progress - backoff and retry
-                // bd-jnfu.8: Use progressive backoff to reduce CPU during contention
-                if !epoch_before.is_multiple_of(2) {
-                    Self::backoff_sleep(retry);
-                    continue;
-                }
-
-                // Load positions with Acquire ordering to see all previous writes
-                let head = (*self.header).write_head.load(Ordering::Acquire);
-                let tail = (*self.header).read_tail.load(Ordering::Acquire);
-
-                // Calculate effective tail: if head is too far ahead, we must skip overwritten data
-                // This ensures we always read valid data in the correct logical order
-                let effective_tail = std::cmp::max(tail, head.saturating_sub(self.capacity));
-
-                // Calculate available data based on effective tail
-                let available = head.saturating_sub(effective_tail);
-
-                if available == 0 {
-                    return Vec::new();
-                }
-
-                // Calculate read offset (circular) based on EFFECTIVE tail
-                let read_offset = (effective_tail % self.capacity) as usize;
-
-                let mut buffer = vec![0u8; available as usize];
-
-                // Handle wrap-around
-                if read_offset + available as usize > self.capacity as usize {
-                    // SAFETY: read_offset < capacity (due to modulo), and first_part_len
-                    // is bounded by capacity - read_offset, so data_ptr.add(read_offset)
-                    // is within the mmap region [data_ptr, data_ptr + capacity)
-                    let first_part_len = self.capacity as usize - read_offset;
-                    let src = self.data_ptr.add(read_offset);
-                    std::ptr::copy_nonoverlapping(src, buffer.as_mut_ptr(), first_part_len);
-
-                    // SAFETY: second_part_len = available - first_part_len <= capacity,
-                    // and we read from data_ptr (start of data region) which is valid
-                    let second_part_len = available as usize - first_part_len;
-                    std::ptr::copy_nonoverlapping(
-                        self.data_ptr,
-                        buffer.as_mut_ptr().add(first_part_len),
-                        second_part_len,
-                    );
-                } else {
-                    // SAFETY: read_offset + available <= capacity, so the entire read
-                    // range [data_ptr + read_offset, data_ptr + read_offset + available)
-                    // is within the mmap data region
-                    let src = self.data_ptr.add(read_offset);
-                    std::ptr::copy_nonoverlapping(src, buffer.as_mut_ptr(), available as usize);
-                }
-
-                // Fence to ensure all data reads complete before loading epoch
-                // Required for ARM/Apple Silicon where loads can be reordered
-                fence(Ordering::SeqCst);
-
-                // Load epoch AFTER read - must match epoch_before
-                let epoch_after = (*self.header).write_epoch.load(Ordering::Acquire);
-
-                if epoch_before == epoch_after {
-                    // Read was consistent - no concurrent write occurred
-                    return buffer;
-                }
-
-                // Epoch changed - a write occurred during our read, retry with backoff
-                // bd-jnfu.8: Use progressive backoff to reduce CPU during contention
-                Self::backoff_sleep(retry);
+            // Try to perform a consistent read (optimistic concurrency control)
+            if let Some(buffer) = self.try_read_consistent() {
+                return buffer;
             }
+
+            // Backoff if consistent read failed due to concurrent write
+            // bd-jnfu.8: Use progressive backoff to reduce CPU during contention
+            Self::backoff_sleep(retry);
         }
 
         // After max retries, return empty (caller should handle high contention)
@@ -798,6 +731,90 @@ impl RingBuffer {
         Vec::new()
     }
 
+    /// Attempt a single consistent read of the ring buffer.
+    ///
+    /// Returns `Some(Vec<u8>)` if successful, or `None` if a concurrent write occurred.
+    /// This encapsulates the unsafe pointer logic and seqlock validation.
+    #[inline(always)]
+    fn try_read_consistent(&self) -> Option<Vec<u8>> {
+        // SAFETY: header and data_ptr are valid for the lifetime of self
+        unsafe {
+            debug_assert!(HEADER_SIZE + self.capacity as usize <= self.mmap.len());
+
+            // Load epoch BEFORE read (must be even = no write in progress)
+            let epoch_before = (*self.header).write_epoch.load(Ordering::Acquire);
+
+            // If epoch is odd, a write is in progress - abort immediately
+            if !epoch_before.is_multiple_of(2) {
+                return None;
+            }
+
+            // Load positions with Acquire ordering to see all previous writes
+            let head = (*self.header).write_head.load(Ordering::Acquire);
+            let tail = (*self.header).read_tail.load(Ordering::Acquire);
+
+            // Calculate effective tail: if head is too far ahead, we must skip overwritten data
+            let effective_tail = std::cmp::max(tail, head.saturating_sub(self.capacity));
+
+            // Calculate available data
+            let available = head.saturating_sub(effective_tail);
+
+            if available == 0 {
+                return Some(Vec::new());
+            }
+
+            // Validate available size against reasonable limits (defensive bounds check)
+            if available > self.capacity {
+                // This should be impossible due to saturating_sub logic above, but safety first
+                tracing::error!("available bytes {} > capacity {}", available, self.capacity);
+                return Some(Vec::new());
+            }
+
+            // Calculate read offset (circular) based on EFFECTIVE tail
+            let read_offset = (effective_tail % self.capacity) as usize;
+
+            let mut buffer = vec![0u8; available as usize];
+
+            // Handle wrap-around copy
+            if read_offset + available as usize > self.capacity as usize {
+                // Split copy: end of buffer + start of buffer
+                let first_part_len = self.capacity as usize - read_offset;
+
+                // Bounds check for first part
+                if first_part_len > 0 {
+                    let src = self.data_ptr.add(read_offset);
+                    std::ptr::copy_nonoverlapping(src, buffer.as_mut_ptr(), first_part_len);
+                }
+
+                // Bounds check for second part
+                let second_part_len = available as usize - first_part_len;
+                if second_part_len > 0 {
+                    std::ptr::copy_nonoverlapping(
+                        self.data_ptr,
+                        buffer.as_mut_ptr().add(first_part_len),
+                        second_part_len,
+                    );
+                }
+            } else {
+                // Contiguous copy
+                let src = self.data_ptr.add(read_offset);
+                std::ptr::copy_nonoverlapping(src, buffer.as_mut_ptr(), available as usize);
+            }
+
+            // Fence to ensure all data reads complete before loading epoch
+            // Required for ARM/Apple Silicon where loads can be reordered
+            fence(Ordering::SeqCst);
+
+            // Load epoch AFTER read - must match epoch_before
+            let epoch_after = (*self.header).write_epoch.load(Ordering::Acquire);
+
+            if epoch_before == epoch_after {
+                Some(buffer)
+            } else {
+                None
+            }
+        }
+    }
     /// Progressive backoff sleep to reduce CPU usage during contention (bd-jnfu.8)
     ///
     /// Uses a tiered approach:

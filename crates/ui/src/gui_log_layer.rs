@@ -3,7 +3,7 @@
 //! This layer captures tracing events and sends them through a channel
 //! to be displayed in the LoggingPanel.
 
-use std::sync::mpsc;
+use tokio::sync::mpsc;
 
 use tracing::field::{Field, Visit};
 use tracing::{Event, Level, Subscriber};
@@ -104,7 +104,7 @@ where
         };
 
         // Send to the logging panel (ignore errors if receiver is dropped)
-        let _ = self.sender.send(GuiLogEvent {
+        let _ = self.sender.try_send(GuiLogEvent {
             level,
             target,
             message,
@@ -117,6 +117,7 @@ where
 /// Returns (sender, receiver) pair. The sender goes to GuiLogLayer,
 /// the receiver goes to the logging panel.
 pub fn create_log_channel() -> (mpsc::Sender<GuiLogEvent>, mpsc::Receiver<GuiLogEvent>) {
-    // Use a bounded channel to prevent memory buildup if GUI is slow
-    mpsc::channel()
+    // Use a bounded tokio channel to prevent memory buildup if GUI is slow (bd-xcvw)
+    // 1024 events buffer should be sufficient for normal operation
+    mpsc::channel(1024)
 }
