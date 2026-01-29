@@ -45,9 +45,21 @@ pub use rhai;
 // =============================================================================
 
 use rhai::{EvalAltResult, Position};
+use std::cell::RefCell;
 use std::future::Future;
 use tokio::runtime::{Handle, RuntimeFlavor};
 use tokio::task::block_in_place;
+
+thread_local! {
+    static SCRIPT_RUNTIME_HANDLE: RefCell<Option<Handle>> = RefCell::new(None);
+}
+
+/// Set the Tokio runtime handle for the current script thread.
+/// This allows scripts running in dedicated threads (detached from Tokio)
+/// to execute async hardware calls via `run_blocking`.
+pub fn set_script_runtime_handle(handle: Handle) {
+    SCRIPT_RUNTIME_HANDLE.with(|h| *h.borrow_mut() = Some(handle));
+}
 
 /// Create a Rhai runtime error with a formatted message
 ///
@@ -90,20 +102,33 @@ where
     T: Send,
     E: std::fmt::Display,
 {
-    let handle = Handle::try_current()
-        .map_err(|e| rhai_error(&format!("{}: missing Tokio runtime", label), e))?;
-
-    if handle.runtime_flavor() == RuntimeFlavor::CurrentThread {
-        return Err(Box::new(EvalAltResult::ErrorRuntime(
-            format!(
-                "{}: Tokio current-thread runtime cannot run blocking hardware calls. \
-                 Use the multi-thread runtime (#[tokio::main(flavor = \"multi_thread\")]).",
-                label
+    // Try to get handle from thread-local storage first, then from Tokio context
+    let handle = SCRIPT_RUNTIME_HANDLE
+        .with(|h| h.borrow().clone())
+        .or_else(|| Handle::try_current().ok())
+        .ok_or_else(|| {
+            rhai_error(
+                &format!("{}: missing Tokio runtime", label),
+                "No runtime available",
             )
-            .into(),
-            Position::NONE,
-        )));
-    }
+        })?;
 
-    block_in_place(|| handle.block_on(fut)).map_err(|e| rhai_error(label, e))
+    // If we are in a Tokio runtime thread (TLS is set), we might need block_in_place.
+    // If we are in a detached thread (TLS not set), block_on is safe.
+    if Handle::try_current().is_ok() {
+        if handle.runtime_flavor() == RuntimeFlavor::CurrentThread {
+            return Err(Box::new(EvalAltResult::ErrorRuntime(
+                format!(
+                    "{}: Cannot block current-thread runtime from within runtime context",
+                    label
+                )
+                .into(),
+                Position::NONE,
+            )));
+        }
+        block_in_place(|| handle.block_on(fut)).map_err(|e| rhai_error(label, e))
+    } else {
+        // We are in a detached thread, safe to block
+        handle.block_on(fut).map_err(|e| rhai_error(label, e))
+    }
 }

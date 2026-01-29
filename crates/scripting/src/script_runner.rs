@@ -159,13 +159,20 @@ impl ScriptPlanRunner {
         let script_owned = script.to_string();
         let handle_for_script = yield_handle.clone();
 
-        // Spawn the script in a blocking task
-        let script_task = tokio::task::spawn_blocking(move || {
-            Self::run_script_blocking(&script_owned, handle_for_script)
+        // Spawn the script in a dedicated thread (detached from Tokio runtime)
+        // This allows run_blocking to use block_on without deadlock issues (bd-2f43)
+        let (script_done_tx, mut script_done_rx) = tokio::sync::oneshot::channel();
+        let runtime_handle = tokio::runtime::Handle::current();
+
+        std::thread::spawn(move || {
+            crate::set_script_runtime_handle(runtime_handle);
+            let result = Self::run_script_blocking(&script_owned, handle_for_script);
+            let _ = script_done_tx.send(result);
         });
 
         // Main loop: receive yielded values and execute them
         let timeout_deadline = Instant::now() + self.config.timeout;
+        let mut script_final_result = None;
 
         loop {
             // Check timeout
@@ -288,17 +295,32 @@ impl ScriptPlanRunner {
                 }
                 Err(_) => {
                     // Timeout on receive - check if script task is done
-                    if script_task.is_finished() {
-                        break;
+                    // Use try_recv to check if done without blocking
+                    match script_done_rx.try_recv() {
+                        Ok(res) => {
+                            script_final_result = Some(Ok(res));
+                            break;
+                        }
+                        Err(tokio::sync::oneshot::error::TryRecvError::Empty) => continue,
+                        Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                            // Sender dropped - thread panicked
+                            script_final_result =
+                                Some(Err(tokio::sync::oneshot::error::RecvError {}));
+                            break;
+                        }
                     }
-                    // Otherwise continue waiting
-                    continue;
                 }
             }
         }
 
         // Wait for script task to complete
-        match script_task.await {
+        // Use captured result or await if not yet received
+        let final_result = match script_final_result {
+            Some(res) => res,
+            None => script_done_rx.await,
+        };
+
+        match final_result {
             Ok(Ok(())) => {
                 info!(
                     "Script completed successfully: {} plans, {} events, {:?}",
