@@ -171,23 +171,17 @@ impl BufferPool {
     #[must_use]
     pub fn try_acquire(&self) -> Option<PooledBuffer> {
         // Try to acquire semaphore permit without blocking
-        let permit = match self.inner.semaphore.try_acquire() {
-            Ok(permit) => permit,
-            Err(_) => {
-                #[cfg(feature = "metrics")]
-                record_exhaustion_event();
-                return None;
-            }
+        let Ok(permit) = self.inner.semaphore.try_acquire() else {
+            #[cfg(feature = "metrics")]
+            record_exhaustion_event();
+            return None;
         };
 
         // Pop a buffer from the free queue
-        let buffer = match self.inner.free_buffers.pop() {
-            Some(buffer) => buffer,
-            None => {
-                #[cfg(feature = "metrics")]
-                record_exhaustion_event();
-                return None;
-            }
+        let Some(buffer) = self.inner.free_buffers.pop() else {
+            #[cfg(feature = "metrics")]
+            record_exhaustion_event();
+            return None;
         };
 
         // Update metrics
@@ -211,23 +205,18 @@ impl BufferPool {
     /// Returns `None` if the timeout expires before a buffer becomes available.
     pub async fn try_acquire_timeout(&self, timeout: Duration) -> Option<PooledBuffer> {
         // Try to acquire semaphore permit with timeout
-        let permit = match tokio::time::timeout(timeout, self.inner.semaphore.acquire()).await {
-            Ok(Ok(permit)) => permit,
-            _ => {
-                #[cfg(feature = "metrics")]
-                record_exhaustion_event();
-                return None;
-            }
+        let Ok(Ok(permit)) = tokio::time::timeout(timeout, self.inner.semaphore.acquire()).await
+        else {
+            #[cfg(feature = "metrics")]
+            record_exhaustion_event();
+            return None;
         };
 
         // Pop a buffer from the free queue
-        let buffer = match self.inner.free_buffers.pop() {
-            Some(buffer) => buffer,
-            None => {
-                #[cfg(feature = "metrics")]
-                record_exhaustion_event();
-                return None;
-            }
+        let Some(buffer) = self.inner.free_buffers.pop() else {
+            #[cfg(feature = "metrics")]
+            record_exhaustion_event();
+            return None;
         };
 
         // Update metrics
