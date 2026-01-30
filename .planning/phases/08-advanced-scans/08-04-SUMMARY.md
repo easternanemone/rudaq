@@ -40,9 +40,9 @@ NestedScan nodes translate to outer x inner iteration with body node execution a
 
 | File | Changes |
 |------|---------|
-| `crates/daq-egui/src/graph/translation.rs` | NestedScan body node handling, loop_body_set update, tests |
-| `crates/daq-egui/src/graph/validation.rs` | validate_nested_scan(), NestedScan in validate_loop_bodies(), tests |
-| `crates/daq-egui/src/graph/codegen.rs` | NestedScan codegen tests |
+| `crates/ui/src/graph/translation.rs` | NestedScan body node handling, loop_body_set update, tests |
+| `crates/ui/src/graph/validation.rs` | validate_nested_scan(), NestedScan in validate_loop_bodies(), tests |
+| `crates/ui/src/graph/codegen.rs` | NestedScan codegen tests |
 
 ## Tests Added
 

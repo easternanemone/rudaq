@@ -4,7 +4,7 @@ set -euo pipefail
 # Regenerate Rerun blueprints using an isolated venv.
 # Usage: scripts/regenerate_blueprints.sh
 
-BLUEPRINT_DIR="crates/daq-server/blueprints"
+BLUEPRINT_DIR="crates/server/blueprints"
 VENV="$BLUEPRINT_DIR/.venv"
 
 cd "$(dirname "$0")/.."

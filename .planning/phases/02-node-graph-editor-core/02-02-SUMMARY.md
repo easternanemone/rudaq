@@ -23,13 +23,13 @@ tech-stack:
     - "SnarlViewer::connect() override for validation"
 key-files:
   created:
-    - crates/daq-egui/src/widgets/node_palette.rs
-    - crates/daq-egui/src/graph/validation.rs
+    - crates/ui/src/widgets/node_palette.rs
+    - crates/ui/src/graph/validation.rs
   modified:
-    - crates/daq-egui/src/widgets/mod.rs (added node_palette export)
-    - crates/daq-egui/src/graph/mod.rs (added validation export)
-    - crates/daq-egui/src/graph/viewer.rs (connect/disconnect with validation)
-    - crates/daq-egui/src/panels/experiment_designer.rs (palette sidebar, drop handling)
+    - crates/ui/src/widgets/mod.rs (added node_palette export)
+    - crates/ui/src/graph/mod.rs (added validation export)
+    - crates/ui/src/graph/viewer.rs (connect/disconnect with validation)
+    - crates/ui/src/panels/experiment_designer.rs (palette sidebar, drop handling)
 decisions:
   - "Use context menu as primary node-add UX (reliable), drag-drop as bonus"
   - "Grid-based auto-positioning for new nodes to avoid overlap"
@@ -115,14 +115,14 @@ These additions are functional and pass tests but were not planned for this phas
 ## Files Changed
 
 **Created (2 files):**
-- `crates/daq-egui/src/widgets/node_palette.rs` (139 lines) - Palette widget
-- `crates/daq-egui/src/graph/validation.rs` (91 lines) - Connection validation
+- `crates/ui/src/widgets/node_palette.rs` (139 lines) - Palette widget
+- `crates/ui/src/graph/validation.rs` (91 lines) - Connection validation
 
 **Modified (4 files):**
-- `crates/daq-egui/src/widgets/mod.rs` (+4 lines) - Export NodePalette
-- `crates/daq-egui/src/graph/mod.rs` (+4 lines) - Export validation module
-- `crates/daq-egui/src/graph/viewer.rs` (+45 lines) - Connect validation, last_error
-- `crates/daq-egui/src/panels/experiment_designer.rs` (+140 lines) - Palette sidebar, drop handling
+- `crates/ui/src/widgets/mod.rs` (+4 lines) - Export NodePalette
+- `crates/ui/src/graph/mod.rs` (+4 lines) - Export validation module
+- `crates/ui/src/graph/viewer.rs` (+45 lines) - Connect validation, last_error
+- `crates/ui/src/panels/experiment_designer.rs` (+140 lines) - Palette sidebar, drop handling
 
 ## Commits
 

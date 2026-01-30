@@ -26,7 +26,7 @@ rust-daq/
 │   │       ├── platform.rs          # Platform-specific stubs
 │   │       └── serial.rs            # Serial port trait (requires "serial" feature)
 │   │
-│   ├── daq-hardware/                 # HAL: Registry, configuration, driver management
+│   ├── hardware/                 # HAL: Registry, configuration, driver management
 │   │   └── src/
 │   │       ├── lib.rs               # Public API re-exports
 │   │       ├── registry.rs          # DeviceRegistry (device lookup by capability)
@@ -46,7 +46,7 @@ rust-daq/
 │   │           ├── script_engine.rs # Sandboxed Rhai execution
 │   │           └── binary_protocol.rs # Modbus RTU, CRC support
 │   │
-│   ├── daq-driver-mock/             # Mock drivers for testing (no hardware)
+│   ├── driver-mock/             # Mock drivers for testing (no hardware)
 │   │   └── src/
 │   │       ├── lib.rs               # Factory registration, link() function
 │   │       ├── mock_stage.rs        # MockStage, MockStageFactory
@@ -54,33 +54,33 @@ rust-daq/
 │   │       ├── mock_power_meter.rs  # MockPowerMeter, MockPowerMeterFactory
 │   │       └── pattern.rs           # Gradient/checkerboard patterns
 │   │
-│   ├── daq-driver-thorlabs/         # Thorlabs ELL14 rotator (DriverFactory-based)
+│   ├── driver-thorlabs/         # Thorlabs ELL14 rotator (DriverFactory-based)
 │   │   └── src/
 │   │       ├── lib.rs               # Ell14Factory, module exports
 │   │       └── ...                  # ELL14 RS-485 bus implementation
 │   │
-│   ├── daq-driver-newport/          # Newport ESP300 motion, 1830-C power meter
+│   ├── driver-newport/          # Newport ESP300 motion, 1830-C power meter
 │   │   └── src/
 │   │       ├── lib.rs               # Esp300Factory, Newport1830CFactory
 │   │       └── ...                  # Serial drivers
 │   │
-│   ├── daq-driver-spectra-physics/  # MaiTai Ti:Sapphire laser
+│   ├── driver-spectra-physics/  # MaiTai Ti:Sapphire laser
 │   │   └── src/
 │   │       ├── lib.rs               # MaiTaiFactory
 │   │       └── ...                  # Laser control implementation
 │   │
-│   ├── daq-driver-pvcam/            # PVCAM camera (requires SDK)
+│   ├── driver-pvcam/            # PVCAM camera (requires SDK)
 │   │   ├── src/
 │   │   │   ├── lib.rs               # PvcamFactory, feature-gating
 │   │   │   └── ...                  # PVCAM bindings
 │   │   └── pvcam-sys/src/           # Low-level PVCAM FFI bindings
 │   │
-│   ├── daq-driver-comedi/           # Comedi DAQ boards (Linux)
+│   ├── driver-comedi/           # Comedi DAQ boards (Linux)
 │   │   └── src/
 │   │       ├── lib.rs               # ComediFactory
 │   │       └── ...                  # Comedi device driver
 │   │
-│   ├── daq-storage/                 # Data persistence and buffering
+│   ├── storage/                 # Data persistence and buffering
 │   │   └── src/
 │   │       ├── lib.rs               # Public API re-exports
 │   │       ├── ring_buffer.rs       # RingBuffer (sync), AsyncRingBuffer
@@ -93,13 +93,13 @@ rust-daq/
 │   │       ├── tap_registry.rs      # Tap/sink registration
 │   │       └── compression.rs       # Compression codec wrappers
 │   │
-│   ├── daq-pool/                    # Zero-allocation frame pool
+│   ├── pool/                    # Zero-allocation frame pool
 │   │   └── src/
 │   │       ├── lib.rs               # Pool<T> generic pool
 │   │       ├── buffer_pool.rs       # BufferPool specialized for bytes
 │   │       └── frame_data.rs        # Frame data structures
 │   │
-│   ├── daq-experiment/              # Bluesky-style experiment orchestration
+│   ├── experiment/              # Bluesky-style experiment orchestration
 │   │   └── src/
 │   │       ├── lib.rs               # RunEngine, Plan exports
 │   │       ├── run_engine.rs        # RunEngine state machine
@@ -107,7 +107,7 @@ rust-daq/
 │   │       ├── plans_daq.rs         # Concrete plans (GridScan, TimeSeries, VoltageScan)
 │   │       └── plans_imperative.rs  # Imperative plan executor
 │   │
-│   ├── daq-scripting/               # Rhai and optional Python scripting
+│   ├── scripting/               # Rhai and optional Python scripting
 │   │   └── src/
 │   │       ├── lib.rs               # RhaiEngine, ScriptEngine trait
 │   │       ├── rhai_engine.rs       # Rhai interpreter
@@ -120,7 +120,7 @@ rust-daq/
 │   │       ├── script_runner.rs     # ScriptPlanRunner, ScriptRunReport
 │   │       └── pyo3_engine.rs       # Python support (feature-gated)
 │   │
-│   ├── daq-proto/                   # Protobuf definitions and conversions
+│   ├── protocol/                   # Protobuf definitions and conversions
 │   │   ├── src/
 │   │   │   ├── lib.rs               # Generated proto module includes
 │   │   │   ├── convert.rs           # Domain ↔ Proto conversions
@@ -131,7 +131,7 @@ rust-daq/
 │   │       ├── health.proto         # gRPC health checking
 │   │       └── ni_daq.proto         # NI DAQ extensions
 │   │
-│   ├── daq-server/                  # gRPC backend server
+│   ├── server/                  # gRPC backend server
 │   │   └── src/
 │   │       ├── lib.rs               # Feature-gated module exports
 │   │       ├── grpc/
@@ -153,7 +153,7 @@ rust-daq/
 │   │       ├── modules/             # Module management (feature-gated)
 │   │       └── rerun_sink.rs        # Rerun visualization integration
 │   │
-│   ├── daq-egui/                    # GUI application
+│   ├── ui/                    # GUI application
 │   │   ├── src/
 │   │   │   ├── lib.rs               # Feature-gated API
 │   │   │   ├── main.rs              # CLI entry (standalone feature)
@@ -190,7 +190,7 @@ rust-daq/
 │   │   │       └── ...              # Custom widgets
 │   │   └── gui-tauri/               # Desktop wrapper (optional Tauri integration)
 │   │
-│   ├── daq-bin/                     # CLI and daemon entry point
+│   ├── bin/                     # CLI and daemon entry point
 │   │   └── src/
 │   │       └── main.rs              # Clap CLI, run/daemon/client commands
 │   │
@@ -203,13 +203,13 @@ rust-daq/
 │   │   ├── fuzz/                    # Fuzzing harnesses (excluded from workspace)
 │   │   └── python/                  # Python bindings (excluded)
 │   │
-│   ├── daq-plugin-api/              # FFI plugin interface (abi_stable)
+│   ├── plugin-api/              # FFI plugin interface (abi_stable)
 │   │   └── src/
 │   │
-│   ├── daq-plugin-example/          # Example plugin using daq-plugin-api
+│   ├── plugin-example/          # Example plugin using plugin-api
 │   │   └── src/
 │   │
-│   ├── daq-drivers/                 # Driver aggregation and linking
+│   ├── drivers/                 # Driver aggregation and linking
 │   │   └── src/
 │   │       ├── lib.rs               # Re-exports all driver crates
 │   │       └── link_drivers.rs      # Linker integration for factory registration
@@ -217,7 +217,7 @@ rust-daq/
 │   ├── comedi-sys/                  # Low-level Comedi FFI bindings
 │   │   └── src/
 │   │
-│   └── daq-examples/                # Example code (excluded from workspace build)
+│   └── examples/                # Example code (excluded from workspace build)
 │       └── ...
 │
 ├── config/                          # Configuration files and presets
@@ -273,52 +273,52 @@ rust-daq/
 - Contains: Capability traits (Movable, Readable, FrameProducer, etc.), Parameter<T>, Observable<T>, error types, limits enforcement
 - Key files: `capabilities.rs` (trait definitions), `parameter.rs` (reactive state), `driver.rs` (plugin interface)
 
-**crates/daq-hardware/:**
+**crates/hardware/:**
 - Purpose: Hardware abstraction layer and runtime device management
 - Contains: DeviceRegistry (device lookup by capability), DriverFactory implementations, configuration loading, port discovery
 - Key files: `registry.rs` (device registry), `factory.rs` (factory patterns), `drivers/mod.rs` (driver re-exports)
 
-**crates/daq-driver-*/ (mock, thorlabs, newport, spectra-physics, pvcam, comedi):**
+**crates/driver-*/ (mock, thorlabs, newport, spectra-physics, pvcam, comedi):**
 - Purpose: Individual hardware driver implementations
 - Contains: Device-specific initialization, serial communication, capability trait implementations
 - Key pattern: Each implements DriverFactory trait for registration; drivers are Arc-wrapped and accessed via trait objects
 
-**crates/daq-storage/:**
+**crates/storage/:**
 - Purpose: Data persistence, buffering, and format writing
 - Contains: Ring buffers (sync and async), writers (CSV, HDF5, Arrow, TIFF), document types
 - Key files: `ring_buffer.rs` (circular buffer), `document_writer.rs` (base writer trait), format-specific writers
 
-**crates/daq-pool/:**
+**crates/pool/:**
 - Purpose: Zero-allocation frame buffering for high-FPS acquisition
 - Contains: Generic Pool<T>, specialized BufferPool, Loaned pointer caching
 - Key pattern: Semaphore + lock-free queue avoids per-access locking; Loaned caches raw pointer
 
-**crates/daq-experiment/:**
+**crates/experiment/:**
 - Purpose: Bluesky-style plan execution and RunEngine orchestration
 - Contains: Plans (GridScan, TimeSeries, VoltageScan), RunEngine state machine, PlanRegistry
 - Key files: `run_engine.rs` (orchestrator), `plans.rs` (plan traits), `plans_daq.rs` (concrete plans)
 
-**crates/daq-scripting/:**
+**crates/scripting/:**
 - Purpose: Script-based automation with hardware bindings
 - Contains: RhaiEngine (default), optional PyO3Engine, bindings for stages/cameras/Comedi, yield channel infrastructure
 - Key files: `rhai_engine.rs` (Rhai interpreter), `bindings.rs` (hardware API), `script_runner.rs` (plan runner)
 
-**crates/daq-proto/:**
+**crates/protocol/:**
 - Purpose: gRPC transport layer and type conversions
 - Contains: Generated Protobuf types, domain ↔ proto conversions, compression/downsampling
 - Key files: `proto/daq.proto` (main service definition), `convert.rs` (type mapping)
 
-**crates/daq-server/:**
+**crates/server/:**
 - Purpose: gRPC backend services
 - Contains: HardwareService (device listing, streaming), RunEngineService (plan execution), ScriptingService, health checks
 - Key files: `server.rs` (listener and interceptors), `hardware_service.rs`, `run_engine_service.rs`
 
-**crates/daq-egui/:**
+**crates/ui/:**
 - Purpose: Desktop GUI application
 - Contains: App state machine, panels (devices, images, signals, plans, scripts), gRPC client, auto-reconnect logic
 - Key files: `app.rs` (main UI state), `client.rs` (gRPC client wrapper), `panels/` (individual UI panels)
 
-**crates/daq-bin/:**
+**crates/bin/:**
 - Purpose: CLI entry point and daemon launcher
 - Contains: Clap parser, subcommands (run, daemon, client)
 - Key files: `main.rs` (all CLI logic)
@@ -351,9 +351,9 @@ rust-daq/
 ## Key File Locations
 
 **Entry Points:**
-- `crates/daq-bin/src/main.rs` - CLI commands (run script, start daemon, remote control)
-- `crates/daq-egui/src/main.rs` - GUI application (standalone feature)
-- `crates/daq-egui/src/main_rerun.rs` - Rerun visualization entry
+- `crates/bin/src/main.rs` - CLI commands (run script, start daemon, remote control)
+- `crates/ui/src/main.rs` - GUI application (standalone feature)
+- `crates/ui/src/main_rerun.rs` - Rerun visualization entry
 
 **Configuration:**
 - `crates/rust-daq/src/config.rs` - AppConfig structure and Figment loading
@@ -362,47 +362,47 @@ rust-daq/
 
 **Core Logic:**
 - `crates/common/src/driver.rs` - DriverFactory plugin interface
-- `crates/daq-hardware/src/registry.rs` - DeviceRegistry (runtime device lookup)
-- `crates/daq-experiment/src/run_engine.rs` - Plan execution and orchestration
-- `crates/daq-server/src/grpc/hardware_service.rs` - gRPC device listing and streaming
+- `crates/hardware/src/registry.rs` - DeviceRegistry (runtime device lookup)
+- `crates/experiment/src/run_engine.rs` - Plan execution and orchestration
+- `crates/server/src/grpc/hardware_service.rs` - gRPC device listing and streaming
 
 **Hardware Drivers:**
-- `crates/daq-driver-mock/src/` - Mock drivers (testing)
-- `crates/daq-driver-thorlabs/src/` - Thorlabs ELL14 (DriverFactory-based)
-- `crates/daq-driver-newport/src/` - Newport ESP300 and 1830-C
-- `crates/daq-driver-spectra-physics/src/` - MaiTai laser
-- `crates/daq-driver-pvcam/src/` - PVCAM camera (requires SDK)
+- `crates/driver-mock/src/` - Mock drivers (testing)
+- `crates/driver-thorlabs/src/` - Thorlabs ELL14 (DriverFactory-based)
+- `crates/driver-newport/src/` - Newport ESP300 and 1830-C
+- `crates/driver-spectra-physics/src/` - MaiTai laser
+- `crates/driver-pvcam/src/` - PVCAM camera (requires SDK)
 
 **Testing:**
-- `crates/daq-driver-mock/src/` - Mock implementations for all devices
+- `crates/driver-mock/src/` - Mock implementations for all devices
 - `crates/common/examples/` - Example code and review checks
 - Individual crates: `tests/` directories with integration tests
 
 **GUI:**
-- `crates/daq-egui/src/app.rs` - Main app state machine and rendering loop
-- `crates/daq-egui/src/panels/` - Individual panel implementations
-- `crates/daq-egui/src/client.rs` - gRPC client wrapper
+- `crates/ui/src/app.rs` - Main app state machine and rendering loop
+- `crates/ui/src/panels/` - Individual panel implementations
+- `crates/ui/src/client.rs` - gRPC client wrapper
 
 **gRPC:**
-- `crates/daq-proto/proto/daq.proto` - Service definition (HardwareService, RunEngineService, ScriptingService, etc.)
-- `crates/daq-server/src/grpc/` - Service implementations
+- `crates/protocol/proto/daq.proto` - Service definition (HardwareService, RunEngineService, ScriptingService, etc.)
+- `crates/server/src/grpc/` - Service implementations
 
 ## Naming Conventions
 
 **Files:**
 - Rust source files: `snake_case.rs` (e.g., `mock_stage.rs`, `error_mapping.rs`)
-- Driver crates: `daq-driver-{lowercase}` (e.g., `daq-driver-thorlabs`, `daq-driver-pvcam`)
+- Driver crates: `driver-{lowercase}` (e.g., `driver-thorlabs`, `driver-pvcam`)
 - Feature: `snake_case` in Cargo.toml (e.g., `pvcam_hardware`, `storage_hdf5`)
 
 **Directories:**
-- Crate names: `daq-{component}` or `{vendor}-sys` (e.g., `common`, `daq-storage`, `comedi-sys`)
+- Crate names: `daq-{component}` or `{vendor}-sys` (e.g., `common`, `storage`, `comedi-sys`)
 - Module subdirs: Flat structure preferred (one file per module); complex modules get subdirs (e.g., `panels/`, `drivers/`, `grpc/`)
 - Config: Lowercase with dashes for machine/host names (e.g., `maitai_hardware.toml`, `hosts/maitai.env`)
 
 **Modules:**
 - Public re-exports: `prelude.rs` for organized imports
 - Feature-gated: `#[cfg(feature = "...")]` wrapping entire module blocks
-- Legacy compatibility: Kept alongside new implementations (e.g., `drivers/ell14.rs` legacy alongside `daq-driver-thorlabs/`)
+- Legacy compatibility: Kept alongside new implementations (e.g., `drivers/ell14.rs` legacy alongside `driver-thorlabs/`)
 
 **Types:**
 - Traits: PascalCase, action-verb names (e.g., `Movable`, `FrameProducer`, `Triggerable`)
@@ -413,45 +413,45 @@ rust-daq/
 ## Where to Add New Code
 
 **New Hardware Driver:**
-1. Create `crates/daq-driver-{device-name}/Cargo.toml`
-2. Implement `crates/daq-driver-{device-name}/src/lib.rs` with struct implementing `DriverFactory`
+1. Create `crates/driver-{device-name}/Cargo.toml`
+2. Implement `crates/driver-{device-name}/src/lib.rs` with struct implementing `DriverFactory`
 3. Driver struct implements capability traits (e.g., `Movable`, `Readable`)
-4. Register in composition root: `daq-bin/src/main.rs` calls `registry.register_factory(Box::new(MyFactory))`
+4. Register in composition root: `bin/src/main.rs` calls `registry.register_factory(Box::new(MyFactory))`
 
 **New Capability Trait:**
 1. Define in `crates/common/src/capabilities.rs` (async, Send + Sync)
 2. Add variant to `Capability` enum in `common/src/driver.rs`
 3. Add field to `DeviceComponents` struct (e.g., `.with_my_capability(driver)`)
-4. Update gRPC service if remote access needed: `crates/daq-server/src/grpc/hardware_service.rs`
+4. Update gRPC service if remote access needed: `crates/server/src/grpc/hardware_service.rs`
 
 **New Plan Type:**
-1. Define struct in `crates/daq-experiment/src/plans_daq.rs` (for DAQ-specific) or `plans_imperative.rs`
+1. Define struct in `crates/experiment/src/plans_daq.rs` (for DAQ-specific) or `plans_imperative.rs`
 2. Implement `Plan` trait (async fn next() -> Option<PlanCommand>)
 3. Register with `PlanRegistry`: `registry.register("plan_name", Box::new(my_plan))`
-4. Optional: Add Rhai bindings in `crates/daq-scripting/src/plan_bindings.rs`
+4. Optional: Add Rhai bindings in `crates/scripting/src/plan_bindings.rs`
 
 **New GUI Panel:**
-1. Create file in `crates/daq-egui/src/panels/{panel_name}.rs`
+1. Create file in `crates/ui/src/panels/{panel_name}.rs`
 2. Struct must implement panel trait (typically `fn ui(&mut self, ui: &mut egui::Ui)`)
 3. Register in `panels/mod.rs`: add to panel enum and match in rendering loop
 4. Add toggle in app state to show/hide: `app.show_{panel_name}`
 
 **New gRPC Service:**
-1. Define `service` in `crates/daq-proto/proto/daq.proto`
-2. Run code generation (build script auto-generates Rust types in `crates/daq-proto/src/daq.rs`)
-3. Implement service struct in `crates/daq-server/src/grpc/{service_name}.rs`
-4. Register server in `crates/daq-server/src/grpc/server.rs`: add `ServiceServer` to Server builder
+1. Define `service` in `crates/protocol/proto/daq.proto`
+2. Run code generation (build script auto-generates Rust types in `crates/protocol/src/daq.rs`)
+3. Implement service struct in `crates/server/src/grpc/{service_name}.rs`
+4. Register server in `crates/server/src/grpc/server.rs`: add `ServiceServer` to Server builder
 
 **New Storage Format:**
-1. Create writer in `crates/daq-storage/src/{format}_writer.rs`
+1. Create writer in `crates/storage/src/{format}_writer.rs`
 2. Implement `DocumentWriter` trait
-3. Add feature flag in `crates/daq-storage/Cargo.toml` (e.g., `storage_myformat`)
-4. Register in `StorageFormat` enum in `crates/daq-storage/src/comedi_writer.rs`
+3. Add feature flag in `crates/storage/Cargo.toml` (e.g., `storage_myformat`)
+4. Register in `StorageFormat` enum in `crates/storage/src/comedi_writer.rs`
 
 **Utility Functions (Shared Code):**
 1. If crate-independent: Add to `crates/common/src/` new module
 2. If hardware-specific: Add to driver crate's utilities module
-3. If UI: Add to `crates/daq-egui/src/widgets/` for reusable components
+3. If UI: Add to `crates/ui/src/widgets/` for reusable components
 4. Cross-crate imports via `use rust_daq::prelude::*` or direct crate imports
 
 ## Special Directories
@@ -468,7 +468,7 @@ rust-daq/
 - Committed: Yes (source), No (compiled .so)
 - Excluded from workspace builds
 
-**crates/daq-examples/:**
+**crates/examples/:**
 - Purpose: Example projects and demonstrations
 - Generated: No
 - Committed: Yes

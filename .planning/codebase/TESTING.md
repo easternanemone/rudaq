@@ -161,8 +161,8 @@ mod tests {
 
 **Patterns:**
 
-1. **Mock Drivers (dedicated crate `daq-driver-mock`):**
-   - Location: `crates/daq-driver-mock/src/`
+1. **Mock Drivers (dedicated crate `driver-mock`):**
+   - Location: `crates/driver-mock/src/`
    - Implementations:
      - `MockStage` - Simulated motion control with 10mm/sec speed, 50ms settling
      - `MockCamera` - Simulated 2D imaging at ~30fps (33ms frame readout)
@@ -171,7 +171,7 @@ mod tests {
 
 2. **Creating Mock Instances:**
    ```rust
-   use daq_driver_mock::{MockCamera, MockStage, MockPowerMeter};
+   use driver_mock::{MockCamera, MockStage, MockPowerMeter};
 
    let camera = Arc::new(MockCamera::new());
    let stage = Arc::new(MockStage::new());
@@ -180,8 +180,8 @@ mod tests {
 
 3. **Mock Registry Setup:**
    ```rust
-   use daq_driver_mock::register_all;
-   use daq_hardware::DeviceRegistry;
+   use driver_mock::register_all;
+   use hardware::DeviceRegistry;
 
    let registry = DeviceRegistry::new();
    register_all(&registry);
@@ -193,7 +193,7 @@ mod tests {
    - Use with default mock feature in workspace (no SDK required)
 
 **What to Mock:**
-- Hardware devices (cameras, stages, sensors) → use `daq-driver-mock`
+- Hardware devices (cameras, stages, sensors) → use `driver-mock`
 - Serial ports → implicit in mock drivers
 - File I/O for data storage tests → use `tempfile` crate
 - External services → manual wrapper structs with test implementations
@@ -282,7 +282,7 @@ cargo llvm-cov --html
 - **Scope:** Multiple components working together (device + registry, service + database)
 - **Location:** Separate files in `tests/` directory
 - **Approach:**
-  - Use mock devices from `daq-driver-mock`
+  - Use mock devices from `driver-mock`
   - Build realistic workflows (stage device → move → read → unstage)
   - Verify inter-component communication
 - **Example patterns:**

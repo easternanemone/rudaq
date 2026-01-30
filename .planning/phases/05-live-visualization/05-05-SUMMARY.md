@@ -27,7 +27,7 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/daq-egui/src/panels/experiment_designer.rs
+    - crates/ui/src/panels/experiment_designer.rs
 
 key-decisions:
   - "Camera streams use Preview quality (30 FPS) for live visualization bandwidth optimization"
@@ -79,7 +79,7 @@ Tasks were combined into a single commit due to tight coupling:
 
 ## Files Created/Modified
 
-- `crates/daq-egui/src/panels/experiment_designer.rs` - Added streaming task spawning and channel wiring
+- `crates/ui/src/panels/experiment_designer.rs` - Added streaming task spawning and channel wiring
 
 ## Decisions Made
 
@@ -134,12 +134,12 @@ None - no external configuration required. Streaming automatically wires when de
 **Verification Evidence:**
 ```bash
 # Both senders now used:
-$ rg "try_send" crates/daq-egui/src/panels/experiment_designer.rs
+$ rg "try_send" crates/ui/src/panels/experiment_designer.rs
 1239:                                    if tx.try_send(update).is_err() {
 1281:                                                if tx.try_send(update).is_err() {
 
 # No compilation errors:
-$ cargo check -p daq-egui
+$ cargo check -p ui
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
 ```
 

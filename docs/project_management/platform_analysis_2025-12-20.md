@@ -24,12 +24,12 @@ rust-daq implements a **headless-first V5 architecture** for scientific instrume
 
 **Modular Crate Structure:**
 - `common`: Foundation types, capabilities, errors
-- `daq-hardware`: Capability-based HAL with real drivers (PVCAM, Thorlabs ELL14, Newport ESP300, MaiTai laser)
-- `daq-experiment`: RunEngine with Bluesky-inspired Plan system
-- `daq-scripting`: Rhai embedded scripting (Python planned)
-- `daq-storage`: Multi-backend persistence (CSV, HDF5, Arrow)
-- `daq-server`: gRPC server with streaming support
-- `daq-egui`: Native GUI with real-time visualization
+- `hardware`: Capability-based HAL with real drivers (PVCAM, Thorlabs ELL14, Newport ESP300, MaiTai laser)
+- `experiment`: RunEngine with Bluesky-inspired Plan system
+- `scripting`: Rhai embedded scripting (Python planned)
+- `storage`: Multi-backend persistence (CSV, HDF5, Arrow)
+- `server`: gRPC server with streaming support
+- `ui`: Native GUI with real-time visualization
 - `rust-daq`: Integration layer with organized prelude
 
 **Data Pipeline ("Mullet Strategy"):**
@@ -146,7 +146,7 @@ trait Triggerable { async fn trigger(&self) -> Result<()>; }
 1. **One-shot:** Direct execution with hardcoded mock devices (v0.5.0)
 2. **Daemon:** gRPC-based execution with config-file devices (v0.6.0)
 
-**Current Bindings (daq-scripting/src/bindings.rs):**
+**Current Bindings (scripting/src/bindings.rs):**
 ```rhai
 camera.arm()
 camera.trigger()

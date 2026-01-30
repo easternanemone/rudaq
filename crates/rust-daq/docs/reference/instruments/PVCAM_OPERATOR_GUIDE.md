@@ -355,13 +355,13 @@ For diagnosing camera issues, enable detailed trace logging with environment var
 ```bash
 # Enable general PVCAM debug logging
 export PVCAM_TRACE=1
-export RUST_LOG=daq_driver_pvcam=debug
+export RUST_LOG=driver_pvcam=debug
 
 # Enable high-frequency frame loop tracing (very verbose)
 export PVCAM_TRACE_EVERY=1
 
 # Run with trace-level logging
-RUST_LOG=daq_driver_pvcam=trace cargo test --features pvcam_hardware
+RUST_LOG=driver_pvcam=trace cargo test --features pvcam_hardware
 ```
 
 **Environment Variables:**
@@ -370,8 +370,8 @@ RUST_LOG=daq_driver_pvcam=trace cargo test --features pvcam_hardware
 |----------|-------------|
 | `PVCAM_TRACE=1` | Enable debug logging for connection, setup, and acquisition |
 | `PVCAM_TRACE_EVERY=1` | Log every frame in the acquisition loop (very verbose) |
-| `RUST_LOG=daq_driver_pvcam=debug` | Standard Rust tracing at debug level |
-| `RUST_LOG=daq_driver_pvcam=trace` | Maximum verbosity including FFI calls |
+| `RUST_LOG=driver_pvcam=debug` | Standard Rust tracing at debug level |
+| `RUST_LOG=driver_pvcam=trace` | Maximum verbosity including FFI calls |
 
 **What gets logged:**
 - Camera open/close operations with PVCAM error codes

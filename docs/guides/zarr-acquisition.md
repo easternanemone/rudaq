@@ -540,4 +540,4 @@ for (wl_idx, wavelength) in wavelengths.iter().enumerate() {
 
 - [Zarr Specification](https://zarr-specs.readthedocs.io/en/latest/v3/core/v3.0.0.html)
 - [Xarray Documentation](http://xarray.pydata.org/)
-- [rust-daq storage module](../../crates/daq-storage/README.md)
+- [rust-daq storage module](../../crates/storage/README.md)

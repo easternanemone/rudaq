@@ -21,11 +21,11 @@ Currently, adding a new capability (e.g., "Spectrometer") requires touching **6 
 | Layer | File | Change Required |
 |-------|------|-----------------|
 | Core | `common/src/driver.rs` | Add to `Capability` enum |
-| Schema | `daq-hardware/src/plugin/schema.rs` | Add to `CapabilitiesConfig` struct |
-| Registry (struct) | `daq-hardware/src/registry.rs` | Add `Option<Arc<dyn Trait>>` field |
-| Registry (introspection) | `daq-hardware/src/registry.rs` | Update `capabilities()` method |
-| Proto | `daq-proto/proto/daq.proto` | Add `bool is_X = N;` flag |
-| gRPC | `daq-server/src/grpc/hardware_service.rs` | Add manual mapping logic |
+| Schema | `hardware/src/plugin/schema.rs` | Add to `CapabilitiesConfig` struct |
+| Registry (struct) | `hardware/src/registry.rs` | Add `Option<Arc<dyn Trait>>` field |
+| Registry (introspection) | `hardware/src/registry.rs` | Update `capabilities()` method |
+| Proto | `protocol/proto/daq.proto` | Add `bool is_X = N;` flag |
+| gRPC | `server/src/grpc/hardware_service.rs` | Add manual mapping logic |
 
 This violates DRY and creates risk of silent API failures when proto/gRPC layers are not updated.
 
@@ -50,19 +50,19 @@ move_abs_cmd = "ma{addr}{pos}"
 
 ### Layer 2: Driver Factory (Runtime Instantiation)
 
-**Source:** `daq-hardware/src/registry.rs`
+**Source:** `hardware/src/registry.rs`
 
 The registry inspects structural config and instantiates Rust trait objects. `Parameterized` is ALWAYS wired for plugins.
 
 ### Layer 3: Registry Introspection (Internal API)
 
-**Source:** `daq-hardware/src/registry.rs`
+**Source:** `hardware/src/registry.rs`
 
 This layer ignores the TOML string list entirely. It checks which Rust trait objects are actually present, outputting a dynamic `Vec<Capability>`.
 
 ### Layer 4: gRPC Service (External API)
 
-**Source:** `daq-server/src/grpc/hardware_service.rs`
+**Source:** `server/src/grpc/hardware_service.rs`
 
 Manual mapping from `Vec<Capability>` to boolean proto flags. **This is where gaps occur.**
 
@@ -154,7 +154,7 @@ message DeviceInfo {
 ## References
 
 - `crates/common/src/driver.rs` - Capability enum
-- `crates/daq-hardware/src/registry.rs` - Registry introspection
-- `crates/daq-hardware/src/plugin/schema.rs` - TOML schema
-- `crates/daq-server/src/grpc/hardware_service.rs` - Proto translation
-- `crates/daq-proto/proto/daq.proto` - DeviceInfo message
+- `crates/hardware/src/registry.rs` - Registry introspection
+- `crates/hardware/src/plugin/schema.rs` - TOML schema
+- `crates/server/src/grpc/hardware_service.rs` - Proto translation
+- `crates/protocol/proto/daq.proto` - DeviceInfo message

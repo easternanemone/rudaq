@@ -1,4 +1,4 @@
-# daq-storage
+# storage
 
 High-throughput data storage and buffering infrastructure for rust-daq.
 
@@ -163,5 +163,5 @@ See `examples/` in the workspace root:
 ## See Also
 
 - [`common`](../common/) - Frame types and core abstractions
-- [`daq-pool`](../daq-pool/) - Zero-allocation frame pooling
-- [`daq-experiment`](../daq-experiment/) - Experiment orchestration
+- [`pool`](../pool/) - Zero-allocation frame pooling
+- [`experiment`](../experiment/) - Experiment orchestration

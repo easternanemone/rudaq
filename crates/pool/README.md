@@ -1,4 +1,4 @@
-# daq-pool
+# pool
 
 Zero-allocation object pool for high-performance frame handling in the rust-daq system.
 

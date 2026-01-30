@@ -147,5 +147,5 @@ This maps the `Movable::move_abs(degrees)` trait method to the device's `move_ab
 ## Reference
 
 - [ELL14 Protocol Manual](https://www.thorlabs.com/Software/Elliptec/Communications_Protocol/) - Thorlabs Elliptec protocol documentation
-- [GenericSerialDriver](../../crates/daq-hardware/src/drivers/generic_serial.rs) - The runtime interpreter
-- [Device Config Schema](../../crates/daq-hardware/src/config/schema.rs) - Full TOML schema reference
+- [GenericSerialDriver](../../crates/hardware/src/drivers/generic_serial.rs) - The runtime interpreter
+- [Device Config Schema](../../crates/hardware/src/config/schema.rs) - Full TOML schema reference

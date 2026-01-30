@@ -12,7 +12,7 @@
       "echo 'Devbox ready: comedi + rust toolchain available.'"
     ],
     "scripts": {
-      "tests:core": "cargo test -p daq-core -p daq-hardware -p daq-server",
+      "tests:core": "cargo test -p common -p hardware -p server",
       "tests:all": "cargo test"
     }
   }

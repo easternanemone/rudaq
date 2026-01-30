@@ -59,7 +59,7 @@
 //!
 //! Generate blueprints with:
 //! ```bash
-//! cd crates/daq-server/blueprints
+//! cd crates/server/blueprints
 //! pip install rerun-sdk
 //! python generate_blueprints.py
 //! ```
@@ -67,7 +67,7 @@
 //! Then load in Rust:
 //! ```rust,ignore
 //! let sink = RerunSink::new_server("0.0.0.0", 9876, false)?;
-//! sink.load_blueprint("crates/daq-server/blueprints/daq_default.rbl")?;
+//! sink.load_blueprint("crates/server/blueprints/daq_default.rbl")?;
 //! ```
 
 use anyhow::Result;
@@ -340,12 +340,12 @@ impl RerunSink {
     /// Load a blueprint from an .rbl file.
     ///
     /// The blueprint's application ID must match the recording's application ID.
-    /// Generate blueprints using `crates/daq-server/blueprints/generate_blueprints.py`.
+    /// Generate blueprints using `crates/server/blueprints/generate_blueprints.py`.
     ///
     /// # Example
     /// ```rust,ignore
     /// let sink = RerunSink::new()?;
-    /// sink.load_blueprint("crates/daq-server/blueprints/daq_default.rbl")?;
+    /// sink.load_blueprint("crates/server/blueprints/daq_default.rbl")?;
     /// ```
     pub fn load_blueprint(&self, path: impl AsRef<Path>) -> Result<()> {
         self.rec.log_file_from_path(

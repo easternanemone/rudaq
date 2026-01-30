@@ -792,7 +792,7 @@ if (pl_some_function(args) != PV_OK) {
 
 ### Current Implementation Status
 
-The rust-daq PVCAM driver (`crates/daq-driver-pvcam/`) implements:
+The rust-daq PVCAM driver (`crates/driver-pvcam/`) implements:
 
 - **Connection management** (`components/connection.rs`): Init, open, close
 - **Acquisition** (`components/acquisition.rs`): EOF callbacks, circular buffer, streaming
@@ -801,7 +801,7 @@ The rust-daq PVCAM driver (`crates/daq-driver-pvcam/`) implements:
 
 ### FFI Bindings
 
-Located in `crates/daq-driver-pvcam/pvcam-sys/`:
+Located in `crates/driver-pvcam/pvcam-sys/`:
 - Generated from PVCAM SDK headers
 - Requires `PVCAM_SDK_DIR` environment variable
 
@@ -880,6 +880,6 @@ cargo test --features 'instrument_photometrics,pvcam_sdk,hardware_tests' \
 ## References
 
 - **Official Documentation**: https://docs.teledynevisionsolutions.com/pvcam-sdk/
-- **rust-daq PVCAM Driver**: `crates/daq-driver-pvcam/`
-- **FFI Bindings**: `crates/daq-driver-pvcam/pvcam-sys/`
+- **rust-daq PVCAM Driver**: `crates/driver-pvcam/`
+- **FFI Bindings**: `crates/driver-pvcam/pvcam-sys/`
 - **Troubleshooting**: `docs/troubleshooting/PVCAM_SETUP.md`

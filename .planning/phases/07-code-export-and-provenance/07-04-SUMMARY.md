@@ -27,10 +27,10 @@ tech-stack:
 
 key-files:
   created:
-    - crates/daq-egui/src/panels/script_editor.rs
+    - crates/ui/src/panels/script_editor.rs
   modified:
-    - crates/daq-egui/src/panels/experiment_designer.rs
-    - crates/daq-egui/src/panels/mod.rs
+    - crates/ui/src/panels/experiment_designer.rs
+    - crates/ui/src/panels/mod.rs
 
 key-decisions:
   - "ScriptEditorPanel is separate from graph editor, not embedded"
@@ -96,9 +96,9 @@ Each task was committed atomically:
 
 ## Files Created/Modified
 
-- `crates/daq-egui/src/panels/script_editor.rs` - New ScriptEditorPanel with full editor functionality
-- `crates/daq-egui/src/panels/experiment_designer.rs` - Added export, eject buttons and mode switching
-- `crates/daq-egui/src/panels/mod.rs` - Exported ScriptEditorPanel
+- `crates/ui/src/panels/script_editor.rs` - New ScriptEditorPanel with full editor functionality
+- `crates/ui/src/panels/experiment_designer.rs` - Added export, eject buttons and mode switching
+- `crates/ui/src/panels/mod.rs` - Exported ScriptEditorPanel
 
 ## Decisions Made
 
@@ -116,7 +116,7 @@ Each task was committed atomically:
 - **Found during:** Task 4 (Human verification)
 - **Issue:** Code preview panel didn't scroll when text exceeded viewport height
 - **Fix:** Replaced fixed `with_rows()` with dynamic height calculation based on available viewport
-- **Files modified:** crates/daq-egui/src/panels/experiment_designer.rs
+- **Files modified:** crates/ui/src/panels/experiment_designer.rs
 - **Verification:** Code preview now scrolls properly for long scripts, no loss of content
 - **Committed in:** 06b39aea (separate fix commit from verification feedback)
 
@@ -124,7 +124,7 @@ Each task was committed atomically:
 - **Found during:** Task 4 (Human verification)
 - **Issue:** Code preview panel was overflowing outside tab boundaries, causing visual layout issues
 - **Fix:** Changed to `show_inside()` for CodeEditor to respect egui panel constraints
-- **Files modified:** crates/daq-egui/src/panels/experiment_designer.rs
+- **Files modified:** crates/ui/src/panels/experiment_designer.rs
 - **Verification:** Code preview now properly contained within tab, no overflow
 - **Committed in:** 06b39aea (same fix commit)
 

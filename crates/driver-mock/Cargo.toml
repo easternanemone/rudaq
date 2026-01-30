@@ -1,0 +1,38 @@
+[package]
+name = "driver-mock"
+version = "0.1.0"
+edition = "2024"
+description = "Mock hardware drivers for testing and simulation in rust-daq"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/TheFermiSea/rust-daq"
+
+[dependencies]
+# Core dependencies
+common = { path = "../common" }
+pool = { path = "../pool" }
+
+# Async runtime
+tokio = { workspace = true, features = ["sync", "time"] }
+async-trait.workspace = true
+futures.workspace = true
+
+# Error handling
+anyhow.workspace = true
+
+# Configuration
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+toml.workspace = true
+
+# Logging
+tracing.workspace = true
+
+# Random number generation
+rand = "0.8"
+rand_chacha = "0.3"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[lints]
+workspace = true

@@ -2,7 +2,7 @@
 //!
 //! This module provides infrastructure for loading modules from various sources:
 //!
-//! - **Native plugins** (via daq-plugin-api): Compiled Rust plugins using abi_stable
+//! - **Native plugins** (via plugin-api): Compiled Rust plugins using abi_stable
 //! - **Script plugins** (this module): Rhai and Python scripts that implement modules
 //!
 //! # Architecture
@@ -10,7 +10,7 @@
 //! ```text
 //! ModuleRegistry (rust-daq/src/modules/)
 //! ├── Built-in modules (PowerMonitor, etc.)
-//! ├── Native plugins (daq-plugin-api) [requires native_plugins feature]
+//! ├── Native plugins (plugin-api) [requires native_plugins feature]
 //! │   ├── FfiModuleWrapper - Adapts FFI to Module trait
 //! │   └── PluginModuleFactory - Creates wrapped instances
 //! └── Script plugins (this module) [requires scripting feature]
@@ -37,4 +37,4 @@ mod native_plugins;
 pub use native_plugins::{FfiModuleWrapper, PluginModuleFactory};
 
 #[cfg(feature = "native_plugins")]
-pub use daq_plugin_api::{LoadedPlugin, PluginManager};
+pub use plugin_api::{LoadedPlugin, PluginManager};

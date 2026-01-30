@@ -9,4 +9,4 @@ rule:
     - pattern: anyhow::bail!($$$)
 files:
   - "crates/common/"
-  - "crates/daq-hardware/"
+  - "crates/hardware/"

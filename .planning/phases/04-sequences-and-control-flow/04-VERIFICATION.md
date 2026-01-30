@@ -32,12 +32,12 @@ score: 4/4 must-haves verified
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `crates/daq-egui/src/graph/nodes.rs` | MoveConfig, WaitCondition, AcquireConfig, LoopConfig | ✓ VERIFIED | 185 lines, all config structs present with Default impls, MoveMode enum (Absolute/Relative), WaitCondition enum (Duration/Threshold/Stability), LoopTermination enum (Count/Condition/Infinite) |
-| `crates/daq-egui/src/widgets/device_selector.rs` | DeviceSelector widget with autocomplete | ✓ VERIFIED | 98 lines, substantive implementation with fuzzy matching, dropdown popup, graceful hint text display |
-| `crates/daq-egui/src/widgets/property_inspector.rs` | Full property inspectors for all node types | ✓ VERIFIED | 495 lines, show_move_inspector (lines 61-106), show_wait_inspector (194-340), show_acquire_inspector (142-191), show_loop_inspector (343-495) all substantive with complete UI controls |
-| `crates/daq-egui/src/widgets/node_palette.rs` | Move, Wait, Acquire, Loop in palette | ✓ VERIFIED | All 4 node types in NodeType::all(), create_node() method maps to default constructors |
-| `crates/daq-egui/src/graph/translation.rs` | Loop body detection and unrolling | ✓ VERIFIED | find_loop_body_nodes() at line 387, Loop translation with unrolling at line 325-373, handles Count/Condition/Infinite variants |
-| `crates/daq-egui/src/graph/validation.rs` | Loop body validation | ✓ VERIFIED | validate_loop_body() at line 147, warn_relative_moves_in_loop() at line 181, find_ancestors() for back-edge detection |
+| `crates/ui/src/graph/nodes.rs` | MoveConfig, WaitCondition, AcquireConfig, LoopConfig | ✓ VERIFIED | 185 lines, all config structs present with Default impls, MoveMode enum (Absolute/Relative), WaitCondition enum (Duration/Threshold/Stability), LoopTermination enum (Count/Condition/Infinite) |
+| `crates/ui/src/widgets/device_selector.rs` | DeviceSelector widget with autocomplete | ✓ VERIFIED | 98 lines, substantive implementation with fuzzy matching, dropdown popup, graceful hint text display |
+| `crates/ui/src/widgets/property_inspector.rs` | Full property inspectors for all node types | ✓ VERIFIED | 495 lines, show_move_inspector (lines 61-106), show_wait_inspector (194-340), show_acquire_inspector (142-191), show_loop_inspector (343-495) all substantive with complete UI controls |
+| `crates/ui/src/widgets/node_palette.rs` | Move, Wait, Acquire, Loop in palette | ✓ VERIFIED | All 4 node types in NodeType::all(), create_node() method maps to default constructors |
+| `crates/ui/src/graph/translation.rs` | Loop body detection and unrolling | ✓ VERIFIED | find_loop_body_nodes() at line 387, Loop translation with unrolling at line 325-373, handles Count/Condition/Infinite variants |
+| `crates/ui/src/graph/validation.rs` | Loop body validation | ✓ VERIFIED | validate_loop_body() at line 147, warn_relative_moves_in_loop() at line 181, find_ancestors() for back-edge detection |
 
 ### Key Link Verification
 

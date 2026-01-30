@@ -11,53 +11,53 @@ common = { path = "../common" }
 # Driver crates (all optional, enabled via features)
 #
 # Note: The following driver crates will be created during the driver decoupling migration:
-# - daq-driver-thorlabs (Phase 4) - ELL14 rotation mounts
-# - daq-driver-newport (Phase 5) - ESP300, 1830-C
-# - daq-driver-spectra-physics (Phase 6) - MaiTai laser
-# - daq-driver-mock (Phase 3) - Mock devices for testing
+# - driver-thorlabs (Phase 4) - ELL14 rotation mounts
+# - driver-newport (Phase 5) - ESP300, 1830-C
+# - driver-spectra-physics (Phase 6) - MaiTai laser
+# - driver-mock (Phase 3) - Mock devices for testing
 #
 # For now, we include the existing driver crates:
-daq-driver-pvcam = { path = "../daq-driver-pvcam", optional = true }
-daq-driver-comedi = { path = "../daq-driver-comedi", optional = true }
+driver-pvcam = { path = "../driver-pvcam", optional = true }
+driver-comedi = { path = "../driver-comedi", optional = true }
 
 # Mock drivers for testing and simulation
-daq-driver-mock = { path = "../daq-driver-mock", optional = true }
+driver-mock = { path = "../driver-mock", optional = true }
 
 # Thorlabs ELL14 rotation mount driver
-daq-driver-thorlabs = { path = "../daq-driver-thorlabs", optional = true }
+driver-thorlabs = { path = "../driver-thorlabs", optional = true }
 
 # Newport ESP300 motion controller and 1830-C power meter
-daq-driver-newport = { path = "../daq-driver-newport", optional = true }
+driver-newport = { path = "../driver-newport", optional = true }
 
 # Generic config-driven serial driver
-daq-driver-generic = { path = "../daq-driver-generic", optional = true }
+driver-generic = { path = "../driver-generic", optional = true }
 
 # Spectra-Physics MaiTai Ti:Sapphire laser
-daq-driver-spectra-physics = { path = "../daq-driver-spectra-physics", optional = true }
+driver-spectra-physics = { path = "../driver-spectra-physics", optional = true }
 
 [features]
 default = []
 
 # Individual driver features
-pvcam = ["dep:daq-driver-pvcam"]
-pvcam_sdk = ["pvcam", "daq-driver-pvcam/pvcam_sdk"]
-comedi = ["dep:daq-driver-comedi"]
-comedi_hardware = ["comedi", "daq-driver-comedi/hardware"]
+pvcam = ["dep:driver-pvcam"]
+pvcam_sdk = ["pvcam", "driver-pvcam/pvcam_sdk"]
+comedi = ["dep:driver-comedi"]
+comedi_hardware = ["comedi", "driver-comedi/hardware"]
 
 # Mock drivers for testing/simulation
-mock = ["dep:daq-driver-mock"]
+mock = ["dep:driver-mock"]
 
 # Generic config-driven serial driver
-generic = ["dep:daq-driver-generic"]
+generic = ["dep:driver-generic"]
 
 # Thorlabs ELL14 rotation mount
-thorlabs = ["dep:daq-driver-thorlabs"]
+thorlabs = ["dep:driver-thorlabs"]
 
 # Newport ESP300 motion controller and 1830-C power meter
-newport = ["dep:daq-driver-newport"]
+newport = ["dep:driver-newport"]
 
 # Spectra-Physics MaiTai Ti:Sapphire laser
-spectra_physics = ["dep:daq-driver-spectra-physics"]
+spectra_physics = ["dep:driver-spectra-physics"]
 
 # Convenience feature sets
 #

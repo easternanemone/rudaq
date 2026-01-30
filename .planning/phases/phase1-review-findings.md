@@ -11,7 +11,7 @@ Phase 1 implementation is **functionally complete** but requires fixes for 4 iss
 
 ### bd-jin1: Fix signal_plotter_stream async integration pattern
 **Source:** Gemini
-**File:** `crates/daq-egui/src/panels/signal_plotter_stream.rs`
+**File:** `crates/ui/src/panels/signal_plotter_stream.rs`
 
 The proposed async integration violates Rust ownership rules - cannot mutably borrow `self` in background Tokio task.
 
@@ -23,7 +23,7 @@ The proposed async integration violates Rust ownership rules - cannot mutably bo
 
 ### bd-ijre: Separate StreamObservables from StreamParameterChanges
 **Source:** Gemini
-**File:** `crates/daq-server/src/grpc/hardware_service.rs`
+**File:** `crates/server/src/grpc/hardware_service.rs`
 
 `HardwareServiceImpl::new` monitors `Observable<T>` in `StreamParameterChanges` path, causing:
 - Double traffic for rapidly changing observables
@@ -38,7 +38,7 @@ The proposed async integration violates Rust ownership rules - cannot mutably bo
 
 ### bd-ju6n: Add timeout and concurrency bounds to async device refresh
 **Source:** Codex
-**File:** `crates/daq-egui/src/panels/instrument_manager.rs:232-259`
+**File:** `crates/ui/src/panels/instrument_manager.rs:232-259`
 
 `refresh_device_states` spawns unbounded async tasks with no timeout. A hung device can stall auto-refresh.
 
@@ -49,7 +49,7 @@ The proposed async integration violates Rust ownership rules - cannot mutably bo
 
 ### bd-le6k: Move DeviceCategory to driver/registry layer
 **Source:** Gemini
-**File:** `crates/daq-server/src/grpc/hardware_service.rs`
+**File:** `crates/server/src/grpc/hardware_service.rs`
 
 `infer_device_category` uses brittle string matching, violates Open-Closed Principle.
 

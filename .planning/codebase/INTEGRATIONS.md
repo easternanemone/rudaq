@@ -5,7 +5,7 @@
 ## APIs & External Services
 
 **gRPC Remote Procedure Calls:**
-- Proto definition: `crates/daq-proto/proto/daq.proto`
+- Proto definition: `crates/protocol/proto/daq.proto`
 - Service: `ControlService` (script management, measurements, status streaming)
 - Supported message types: `UploadRequest`, `StartRequest`, `StreamMeasurements`, `StreamStatus`
 - Framework: Tonic 0.10 (native gRPC) + tonic-web 0.10 (browser clients)
@@ -13,7 +13,7 @@
 - TLS: Optional (config: `config/config.v4.toml`)
 
 **Rerun 3D/2D Visualization (Optional):**
-- Integration: `crates/daq-server/src/rerun_sink.rs` + `crates/daq-egui/rerun_viewer` feature
+- Integration: `crates/server/src/rerun_sink.rs` + `crates/ui/rerun_viewer` feature
 - API: Rerun RecordingStream over gRPC
 - Modes:
   - Server mode: Streams to Rerun server for remote visualization
@@ -55,31 +55,31 @@
 - **CSV** (default): Per-acquisition CSV files written to disk
   - Location: Configurable, typically `./data/` or `/tmp/`
   - Format: RFC 4180 with timestamps
-  - Implementation: `daq-storage` crate using `csv` crate
+  - Implementation: `storage` crate using `csv` crate
 
 - **HDF5** (optional feature `storage_hdf5`):
   - Library: hdf5-metno 0.11.0
   - Requires: libhdf5-dev system library
   - Use: High-performance, hierarchical scientific data format
-  - Implementation: `crates/daq-storage/src/hdf5.rs`
+  - Implementation: `crates/storage/src/hdf5.rs`
 
 - **Apache Arrow** (optional feature `storage_arrow`):
   - Library: arrow 57
   - Format: Arrow IPC (Inter-Process Communication) for zero-copy streaming
   - Use: Columnar format, efficient for analytics
-  - Implementation: `crates/daq-storage/src/arrow.rs`
+  - Implementation: `crates/storage/src/arrow.rs`
 
 - **Parquet** (optional feature `storage_parquet`):
   - Library: parquet 57 + arrow 57
   - Format: Parquet with Snappy compression
   - Use: Cloud-native columnar format
-  - Implementation: `crates/daq-storage/src/parquet.rs`
+  - Implementation: `crates/storage/src/parquet.rs`
 
 - **TIFF Images** (optional feature `storage_tiff`):
   - Library: image 0.25 with TIFF feature
   - Format: Tagged Image File Format (16-bit/32-bit)
   - Use: Direct camera frame export
-  - Implementation: `crates/daq-storage/src/tiff.rs`
+  - Implementation: `crates/storage/src/tiff.rs`
 
 - **Local Filesystem Only:**
   - No remote object storage (S3, GCS, etc.) integration
@@ -87,7 +87,7 @@
 
 **Caching:**
 - Memory ring buffers (in-memory only, no external cache)
-  - `RingBuffer` and `AsyncRingBuffer` in `daq-pool`/`daq-storage`
+  - `RingBuffer` and `AsyncRingBuffer` in `pool`/`storage`
   - Zero-allocation object pool for frame buffers
   - No Redis, Memcached, or external cache service
 
@@ -95,7 +95,7 @@
 
 **Auth Provider:**
 - Custom JWT HMAC (optional, disabled by default)
-  - Implementation: `crates/daq-server/src/auth.rs`
+  - Implementation: `crates/server/src/auth.rs`
   - Library: `jsonwebtoken` 9.3
   - Token format: JWT with HMAC-SHA256
   - Configuration: `config/config.v4.toml` field `auth_enabled`, `auth_token`
@@ -155,7 +155,7 @@
   - Volumes: Bind mounts to `.docker-data/`
 
 - Standalone Binary:
-  - Entrypoint: `crates/daq-bin/src/main.rs` → `rust-daq-daemon`
+  - Entrypoint: `crates/bin/src/main.rs` → `rust-daq-daemon`
   - Deployment: scp/rsync to remote machine (e.g., maitai@100.117.5.12)
   - Execution: Headless daemon listening on TCP port 50051 (configurable)
   - Process manager: None (systemd/supervisor can wrap)
@@ -207,17 +207,17 @@
 ## Hardware Integrations (Serial/USB)
 
 **Teledyne PVCAM Camera:**
-- SDK: pvcam-sys (internal C bindings in `crates/daq-driver-pvcam/pvcam-sys`)
+- SDK: pvcam-sys (internal C bindings in `crates/driver-pvcam/pvcam-sys`)
 - Version: PVCAM 7.0.x, 7.1.x
 - Connection: USB or PCI camera interface
-- Driver implementation: `crates/daq-driver-pvcam/src/`
+- Driver implementation: `crates/driver-pvcam/src/`
 - Capabilities: Frame streaming, exposure control, emission control
 - Features: `pvcam_hardware` (requires SDK installation)
 - Environment: `PVCAM_SDK_DIR`, `PVCAM_VERSION`
 
 **Newport ESP300 Motion Controller:**
 - Protocol: Serial ASCII, 19200 baud
-- Driver: `crates/daq-driver-newport/src/`
+- Driver: `crates/driver-newport/src/`
 - Multi-axis support: 1-3 axes
 - Serial port: `/dev/ttyUSB0` (typical maitai)
 - Capabilities: Absolute positioning, velocity control
@@ -225,21 +225,21 @@
 
 **Newport 1830-C Power Meter:**
 - Protocol: Serial ASCII (NOT SCPI), 9600 baud
-- Driver: `crates/daq-driver-newport/src/power_meter/`
+- Driver: `crates/driver-newport/src/power_meter/`
 - Serial port: `/dev/ttyS0` (typical maitai)
 - Capabilities: Power reading, wavelength configuration
 - Feature: `newport_power_meter`
 
 **Spectra-Physics MaiTai Laser:**
 - Protocol: Serial ASCII, 115200 baud, no flow control
-- Driver: `crates/daq-driver-spectra-physics/src/`
+- Driver: `crates/driver-spectra-physics/src/`
 - Serial port: `/dev/ttyUSB5` (typical maitai)
 - Capabilities: Wavelength tuning, emission on/off, shutter control
 - Features: `spectra_physics`, `WavelengthTunable`, `ShutterControl`, `EmissionControl`
 
 **Thorlabs ELL14 Rotation Mount (RS-485 Bus):**
 - Protocol: Serial hex-encoded commands, 9600 baud, RS-485 multidrop
-- Driver: `crates/daq-driver-thorlabs/src/ell14/`
+- Driver: `crates/driver-thorlabs/src/ell14/`
 - Serial port: `/dev/ttyUSB1` (typical maitai)
 - Addressing: Device addresses 0-15 on shared bus
 - Capabilities: Absolute positioning, homing
@@ -249,7 +249,7 @@
 **Comedi Data Acquisition (Linux only):**
 - System: Linux kernel Comedi subsystem
 - Library: libcomedi
-- Driver: `crates/daq-driver-comedi/src/`
+- Driver: `crates/driver-comedi/src/`
 - Features: `comedi`, `comedi_hardware`
 - Analog input/output, digital I/O support
 - Platform: Linux x86_64 only
@@ -264,14 +264,14 @@
 - Version: 1.19 with `sync` feature
 - Use: Config-driven device definitions, automation scripts
 - Execution: Sandboxed, no filesystem access by default
-- Implementation: `crates/daq-scripting/src/`
+- Implementation: `crates/scripting/src/`
 - No external script repositories or package management
 
 **Python Integration (Optional):**
 - Library: PyO3 0.24 with `auto-initialize` feature
 - Feature: `scripting_python` (off by default)
 - Use: Python scripts as alternative to Rhai
-- Implementation: `crates/daq-scripting/src/python.rs`
+- Implementation: `crates/scripting/src/python.rs`
 - CPython: No version pinning (uses system Python)
 
 **Plugin Hot-Reload (Development Only):**
@@ -282,7 +282,7 @@
 
 **Native Plugin Loading (ABI-stable):**
 - Library: `abi_stable` 0.11.3
-- Plugin API: `crates/daq-plugin-api/src/`
+- Plugin API: `crates/plugin-api/src/`
 - Format: Compiled `.so`/`.dylib` with stable C ABI
 - No plugin registry or marketplace
 

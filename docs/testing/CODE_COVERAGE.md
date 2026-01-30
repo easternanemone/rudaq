@@ -27,9 +27,9 @@ cargo tarpaulin --workspace --out Html --output-dir coverage
 # Exclude crates that require special hardware/environment
 cargo tarpaulin \
   --workspace \
-  --exclude daq-egui \
-  --exclude daq-driver-pvcam \
-  --exclude daq-driver-comedi \
+  --exclude ui \
+  --exclude driver-pvcam \
+  --exclude driver-comedi \
   --out Html \
   --output-dir coverage
 ```
@@ -49,7 +49,7 @@ xdg-open coverage/tarpaulin-report.html
 The `.github/workflows/coverage.yml` workflow:
 
 1. **Runs on**: All PRs and pushes to main
-2. **Excludes**: daq-egui (requires X11), hardware-specific crates
+2. **Excludes**: ui (requires X11), hardware-specific crates
 3. **Outputs**: 
    - Cobertura XML for tooling integration
    - HTML report as artifact
@@ -70,9 +70,9 @@ Each CI run produces:
 Priority order for adding tests:
 
 1. **Core abstractions** (`common`) - Error handling, capabilities, parameters
-2. **Server logic** (`daq-server`) - gRPC handlers, request validation
-3. **Hardware abstraction** (`daq-hardware`) - Device registry, configuration
-4. **Drivers** (`daq-driver-*`) - Mock device behavior
+2. **Server logic** (`server`) - gRPC handlers, request validation
+3. **Hardware abstraction** (`hardware`) - Device registry, configuration
+4. **Drivers** (`driver-*`) - Mock device behavior
 
 ### Writing Effective Tests
 
@@ -148,7 +148,7 @@ fn handle_impossible_error() {
 The current threshold is 40%, which is intentionally low because:
 
 1. **Hardware drivers** - Many driver crates require actual hardware for meaningful tests
-2. **GUI code** - daq-egui requires X11/Wayland runtime
+2. **GUI code** - ui requires X11/Wayland runtime
 3. **Integration paths** - Some code paths only execute in production environments
 
 The threshold should be raised as more mock-based tests are added.

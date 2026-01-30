@@ -9,7 +9,7 @@
 
 ## Context
 
-The `daq-pool` crate introduces a zero-allocation frame handling architecture to eliminate per-frame heap allocations (~8MB per frame at 100 FPS). This is a significant change to the critical PVCAM frame acquisition path.
+The `pool` crate introduces a zero-allocation frame handling architecture to eliminate per-frame heap allocations (~8MB per frame at 100 FPS). This is a significant change to the critical PVCAM frame acquisition path.
 
 If the new pool-based implementation exhibits unforeseen issues (performance regressions, subtle bugs, timing problems, memory leaks), we need a clear, tested rollback path back to the working state.
 
@@ -137,12 +137,12 @@ git checkout -b feat/pool-rollback <pre-migration-commit>
 ```
 
 **Key Files to Revert:**
-- `crates/daq-driver-pvcam/src/components/acquisition.rs` (frame loop changes)
-- `crates/daq-driver-pvcam/src/components/frame_pool.rs` (can remove entirely)
-- `crates/daq-driver-pvcam/Cargo.toml` (remove `daq-pool` dependency)
+- `crates/driver-pvcam/src/components/acquisition.rs` (frame loop changes)
+- `crates/driver-pvcam/src/components/frame_pool.rs` (can remove entirely)
+- `crates/driver-pvcam/Cargo.toml` (remove `pool` dependency)
 
 **Files to KEEP (do not revert):**
-- `crates/daq-pool/` (keep crate for future use, just don't depend on it)
+- `crates/pool/` (keep crate for future use, just don't depend on it)
 - Test files (can be marked `#[ignore]` if pool not available)
 - Documentation and ADRs
 
@@ -153,9 +153,9 @@ git checkout -b feat/pool-rollback <pre-migration-commit>
 If rollback situations become frequent, consider adding a compile-time feature:
 
 ```toml
-# In crates/daq-driver-pvcam/Cargo.toml
+# In crates/driver-pvcam/Cargo.toml
 [features]
-buffer_pool = ["dep:daq-pool"]  # Default off initially
+buffer_pool = ["dep:pool"]  # Default off initially
 ```
 
 ```rust
@@ -181,8 +181,8 @@ let pixel_data = unsafe {
 **Rollback Trigger:** Any test failure
 
 ```bash
-cargo nextest run -p daq-pool
-cargo nextest run -p daq-driver-pvcam --features mock
+cargo nextest run -p pool
+cargo nextest run -p driver-pvcam --features mock
 ```
 
 ### Checkpoint 2: Mock Integration Tests (Local)
@@ -209,7 +209,7 @@ cargo nextest run --workspace --features mock
 ```bash
 # On maitai
 source scripts/env-check.sh
-cargo nextest run --profile hardware --features hardware_tests -p daq-driver-pvcam \
+cargo nextest run --profile hardware --features hardware_tests -p driver-pvcam \
   -- --test-threads=1 --nocapture
 ```
 
@@ -327,7 +327,7 @@ If rollback is executed:
 
 - [ADR: PVCAM Driver Architecture](adr-pvcam-driver-architecture.md)
 - [ADR: PVCAM Continuous Acquisition](adr-pvcam-continuous-acquisition.md)
-- [daq-pool crate documentation](../../crates/daq-pool/src/lib.rs)
+- [pool crate documentation](../../crates/pool/src/lib.rs)
 - [bd-0dax epic issue](../.beads/issues/bd-0dax.md)
 
 ---

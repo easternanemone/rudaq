@@ -83,7 +83,7 @@ license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
 # Workspace crates - assign MIT license (matching intended license for publication)
 # These crates are internal and not published to crates.io yet
 [[licenses.clarify]]
-crate = "daq-bin"
+crate = "bin"
 expression = "MIT"
 license-files = []
 
@@ -93,27 +93,27 @@ expression = "MIT"
 license-files = []
 
 [[licenses.clarify]]
-crate = "daq-driver-comedi"
+crate = "driver-comedi"
 expression = "MIT"
 license-files = []
 
 [[licenses.clarify]]
-crate = "daq-driver-pvcam"
+crate = "driver-pvcam"
 expression = "MIT"
 license-files = []
 
 [[licenses.clarify]]
-crate = "daq-egui"
+crate = "ui"
 expression = "MIT"
 license-files = []
 
 [[licenses.clarify]]
-crate = "daq-experiment"
+crate = "experiment"
 expression = "MIT"
 license-files = []
 
 [[licenses.clarify]]
-crate = "daq-hardware"
+crate = "hardware"
 expression = "MIT"
 license-files = []
 
@@ -123,17 +123,17 @@ expression = "MIT"
 license-files = []
 
 [[licenses.clarify]]
-crate = "daq-scripting"
+crate = "scripting"
 expression = "MIT"
 license-files = []
 
 [[licenses.clarify]]
-crate = "daq-server"
+crate = "server"
 expression = "MIT"
 license-files = []
 
 [[licenses.clarify]]
-crate = "daq-storage"
+crate = "storage"
 expression = "MIT"
 license-files = []
 

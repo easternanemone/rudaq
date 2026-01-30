@@ -34,9 +34,9 @@ graph TD
 ### Learning Order
 1. **Capabilities** (`common`): The atomic building blocks of hardware support.
 2. **Parameters** (`common`): How state is managed and synchronized.
-3. **Drivers** (`daq-hardware`): How concrete hardware implements capabilities.
-4. **Frame Pipeline** (`daq-pool`, `daq-storage`): How high-speed data moves efficiently.
-5. **Orchestration** (`daq-experiment`): How experiments are defined and executed.
+3. **Drivers** (`hardware`): How concrete hardware implements capabilities.
+4. **Frame Pipeline** (`pool`, `storage`): How high-speed data moves efficiently.
+5. **Orchestration** (`experiment`): How experiments are defined and executed.
 
 ---
 
@@ -70,7 +70,7 @@ In `rust-daq`, a "Device" is not a monolithic struct. Instead, devices implement
 
 Hardware drivers are loaded dynamically at runtime based on configuration. This decoupling allows the core system to remain unaware of specific hardware libraries.
 
-**Location:** `crates/daq-hardware/src/registry.rs`
+**Location:** `crates/hardware/src/registry.rs`
 
 ### The Device Registry
 The `DeviceRegistry` is the central "phone book" for hardware. It holds thread-safe references (`Arc<Device>`) to all active devices.
@@ -136,8 +136,8 @@ exposure.connect_to_hardware_write(|val| Box::pin(async move {
 For high-speed cameras (100+ FPS), allocating a new `Vec<u8>` for every frame is too slow. `rust-daq` uses a rigorous zero-copy pipeline.
 
 **Locations:** 
-- `crates/daq-pool/src/lib.rs`
-- `crates/daq-storage/src/ring_buffer.rs`
+- `crates/pool/src/lib.rs`
+- `crates/storage/src/ring_buffer.rs`
 
 ### The Pool
 We use a lock-free `Pool<T>` pattern. Buffers are pre-allocated at startup.
@@ -157,7 +157,7 @@ For persistent storage, frames are written to a memory-mapped `RingBuffer`. This
 
 Experiments are defined declaratively as **Plans**. The **RunEngine** executes these plans. This separates *what* to do from *how* to do it.
 
-**Location:** `crates/daq-experiment/src`
+**Location:** `crates/experiment/src`
 
 ### Plans
 A `Plan` is a generator that yields `PlanCommand`s.
@@ -190,18 +190,18 @@ This structured stream makes data analysis consistent regardless of the experime
 How do you add new functionality?
 
 ### Adding a New Driver
-1. Create a struct in `crates/daq-driver-<name>`.
+1. Create a struct in `crates/driver-<name>`.
 2. Implement capability traits (`Movable`, `Readable`, etc.).
-3. Add a variant to `DriverType` in `daq-hardware`.
+3. Add a variant to `DriverType` in `hardware`.
 4. Add instantiation logic in `DriverFactory`.
 
 ### Adding a New Storage Backend
 1. Create a struct implementing `DocumentConsumer`.
 2. Handle `EventDoc`s to write data.
-3. Register in `daq-server/src/grpc/storage_service.rs`.
+3. Register in `server/src/grpc/storage_service.rs`.
 
 ### Adding a New Script Command
-1. Edit `crates/daq-scripting/src/lib.rs`.
+1. Edit `crates/scripting/src/lib.rs`.
 2. Register the function in the `Rhai` engine.
 3. Use the `RunEngine` or `DeviceRegistry` to implement the logic.
 

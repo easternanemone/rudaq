@@ -21,13 +21,13 @@ Features users expect in any experiment design system. Missing these = product f
 | **Parameter Scans (1D/2D)** | Core use case: sweep motor/laser/voltage while acquiring | Medium | Grid, linear, list-based. All systems support this. PyMoDAQ, ScopeFoundry emphasize this. |
 | **Pause/Resume/Abort** | Scientists need interactive control to save experiments from errors | Medium | Bluesky's "rewindable experiments" is gold standard. Checkpoint-based pause already in rust-daq. |
 | **Live Plotting** | Immediate visual feedback separates DAQ from blind batch processing | High | Real-time updates while scanning. All modern systems have this. Handle high-FPS data carefully. |
-| **Auto-Save to Disk** | Data loss = career catastrophe in science | Low | Stream to HDF5/CSV during acquisition, not after. rust-daq already has daq-storage. |
+| **Auto-Save to Disk** | Data loss = career catastrophe in science | Low | Stream to HDF5/CSV during acquisition, not after. rust-daq already has storage. |
 | **Device Discovery** | "What hardware is available?" must be obvious | Low | List available motors/detectors from registry. Already have device registry. |
 | **Metadata Capture** | Reproducibility requirement: who/what/when/why | Medium | REPRODUCE-ME model: Data, Agent, Activity, Plan, Step, Setting, Instrument, Material. Bluesky excels here. |
 | **Run History** | "What did I run yesterday?" | Medium | Browse past experiments, view parameters, rerun. StartDoc/StopDoc already tracked. |
 | **Basic Sequences** | Move → Wait → Acquire → Repeat | Low | Fundamental building block. Already have PlanCommand primitives. |
 | **Error Recovery** | Hardware fails, software crashes = restart without data loss | High | Checkpoint-based resume. Bluesky's interruption recovery is reference implementation. |
-| **Export Data** | Get data out to analysis tools (Python, MATLAB, Origin) | Low | Multiple formats: CSV (universal), HDF5 (large data), Arrow (fast). Already in daq-storage. |
+| **Export Data** | Get data out to analysis tools (Python, MATLAB, Origin) | Low | Multiple formats: CSV (universal), HDF5 (large data), Arrow (fast). Already in storage. |
 
 ### Implementation Notes
 
@@ -88,7 +88,7 @@ Features that set a product apart. Not expected, but highly valued when present.
 **One-Way Code Export:**
 - **Why one-way:** Parsing arbitrary code into graph is AI-complete problem
 - **Benefit:** Power users can manually edit generated code for edge cases
-- **Format:** Rhai scripts (already in daq-scripting) or Python (Bluesky compatibility)
+- **Format:** Rhai scripts (already in scripting) or Python (Bluesky compatibility)
 - **Pattern:** "Visual is source of truth, code is read-only preview"
 
 **Nested Scans:**
@@ -160,7 +160,7 @@ Visual Builder:
 2. Scan Builder (1D/2D parameter sweeps)
 3. Execute + Pause/Resume (RunEngine already exists)
 4. Live Plotting (high-value, high-complexity)
-5. Auto-Save (already exists via daq-storage)
+5. Auto-Save (already exists via storage)
 
 **Can Defer:**
 - Visual node editor (start with form-based scan builder)
@@ -304,7 +304,7 @@ For MVP, prioritize core execution loop over visual bells/whistles:
 | Form-Based Scan Builder | 500 | Low | UI forms straightforward |
 | Live Plotting | 1500 | **High** | egui_plot, threading, downsampling |
 | Node Editor Integration | 2000 | **High** | egui_node_graph learning curve, graph validation |
-| Code Export (Rhai) | 800 | Medium | AST generation, daq-scripting integration |
+| Code Export (Rhai) | 800 | Medium | AST generation, scripting integration |
 | Adaptive Plans | 1200 | **High** | Predicate evaluation engine, safety |
 | Run Comparison | 600 | Medium | Data loading, overlay plotting |
 | Template Library | 400 | Low | Serialization, file management |

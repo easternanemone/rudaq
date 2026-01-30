@@ -60,7 +60,7 @@ Visual experiment design systems follow a three-layer architecture with strict s
 
 ## Component Boundaries
 
-### 1. Node Graph Editor (daq-egui module)
+### 1. Node Graph Editor (ui module)
 
 **Responsibility:** Visual manipulation of experiment graph
 

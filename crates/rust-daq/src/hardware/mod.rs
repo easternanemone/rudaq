@@ -64,23 +64,23 @@ pub use hardware::plugin;
 
 /// Mock drivers for testing and simulation
 #[cfg(feature = "mock")]
-pub use daq_driver_mock as mock;
+pub use driver_mock as mock;
 
 /// Thorlabs ELL14 rotation mount
 #[cfg(feature = "thorlabs")]
-pub use daq_driver_thorlabs as ell14;
+pub use driver_thorlabs as ell14;
 
 /// Newport ESP300 motion controller
 #[cfg(feature = "newport")]
-pub use daq_driver_newport::esp300;
+pub use driver_newport::esp300;
 
 /// Newport 1830-C power meter
 #[cfg(feature = "newport")]
-pub use daq_driver_newport::newport_1830c;
+pub use driver_newport::newport_1830c;
 
 /// Spectra-Physics MaiTai laser
 #[cfg(feature = "spectra_physics")]
-pub use daq_driver_spectra_physics as maitai;
+pub use driver_spectra_physics as maitai;
 
 /// PVCAM camera driver
 #[cfg(all(feature = "pvcam", feature = "pvcam_sdk"))]

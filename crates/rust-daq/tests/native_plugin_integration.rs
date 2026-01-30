@@ -1,6 +1,6 @@
 //! Integration tests for native (abi_stable) plugin loading.
 //!
-//! These tests verify the dynamic plugin loading system using the daq-plugin-example
+//! These tests verify the dynamic plugin loading system using the plugin-example
 //! as a test fixture.
 
 #![cfg(all(not(target_arch = "wasm32"), feature = "native_plugins"))]
@@ -26,11 +26,11 @@ fn plugin_path() -> PathBuf {
     });
 
     #[cfg(target_os = "macos")]
-    path.push("libdaq_plugin_example.dylib");
+    path.push("libplugin_example.dylib");
     #[cfg(target_os = "linux")]
-    path.push("libdaq_plugin_example.so");
+    path.push("libplugin_example.so");
     #[cfg(target_os = "windows")]
-    path.push("daq_plugin_example.dll");
+    path.push("plugin_example.dll");
 
     path
 }
@@ -60,7 +60,7 @@ fn test_load_example_plugin() -> Result<()> {
     let path = plugin_path();
     if !path.exists() {
         eprintln!(
-            "Skipping test: plugin not found at {:?}. Run `cargo build -p daq-plugin-example` first.",
+            "Skipping test: plugin not found at {:?}. Run `cargo build -p plugin-example` first.",
             path
         );
         return Ok(());

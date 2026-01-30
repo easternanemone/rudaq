@@ -73,7 +73,7 @@ if (!IsParamAvailable(ctx->hcam, PARAM_SPDTAB_INDEX, "PARAM_SPDTAB_INDEX"))
 
 ### Helper Functions Added (bd-ng5p)
 
-Location: `crates/daq-driver-pvcam/src/components/features.rs`
+Location: `crates/driver-pvcam/src/components/features.rs`
 
 ```rust
 /// Check if a parameter is available on the connected camera.
@@ -178,7 +178,7 @@ All list functions follow the SDK pattern by calling `is_param_available()` befo
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                  daq-driver-pvcam                        │
+│                  driver-pvcam                        │
 │  ┌─────────────────────────────────────────────────────┐ │
 │  │                   lib.rs (Driver API)               │ │
 │  │   PvcamDriver with Parameter<T> reactive system     │ │
@@ -267,7 +267,7 @@ pub fn get_param_ser_size(hcam: i16) -> Result<u16> {
 
 **Related Code Changes:**
 
-- Location: `crates/daq-driver-pvcam/src/components/features.rs`
+- Location: `crates/driver-pvcam/src/components/features.rs`
 - New error variant added to `DaqError`: `ParameterNotAvailable { name: String, id: u32 }`
 - Helper functions: `is_param_available()`, `require_param_available()`
 

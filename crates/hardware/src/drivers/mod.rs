@@ -1,21 +1,21 @@
 // Re-export from standalone driver crates (bd-ha9c Driver Decoupling)
 // New driver crates provide clean DriverFactory-based implementations
 
-/// Mock drivers for testing (re-exported from daq-driver-mock)
+/// Mock drivers for testing (re-exported from driver-mock)
 /// Note: Also available via `drivers::mock` module for backwards compatibility
-pub use daq_driver_mock as mock_drivers;
+pub use driver_mock as mock_drivers;
 
 /// Thorlabs driver crate (DriverFactory-based)
 #[cfg(feature = "thorlabs")]
-pub use daq_driver_thorlabs;
+pub use driver_thorlabs;
 
 /// Newport driver crate (DriverFactory-based)
 #[cfg(feature = "newport")]
-pub use daq_driver_newport;
+pub use driver_newport;
 
 /// Spectra-Physics driver crate (DriverFactory-based)
 #[cfg(feature = "spectra_physics")]
-pub use daq_driver_spectra_physics;
+pub use driver_spectra_physics;
 
 // Legacy driver modules (kept for backwards compatibility)
 // TODO: Migrate to DriverFactory-based crates (bd-ha9c Phase 10+)
@@ -62,7 +62,7 @@ pub mod esp300;
 #[cfg(feature = "spectra_physics")]
 pub mod maitai;
 
-/// Mock drivers for testing (legacy module, re-exports from daq-driver-mock)
+/// Mock drivers for testing (legacy module, re-exports from driver-mock)
 pub mod mock;
 
 /// Mock serial port for testing (local implementation)
@@ -70,10 +70,10 @@ pub mod mock;
 pub mod mock_serial;
 
 #[cfg(feature = "comedi")]
-pub use daq_driver_comedi as comedi;
-/// Newport 1830-C power meter (re-exported from daq-driver-newport)
-/// Note: The canonical implementation is in daq-driver-newport crate.
+pub use driver_comedi as comedi;
+/// Newport 1830-C power meter (re-exported from driver-newport)
+/// Note: The canonical implementation is in driver-newport crate.
 #[cfg(feature = "newport")]
-pub use daq_driver_newport::newport_1830c;
+pub use driver_newport::newport_1830c;
 #[cfg(feature = "pvcam")]
-pub use daq_driver_pvcam as pvcam;
+pub use driver_pvcam as pvcam;

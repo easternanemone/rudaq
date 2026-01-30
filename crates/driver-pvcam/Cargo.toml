@@ -1,0 +1,36 @@
+[package]
+name = "driver-pvcam"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# NOTE (bd-n80s): This crate depends only on common, NOT daq-hardware.
+# hardware depends on driver-pvcam (for the driver implementation),
+# so any traits/types needed here must come from common to avoid cycles.
+common = { path = "../common" }
+pool = { path = "../pool" }
+bytes = "1.11"
+parking_lot = "0.12"
+pvcam-sys = { path = "pvcam-sys", optional = true }
+async-trait.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+anyhow.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
+[features]
+default = ["mock"]
+mock = []
+# Real PVCAM SDK integration (requires PVCAM SDK installed)
+pvcam_hardware = ["dep:pvcam-sys", "pvcam-sys/pvcam-sdk"]
+pvcam_sdk = ["pvcam_hardware"]
+hardware_tests = []
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+lazy_static = "1.4"
+once_cell = "1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[lints]
+workspace = true

@@ -38,13 +38,13 @@ jobs:
       - name: Run tests with coverage
         run: |
           # Run tarpaulin with coverage collection
-          # Exclude daq-egui (requires X11/Wayland), hardware-specific crates, and examples
+          # Exclude ui (requires X11/Wayland), hardware-specific crates, and examples
           cargo tarpaulin \
             --workspace \
-            --exclude daq-egui \
-            --exclude daq-driver-pvcam \
-            --exclude daq-driver-comedi \
-            --exclude daq-examples \
+            --exclude ui \
+            --exclude driver-pvcam \
+            --exclude driver-comedi \
+            --exclude examples \
             --exclude pvcam-sys \
             --exclude comedi-sys \
             --out Xml \

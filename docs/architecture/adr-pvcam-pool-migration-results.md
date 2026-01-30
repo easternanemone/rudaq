@@ -47,9 +47,9 @@ This design eliminates heap allocations from the hot path while maintaining flex
 
 ## Changes Made
 
-### 1. daq-pool Crate
+### 1. pool Crate
 
-Created new `daq-pool` crate (`crates/daq-pool/`) with:
+Created new `pool` crate (`crates/pool/`) with:
 
 - **`Pool<T>`**: Generic object pool with lock-free access after acquire
   - Semaphore + lock-free queue pattern for thread safety
@@ -66,13 +66,13 @@ Created new `daq-pool` crate (`crates/daq-pool/`) with:
   - Clone support (acquires new pool slot)
 
 Key files:
-- `crates/daq-pool/src/lib.rs` - Pool<T> and Loaned<T>
-- `crates/daq-pool/src/buffer_pool.rs` - BufferPool implementation
-- `crates/daq-pool/src/frame_data.rs` - FrameData type
+- `crates/pool/src/lib.rs` - Pool<T> and Loaned<T>
+- `crates/pool/src/buffer_pool.rs` - BufferPool implementation
+- `crates/pool/src/frame_data.rs` - FrameData type
 
 ### 2. FrameData (Poolable Frame Structure)
 
-Created `FrameData` in `daq-pool` for zero-allocation reuse:
+Created `FrameData` in `pool` for zero-allocation reuse:
 
 ```rust
 pub struct FrameData {
@@ -147,7 +147,7 @@ Contract:
 
 ### 5. TapRegistry
 
-Added `TapRegistry` to `daq-storage` for managing frame observers:
+Added `TapRegistry` to `storage` for managing frame observers:
 
 - Registration/unregistration of tap consumers
 - Decimation support (deliver every Nth frame)
@@ -293,7 +293,7 @@ The migration from deprecated `subscribe_frames()` to the new pooled frame APIs 
 - [ADR: Buffer Pool Error Handling Strategy](adr-pool-error-handling.md)
 - [ADR: BufferPool Migration Rollback Plan](adr-pool-migration-rollback-plan.md)
 - [ADR: PVCAM Driver Architecture](adr-pvcam-driver-architecture.md)
-- [daq-pool crate](../../crates/daq-pool/src/lib.rs)
+- [pool crate](../../crates/pool/src/lib.rs)
 
 ---
 

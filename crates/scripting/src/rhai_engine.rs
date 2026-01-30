@@ -739,7 +739,7 @@ mod tests {
     async fn test_with_hardware_constructor() {
         use crate::bindings::{SoftLimits, StageHandle};
         use crate::traits::{ScriptEngine, ScriptValue};
-        use daq_driver_mock::MockStage;
+        use driver_mock::MockStage;
 
         let mut engine = RhaiEngine::with_hardware().unwrap();
 

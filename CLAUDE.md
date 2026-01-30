@@ -55,14 +55,14 @@ cargo clippy --all-targets               # Lint
 bash scripts/build-maitai.sh             # Clean build with ALL real hardware
 
 # Or manually (must clean to avoid cached mock build):
-cargo clean -p daq-bin -p rust_daq -p daq-driver-pvcam
-cargo build --release -p daq-bin --features maitai
+cargo clean -p bin -p rust_daq -p driver-pvcam
+cargo build --release -p bin --features maitai
 
 # Run Daemon
 ./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_hardware.toml
 
 # Build GUI (separate build - does NOT require hardware features)
-cargo build --release -p daq-egui --bin rust-daq-gui
+cargo build --release -p ui --bin rust-daq-gui
 
 # Run GUI (connects to daemon)
 ./target/release/rust-daq-gui --daemon-url http://localhost:50051
@@ -375,10 +375,10 @@ Supervisors write code in worktrees. Use `Task(subagent_type="...", prompt="BEAD
 
 | Supervisor | Scope (Crates) |
 |------------|----------------|
-| **egui-supervisor** (Eve) | `daq-egui` - GUI, visualization, UX |
-| **driver-supervisor** (Diana) | `daq-driver-*`, `comedi-sys`, `daq-hardware` - FFI, hardware |
-| **scripting-supervisor** (Sage) | `daq-scripting`, `daq-experiment` - DSL, automation |
-| **core-supervisor** (Corey) | `common`, `daq-server`, `daq-storage`, `daq-plugin-*`, `daq-proto`, `daq-pool` |
+| **egui-supervisor** (Eve) | `ui` - GUI, visualization, UX |
+| **driver-supervisor** (Diana) | `driver-*`, `comedi-sys`, `hardware` - FFI, hardware |
+| **scripting-supervisor** (Sage) | `scripting`, `experiment` - DSL, automation |
+| **core-supervisor** (Corey) | `common`, `server`, `storage`, `plugin-*`, `protocol`, `pool` |
 | **python-supervisor** (Tessa) | `python/` - Python client library |
 | **infra-supervisor** (Olive) | `.github/`, CI/CD pipelines |
 
@@ -531,7 +531,7 @@ impl DriverFactory for MyDriverFactory {
 }
 ```
 
-Register factories at startup in daq-bin:
+Register factories at startup in bin:
 ```rust
 registry.register_factory(Box::new(MyDriverFactory));
 ```
@@ -778,11 +778,11 @@ See `docs/guides/comedi-setup.md#calibration` for full details.
 **Test Commands:**
 ```bash
 # Build with hardware feature
-cargo build -p daq-driver-comedi --features hardware
+cargo build -p driver-comedi --features hardware
 
 # Run smoke tests (requires COMEDI_SMOKE_TEST=1)
 export COMEDI_SMOKE_TEST=1
-cargo nextest run --profile hardware --features hardware -p daq-driver-comedi -- hardware_smoke
+cargo nextest run --profile hardware --features hardware -p driver-comedi -- hardware_smoke
 
 # Run all Comedi tests (set env vars for specific test suites)
 export COMEDI_LOOPBACK_TEST=1    # Analog loopback (uses DAC1→ACH0 connection)
@@ -791,16 +791,16 @@ export COMEDI_COUNTER_TEST=1      # Counter/timer tests
 export COMEDI_HAL_TEST=1          # HAL trait compliance
 export COMEDI_ERROR_TEST=1        # Error handling
 export COMEDI_STORAGE_TEST=1      # Storage integration
-cargo nextest run --profile hardware --features hardware -p daq-driver-comedi
+cargo nextest run --profile hardware --features hardware -p driver-comedi
 
 # Run benchmarks
-cargo bench -p daq-driver-comedi --features hardware
+cargo bench -p driver-comedi --features hardware
 
 # Run examples
-cargo run -p daq-driver-comedi --features hardware --example single_read
-cargo run -p daq-driver-comedi --features hardware --example streaming
-cargo run -p daq-driver-comedi --features hardware --example digital_io
-cargo run -p daq-driver-comedi --features hardware --example counter
+cargo run -p driver-comedi --features hardware --example single_read
+cargo run -p driver-comedi --features hardware --example streaming
+cargo run -p driver-comedi --features hardware --example digital_io
+cargo run -p driver-comedi --features hardware --example counter
 ```
 
 **Documentation:** See `docs/guides/comedi-setup.md` for full setup instructions.
@@ -829,10 +829,10 @@ Build and run Rhai experiment scripts on maitai:
 
 ```bash
 # Standard build (serial hardware + HDF5)
-cargo build --release -p daq-scripting --features scripting_full
+cargo build --release -p scripting --features scripting_full
 
 # With Comedi DAQ support (requires comedilib on Linux)
-cargo build --release -p daq-scripting --features scripting_full_comedi
+cargo build --release -p scripting --features scripting_full_comedi
 
 # Available script runners:
 ./target/release/rhai-runner script.rhai        # Generic runner
@@ -907,7 +907,7 @@ Clients MUST use this field to correctly interpret values:
 **GUI Unit Normalization:** The `PowerMeterControlPanel` normalizes all readings to milliwatts
 internally, then auto-scales the display based on magnitude (W/mW/µW).
 
-See `daq-egui/src/widgets/device_controls/power_meter_panel.rs::normalize_power_to_mw()`.
+See `ui/src/widgets/device_controls/power_meter_panel.rs::normalize_power_to_mw()`.
 
 ## Streaming Quality Modes
 
@@ -953,7 +953,7 @@ This project uses three complementary Rust tools:
 rust-analyzer diagnostics . 2>&1 | grep Error
 
 # Module structure
-cargo modules structure --package daq-hardware --max-depth 3
+cargo modules structure --package hardware --max-depth 3
 ```
 
 ## Documentation

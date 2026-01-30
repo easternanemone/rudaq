@@ -68,7 +68,7 @@
 ### 2.3 bd-2m11.1 — Comedi Feature Flag / SIGABRT (P1)
 
 **Test:** `test_comedi_discover_returns_vec`  
-**Files:** `crates/daq-driver-comedi/src/device.rs` (lines 741–748), `comedi-sys` (panic message, `#[cfg(feature = "comedi-sdk")]`)
+**Files:** `crates/driver-comedi/src/device.rs` (lines 741–748), `comedi-sys` (panic message, `#[cfg(feature = "comedi-sdk")]`)
 
 **Evidence:**
 
@@ -150,9 +150,9 @@
 **Evidence (sample):**
 
 - **frame_observer_timing.rs:** `SlowObserver` uses `std::thread::sleep` by design (see 2.5).
-- **daq-driver-comedi:** `multi_channel.rs` (lines 340, 371, 380), `streaming.rs` (647), `continuous_streaming` tests, examples.
-- **daq-driver-pvcam:** `acquisition.rs` (2682, 3008); comment notes “frame_loop_sequence uses std::thread::sleep + blocking PVCAM FFI.”
-- **daq-driver-mock** lib.rs: states mocks use `tokio::time::sleep`, not `std::thread::sleep`.
+- **driver-comedi:** `multi_channel.rs` (lines 340, 371, 380), `streaming.rs` (647), `continuous_streaming` tests, examples.
+- **driver-pvcam:** `acquisition.rs` (2682, 3008); comment notes “frame_loop_sequence uses std::thread::sleep + blocking PVCAM FFI.”
+- **driver-mock** lib.rs: states mocks use `tokio::time::sleep`, not `std::thread::sleep`.
 
 **Refactor suggestions:**
 
@@ -228,7 +228,7 @@
 | run_script_blocking, with_yield_support | `crates/scripting/src/script_runner.rs` ~361–366; `rhai_engine.rs` |
 | Plan / yield bindings | `crates/scripting/src/plan_bindings.rs`, `yield_bindings.rs` |
 | Colorbar apply_adjustment | `crates/ui/src/widgets/colorbar.rs` 95–110 |
-| Comedi test | `crates/daq-driver-comedi/src/device.rs` 741–748 |
+| Comedi test | `crates/driver-comedi/src/device.rs` 741–748 |
 | gRPC rate-limit test | `crates/rust-daq/tests/grpc_integration_test.rs` 291–344 |
 | Frame observer timing | `crates/common/tests/frame_observer_timing.rs` (e.g. 15–17, 88+) |
 | ELL14 retry test | `crates/hardware/src/drivers/ell14.rs` 3306–3341 |

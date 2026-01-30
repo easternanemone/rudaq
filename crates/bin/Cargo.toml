@@ -40,7 +40,7 @@ comedi_hardware = ["rust_daq/comedi_hardware"]
 # CRITICAL: This must include EVERY hardware driver, not just PVCAM!
 #
 # Build command: bash scripts/build-maitai.sh
-# or manually: cargo build --release -p daq-bin --features maitai
+# or manually: cargo build --release -p bin --features maitai
 #
 # Enabled drivers:
 #   - pvcam_hardware    : Real PVCAM SDK (Prime BSI camera)

@@ -26,7 +26,7 @@ else
 fi
 
 # Build with real PVCAM SDK
-cargo build --features pvcam_sdk -p daq-bin $PROFILE
+cargo build --features pvcam_sdk -p bin $PROFILE
 
 echo ""
 echo "Build complete!"

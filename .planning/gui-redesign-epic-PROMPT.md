@@ -24,11 +24,11 @@ Transform rust-daq's current device-centric egui GUI into a comprehensive scient
 ### Current Architecture (V5 Headless-First)
 
 ```
-daq-egui (egui GUI)
+ui (egui GUI)
     ↓ gRPC
-rust-daq-daemon (daq-server)
+rust-daq-daemon (server)
     ↓
-daq-hardware (capability-based HAL)
+hardware (capability-based HAL)
     ↓
 Physical Instruments
 ```
@@ -199,7 +199,7 @@ Experiment: "Wavelength Scan"
 ```
 
 ##### 3.2 Plan Integration
-- Connect to daq-experiment RunEngine Plans
+- Connect to experiment RunEngine Plans
 - GridScan, TimeSeries, ParameterSweep as built-in templates
 - Custom Plan upload
 
@@ -261,10 +261,10 @@ enum LogSource {
 5. Create dockable panel infrastructure (egui_dock consideration)
 
 **Files to Create/Modify:**
-- `crates/daq-egui/src/panels/instrument_manager.rs` (new)
-- `crates/daq-egui/src/panels/signal_plotter.rs` (new)
-- `crates/daq-egui/src/app.rs` (panel integration)
-- `crates/daq-proto/proto/daq.proto` (observable streaming)
+- `crates/ui/src/panels/instrument_manager.rs` (new)
+- `crates/ui/src/panels/signal_plotter.rs` (new)
+- `crates/ui/src/app.rs` (panel integration)
+- `crates/protocol/proto/daq.proto` (observable streaming)
 
 **Acceptance Criteria:**
 - [ ] Tree view shows all registered devices grouped by type
@@ -283,9 +283,9 @@ enum LogSource {
 5. Add histogram overlay
 
 **Files to Create/Modify:**
-- `crates/daq-egui/src/panels/image_viewer.rs` (new)
-- `crates/daq-egui/src/widgets/colormap.rs` (new)
-- `crates/daq-egui/src/widgets/roi_selector.rs` (new)
+- `crates/ui/src/panels/image_viewer.rs` (new)
+- `crates/ui/src/widgets/colormap.rs` (new)
+- `crates/ui/src/widgets/roi_selector.rs` (new)
 
 **Acceptance Criteria:**
 - [ ] Live camera frames displayed at 10+ FPS
@@ -304,9 +304,9 @@ enum LogSource {
 5. Integrate with RunEngine Plans
 
 **Files to Create/Modify:**
-- `crates/daq-egui/src/panels/scan_designer.rs` (new)
-- `crates/daq-egui/src/widgets/step_editor.rs` (new)
-- `crates/daq-scripting/src/codegen.rs` (new - Rhai generation)
+- `crates/ui/src/panels/scan_designer.rs` (new)
+- `crates/ui/src/widgets/step_editor.rs` (new)
+- `crates/scripting/src/codegen.rs` (new - Rhai generation)
 
 **Acceptance Criteria:**
 - [ ] 5+ step types available
@@ -325,9 +325,9 @@ enum LogSource {
 5. Add export functionality
 
 **Files to Create/Modify:**
-- `crates/daq-egui/src/panels/logging.rs` (refactor from current Logs)
-- `crates/daq-egui/src/panels/run_history.rs` (new)
-- `crates/daq-storage/src/metadata_index.rs` (new - for search)
+- `crates/ui/src/panels/logging.rs` (refactor from current Logs)
+- `crates/ui/src/panels/run_history.rs` (new)
+- `crates/storage/src/metadata_index.rs` (new - for search)
 
 **Acceptance Criteria:**
 - [ ] Logs filterable by level and source
@@ -362,7 +362,7 @@ enum LogSource {
 
 ### Current State Analysis
 
-**Existing Rerun Integration (`crates/daq-egui/src/main_rerun.rs`):**
+**Existing Rerun Integration (`crates/ui/src/main_rerun.rs`):**
 - `daq-rerun` binary embeds Rerun viewer alongside DAQ controls
 - Uses `re_grpc_client::stream()` to connect to daemon's Rerun gRPC server
 - Camera frames already stream via Rerun's tensor logging
@@ -403,14 +403,14 @@ enum LogSource {
 ┌─────────────────────────────────────────────────────────────┐
 │                     rust-daq-daemon                          │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐     │
-│  │ daq-hardware│───>│ Rerun SDK   │───>│ Rerun Server│     │
+│  │ hardware│───>│ Rerun SDK   │───>│ Rerun Server│     │
 │  │ (sensors)   │    │ rec.log()   │    │ (gRPC)      │     │
 │  └─────────────┘    └─────────────┘    └──────┬──────┘     │
 └────────────────────────────────────────────────┼────────────┘
                                                  │ rerun+http://
                                                  ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                     daq-egui (GUI)                           │
+│                     ui (GUI)                           │
 │  ┌─────────────┐    ┌─────────────────────────────────┐     │
 │  │ DAQ Control │    │        Embedded Rerun Viewer     │     │
 │  │ Panels      │    │  - Camera frames (Tensor)        │     │
@@ -490,7 +490,7 @@ service DaqService {
 ┌─────────────────────────────────────────────────────────────┐
 │                     rust-daq-daemon                          │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐     │
-│  │ daq-hardware│───>│ Rerun SDK   │───>│ Rerun Server│     │
+│  │ hardware│───>│ Rerun SDK   │───>│ Rerun Server│     │
 │  │ (cameras)   │    │ (images)    │    │ :9876       │     │
 │  ├─────────────┤    └─────────────┘    └──────┬──────┘     │
 │  │ observables │───────────────────────────────┼───────────│
@@ -501,7 +501,7 @@ service DaqService {
           │                                      │
           ▼                                      ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                     daq-egui (GUI)                           │
+│                     ui (GUI)                           │
 │  ┌───────────────────────┬─────────────────────────────────┐│
 │  │   Native egui Panels  │     Embedded Rerun Viewport     ││
 │  │   - Instrument Mgr    │     - Camera live view          ││
@@ -740,7 +740,7 @@ bd close <id> --reason "Completed with ..."
 5. Update this prompt with chosen approach before proceeding to Phase 1
 
 **Phase 1+ Research:**
-1. Explore existing `crates/daq-egui/src/` for current implementation
+1. Explore existing `crates/ui/src/` for current implementation
 2. Research egui_dock, egui_plot patterns
 3. Consult Gemini for UI/UX best practices (`clink gemini`)
 4. Document findings in `.planning/phases/01-research-findings.md`

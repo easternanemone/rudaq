@@ -19,7 +19,7 @@ affects: [06-05-export, future-analysis-tools]
 
 # Tech tracking
 tech-stack:
-  added: [hdf5-metno optional dependency for daq-egui]
+  added: [hdf5-metno optional dependency for ui]
   patterns:
     - spawn_blocking for HDF5 I/O in GUI context
     - Multi-run overlay plot with distinct color palette (matplotlib tab10)
@@ -28,12 +28,12 @@ tech-stack:
 
 key-files:
   created:
-    - crates/daq-egui/src/panels/run_comparison.rs
+    - crates/ui/src/panels/run_comparison.rs
   modified:
-    - crates/daq-egui/src/panels/mod.rs
-    - crates/daq-egui/src/app.rs
-    - crates/daq-egui/Cargo.toml
-    - crates/daq-egui/src/panels/run_history.rs
+    - crates/ui/src/panels/mod.rs
+    - crates/ui/src/app.rs
+    - crates/ui/Cargo.toml
+    - crates/ui/src/panels/run_history.rs
 
 key-decisions:
   - "Checkbox selection for multi-run comparison (simpler than drag-drop)"
@@ -97,11 +97,11 @@ Each task was committed atomically:
 **Plan metadata:** Not yet created (will be committed separately)
 
 ## Files Created/Modified
-- `crates/daq-egui/src/panels/run_comparison.rs` - Multi-run comparison panel (419 lines)
-- `crates/daq-egui/src/panels/mod.rs` - Added run_comparison module export
-- `crates/daq-egui/src/app.rs` - Integrated RunComparisonPanel into main app
-- `crates/daq-egui/Cargo.toml` - Added hdf5-metno optional dependency, storage_hdf5 feature
-- `crates/daq-egui/src/panels/run_history.rs` - Fixed incomplete annotation match arms (deviation)
+- `crates/ui/src/panels/run_comparison.rs` - Multi-run comparison panel (419 lines)
+- `crates/ui/src/panels/mod.rs` - Added run_comparison module export
+- `crates/ui/src/app.rs` - Integrated RunComparisonPanel into main app
+- `crates/ui/Cargo.toml` - Added hdf5-metno optional dependency, storage_hdf5 feature
+- `crates/ui/src/panels/run_history.rs` - Fixed incomplete annotation match arms (deviation)
 
 ## Decisions Made
 
@@ -127,7 +127,7 @@ Each task was committed atomically:
 
 5. **hdf5-metno 0.11.0 to match workspace**
    - Rationale: hdf5 v0.8 causes native library conflict (hdf5-sys links collision)
-   - Workspace already uses hdf5-metno v0.11.0 in daq-storage
+   - Workspace already uses hdf5-metno v0.11.0 in storage
    - Prevents cargo build error from multiple hdf5-sys versions
 
 ## Deviations from Plan
@@ -138,16 +138,16 @@ Each task was committed atomically:
 - **Found during:** Task 1 (cargo build error)
 - **Issue:** run_history.rs had incomplete match arms for SaveAnnotation and LoadAnnotation variants added in previous task (06-03), preventing compilation
 - **Fix:** Added match arms with TODO placeholders for annotation implementation
-- **Files modified:** crates/daq-egui/src/panels/run_history.rs
-- **Verification:** cargo build -p daq-egui succeeds
+- **Files modified:** crates/ui/src/panels/run_history.rs
+- **Verification:** cargo build -p ui succeeds
 - **Committed in:** 3620fda1 (separate fix commit)
 
 **2. [Rule 1 - Bug] Fixed egui 0.33 API compatibility**
 - **Found during:** Task 1 (cargo build error after fixing match arms)
 - **Issue:** run_history.rs used TextEdit::multiline(&mut var).desired_width() pattern from egui 0.27, but egui 0.33 requires wrapping in ui.add()
 - **Fix:** Changed to `ui.add(egui::TextEdit::multiline(&mut self.annotation_notes).desired_width(f32::INFINITY))`
-- **Files modified:** crates/daq-egui/src/panels/run_history.rs
-- **Verification:** cargo build -p daq-egui succeeds
+- **Files modified:** crates/ui/src/panels/run_history.rs
+- **Verification:** cargo build -p ui succeeds
 - **Committed in:** 3620fda1 (same fix commit as Issue 1)
 
 ---
@@ -159,7 +159,7 @@ Each task was committed atomically:
 
 1. **HDF5 dependency version conflict**
    - Problem: Initial attempt to use hdf5 v0.8 caused cargo error (native library link collision)
-   - Root cause: daq-storage already uses hdf5-metno v0.11.0, can't link two hdf5-sys versions
+   - Root cause: storage already uses hdf5-metno v0.11.0, can't link two hdf5-sys versions
    - Resolution: Changed Cargo.toml to use hdf5-metno v0.11.0 (matches workspace)
    - Impact: None - same API, different package name
 

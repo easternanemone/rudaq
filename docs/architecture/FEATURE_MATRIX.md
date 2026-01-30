@@ -14,7 +14,7 @@ cargo build
 cargo build --features full
 
 # GUI development
-cargo build -p daq-egui --features standalone
+cargo build -p ui --features standalone
 
 # Server with all hardware
 cargo build --features "server,all_hardware"
@@ -60,8 +60,8 @@ Use these for common build configurations:
 | `storage_matlab` | MATLAB .mat files | `matrw` crate |
 
 **Storage Feature Propagation:**
-- `storage_hdf5` propagates to `daq-storage/storage_hdf5`
-- `storage_arrow` propagates to `daq-storage/storage_arrow` and `common/storage_arrow`
+- `storage_hdf5` propagates to `storage/storage_hdf5`
+- `storage_arrow` propagates to `storage/storage_arrow` and `common/storage_arrow`
 
 ---
 
@@ -79,10 +79,10 @@ Use these for common build configurations:
 
 | Feature | Description | Propagates To |
 |---------|-------------|---------------|
-| `instrument_thorlabs` | Thorlabs ELL14 rotators | `daq-hardware/driver-thorlabs` |
-| `instrument_newport` | Newport ESP300 controller | `daq-hardware/driver-newport` |
-| `instrument_photometrics` | PVCAM camera support | `daq-hardware/instrument_photometrics` |
-| `instrument_spectra_physics` | MaiTai laser | `daq-hardware/driver-spectra-physics` |
+| `instrument_thorlabs` | Thorlabs ELL14 rotators | `hardware/driver-thorlabs` |
+| `instrument_newport` | Newport ESP300 controller | `hardware/driver-newport` |
+| `instrument_photometrics` | PVCAM camera support | `hardware/instrument_photometrics` |
+| `instrument_spectra_physics` | MaiTai laser | `hardware/driver-spectra-physics` |
 | `instrument_newport_power_meter` | Newport 1830-C | tokio_serial only |
 | `all_hardware` | All above drivers | All driver features |
 
@@ -101,17 +101,17 @@ Use these for common build configurations:
 | Feature | Description | Dependencies |
 |---------|-------------|--------------|
 | `networking` | gRPC networking layer | None (base for server) |
-| `server` | Full gRPC server | `daq-server`, includes `networking` |
-| `scripting` | Rhai scripting engine | `daq-scripting` |
-| `scripting_python` | Python bindings for scripting | `daq-scripting/python` (PyO3) |
-| `native_plugins` | FFI native plugin system | `daq-plugin-api` (abi_stable) |
+| `server` | Full gRPC server | `server`, includes `networking` |
+| `scripting` | Rhai scripting engine | `scripting` |
+| `scripting_python` | Python bindings for scripting | `scripting/python` (PyO3) |
+| `native_plugins` | FFI native plugin system | `plugin-api` (abi_stable) |
 | `gui_egui` | Desktop GUI application | `egui`, `eframe`, `egui_plot`, `egui_extras` |
 | `modules` | Module system with runtime assignment | Requires `scripting` |
 | `plugins_hot_reload` | Hot reload plugin configs | `notify` crate |
 
 **Plugin System Notes:**
 - `scripting` enables Rhai-based script plugins in `rust-daq/src/plugins/`
-- `native_plugins` enables FFI plugins via `daq-plugin-api` (abi_stable)
+- `native_plugins` enables FFI plugins via `plugin-api` (abi_stable)
 - Both features can be enabled together; the `plugins` module conditionally compiles based on which are active
 - When enabling `native_plugins` without `scripting`, only FFI plugin types are available
 
@@ -182,45 +182,45 @@ The CI system tests these combinations:
 ```
 server
   └── networking
-  └── daq-server (optional dep)
+  └── server (optional dep)
   └── tokio/full
 
 modules
   └── scripting
 
 scripting
-  └── daq-scripting (optional dep)
+  └── scripting (optional dep)
   └── rust-daq/plugins (script_module, loader)
 
 native_plugins
-  └── daq-plugin-api (optional dep)
+  └── plugin-api (optional dep)
   └── rust-daq/plugins (native_plugins module)
 
 scripting_python
-  └── daq-scripting/python
+  └── scripting/python
 
 pvcam_sdk
-  └── daq-hardware/pvcam_sdk
+  └── hardware/pvcam_sdk
   └── instrument_photometrics
 
 instrument_thorlabs
   └── tokio_serial
-  └── daq-hardware/driver-thorlabs
+  └── hardware/driver-thorlabs
 
 instrument_spectra_physics
   └── tokio_serial
-  └── daq-hardware/driver-spectra-physics
+  └── hardware/driver-spectra-physics
 
 instrument_newport
   └── tokio_serial
-  └── daq-hardware/driver-newport
+  └── hardware/driver-newport
 
 instrument_newport_power_meter
   └── tokio_serial
 
 tokio_serial
   └── instrument_serial
-  └── daq-hardware/tokio_serial
+  └── hardware/tokio_serial
 ```
 
 ---

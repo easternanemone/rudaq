@@ -85,7 +85,7 @@ This ensures backward compatibility with existing devices.
 
 ## Adding New Control Sections
 
-1. Add variant to `ControlSection` enum in `daq-hardware/src/config/schema.rs`
+1. Add variant to `ControlSection` enum in `hardware/src/config/schema.rs`
 2. Add corresponding config struct (e.g., `MotionSectionConfig`)
 3. Add match arm in `config_renderer::render_section()`
 4. Implement actual UI rendering logic
@@ -94,7 +94,7 @@ This ensures backward compatibility with existing devices.
 
 Run tests:
 ```bash
-cargo test -p daq-egui config_tests
+cargo test -p ui config_tests
 ```
 
 ## Future Improvements

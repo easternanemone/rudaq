@@ -30,11 +30,11 @@ score: 5/5 must-haves verified
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `crates/daq-egui/src/graph/codegen.rs` | Rhai code generation | EXISTS (705 lines), SUBSTANTIVE, WIRED | Exports graph_to_rhai_script, imported in experiment_designer.rs |
+| `crates/ui/src/graph/codegen.rs` | Rhai code generation | EXISTS (705 lines), SUBSTANTIVE, WIRED | Exports graph_to_rhai_script, imported in experiment_designer.rs |
 | `crates/common/build.rs` | Build-time git metadata capture | EXISTS (48 lines), SUBSTANTIVE | Emits VERGEN_GIT_SHA, VERGEN_GIT_DIRTY, VERGEN_GIT_COMMIT_DATE |
 | `crates/common/src/experiment/document.rs` | Extended ExperimentManifest | EXISTS (765 lines), SUBSTANTIVE, WIRED | Has git_commit, git_dirty, graph_hash, graph_file with option_env! capture |
-| `crates/daq-egui/src/panels/code_preview.rs` | Syntax-highlighted code preview | EXISTS (211 lines), SUBSTANTIVE, WIRED | CodePreviewPanel with egui_code_editor, used in experiment_designer |
-| `crates/daq-egui/src/panels/script_editor.rs` | Editable script mode | EXISTS (139 lines), SUBSTANTIVE, WIRED | ScriptEditorPanel with save/save_as, used via eject_to_script() |
+| `crates/ui/src/panels/code_preview.rs` | Syntax-highlighted code preview | EXISTS (211 lines), SUBSTANTIVE, WIRED | CodePreviewPanel with egui_code_editor, used in experiment_designer |
+| `crates/ui/src/panels/script_editor.rs` | Editable script mode | EXISTS (139 lines), SUBSTANTIVE, WIRED | ScriptEditorPanel with save/save_as, used via eject_to_script() |
 
 ### Key Link Verification
 
@@ -93,7 +93,7 @@ No gaps found. All five success criteria from ROADMAP.md are verified:
 ### Test Results
 
 ```
-cargo test -p daq-egui codegen
+cargo test -p ui codegen
 running 15 tests - all passed
 
 cargo test -p common document  

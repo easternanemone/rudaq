@@ -196,7 +196,7 @@ mock = true
    ```
 
 2. **ABI version mismatch**
-   - Rebuild plugin against the same `daq-plugin-api` version as the host
+   - Rebuild plugin against the same `plugin-api` version as the host
 
 3. **Library not found**
    - Check library extension matches platform (.so, .dylib, .dll)

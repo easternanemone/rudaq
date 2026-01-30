@@ -65,7 +65,7 @@ Renamed method from `handle_canvas_drop` to `handle_canvas_drop_at(ui, canvas_re
 
 ## Key File
 
-**`/Users/briansquires/code/rust-daq/crates/daq-egui/src/panels/experiment_designer.rs`**
+**`/Users/briansquires/code/rust-daq/crates/ui/src/panels/experiment_designer.rs`**
 
 Critical section in `show_main_panel()`:
 ```rust
@@ -113,7 +113,7 @@ egui::CentralPanel::default().show_inside(ui, |ui| {
 ## Testing Instructions
 
 ```bash
-cargo run -p daq-egui
+cargo run -p ui
 ```
 
 In the Experiment Designer tab:

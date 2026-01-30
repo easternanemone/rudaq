@@ -46,7 +46,7 @@ Phase 8 delivers nested multi-dimensional scans and adaptive scans responding to
 
 **Installation:**
 ```toml
-# Add to daq-storage/Cargo.toml
+# Add to storage/Cargo.toml
 zarrs = "0.22"
 object_store = "0.11"  # For cloud backends
 find_peaks = "0.1"

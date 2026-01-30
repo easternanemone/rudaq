@@ -204,7 +204,7 @@ Script plugins are ideal for:
 
 ## See Also
 
-- `daq-hardware/src/plugin/manifest.rs` - Plugin manifest schema
-- `daq-hardware/src/plugin/discovery.rs` - Plugin discovery system
+- `hardware/src/plugin/manifest.rs` - Plugin manifest schema
+- `hardware/src/plugin/discovery.rs` - Plugin discovery system
 - `examples/scripts/` - Additional Rhai script examples
-- `crates/daq-plugin-example/` - Native plugin example
+- `crates/plugin-example/` - Native plugin example

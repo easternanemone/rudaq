@@ -145,12 +145,12 @@ Batch 3: 2 voltages, seq=2, samples_acquired=1, overflow=false
 **Fix Applied:**
 ```toml
 # Before:
-comedi = ["dep:daq-driver-comedi", "daq-hardware/comedi"]
-comedi_hardware = ["comedi", "daq-driver-comedi/hardware", "daq-hardware/comedi_hardware"]
+comedi = ["dep:driver-comedi", "hardware/comedi"]
+comedi_hardware = ["comedi", "driver-comedi/hardware", "hardware/comedi_hardware"]
 
 # After:
-comedi = ["dep:daq-driver-comedi", "daq-hardware/comedi", "daq-server/comedi"]
-comedi_hardware = ["comedi", "daq-driver-comedi/hardware", "daq-hardware/comedi_hardware", "daq-server/comedi_hardware"]
+comedi = ["dep:driver-comedi", "hardware/comedi", "server/comedi"]
+comedi_hardware = ["comedi", "driver-comedi/hardware", "hardware/comedi_hardware", "server/comedi_hardware"]
 ```
 
 **Impact:** Enables NiDaqService RPCs when building with `--features comedi_hardware`

@@ -27,8 +27,8 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/daq-egui/src/panels/scan_builder.rs
-    - crates/daq-egui/src/client.rs
+    - crates/ui/src/panels/scan_builder.rs
+    - crates/ui/src/client.rs
 
 key-decisions:
   - "Document streaming uses mpsc relay to avoid borrow checker issues"
@@ -74,8 +74,8 @@ All tasks committed atomically as single feature commit:
 
 ## Files Created/Modified
 
-- `crates/daq-egui/src/panels/scan_builder.rs` - Added ExecutionState, PlotStyle, document streaming, progress bar, live plot
-- `crates/daq-egui/src/client.rs` - Added start_engine and abort_plan methods to DaqClient
+- `crates/ui/src/panels/scan_builder.rs` - Added ExecutionState, PlotStyle, document streaming, progress bar, live plot
+- `crates/ui/src/client.rs` - Added start_engine and abort_plan methods to DaqClient
 
 ## Decisions Made
 
@@ -92,7 +92,7 @@ All tasks committed atomically as single feature commit:
 - **Found during:** Task 1 (execution controls)
 - **Issue:** Plan referenced client.start_engine() and client.abort_plan() but these methods didn't exist
 - **Fix:** Added both methods to DaqClient using StartEngineRequest and AbortPlanRequest from proto
-- **Files modified:** crates/daq-egui/src/client.rs
+- **Files modified:** crates/ui/src/client.rs
 - **Verification:** cargo check passes
 - **Committed in:** d1e2db51 (combined task commit)
 

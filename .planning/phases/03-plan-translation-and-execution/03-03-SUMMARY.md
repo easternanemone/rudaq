@@ -23,10 +23,10 @@ tech-stack:
 
 key-files:
   created:
-    - crates/daq-egui/src/widgets/runtime_parameter_editor.rs
+    - crates/ui/src/widgets/runtime_parameter_editor.rs
   modified:
-    - crates/daq-egui/src/widgets/mod.rs
-    - crates/daq-egui/src/panels/experiment_designer.rs
+    - crates/ui/src/widgets/mod.rs
+    - crates/ui/src/panels/experiment_designer.rs
 
 key-decisions:
   - "Separate RuntimeParameterEditor from existing parameter_editor.rs (different use case: runtime vs device introspection)"
@@ -68,9 +68,9 @@ Each task was committed atomically:
 2. **Task 2: Integrate parameter editing in paused state** - `b8b3daad` (feat)
 
 ## Files Created/Modified
-- `crates/daq-egui/src/widgets/runtime_parameter_editor.rs` - RuntimeParameterEditor widget with EditableParameter struct
-- `crates/daq-egui/src/widgets/mod.rs` - Export runtime_parameter_editor module
-- `crates/daq-egui/src/panels/experiment_designer.rs` - Parameter editor integration with pause state
+- `crates/ui/src/widgets/runtime_parameter_editor.rs` - RuntimeParameterEditor widget with EditableParameter struct
+- `crates/ui/src/widgets/mod.rs` - Export runtime_parameter_editor module
+- `crates/ui/src/panels/experiment_designer.rs` - Parameter editor integration with pause state
 
 ## Decisions Made
 - Created separate `runtime_parameter_editor.rs` instead of extending existing `parameter_editor.rs` - different use cases (runtime graph params vs device parameter introspection via ParameterDescriptor proto)

@@ -17,10 +17,10 @@ If either is missing, error tracking is silently disabled with no impact on appl
 
 ```bash
 # Daemon
-cargo build -p daq-bin --features error_tracking
+cargo build -p bin --features error_tracking
 
 # GUI
-cargo build -p daq-egui --features error_tracking
+cargo build -p ui --features error_tracking
 ```
 
 ### 2. Configure Sentry DSN

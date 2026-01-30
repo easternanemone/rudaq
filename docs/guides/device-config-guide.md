@@ -434,7 +434,7 @@ python3 -c "import tomllib; tomllib.load(open('config/devices/my_device.toml', '
 Create a simple test script:
 
 ```rust
-use daq_driver_generic::{DriverFactory, load_device_config};
+use driver_generic::{DriverFactory, load_device_config};
 use std::path::Path;
 
 #[tokio::main]

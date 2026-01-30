@@ -43,9 +43,9 @@ Scientists can design and interactively run experiments without writing code, wh
 ## Context
 
 **Existing Architecture:**
-- `daq-experiment` crate: RunEngine, Plan trait, PlanCommand, Checkpoint support
-- `daq-egui` crate: existing GUI with device panels, image viewer
-- `daq-scripting` crate: Rhai integration for scriptable experiments
+- `experiment` crate: RunEngine, Plan trait, PlanCommand, Checkpoint support
+- `ui` crate: existing GUI with device panels, image viewer
+- `scripting` crate: Rhai integration for scriptable experiments
 - Document model: StartDoc, DescriptorDoc, EventDoc, StopDoc
 
 **Reference Systems Studied:**
@@ -60,10 +60,10 @@ Scientists can design and interactively run experiments without writing code, wh
 
 ## Constraints
 
-- **UI Framework**: egui — must integrate with existing daq-egui application
+- **UI Framework**: egui — must integrate with existing ui application
 - **Execution Backend**: existing RunEngine — don't reinvent, extend
 - **Mid-run Modification**: Parameter injection only — can't restructure running Plan
-- **Storage**: existing daq-storage crate (HDF5, CSV, Arrow support)
+- **Storage**: existing storage crate (HDF5, CSV, Arrow support)
 
 ## Key Decisions
 

@@ -105,7 +105,7 @@ name = "my_native"
 
 [dependencies]
 abi_stable = "0.11"
-daq-plugin-api = { path = "/path/to/rust-daq/crates/daq-plugin-api" }
+plugin-api = { path = "/path/to/rust-daq/crates/plugin-api" }
 ```
 
 ### Step 3: Create src/lib.rs
@@ -114,7 +114,7 @@ daq-plugin-api = { path = "/path/to/rust-daq/crates/daq-plugin-api" }
 use abi_stable::export_root_module;
 use abi_stable::sabi_extern_fn;
 use abi_stable::std_types::{RHashMap, ROption, RResult, RString, RVec};
-use daq_plugin_api::prelude::*;
+use plugin_api::prelude::*;
 
 #[export_root_module]
 fn get_root_module() -> PluginMod_Ref {
@@ -313,7 +313,7 @@ interval_ms = "500"
 
 - See `examples/plugins/` for complete working examples
 - Read `docs/plugins/README.md` for full documentation
-- Check `crates/daq-plugin-api/` for the API reference
+- Check `crates/plugin-api/` for the API reference
 
 ## Troubleshooting
 
@@ -323,7 +323,7 @@ ls ~/.rust-daq/plugins/*/plugin.toml
 ```
 
 **Native plugin ABI error:**
-- Rebuild against the current daq-plugin-api version
+- Rebuild against the current plugin-api version
 - Check that AbiVersion::CURRENT matches
 
 **Script syntax error:**

@@ -56,4 +56,4 @@ status: complete
 
 ## Files Modified
 
-- `crates/daq-egui/src/panels/scan_builder.rs` - Added 2D form fields, visualization, completion summary (~300 lines)
+- `crates/ui/src/panels/scan_builder.rs` - Added 2D form fields, visualization, completion summary (~300 lines)

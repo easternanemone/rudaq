@@ -5,8 +5,8 @@ This document describes the integration tests for rust-daq applications.
 ## Overview
 
 Integration tests verify that applications work correctly as complete units, including:
-- **daq-bin**: Daemon startup, CLI commands, configuration loading, gRPC server
-- **daq-egui**: GUI client connections, state management, data transformations
+- **bin**: Daemon startup, CLI commands, configuration loading, gRPC server
+- **ui**: GUI client connections, state management, data transformations
 
 These tests complement the extensive unit and integration tests in the `rust-daq` library crate.
 
@@ -14,25 +14,25 @@ These tests complement the extensive unit and integration tests in the `rust-daq
 
 ```bash
 # Run all integration tests for applications
-cargo nextest run -p daq-bin --test integration_tests
-cargo nextest run -p daq-egui --test integration_tests
+cargo nextest run -p bin --test integration_tests
+cargo nextest run -p ui --test integration_tests
 
 # Or use standard cargo test
-cargo test -p daq-bin --test integration_tests
-cargo test -p daq-egui --test integration_tests
+cargo test -p bin --test integration_tests
+cargo test -p ui --test integration_tests
 
 # Run with verbose output
-cargo test -p daq-bin --test integration_tests -- --nocapture
+cargo test -p bin --test integration_tests -- --nocapture
 
 # Run ignored tests (require manual setup)
-cargo test -p daq-bin --test integration_tests -- --ignored --nocapture
+cargo test -p bin --test integration_tests -- --ignored --nocapture
 ```
 
 ## Test Categories
 
-### daq-bin Integration Tests
+### bin Integration Tests
 
-Located in `crates/daq-bin/tests/integration_tests.rs`:
+Located in `crates/bin/tests/integration_tests.rs`:
 
 #### 1. CLI Tests
 - **test_daemon_help_command**: Verifies `--help` output
@@ -53,15 +53,15 @@ Located in `crates/daq-bin/tests/integration_tests.rs`:
 To run manually:
 ```bash
 # Build daemon first
-cargo build -p daq-bin
+cargo build -p bin
 
 # Run ignored tests
-cargo test -p daq-bin --test integration_tests -- --ignored --nocapture
+cargo test -p bin --test integration_tests -- --ignored --nocapture
 ```
 
-### daq-egui Integration Tests
+### ui Integration Tests
 
-Located in `crates/daq-egui/tests/integration_tests.rs`:
+Located in `crates/ui/tests/integration_tests.rs`:
 
 #### 1. gRPC Client Tests
 - **test_daemon_url_parsing**: URL validation and normalization
@@ -147,8 +147,8 @@ Integration tests run automatically in GitHub Actions CI:
 ```yaml
 - name: Run integration tests
   run: |
-    cargo nextest run -p daq-bin --test integration_tests
-    cargo nextest run -p daq-egui --test integration_tests
+    cargo nextest run -p bin --test integration_tests
+    cargo nextest run -p ui --test integration_tests
 ```
 
 Ignored tests are **not** run in CI by default. They require manual setup or dedicated test infrastructure.
@@ -157,7 +157,7 @@ Ignored tests are **not** run in CI by default. They require manual setup or ded
 
 ### Test Fails: "Binary not found"
 - **Cause**: Daemon binary not built
-- **Solution**: Run `cargo build -p daq-bin` first
+- **Solution**: Run `cargo build -p bin` first
 
 ### Test Hangs: "Waiting for daemon"
 - **Cause**: Daemon startup timeout or port conflict
@@ -165,7 +165,7 @@ Ignored tests are **not** run in CI by default. They require manual setup or ded
 
 ### Connection Error: "Failed to connect to daemon"
 - **Cause**: Daemon not running or wrong address
-- **Solution**: Start daemon manually: `cargo run -p daq-bin -- daemon --port 50051`
+- **Solution**: Start daemon manually: `cargo run -p bin -- daemon --port 50051`
 
 ## Next Steps
 

@@ -59,7 +59,7 @@ serde_json = "1.0"
 ### Recommended Project Structure
 
 ```
-crates/daq-egui/src/
+crates/ui/src/
 ├── panels/
 │   ├── storage.rs           # Existing acquisition list (extend for metadata)
 │   ├── run_history.rs       # NEW: Browsing/filtering past runs
@@ -67,7 +67,7 @@ crates/daq-egui/src/
 ├── widgets/
 │   ├── metadata_editor.rs   # NEW: Tags/notes input during run
 │   └── run_table.rs         # NEW: Sortable/filterable run list
-crates/daq-storage/src/
+crates/storage/src/
 └── document_writer.rs       # Extend for user metadata
 ```
 
@@ -448,7 +448,7 @@ Things that couldn't be fully resolved:
 ### Secondary (MEDIUM confidence)
 
 - [egui-selectable-table](https://lib.rs/crates/egui-selectable-table) - Sortable table rows
-- Existing rust-daq codebase (daq-storage/document_writer.rs, daq-proto/proto/daq.proto)
+- Existing rust-daq codebase (storage/document_writer.rs, protocol/proto/daq.proto)
 
 ### Tertiary (LOW confidence)
 

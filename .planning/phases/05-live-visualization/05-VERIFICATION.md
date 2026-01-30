@@ -58,13 +58,13 @@ re_verification:
 
 | Artifact | Status | Details |
 |----------|--------|---------|
-| `crates/daq-egui/src/widgets/auto_scale_plot.rs` | ✓ VERIFIED | 304 lines, exports AutoScalePlot + AxisLockState |
+| `crates/ui/src/widgets/auto_scale_plot.rs` | ✓ VERIFIED | 304 lines, exports AutoScalePlot + AxisLockState |
 | - Grow-to-fit logic | ✓ VERIFIED | update_bounds() only expands bounds |
 | - Per-axis lock controls | ✓ VERIFIED | x_locked/y_locked toggles |
 | - Reset functionality | ✓ VERIFIED | reset_bounds() clears state |
 | - Tests | ✓ VERIFIED | 6 tests pass (grow-only, lock, reset) |
-| `crates/daq-egui/src/panels/multi_detector_grid.rs` | ✓ VERIFIED | 269 lines, grid layout for cameras/plots |
-| `crates/daq-egui/src/panels/live_visualization.rs` | ✓ VERIFIED | 558 lines, channel-based updates |
+| `crates/ui/src/panels/multi_detector_grid.rs` | ✓ VERIFIED | 269 lines, grid layout for cameras/plots |
+| `crates/ui/src/panels/live_visualization.rs` | ✓ VERIFIED | 558 lines, channel-based updates |
 | - poll_updates() | ✓ VERIFIED | Drains frame_rx and data_rx (lines 341-356) |
 | - update_frame() | ✓ VERIFIED | Updates camera texture (line 166) |
 | - add_data() | ✓ VERIFIED | Adds points to plot ring buffer (line 219) |
@@ -73,7 +73,7 @@ re_verification:
 
 | Artifact | Status | Details |
 |----------|--------|---------|
-| `crates/daq-egui/src/panels/experiment_designer.rs` | ✓ VERIFIED | Camera and plot streaming wired |
+| `crates/ui/src/panels/experiment_designer.rs` | ✓ VERIFIED | Camera and plot streaming wired |
 | - Imports | ✓ VERIFIED | StreamExt, StreamQuality, TrySendError (lines 23-25) |
 | - camera_stream_tasks field | ✓ VERIFIED | Vec of JoinHandles for cleanup (line 72) |
 | - document_stream_task field | ✓ VERIFIED | Optional JoinHandle for cleanup (line 74) |
@@ -117,14 +117,14 @@ re_verification:
 
 **Compilation:**
 ```bash
-$ cargo check -p daq-egui
+$ cargo check -p ui
 Finished `dev` profile [unoptimized + debuginfo] target(s)
 No errors
 ```
 
 **AutoScalePlot Tests:**
 ```bash
-$ cargo nextest run -p daq-egui auto_scale_plot
+$ cargo nextest run -p ui auto_scale_plot
 Summary [0.016s] 6 tests run: 6 passed, 206 skipped
 - test_bounds_grow_only: PASS
 - test_axis_lock_prevents_update: PASS
@@ -136,7 +136,7 @@ Summary [0.016s] 6 tests run: 6 passed, 206 skipped
 **Gap 1: Camera frames not flowing**
 - **Before:** frame_tx created but never used to send
 - **After:** Line 1240 sends FrameUpdate via tx.try_send(update)
-- **Verification:** `rg "try_send.*update" crates/daq-egui/src/panels/experiment_designer.rs` shows usage
+- **Verification:** `rg "try_send.*update" crates/ui/src/panels/experiment_designer.rs` shows usage
 
 **Gap 2: Plot data not flowing**
 - **Before:** data_tx created but never used to send

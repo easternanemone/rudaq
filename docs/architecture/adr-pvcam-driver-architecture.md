@@ -9,7 +9,7 @@
 
 ## Context
 
-The PVCAM driver (`crates/daq-driver-pvcam/`) provides Rust integration with Teledyne Photometrics cameras via the PVCAM SDK. During architectural review, the question arose whether the driver's ~9K lines of code represents over-engineering, or whether a simpler FFI binding approach would suffice.
+The PVCAM driver (`crates/driver-pvcam/`) provides Rust integration with Teledyne Photometrics cameras via the PVCAM SDK. During architectural review, the question arose whether the driver's ~9K lines of code represents over-engineering, or whether a simpler FFI binding approach would suffice.
 
 This document records the analysis findings and justifies the architectural decisions.
 
@@ -330,7 +330,7 @@ let connection = tokio::task::spawn_blocking({
 
 **Decision:** Use pre-allocated buffer pools for frame handling to eliminate per-frame heap allocations.
 
-**Location:** `crates/daq-pool/` (new crate), `components/frame_pool.rs`
+**Location:** `crates/pool/` (new crate), `components/frame_pool.rs`
 
 **Architecture:**
 ```
@@ -487,4 +487,4 @@ If code reduction is desired, these optional features could be feature-gated:
 |------|--------|-------------|
 | 2025-01-09 | Architecture Review | Initial analysis and documentation |
 | 2025-01-10 | bd-ffi-sdk-match | Updated EOF callback to match SDK examples (pl_exp_get_latest_frame inside callback) |
-| 2026-01-16 | bd-0dax | Added zero-allocation frame pool architecture (daq-pool crate) |
+| 2026-01-16 | bd-0dax | Added zero-allocation frame pool architecture (pool crate) |

@@ -22,8 +22,8 @@ tech-stack:
   patterns: [async panel pattern with mpsc channels, search filtering, selectable table rows]
 
 key-files:
-  created: [crates/daq-egui/src/panels/run_history.rs]
-  modified: [crates/daq-egui/src/panels/mod.rs, crates/daq-egui/src/app.rs]
+  created: [crates/ui/src/panels/run_history.rs]
+  modified: [crates/ui/src/panels/mod.rs, crates/ui/src/app.rs]
 
 key-decisions:
   - "Text search instead of structured query (Phase 6 scope - simple and sufficient)"
@@ -69,9 +69,9 @@ Each task was committed atomically:
 **Plan metadata:** (pending)
 
 ## Files Created/Modified
-- `crates/daq-egui/src/panels/run_history.rs` - RunHistoryPanel with table, search, and detail view
-- `crates/daq-egui/src/panels/mod.rs` - Export RunHistoryPanel
-- `crates/daq-egui/src/app.rs` - Integrate panel into app (Panel enum, nav button, UI rendering)
+- `crates/ui/src/panels/run_history.rs` - RunHistoryPanel with table, search, and detail view
+- `crates/ui/src/panels/mod.rs` - Export RunHistoryPanel
+- `crates/ui/src/app.rs` - Integrate panel into app (Panel enum, nav button, UI rendering)
 
 ## Decisions Made
 
@@ -97,7 +97,7 @@ Each task was committed atomically:
 - **Found during:** Task 3 (detail panel implementation)
 - **Issue:** Plan specified `ui.output_mut(|o| o.copied_text = ...)` but egui uses `ui.ctx().copy_text()`
 - **Fix:** Changed to `ui.ctx().copy_text(acq.acquisition_id.clone())`
-- **Files modified:** crates/daq-egui/src/panels/run_history.rs
+- **Files modified:** crates/ui/src/panels/run_history.rs
 - **Verification:** Build succeeds, pattern matches other panels (getting_started.rs, scan_builder.rs)
 - **Committed in:** 562e07a (Task 1 commit)
 
@@ -105,7 +105,7 @@ Each task was committed atomically:
 - **Found during:** Task 2 (compile error)
 - **Issue:** AcquisitionSummary proto lacks plan_type field, causing E0609 errors
 - **Fix:** Removed plan_type column from table and detail grid
-- **Files modified:** crates/daq-egui/src/panels/run_history.rs
+- **Files modified:** crates/ui/src/panels/run_history.rs
 - **Verification:** Cargo build succeeds without errors
 - **Committed in:** 562e07a (Task 1 commit)
 
@@ -119,7 +119,7 @@ Each task was committed atomically:
 **Pre-existing build errors in scan_builder.rs**
 - Problem: Clippy detected unused imports and missing metadata field in other panels
 - Resolution: Errors are pre-existing (not introduced by this plan). Verified my changes compile cleanly by checking modified files only.
-- Impact: None on this plan - daq-egui builds successfully despite warnings in unrelated files.
+- Impact: None on this plan - ui builds successfully despite warnings in unrelated files.
 
 ## User Setup Required
 

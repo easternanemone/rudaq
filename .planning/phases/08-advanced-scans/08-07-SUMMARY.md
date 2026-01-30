@@ -4,7 +4,7 @@
 
 ## What Was Built
 
-### AdaptiveAlert Widget (`crates/daq-egui/src/widgets/adaptive_alert.rs`)
+### AdaptiveAlert Widget (`crates/ui/src/widgets/adaptive_alert.rs`)
 - `AdaptiveAlertData` struct with trigger info, peak details, action type
 - `AdaptiveAlertResponse` enum (Approved, Cancelled, Pending)
 - `show_adaptive_alert()` function using egui native Modal
@@ -36,16 +36,16 @@
 - TODO markers for RunEngine signal integration
 
 ## Files Modified
-- `crates/daq-egui/src/widgets/adaptive_alert.rs` (created)
-- `crates/daq-egui/src/widgets/mod.rs` (export added)
-- `crates/daq-egui/src/panels/experiment_designer.rs` (integration)
+- `crates/ui/src/widgets/adaptive_alert.rs` (created)
+- `crates/ui/src/widgets/mod.rs` (export added)
+- `crates/ui/src/panels/experiment_designer.rs` (integration)
 
 ## Commits
 - e206ad2e: feat(egui): add AdaptiveAlert widget with egui Modal
 - ab9806b0: feat(egui): integrate adaptive alert into ExperimentDesignerPanel
 
 ## Tests
-- Build verification: `cargo check -p daq-egui` passes
+- Build verification: `cargo check -p ui` passes
 - Existing tests: All 173 tests pass
 
 ## Success Criteria Met

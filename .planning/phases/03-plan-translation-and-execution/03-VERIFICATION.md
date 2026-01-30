@@ -8,9 +8,9 @@ gaps:
     status: partial
     reason: "Visual highlighting infrastructure exists but not activated (egui-snarl API limitation)"
     artifacts:
-      - path: "crates/daq-egui/src/graph/viewer.rs"
+      - path: "crates/ui/src/graph/viewer.rs"
         issue: "header_color() method exists but never called (dead code warning)"
-      - path: "crates/daq-egui/src/panels/experiment_designer.rs"
+      - path: "crates/ui/src/panels/experiment_designer.rs"
         issue: "run_experiment() has TODO - GraphPlan not sent to server via gRPC"
     missing:
       - "GraphPlan serialization and queueing via DaqClient.queue_plan()"
@@ -42,13 +42,13 @@ gaps:
 
 | Artifact | Expected | Status | Details |
 | -------- | -------- | ------ | ------- |
-| `crates/daq-egui/src/client.rs` | pause_engine, resume_engine, get_engine_status methods | ✓ VERIFIED | Lines 866-889, all three methods implemented with correct proto types |
-| `crates/daq-egui/src/graph/translation.rs` | GraphPlan implementing Plan trait | ✓ VERIFIED | 343 lines, impl Plan at line 89, topological sort with cycle detection |
-| `crates/daq-egui/src/graph/validation.rs` | validate_graph_structure with cycle detection | ✓ VERIFIED | Function at line 62, uses Kahn's algorithm, integrated into experiment_designer.rs |
-| `crates/daq-egui/src/graph/execution_state.rs` | ExecutionState tracking | ✓ VERIFIED | 207 lines, tracks engine state, active node, progress, ETA |
-| `crates/daq-egui/src/panels/experiment_designer.rs` | Run/Pause/Resume controls | ✓ VERIFIED | show_execution_toolbar at line 670, buttons call pause_engine/resume_engine |
-| `crates/daq-egui/src/widgets/runtime_parameter_editor.rs` | Parameter editing widget | ✓ VERIFIED | 222 lines, EditableParameter struct, RuntimeParameterEditor widget |
-| `crates/daq-egui/src/graph/viewer.rs` | Visual highlighting support | ⚠️ ORPHANED | header_color() exists but never called (dead code warning) |
+| `crates/ui/src/client.rs` | pause_engine, resume_engine, get_engine_status methods | ✓ VERIFIED | Lines 866-889, all three methods implemented with correct proto types |
+| `crates/ui/src/graph/translation.rs` | GraphPlan implementing Plan trait | ✓ VERIFIED | 343 lines, impl Plan at line 89, topological sort with cycle detection |
+| `crates/ui/src/graph/validation.rs` | validate_graph_structure with cycle detection | ✓ VERIFIED | Function at line 62, uses Kahn's algorithm, integrated into experiment_designer.rs |
+| `crates/ui/src/graph/execution_state.rs` | ExecutionState tracking | ✓ VERIFIED | 207 lines, tracks engine state, active node, progress, ETA |
+| `crates/ui/src/panels/experiment_designer.rs` | Run/Pause/Resume controls | ✓ VERIFIED | show_execution_toolbar at line 670, buttons call pause_engine/resume_engine |
+| `crates/ui/src/widgets/runtime_parameter_editor.rs` | Parameter editing widget | ✓ VERIFIED | 222 lines, EditableParameter struct, RuntimeParameterEditor widget |
+| `crates/ui/src/graph/viewer.rs` | Visual highlighting support | ⚠️ ORPHANED | header_color() exists but never called (dead code warning) |
 
 ### Key Link Verification
 
@@ -174,23 +174,23 @@ All artifacts exist:
 
 ```bash
 # DaqClient methods used?
-grep -r "pause_engine\|resume_engine" crates/daq-egui/src/panels/experiment_designer.rs
+grep -r "pause_engine\|resume_engine" crates/ui/src/panels/experiment_designer.rs
 # Result: ✓ Called at lines 814, 829
 
 # GraphPlan translation called?
-grep -r "GraphPlan::from_snarl" crates/daq-egui/src/panels/experiment_designer.rs
+grep -r "GraphPlan::from_snarl" crates/ui/src/panels/experiment_designer.rs
 # Result: ✓ Called at line 776
 
 # Validation integrated?
-grep -r "validate_graph_structure" crates/daq-egui/src/panels/experiment_designer.rs
+grep -r "validate_graph_structure" crates/ui/src/panels/experiment_designer.rs
 # Result: ✓ Called at line 607
 
 # Parameter editor integrated?
-grep -r "show_parameter_editor_panel" crates/daq-egui/src/panels/experiment_designer.rs
+grep -r "show_parameter_editor_panel" crates/ui/src/panels/experiment_designer.rs
 # Result: ✓ Called at line 306 when paused
 
 # header_color used?
-grep -r "header_color" crates/daq-egui/src/graph/viewer.rs
+grep -r "header_color" crates/ui/src/graph/viewer.rs
 # Result: ⚠️ Defined but not called (dead code warning)
 ```
 
@@ -201,16 +201,16 @@ grep -r "header_color" crates/daq-egui/src/graph/viewer.rs
 ## Test Results
 
 ```bash
-cargo test -p daq-egui translation
+cargo test -p ui translation
 # ✓ test_empty_graph ... ok
 # ✓ test_cycle_detection ... ok
 # ✓ test_single_node ... ok
 
-cargo test -p daq-egui execution_state
+cargo test -p ui execution_state
 # ✓ test_checkpoint_parsing ... ok
 # ✓ test_progress_calculation ... ok
 
-cargo build -p daq-egui
+cargo build -p ui
 # ✓ Build succeeds with 2 warnings (dead code: header_color, variant Started)
 ```
 

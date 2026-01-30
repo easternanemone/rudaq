@@ -84,7 +84,7 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<Self::StreamAnalogInputStream>, Status> {
         #[cfg(feature = "comedi")]
         {
-            use daq_driver_comedi::multi_channel::ComediMultiChannelAcquisition;
+            use driver_comedi::multi_channel::ComediMultiChannelAcquisition;
             use tokio::time::Duration;
 
             let req = request.into_inner();
@@ -518,7 +518,7 @@ impl NiDaqService for NiDaqServiceImpl {
             let pins = req.pins.clone();
             self.await_with_timeout("ConfigureDigitalIO", async move {
                 tokio::task::spawn_blocking(move || {
-                    use daq_driver_comedi::subsystem::digital_io::DioDirection;
+                    use driver_comedi::subsystem::digital_io::DioDirection;
                     use hardware::drivers::comedi::ComediDevice;
 
                     let device = ComediDevice::open(device_path)?;

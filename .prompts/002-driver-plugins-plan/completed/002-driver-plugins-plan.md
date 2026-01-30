@@ -18,10 +18,10 @@ Key findings to incorporate:
 - **Config format:** TOML (already used in rust-daq, better type safety)
 
 Existing codebase context:
-- Current drivers: @crates/daq-hardware/src/drivers/ (ell14.rs, esp300.rs, maitai.rs, newport_1830c.rs)
-- Capability traits: @crates/daq-hardware/src/capabilities.rs (Movable, Readable, FrameProducer, etc.)
+- Current drivers: @crates/hardware/src/drivers/ (ell14.rs, esp300.rs, maitai.rs, newport_1830c.rs)
+- Capability traits: @crates/hardware/src/capabilities.rs (Movable, Readable, FrameProducer, etc.)
 - Current config: @config/config.v4.toml (Figment-based configuration)
-- Registry: @crates/daq-hardware/src/registry.rs (DeviceRegistry pattern)
+- Registry: @crates/hardware/src/registry.rs (DeviceRegistry pattern)
 </context>
 
 <planning_requirements>
@@ -35,7 +35,7 @@ Existing codebase context:
 
 **Constraints:**
 - Maintain backward compatibility during migration (existing drivers continue to work)
-- Preserve async/await patterns used throughout daq-hardware
+- Preserve async/await patterns used throughout hardware
 - No runtime performance regression (enum_dispatch addresses this)
 - Support both RS-232 and RS-485 protocols
 - Config files must be human-readable for instrument users

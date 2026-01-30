@@ -25,12 +25,12 @@ tech-stack:
 
 key-files:
   created:
-    - crates/daq-egui/src/widgets/device_selector.rs
+    - crates/ui/src/widgets/device_selector.rs
   modified:
-    - crates/daq-egui/src/graph/nodes.rs
-    - crates/daq-egui/src/graph/translation.rs
-    - crates/daq-egui/src/widgets/property_inspector.rs
-    - crates/daq-egui/src/panels/experiment_designer.rs
+    - crates/ui/src/graph/nodes.rs
+    - crates/ui/src/graph/translation.rs
+    - crates/ui/src/widgets/property_inspector.rs
+    - crates/ui/src/panels/experiment_designer.rs
 
 key-decisions:
   - "Configuration structs over inline fields (cleaner APIs, easier extension)"
@@ -75,12 +75,12 @@ Each task was committed atomically:
 2. **Tasks 2 & 3: Enhance ExperimentNode with configuration structs** - `6a199e11` (feat)
 
 ## Files Created/Modified
-- `crates/daq-egui/src/widgets/device_selector.rs` - Autocomplete widget for device selection from registry
-- `crates/daq-egui/src/graph/nodes.rs` - Enhanced node types with MoveConfig, WaitCondition, AcquireConfig, LoopConfig
-- `crates/daq-egui/src/graph/translation.rs` - Updated translation to handle new config structs, burst acquisition, conditional waits
-- `crates/daq-egui/src/widgets/property_inspector.rs` - Updated UI to edit mode, wait_settled, exposure override, frame_count
-- `crates/daq-egui/src/panels/experiment_designer.rs` - Updated validation and parameter collection for new structures
-- `crates/daq-egui/src/widgets/mod.rs` - Export DeviceSelector
+- `crates/ui/src/widgets/device_selector.rs` - Autocomplete widget for device selection from registry
+- `crates/ui/src/graph/nodes.rs` - Enhanced node types with MoveConfig, WaitCondition, AcquireConfig, LoopConfig
+- `crates/ui/src/graph/translation.rs` - Updated translation to handle new config structs, burst acquisition, conditional waits
+- `crates/ui/src/widgets/property_inspector.rs` - Updated UI to edit mode, wait_settled, exposure override, frame_count
+- `crates/ui/src/panels/experiment_designer.rs` - Updated validation and parameter collection for new structures
+- `crates/ui/src/widgets/mod.rs` - Export DeviceSelector
 
 ## Decisions Made
 
@@ -100,8 +100,8 @@ Each task was committed atomically:
 - **Found during:** Task 1 (DeviceSelector widget creation)
 - **Issue:** egui_autocomplete 12.0.0 compilation error with egui 0.33 (trait bound `SerializableAny` not satisfied)
 - **Fix:** Implemented custom DeviceSelector widget using egui Area + popup instead of external dependency
-- **Files modified:** crates/daq-egui/src/widgets/device_selector.rs
-- **Verification:** `cargo check -p daq-egui` passes, autocomplete functionality works
+- **Files modified:** crates/ui/src/widgets/device_selector.rs
+- **Verification:** `cargo check -p ui` passes, autocomplete functionality works
 - **Committed in:** f47354fb (Task 1 commit)
 
 ---

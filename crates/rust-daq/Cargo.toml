@@ -30,15 +30,15 @@ storage = { path = "../storage", default-features = false }
 server = { path = "../server", optional = true }
 scripting = { path = "../scripting", optional = true }
 experiment = { path = "../experiment" }
-daq-plugin-api = { path = "../daq-plugin-api", optional = true }
+plugin-api = { path = "../plugin-api", optional = true }
 
 # Standalone driver crates
-daq-driver-mock = { path = "../daq-driver-mock", optional = true }
-daq-driver-thorlabs = { path = "../daq-driver-thorlabs", optional = true }
-daq-driver-newport = { path = "../daq-driver-newport", optional = true }
-daq-driver-spectra-physics = { path = "../daq-driver-spectra-physics", optional = true }
-daq-driver-comedi = { path = "../daq-driver-comedi", optional = true }
-daq-driver-generic = { path = "../daq-driver-generic", optional = true }
+driver-mock = { path = "../driver-mock", optional = true }
+driver-thorlabs = { path = "../driver-thorlabs", optional = true }
+driver-newport = { path = "../driver-newport", optional = true }
+driver-spectra-physics = { path = "../driver-spectra-physics", optional = true }
+driver-comedi = { path = "../driver-comedi", optional = true }
+driver-generic = { path = "../driver-generic", optional = true }
 
 # Memory Allocator (Microsoft Rust Guidelines: M-MIMALLOC-APPS)
 # mimalloc removed (moved to daq-bin)
@@ -109,7 +109,7 @@ tracing-subscriber = { version = "0.3", features = ["registry"] }
 uuid = { version = "1", features = ["v4"] }
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 nix = { version = "0.29", features = ["term"] }
-daq-driver-pvcam = { path = "../daq-driver-pvcam", features = ["mock"] }
+driver-pvcam = { path = "../driver-pvcam", features = ["mock"] }
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -147,14 +147,14 @@ serial = ["dep:tokio-serial", "dep:serialport", "hardware/serial"]
 visa = ["dep:visa-rs"]
 
 # Mock drivers for testing
-mock = ["dep:daq-driver-mock"]
+mock = ["dep:driver-mock"]
 
 # Hardware drivers (standalone crates)
-thorlabs = ["serial", "dep:daq-driver-thorlabs", "hardware/thorlabs"]
-newport = ["serial", "dep:daq-driver-newport", "hardware/newport"]
-spectra_physics = ["serial", "dep:daq-driver-spectra-physics", "hardware/spectra_physics"]
+thorlabs = ["serial", "dep:driver-thorlabs", "hardware/thorlabs"]
+newport = ["serial", "dep:driver-newport", "hardware/newport"]
+spectra_physics = ["serial", "dep:driver-spectra-physics", "hardware/spectra_physics"]
 newport_power_meter = ["newport"]
-generic = ["serial", "dep:daq-driver-generic", "hardware/generic"]
+generic = ["serial", "dep:driver-generic", "hardware/generic"]
 
 # PVCAM camera support
 pvcam = ["serial", "hardware/pvcam"]
@@ -162,8 +162,8 @@ pvcam_sdk = ["pvcam", "hardware/pvcam_sdk"]
 pvcam_hardware = ["pvcam_sdk"]
 
 # Comedi DAQ support
-comedi = ["dep:daq-driver-comedi", "hardware/comedi", "server/comedi"]
-comedi_hardware = ["comedi", "daq-driver-comedi/hardware", "hardware/comedi_hardware", "server/comedi_hardware"]
+comedi = ["dep:driver-comedi", "hardware/comedi", "server/comedi"]
+comedi_hardware = ["comedi", "driver-comedi/hardware", "hardware/comedi_hardware", "server/comedi_hardware"]
 
 # All hardware drivers (with mock PVCAM and Comedi)
 all_hardware = ["thorlabs", "newport", "spectra_physics", "newport_power_meter", "pvcam", "comedi", "generic"]
@@ -186,7 +186,7 @@ scripting_python = ["scripting/python"]
 plugins_hot_reload = ["dep:notify"]
 
 # Native plugin loading (abi_stable)
-native_plugins = ["dep:daq-plugin-api"]
+native_plugins = ["dep:plugin-api"]
 
 # Binaries and Examples moved to separate crates
 # [[bin]]

@@ -114,12 +114,12 @@ esp300-native/
 ```toml
 [dependencies]
 abi_stable = "0.11"
-daq-plugin-api = { path = "path/to/daq-plugin-api" }
+plugin-api = { path = "path/to/plugin-api" }
 ```
 
 2. Export root module:
 ```rust
-use daq_plugin_api::prelude::*;
+use plugin_api::prelude::*;
 
 #[export_root_module]
 fn get_root_module() -> PluginMod_Ref {
@@ -235,12 +235,12 @@ Native plugins have partial hot-reload:
 
 Enable debug logging:
 ```bash
-RUST_LOG=daq_plugin_api=debug rust-daq-daemon
+RUST_LOG=plugin_api=debug rust-daq-daemon
 ```
 
 Common issues:
 - **Plugin not found**: Check `plugin.toml` exists and `id` is unique
-- **ABI mismatch**: Rebuild native plugin against current daq-plugin-api
+- **ABI mismatch**: Rebuild native plugin against current plugin-api
 - **Script error**: Check Rhai syntax and variable scope
 
 ## Example Plugins

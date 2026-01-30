@@ -28,7 +28,7 @@ The established libraries/tools for this domain:
 | egui-snarl | 0.9.0 | Node graph UI | Already in use, supports custom node types with multiple pins |
 | egui | 0.33 | Immediate-mode GUI | Project standard, matches egui_autocomplete |
 | egui_autocomplete | 0.0.10 | Fuzzy-match device selection | Purpose-built for dropdown with keyboard navigation |
-| daq-experiment | internal | Plan/PlanCommand | Existing execution layer with Wait, MoveTo, Read, Trigger commands |
+| experiment | internal | Plan/PlanCommand | Existing execution layer with Wait, MoveTo, Read, Trigger commands |
 
 ### Supporting
 | Library | Version | Purpose | When to Use |
@@ -46,14 +46,14 @@ The established libraries/tools for this domain:
 **Installation:**
 ```bash
 cargo add egui_autocomplete --features serde
-# egui-snarl, egui, daq-experiment already present
+# egui-snarl, egui, experiment already present
 ```
 
 ## Architecture Patterns
 
 ### Recommended Project Structure
 ```
-crates/daq-egui/src/
+crates/ui/src/
 ├── graph/
 │   ├── nodes.rs                  # ExperimentNode enum (already exists)
 │   ├── translation.rs            # GraphPlan with loop body expansion
@@ -365,7 +365,7 @@ Verified patterns from existing codebase:
 
 ### Move Node Translation (Existing)
 ```rust
-// Source: crates/daq-egui/src/graph/translation.rs (lines 265-272)
+// Source: crates/ui/src/graph/translation.rs (lines 265-272)
 ExperimentNode::Move { device, position } => {
     if !device.is_empty() {
         movers.push(device.clone());
@@ -379,7 +379,7 @@ ExperimentNode::Move { device, position } => {
 
 ### Wait Node Translation (Existing)
 ```rust
-// Source: crates/daq-egui/src/graph/translation.rs (lines 274-278)
+// Source: crates/ui/src/graph/translation.rs (lines 274-278)
 ExperimentNode::Wait { duration_ms } => {
     commands.push(PlanCommand::Wait {
         seconds: *duration_ms / 1000.0,
@@ -389,7 +389,7 @@ ExperimentNode::Wait { duration_ms } => {
 
 ### Acquire Node Translation (Existing)
 ```rust
-// Source: crates/daq-egui/src/graph/translation.rs (lines 240-264)
+// Source: crates/ui/src/graph/translation.rs (lines 240-264)
 ExperimentNode::Acquire { detector, duration_ms } => {
     if !detector.is_empty() {
         detectors.push(detector.clone());
@@ -419,7 +419,7 @@ ExperimentNode::Acquire { detector, duration_ms } => {
 
 ### Loop Stub (Needs Enhancement)
 ```rust
-// Source: crates/daq-egui/src/graph/translation.rs (lines 279-286)
+// Source: crates/ui/src/graph/translation.rs (lines 279-286)
 // Current implementation is a stub - just adds checkpoint
 ExperimentNode::Loop { iterations } => {
     // Loop node itself just marks checkpoint
@@ -516,7 +516,7 @@ Things that couldn't be fully resolved:
 - egui_autocomplete docs: https://docs.rs/egui_autocomplete/latest/egui_autocomplete/ - API usage patterns
 - Bluesky ophyd Status objects: https://blueskyproject.io/ophyd/status.html - Settling time patterns
 - common capabilities.rs (lines 168-220): Movable trait with wait_settled
-- daq-egui translation.rs (lines 240-286): Existing node translation patterns
+- ui translation.rs (lines 240-286): Existing node translation patterns
 
 ### Secondary (MEDIUM confidence)
 - Unity Visual Scripting Control Nodes: https://docs.unity3d.com/Packages/com.unity.visualscripting@1.9/manual/vs-control.html - Loop body patterns

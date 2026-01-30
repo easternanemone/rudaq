@@ -1,4 +1,4 @@
-# daq-bin
+# bin
 
 Command-line interface and daemon for rust-daq.
 
@@ -13,10 +13,10 @@ This crate provides the main entry points for running rust-daq:
 
 ```bash
 # Build from source
-cargo build --release -p daq-bin
+cargo build --release -p bin
 
 # Install to PATH
-cargo install --path crates/daq-bin
+cargo install --path crates/bin
 ```
 
 ## Usage
@@ -217,7 +217,7 @@ WantedBy=multi-user.target
 
 ## See Also
 
-- [`daq-server`](../daq-server/) - gRPC service implementations
-- [`daq-hardware`](../daq-hardware/) - Device registry and drivers
-- [`daq-scripting`](../daq-scripting/) - Script execution engine
+- [`server`](../server/) - gRPC service implementations
+- [`hardware`](../hardware/) - Device registry and drivers
+- [`scripting`](../scripting/) - Script execution engine
 - [DEMO.md](../../DEMO.md) - Getting started guide

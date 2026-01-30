@@ -9,7 +9,7 @@
 
 ## Context
 
-The `daq-pool` crate provides zero-allocation object pools (`Pool<T>` and `BufferPool`) for high-performance frame handling in the PVCAM driver. At 100 FPS with 8MB frames, per-frame heap allocations cause GC pressure and latency spikes that exceed the SDK's buffer window.
+The `pool` crate provides zero-allocation object pools (`Pool<T>` and `BufferPool`) for high-performance frame handling in the PVCAM driver. At 100 FPS with 8MB frames, per-frame heap allocations cause GC pressure and latency spikes that exceed the SDK's buffer window.
 
 This document defines the error handling strategy for pool operations, covering failure modes, recovery strategies, and metrics for monitoring pool health.
 
@@ -440,7 +440,7 @@ At 100 FPS with sustained backpressure, logging every event would:
 
 - [ADR: PVCAM Driver Architecture](adr-pvcam-driver-architecture.md)
 - [ADR: PVCAM Continuous Acquisition](adr-pvcam-continuous-acquisition.md)
-- [daq-pool crate](../../crates/daq-pool/src/lib.rs)
+- [pool crate](../../crates/pool/src/lib.rs)
 
 ---
 

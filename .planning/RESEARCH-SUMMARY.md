@@ -36,7 +36,7 @@ Daemon (rust-daq-daemon)
   ├─ HardwareService (gRPC :50051) ──────> DaqClient (control plane)
   └─ Rerun SDK → Rerun Server (:9876) ──> re_viewer::App (data plane)
 
-GUI (daq-egui)
+GUI (ui)
   ├─ Native egui Panels (Instrument Mgr, Controls, Designer, History)
   └─ Embedded Rerun Viewer (Cameras, Signals, Spectra, Logs with timeline)
 ```
@@ -431,7 +431,7 @@ struct WorkspaceState {
 
 1. **Dependency updates:**
    ```bash
-   cd crates/daq-egui
+   cd crates/ui
    cargo add egui_dock@0.18.0
    cargo add egui_plot@0.34.0
    cargo update
@@ -476,10 +476,10 @@ struct WorkspaceState {
 
 ### Codebase References
 
-- `crates/daq-egui/src/main_rerun.rs` - Current Rerun integration
-- `crates/daq-egui/src/panels/devices.rs` - Async pattern template
-- `crates/daq-egui/src/widgets/parameter_editor.rs` - Widget pattern template
-- `crates/daq-proto/proto/daq.proto` - gRPC service definitions
+- `crates/ui/src/main_rerun.rs` - Current Rerun integration
+- `crates/ui/src/panels/devices.rs` - Async pattern template
+- `crates/ui/src/widgets/parameter_editor.rs` - Widget pattern template
+- `crates/protocol/proto/daq.proto` - gRPC service definitions
 
 ---
 

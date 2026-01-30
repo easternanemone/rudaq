@@ -9,10 +9,10 @@ Output: GenericSerialDriver, ELL14 TOML config, DriverFactory, and comparison te
 <context>
 Research findings: @.prompts/001-driver-plugins-research/driver-plugins-research.md
 Implementation plan: @.prompts/002-driver-plugins-plan/driver-plugins-plan.md
-Phase 1 output: @crates/daq-hardware/src/config/ (schema, validation, loader)
+Phase 1 output: @crates/hardware/src/config/ (schema, validation, loader)
 
 Existing ELL14 driver to reference:
-@crates/daq-hardware/src/drivers/ell14.rs
+@crates/hardware/src/drivers/ell14.rs
 
 Key patterns from research:
 - `enum_dispatch` for zero-overhead polymorphism (10x faster than trait objects)
@@ -38,7 +38,7 @@ Phase 1 deliverables available:
    - Error code mapping
    - Trait mapping for Movable
 
-2. **GenericSerialDriver** (`crates/daq-hardware/src/drivers/generic_serial.rs`):
+2. **GenericSerialDriver** (`crates/hardware/src/drivers/generic_serial.rs`):
    - Construct from `DeviceConfig`
    - Serial port management (shared port support for RS-485 multidrop)
    - Command formatting with template interpolation
@@ -61,7 +61,7 @@ Phase 1 deliverables available:
    }
    ```
 
-5. **DriverFactory** (`crates/daq-hardware/src/factory.rs`):
+5. **DriverFactory** (`crates/hardware/src/factory.rs`):
    - `create_driver(config: &DeviceConfig, port: impl AsyncSerial) -> Result<ConfiguredDriver>`
    - `create_driver_from_file(path: &Path, port_path: &str) -> Result<ConfiguredDriver>`
 
@@ -85,7 +85,7 @@ Phase 1 deliverables available:
 <implementation>
 **File Structure:**
 ```
-crates/daq-hardware/
+crates/hardware/
 ├── Cargo.toml                      # Add enum_dispatch
 └── src/
     ├── drivers/
@@ -98,7 +98,7 @@ crates/daq-hardware/
 config/devices/
 └── ell14.toml                      # NEW: ELL14 protocol config
 
-crates/daq-hardware/tests/
+crates/hardware/tests/
 └── ell14_migration.rs              # NEW: Comparison tests
 ```
 
@@ -223,7 +223,7 @@ crates/daq-hardware/tests/
 
 5. **enum_dispatch Setup:**
    ```rust
-   // In crates/daq-hardware/src/drivers/mod.rs
+   // In crates/hardware/src/drivers/mod.rs
    use enum_dispatch::enum_dispatch;
    use crate::capabilities::{Movable, Parameterized};
 
@@ -236,7 +236,7 @@ crates/daq-hardware/tests/
 
 **Dependencies to Add:**
 ```toml
-# crates/daq-hardware/Cargo.toml
+# crates/hardware/Cargo.toml
 [dependencies]
 enum_dispatch = "0.3"
 # evalexpr already added in Phase 1
@@ -253,15 +253,15 @@ enum_dispatch = "0.3"
 Create/modify files:
 
 **New files:**
-- `crates/daq-hardware/src/drivers/generic_serial.rs` - GenericSerialDriver implementation
-- `crates/daq-hardware/src/factory.rs` - DriverFactory
+- `crates/hardware/src/drivers/generic_serial.rs` - GenericSerialDriver implementation
+- `crates/hardware/src/factory.rs` - DriverFactory
 - `config/devices/ell14.toml` - Complete ELL14 protocol definition
-- `crates/daq-hardware/tests/ell14_migration.rs` - Comparison tests
+- `crates/hardware/tests/ell14_migration.rs` - Comparison tests
 
 **Modify:**
-- `crates/daq-hardware/Cargo.toml` - Add enum_dispatch
-- `crates/daq-hardware/src/drivers/mod.rs` - Add generic_serial, ConfiguredDriver enum
-- `crates/daq-hardware/src/lib.rs` - Add factory export
+- `crates/hardware/Cargo.toml` - Add enum_dispatch
+- `crates/hardware/src/drivers/mod.rs` - Add generic_serial, ConfiguredDriver enum
+- `crates/hardware/src/lib.rs` - Add factory export
 </output>
 
 <verification>
@@ -269,19 +269,19 @@ Before declaring complete:
 
 1. **Build verification:**
    ```bash
-   cargo build -p daq-hardware
-   cargo clippy -p daq-hardware -- -D warnings
+   cargo build -p hardware
+   cargo clippy -p hardware -- -D warnings
    ```
 
 2. **Unit tests:**
    ```bash
-   cargo test -p daq-hardware generic_serial -- --nocapture
-   cargo test -p daq-hardware factory -- --nocapture
+   cargo test -p hardware generic_serial -- --nocapture
+   cargo test -p hardware factory -- --nocapture
    ```
 
 3. **Migration tests (mock):**
    ```bash
-   cargo test -p daq-hardware ell14_migration -- --nocapture
+   cargo test -p hardware ell14_migration -- --nocapture
    ```
 
 4. **Command output comparison:**

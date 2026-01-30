@@ -4,10 +4,10 @@ Generated layout files for Rerun visualization.
 
 ## Default path
 
-The server auto-loads `crates/daq-server/blueprints/daq_default.rbl` unless overridden with `RERUN_BLUEPRINT`.
+The server auto-loads `crates/server/blueprints/daq_default.rbl` unless overridden with `RERUN_BLUEPRINT`.
 
 ```
-export RERUN_BLUEPRINT=crates/daq-server/blueprints/daq_default.rbl
+export RERUN_BLUEPRINT=crates/server/blueprints/daq_default.rbl
 # or disable blueprint loading
 export RERUN_BLUEPRINT=none
 ```
@@ -26,4 +26,4 @@ Outputs:
 - `daq_timeseries_only.rbl`
 - `daq_acquisition.rbl`
 
-Blueprint application ID is `rust-daq`; keep it in sync with `APP_ID` in `crates/daq-server/src/rerun_sink.rs`.
+Blueprint application ID is `rust-daq`; keep it in sync with `APP_ID` in `crates/server/src/rerun_sink.rs`.

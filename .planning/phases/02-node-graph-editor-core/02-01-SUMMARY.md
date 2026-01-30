@@ -23,16 +23,16 @@ tech-stack:
     - "Dock integration for experiment designer panel"
 key-files:
   created:
-    - crates/daq-egui/src/graph/mod.rs
-    - crates/daq-egui/src/graph/nodes.rs
-    - crates/daq-egui/src/graph/viewer.rs
-    - crates/daq-egui/src/panels/experiment_designer.rs
+    - crates/ui/src/graph/mod.rs
+    - crates/ui/src/graph/nodes.rs
+    - crates/ui/src/graph/viewer.rs
+    - crates/ui/src/panels/experiment_designer.rs
   modified:
-    - crates/daq-egui/Cargo.toml (added dependencies)
-    - crates/daq-egui/src/lib.rs (exported graph module)
-    - crates/daq-egui/src/main.rs (added graph module for binary)
-    - crates/daq-egui/src/panels/mod.rs (exported ExperimentDesignerPanel)
-    - crates/daq-egui/src/app.rs (integrated panel into dock system)
+    - crates/ui/Cargo.toml (added dependencies)
+    - crates/ui/src/lib.rs (exported graph module)
+    - crates/ui/src/main.rs (added graph module for binary)
+    - crates/ui/src/panels/mod.rs (exported ExperimentDesignerPanel)
+    - crates/ui/src/app.rs (integrated panel into dock system)
 decisions: []
 metrics:
   duration: "10m 9s"
@@ -95,7 +95,7 @@ None - plan executed exactly as written.
 ## Testing Notes
 
 **Manual verification performed:**
-- ✓ `cargo build -p daq-egui` succeeds
+- ✓ `cargo build -p ui` succeeds
 - ✓ Graph module compiles without errors
 - ✓ ExperimentDesignerPanel visible in dock system
 - ✓ Empty canvas renders correctly
@@ -109,17 +109,17 @@ None - plan executed exactly as written.
 ## Files Changed
 
 **Created (4 files):**
-- `crates/daq-egui/src/graph/mod.rs` (9 lines) - Module exports
-- `crates/daq-egui/src/graph/nodes.rs` (82 lines) - ExperimentNode enum
-- `crates/daq-egui/src/graph/viewer.rs` (67 lines) - SnarlViewer implementation
-- `crates/daq-egui/src/panels/experiment_designer.rs` (48 lines) - Panel widget
+- `crates/ui/src/graph/mod.rs` (9 lines) - Module exports
+- `crates/ui/src/graph/nodes.rs` (82 lines) - ExperimentNode enum
+- `crates/ui/src/graph/viewer.rs` (67 lines) - SnarlViewer implementation
+- `crates/ui/src/panels/experiment_designer.rs` (48 lines) - Panel widget
 
 **Modified (5 files):**
-- `crates/daq-egui/Cargo.toml` (+4 lines) - Dependencies
-- `crates/daq-egui/src/lib.rs` (+2 lines) - Module export
-- `crates/daq-egui/src/main.rs` (+2 lines) - Module for binary
-- `crates/daq-egui/src/panels/mod.rs` (+2 lines) - Panel export
-- `crates/daq-egui/src/app.rs` (+15 lines) - Dock integration
+- `crates/ui/Cargo.toml` (+4 lines) - Dependencies
+- `crates/ui/src/lib.rs` (+2 lines) - Module export
+- `crates/ui/src/main.rs` (+2 lines) - Module for binary
+- `crates/ui/src/panels/mod.rs` (+2 lines) - Panel export
+- `crates/ui/src/app.rs` (+15 lines) - Dock integration
 
 ## Commits
 

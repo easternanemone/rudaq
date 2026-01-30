@@ -135,11 +135,11 @@ Pin 3: success=true
 
 ### Code Locations
 
-- **RPC Implementation:** `/home/maitai/rust-daq/crates/daq-server/src/grpc/ni_daq_service.rs`
+- **RPC Implementation:** `/home/maitai/rust-daq/crates/server/src/grpc/ni_daq_service.rs`
   - `configure_digital_io()` (lines 486-572)
   - `read_digital_io()` (lines 574-638)
   - `write_digital_io()` (lines 640-703)
-- **Driver:** `/home/maitai/rust-daq/crates/daq-driver-comedi/src/subsystem/digital_io.rs`
+- **Driver:** `/home/maitai/rust-daq/crates/driver-comedi/src/subsystem/digital_io.rs`
   - `DigitalIO::configure()` (configures pin direction)
   - `DigitalIO::read()` (reads pin state)
   - `DigitalIO::write()` (writes pin state)

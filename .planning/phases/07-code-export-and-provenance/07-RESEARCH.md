@@ -6,7 +6,7 @@
 
 ## Summary
 
-Phase 7 requires bidirectional translation between visual experiment graphs and executable Rhai scripts, plus comprehensive provenance tracking for reproducibility. The project already has strong foundations: `daq-scripting` provides Rhai integration, `daq-egui/src/graph` contains the visual graph system, and `common::experiment::document` implements Bluesky-style document streaming with `ExperimentManifest` for hardware parameter snapshots.
+Phase 7 requires bidirectional translation between visual experiment graphs and executable Rhai scripts, plus comprehensive provenance tracking for reproducibility. The project already has strong foundations: `scripting` provides Rhai integration, `ui/src/graph` contains the visual graph system, and `common::experiment::document` implements Bluesky-style document streaming with `ExperimentManifest` for hardware parameter snapshots.
 
 **Key findings:**
 - Rhai code generation is straightforward text templating from ExperimentNode AST (no complex parser needed)
@@ -24,7 +24,7 @@ The established libraries/tools for code generation and provenance in Rust:
 ### Core
 | Library | Version | Purpose | Why Standard |
 |---------|---------|---------|--------------|
-| `rhai` | 1.x (in use) | Embedded scripting engine | Already integrated in daq-scripting, Rust-native, sandboxed |
+| `rhai` | 1.x (in use) | Embedded scripting engine | Already integrated in scripting, Rust-native, sandboxed |
 | `egui_code_editor` | 0.2.4+ | Syntax highlighting code editor widget for egui | Mature, integrates with egui, supports syntax highlighting |
 | `vergen` | 8.x+ | Build-time git metadata embedding | Industry standard for capturing version info in Rust binaries |
 | `serde_json` | 1.x (in use) | JSON serialization | Already used for graph persistence |
@@ -45,7 +45,7 @@ The established libraries/tools for code generation and provenance in Rust:
 
 **Installation:**
 ```bash
-# Add to daq-egui/Cargo.toml
+# Add to ui/Cargo.toml
 egui_code_editor = "0.2"
 
 # Add to workspace root build dependencies (for git hash capture)
@@ -57,7 +57,7 @@ vergen = { version = "8", features = ["git", "gitcl"] }
 
 ### Recommended Project Structure
 ```
-crates/daq-egui/src/
+crates/ui/src/
 ├── graph/
 │   ├── codegen.rs          # ExperimentNode → Rhai code translation
 │   ├── nodes.rs            # Existing node definitions
@@ -266,7 +266,7 @@ Problems that look simple but have existing solutions:
 **What goes wrong:** Generated Rhai code uses Rust syntax that Rhai doesn't support (e.g., `let mut`, `&`, closures).
 **Why it happens:** Rhai is Rust-like but simpler (no lifetimes, no references, limited closures).
 **How to avoid:**
-- Test generated code execution in `daq-scripting` tests
+- Test generated code execution in `scripting` tests
 - Use simple Rhai constructs: loops, functions, basic types
 - Avoid Rust-specific features (mut, &, Box, Arc)
 **Warning signs:** Generated code fails to parse in RhaiEngine::validate_script().
@@ -446,8 +446,8 @@ impl ExperimentManifest {
 - [egui_code_editor crate](https://crates.io/crates/egui_code_editor) - Code preview widget
 - [vergen crate](https://crates.io/crates/vergen) - Build-time git metadata
 - Existing codebase:
-  - `crates/daq-scripting/src/rhai_engine.rs` - Rhai integration
-  - `crates/daq-egui/src/graph/translation.rs` - Graph → Plan translation pattern
+  - `crates/scripting/src/rhai_engine.rs` - Rhai integration
+  - `crates/ui/src/graph/translation.rs` - Graph → Plan translation pattern
   - `crates/common/src/experiment/document.rs` - ExperimentManifest structure
 
 ### Secondary (MEDIUM confidence)

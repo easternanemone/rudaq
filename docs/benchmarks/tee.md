@@ -27,7 +27,7 @@ Notes:
 
 Command (uses /tmp by default; override `RING_BENCH_PATH`):
 ```
-RING_BENCH_MESSAGES=20000 RING_BENCH_BUFFER_MB=16 cargo run -p daq-storage --example ring_writer_bench --release
+RING_BENCH_MESSAGES=20000 RING_BENCH_BUFFER_MB=16 cargo run -p storage --example ring_writer_bench --release
 ```
 
 Latest run (2025-12-12, Apple M-series laptop):
@@ -37,7 +37,7 @@ Latest run (2025-12-12, Apple M-series laptop):
 
 Requires `storage_arrow` feature:
 ```
-RING_ARROW_MESSAGES=2000 RING_ARROW_ROWS=1000 RING_ARROW_BUFFER_MB=32 cargo run -p daq-storage --example ring_arrow_bench --release --features storage_arrow
+RING_ARROW_MESSAGES=2000 RING_ARROW_ROWS=1000 RING_ARROW_BUFFER_MB=32 cargo run -p storage --example ring_arrow_bench --release --features storage_arrow
 ```
 
 Latest run (2025-12-12, Apple M-series laptop):

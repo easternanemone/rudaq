@@ -190,7 +190,7 @@ pub struct ReadableHandle {
 #[derive(Clone)]
 pub struct Newport1830CHandle {
     /// Newport 1830-C driver with direct access to all methods
-    pub driver: Arc<daq_driver_newport::Newport1830CDriver>,
+    pub driver: Arc<driver_newport::Newport1830CDriver>,
     /// Optional data sender for broadcasting measurements
     pub data_tx: Option<Arc<broadcast::Sender<Measurement>>>,
 }
@@ -238,7 +238,7 @@ pub struct ShutterHandle {
 #[derive(Clone)]
 pub struct MaiTaiHandle {
     /// MaiTai driver with full access to all capabilities
-    pub driver: Arc<daq_driver_spectra_physics::MaiTaiDriver>,
+    pub driver: Arc<driver_spectra_physics::MaiTaiDriver>,
 }
 
 /// Handle to an ELL14 rotator with velocity control for Rhai scripts
@@ -259,7 +259,7 @@ pub struct MaiTaiHandle {
 #[derive(Clone)]
 pub struct Ell14Handle {
     /// Concrete ELL14 driver with velocity control
-    pub driver: Arc<daq_driver_thorlabs::Ell14Driver>,
+    pub driver: Arc<driver_thorlabs::Ell14Driver>,
     /// Soft position limits for rotator (0-360°)
     pub soft_limits: SoftLimits,
 }
@@ -515,7 +515,7 @@ pub fn register_hardware(engine: &mut Engine) {
 
     // create_mock_stage() - Create a mock stage for testing (unlimited soft limits)
     engine.register_fn("create_mock_stage", || -> StageHandle {
-        use daq_driver_mock::MockStage;
+        use driver_mock::MockStage;
         StageHandle {
             driver: Arc::new(MockStage::new()),
             data_tx: None,
@@ -527,7 +527,7 @@ pub fn register_hardware(engine: &mut Engine) {
     engine.register_fn(
         "create_mock_stage_limited",
         |min: f64, max: f64| -> StageHandle {
-            use daq_driver_mock::MockStage;
+            use driver_mock::MockStage;
             StageHandle {
                 driver: Arc::new(MockStage::new()),
                 data_tx: None,
@@ -540,7 +540,7 @@ pub fn register_hardware(engine: &mut Engine) {
     engine.register_fn(
         "create_mock_camera",
         |width: i64, height: i64| -> CameraHandle {
-            use daq_driver_mock::MockCamera;
+            use driver_mock::MockCamera;
             CameraHandle {
                 driver: Arc::new(MockCamera::new(width as u32, height as u32)),
                 data_tx: None,
@@ -555,7 +555,7 @@ pub fn register_hardware(engine: &mut Engine) {
         |_base_power: f64| -> StageHandle {
             // Mock power meter uses MockStage for now (no dedicated mock)
             // Real scripts should use actual Newport 1830-C
-            use daq_driver_mock::MockStage;
+            use driver_mock::MockStage;
             StageHandle {
                 driver: Arc::new(MockStage::new()),
                 data_tx: None,
@@ -770,9 +770,9 @@ pub fn register_hardware(engine: &mut Engine) {
 
 #[cfg(feature = "hardware_factories")]
 fn register_hardware_factories(engine: &mut Engine) {
-    use daq_driver_newport::Newport1830CDriver;
-    use daq_driver_spectra_physics::MaiTaiDriver;
-    use daq_driver_thorlabs::Ell14Driver;
+    use driver_newport::Newport1830CDriver;
+    use driver_spectra_physics::MaiTaiDriver;
+    use driver_thorlabs::Ell14Driver;
 
     // =========================================================================
     // ELL14 Rotator Factory
@@ -877,7 +877,7 @@ fn register_hardware_factories(engine: &mut Engine) {
             let address = address.to_string();
 
             let driver = run_blocking("ELL14 create", async move {
-                use daq_driver_thorlabs::shared_ports::get_or_open_port;
+                use driver_thorlabs::shared_ports::get_or_open_port;
                 use tokio::time::{timeout, Duration};
 
                 let shared_port = get_or_open_port(&port).await?;
@@ -1152,12 +1152,12 @@ fn register_hardware_factories(engine: &mut Engine) {
 #[derive(Clone)]
 pub struct ComediHandle {
     /// The underlying Comedi device
-    device: Arc<daq_driver_comedi::ComediDevice>,
+    device: Arc<driver_comedi::ComediDevice>,
 }
 
 #[cfg(feature = "comedi_scripting")]
 fn register_comedi_functions(engine: &mut Engine) {
-    use daq_driver_comedi::{ComediDevice, Range as ComediRange};
+    use driver_comedi::{ComediDevice, Range as ComediRange};
 
     engine.register_type_with_name::<ComediHandle>("ComediDAQ");
 
@@ -1319,7 +1319,7 @@ fn register_comedi_functions(engine: &mut Engine) {
             // Configure as output first
             dio.configure(
                 channel as u32,
-                daq_driver_comedi::subsystem::DioDirection::Output,
+                driver_comedi::subsystem::DioDirection::Output,
             )
             .map_err(|e| {
                 Box::new(EvalAltResult::ErrorRuntime(
@@ -1354,7 +1354,7 @@ fn register_comedi_functions(engine: &mut Engine) {
             // Configure as input first
             dio.configure(
                 channel as u32,
-                daq_driver_comedi::subsystem::DioDirection::Input,
+                driver_comedi::subsystem::DioDirection::Input,
             )
             .map_err(|e| {
                 Box::new(EvalAltResult::ErrorRuntime(
@@ -1701,7 +1701,7 @@ fn register_hdf5_functions(engine: &mut Engine) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use daq_driver_mock::{MockCamera, MockStage};
+    use driver_mock::{MockCamera, MockStage};
     use rhai::Scope;
 
     #[test]

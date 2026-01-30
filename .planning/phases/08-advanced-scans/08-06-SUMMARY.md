@@ -27,9 +27,9 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/daq-egui/src/graph/execution_state.rs
-    - crates/daq-egui/src/panels/experiment_designer.rs
-    - crates/daq-egui/src/graph/translation.rs
+    - crates/ui/src/graph/execution_state.rs
+    - crates/ui/src/panels/experiment_designer.rs
+    - crates/ui/src/graph/translation.rs
 
 key-decisions:
   - "Store dimensional indices as f64 in positions map (EmitEvent data is f64-only)"
@@ -80,9 +80,9 @@ _Note: Task 2 changes were incorporated into commits ab9806b0 and e206ad2e by a 
 
 ## Files Created/Modified
 
-- `crates/daq-egui/src/graph/execution_state.rs` - DimensionProgress, NestedProgress, nested_progress field
-- `crates/daq-egui/src/panels/experiment_designer.rs` - show_flattened_progress toggle, nested progress display
-- `crates/daq-egui/src/graph/translation.rs` - Zarr integration docs, _outer_idx/_inner_idx in EmitEvent
+- `crates/ui/src/graph/execution_state.rs` - DimensionProgress, NestedProgress, nested_progress field
+- `crates/ui/src/panels/experiment_designer.rs` - show_flattened_progress toggle, nested progress display
+- `crates/ui/src/graph/translation.rs` - Zarr integration docs, _outer_idx/_inner_idx in EmitEvent
 
 ## Decisions Made
 
@@ -98,7 +98,7 @@ _Note: Task 2 changes were incorporated into commits ab9806b0 and e206ad2e by a 
 - **Found during:** Verification (cargo test)
 - **Issue:** Test expected "34.5%" but got "34.4%" due to floating point rounding
 - **Fix:** Changed assertion to use starts_with/ends_with instead of exact match
-- **Files modified:** crates/daq-egui/src/graph/execution_state.rs
+- **Files modified:** crates/ui/src/graph/execution_state.rs
 - **Verification:** All tests pass
 - **Committed in:** f02cf538
 

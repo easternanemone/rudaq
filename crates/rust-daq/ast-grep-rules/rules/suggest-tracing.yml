@@ -10,5 +10,5 @@ rule:
       kind: attribute_item
       pattern: "#[instrument($$$)]"
 files:
-  - "crates/daq-hardware/src/drivers/"
-  - "crates/daq-server/src/services/"
+  - "crates/hardware/src/drivers/"
+  - "crates/server/src/grpc/"

@@ -15,10 +15,10 @@ This document analyzes the current Rerun integration in rust-daq and proposes a 
 
 | Component | File | Purpose |
 |-----------|------|---------|
-| `RerunSink` | `daq-server/src/rerun_sink.rs` | Measurement → Rerun logging |
-| `main_rerun.rs` | `daq-egui/src/main_rerun.rs` | Embedded viewer + DAQ controls |
-| Blueprint Generator | `daq-server/blueprints/generate_blueprints.py` | Python SDK for layouts |
-| gRPC Server | `daq-server/src/grpc/` | Custom streaming impl |
+| `RerunSink` | `server/src/rerun_sink.rs` | Measurement → Rerun logging |
+| `main_rerun.rs` | `ui/src/main_rerun.rs` | Embedded viewer + DAQ controls |
+| Blueprint Generator | `server/blueprints/generate_blueprints.py` | Python SDK for layouts |
+| gRPC Server | `server/src/grpc/` | Custom streaming impl |
 
 ### Architecture Diagram (Current)
 
@@ -36,7 +36,7 @@ This document analyzes the current Rerun integration in rust-daq and proposes a 
   │             │                │           │  │   │ DAQ Control Panel │   │  │
   │             ▼                │           │  │   │   (egui)          │   │  │
   │  ┌─────────────────────┐     │           │  │   └─────────┬─────────┘   │  │
-  │  │   daq-server        │     │           │  │             │             │  │
+  │  │   server        │     │           │  │             │             │  │
   │  │   (gRPC daemon)     │     │           │  │   ┌─────────▼─────────┐   │  │
   │  │   ┌─────────────┐   │     │   SSH     │  │   │ Embedded Rerun    │   │  │
   │  │   │ HardwareService│◄─────┼───Tunnel──┼──┼───│ Viewer            │   │  │
@@ -114,7 +114,7 @@ These improvements make the current architecture robust and performant until the
   │             │                │           │  │   │ DAQ Control Panel │   │  │
   │             ▼                │           │  │   │   (egui)          │   │  │
   │  ┌─────────────────────┐     │           │  │   └─────────┬─────────┘   │  │
-  │  │   daq-server        │     │   Rerun   │  │             │             │  │
+  │  │   server        │     │   Rerun   │  │             │             │  │
   │  │   (gRPC daemon)     │     │   gRPC    │  │   ┌─────────▼─────────┐   │  │
   │  │   ┌─────────────┐   │     │           │  │   │ Embedded Rerun    │   │  │
   │  │   │ RerunSink   │───┼─────┼───:9876───┼──┼──►│ Viewer            │   │  │
@@ -183,10 +183,10 @@ pub fn new_server(bind_ip: &str, port: u16) -> Result<Self> {
 #### 1.2 Remove Custom Frame Streaming
 
 **Files to modify:**
-- `crates/daq-proto/proto/daq.proto` - Remove `StreamFrames` RPC and `FrameData` message
-- `crates/daq-server/src/grpc/hardware_service.rs` - Remove `stream_frames` implementation
-- `crates/daq-egui/src/client.rs` - Remove `stream_frames` method
-- `crates/daq-egui/src/main_rerun.rs` - Remove custom frame streaming code
+- `crates/protocol/proto/daq.proto` - Remove `StreamFrames` RPC and `FrameData` message
+- `crates/server/src/grpc/hardware_service.rs` - Remove `stream_frames` implementation
+- `crates/ui/src/client.rs` - Remove `stream_frames` method
+- `crates/ui/src/main_rerun.rs` - Remove custom frame streaming code
 
 **Why**: Rerun's native gRPC handles frame streaming more efficiently with built-in batching, compression, and memory management.
 
@@ -367,7 +367,7 @@ impl RerunSink {
 The Rust Blueprint API uses `ViewBlueprint` and related types:
 
 ```rust
-// crates/daq-server/src/blueprints.rs
+// crates/server/src/blueprints.rs
 use rerun::blueprint::archetypes::ViewBlueprint;
 use rerun::blueprint::components::{SpaceViewClass, SpaceViewOrigin, Visible};
 
@@ -399,7 +399,7 @@ impl RerunSink {
 ```rust
 // Current working approach - load pre-generated blueprint
 let sink = RerunSink::new()?;
-sink.load_blueprint("crates/daq-server/blueprints/daq_default.rbl")?;
+sink.load_blueprint("crates/server/blueprints/daq_default.rbl")?;
 ```
 
 **Migration path:**
@@ -408,8 +408,8 @@ sink.load_blueprint("crates/daq-server/blueprints/daq_default.rbl")?;
 3. Migrate to Rust blueprints when API is stable
 
 **Files to remove after Rust Blueprint API stabilizes:**
-- `crates/daq-server/blueprints/generate_blueprints.py`
-- `crates/daq-server/blueprints/*.rbl` (generated files)
+- `crates/server/blueprints/generate_blueprints.py`
+- `crates/server/blueprints/*.rbl` (generated files)
 - `scripts/regenerate_blueprints.sh`
 
 ### Phase 5: Optimize Memory and Latency
@@ -764,7 +764,7 @@ export RERUN_PORT="9876"     # Default: standard Rerun port
 **3. Launch GUI with Remote URL**
 ```bash
 export RERUN_URL="rerun+http://100.117.5.12:9876/proxy"
-cargo run -p daq-egui --bin daq-rerun --features rerun_viewer
+cargo run -p ui --bin daq-rerun --features rerun_viewer
 ```
 
 **4. Tailscale Note**
@@ -781,8 +781,8 @@ sudo iptables -I ts-input 1 -s YOUR_TAILSCALE_IP -j ACCEPT
 **Feature Chain (all must be enabled):**
 ```
 rust_daq/pvcam_sdk
-  → daq-hardware/pvcam_sdk
-    → daq-driver-pvcam/pvcam_sdk
+  → hardware/pvcam_sdk
+    → driver-pvcam/pvcam_sdk
       → pvcam-sys/pvcam-sdk (links to libpvcam.so)
 ```
 
@@ -790,15 +790,15 @@ rust_daq/pvcam_sdk
 
 1. `crates/rust-daq/Cargo.toml`:
    ```toml
-   pvcam_sdk = ["daq-hardware/pvcam_sdk"]
+   pvcam_sdk = ["hardware/pvcam_sdk"]
    ```
 
-2. `crates/daq-hardware/Cargo.toml`:
+2. `crates/hardware/Cargo.toml`:
    ```toml
-   pvcam_sdk = ["pvcam", "daq-driver-pvcam/pvcam_sdk"]
+   pvcam_sdk = ["pvcam", "driver-pvcam/pvcam_sdk"]
    ```
 
-3. `crates/daq-driver-pvcam/Cargo.toml`:
+3. `crates/driver-pvcam/Cargo.toml`:
    ```toml
    pvcam_sdk = ["dep:pvcam-sys", "pvcam-sys/pvcam-sdk"]
    ```
@@ -808,7 +808,7 @@ rust_daq/pvcam_sdk
 source /etc/profile.d/pvcam.sh
 export LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:$LD_LIBRARY_PATH
 export PVCAM_SDK_DIR=/opt/pvcam/sdk
-cargo build -p rust_daq -p daq-bin --release \
+cargo build -p rust_daq -p bin --release \
     --features 'rust_daq/pvcam_sdk,rust_daq/instrument_photometrics'
 ```
 
@@ -817,7 +817,7 @@ cargo build -p rust_daq -p daq-bin --release \
 1. Check feature resolution:
    ```bash
    cargo metadata --format-version 1 --features 'rust_daq/pvcam_sdk' \
-     | jq '.resolve.nodes[] | select(.id | test("daq-driver-pvcam")) | .features'
+     | jq '.resolve.nodes[] | select(.id | test("driver-pvcam")) | .features'
    # Should show: ["default", "mock", "pvcam_sdk"]
    ```
 
@@ -840,7 +840,7 @@ cargo build -p rust_daq -p daq-bin --release \
 
 If you see gradient patterns instead of real camera data:
 1. Feature chain broken - check all Cargo.toml files above
-2. Build cached without feature - run `cargo clean -p daq-driver-pvcam -p daq-hardware`
+2. Build cached without feature - run `cargo clean -p driver-pvcam -p hardware`
 3. `conn.handle().is_none()` - camera open failed, check PVCAM_SDK_DIR and camera name
 4. PVCAM_VERSION env var missing - causes Error 151 at runtime
 

@@ -2678,178 +2678,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
-name = "daq-driver-comedi"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bitflags 2.10.0",
- "chrono",
- "comedi-sys",
- "common",
- "futures",
- "hdf5-metno",
- "libc",
- "ndarray 0.17.2",
- "parking_lot 0.12.5",
- "serde",
- "serde_json",
- "serialport",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "toml 0.9.11+spec-1.1.0",
- "tracing",
-]
-
-[[package]]
-name = "daq-driver-generic"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "common",
- "daq-plugin-api",
- "evalexpr",
- "futures",
- "regex",
- "rhai",
- "serde",
- "serde_json",
- "serialport",
- "tempfile",
- "tokio",
- "tokio-serial",
- "toml 0.9.11+spec-1.1.0",
- "tracing",
-]
-
-[[package]]
-name = "daq-driver-mock"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "common",
- "futures",
- "pool",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
- "serde",
- "serde_json",
- "tokio",
- "toml 0.9.11+spec-1.1.0",
- "tracing",
-]
-
-[[package]]
-name = "daq-driver-newport"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "common",
- "futures",
- "log",
- "serde",
- "serialport",
- "thiserror 1.0.69",
- "tokio",
- "tokio-serial",
- "toml 0.9.11+spec-1.1.0",
- "tracing",
-]
-
-[[package]]
-name = "daq-driver-pvcam"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bytes",
- "common",
- "criterion",
- "lazy_static",
- "once_cell",
- "parking_lot 0.12.5",
- "pool",
- "pvcam-sys",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "daq-driver-red-pitaya"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "common",
- "futures",
- "serde",
- "tokio",
- "toml 0.9.11+spec-1.1.0",
- "tracing",
-]
-
-[[package]]
-name = "daq-driver-spectra-physics"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "common",
- "futures",
- "log",
- "serde",
- "serialport",
- "thiserror 1.0.69",
- "tokio",
- "tokio-serial",
- "toml 0.9.11+spec-1.1.0",
- "tracing",
-]
-
-[[package]]
-name = "daq-driver-thorlabs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "common",
- "futures",
- "parking_lot 0.12.5",
- "serde",
- "serialport",
- "thiserror 1.0.69",
- "tokio",
- "tokio-serial",
- "toml 0.9.11+spec-1.1.0",
- "tracing",
-]
-
-[[package]]
-name = "daq-plugin-api"
-version = "0.1.0"
-dependencies = [
- "abi_stable",
- "regex",
- "serde",
- "serde_json",
- "tracing",
-]
-
-[[package]]
-name = "daq-plugin-example"
-version = "0.1.0"
-dependencies = [
- "abi_stable",
- "daq-plugin-api",
-]
-
-[[package]]
 name = "dark-light"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3681,17 +3509,170 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
+name = "driver-comedi"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bitflags 2.10.0",
+ "chrono",
+ "comedi-sys",
+ "common",
+ "futures",
+ "hdf5-metno",
+ "libc",
+ "ndarray 0.17.2",
+ "parking_lot 0.12.5",
+ "serde",
+ "serde_json",
+ "serialport",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "toml 0.9.11+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
+name = "driver-generic"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "common",
+ "evalexpr",
+ "futures",
+ "plugin-api",
+ "regex",
+ "rhai",
+ "serde",
+ "serde_json",
+ "serialport",
+ "tempfile",
+ "tokio",
+ "tokio-serial",
+ "toml 0.9.11+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
+name = "driver-mock"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "common",
+ "futures",
+ "pool",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml 0.9.11+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
+name = "driver-newport"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "common",
+ "futures",
+ "log",
+ "serde",
+ "serialport",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-serial",
+ "toml 0.9.11+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
+name = "driver-pvcam"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "common",
+ "criterion",
+ "lazy_static",
+ "once_cell",
+ "parking_lot 0.12.5",
+ "pool",
+ "pvcam-sys",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "driver-red-pitaya"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "common",
+ "futures",
+ "serde",
+ "tokio",
+ "toml 0.9.11+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
+name = "driver-spectra-physics"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "common",
+ "futures",
+ "log",
+ "serde",
+ "serialport",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-serial",
+ "toml 0.9.11+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
+name = "driver-thorlabs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "common",
+ "futures",
+ "parking_lot 0.12.5",
+ "serde",
+ "serialport",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-serial",
+ "toml 0.9.11+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
 name = "drivers"
 version = "0.1.0"
 dependencies = [
  "common",
- "daq-driver-comedi",
- "daq-driver-generic",
- "daq-driver-mock",
- "daq-driver-newport",
- "daq-driver-pvcam",
- "daq-driver-spectra-physics",
- "daq-driver-thorlabs",
+ "driver-comedi",
+ "driver-generic",
+ "driver-mock",
+ "driver-newport",
+ "driver-pvcam",
+ "driver-spectra-physics",
+ "driver-thorlabs",
 ]
 
 [[package]]
@@ -5244,16 +5225,16 @@ dependencies = [
  "async-trait",
  "common",
  "crc",
- "daq-driver-comedi",
- "daq-driver-generic",
- "daq-driver-mock",
- "daq-driver-newport",
- "daq-driver-pvcam",
- "daq-driver-red-pitaya",
- "daq-driver-spectra-physics",
- "daq-driver-thorlabs",
  "dashmap",
  "dirs 5.0.1",
+ "driver-comedi",
+ "driver-generic",
+ "driver-mock",
+ "driver-newport",
+ "driver-pvcam",
+ "driver-red-pitaya",
+ "driver-spectra-physics",
+ "driver-thorlabs",
  "enum_dispatch",
  "evalexpr",
  "figment",
@@ -8298,6 +8279,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "plugin-api"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "regex",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "plugin-example"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "plugin-api",
+]
+
+[[package]]
 name = "ply-rs-bw"
 version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11302,14 +11302,13 @@ dependencies = [
  "config",
  "criterion",
  "csv",
- "daq-driver-comedi",
- "daq-driver-generic",
- "daq-driver-mock",
- "daq-driver-newport",
- "daq-driver-pvcam",
- "daq-driver-spectra-physics",
- "daq-driver-thorlabs",
- "daq-plugin-api",
+ "driver-comedi",
+ "driver-generic",
+ "driver-mock",
+ "driver-newport",
+ "driver-pvcam",
+ "driver-spectra-physics",
+ "driver-thorlabs",
  "eframe 0.30.0",
  "egui 0.30.0",
  "egui_extras 0.30.0",
@@ -11327,6 +11326,7 @@ dependencies = [
  "matrw",
  "nix 0.29.0",
  "notify 7.0.0",
+ "plugin-api",
  "prost 0.12.6",
  "protocol",
  "scripting",
@@ -11575,11 +11575,11 @@ dependencies = [
  "async-trait",
  "chrono",
  "common",
- "daq-driver-comedi",
- "daq-driver-mock",
- "daq-driver-newport",
- "daq-driver-spectra-physics",
- "daq-driver-thorlabs",
+ "driver-comedi",
+ "driver-mock",
+ "driver-newport",
+ "driver-spectra-physics",
+ "driver-thorlabs",
  "experiment",
  "hardware",
  "hdf5-metno",
@@ -11902,8 +11902,8 @@ dependencies = [
  "chrono",
  "common",
  "config",
- "daq-driver-comedi",
  "dirs 4.0.0",
+ "driver-comedi",
  "experiment",
  "figment",
  "futures",
@@ -13338,9 +13338,9 @@ dependencies = [
  "client",
  "common",
  "csv",
- "daq-driver-pvcam",
  "dark-light",
  "dirs 5.0.1",
+ "driver-pvcam",
  "eframe 0.33.3",
  "egui 0.33.3",
  "egui-notify",

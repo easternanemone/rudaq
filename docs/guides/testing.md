@@ -90,8 +90,8 @@ Located inline in source files (`#[cfg(test)]` modules):
 
 ```bash
 cargo nextest run -p common
-cargo nextest run -p daq-hardware
-cargo nextest run -p daq-storage
+cargo nextest run -p hardware
+cargo nextest run -p storage
 ```
 
 ### Integration Tests

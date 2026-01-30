@@ -1331,7 +1331,7 @@ pub async fn start_server_with_hardware(
 
                 // Optional blueprint: default path or override via RERUN_BLUEPRINT
                 let blueprint_choice = std::env::var("RERUN_BLUEPRINT")
-                    .unwrap_or_else(|_| "crates/daq-server/blueprints/daq_default.rbl".to_string());
+                    .unwrap_or_else(|_| "crates/server/blueprints/daq_default.rbl".to_string());
                 let skip_blueprint = matches!(
                     blueprint_choice.to_ascii_lowercase().as_str(),
                     "none" | "off" | "skip"
@@ -1346,7 +1346,7 @@ pub async fn start_server_with_hardware(
                     match rerun.load_blueprint_if_exists(&blueprint_choice) {
                         Ok(true) => println!("    - Blueprint: {}", blueprint_choice),
                         Ok(false) => println!(
-                            "    - Blueprint: not found at {} (generate with `python crates/daq-server/blueprints/generate_blueprints.py`)",
+                            "    - Blueprint: not found at {} (generate with `python crates/server/blueprints/generate_blueprints.py`)",
                             blueprint_choice
                         ),
                         Err(e) => eprintln!(

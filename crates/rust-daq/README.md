@@ -38,11 +38,11 @@ cargo run --bin rust-daq-daemon -- run examples/demo_scan.rhai
 ## Crate Layout
 
 - `crates/common/` — Domain types, parameters/observables, error handling, and module domain types (`modules.rs`).
-- `crates/daq-proto/` — Protobuf definitions in `proto/` plus tonic build and domain↔proto converters in `src/convert.rs`.
-- `crates/rust-daq/` — Runtime façade that wires hardware, storage, scripting, and gRPC; re-exports hardware from `daq-hardware`.
-- `crates/daq-hardware/` — Capability traits and hardware drivers (ell14, esp300, pvcam, maitai, newport_1830c).
-- `crates/daq-bin/` — Binaries/CLI entrypoints for the headless daemon and optional GUI frontends.
-- `crates/daq-examples/` — Example binaries and integration scenarios.
+- `crates/protocol/` — Protobuf definitions in `proto/` plus tonic build and domain↔proto converters in `src/convert.rs`.
+- `crates/rust-daq/` — Runtime façade that wires hardware, storage, scripting, and gRPC; re-exports hardware from `hardware`.
+- `crates/hardware/` — Capability traits and hardware drivers (ell14, esp300, pvcam, maitai, newport_1830c).
+- `crates/bin/` — Binaries/CLI entrypoints for the headless daemon and optional GUI frontends.
+- `crates/examples/` — Example binaries and integration scenarios.
 
 ## Architecture
 
@@ -79,7 +79,7 @@ cargo run --bin rust-daq-daemon -- run examples/demo_scan.rhai
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-Protocol definitions now live in `crates/daq-proto/` (see `proto/` for `.proto` files and `src/convert.rs` for domain↔proto mappings). Module domain types reside in `crates/common/src/modules.rs` and can be enabled via the `modules` feature without requiring `networking`.
+Protocol definitions now live in `crates/protocol/` (see `proto/` for `.proto` files and `src/convert.rs` for domain↔proto mappings). Module domain types reside in `crates/common/src/modules.rs` and can be enabled via the `modules` feature without requiring `networking`.
 
 ## Quick Start
 

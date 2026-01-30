@@ -8,9 +8,9 @@
 - Rust (Edition 2021) - All core business logic, server, drivers, and device acquisition
 
 **Secondary:**
-- Protobuf 3 - gRPC API definitions (`crates/daq-proto/proto/daq.proto`)
+- Protobuf 3 - gRPC API definitions (`crates/protocol/proto/daq.proto`)
 - TOML - Configuration files, manifests
-- Python (optional) - Scripting engine via PyO3 (`daq-scripting/python` feature)
+- Python (optional) - Scripting engine via PyO3 (`scripting/python` feature)
 - Rhai - Script-based plugin language for config-driven drivers
 
 ## Runtime
@@ -81,12 +81,12 @@
 - `jsonwebtoken` 9.3 - JWT encode/decode for API authentication (server only)
 
 **Hardware Integration:**
-- `pvcam-sys` (internal binding in `crates/daq-driver-pvcam/pvcam-sys`) - Teledyne PVCAM SDK C bindings (optional, requires SDK installation)
+- `pvcam-sys` (internal binding in `crates/driver-pvcam/pvcam-sys`) - Teledyne PVCAM SDK C bindings (optional, requires SDK installation)
 - `serialport` 4.3 - Synchronous serial I/O (fallback, tokio-serial preferred)
 
 **Scripting & Plugins:**
 - `rhai` 1.19 - Embedded script language for config-driven devices
-- `pyo3` 0.24 - Python integration (optional, `daq-scripting/python` feature)
+- `pyo3` 0.24 - Python integration (optional, `scripting/python` feature)
 - `hot-lib-reloader` 0.8 - Plugin hot-reload (optional development feature)
 
 **Observability & Monitoring:**
@@ -97,7 +97,7 @@
 - `uuid` 1.10 - UUID generation with serde support
 - `chrono` 0.4 - Timestamp/duration handling
 - `url` 2 - URL parsing for daemon addresses
-- `clap` 4.5 - CLI argument parsing (daq-bin only)
+- `clap` 4.5 - CLI argument parsing (bin only)
 - `once_cell` 1.19 - Lazy statics and one-time initialization
 - `mimalloc` 0.1 - Microsoft mimalloc allocator (performance-critical crates)
 - `tokio-stream` 0.1 - Async stream combinators

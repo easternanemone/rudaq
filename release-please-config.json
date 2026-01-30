@@ -6,15 +6,47 @@
   "include-component-in-tag": false,
   "include-v-in-tag": true,
   "changelog-sections": [
-    { "type": "feat", "section": "Features" },
-    { "type": "fix", "section": "Bug Fixes" },
-    { "type": "perf", "section": "Performance Improvements" },
-    { "type": "refactor", "section": "Code Refactoring" },
-    { "type": "docs", "section": "Documentation", "hidden": true },
-    { "type": "chore", "section": "Miscellaneous", "hidden": true },
-    { "type": "test", "section": "Tests", "hidden": true },
-    { "type": "ci", "section": "CI/CD", "hidden": true },
-    { "type": "build", "section": "Build System", "hidden": true }
+    {
+      "type": "feat",
+      "section": "Features"
+    },
+    {
+      "type": "fix",
+      "section": "Bug Fixes"
+    },
+    {
+      "type": "perf",
+      "section": "Performance Improvements"
+    },
+    {
+      "type": "refactor",
+      "section": "Code Refactoring"
+    },
+    {
+      "type": "docs",
+      "section": "Documentation",
+      "hidden": true
+    },
+    {
+      "type": "chore",
+      "section": "Miscellaneous",
+      "hidden": true
+    },
+    {
+      "type": "test",
+      "section": "Tests",
+      "hidden": true
+    },
+    {
+      "type": "ci",
+      "section": "CI/CD",
+      "hidden": true
+    },
+    {
+      "type": "build",
+      "section": "Build System",
+      "hidden": true
+    }
   ],
   "packages": {
     ".": {
@@ -24,13 +56,13 @@
   },
   "extra-files": [
     "crates/rust-daq/Cargo.toml",
-    "crates/daq-core/Cargo.toml",
-    "crates/daq-hardware/Cargo.toml",
-    "crates/daq-server/Cargo.toml",
-    "crates/daq-proto/Cargo.toml",
-    "crates/daq-experiment/Cargo.toml",
-    "crates/daq-scripting/Cargo.toml",
-    "crates/daq-egui/Cargo.toml",
-    "crates/daq-bin/Cargo.toml"
+    "crates/common/Cargo.toml",
+    "crates/hardware/Cargo.toml",
+    "crates/server/Cargo.toml",
+    "crates/protocol/Cargo.toml",
+    "crates/experiment/Cargo.toml",
+    "crates/scripting/Cargo.toml",
+    "crates/ui/Cargo.toml",
+    "crates/bin/Cargo.toml"
   ]
 }

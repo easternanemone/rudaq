@@ -36,9 +36,9 @@ tech-stack:
 
 key-files:
   created:
-    - "crates/daq-egui/src/widgets/auto_scale_plot.rs"
+    - "crates/ui/src/widgets/auto_scale_plot.rs"
   modified:
-    - "crates/daq-egui/src/widgets/mod.rs"
+    - "crates/ui/src/widgets/mod.rs"
 
 decisions:
   - name: "Grow-only scaling"
@@ -131,13 +131,13 @@ All tests pass (3/3):
 
 **Build verification:**
 ```bash
-$ cargo check -p daq-egui
+$ cargo check -p ui
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.05s
 ```
 
 **Test verification:**
 ```bash
-$ cargo test -p daq-egui auto_scale_plot
+$ cargo test -p ui auto_scale_plot
 test result: ok. 3 passed; 0 failed; 0 ignored
 ```
 

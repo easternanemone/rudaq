@@ -8,7 +8,7 @@ gaps:
     status: partial
     reason: "ExperimentDesignerPanel extracts metadata but doesn't send to server (TODO at line 878)"
     artifacts:
-      - path: "crates/daq-egui/src/panels/experiment_designer.rs"
+      - path: "crates/ui/src/panels/experiment_designer.rs"
         issue: "metadata_editor.to_metadata_map() called but result not sent via gRPC"
     missing:
       - "Queue plan via gRPC with metadata in ExperimentDesignerPanel"
@@ -42,12 +42,12 @@ gaps:
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `crates/daq-egui/src/widgets/metadata_editor.rs` | MetadataEditor widget with extensible key-value UI | ✓ VERIFIED | 242 lines, exports MetadataEditor/to_metadata_map()/is_empty(), has comprehensive unit tests |
-| `crates/daq-egui/src/panels/scan_builder.rs` | MetadataEditor integration in scan builder | ✓ VERIFIED | Imports MetadataEditor, integrates in struct, calls to_metadata_map() and passes to QueuePlanRequest |
-| `crates/daq-egui/src/panels/experiment_designer.rs` | MetadataEditor integration in experiment designer | ⚠️ ORPHANED | Has MetadataEditor field and UI rendering, but metadata not sent to server (TODO at line 878) |
-| `crates/daq-egui/src/panels/run_history.rs` | RunHistoryPanel with filterable table and detail view | ✓ VERIFIED | 467 lines, uses egui_extras::TableBuilder, async loading via client.list_acquisitions(), search filter functional |
-| `crates/daq-storage/src/hdf5_annotation.rs` | HDF5 annotation support (add/read annotations) | ✓ VERIFIED | 109 lines, exports add_run_annotation/read_run_annotations/RunAnnotation, feature-gated with storage_hdf5 |
-| `crates/daq-egui/src/panels/run_comparison.rs` | RunComparisonPanel with multi-run overlay plotting | ✓ VERIFIED | 420 lines, implements HDF5 data loading via spawn_blocking, egui_plot multi-line overlay with color palette |
+| `crates/ui/src/widgets/metadata_editor.rs` | MetadataEditor widget with extensible key-value UI | ✓ VERIFIED | 242 lines, exports MetadataEditor/to_metadata_map()/is_empty(), has comprehensive unit tests |
+| `crates/ui/src/panels/scan_builder.rs` | MetadataEditor integration in scan builder | ✓ VERIFIED | Imports MetadataEditor, integrates in struct, calls to_metadata_map() and passes to QueuePlanRequest |
+| `crates/ui/src/panels/experiment_designer.rs` | MetadataEditor integration in experiment designer | ⚠️ ORPHANED | Has MetadataEditor field and UI rendering, but metadata not sent to server (TODO at line 878) |
+| `crates/ui/src/panels/run_history.rs` | RunHistoryPanel with filterable table and detail view | ✓ VERIFIED | 467 lines, uses egui_extras::TableBuilder, async loading via client.list_acquisitions(), search filter functional |
+| `crates/storage/src/hdf5_annotation.rs` | HDF5 annotation support (add/read annotations) | ✓ VERIFIED | 109 lines, exports add_run_annotation/read_run_annotations/RunAnnotation, feature-gated with storage_hdf5 |
+| `crates/ui/src/panels/run_comparison.rs` | RunComparisonPanel with multi-run overlay plotting | ✓ VERIFIED | 420 lines, implements HDF5 data loading via spawn_blocking, egui_plot multi-line overlay with color palette |
 
 ### Key Link Verification
 

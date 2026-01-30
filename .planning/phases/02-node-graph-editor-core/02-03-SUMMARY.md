@@ -24,12 +24,12 @@ tech-stack:
     - "egui-snarl selection state integration"
 key-files:
   created:
-    - crates/daq-egui/src/widgets/property_inspector.rs
-    - crates/daq-egui/src/graph/commands.rs
+    - crates/ui/src/widgets/property_inspector.rs
+    - crates/ui/src/graph/commands.rs
   modified:
-    - crates/daq-egui/src/widgets/mod.rs
-    - crates/daq-egui/src/graph/mod.rs
-    - crates/daq-egui/src/panels/experiment_designer.rs
+    - crates/ui/src/widgets/mod.rs
+    - crates/ui/src/graph/mod.rs
+    - crates/ui/src/panels/experiment_designer.rs
 decisions:
   - id: unified-edit-enum
     summary: "Used unified GraphEdit enum instead of individual Edit impls"
@@ -96,14 +96,14 @@ egui-snarl stores selection in egui's temporary storage, not in the Snarl struct
 - **Found during:** Task 1 compilation
 - **Issue:** `rect_stroke` in egui 0.33 requires 4 arguments (added StrokeKind)
 - **Fix:** Added `StrokeKind::Inside` parameter
-- **Files modified:** crates/daq-egui/src/widgets/node_palette.rs
+- **Files modified:** crates/ui/src/widgets/node_palette.rs
 - **Commit:** (part of 02-02 concurrent work)
 
 **2. [Rule 3 - Blocking] Changed to unified GraphEdit enum**
 - **Found during:** Task 3 compilation
 - **Issue:** `Record<GraphTarget>` doesn't work - Record<E> requires E: Edit
 - **Fix:** Created GraphEdit enum implementing Edit instead of individual Edit impls
-- **Files modified:** crates/daq-egui/src/graph/commands.rs
+- **Files modified:** crates/ui/src/graph/commands.rs
 - **Commit:** 1e8b9da1
 
 ## Next Phase Readiness
@@ -132,13 +132,13 @@ egui-snarl stores selection in egui's temporary storage, not in the Snarl struct
 ## Files Changed
 
 **Created (2 files):**
-- `crates/daq-egui/src/widgets/property_inspector.rs` (101 lines) - Property editing widget
-- `crates/daq-egui/src/graph/commands.rs` (149 lines) - GraphEdit enum and Edit impl
+- `crates/ui/src/widgets/property_inspector.rs` (101 lines) - Property editing widget
+- `crates/ui/src/graph/commands.rs` (149 lines) - GraphEdit enum and Edit impl
 
 **Modified (3 files):**
-- `crates/daq-egui/src/widgets/mod.rs` (+2 lines) - Export PropertyInspector
-- `crates/daq-egui/src/graph/mod.rs` (+4 lines) - Export command types
-- `crates/daq-egui/src/panels/experiment_designer.rs` (+144 lines) - Undo/redo integration
+- `crates/ui/src/widgets/mod.rs` (+2 lines) - Export PropertyInspector
+- `crates/ui/src/graph/mod.rs` (+4 lines) - Export command types
+- `crates/ui/src/panels/experiment_designer.rs` (+144 lines) - Undo/redo integration
 
 ## Commits
 

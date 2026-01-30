@@ -29,7 +29,7 @@
 
 ## Key Files Modified
 
-- `crates/daq-egui/src/panels/experiment_designer.rs` - Status polling, validation, button UX
+- `crates/ui/src/panels/experiment_designer.rs` - Status polling, validation, button UX
 
 ## Commits
 

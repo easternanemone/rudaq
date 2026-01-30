@@ -79,14 +79,14 @@ ls -la /dev/ttyS0
 export EOM_SWEEP_TEST=1
 
 # Run with default parameters (-5V to +5V, 0.1V step)
-cargo test --features hardware -p daq-driver-comedi \
+cargo test --features hardware -p driver-comedi \
     --test eom_power_sweep -- --nocapture --test-threads=1
 
 # Custom voltage range
 export EOM_VOLTAGE_MIN=-2.0
 export EOM_VOLTAGE_MAX=2.0
 export EOM_VOLTAGE_STEP=0.05
-cargo test --features hardware -p daq-driver-comedi \
+cargo test --features hardware -p driver-comedi \
     --test eom_power_sweep -- --nocapture --test-threads=1
 ```
 

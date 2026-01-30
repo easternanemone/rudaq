@@ -41,7 +41,7 @@ NestedScan node with outer/inner loop structure, property inspector, and body ou
 - **Found during:** Compilation after reading plan files
 - **Issue:** Concurrent plan f761e06f introduced borrow-check errors where `client: Option<&mut DaqClient>` was moved into multiple closures
 - **Fix:** Changed signature to `&mut Option<&mut DaqClient>` and deferred UI action results after closures complete
-- **Files modified:** `crates/daq-egui/src/widgets/device_controls/analog_output_panel.rs`
+- **Files modified:** `crates/ui/src/widgets/device_controls/analog_output_panel.rs`
 - **Commit:** c89516f3
 
 ### Note: Concurrent Execution
@@ -51,20 +51,20 @@ The NestedScan implementation was already present in commit f761e06f when this p
 
 | File | Changes |
 |------|---------|
-| `crates/daq-egui/src/graph/nodes.rs` | NestedScanConfig, ScanDimension, ExperimentNode::NestedScan |
-| `crates/daq-egui/src/graph/viewer.rs` | show_nested_scan_body, 2 outputs for NestedScan |
-| `crates/daq-egui/src/graph/validation.rs` | output_pin_type for NestedScan body |
-| `crates/daq-egui/src/graph/translation.rs` | Nested loop command generation |
-| `crates/daq-egui/src/graph/codegen.rs` | nested_scan_to_rhai function |
-| `crates/daq-egui/src/widgets/node_palette.rs` | NodeType::NestedScan |
-| `crates/daq-egui/src/widgets/property_inspector.rs` | show_nested_scan_inspector |
-| `crates/daq-egui/src/widgets/device_controls/analog_output_panel.rs` | Borrow fix |
+| `crates/ui/src/graph/nodes.rs` | NestedScanConfig, ScanDimension, ExperimentNode::NestedScan |
+| `crates/ui/src/graph/viewer.rs` | show_nested_scan_body, 2 outputs for NestedScan |
+| `crates/ui/src/graph/validation.rs` | output_pin_type for NestedScan body |
+| `crates/ui/src/graph/translation.rs` | Nested loop command generation |
+| `crates/ui/src/graph/codegen.rs` | nested_scan_to_rhai function |
+| `crates/ui/src/widgets/node_palette.rs` | NodeType::NestedScan |
+| `crates/ui/src/widgets/property_inspector.rs` | show_nested_scan_inspector |
+| `crates/ui/src/widgets/device_controls/analog_output_panel.rs` | Borrow fix |
 
 ## Verification
 
-- [x] Build: `cargo build -p daq-egui` - Success
-- [x] Tests: `cargo test -p daq-egui` - 144 passed
-- [x] Format/lint: `cargo fmt --all && cargo clippy -p daq-egui` - Warnings only, no errors
+- [x] Build: `cargo build -p ui` - Success
+- [x] Tests: `cargo test -p ui` - 144 passed
+- [x] Format/lint: `cargo fmt --all && cargo clippy -p ui` - Warnings only, no errors
 
 ## Success Criteria Verification
 

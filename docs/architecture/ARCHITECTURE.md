@@ -20,29 +20,29 @@ The architecture follows a **Headless-First** design: the core daemon runs as a 
 The project is structured as a Cargo workspace with distinct responsibilities:
 
 ### 1. Application Layer
-*   **`daq-bin`**: The entry point for the daemon (`rust-daq-daemon`). Wires together the system based on compile-time features.
-*   **`daq-egui`**: The desktop client application. Built with `egui` and `egui_dock` for a flexible, pane-based layout. Connects to the daemon via gRPC. Features auto-reconnect with exponential backoff, health monitoring, and real-time logging panel.
+*   **`bin`**: The entry point for the daemon (`rust-daq-daemon`). Wires together the system based on compile-time features.
+*   **`ui`**: The desktop client application. Built with `egui` and `egui_dock` for a flexible, pane-based layout. Connects to the daemon via gRPC. Features auto-reconnect with exponential backoff, health monitoring, and real-time logging panel.
 *   **`rust-daq`**: A facade crate providing a clean `prelude` for external consumers and integration tests. Feature-gates optional dependencies (`server`, `scripting`).
 
 ### 2. Domain Logic
-*   **`daq-experiment`**: The orchestration engine ("RunEngine"). Executes declarative plans and manages the experiment state machine.
-*   **`daq-scripting`**: Embeds the **Rhai** scripting engine. Provides a safe sandbox for user scripts to control hardware (10k operation limit, timeout protection). Optional Python bindings via PyO3.
-*   **`daq-server`**: The network interface. Implements a gRPC server (`tonic`) exposing hardware control, script execution, and data streaming. Includes token-based authentication and CORS configuration.
+*   **`experiment`**: The orchestration engine ("RunEngine"). Executes declarative plans and manages the experiment state machine.
+*   **`scripting`**: Embeds the **Rhai** scripting engine. Provides a safe sandbox for user scripts to control hardware (10k operation limit, timeout protection). Optional Python bindings via PyO3.
+*   **`server`**: The network interface. Implements a gRPC server (`tonic`) exposing hardware control, script execution, and data streaming. Includes token-based authentication and CORS configuration.
 
 ### 3. Infrastructure
-*   **`daq-hardware`**: The Hardware Abstraction Layer (HAL). Defines capability traits and contains drivers for serial devices (Thorlabs ELL14, Newport ESP300, MaiTai laser, Newport 1830-C power meter).
-*   **`daq-driver-pvcam`**: Dedicated driver crate for Photometrics PVCAM cameras (Prime 95B, Prime BSI). Requires PVCAM SDK.
-*   **`daq-driver-comedi`**: Driver for Linux Comedi DAQ boards. Provides analog/digital I/O capabilities.
-*   **`daq-pool`**: Zero-allocation object pool for high-performance frame handling. Provides `Pool<T>` for generic objects and `BufferPool` for byte buffers with `bytes::Bytes` integration. Critical for high-FPS camera streaming where per-frame allocations cause latency.
-*   **`daq-storage`**: Handles data persistence. Implements the "Mullet Strategy": fast **Arrow** ring buffer in the front, reliable **HDF5** writer in the back. Also supports CSV, MATLAB (.mat), and NetCDF formats.
-*   **`daq-proto`**: Defines the wire protocol (Protobuf) for all network communication. Includes domain↔proto conversion utilities.
-*   **`daq-plugin-api`**: Native FFI plugin system using `abi_stable` for cross-version binary compatibility. Enables third-party Rust plugins without recompilation.
+*   **`hardware`**: The Hardware Abstraction Layer (HAL). Defines capability traits and contains drivers for serial devices (Thorlabs ELL14, Newport ESP300, MaiTai laser, Newport 1830-C power meter).
+*   **`driver-pvcam`**: Dedicated driver crate for Photometrics PVCAM cameras (Prime 95B, Prime BSI). Requires PVCAM SDK.
+*   **`driver-comedi`**: Driver for Linux Comedi DAQ boards. Provides analog/digital I/O capabilities.
+*   **`pool`**: Zero-allocation object pool for high-performance frame handling. Provides `Pool<T>` for generic objects and `BufferPool` for byte buffers with `bytes::Bytes` integration. Critical for high-FPS camera streaming where per-frame allocations cause latency.
+*   **`storage`**: Handles data persistence. Implements the "Mullet Strategy": fast **Arrow** ring buffer in the front, reliable **HDF5** writer in the back. Also supports CSV, MATLAB (.mat), and NetCDF formats.
+*   **`protocol`**: Defines the wire protocol (Protobuf) for all network communication. Includes domain↔proto conversion utilities.
+*   **`plugin-api`**: Native FFI plugin system using `abi_stable` for cross-version binary compatibility. Enables third-party Rust plugins without recompilation.
 
 ### 4. Core
 *   **`common`**: The foundation. Defines shared types (`Parameter<T>`, `Observable<T>`), error handling, size limits (`limits.rs`), and module domain types.
 
 ### 5. FFI Bindings
-*   **`pvcam-sys`**: Raw FFI bindings to the PVCAM C library (nested under `daq-driver-pvcam`).
+*   **`pvcam-sys`**: Raw FFI bindings to the PVCAM C library (nested under `driver-pvcam`).
 *   **`comedi-sys`**: Raw FFI bindings to the Linux Comedi library.
 
 ---
@@ -124,21 +124,21 @@ Experiments are written in [Rhai](https://rhai.rs), a scripting language designe
 ```
 .
 ├── crates/
-│   ├── daq-bin/            # Application entry points (daemon, CLI)
+│   ├── bin/            # Application entry points (daemon, CLI)
 │   ├── common/           # Foundation types, errors, parameters, limits
-│   ├── daq-driver-comedi/  # Comedi DAQ driver for Linux boards
-│   ├── daq-driver-pvcam/   # PVCAM camera driver
+│   ├── driver-comedi/      # Comedi DAQ driver for Linux boards
+│   ├── driver-pvcam/       # PVCAM camera driver
 │   │   └── pvcam-sys/      # Raw FFI bindings to PVCAM
-│   ├── daq-egui/           # Desktop GUI (egui + egui_dock)
-│   ├── daq-examples/       # Example code and usage patterns
-│   ├── daq-experiment/     # RunEngine and Plan definitions
-│   ├── daq-hardware/       # HAL with capability traits and serial drivers
-│   ├── daq-plugin-api/     # Native FFI plugin system (abi_stable)
-│   ├── daq-pool/           # Zero-allocation object pool for frame handling
-│   ├── daq-proto/          # Protobuf definitions and conversions
-│   ├── daq-scripting/      # Rhai scripting engine integration
-│   ├── daq-server/         # gRPC server implementation
-│   ├── daq-storage/        # Ring buffers, CSV, HDF5, Arrow storage
+│   ├── ui/           # Desktop GUI (egui + egui_dock)
+│   ├── examples/       # Example code and usage patterns
+│   ├── experiment/     # RunEngine and Plan definitions
+│   ├── hardware/       # HAL with capability traits and serial drivers
+│   ├── plugin-api/         # Native FFI plugin system (abi_stable)
+│   ├── pool/           # Zero-allocation object pool for frame handling
+│   ├── protocol/          # Protobuf definitions and conversions
+│   ├── scripting/      # Rhai scripting engine integration
+│   ├── server/         # gRPC server implementation
+│   ├── storage/        # Ring buffers, CSV, HDF5, Arrow storage
 │   ├── comedi-sys/         # Raw FFI bindings to Comedi
 │   └── rust-daq/           # Integration layer with prelude and plugins
 ├── config/                 # Runtime configuration (TOML)

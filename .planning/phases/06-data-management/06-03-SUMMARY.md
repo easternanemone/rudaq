@@ -25,11 +25,11 @@ tech-stack:
 
 key-files:
   created:
-    - crates/daq-storage/src/hdf5_annotation.rs
+    - crates/storage/src/hdf5_annotation.rs
   modified:
-    - crates/daq-storage/src/lib.rs
-    - crates/daq-egui/src/panels/run_history.rs
-    - crates/daq-egui/Cargo.toml
+    - crates/storage/src/lib.rs
+    - crates/ui/src/panels/run_history.rs
+    - crates/ui/Cargo.toml
 
 key-decisions:
   - "Tags stored as JSON array in HDF5 attributes for structured filtering"
@@ -73,10 +73,10 @@ Each task was committed atomically:
 3. **Task 3: Implement async save/load annotation handlers** - `fe4bf180` (feat)
 
 ## Files Created/Modified
-- `crates/daq-storage/src/hdf5_annotation.rs` - RunAnnotation struct and HDF5 attribute utilities
-- `crates/daq-storage/src/lib.rs` - Export hdf5_annotation module (feature-gated)
-- `crates/daq-egui/src/panels/run_history.rs` - Annotation editor in detail view with async handlers
-- `crates/daq-egui/Cargo.toml` - Added daq-storage dependency for annotation types
+- `crates/storage/src/hdf5_annotation.rs` - RunAnnotation struct and HDF5 attribute utilities
+- `crates/storage/src/lib.rs` - Export hdf5_annotation module (feature-gated)
+- `crates/ui/src/panels/run_history.rs` - Annotation editor in detail view with async handlers
+- `crates/ui/Cargo.toml` - Added storage dependency for annotation types
 
 ## Decisions Made
 
@@ -100,24 +100,24 @@ Each task was committed atomically:
 - **Found during:** Task 1 (Building hdf5_annotation module)
 - **Issue:** `Attribute::delete()` method doesn't exist - used wrong API
 - **Fix:** Changed to `Group::delete_attr(name)` on parent group
-- **Files modified:** crates/daq-storage/src/hdf5_annotation.rs
-- **Verification:** cargo build -p daq-storage --features storage_hdf5 passed
+- **Files modified:** crates/storage/src/hdf5_annotation.rs
+- **Verification:** cargo build -p storage --features storage_hdf5 passed
 - **Committed in:** aaa67638 (Task 1 commit)
 
 **2. [Rule 3 - Blocking] Added VarLenUnicode type annotation to parse() calls**
 - **Found during:** Task 1 (Building hdf5_annotation module)
 - **Issue:** `.parse()` without type parameter caused "trait bound () : FromStr" error
 - **Fix:** Changed to `.parse::<VarLenUnicode>()` (pattern from document_writer.rs)
-- **Files modified:** crates/daq-storage/src/hdf5_annotation.rs
+- **Files modified:** crates/storage/src/hdf5_annotation.rs
 - **Verification:** cargo build succeeded after fix
 - **Committed in:** aaa67638 (Task 1 commit)
 
-**3. [Rule 3 - Blocking] Added daq-storage dependency to daq-egui**
+**3. [Rule 3 - Blocking] Added storage dependency to ui**
 - **Found during:** Task 2 (Building annotation UI)
-- **Issue:** RunAnnotation type not available in daq-egui scope
-- **Fix:** Added daq-storage as optional dependency with storage_hdf5 feature propagation
-- **Files modified:** crates/daq-egui/Cargo.toml
-- **Verification:** cargo build -p daq-egui --features storage_hdf5 succeeded
+- **Issue:** RunAnnotation type not available in ui scope
+- **Fix:** Added storage as optional dependency with storage_hdf5 feature propagation
+- **Files modified:** crates/ui/Cargo.toml
+- **Verification:** cargo build -p ui --features storage_hdf5 succeeded
 - **Committed in:** 7e7748ee (Task 2 commit)
 
 ---

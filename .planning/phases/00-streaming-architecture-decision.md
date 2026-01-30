@@ -48,7 +48,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                     rust-daq-daemon                          │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐     │
-│  │ daq-hardware│───>│ Rerun SDK   │───>│ Rerun Server│     │
+│  │ hardware│───>│ Rerun SDK   │───>│ Rerun Server│     │
 │  │ (all sensors│    │ rec.log()   │    │ (gRPC :9876)│     │
 │  │  & actuators│    │ - cameras   │    │              │     │
 │  │             │    │ - signals   │    │              │     │
@@ -63,7 +63,7 @@
           │                                      │
           ▼                                      ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                     daq-egui (GUI)                           │
+│                     ui (GUI)                           │
 │  ┌───────────────────────┬─────────────────────────────────┐│
 │  │   Native egui Panels  │     Embedded Rerun Viewer       ││
 │  │   - Instrument Mgr    │     - Camera live view          ││
@@ -218,7 +218,7 @@ If Hybrid were pursued, would require:
 
 1. **Add Scalar Logging to Daemon:**
    ```rust
-   // In daq-server/src/rerun_logger.rs
+   // In server/src/rerun_logger.rs
    pub async fn log_observable(&self, device_id: &str, observable: &str, value: f64) {
        let entity_path = format!("devices/{device_id}/observables/{observable}");
        self.rec.log(entity_path, &rerun::Scalar::new(value))?;

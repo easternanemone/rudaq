@@ -101,7 +101,7 @@
 
 - **Standard Patterns (Low Research Need):**
   - Device discovery (registry already exists)
-  - Auto-save (daq-storage already exists)
+  - Auto-save (storage already exists)
   - Run history (StartDoc/StopDoc already tracked)
   - Metadata capture (document model already defined)
 
@@ -114,7 +114,7 @@
 2. Scan Configuration Form - Start/stop/num_points for 1D/2D scans
 3. Interactive Execution - Start/Pause/Resume/Abort with Checkpoint support
 4. Live Plotting - Real-time line/heatmap updates during acquisition
-5. Auto-Save - Stream to HDF5/CSV using daq-storage
+5. Auto-Save - Stream to HDF5/CSV using storage
 6. Run History - List past experiments with metadata
 
 ### Should Have (Phase 2)
@@ -206,7 +206,7 @@
 ### Low-Risk Items (Well-Understood)
 
 1. Device Discovery - Registry already exists
-2. Auto-Save - daq-storage already exists
+2. Auto-Save - storage already exists
 3. Run History - Document model already defined
 4. Metadata Capture - Bluesky pattern well-documented
 

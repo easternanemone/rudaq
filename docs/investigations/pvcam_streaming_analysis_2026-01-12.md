@@ -26,7 +26,7 @@ The Rust code was calling `pl_cam_register_callback_ex3()` twice during fallback
 SDK examples (LiveImage.cpp) only register callbacks ONCE per session.
 
 ### Solution Applied
-**File**: `crates/daq-driver-pvcam/src/components/acquisition.rs`
+**File**: `crates/driver-pvcam/src/components/acquisition.rs`
 **Lines**: 1664-1690
 
 ```rust
@@ -194,7 +194,7 @@ USB communication glitch or camera firmware issue causing sporadic callback inte
 ## Code Locations
 
 ### Callback Implementation
-**File**: `crates/daq-driver-pvcam/src/components/acquisition.rs`
+**File**: `crates/driver-pvcam/src/components/acquisition.rs`
 **Lines**: 382-443
 
 ```rust
@@ -218,7 +218,7 @@ pub unsafe extern "system" fn pvcam_eof_callback(
 ```
 
 ### Frame Loop
-**File**: `crates/daq-driver-pvcam/src/components/acquisition.rs`
+**File**: `crates/driver-pvcam/src/components/acquisition.rs`
 **Lines**: 2454-2548
 
 ```rust
@@ -242,7 +242,7 @@ if !has_frames {
 ```
 
 ### Timeout Configuration
-**File**: `crates/daq-driver-pvcam/src/components/acquisition.rs`
+**File**: `crates/driver-pvcam/src/components/acquisition.rs`
 **Line**: 2382
 
 ```rust

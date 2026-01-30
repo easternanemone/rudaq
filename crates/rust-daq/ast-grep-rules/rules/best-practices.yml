@@ -7,7 +7,7 @@ rule:
 message: "Avoid blocking calls in the GUI. Use async methods instead."
 severity: error
 files:
-  - "crates/daq-egui/src/"
+  - "crates/ui/src/"
 ---
 id: no-unwrap-expect
 language: rust

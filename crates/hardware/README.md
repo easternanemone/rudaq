@@ -1,10 +1,10 @@
-# daq-hardware
+# hardware
 
 Hardware abstraction layer for rust-daq with device registry and driver management.
 
 ## Overview
 
-`daq-hardware` provides the central hardware driver system:
+`hardware` provides the central hardware driver system:
 
 - **DeviceRegistry** - Thread-safe device registration and discovery
 - **DriverFactory** - Plugin architecture for dynamic driver loading
@@ -147,11 +147,11 @@ let port = resolve_port(
 serial = ["tokio-serial"]
 
 # Hardware drivers
-thorlabs = ["daq-driver-thorlabs"]
-newport = ["daq-driver-newport"]
-spectra_physics = ["daq-driver-spectra-physics"]
-pvcam = ["daq-driver-pvcam"]
-comedi = ["daq-driver-comedi"]
+thorlabs = ["driver-thorlabs"]
+newport = ["driver-newport"]
+spectra_physics = ["driver-spectra-physics"]
+pvcam = ["driver-pvcam"]
+comedi = ["driver-comedi"]
 
 # All hardware (for maitai builds)
 all_hardware = ["thorlabs", "newport", "spectra_physics", "pvcam", "comedi"]
@@ -171,9 +171,9 @@ all_hardware = ["thorlabs", "newport", "spectra_physics", "pvcam", "comedi"]
 ## Related Crates
 
 - [`common`](../common) - Capability traits and error types
-- [`daq-driver-pvcam`](../daq-driver-pvcam) - PVCAM camera driver
-- [`daq-driver-thorlabs`](../daq-driver-thorlabs) - Thorlabs ELL14 driver
-- [`daq-driver-newport`](../daq-driver-newport) - Newport drivers
+- [`driver-pvcam`](../driver-pvcam) - PVCAM camera driver
+- [`driver-thorlabs`](../driver-thorlabs) - Thorlabs ELL14 driver
+- [`driver-newport`](../driver-newport) - Newport drivers
 
 ## License
 

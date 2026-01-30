@@ -126,11 +126,11 @@ counter: 99
 
 ### Code Locations
 
-- **RPC Implementation:** `/home/maitai/rust-daq/crates/daq-server/src/grpc/ni_daq_service.rs`
+- **RPC Implementation:** `/home/maitai/rust-daq/crates/server/src/grpc/ni_daq_service.rs`
   - `read_counter()` (lines 730-805)
   - `reset_counter()` (lines 807-871)
   - `configure_counter()` (lines 893-962)
-- **Driver:** `/home/maitai/rust-daq/crates/daq-driver-comedi/src/subsystem/counter.rs`
+- **Driver:** `/home/maitai/rust-daq/crates/driver-comedi/src/subsystem/counter.rs`
   - `Counter::read()` (reads counter value)
   - `Counter::reset()` (resets counter)
   - `Counter::write()` (preloads counter value)

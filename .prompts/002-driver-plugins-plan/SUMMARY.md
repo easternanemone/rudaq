@@ -65,8 +65,8 @@
 
 **Execute Phase 1 - Core Infrastructure**
 
-1. Add `serde_valid`, `schemars`, `enum_dispatch` to `daq-hardware/Cargo.toml`
-2. Create `crates/daq-hardware/src/config/mod.rs` with `DeviceConfig` schema structs
+1. Add `serde_valid`, `schemars`, `enum_dispatch` to `hardware/Cargo.toml`
+2. Create `crates/hardware/src/config/mod.rs` with `DeviceConfig` schema structs
 3. Implement config loader and validation
 4. Generate `config/schemas/device.schema.json`
 5. Write unit tests for config parsing

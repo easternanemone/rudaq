@@ -122,7 +122,7 @@ repos:
   # Rust linting
   - repo: local
     hooks:
-      - cargo clippy (excludes daq-egui)
+      - cargo clippy (excludes ui)
 
   # Fast unit tests
   - repo: local
@@ -162,13 +162,13 @@ brew install pre-commit  # macOS
 
 ```bash
 # See what failed
-cargo clippy --workspace --all-targets --features full --exclude daq-egui
+cargo clippy --workspace --all-targets --features full --exclude ui
 
 # Fix formatting issues
 cargo fmt --all
 
 # Run tests that failed
-cargo test --lib --bins --workspace --exclude daq-egui
+cargo test --lib --bins --workspace --exclude ui
 ```
 
 ### Issue: Hooks are slow

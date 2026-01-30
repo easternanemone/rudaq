@@ -15,10 +15,10 @@ tech-stack:
 
 key-files:
   created:
-    - crates/daq-storage/src/zarr_writer.rs
+    - crates/storage/src/zarr_writer.rs
   modified:
-    - crates/daq-storage/Cargo.toml
-    - crates/daq-storage/src/lib.rs
+    - crates/storage/Cargo.toml
+    - crates/storage/src/lib.rs
 
 decisions:
   - id: zarrs-crate
@@ -42,7 +42,7 @@ metrics:
 
 ## What Was Built
 
-### ZarrWriter Module (`crates/daq-storage/src/zarr_writer.rs`)
+### ZarrWriter Module (`crates/storage/src/zarr_writer.rs`)
 
 High-level API for Zarr V3 N-dimensional array storage with:
 
@@ -110,7 +110,7 @@ For nested scans (wavelength x position x camera):
 
 ## Verification Results
 
-1. Feature flag works: `cargo check -p daq-storage --features storage_zarr`
+1. Feature flag works: `cargo check -p storage --features storage_zarr`
 2. All tests pass: 7 zarr tests + 52 total storage tests
 3. No HDF5 regressions: 47 tests pass with storage_hdf5
 4. Clean lint: Only pre-existing pedantic warnings

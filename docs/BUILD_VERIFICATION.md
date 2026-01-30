@@ -8,7 +8,7 @@ Building without this flag produces a daemon with MOCK hardware only, even thoug
 
 ## What the `maitai` Feature Includes
 
-The `maitai` feature is defined in `crates/daq-bin/Cargo.toml` and includes:
+The `maitai` feature is defined in `crates/bin/Cargo.toml` and includes:
 
 ```toml
 maitai = [
@@ -38,7 +38,7 @@ This script:
 **DO NOT manually run `cargo build` unless you:**
 - Have sourced the environment: `source config/hosts/maitai.env`
 - Have done a full clean: `cargo clean`
-- Include the maitai feature: `cargo build --release -p daq-bin --features maitai`
+- Include the maitai feature: `cargo build --release -p bin --features maitai`
 
 ## Post-Build Verification
 
@@ -110,7 +110,7 @@ Registered 7 device(s)
 
 1. Build GUI (does NOT require hardware features):
    ```bash
-   cargo build --release -p daq-egui --bin rust-daq-gui
+   cargo build --release -p ui --bin rust-daq-gui
    ```
 
 2. Launch GUI:
@@ -186,7 +186,7 @@ Should show:
 ### ❌ WRONG: Manual build without clean
 
 ```bash
-cargo build --release -p daq-bin --features maitai
+cargo build --release -p bin --features maitai
 ```
 
 Problem: Cargo caches feature flags in dependencies. A previous build without `maitai` will keep using mock mode even if you add the feature flag.
@@ -194,7 +194,7 @@ Problem: Cargo caches feature flags in dependencies. A previous build without `m
 ### ❌ WRONG: Building GUI with hardware features
 
 ```bash
-cargo build -p daq-egui --features maitai
+cargo build -p ui --features maitai
 ```
 
 Problem: GUI doesn't need hardware features (it connects remotely). This wastes compile time.
@@ -218,7 +218,7 @@ bash scripts/build-maitai.sh
 ```bash
 # Correct workflow
 bash scripts/build-maitai.sh                    # Build daemon with ALL hardware
-cargo build --release -p daq-egui              # Build GUI (separate)
+cargo build --release -p ui              # Build GUI (separate)
 
 # Start daemon
 ./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_hardware.toml
@@ -234,5 +234,5 @@ grep "pvcam_sdk feature enabled" <daemon_output>
 
 - `CLAUDE.md` - Main project documentation
 - `scripts/build-maitai.sh` - Build script
-- `crates/daq-bin/Cargo.toml` - Feature flag definitions
+- `crates/bin/Cargo.toml` - Feature flag definitions
 - `config/maitai_hardware.toml` - Hardware configuration

@@ -98,7 +98,7 @@ If the camera is not detecting ("No cameras found" or "Installation Corrupted" e
 **Solution**: Run the force reset tool:
 ```bash
 source config/hosts/maitai.env
-cargo run --example force_reset --features pvcam_sdk -p daq-driver-pvcam
+cargo run --example force_reset --features pvcam_sdk -p driver-pvcam
 ```
 
 If software reset fails, physically disconnect and reconnect the camera USB cable.
@@ -169,5 +169,5 @@ source scripts/build-maitai.sh  # Clean rebuild with PVCAM support
 tail -f /tmp/daemon.log
 
 # Reset stuck camera (if needed)
-cargo run --example force_reset --features pvcam_sdk -p daq-driver-pvcam
+cargo run --example force_reset --features pvcam_sdk -p driver-pvcam
 ```

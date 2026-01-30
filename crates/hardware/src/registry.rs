@@ -1789,9 +1789,8 @@ impl DeviceRegistry {
             #[cfg(feature = "spectra_physics")]
             DriverType::MaiTai { port } => {
                 // Use new_async() to validate device identity on connection
-                let driver = Arc::new(
-                    daq_driver_spectra_physics::MaiTaiDriver::new_async_default(&port).await?,
-                );
+                let driver =
+                    Arc::new(driver_spectra_physics::MaiTaiDriver::new_async_default(&port).await?);
                 let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
                 let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
                 Ok(RegisteredDevice {
@@ -2417,7 +2416,7 @@ pub async fn create_mock_registry() -> Result<DeviceRegistry, DaqError> {
 /// ).await?;
 /// ```
 pub fn register_mock_factories(registry: &DeviceRegistry) {
-    use daq_driver_mock::{MockCameraFactory, MockPowerMeterFactory, MockStageFactory};
+    use driver_mock::{MockCameraFactory, MockPowerMeterFactory, MockStageFactory};
 
     registry.register_factory(Box::new(MockStageFactory));
     registry.register_factory(Box::new(MockCameraFactory));
@@ -2454,14 +2453,14 @@ pub async fn register_all_factories(
     // Register Thorlabs factories
     #[cfg(feature = "thorlabs")]
     {
-        use daq_driver_thorlabs::Ell14Factory;
+        use driver_thorlabs::Ell14Factory;
         registry.register_factory(Box::new(Ell14Factory));
     }
 
     // Register Newport factories
     #[cfg(feature = "newport")]
     {
-        use daq_driver_newport::{Esp300Factory, Newport1830CFactory};
+        use driver_newport::{Esp300Factory, Newport1830CFactory};
         registry.register_factory(Box::new(Esp300Factory));
         registry.register_factory(Box::new(Newport1830CFactory));
     }
@@ -2469,21 +2468,21 @@ pub async fn register_all_factories(
     // Register Spectra-Physics factories
     #[cfg(feature = "spectra_physics")]
     {
-        use daq_driver_spectra_physics::MaiTaiFactory;
+        use driver_spectra_physics::MaiTaiFactory;
         registry.register_factory(Box::new(MaiTaiFactory));
     }
 
     // Register Red Pitaya factories
     #[cfg(feature = "red_pitaya")]
     {
-        use daq_driver_red_pitaya::RedPitayaPidFactory;
+        use driver_red_pitaya::RedPitayaPidFactory;
         registry.register_factory(Box::new(RedPitayaPidFactory));
     }
 
     // Register Comedi factories (NI DAQ, etc.)
     #[cfg(feature = "comedi")]
     {
-        use daq_driver_comedi::{ComediAnalogInputFactory, ComediAnalogOutputFactory};
+        use driver_comedi::{ComediAnalogInputFactory, ComediAnalogOutputFactory};
         registry.register_factory(Box::new(ComediAnalogInputFactory));
         registry.register_factory(Box::new(ComediAnalogOutputFactory));
     }

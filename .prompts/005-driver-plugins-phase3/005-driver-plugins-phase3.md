@@ -8,15 +8,15 @@ Output: Three new TOML configs, extended trait implementations, and validation t
 
 <context>
 Previous phases:
-- Phase 1: @crates/daq-hardware/src/config/ (schema, validation, loader)
-- Phase 2: @crates/daq-hardware/src/drivers/generic_serial.rs (GenericSerialDriver)
-- Phase 2: @crates/daq-hardware/src/factory.rs (ConfiguredDriver, DriverFactory)
+- Phase 1: @crates/hardware/src/config/ (schema, validation, loader)
+- Phase 2: @crates/hardware/src/drivers/generic_serial.rs (GenericSerialDriver)
+- Phase 2: @crates/hardware/src/factory.rs (ConfiguredDriver, DriverFactory)
 - Phase 2: @config/devices/ell14.toml (ELL14 protocol reference)
 
 Existing hand-coded drivers to match:
-@crates/daq-hardware/src/drivers/esp300.rs
-@crates/daq-hardware/src/drivers/newport_1830c.rs
-@crates/daq-hardware/src/drivers/maitai.rs
+@crates/hardware/src/drivers/esp300.rs
+@crates/hardware/src/drivers/newport_1830c.rs
+@crates/hardware/src/drivers/maitai.rs
 
 Capability traits to implement:
 @crates/common/src/capabilities.rs (Readable, WavelengthTunable, ShutterControl)
@@ -100,12 +100,12 @@ config/devices/
 ├── newport_1830c.toml  # NEW
 └── maitai.toml         # NEW
 
-crates/daq-hardware/src/
+crates/hardware/src/
 ├── drivers/
 │   └── generic_serial.rs  # MODIFY: Add Readable, WavelengthTunable, ShutterControl
 └── factory.rs             # MODIFY: Add new variants to ConfiguredDriver
 
-crates/daq-hardware/tests/
+crates/hardware/tests/
 ├── ell14_migration.rs     # Existing
 ├── esp300_migration.rs    # NEW
 ├── newport_1830c_migration.rs  # NEW
@@ -242,14 +242,14 @@ Create/modify files:
 - `config/devices/esp300.toml` - ESP300 motion controller protocol
 - `config/devices/newport_1830c.toml` - Power meter protocol
 - `config/devices/maitai.toml` - Laser protocol
-- `crates/daq-hardware/tests/esp300_migration.rs` - ESP300 tests
-- `crates/daq-hardware/tests/newport_1830c_migration.rs` - Power meter tests
-- `crates/daq-hardware/tests/maitai_migration.rs` - Laser tests
+- `crates/hardware/tests/esp300_migration.rs` - ESP300 tests
+- `crates/hardware/tests/newport_1830c_migration.rs` - Power meter tests
+- `crates/hardware/tests/maitai_migration.rs` - Laser tests
 
 **Modify:**
-- `crates/daq-hardware/src/drivers/generic_serial.rs` - Add Readable, WavelengthTunable, ShutterControl impls
-- `crates/daq-hardware/src/factory.rs` - Add Esp300, Newport1830C, MaiTai variants
-- `crates/daq-hardware/src/config/schema.rs` - Add any missing trait mapping types if needed
+- `crates/hardware/src/drivers/generic_serial.rs` - Add Readable, WavelengthTunable, ShutterControl impls
+- `crates/hardware/src/factory.rs` - Add Esp300, Newport1830C, MaiTai variants
+- `crates/hardware/src/config/schema.rs` - Add any missing trait mapping types if needed
 </output>
 
 <verification>
@@ -257,22 +257,22 @@ Before declaring complete:
 
 1. **Build verification:**
    ```bash
-   cargo build -p daq-hardware
-   cargo clippy -p daq-hardware -- -D warnings
+   cargo build -p hardware
+   cargo clippy -p hardware -- -D warnings
    ```
 
 2. **Config validation:**
    ```bash
-   cargo test -p daq-hardware config::tests -- --nocapture
+   cargo test -p hardware config::tests -- --nocapture
    ```
    - All three new configs parse and validate
 
 3. **Unit tests:**
    ```bash
-   cargo test -p daq-hardware generic_serial -- --nocapture
-   cargo test -p daq-hardware esp300 -- --nocapture
-   cargo test -p daq-hardware newport -- --nocapture
-   cargo test -p daq-hardware maitai -- --nocapture
+   cargo test -p hardware generic_serial -- --nocapture
+   cargo test -p hardware esp300 -- --nocapture
+   cargo test -p hardware newport -- --nocapture
+   cargo test -p hardware maitai -- --nocapture
    ```
 
 4. **Migration tests:**
@@ -282,7 +282,7 @@ Before declaring complete:
 
 5. **ELL14 regression:**
    ```bash
-   cargo test -p daq-hardware ell14 -- --nocapture
+   cargo test -p hardware ell14 -- --nocapture
    ```
    - All existing ELL14 tests still pass
 

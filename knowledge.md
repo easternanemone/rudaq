@@ -17,7 +17,7 @@ This file gives Codebuff context about your project: goals, commands, convention
 cargo install cargo-nextest --locked
 
 # Build daemon (mock hardware by default)
-cargo build -p daq-bin
+cargo build -p bin
 
 # Run daemon with demo hardware
 cargo run --bin rust-daq-daemon -- daemon --hardware-config config/demo.toml
@@ -52,12 +52,12 @@ source scripts/build-maitai.sh
 ### Key directories
 - `crates/` — Workspace with all crates
   - `common` — Foundation types, errors, `Parameter<T>`, capability traits
-  - `daq-hardware` — HAL with capability traits (`Movable`, `Readable`, `FrameProducer`)
-  - `daq-driver-*` — Hardware drivers (mock, pvcam, thorlabs, newport, spectra-physics)
-  - `daq-server` — gRPC server implementation
-  - `daq-egui` — Desktop GUI application
-  - `daq-scripting` — Rhai scripting engine
-  - `daq-bin` — CLI binaries and daemon
+  - `hardware` — HAL with capability traits (`Movable`, `Readable`, `FrameProducer`)
+  - `driver-*` — Hardware drivers (mock, pvcam, thorlabs, newport, spectra-physics)
+  - `server` — gRPC server implementation
+  - `ui` — Desktop GUI application
+  - `scripting` — Rhai scripting engine
+  - `bin` — CLI binaries and daemon
 - `config/` — Configuration files (TOML)
 - `examples/` — Demo scripts (Rhai)
 
@@ -184,7 +184,7 @@ use daq_storage::ring_buffer::RingBuffer;
 
 **Storage:** `storage_csv` (default), `storage_hdf5`, `storage_arrow`
 
-**Hardware (daq-hardware):**
+**Hardware (hardware):**
 - `serial` — Base serial port support
 - `thorlabs` — Thorlabs ELL14 rotators
 - `newport` — Newport ESP300 motion controller

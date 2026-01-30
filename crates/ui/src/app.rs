@@ -929,7 +929,7 @@ impl DaqApp {
     fn start_pvcam_stream(&mut self) {
         use common::capabilities::{FrameObserver, FrameProducer};
         use common::data::FrameView;
-        use daq_driver_pvcam::PvcamDriver;
+        use driver_pvcam::PvcamDriver;
         use rerun::archetypes::Tensor;
         use rerun::RecordingStreamBuilder;
         use std::sync::atomic::{AtomicU64, Ordering};

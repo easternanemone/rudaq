@@ -201,7 +201,7 @@ cd /path/to/rust-daq
 source config/hosts/maitai.env  # or scripts/env-check.sh
 
 # Run the force reset tool
-cargo run --example force_reset --features pvcam_sdk -p daq-driver-pvcam
+cargo run --example force_reset --features pvcam_sdk -p driver-pvcam
 
 # Expected output:
 # Initializing PVCAM...
@@ -237,7 +237,7 @@ After killing the daemon with `pkill`, `kill -9`, or a system crash:
 
 1. **Try software reset first:**
    ```bash
-   cargo run --example force_reset --features pvcam_sdk -p daq-driver-pvcam
+   cargo run --example force_reset --features pvcam_sdk -p driver-pvcam
    ```
 
 2. **If software reset fails, power cycle the camera:**

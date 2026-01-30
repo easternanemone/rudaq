@@ -87,7 +87,7 @@ Config-defined initialization sequences compiled via smlang.
 
 ### Tasks
 
-1. **Define DeviceConfig schema structs** (`crates/daq-hardware/src/config/mod.rs`)
+1. **Define DeviceConfig schema structs** (`crates/hardware/src/config/mod.rs`)
    - `DeviceIdentity`: name, type, protocol, capabilities list
    - `ConnectionConfig`: serial settings (baud, parity, stop bits, flow control, timeout)
    - `CommandConfig`: template, parameters, description
@@ -106,7 +106,7 @@ Config-defined initialization sequences compiled via smlang.
    - Export schema to `config/schemas/device.schema.json`
    - Document schema for IDE completion support
 
-4. **Create config loader module** (`crates/daq-hardware/src/config/loader.rs`)
+4. **Create config loader module** (`crates/hardware/src/config/loader.rs`)
    - Load single device config: `load_device_config(path: &Path) -> Result<DeviceConfig>`
    - Load all device configs from directory: `load_all_devices(dir: &Path) -> Result<Vec<DeviceConfig>>`
    - Validate after loading
@@ -118,9 +118,9 @@ Config-defined initialization sequences compiled via smlang.
    - Keep `figment` (already used)
 
 ### Deliverables
-- `crates/daq-hardware/src/config/mod.rs` - Config structs
-- `crates/daq-hardware/src/config/loader.rs` - Config loading
-- `crates/daq-hardware/src/config/validation.rs` - Custom validators
+- `crates/hardware/src/config/mod.rs` - Config structs
+- `crates/hardware/src/config/loader.rs` - Config loading
+- `crates/hardware/src/config/validation.rs` - Custom validators
 - `config/schemas/device.schema.json` - Generated schema
 - Unit tests for config parsing and validation
 
@@ -131,7 +131,7 @@ Config-defined initialization sequences compiled via smlang.
 - [ ] Config structs deserialize example TOML files correctly
 - [ ] Invalid configs produce clear error messages with field paths
 - [ ] JSON schema validates against example configs
-- [ ] `cargo test -p daq-hardware` passes
+- [ ] `cargo test -p hardware` passes
 
 ---
 
@@ -149,7 +149,7 @@ Config-defined initialization sequences compiled via smlang.
    - Response patterns for position, status, device info
    - Calibration conversion formulas
 
-2. **Implement GenericSerialDriver** (`crates/daq-hardware/src/drivers/generic_serial.rs`)
+2. **Implement GenericSerialDriver** (`crates/hardware/src/drivers/generic_serial.rs`)
    - Constructor from `DeviceConfig`
    - Serial port management (shared port support for RS-485)
    - Command formatting with template interpolation
@@ -171,7 +171,7 @@ Config-defined initialization sequences compiled via smlang.
    }
    ```
 
-5. **Implement DriverFactory** (`crates/daq-hardware/src/factory.rs`)
+5. **Implement DriverFactory** (`crates/hardware/src/factory.rs`)
    - `create_driver(config: &DeviceConfig) -> Result<ConfiguredDriver>`
    - `create_driver_from_file(path: &Path) -> Result<ConfiguredDriver>`
 
@@ -182,8 +182,8 @@ Config-defined initialization sequences compiled via smlang.
 
 ### Deliverables
 - `config/devices/ell14.toml` - Complete ELL14 protocol definition
-- `crates/daq-hardware/src/drivers/generic_serial.rs` - Generic driver
-- `crates/daq-hardware/src/factory.rs` - Driver factory
+- `crates/hardware/src/drivers/generic_serial.rs` - Generic driver
+- `crates/hardware/src/factory.rs` - Driver factory
 - Integration tests comparing ELL14 implementations
 - Documentation: migration guide section
 
@@ -366,7 +366,7 @@ Config-defined initialization sequences compiled via smlang.
 
 ### Dependencies
 - Phase 4 complete (state machines working)
-- `daq-scripting` crate (already exists)
+- `scripting` crate (already exists)
 
 ### Verification
 - [ ] Complex response parsing works via Rhai
@@ -676,7 +676,7 @@ Create `config/devices/ell14.toml` with the full protocol definition (see TOML S
 
 ### Step 2: Update Feature Flags
 
-In `crates/daq-hardware/Cargo.toml`:
+In `crates/hardware/Cargo.toml`:
 
 ```toml
 [features]
@@ -689,7 +689,7 @@ default = ["serial", "driver-thorlabs-config"]
 
 ### Step 3: Create Compatibility Shim
 
-In `crates/daq-hardware/src/drivers/ell14.rs`, add at the bottom:
+In `crates/hardware/src/drivers/ell14.rs`, add at the bottom:
 
 ```rust
 // Compatibility: Config-based driver
@@ -716,7 +716,7 @@ pub mod config_based {
 
 ### Step 4: Run Comparison Tests
 
-Create `crates/daq-hardware/tests/ell14_migration.rs`:
+Create `crates/hardware/tests/ell14_migration.rs`:
 
 ```rust
 //! Migration tests: Compare existing ELL14 driver with config-based version
@@ -795,7 +795,7 @@ cargo test --features hardware_tests,driver-thorlabs-config test_ell14_config --
 pub struct Ell14Driver { /* ... */ }
 
 // Phase 3+: Remove (major version bump)
-// Delete crates/daq-hardware/src/drivers/ell14.rs
+// Delete crates/hardware/src/drivers/ell14.rs
 ```
 
 </migration_guide>
@@ -829,7 +829,7 @@ pub struct Ell14Driver { /* ... */ }
 
 - `common::capabilities` - Trait definitions (no changes needed)
 - `common::parameter` - Parameter system (no changes needed)
-- `daq-scripting` - Rhai integration (Phase 5)
+- `scripting` - Rhai integration (Phase 5)
 
 ## Open Questions
 

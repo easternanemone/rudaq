@@ -6,7 +6,7 @@
 
 Added AdaptiveScan node type for scans that automatically respond to acquired data during execution.
 
-### New Types Added (crates/daq-egui/src/graph/nodes.rs)
+### New Types Added (crates/ui/src/graph/nodes.rs)
 
 1. **TriggerCondition enum** - Conditions that fire adaptive actions:
    - `Threshold` - Signal crosses a threshold (device_id, operator, value)
@@ -33,14 +33,14 @@ Added AdaptiveScan node type for scans that automatically respond to acquired da
 
 | File | Changes |
 |------|---------|
-| `crates/daq-egui/Cargo.toml` | Added `find_peaks = "0.1"` dependency |
-| `crates/daq-egui/src/graph/nodes.rs` | Added AdaptiveScan variant and config types |
-| `crates/daq-egui/src/graph/codegen.rs` | Added Rhai code generation for AdaptiveScan |
-| `crates/daq-egui/src/graph/translation.rs` | Added plan translation for AdaptiveScan |
-| `crates/daq-egui/src/graph/viewer.rs` | Added inline editor for AdaptiveScan |
-| `crates/daq-egui/src/widgets/node_palette.rs` | Added AdaptiveScan to palette (dark orange) |
-| `crates/daq-egui/src/widgets/property_inspector.rs` | Added property inspector panel |
-| `crates/daq-egui/src/panels/experiment_designer.rs` | Added validation and parameter collection |
+| `crates/ui/Cargo.toml` | Added `find_peaks = "0.1"` dependency |
+| `crates/ui/src/graph/nodes.rs` | Added AdaptiveScan variant and config types |
+| `crates/ui/src/graph/codegen.rs` | Added Rhai code generation for AdaptiveScan |
+| `crates/ui/src/graph/translation.rs` | Added plan translation for AdaptiveScan |
+| `crates/ui/src/graph/viewer.rs` | Added inline editor for AdaptiveScan |
+| `crates/ui/src/widgets/node_palette.rs` | Added AdaptiveScan to palette (dark orange) |
+| `crates/ui/src/widgets/property_inspector.rs` | Added property inspector panel |
+| `crates/ui/src/panels/experiment_designer.rs` | Added validation and parameter collection |
 
 ### UI Features
 

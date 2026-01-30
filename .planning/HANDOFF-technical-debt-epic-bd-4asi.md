@@ -21,18 +21,18 @@ Fix 15 technical debt issues in the driver and scripting infrastructure, validat
 rust-daq/
 ├── crates/
 │   ├── common/              # Foundation types, DriverFactory trait
-│   ├── daq-hardware/
+│   ├── hardware/
 │   │   ├── src/drivers/
 │   │   │   └── generic_serial.rs  # H1, M4 issues
 │   │   └── src/factory.rs         # H3, M1, M5, L2 issues
-│   ├── daq-scripting/
+│   ├── scripting/
 │   │   ├── src/bindings.rs        # M2, L1 issues
 │   │   └── src/shutter_safety.rs  # M3, L4 issues
-│   ├── daq-driver-spectra-physics/
+│   ├── driver-spectra-physics/
 │   │   └── src/maitai.rs          # H2 issue
-│   ├── daq-driver-newport/
+│   ├── driver-newport/
 │   │   └── src/newport_1830c.rs   # M6 issue
-│   └── daq-driver-thorlabs/
+│   └── driver-thorlabs/
 │       └── src/ell14.rs           # M7 issue
 └── config/devices/                # L3 issue
 ```
@@ -57,7 +57,7 @@ M1 (serial settings) ───────────────────�
 ### HIGH PRIORITY
 
 #### H1: GenericSerialDriver Silent Timeout Failures
-**File:** `crates/daq-hardware/src/drivers/generic_serial.rs`
+**File:** `crates/hardware/src/drivers/generic_serial.rs`
 **Lines:** 600-669, 827-907
 **Problem:** `transaction()` and `transaction_with_timeout()` return `Ok("")` on timeout instead of error
 **Impact:** Masks hardware disconnects, causes downstream parsing errors
@@ -72,7 +72,7 @@ if response.is_empty() {
 **Tests to update:** Any tests that expect `Ok("")` on timeout
 
 #### H3: DeviceComponents/Capabilities Mismatch
-**File:** `crates/daq-hardware/src/factory.rs`
+**File:** `crates/hardware/src/factory.rs`
 **Lines:** 520-536, 656-667
 **Problem:** Builds DeviceComponents with all traits unconditionally regardless of config
 **Impact:** Registry advertises unsupported capabilities, runtime errors on invocation
@@ -90,7 +90,7 @@ if config.capabilities.contains(&Capability::Movable) || config.trait_mapping.mo
 ### MEDIUM PRIORITY
 
 #### H2: MaiTai Wavelength Tuning Race Condition
-**File:** `crates/daq-driver-spectra-physics/src/maitai.rs`
+**File:** `crates/driver-spectra-physics/src/maitai.rs`
 **Lines:** 252-308 (attach_wavelength_callbacks), 576-577 (set_wavelength)
 **Problem:** Returns after 50ms without verifying laser reached target wavelength
 **Impact:** Scripts take data at wrong wavelength during fast scans
@@ -113,31 +113,31 @@ pub async fn set_wavelength_and_wait(&self, target: f64, tolerance: f64, timeout
 ```
 
 #### M1: Serial Settings Ignored in Factory
-**File:** `crates/daq-hardware/src/factory.rs`
+**File:** `crates/hardware/src/factory.rs`
 **Lines:** 618-624
 **Problem:** Hardcodes 8N1/no flow control, ignores config values like `data_bits`, `parity`
 **Fix:** Map `DeviceConfig.connection` into tokio_serial builder
 
 #### M2: Shutter Registry Lifecycle Gaps
-**File:** `crates/daq-scripting/src/bindings.rs`
+**File:** `crates/scripting/src/bindings.rs`
 **Lines:** 743-758
 **Problem:** Registers in ShutterRegistry before opening; doesn't unregister on failure
 **Fix:** Register AFTER successful `open_shutter()` or use scope guard to unregister on failure
 
 #### M3: HeartbeatShutterGuard State Inconsistency
-**File:** `crates/daq-scripting/src/shutter_safety.rs`
+**File:** `crates/scripting/src/shutter_safety.rs`
 **Lines:** 381-419, 470-479
 **Problem:** Watchdog closes shutter but doesn't update `is_open`; `close()` doesn't stop watchdog
 **Fix:** Set `is_open = false` when watchdog closes; have `close()` abort watchdog task
 
 #### M4: Non-Numeric Config Parameters Ignored
-**File:** `crates/daq-hardware/src/drivers/generic_serial.rs`
+**File:** `crates/hardware/src/drivers/generic_serial.rs`
 **Lines:** 201-206
 **Problem:** Only loads numeric defaults via `as_f64()`, drops strings/booleans
 **Fix:** Store parameters as `toml::Value` or `evalexpr::Value`, or validate and reject unsupported types
 
 #### M5: Memory Leak in Factory Introspection
-**File:** `crates/daq-hardware/src/factory.rs`
+**File:** `crates/hardware/src/factory.rs`
 **Lines:** 556-569
 **Problem:** `Box::leak` on every `driver_type()`, `name()`, `capabilities()` call
 **Fix:** Use `OnceLock` or leak once in constructor, cache `&'static` references
@@ -147,21 +147,21 @@ pub async fn set_wavelength_and_wait(&self, target: f64, tolerance: f64, timeout
 ### LOW PRIORITY
 
 #### M6: Newport 1830-C Performance Bottleneck
-**File:** `crates/daq-driver-newport/src/newport_1830c.rs`
+**File:** `crates/driver-newport/src/newport_1830c.rs`
 **Lines:** 348-357
 **Problem:** Sends `U1` before every `D?` read (~100ms overhead)
 **Note:** Intentional for robustness against front-panel unit changes
 **Fix:** Make configurable or reassert only on cadence/failure
 
 #### M7: ELL14 Fragile Bus Logic
-**File:** `crates/daq-driver-thorlabs/src/ell14.rs`
+**File:** `crates/driver-thorlabs/src/ell14.rs`
 **Lines:** 817-934
 **Problem:** "3x silence" drain adds ~15ms latency per command
 **Note:** RS-485 handling is well-designed for noisy buses
 **Fix:** Make drain behavior configurable, gate behind "shared bus" flag
 
 #### L1: Blocking Sleep in Scripting
-**File:** `crates/daq-scripting/src/bindings.rs`
+**File:** `crates/scripting/src/bindings.rs`
 **Lines:** 662-666
 **Problem:** Uses `std::thread::sleep` in `read_averaged`
 **Fix:** Use `tokio::time::sleep` in async helper
@@ -175,7 +175,7 @@ pub async fn set_wavelength_and_wait(&self, target: f64, tolerance: f64, timeout
 **Fix:** Mark as unsupported in docs or gate under feature flag
 
 #### L4: Flaky Timing Tests
-**File:** `crates/daq-scripting/src/shutter_safety.rs:580+`
+**File:** `crates/scripting/src/shutter_safety.rs:580+`
 **Fix:** Use `#[tokio::test(start_paused = true)]` with `tokio::time::advance()`
 
 ---
@@ -211,8 +211,8 @@ cargo build
 cargo nextest run
 
 # Test specific crate
-cargo nextest run -p daq-hardware
-cargo nextest run -p daq-scripting
+cargo nextest run -p hardware
+cargo nextest run -p scripting
 
 # Lint
 cargo clippy --all-targets

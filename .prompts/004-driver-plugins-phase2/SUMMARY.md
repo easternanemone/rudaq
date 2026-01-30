@@ -17,7 +17,7 @@ Phase 2 successfully implemented the core config-driven driver infrastructure, e
   - Trait method mappings for `Movable` trait
 
 ### Driver Implementation
-- **`crates/daq-hardware/src/drivers/generic_serial.rs`** (~1,100 lines)
+- **`crates/hardware/src/drivers/generic_serial.rs`** (~1,100 lines)
   - `GenericSerialDriver` struct with config-driven operation
   - Command template interpolation with `${param}` and `${param:08X}` format specifiers
   - Response parsing with regex and type conversion (hex_i32, hex_u8, etc.)
@@ -26,14 +26,14 @@ Phase 2 successfully implemented the core config-driven driver infrastructure, e
   - Mock port for testing
 
 ### Factory Pattern
-- **`crates/daq-hardware/src/factory.rs`** (~470 lines)
+- **`crates/hardware/src/factory.rs`** (~470 lines)
   - `ConfiguredDriver` enum with `enum_dispatch` for zero-overhead polymorphism
   - `DriverFactory` for creating drivers from config files
   - `ConfiguredBus` for RS-485 multidrop device management
   - Protocol-aware variant mapping (elliptec, esp300, generic)
 
 ### Migration Tests
-- **`crates/daq-hardware/tests/ell14_migration.rs`** (~550 lines)
+- **`crates/hardware/tests/ell14_migration.rs`** (~550 lines)
   - 16 comprehensive tests comparing config-driven vs hand-coded behavior
   - Command formatting tests (move_absolute, move_relative, stop, get_position)
   - Response parsing tests (position, status, jog_step)
@@ -48,15 +48,15 @@ Phase 2 successfully implemented the core config-driven driver infrastructure, e
 - Added `driver-thorlabs-config` feature flag
 
 ### Schema Updates
-- **`crates/daq-hardware/src/config/schema.rs`**
+- **`crates/hardware/src/config/schema.rs`**
   - Made `TraitMethodMapping.command` optional (`Option<String>`) to support polling-only methods
 
-- **`crates/daq-hardware/src/config/validation.rs`**
+- **`crates/hardware/src/config/validation.rs`**
   - Updated validation to handle optional command field
 
 ### Module Exports
-- **`crates/daq-hardware/src/drivers/mod.rs`** - Added generic_serial module and re-exports
-- **`crates/daq-hardware/src/lib.rs`** - Added factory module export and re-exports
+- **`crates/hardware/src/drivers/mod.rs`** - Added generic_serial module and re-exports
+- **`crates/hardware/src/lib.rs`** - Added factory module export and re-exports
 
 ## Key Implementation Details
 

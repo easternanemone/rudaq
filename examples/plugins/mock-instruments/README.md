@@ -156,11 +156,11 @@ mock-instruments/
 
 ## Implementation Reference
 
-Mock implementations are in `crates/daq-hardware/src/drivers/mock.rs`:
+Mock implementations are in `crates/hardware/src/drivers/mock.rs`:
 
-- `MockStage`: `crates/daq-hardware/src/drivers/mock.rs:271`
-- `MockPowerMeter`: `crates/daq-hardware/src/drivers/mock.rs:827`
-- `MockCamera`: `crates/daq-hardware/src/drivers/mock.rs:439`
+- `MockStage`: `crates/hardware/src/drivers/mock.rs:271`
+- `MockPowerMeter`: `crates/hardware/src/drivers/mock.rs:827`
+- `MockCamera`: `crates/hardware/src/drivers/mock.rs:439`
 
 ## License
 

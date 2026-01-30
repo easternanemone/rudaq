@@ -26,9 +26,9 @@ Research into the rust-daq codebase reveals a well-architected foundation for bu
 
 | Library | Version | Purpose | Why Standard |
 |---------|---------|---------|--------------|
-| `daq-experiment` | workspace | RunEngine, Plan trait, PlanBuilder | Foundation of experiment system |
-| `daq-hardware` | workspace | DeviceRegistry, capability traits | Device discovery and control |
-| `daq-proto` | workspace | gRPC types (QueuePlanRequest, Document) | Client-server protocol |
+| `experiment` | workspace | RunEngine, Plan trait, PlanBuilder | Foundation of experiment system |
+| `hardware` | workspace | DeviceRegistry, capability traits | Device discovery and control |
+| `protocol` | workspace | gRPC types (QueuePlanRequest, Document) | Client-server protocol |
 | `egui` | 0.29+ | UI framework | Core GUI framework |
 | `egui_plot` | 0.29+ | Inline plotting | Line/scatter plot widgets |
 | `tokio::sync::mpsc` | 1.x | Async channel | Established async integration pattern |
@@ -37,7 +37,7 @@ Research into the rust-daq codebase reveals a well-architected foundation for bu
 
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| `daq-storage` | workspace | HDF5/CSV writers | Auto-save during execution (no explicit integration needed) |
+| `storage` | workspace | HDF5/CSV writers | Auto-save during execution (no explicit integration needed) |
 | `futures::StreamExt` | 0.3 | gRPC stream handling | Document streaming (`client.stream_documents()`) |
 | `chrono` | 0.4 | Timestamp formatting | Default scan names, time display |
 
@@ -57,7 +57,7 @@ All dependencies are workspace members—no new external crates needed.
 ### Recommended Panel Structure
 
 ```rust
-// crates/daq-egui/src/panels/scan_builder.rs
+// crates/ui/src/panels/scan_builder.rs
 pub struct ScanBuilderPanel {
     // Form state
     scan_mode: ScanMode,  // 1D or 2D toggle
@@ -99,7 +99,7 @@ pub struct ScanBuilderPanel {
 **Example:**
 
 ```rust
-// Source: crates/daq-egui/src/panels/devices.rs
+// Source: crates/ui/src/panels/devices.rs
 async fn refresh_devices(client: &mut DaqClient) -> Result<Vec<DeviceCache>> {
     let response = client.list_devices().await?;
     let devices = response.into_iter()
@@ -130,7 +130,7 @@ fn group_by_capability(devices: &[DeviceCache]) -> HashMap<&'static str, Vec<&De
 **Example:**
 
 ```rust
-// Source: crates/daq-experiment/src/plans.rs (LineScanBuilder)
+// Source: crates/experiment/src/plans.rs (LineScanBuilder)
 use daq_experiment::plans::{LineScanBuilder, PlanBuilder};
 
 fn build_plan_from_form(panel: &ScanBuilderPanel) -> Result<Box<dyn Plan>, String> {
@@ -163,7 +163,7 @@ fn build_plan_from_form(panel: &ScanBuilderPanel) -> Result<Box<dyn Plan>, Strin
 **Example:**
 
 ```rust
-// Source: crates/daq-egui/src/panels/document_viewer.rs
+// Source: crates/ui/src/panels/document_viewer.rs
 fn start_document_subscription(&mut self, client: &mut DaqClient, runtime: &Runtime) {
     let (tx, rx) = mpsc::channel(100);
     self.document_rx = Some(rx);
@@ -208,7 +208,7 @@ fn poll_documents(&mut self) {
 **Example:**
 
 ```rust
-// Source: crates/daq-egui/src/panels/scans.rs
+// Source: crates/ui/src/panels/scans.rs
 enum PendingAction {
     QueueAndStart { plan: Box<dyn Plan> },
     AbortExecution,
@@ -256,7 +256,7 @@ fn execute_action(&mut self, action: PendingAction, client: &mut DaqClient, runt
 **Example:**
 
 ```rust
-// Source: crates/daq-egui/src/panels/signal_plotter.rs
+// Source: crates/ui/src/panels/signal_plotter.rs
 use egui_plot::{Plot, Line, PlotPoints};
 
 fn render_live_plot(ui: &mut egui::Ui, data: &HashMap<String, Vec<(f64, f64)>>) {
@@ -369,7 +369,7 @@ Verified patterns from official sources:
 ### Device Discovery and Grouping
 
 ```rust
-// Source: crates/daq-egui/src/panels/devices.rs (lines 222-300)
+// Source: crates/ui/src/panels/devices.rs (lines 222-300)
 use daq_proto::daq::DeviceInfo;
 
 fn render_device_selector(ui: &mut egui::Ui, devices: &[DeviceInfo], selected: &mut Option<String>) {
@@ -404,7 +404,7 @@ egui::CollapsingHeader::new("Actuators")
 ### Progress Bar with ETA
 
 ```rust
-// Source: crates/daq-egui/src/panels/scans.rs (lines 383-391)
+// Source: crates/ui/src/panels/scans.rs (lines 383-391)
 if scan.total_points > 0 {
     let progress = scan.current_point as f32 / scan.total_points as f32;
     let progress_bar = egui::ProgressBar::new(progress).text(format!(
@@ -430,7 +430,7 @@ fn estimate_remaining_time(current: u32, total: u32, elapsed: Duration) -> Durat
 ### Form Validation with Visual Feedback
 
 ```rust
-// Source: crates/daq-egui/src/panels/scans.rs (lines 288-310)
+// Source: crates/ui/src/panels/scans.rs (lines 288-310)
 fn render_validated_field(ui: &mut egui::Ui, label: &str, buffer: &mut String, error: &Option<String>) {
     ui.horizontal(|ui| {
         ui.label(label);
@@ -535,13 +535,13 @@ Things that couldn't be fully resolved:
 ## Sources
 
 ### Primary (HIGH confidence)
-- **DeviceRegistry API**: `crates/daq-hardware/src/registry.rs` (lines 1-300)
-- **RunEngine execution model**: `crates/daq-experiment/src/run_engine.rs` (lines 1-1176)
-- **Plan trait and builders**: `crates/daq-experiment/src/plans.rs` (lines 1-1129)
-- **egui async patterns**: `crates/daq-egui/src/panels/devices.rs`, `scans.rs`, `plan_runner.rs`
-- **Document streaming**: `crates/daq-egui/src/panels/document_viewer.rs` (lines 1-200)
-- **Live plotting**: `crates/daq-egui/src/panels/signal_plotter.rs` (lines 1-250)
-- **Storage integration**: `crates/daq-storage/src/document_writer.rs` (lines 1-200)
+- **DeviceRegistry API**: `crates/hardware/src/registry.rs` (lines 1-300)
+- **RunEngine execution model**: `crates/experiment/src/run_engine.rs` (lines 1-1176)
+- **Plan trait and builders**: `crates/experiment/src/plans.rs` (lines 1-1129)
+- **egui async patterns**: `crates/ui/src/panels/devices.rs`, `scans.rs`, `plan_runner.rs`
+- **Document streaming**: `crates/ui/src/panels/document_viewer.rs` (lines 1-200)
+- **Live plotting**: `crates/ui/src/panels/signal_plotter.rs` (lines 1-250)
+- **Storage integration**: `crates/storage/src/document_writer.rs` (lines 1-200)
 
 ### Secondary (MEDIUM confidence)
 - HDF5/CSV format differences: Inferred from feature flags and writer implementations

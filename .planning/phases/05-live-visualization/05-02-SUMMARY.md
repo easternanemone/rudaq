@@ -25,9 +25,9 @@ tech-stack:
 
 key-files:
   created:
-    - crates/daq-egui/src/panels/multi_detector_grid.rs
+    - crates/ui/src/panels/multi_detector_grid.rs
   modified:
-    - crates/daq-egui/src/panels/mod.rs
+    - crates/ui/src/panels/mod.rs
 
 key-decisions:
   - "Grid dimensions calculated as cols = ceil(sqrt(n)), rows = ceil(n/cols) for roughly square layouts"
@@ -84,8 +84,8 @@ completed: 2026-01-22
 **Plan metadata:** Not separately committed (work included in 18b3904d)
 
 ## Files Created/Modified
-- `crates/daq-egui/src/panels/multi_detector_grid.rs` (264 lines) - Multi-detector grid layout panel
-- `crates/daq-egui/src/panels/mod.rs` - Added multi_detector_grid module and exports
+- `crates/ui/src/panels/multi_detector_grid.rs` (264 lines) - Multi-detector grid layout panel
+- `crates/ui/src/panels/mod.rs` - Added multi_detector_grid module and exports
 
 ## Decisions Made
 

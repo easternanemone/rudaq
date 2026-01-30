@@ -153,9 +153,9 @@ src/
 
 ## Related Crates
 
-- [`daq-hardware`](../daq-hardware) - Hardware abstraction layer using these traits
-- [`daq-server`](../daq-server) - gRPC server exposing capabilities
-- [`daq-driver-*`](../daq-driver-pvcam) - Driver implementations using `DriverFactory`
+- [`hardware`](../hardware) - Hardware abstraction layer using these traits
+- [`server`](../server) - gRPC server exposing capabilities
+- [`driver-*`](../driver-pvcam) - Driver implementations using `DriverFactory`
 
 ## License
 

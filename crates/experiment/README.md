@@ -1,4 +1,4 @@
-# daq-experiment
+# experiment
 
 Bluesky-inspired experiment orchestration for rust-daq.
 
@@ -228,9 +228,9 @@ async fn main() -> anyhow::Result<()> {
 ## See Also
 
 - [`common`](../common/) - Capability traits and frame types
-- [`daq-hardware`](../daq-hardware/) - Device registry and drivers
-- [`daq-scripting`](../daq-scripting/) - Rhai scripting integration
-- [`daq-storage`](../daq-storage/) - Data persistence
+- [`hardware`](../hardware/) - Device registry and drivers
+- [`scripting`](../scripting/) - Rhai scripting integration
+- [`storage`](../storage/) - Data persistence
 
 ## References
 

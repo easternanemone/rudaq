@@ -28,11 +28,11 @@ tech-stack:
 
 key-files:
   created:
-    - crates/daq-egui/src/panels/live_visualization.rs
+    - crates/ui/src/panels/live_visualization.rs
   modified:
-    - crates/daq-egui/src/panels/mod.rs
-    - crates/daq-egui/src/panels/multi_detector_grid.rs
-    - crates/daq-egui/src/panels/experiment_designer.rs
+    - crates/ui/src/panels/mod.rs
+    - crates/ui/src/panels/multi_detector_grid.rs
+    - crates/ui/src/panels/experiment_designer.rs
 
 key-decisions:
   - "FPS tracking uses 2-second rolling window for stable metrics"
@@ -84,10 +84,10 @@ Each task was committed atomically:
 **Plan metadata:** (included in task commit)
 
 ## Files Created/Modified
-- `crates/daq-egui/src/panels/live_visualization.rs` - Main panel with camera/plot rendering
-- `crates/daq-egui/src/panels/mod.rs` - Export LiveVisualizationPanel and types
-- `crates/daq-egui/src/panels/multi_detector_grid.rs` - Added panels() getter for external access
-- `crates/daq-egui/src/panels/experiment_designer.rs` - Updated to use new visualization types
+- `crates/ui/src/panels/live_visualization.rs` - Main panel with camera/plot rendering
+- `crates/ui/src/panels/mod.rs` - Export LiveVisualizationPanel and types
+- `crates/ui/src/panels/multi_detector_grid.rs` - Added panels() getter for external access
+- `crates/ui/src/panels/experiment_designer.rs` - Updated to use new visualization types
 
 ## Decisions Made
 

@@ -34,7 +34,7 @@ PVCAM cameras are discovered via the SDK's internal enumeration. The camera name
 no special path handling required:
 
 ```rust
-use daq_driver_pvcam::PvcamDriver;
+use driver_pvcam::PvcamDriver;
 
 // Camera name from firmware - always stable regardless of USB port
 let camera = PvcamDriver::new_async("PrimeBSI".to_string()).await?;
@@ -58,7 +58,7 @@ let camera = PvcamDriver::new_async("PrimeBSI".to_string()).await?;
 
 **Connection:**
 ```rust
-use daq_driver_pvcam::PvcamDriver;
+use driver_pvcam::PvcamDriver;
 let camera = PvcamDriver::new_async("PrimeBSI".to_string()).await?;
 ```
 

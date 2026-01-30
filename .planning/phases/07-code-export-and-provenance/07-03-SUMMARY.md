@@ -27,12 +27,12 @@ tech-stack:
 
 key-files:
   created:
-    - crates/daq-egui/src/panels/code_preview.rs
+    - crates/ui/src/panels/code_preview.rs
   modified:
-    - crates/daq-egui/Cargo.toml
-    - crates/daq-egui/src/panels/mod.rs
-    - crates/daq-egui/src/panels/experiment_designer.rs
-    - crates/daq-egui/src/panels/script_editor.rs
+    - crates/ui/Cargo.toml
+    - crates/ui/src/panels/mod.rs
+    - crates/ui/src/panels/experiment_designer.rs
+    - crates/ui/src/panels/script_editor.rs
 
 key-decisions:
   - "egui_code_editor 0.2.20 for syntax highlighting (compatible with egui 0.33)"
@@ -79,11 +79,11 @@ Each task was committed atomically:
 
 ## Files Created/Modified
 
-- `crates/daq-egui/Cargo.toml` - Added egui_code_editor 0.2.20 dependency
-- `crates/daq-egui/src/panels/code_preview.rs` - CodePreviewPanel with syntax highlighting
-- `crates/daq-egui/src/panels/mod.rs` - Export CodePreviewPanel
-- `crates/daq-egui/src/panels/experiment_designer.rs` - Integration with graph_version tracking
-- `crates/daq-egui/src/panels/script_editor.rs` - Fixed ColorTheme.name API usage
+- `crates/ui/Cargo.toml` - Added egui_code_editor 0.2.20 dependency
+- `crates/ui/src/panels/code_preview.rs` - CodePreviewPanel with syntax highlighting
+- `crates/ui/src/panels/mod.rs` - Export CodePreviewPanel
+- `crates/ui/src/panels/experiment_designer.rs` - Integration with graph_version tracking
+- `crates/ui/src/panels/script_editor.rs` - Fixed ColorTheme.name API usage
 
 ## Decisions Made
 
@@ -108,7 +108,7 @@ Each task was committed atomically:
 - **Found during:** Task 1 (Compilation check)
 - **Issue:** script_editor.rs used invalid ColorTheme::AURA_DARK variant and pattern matching for theme names
 - **Fix:** Changed to use ColorTheme.name field instead of pattern matching (consistent with egui_code_editor API)
-- **Files modified:** crates/daq-egui/src/panels/script_editor.rs
+- **Files modified:** crates/ui/src/panels/script_editor.rs
 - **Verification:** cargo check passes
 - **Committed in:** 846b8513 (Task 1 commit)
 
@@ -116,7 +116,7 @@ Each task was committed atomically:
 - **Found during:** Task 1 (Compilation check)
 - **Issue:** Plan used outdated ui.output_mut() API which doesn't exist in egui 0.33
 - **Fix:** Changed to ui.ctx().copy_text() (correct API for egui 0.33)
-- **Files modified:** crates/daq-egui/src/panels/code_preview.rs
+- **Files modified:** crates/ui/src/panels/code_preview.rs
 - **Verification:** cargo build passes
 - **Committed in:** 846b8513 (Task 1 commit)
 

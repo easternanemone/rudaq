@@ -1,4 +1,4 @@
-# daq-egui
+# ui
 
 The egui-based GUI for rust-daq, providing a desktop control panel for the headless daemon.
 
@@ -16,7 +16,7 @@ The egui-based GUI for rust-daq, providing a desktop control panel for the headl
 cargo run --bin rust-daq-daemon -- daemon --hardware-config config/demo.toml
 
 # Start the GUI
-cargo run -p daq-egui --bin rust-daq-gui --features standalone
+cargo run -p ui --bin rust-daq-gui --features standalone
 ```
 
 The GUI will automatically connect to `http://127.0.0.1:50051`.
@@ -253,10 +253,10 @@ export LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:$LD_LIBRARY_PATH
 **Run with Rerun viewer:**
 ```bash
 # Terminal 1: Start Rerun viewer
-cargo run -p daq-egui --bin daq-rerun --features rerun_viewer
+cargo run -p ui --bin daq-rerun --features rerun_viewer
 
 # Terminal 2: Start GUI with PVCAM support
-cargo run -p daq-egui --bin rust-daq-gui \
+cargo run -p ui --bin rust-daq-gui \
   --features "pvcam,pvcam_sdk,arrow,pvcam_arrow"
 ```
 
@@ -265,11 +265,11 @@ Frames stream to Rerun at `127.0.0.1:9876` under path `/pvcam/image`.
 ## Testing
 
 ```bash
-# Run all daq-egui tests
-cargo test -p daq-egui --features standalone
+# Run all ui tests
+cargo test -p ui --features standalone
 
 # Run with verbose output
-cargo test -p daq-egui --features standalone -- --nocapture
+cargo test -p ui --features standalone -- --nocapture
 ```
 
 ## Troubleshooting

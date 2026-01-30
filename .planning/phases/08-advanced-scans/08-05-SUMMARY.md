@@ -23,11 +23,11 @@ tech-stack:
 
 key-files:
   created:
-    - crates/daq-egui/src/graph/adaptive.rs
+    - crates/ui/src/graph/adaptive.rs
   modified:
-    - crates/daq-egui/src/graph/translation.rs
-    - crates/daq-egui/src/graph/validation.rs
-    - crates/daq-egui/src/graph/mod.rs
+    - crates/ui/src/graph/translation.rs
+    - crates/ui/src/graph/validation.rs
+    - crates/ui/src/graph/mod.rs
 
 key-decisions:
   - "Translation generates checkpoints, RunEngine evaluates triggers at runtime"
@@ -71,10 +71,10 @@ Each task was committed atomically:
 3. **Task 3: Add AdaptiveScan validation and code generation** - `93201b5e` (feat)
 
 ## Files Created/Modified
-- `crates/daq-egui/src/graph/adaptive.rs` - Trigger evaluation module with DetectedPeak, detect_peaks(), evaluate_threshold(), TriggerResult, evaluate_triggers()
-- `crates/daq-egui/src/graph/translation.rs` - AdaptiveScan translation with start/point/evaluate/approval checkpoints
-- `crates/daq-egui/src/graph/validation.rs` - validate_adaptive_scan() function and integration into validate_loop_bodies()
-- `crates/daq-egui/src/graph/mod.rs` - Export adaptive module and validate_adaptive_scan
+- `crates/ui/src/graph/adaptive.rs` - Trigger evaluation module with DetectedPeak, detect_peaks(), evaluate_threshold(), TriggerResult, evaluate_triggers()
+- `crates/ui/src/graph/translation.rs` - AdaptiveScan translation with start/point/evaluate/approval checkpoints
+- `crates/ui/src/graph/validation.rs` - validate_adaptive_scan() function and integration into validate_loop_bodies()
+- `crates/ui/src/graph/mod.rs` - Export adaptive module and validate_adaptive_scan
 
 ## Decisions Made
 - Translation generates checkpoints with metadata (trigger count, action type) for RunEngine coordination

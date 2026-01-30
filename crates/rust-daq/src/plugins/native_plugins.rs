@@ -1,6 +1,6 @@
 //! Native plugin support for dynamically loaded modules.
 //!
-//! This module provides the bridge between `daq-plugin-api`'s FFI types
+//! This module provides the bridge between `plugin-api`'s FFI types
 //! and the internal `Module` trait used by `ModuleRegistry`.
 
 use crate::modules::{Module, ModuleContext};
@@ -10,7 +10,7 @@ use common::modules::{
     ModuleDataPoint, ModuleEvent, ModuleEventSeverity, ModuleParameter, ModuleRole, ModuleState,
     ModuleTypeInfo,
 };
-use daq_plugin_api::prelude::*;
+use plugin_api::prelude::*;
 use std::collections::HashMap;
 use std::sync::Mutex;
 

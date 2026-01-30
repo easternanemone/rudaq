@@ -37,9 +37,9 @@ score: 12/12 must-haves verified
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `crates/daq-egui/src/panels/scan_builder.rs` | ScanBuilderPanel with form state and device selection | VERIFIED | 1565 lines; exports `ScanBuilderPanel` struct with complete implementation |
-| `crates/daq-egui/src/panels/mod.rs` | Module export for scan_builder | VERIFIED | Line 12: `mod scan_builder;` Line 33: `pub use scan_builder::ScanBuilderPanel;` |
-| `crates/daq-egui/src/app.rs` | Panel enum variant and dock integration | VERIFIED | `Panel::ScanBuilder` variant; `scan_builder_panel` field; UI rendering at line 1250-1253; nav button at line 1347 |
+| `crates/ui/src/panels/scan_builder.rs` | ScanBuilderPanel with form state and device selection | VERIFIED | 1565 lines; exports `ScanBuilderPanel` struct with complete implementation |
+| `crates/ui/src/panels/mod.rs` | Module export for scan_builder | VERIFIED | Line 12: `mod scan_builder;` Line 33: `pub use scan_builder::ScanBuilderPanel;` |
+| `crates/ui/src/app.rs` | Panel enum variant and dock integration | VERIFIED | `Panel::ScanBuilder` variant; `scan_builder_panel` field; UI rendering at line 1250-1253; nav button at line 1347 |
 
 ### Key Link Verification
 
@@ -71,8 +71,8 @@ score: 12/12 must-haves verified
 
 ### Compilation & Quality
 
-- `cargo check -p daq-egui`: PASSED
-- `cargo clippy -p daq-egui --all-targets`: PASSED (no warnings in scan_builder.rs)
+- `cargo check -p ui`: PASSED
+- `cargo clippy -p ui --all-targets`: PASSED (no warnings in scan_builder.rs)
 - File size: 1565 lines (well above 200 minimum)
 - No stub patterns detected
 - All public types exported

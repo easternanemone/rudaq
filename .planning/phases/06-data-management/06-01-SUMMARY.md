@@ -28,13 +28,13 @@ tech-stack:
 
 key-files:
   created:
-    - crates/daq-egui/src/widgets/metadata_editor.rs
+    - crates/ui/src/widgets/metadata_editor.rs
   modified:
-    - crates/daq-egui/src/widgets/mod.rs
-    - crates/daq-egui/src/panels/scan_builder.rs
-    - crates/daq-egui/src/panels/experiment_designer.rs
-    - crates/daq-egui/src/panels/run_history.rs (blocking fixes)
-    - crates/daq-driver-mock/src/mock_camera.rs (blocking fixes)
+    - crates/ui/src/widgets/mod.rs
+    - crates/ui/src/panels/scan_builder.rs
+    - crates/ui/src/panels/experiment_designer.rs
+    - crates/ui/src/panels/run_history.rs (blocking fixes)
+    - crates/driver-mock/src/mock_camera.rs (blocking fixes)
 
 key-decisions:
   - "Comma-separated tags field instead of structured tag selector (simplicity for Phase 1)"
@@ -81,12 +81,12 @@ Each task was committed atomically:
 **Blocking fixes:** `5856a020` (fix: compilation errors in run_history and mock_camera)
 
 ## Files Created/Modified
-- `crates/daq-egui/src/widgets/metadata_editor.rs` - MetadataEditor widget with ui(), to_metadata_map(), is_empty()
-- `crates/daq-egui/src/widgets/mod.rs` - Export MetadataEditor
-- `crates/daq-egui/src/panels/scan_builder.rs` - Metadata editor field, collapsible UI section, enrichment with scan provenance
-- `crates/daq-egui/src/panels/experiment_designer.rs` - Metadata editor field, collapsible UI section, enrichment with graph provenance
-- `crates/daq-egui/src/panels/run_history.rs` - Fixed plan_type field references (field doesn't exist in proto)
-- `crates/daq-driver-mock/src/mock_camera.rs` - Fixed clippy warnings (type_complexity, is_multiple_of)
+- `crates/ui/src/widgets/metadata_editor.rs` - MetadataEditor widget with ui(), to_metadata_map(), is_empty()
+- `crates/ui/src/widgets/mod.rs` - Export MetadataEditor
+- `crates/ui/src/panels/scan_builder.rs` - Metadata editor field, collapsible UI section, enrichment with scan provenance
+- `crates/ui/src/panels/experiment_designer.rs` - Metadata editor field, collapsible UI section, enrichment with graph provenance
+- `crates/ui/src/panels/run_history.rs` - Fixed plan_type field references (field doesn't exist in proto)
+- `crates/driver-mock/src/mock_camera.rs` - Fixed clippy warnings (type_complexity, is_multiple_of)
 
 ## Decisions Made
 - **Comma-separated tags:** Simple string input instead of structured tag selector - easier to use, can migrate to autocomplete in Phase 2
@@ -102,7 +102,7 @@ Each task was committed atomically:
 - **Found during:** Task 1 (initial build)
 - **Issue:** run_history.rs referenced AcquisitionSummary.plan_type field which doesn't exist in proto definition
 - **Fix:** Commented out plan_type references, added TODO to add field to proto in future
-- **Files modified:** crates/daq-egui/src/panels/run_history.rs
+- **Files modified:** crates/ui/src/panels/run_history.rs
 - **Verification:** Build succeeds
 - **Committed in:** 5856a020 (separate commit before Task 1)
 
@@ -110,7 +110,7 @@ Each task was committed atomically:
 - **Found during:** Task 1 (initial build)
 - **Issue:** run_history.rs used deprecated `output.copied_text` API instead of `ctx().copy_text()`
 - **Fix:** Updated to use `ui.ctx().copy_text()` (current egui API)
-- **Files modified:** crates/daq-egui/src/panels/run_history.rs
+- **Files modified:** crates/ui/src/panels/run_history.rs
 - **Verification:** Build succeeds
 - **Committed in:** 5856a020 (same commit as issue #1)
 
@@ -118,7 +118,7 @@ Each task was committed atomically:
 - **Found during:** Task 1 (clippy check)
 - **Issue:** Clippy errors blocking build with `-D warnings` flag
 - **Fix:** Added `#[allow(clippy::type_complexity)]` annotation, replaced `% 100 == 0` with `is_multiple_of(100)`
-- **Files modified:** crates/daq-driver-mock/src/mock_camera.rs
+- **Files modified:** crates/driver-mock/src/mock_camera.rs
 - **Verification:** Clippy passes
 - **Committed in:** 5856a020 (same commit as issues #1-2)
 

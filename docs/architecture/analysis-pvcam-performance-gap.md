@@ -216,6 +216,6 @@ Before implementing changes, consider these architectural questions:
 
 - **SDK Examples:** `/opt/pvcam/sdk/examples/LiveImage.cpp`, `FastStreamingToDisk.cpp`
 - **C++ Test:** `temp_repro/stall_test.cpp`
-- **Rust Implementation:** `crates/daq-driver-pvcam/src/components/acquisition.rs`
+- **Rust Implementation:** `crates/driver-pvcam/src/components/acquisition.rs`
 - **Performance Issue:** beads issue `bd-u1kx`
 - **Stall Fix ADR:** `docs/architecture/adr-pvcam-85-frame-stall-fix.md`

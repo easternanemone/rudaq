@@ -25,8 +25,8 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/daq-egui/src/graph/translation.rs
-    - crates/daq-egui/src/graph/validation.rs
+    - crates/ui/src/graph/translation.rs
+    - crates/ui/src/graph/validation.rs
 
 key-decisions:
   - "Loop body nodes detected via body output (pin 1) BFS traversal"
@@ -81,8 +81,8 @@ Each task was committed atomically:
 **Plan metadata:** (pending at plan completion)
 
 ## Files Created/Modified
-- `crates/daq-egui/src/graph/translation.rs` - Loop body detection and unrolling logic
-- `crates/daq-egui/src/graph/validation.rs` - Loop body validation (back-edges, relative moves)
+- `crates/ui/src/graph/translation.rs` - Loop body detection and unrolling logic
+- `crates/ui/src/graph/validation.rs` - Loop body validation (back-edges, relative moves)
 
 ## Decisions Made
 

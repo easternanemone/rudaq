@@ -489,7 +489,7 @@ print(table.schema.metadata)  # Contains experiment info
 ## Related Documentation
 
 - [Architecture: Storage & Streaming](../architecture/adr-storage-streaming.md)
-- [daq-storage Crate Reference](../../crates/daq-storage/README.md)
+- [storage Crate Reference](../../crates/storage/README.md)
 - [Rhai Scripting Guide](./scripting.md)
 - [Hardware Integration Tests](./testing.md)
 

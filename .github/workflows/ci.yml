@@ -50,13 +50,13 @@ jobs:
 
       - name: cargo clippy
         # Use 'full' feature set (excludes pvcam_hardware, storage_hdf5 which need native SDKs)
-        # Exclude daq-egui which requires full desktop environment (X11/Wayland runtime)
-        run: cargo clippy --workspace --all-targets --features full --exclude daq-egui -- -D warnings
+        # Exclude ui which requires full desktop environment (X11/Wayland runtime)
+        run: cargo clippy --workspace --all-targets --features full --exclude ui -- -D warnings
 
       - name: cargo clippy (SARIF)
         run: |
           # Ensure SARIF file exists even if clippy fails (for upload step)
-          (cargo clippy --workspace --all-targets --features full --exclude daq-egui --message-format=json -- -D warnings | \
+          (cargo clippy --workspace --all-targets --features full --exclude ui --message-format=json -- -D warnings | \
             clippy-sarif | tee clippy-results.sarif | sarif-fmt) || touch clippy-results.sarif
         continue-on-error: true
 
@@ -162,8 +162,8 @@ jobs:
 
       - name: Check MSRV compatibility
         run: |
-          # Exclude daq-server which uses edition 2024 (requires Rust 1.85+)
-          cargo check --workspace --exclude daq-server --exclude daq-egui
+          # Exclude server which uses edition 2024 (requires Rust 1.85+)
+          cargo check --workspace --exclude server --exclude ui
 
   security:
     name: Security Audit
@@ -239,8 +239,8 @@ jobs:
 
       - name: Check documentation builds
         # Use 'full' feature set (excludes pvcam_hardware, storage_hdf5 which need native SDKs)
-        # Exclude daq-egui which requires full desktop environment (X11/Wayland runtime)
-        run: cargo doc --workspace --features full --no-deps --document-private-items --exclude daq-egui
+        # Exclude ui which requires full desktop environment (X11/Wayland runtime)
+        run: cargo doc --workspace --features full --no-deps --document-private-items --exclude ui
         env:
           RUSTDOCFLAGS: -D warnings
 
@@ -275,7 +275,7 @@ jobs:
         with:
           name: rerun-blueprints-${{ github.sha }}
           path: |
-            crates/daq-server/blueprints/*.rbl
+            crates/server/blueprints/*.rbl
           if-no-files-found: error
           retention-days: 30
 
@@ -447,9 +447,9 @@ jobs:
           cache-key: feature-builds
 
       - name: cargo build ${{ matrix.feature-set }}
-        # Exclude daq-egui which requires full desktop environment (X11/Wayland runtime)
+        # Exclude ui which requires full desktop environment (X11/Wayland runtime)
         run: |
-          cargo build --workspace --exclude daq-egui ${{ matrix.args }}
+          cargo build --workspace --exclude ui ${{ matrix.args }}
 
   coverage:
     name: Coverage
@@ -477,8 +477,8 @@ jobs:
         run: |
           mkdir -p coverage
           # Use 'full' feature set (excludes pvcam_hardware, storage_hdf5 which need native SDKs)
-          # Exclude daq-egui which requires full desktop environment (X11/Wayland runtime)
-          cargo llvm-cov --workspace --features full --exclude daq-egui --lcov --output-path coverage/lcov.info --html --output-dir coverage/html
+          # Exclude ui which requires full desktop environment (X11/Wayland runtime)
+          cargo llvm-cov --workspace --features full --exclude ui --lcov --output-path coverage/lcov.info --html --output-dir coverage/html
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4

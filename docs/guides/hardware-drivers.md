@@ -36,7 +36,7 @@ A **driver** is the bridge between the hardware and rust-daq's application layer
 ### Development Path
 
 ```
-1. Create driver crate (daq-driver-yourdevice)
+1. Create driver crate (driver-yourdevice)
 2. Implement DriverFactory
 3. Implement capability trait(s)
 4. Write unit tests with mock hardware
@@ -941,7 +941,7 @@ impl NetworkDevice {
 
 ### ELL14 Rotator (RS-485 Multidrop)
 
-Location: `crates/daq-driver-thorlabs/src/ell14.rs`
+Location: `crates/driver-thorlabs/src/ell14.rs`
 
 **Key Features:**
 - Multidrop RS-485 bus with address 0-F
@@ -956,7 +956,7 @@ Location: `crates/daq-driver-thorlabs/src/ell14.rs`
 
 ### Newport 1830-C Power Meter (Simple Serial ASCII)
 
-Location: `crates/daq-driver-newport/src/newport_1830c.rs`
+Location: `crates/driver-newport/src/newport_1830c.rs`
 
 **Key Features:**
 - Simple ASCII command protocol
@@ -971,7 +971,7 @@ Location: `crates/daq-driver-newport/src/newport_1830c.rs`
 
 ### PVCAM Camera (Complex FrameProducer)
 
-Location: `crates/daq-driver-pvcam/src/lib.rs`
+Location: `crates/driver-pvcam/src/lib.rs`
 
 **Key Features:**
 - FrameProducer trait with continuous buffering
@@ -987,7 +987,7 @@ Location: `crates/daq-driver-pvcam/src/lib.rs`
 
 ### MaiTai Laser (Wavelength + Shutter Control)
 
-Location: `crates/daq-driver-spectra_physics/src/maitai.rs`
+Location: `crates/driver-spectra-physics/src/maitai.rs`
 
 **Key Features:**
 - Wavelength tuning (700-1050nm)
@@ -1131,7 +1131,7 @@ After implementing DriverFactory, register it at startup:
 
 ```rust
 // In main.rs or your initialization code
-use daq_driver_yourdevice::YourDeviceFactory;
+use driver_yourdevice::YourDeviceFactory;
 use common::registry::DeviceRegistry;
 
 #[tokio::main]

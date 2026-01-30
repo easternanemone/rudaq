@@ -1,10 +1,10 @@
-# daq-server
+# server
 
 gRPC server for rust-daq providing remote hardware control and data streaming.
 
 ## Overview
 
-`daq-server` exposes the rust-daq system over gRPC, enabling:
+`server` exposes the rust-daq system over gRPC, enabling:
 
 - **Remote Hardware Control** - Device operations over network
 - **Frame Streaming** - Adaptive quality video with bandwidth optimization
@@ -130,7 +130,7 @@ authorization: Bearer <token>
 ```toml
 [features]
 server = []                    # Core gRPC server
-scripting = ["daq-scripting"]  # Script execution
+scripting = ["scripting"]  # Script execution
 storage_hdf5 = []              # HDF5 persistence
 storage_arrow = []             # Arrow/Parquet output
 modules = []                   # Module lifecycle
@@ -139,10 +139,10 @@ metrics = ["prometheus"]       # Prometheus metrics
 
 ## Related Crates
 
-- [`daq-hardware`](../daq-hardware) - Device registry and drivers
-- [`daq-scripting`](../daq-scripting) - Rhai script engine
-- [`daq-proto`](../daq-proto) - Protocol buffer definitions
-- [`daq-storage`](../daq-storage) - Ring buffer and writers
+- [`hardware`](../hardware) - Device registry and drivers
+- [`scripting`](../scripting) - Rhai script engine
+- [`protocol`](../protocol) - Protocol buffer definitions
+- [`storage`](../storage) - Ring buffer and writers
 
 ## Proto Definitions
 

@@ -4,7 +4,7 @@ This guide covers the Rhai scripting system for experiment automation in rust-da
 
 ## Overview
 
-The `daq-scripting` crate provides a Rhai-based scripting engine for writing
+The `scripting` crate provides a Rhai-based scripting engine for writing
 experiment scripts that control hardware devices. Rhai is an embedded scripting
 language for Rust that provides:
 
@@ -21,7 +21,7 @@ Scripts are executed via binary runners. Build with the `hardware_factories` fea
 
 ```bash
 # Build all script runners
-cargo build --release -p daq-scripting --features hardware_factories
+cargo build --release -p scripting --features hardware_factories
 
 # Available binaries:
 # - run_polarization      - Polarization element characterization
@@ -133,7 +133,7 @@ let state = daq.get_dio(1);                     // Read DIO channel 1
 
 **Building with Comedi support:**
 ```bash
-cargo build --release -p daq-scripting --features scripting_full_comedi
+cargo build --release -p scripting --features scripting_full_comedi
 ```
 
 ### HDF5 Data Storage
@@ -233,7 +233,7 @@ for angle in [0.0, 45.0, 90.0, 135.0, 180.0] {
 Requires `generic_driver` feature (included in `scripting_full`):
 
 ```bash
-cargo build -p daq-scripting --features generic_driver
+cargo build -p scripting --features generic_driver
 ```
 
 ## Shutter Safety
@@ -319,7 +319,7 @@ Always use stable `/dev/serial/by-id/` paths that don't change on reboot:
 
 To create a runner for a new script:
 
-1. Create the Rhai script in `crates/daq-examples/examples/`:
+1. Create the Rhai script in `crates/examples/examples/`:
 
 ```rhai
 // my_experiment.rhai
@@ -327,7 +327,7 @@ print("Starting experiment...");
 // ... script content
 ```
 
-2. Create a binary in `crates/daq-scripting/src/bin/`:
+2. Create a binary in `crates/scripting/src/bin/`:
 
 ```rust
 // run_my_experiment.rs
@@ -335,7 +335,7 @@ use daq_scripting::traits::ScriptEngine;
 use daq_scripting::RhaiEngine;
 use tracing_subscriber::EnvFilter;
 
-const SCRIPT: &str = include_str!("../../../daq-examples/examples/my_experiment.rhai");
+const SCRIPT: &str = include_str!("../../../examples/examples/my_experiment.rhai");
 const MAX_OPERATIONS: u64 = 1_000_000;
 
 #[tokio::main]
@@ -360,7 +360,7 @@ async fn main() {
 3. Build with hardware features:
 
 ```bash
-cargo build --release -p daq-scripting --features hardware_factories --bin run_my_experiment
+cargo build --release -p scripting --features hardware_factories --bin run_my_experiment
 ```
 
 ## Troubleshooting

@@ -29,6 +29,9 @@ node_modules/
 Thumbs.db
 Library/
 
+# Blueprint outputs at repo root (canonical: crates/server/blueprints/*.rbl)
+/*.rbl
+
 # Build
 dist/
 build/

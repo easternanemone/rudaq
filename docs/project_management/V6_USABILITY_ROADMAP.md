@@ -102,7 +102,7 @@ for i in 0..10 {
 rustup install stable
 git clone <repo>
 cd rust-daq
-cargo build -p daq-bin  # 10+ minute compile
+cargo build -p bin  # 10+ minute compile
 ./target/release/rust-daq-daemon --help
 ```
 
@@ -140,7 +140,7 @@ cargo build -p daq-bin  # 10+ minute compile
 - Data export workflow (where data goes, how to import to MATLAB/Python)
 
 **Existing Documentation Issues**:
-- README assumes Rust knowledge ("cargo build -p daq-bin")
+- README assumes Rust knowledge ("cargo build -p bin")
 - Guides are developer-focused (architecture diagrams, not workflows)
 - No glossary (baud rate, serial port, gRPC undefined)
 - Examples excellent but no "absolute beginner" tutorial
@@ -277,7 +277,7 @@ cargo build -p daq-bin  # 10+ minute compile
 **4. GUI Configuration Editor Panel**
 - **Impact**: Matches LabVIEW's MAX tool UX
 - **Effort**: Medium (new GUI panel)
-- **Deliverable**: "Configuration" panel in `daq-egui`
+- **Deliverable**: "Configuration" panel in `ui`
 - **Features**:
   - Dropdown of available serial ports (`serialport::available_ports()`)
   - Form-based device setup:
@@ -286,8 +286,8 @@ cargo build -p daq-bin  # 10+ minute compile
     - Configure parameters (baud, timeout, etc.)
   - Validation before saving
   - Generate/edit `hardware.toml` automatically
-- **Leverage Existing**: `daq-hardware` has `validate_driver_config` logic
-- **File**: `crates/daq-egui/src/panels/configuration.rs`
+- **Leverage Existing**: `hardware` has `validate_driver_config` logic
+- **File**: `crates/ui/src/panels/configuration.rs`
 
 **5. Hardware Setup Guides (per instrument)**
 - **Impact**: Step-by-step reduces setup friction
@@ -327,7 +327,7 @@ cargo build -p daq-bin  # 10+ minute compile
 - **Impact**: Covers 80% of use cases without code
 - **Effort**: Medium
 - **Gemini Recommendation**: Better than full drag-and-drop editor
-- **Deliverable**: "Sequence Builder" panel in `daq-egui`
+- **Deliverable**: "Sequence Builder" panel in `ui`
 - **UI Design**:
   ```
   [Add Step ▼]
@@ -350,7 +350,7 @@ cargo build -p daq-bin  # 10+ minute compile
 **8. Template Scripts Collection**
 - **Impact**: Fill-in-the-blank reduces coding barrier
 - **Effort**: Low
-- **Deliverable**: `crates/daq-examples/templates/*.rhai`
+- **Deliverable**: `crates/examples/templates/*.rhai`
 - **Templates**:
   - `linear_scan_template.rhai`
   - `time_series_template.rhai`
@@ -443,7 +443,7 @@ cargo build -p daq-bin  # 10+ minute compile
 
 **14. Web-Based GUI** (Optional)
 - Browser interface (React/Vue)
-- Connect to daq-server via gRPC-Web
+- Connect to server via gRPC-Web
 - Zero installation
 - **Caveat**: May not be worth effort if desktop GUI sufficient
 

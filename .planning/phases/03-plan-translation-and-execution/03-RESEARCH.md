@@ -25,8 +25,8 @@ The established libraries/tools for this domain:
 | Library | Version | Purpose | Why Standard |
 |---------|---------|---------|--------------|
 | egui-snarl | 0.9 | Graph structure | Already in use, `wires()` provides connection iteration |
-| daq-experiment | internal | Plan/RunEngine | Existing Plan trait and RunEngine with pause/resume |
-| daq-proto | internal | gRPC messages | RunEngineService already defined with full control messages |
+| experiment | internal | Plan/RunEngine | Existing Plan trait and RunEngine with pause/resume |
+| protocol | internal | gRPC messages | RunEngineService already defined with full control messages |
 
 ### Supporting
 | Library | Version | Purpose | When to Use |
@@ -46,7 +46,7 @@ No new dependencies required. petgraph only if cycle detection proves complex.
 
 ### Recommended Project Structure
 ```
-crates/daq-egui/src/
+crates/ui/src/
 ├── graph/
 │   ├── mod.rs                    # Existing module
 │   ├── nodes.rs                  # ExperimentNode types
@@ -214,7 +214,7 @@ for (node_id, node) in snarl.node_ids() {
 
 ### Existing RunEngine Control Pattern
 ```rust
-// Source: crates/daq-experiment/src/run_engine.rs
+// Source: crates/experiment/src/run_engine.rs
 // Pause at next checkpoint
 engine.pause().await?;
 // Resume from paused state
@@ -227,7 +227,7 @@ let state = engine.state().await; // Returns EngineState
 
 ### Async Action Pattern (from PlanRunnerPanel)
 ```rust
-// Source: crates/daq-egui/src/panels/plan_runner.rs
+// Source: crates/ui/src/panels/plan_runner.rs
 // Spawn async gRPC call
 let mut client = client.clone();
 let tx = self.action_tx.clone();
@@ -383,9 +383,9 @@ Things that couldn't be fully resolved:
 
 ### Primary (HIGH confidence)
 - [egui-snarl docs.rs](https://docs.rs/egui-snarl/latest/egui_snarl/struct.Snarl.html) - Snarl API: wires(), node_ids(), iteration
-- `/Users/briansquires/code/rust-daq/crates/daq-experiment/src/run_engine.rs` - RunEngine implementation with pause/resume
-- `/Users/briansquires/code/rust-daq/crates/daq-proto/proto/daq.proto` - RunEngineService definition (lines 1438-1733)
-- `/Users/briansquires/code/rust-daq/crates/daq-egui/src/graph/nodes.rs` - ExperimentNode types
+- `/Users/briansquires/code/rust-daq/crates/experiment/src/run_engine.rs` - RunEngine implementation with pause/resume
+- `/Users/briansquires/code/rust-daq/crates/protocol/proto/daq.proto` - RunEngineService definition (lines 1438-1733)
+- `/Users/briansquires/code/rust-daq/crates/ui/src/graph/nodes.rs` - ExperimentNode types
 
 ### Secondary (MEDIUM confidence)
 - [Bluesky Interruptions docs](https://nsls-ii.github.io/bluesky/state-machine.html) - Checkpoint/pause/resume pattern

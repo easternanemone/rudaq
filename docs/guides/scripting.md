@@ -305,7 +305,7 @@ These limits protect against runaway scripts but allow long experiments.
 
 ## Related Documentation
 
-- [daq-scripting README](../../crates/daq-scripting/README.md) - Full API reference
+- [scripting README](../../crates/scripting/README.md) - Full API reference
 - [Testing Guide](testing.md) - Running script tests
 - [Hardware Drivers](hardware-drivers.md) - Driver implementation
 

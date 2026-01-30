@@ -115,39 +115,39 @@ The workspace is organized into specialized crates. Each has its own detailed RE
 
 | Crate | Purpose | README |
 |-------|---------|--------|
-| **daq-scripting** | Rhai scripting engine for automation | [daq-scripting README](../crates/daq-scripting/README.md) |
-| **daq-experiment** | RunEngine and experiment orchestration | Embedded in core |
+| **scripting** | Rhai scripting engine for automation | [scripting README](../crates/scripting/README.md) |
+| **experiment** | RunEngine and experiment orchestration | Embedded in core |
 
 ### Hardware & Drivers
 
 | Crate | Purpose | README |
 |-------|---------|--------|
 | **common** | Foundation types, parameters, error handling | [common README](../crates/common/README.md) |
-| **daq-hardware** | Hardware abstraction layer and device registry | [daq-hardware README](../crates/daq-hardware/README.md) |
-| **daq-driver-pvcam** | Photometrics PVCAM camera driver | [daq-driver-pvcam README](../crates/daq-driver-pvcam/README.md) |
-| **daq-driver-comedi** | Linux Comedi DAQ board driver | [daq-driver-comedi README](../crates/daq-driver-comedi/README.md) |
-| **daq-driver-thorlabs** | Thorlabs ELL14 rotator driver | [daq-driver-thorlabs README](../crates/daq-driver-thorlabs/README.md) |
-| **daq-driver-newport** | Newport ESP300 motion and 1830-C power meter | [daq-driver-newport README](../crates/daq-driver-newport/README.md) |
-| **daq-driver-spectra-physics** | Spectra Physics MaiTai laser driver | [daq-driver-spectra-physics README](../crates/daq-driver-spectra-physics/README.md) |
-| **daq-driver-mock** | Mock drivers for testing | [daq-driver-mock README](../crates/daq-driver-mock/README.md) |
-| **daq-driver-red-pitaya** | Red Pitaya FPGA board support | [daq-driver-red-pitaya README](../crates/daq-driver-red-pitaya/README.md) |
+| **hardware** | Hardware abstraction layer and device registry | [hardware README](../crates/hardware/README.md) |
+| **driver-pvcam** | Photometrics PVCAM camera driver | [driver-pvcam README](../crates/driver-pvcam/README.md) |
+| **driver-comedi** | Linux Comedi DAQ board driver | [driver-comedi README](../crates/driver-comedi/README.md) |
+| **driver-thorlabs** | Thorlabs ELL14 rotator driver | [driver-thorlabs README](../crates/driver-thorlabs/README.md) |
+| **driver-newport** | Newport ESP300 motion and 1830-C power meter | [driver-newport README](../crates/driver-newport/README.md) |
+| **driver-spectra-physics** | Spectra Physics MaiTai laser driver | [driver-spectra-physics README](../crates/driver-spectra-physics/README.md) |
+| **driver-mock** | Mock drivers for testing | [driver-mock README](../crates/driver-mock/README.md) |
+| **driver-red-pitaya** | Red Pitaya FPGA board support | [driver-red-pitaya README](../crates/driver-red-pitaya/README.md) |
 
 ### Infrastructure & Storage
 
 | Crate | Purpose | README |
 |-------|---------|--------|
-| **daq-storage** | Data persistence (HDF5, Arrow, CSV, NetCDF) | Embedded in core |
-| **daq-pool** | High-performance object pool for frame handling | [daq-pool README](../crates/daq-pool/README.md) |
-| **daq-proto** | Protobuf definitions and gRPC interfaces | Embedded in core |
-| **daq-plugin-api** | Native plugin FFI system (abi_stable) | Embedded in core |
+| **storage** | Data persistence (HDF5, Arrow, CSV, NetCDF) | Embedded in core |
+| **pool** | High-performance object pool for frame handling | [pool README](../crates/pool/README.md) |
+| **protocol** | Protobuf definitions and gRPC interfaces | Embedded in core |
+| **plugin-api** | Native plugin FFI system (abi_stable) | Embedded in core |
 
 ### User Interfaces & Servers
 
 | Crate | Purpose | README |
 |-------|---------|--------|
-| **daq-server** | gRPC server with auth and streaming | Embedded in core |
-| **daq-egui** | Desktop GUI (egui + egui_dock) | [daq-egui README](../crates/daq-egui/README.md) |
-| **daq-bin** | CLI and daemon entry points | Part of main README |
+| **server** | gRPC server with auth and streaming | Embedded in core |
+| **ui** | Desktop GUI (egui + egui_dock) | [ui README](../crates/ui/README.md) |
+| **bin** | CLI and daemon entry points | Part of main README |
 
 ### Integration
 
@@ -249,11 +249,11 @@ docs/
 
 crates/
 ├── common/README.md                 (Foundation types)
-├── daq-hardware/README.md             (HAL and device registry)
-├── daq-scripting/README.md            (Rhai scripting)
-├── daq-pool/README.md                 (Object pool)
-├── daq-egui/README.md                 (Desktop GUI)
-├── daq-driver-*/README.md             (Device drivers)
+├── hardware/README.md             (HAL and device registry)
+├── scripting/README.md            (Rhai scripting)
+├── pool/README.md                 (Object pool)
+├── ui/README.md                 (Desktop GUI)
+├── driver-*/README.md                 (Device drivers)
 └── rust-daq/README.md                 (Integration facade)
 ```
 

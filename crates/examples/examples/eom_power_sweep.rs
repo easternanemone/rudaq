@@ -31,17 +31,17 @@ use anyhow::{Context, Result};
 use chrono::Local;
 use clap::Parser;
 use common::capabilities::{Readable, ShutterControl};
-use daq_driver_comedi::ComediDevice;
+use driver_comedi::ComediDevice;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
 #[cfg(feature = "spectra_physics")]
-use daq_driver_spectra_physics::MaiTaiDriver;
+use driver_spectra_physics::MaiTaiDriver;
 
 #[cfg(feature = "newport")]
-use daq_driver_newport::Newport1830CDriver;
+use driver_newport::Newport1830CDriver;
 
 /// EOM Power Sweep - Characterize electro-optic modulator transfer function
 #[derive(Parser, Debug)]
@@ -274,8 +274,8 @@ async fn run_sweep(args: &Args) -> Result<()> {
 
 #[cfg(all(feature = "spectra_physics", feature = "newport", feature = "comedi"))]
 async fn perform_sweep(
-    ao: &daq_driver_comedi::subsystem::AnalogOutput,
-    ao_range: daq_driver_comedi::Range,
+    ao: &driver_comedi::subsystem::AnalogOutput,
+    ao_range: driver_comedi::Range,
     power_meter: &Newport1830CDriver,
     args: &Args,
 ) -> Result<SweepResults> {

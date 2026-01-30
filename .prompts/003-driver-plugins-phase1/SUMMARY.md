@@ -8,7 +8,7 @@ This phase implements the foundational TOML-based device configuration schema an
 
 ### 1. Config Module Structure
 
-Created `crates/daq-hardware/src/config/` with:
+Created `crates/hardware/src/config/` with:
 
 - `mod.rs` - Module root with re-exports and JSON schema generation
 - `schema.rs` - Rust types for device protocol definitions (~700 lines)
@@ -71,7 +71,7 @@ Error types: `ConfigLoadError::NotFound`, `ReadError`, `ParseError`, `Validation
 let schema_json = daq_hardware::config::generate_json_schema()?;
 
 // Write to file (via ignored test)
-// cargo test -p daq-hardware write_json_schema_file -- --ignored
+// cargo test -p hardware write_json_schema_file -- --ignored
 ```
 
 Output: `config/schemas/device.schema.json` (JSON Schema draft-07)
@@ -79,7 +79,7 @@ Output: `config/schemas/device.schema.json` (JSON Schema draft-07)
 ### 6. Dependencies Added
 
 ```toml
-# crates/daq-hardware/Cargo.toml
+# crates/hardware/Cargo.toml
 serde_valid = "0.24"     # Declarative validation
 schemars = "0.8"         # JSON Schema generation
 evalexpr = "11"          # Formula validation
@@ -103,7 +103,7 @@ figment = { version = "0.10", features = ["toml"] }  # Config loading
 ## Files Created/Modified
 
 ```
-crates/daq-hardware/
+crates/hardware/
 ├── Cargo.toml                    # +4 dependencies
 └── src/
     ├── lib.rs                    # +2 lines (module + re-export)
@@ -177,19 +177,19 @@ from_param = "position"
 
 ```bash
 # Build
-cargo build -p daq-hardware  # ✓ Passes
+cargo build -p hardware  # ✓ Passes
 
 # Lint
-cargo clippy -p daq-hardware --all-targets  # ✓ No warnings
+cargo clippy -p hardware --all-targets  # ✓ No warnings
 
 # Tests
-cargo test -p daq-hardware --lib  # ✓ 87 passed
+cargo test -p hardware --lib  # ✓ 87 passed
 
 # Config-specific tests
-cargo test -p daq-hardware config  # ✓ 27 passed
+cargo test -p hardware config  # ✓ 27 passed
 
 # Generate schema
-cargo test -p daq-hardware write_json_schema_file -- --ignored
+cargo test -p hardware write_json_schema_file -- --ignored
 ```
 
 ## Next Steps (Phase 2)

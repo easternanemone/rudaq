@@ -71,7 +71,7 @@ egui-snarl = { version = "0.9", features = ["serde"] }
 
 **Why egui_plot:**
 - Official egui plotting library (extracted to dedicated repo July 2024)
-- Already in use in daq-egui (version 0.34)
+- Already in use in ui (version 0.34)
 - Immediate mode paradigm (rebuilt each frame, highly interactive)
 - Native zoom, pan, hover support
 - Handles streaming data (with downsampling for performance)
@@ -102,7 +102,7 @@ Plot::new("power_plot")
     });
 ```
 
-**Already integrated:** No new dependency needed (already in daq-egui).
+**Already integrated:** No new dependency needed (already in ui).
 
 **Alternatives considered:**
 - plotters + egui-plotter - REJECTED: More complex, less native to egui
@@ -117,7 +117,7 @@ Plot::new("power_plot")
 | **Rhai** | 1.19+ | Code generation target | HIGH |
 
 **Why Rhai (already integrated):**
-- Already in rust-daq (daq-scripting crate, version 1.19)
+- Already in rust-daq (scripting crate, version 1.19)
 - Tight Rust integration with native types and functions
 - Simple JavaScript+Rust-like syntax (accessible to scientists)
 - Compile-to-AST for repeated execution
@@ -249,7 +249,7 @@ match self.execution.state() {
 }
 ```
 
-**Alternative approach (already in daq-egui):**
+**Alternative approach (already in ui):**
 - Manual tokio runtime + channels (already used for gRPC streaming)
 - Spawn task, send progress updates via `tokio::sync::mpsc`
 - Poll channel in UI update loop
@@ -258,7 +258,7 @@ match self.execution.state() {
 
 **Confidence level: MEDIUM**
 - egui-async is young (released 2025), less battle-tested
-- Manual channel approach is proven in daq-egui
+- Manual channel approach is proven in ui
 - Both approaches viable, egui-async reduces boilerplate
 
 **Installation:**
@@ -415,7 +415,7 @@ undo = "7.0"
 | Library | Version | Purpose |
 |---------|---------|---------|
 | egui | 0.33 | GUI framework |
-| egui_plot | 0.34 | Plotting (already in daq-egui) |
+| egui_plot | 0.34 | Plotting (already in ui) |
 | egui_dock | 0.18 | Docking layout |
 | tokio | 1.36+ | Async runtime |
 | rhai | 1.19 | Scripting engine |
@@ -440,7 +440,7 @@ undo = "7.0"
 
 ### Minimum Viable Product
 
-Add to `daq-egui/Cargo.toml`:
+Add to `ui/Cargo.toml`:
 
 ```toml
 [dependencies]
@@ -483,7 +483,7 @@ DAG Validation (daggy) ← Prevents cycles
     ↓
 Code Generation (String/Tera) → Rhai Script
     ↓
-RunEngine Execution (daq-experiment)
+RunEngine Execution (experiment)
     ↓
 Progress Updates (egui-async / channels)
     ↓
@@ -494,11 +494,11 @@ Live Plotting (egui_plot)
 
 | Component | Crate | Responsibility |
 |-----------|-------|---------------|
-| Node Graph UI | daq-egui (new module) | Visual editing, rendering |
-| DAG Logic | daq-experiment (extend) | Graph validation, execution order |
-| Code Generation | daq-experiment (new) | Rhai script synthesis |
-| Execution Control | daq-experiment (extend) | Pause/resume, progress tracking |
-| Live Plotting | daq-egui (extend) | Real-time data visualization |
+| Node Graph UI | ui (new module) | Visual editing, rendering |
+| DAG Logic | experiment (extend) | Graph validation, execution order |
+| Code Generation | experiment (new) | Rhai script synthesis |
+| Execution Control | experiment (extend) | Pause/resume, progress tracking |
+| Live Plotting | ui (extend) | Real-time data visualization |
 
 ---
 
@@ -560,7 +560,7 @@ Ensuring version alignment across egui ecosystem:
 
 - egui-async polls channel each frame (negligible overhead)
 - Manual channel approach similar performance
-- Tokio runtime already in daq-egui (no new overhead)
+- Tokio runtime already in ui (no new overhead)
 
 ---
 
@@ -573,7 +573,7 @@ egui-snarl = { version = "0.9", features = ["serde"] }
 daggy = { version = "0.9", features = ["serde-1"] }
 ```
 
-- Integrate egui-snarl into daq-egui
+- Integrate egui-snarl into ui
 - Define ExperimentNode type wrapping Plan abstractions
 - Implement Viewer trait for node rendering
 - Add save/load with serde_json
@@ -628,7 +628,7 @@ tera = "1.20"       # Optional
 
 **Likelihood:** MEDIUM (released 2025, young crate)
 **Impact:** LOW (fallback to manual channels)
-**Mitigation:** Prototype with egui-async; if issues, revert to proven manual tokio::sync::mpsc pattern (already in daq-egui)
+**Mitigation:** Prototype with egui-async; if issues, revert to proven manual tokio::sync::mpsc pattern (already in ui)
 
 ### Risk 4: Performance with Large Graphs
 

@@ -13,16 +13,16 @@ This plugin showcases how to use Python and NumPy within the rust_daq plugin sys
 
 ## Requirements
 
-- rust_daq built with `python` feature enabled in `daq-scripting`
+- rust_daq built with `python` feature enabled in `scripting`
 - Python 3.8+ with NumPy installed
 
 ### Enable Python Support
 
-In `Cargo.toml` for `daq-scripting`, ensure the `python` feature is enabled:
+In `Cargo.toml` for `scripting`, ensure the `python` feature is enabled:
 
 ```toml
 [dependencies]
-daq-scripting = { path = "../daq-scripting", features = ["python"] }
+scripting = { path = "../scripting", features = ["python"] }
 ```
 
 ### Install Python Dependencies
@@ -145,7 +145,7 @@ for freqs, magnitudes in results:
 
 ```
 rust_daq
-├── daq-scripting (PyO3Engine)
+├── scripting (PyO3Engine)
 │   └── pyo3_engine.rs - Python interpreter integration
 ├── rust-daq/plugins
 │   ├── loader.rs - ScriptPluginLoader
@@ -159,5 +159,5 @@ rust_daq
 ## Related
 
 - `examples/scripts/power_logger.rhai` - Rhai script module example
-- `crates/daq-scripting/src/pyo3_engine.rs` - PyO3 engine implementation
-- `crates/daq-hardware/src/plugin/manifest.rs` - Plugin manifest format
+- `crates/scripting/src/pyo3_engine.rs` - PyO3 engine implementation
+- `crates/hardware/src/plugin/manifest.rs` - Plugin manifest format

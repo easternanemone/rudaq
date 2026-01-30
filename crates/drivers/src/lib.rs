@@ -9,10 +9,10 @@
 //!
 //! | Feature | Description | Crate |
 //! |---------|-------------|-------|
-//! | `pvcam` | PVCAM camera (mock mode) | `daq-driver-pvcam` |
-//! | `pvcam_sdk` | PVCAM camera (real SDK) | `daq-driver-pvcam` |
-//! | `comedi` | Comedi DAQ (mock mode) | `daq-driver-comedi` |
-//! | `comedi_hardware` | Comedi DAQ (real hardware) | `daq-driver-comedi` |
+//! | `pvcam` | PVCAM camera (mock mode) | `driver-pvcam` |
+//! | `pvcam_sdk` | PVCAM camera (real SDK) | `driver-pvcam` |
+//! | `comedi` | Comedi DAQ (mock mode) | `driver-comedi` |
+//! | `comedi_hardware` | Comedi DAQ (real hardware) | `driver-comedi` |
 //!
 //! ## Convenience Sets
 //!
@@ -28,14 +28,14 @@
 //!
 //! ```toml
 //! [dependencies]
-//! daq-drivers = { path = "../daq-drivers", features = ["maitai"] }
+//! drivers = { path = "../drivers", features = ["maitai"] }
 //! ```
 //!
 //! Then in your `main.rs`, call `link_drivers()` early to ensure all driver
 //! registrations are linked into the binary:
 //!
 //! ```rust,ignore
-//! use daq_drivers::link_drivers;
+//! use drivers::link_drivers;
 //!
 //! fn main() {
 //!     // Ensure driver factories are linked
@@ -58,7 +58,7 @@
 //!
 //! ```text
 //! 1. Binary starts
-//! 2. main() calls daq_drivers::link_drivers()
+//! 2. main() calls drivers::link_drivers()
 //! 3. link_drivers() calls link() on each enabled driver crate
 //! 4. Driver crates register their DriverFactory with the registry
 //! 5. TOML config is loaded, drivers are instantiated via factories
@@ -73,27 +73,27 @@ pub use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFac
 
 /// PVCAM camera driver (Photometrics)
 #[cfg(feature = "pvcam")]
-pub use daq_driver_pvcam;
+pub use driver_pvcam;
 
 /// Comedi DAQ driver (Linux DAQ boards)
 #[cfg(feature = "comedi")]
-pub use daq_driver_comedi;
+pub use driver_comedi;
 
 /// Mock drivers for testing and simulation
 #[cfg(feature = "mock")]
-pub use daq_driver_mock;
+pub use driver_mock;
 
 /// Thorlabs ELL14 rotation mount driver
 #[cfg(feature = "thorlabs")]
-pub use daq_driver_thorlabs;
+pub use driver_thorlabs;
 
 /// Newport ESP300 motion controller and 1830-C power meter
 #[cfg(feature = "newport")]
-pub use daq_driver_newport;
+pub use driver_newport;
 
 /// Spectra-Physics MaiTai Ti:Sapphire laser
 #[cfg(feature = "spectra_physics")]
-pub use daq_driver_spectra_physics;
+pub use driver_spectra_physics;
 
 // =============================================================================
 // Linker Reference Functions
@@ -110,7 +110,7 @@ pub use daq_driver_spectra_physics;
 /// ```rust,ignore
 /// fn main() -> anyhow::Result<()> {
 ///     // Ensure all driver factories are linked
-///     daq_drivers::link_drivers();
+///     drivers::link_drivers();
 ///
 ///     // Initialize tracing, load config, start server...
 ///     Ok(())
@@ -127,27 +127,27 @@ pub use daq_driver_spectra_physics;
 pub fn link_drivers() {
     // PVCAM camera
     #[cfg(feature = "pvcam")]
-    daq_driver_pvcam::link();
+    driver_pvcam::link();
 
     // Comedi DAQ
     #[cfg(feature = "comedi")]
-    daq_driver_comedi::link();
+    driver_comedi::link();
 
     // Mock drivers
     #[cfg(feature = "mock")]
-    daq_driver_mock::link();
+    driver_mock::link();
 
     // Thorlabs ELL14
     #[cfg(feature = "thorlabs")]
-    daq_driver_thorlabs::link();
+    driver_thorlabs::link();
 
     // Newport ESP300 and 1830-C
     #[cfg(feature = "newport")]
-    daq_driver_newport::link();
+    driver_newport::link();
 
     // Spectra-Physics MaiTai
     #[cfg(feature = "spectra_physics")]
-    daq_driver_spectra_physics::link();
+    driver_spectra_physics::link();
 }
 
 /// Get a list of driver types that are linked into this binary.
@@ -158,7 +158,7 @@ pub fn link_drivers() {
 /// # Example
 ///
 /// ```rust,ignore
-/// for driver in daq_drivers::available_drivers() {
+/// for driver in drivers::available_drivers() {
 ///     println!("Available driver: {}", driver);
 /// }
 /// ```

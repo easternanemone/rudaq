@@ -6,7 +6,7 @@ Platform-specific setup, requirements, and troubleshooting for rust-daq.
 
 ### GUI on Wayland
 
-The `rust-daq-gui` binary requires Wayland and X11 support to be compiled in. This is enabled by default in the `daq-egui` crate.
+The `rust-daq-gui` binary requires Wayland and X11 support to be compiled in. This is enabled by default in the `ui` crate.
 
 **If you see this error:**
 ```
@@ -51,11 +51,11 @@ WAYLAND_DISPLAY= cargo run --bin rust-daq-gui
 error[E0277]: the trait bound `zbus::Connection: From<zbus::Connection>` is not satisfied
 ```
 
-**Current Workaround:** The `dark-light` feature is disabled in `daq-egui`. System theme detection falls back to dark mode. Users can still manually toggle themes in the GUI.
+**Current Workaround:** The `dark-light` feature is disabled in `ui`. System theme detection falls back to dark mode. Users can still manually toggle themes in the GUI.
 
 **To Re-enable (when fixed upstream):**
 1. Check if `dark-light` 2.1+ or compatible `ashpd` update is released
-2. Add `"dep:dark-light"` back to the `standalone` feature in `crates/daq-egui/Cargo.toml`
+2. Add `"dep:dark-light"` back to the `standalone` feature in `crates/ui/Cargo.toml`
 3. Remove the `#[cfg(feature = "dark-light")]` guards in `theme.rs`
 
 ## macOS

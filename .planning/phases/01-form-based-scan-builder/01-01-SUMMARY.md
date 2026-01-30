@@ -25,10 +25,10 @@ tech-stack:
 
 key-files:
   created:
-    - crates/daq-egui/src/panels/scan_builder.rs
+    - crates/ui/src/panels/scan_builder.rs
   modified:
-    - crates/daq-egui/src/panels/mod.rs
-    - crates/daq-egui/src/app.rs
+    - crates/ui/src/panels/mod.rs
+    - crates/ui/src/app.rs
 
 decisions:
   - Used string-based form fields for flexible user input (parse on validation)
@@ -46,7 +46,7 @@ Form-based 1D/2D scan configuration UI with device discovery and validation.
 
 ## What Was Built
 
-### ScanBuilderPanel (`crates/daq-egui/src/panels/scan_builder.rs`)
+### ScanBuilderPanel (`crates/ui/src/panels/scan_builder.rs`)
 
 A new egui panel providing scientists with a simplified form interface for configuring parameter scans:
 
@@ -72,7 +72,7 @@ A new egui panel providing scientists with a simplified form interface for confi
 - Estimated duration: points * dwell_time_ms / 1000
 - Human-readable duration formatting (seconds/minutes/hours)
 
-### Integration (`crates/daq-egui/src/app.rs`)
+### Integration (`crates/ui/src/app.rs`)
 
 - Added `Panel::ScanBuilder` variant to Panel enum
 - Added `scan_builder_panel` field to DaqApp
@@ -138,9 +138,9 @@ None - plan executed exactly as written.
 
 | File | Change |
 |------|--------|
-| `crates/daq-egui/src/panels/scan_builder.rs` | Created (729 lines) |
-| `crates/daq-egui/src/panels/mod.rs` | Added module export |
-| `crates/daq-egui/src/app.rs` | Panel integration (+16 lines) |
+| `crates/ui/src/panels/scan_builder.rs` | Created (729 lines) |
+| `crates/ui/src/panels/mod.rs` | Added module export |
+| `crates/ui/src/app.rs` | Panel integration (+16 lines) |
 
 ## Next Phase Readiness
 

@@ -23,60 +23,60 @@
 - Depends on: Tokio, async-trait, anyhow
 - Used by: All other crates, acts as the contract layer
 
-**Hardware Abstraction Layer (daq-hardware):**
+**Hardware Abstraction Layer (hardware):**
 - Purpose: Registry, device composition, configuration, and driver management
-- Location: `crates/daq-hardware/src/`
+- Location: `crates/hardware/src/`
 - Contains: DeviceRegistry, DeviceComponents, DriverFactory implementations, capability introspection, port resolver
 - Depends on: common, individual driver crates
-- Used by: daq-bin (daemon), daq-server (gRPC), daq-egui (GUI), daq-experiment (plans)
+- Used by: bin (daemon), server (gRPC), ui (GUI), experiment (plans)
 
-**Driver Layer (daq-driver-*):**
+**Driver Layer (driver-*):**
 - Purpose: Individual hardware driver implementations with DriverFactory trait
-- Location: `crates/daq-driver-{mock,thorlabs,newport,spectra-physics,pvcam,comedi}/src/`
+- Location: `crates/driver-{mock,thorlabs,newport,spectra-physics,pvcam,comedi}/src/`
 - Contains: Device-specific drivers, serial communication, hardware initialization
-- Depends on: common, possibly daq-hardware traits
+- Depends on: common, possibly hardware traits
 - Used by: Registered in DeviceRegistry at startup; accessed via capability traits
 
-**Storage & Processing (daq-storage, daq-pool):**
+**Storage & Processing (storage, pool):**
 - Purpose: Data persistence and high-performance frame buffering
-- Location: `crates/daq-storage/src/`, `crates/daq-pool/src/`
+- Location: `crates/storage/src/`, `crates/pool/src/`
 - Contains: Ring buffers, writers (CSV, HDF5, Arrow, TIFF), async buffer pools, document writers
 - Depends on: common (Frame types)
-- Used by: daq-server, daq-egui, experiments
+- Used by: server, ui, experiments
 
-**Experiment Orchestration (daq-experiment):**
+**Experiment Orchestration (experiment):**
 - Purpose: Bluesky-style plan execution, RunEngine state management
-- Location: `crates/daq-experiment/src/`
+- Location: `crates/experiment/src/`
 - Contains: Plans, PlanRegistry, RunEngine, document types (Start, Descriptor, Event, Stop)
-- Depends on: common, daq-hardware
-- Used by: daq-server (RunEngineService), daq-scripting (plan runners)
+- Depends on: common, hardware
+- Used by: server (RunEngineService), scripting (plan runners)
 
-**Scripting Engine (daq-scripting):**
+**Scripting Engine (scripting):**
 - Purpose: Rhai script execution with hardware bindings, optional Python support
-- Location: `crates/daq-scripting/src/`
+- Location: `crates/scripting/src/`
 - Contains: RhaiEngine, script bindings for cameras/stages, ComediBindings, yield channel infrastructure
-- Depends on: common, daq-hardware, daq-experiment (for plan bindings)
-- Used by: daq-bin (run command), daq-server (script upload/execute)
+- Depends on: common, hardware, experiment (for plan bindings)
+- Used by: bin (run command), server (script upload/execute)
 
-**Communication (daq-proto):**
+**Communication (protocol):**
 - Purpose: Protobuf definitions and type conversions between domain and transport layers
-- Location: `crates/daq-proto/src/`
+- Location: `crates/protocol/src/`
 - Contains: Generated proto types (daq.proto, health.proto, ni_daq.proto), conversion traits, compression/downsampling
 - Depends on: common (for converting to/from domain types)
-- Used by: daq-server (gRPC), GUI clients, remote clients
+- Used by: server (gRPC), GUI clients, remote clients
 
-**Backend (daq-server):**
+**Backend (server):**
 - Purpose: gRPC server with multi-service architecture
-- Location: `crates/daq-server/src/grpc/`
+- Location: `crates/server/src/grpc/`
 - Contains: HardwareService, RunEngineService, ScriptingService (optional), ModuleService (optional), ControlService
-- Depends on: common, daq-hardware, daq-proto, daq-experiment, daq-scripting (optional)
-- Used by: daq-bin (daemon mode), remote clients via gRPC
+- Depends on: common, hardware, protocol, experiment, scripting (optional)
+- Used by: bin (daemon mode), remote clients via gRPC
 
-**Frontend (daq-egui):**
+**Frontend (ui):**
 - Purpose: GUI application with panel-based UI
-- Location: `crates/daq-egui/src/`
+- Location: `crates/ui/src/`
 - Contains: App state machine, panels (devices, image viewer, signal plotter, scans, scripts), client connection logic, auto-reconnect
-- Depends on: daq-proto (to call gRPC), tokio, egui
+- Depends on: protocol (to call gRPC), tokio, egui
 - Used by: Desktop client connected to daemon
 
 **Integration Layer (rust-daq):**
@@ -84,13 +84,13 @@
 - Location: `crates/rust-daq/src/`
 - Contains: Prelude module (organized re-exports), config, validation, optional feature gates
 - Depends on: All other crates, conditionally based on features
-- Used by: Applications like daq-bin that need organized imports
+- Used by: Applications like bin that need organized imports
 
-**Entry Points (daq-bin):**
+**Entry Points (bin):**
 - Purpose: CLI commands and daemon startup
-- Location: `crates/daq-bin/src/main.rs`
+- Location: `crates/bin/src/main.rs`
 - Contains: Clap CLI parser, `run` command (script execution), `daemon` command (gRPC server), `client` commands (remote control)
-- Depends on: rust-daq, daq-server, daq-scripting
+- Depends on: rust-daq, server, scripting
 - Used by: Command-line users
 
 ## Data Flow
@@ -98,7 +98,7 @@
 **Script Execution (Single Shot):**
 
 1. User: `rust-daq run script.rhai --config hardware.toml`
-2. daq-bin parses config, loads hardware into DeviceRegistry
+2. bin parses config, loads hardware into DeviceRegistry
 3. RhaiEngine::new() initialized with registered device bindings
 4. Script executes, calls hardware via Rhai bindings (e.g., `stage.move_to(x)`)
 5. Results streamed to stdout or captured by script
@@ -106,7 +106,7 @@
 **Daemon Mode (Continuous):**
 
 1. User: `rust-daq daemon --port 50051 --hardware-config config.toml`
-2. daq-bin starts gRPC server on port 50051
+2. bin starts gRPC server on port 50051
 3. Hardware registry loaded; factories register drivers
 4. Client connects (GUI or remote tool) via gRPC
 5. Client sends requests → gRPC service → DeviceRegistry → Driver → Hardware
@@ -157,7 +157,7 @@
 - Purpose: Central runtime registry of discovered devices with capability introspection
 - Pattern: Stores factories and instantiated devices; trait objects wrap drivers; query by capability
 - Usage: `registry.register_factory(Box::new(Ell14Factory))`, `registry.get_movable("rotator_2")?`
-- Files: `crates/daq-hardware/src/registry.rs`
+- Files: `crates/hardware/src/registry.rs`
 
 **DriverFactory:**
 - Purpose: Plugin interface for dynamic driver registration
@@ -175,25 +175,25 @@
 - Purpose: State machine executing Plans (Bluesky-inspired) with pause/resume
 - Pattern: Queues plans, emits lifecycle documents, coordinates hardware through capability traits
 - States: Ready → Running → Paused → Running → Stopped
-- Files: `crates/daq-experiment/src/run_engine.rs`
+- Files: `crates/experiment/src/run_engine.rs`
 
 **Plan / PlanRegistry:**
 - Purpose: Declarative experiment definitions that yield commands
 - Pattern: Plans implement Plan trait (yields PlanCommand enum: Move, Trigger, Read, etc.)
 - Examples: GridScan, TimeSeries, VoltageScan
-- Files: `crates/daq-experiment/src/plans.rs`, `plans_daq.rs`, `plans_imperative.rs`
+- Files: `crates/experiment/src/plans.rs`, `plans_daq.rs`, `plans_imperative.rs`
 
 **Ring Buffer (Sync & Async):**
 - Purpose: Lock-free circular buffer for streaming frame/scalar data without per-frame allocation
 - Pattern: Fixed-size, wrap-around when full; async variant yields when full
 - Usage: `let buf = RingBuffer::create(1024*1024)?; let data = buf.read_snapshot()?`
-- Files: `crates/daq-storage/src/ring_buffer.rs`, `ring_buffer_reader.rs`
+- Files: `crates/storage/src/ring_buffer.rs`, `ring_buffer_reader.rs`
 
 **Pool<T> / BufferPool:**
 - Purpose: Zero-allocation object pool for high-FPS frame handling
 - Pattern: Semaphore + lock-free queue (SegQueue); Loaned caches pointer for lock-free access
 - Usage: `let frame = pool.acquire().await; frame[0] = pixel; drop(frame); // returns to pool`
-- Files: `crates/daq-pool/src/buffer_pool.rs`, `lib.rs`
+- Files: `crates/pool/src/buffer_pool.rs`, `lib.rs`
 
 **Observable<T>:**
 - Purpose: Reactive property with async watchers
@@ -210,22 +210,22 @@
 ## Entry Points
 
 **CLI (rust-daq run):**
-- Location: `crates/daq-bin/src/main.rs`
+- Location: `crates/bin/src/main.rs`
 - Triggers: User runs `rust-daq run script.rhai`
 - Responsibilities: Parse args, load config, initialize hardware registry, create RhaiEngine, execute script, report results
 
 **Daemon (rust-daq daemon):**
-- Location: `crates/daq-bin/src/main.rs`
+- Location: `crates/bin/src/main.rs`
 - Triggers: User runs `rust-daq daemon --port 50051`
 - Responsibilities: Load config, start hardware registry, initialize gRPC server, listen for client connections, graceful shutdown on SIGTERM
 
-**GUI (daq-egui):**
-- Location: `crates/daq-egui/src/main.rs` (or `app.rs` for library mode)
+**GUI (ui):**
+- Location: `crates/ui/src/main.rs` (or `app.rs` for library mode)
 - Triggers: User runs GUI binary or imports as library
 - Responsibilities: Initialize egui, connect to daemon, render panels, handle user input, update device state
 
-**gRPC Services (daq-server):**
-- Location: `crates/daq-server/src/grpc/`
+**gRPC Services (server):**
+- Location: `crates/server/src/grpc/`
 - Services: HardwareService, RunEngineService, ScriptingService, ModuleService, HealthService
 - Triggered: Implicitly when client sends RPC request
 - Responsibilities: Deserialize proto message, validate, call domain logic (registry/engine/scripting), serialize response
@@ -240,8 +240,8 @@
    - File: `crates/common/src/error.rs`
    - Example: `driver.move_abs(x).await.context("Failed to move stage")?`
 
-2. **gRPC Layer (daq-server):** Converts domain errors to gRPC Status codes
-   - File: `crates/daq-server/src/grpc/error_mapping.rs`
+2. **gRPC Layer (server):** Converts domain errors to gRPC Status codes
+   - File: `crates/server/src/grpc/error_mapping.rs`
    - Pattern: `anyhow::Error` → `tonic::Status` with error code + message
 
 3. **Recovery Layer (common):** Implements fallback strategies
@@ -257,7 +257,7 @@
 **Logging:**
 - Framework: `tracing` crate with `tracing-subscriber`
 - GUI capture: `GuiLogLayer` intercepts span events and buffers for display panel
-- Files: `crates/daq-egui/src/gui_log_layer.rs`, individual driver crate logs
+- Files: `crates/ui/src/gui_log_layer.rs`, individual driver crate logs
 
 **Validation:**
 - Size limits: `crates/common/src/limits.rs` enforces MAX_SCRIPT_SIZE, MAX_FRAME_BYTES, etc.
@@ -267,11 +267,11 @@
 **Authentication:**
 - Optional feature in gRPC: JWT token validation in interceptor
 - Default: Disabled (open to localhost)
-- Files: `crates/daq-server/src/grpc/server.rs` (interceptor setup)
+- Files: `crates/server/src/grpc/server.rs` (interceptor setup)
 
 **Testing:**
 - Levels: Unit tests in crates, integration tests in `tests/`, hardware tests with `#[cfg(feature = "hardware_tests")]`
-- Mock drivers: `crates/daq-driver-mock/` provides MockStage, MockCamera, MockPowerMeter
+- Mock drivers: `crates/driver-mock/` provides MockStage, MockCamera, MockPowerMeter
 - Pattern: All drivers accessible via DriverFactory for substitution in tests
 
 ---

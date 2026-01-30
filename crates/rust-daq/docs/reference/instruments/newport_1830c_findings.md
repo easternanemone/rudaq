@@ -251,7 +251,7 @@ The gauge display automatically scales based on signal magnitude:
 ### Device Metadata Registration
 
 The Newport 1830-C is registered with `measurement_units: "W"` in the device
-registry (`daq-hardware/src/registry.rs`). This metadata is returned by the
+registry (`hardware/src/registry.rs`). This metadata is returned by the
 gRPC server in `ReadValueResponse.units`.
 
 ## Operator Notes

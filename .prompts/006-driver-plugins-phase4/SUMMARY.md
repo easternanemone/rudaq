@@ -132,7 +132,7 @@ All passing, 1 ignored (schema regeneration)
 
 ## Files Modified/Created
 
-### Schema (`crates/daq-hardware/src/config/schema.rs`)
+### Schema (`crates/hardware/src/config/schema.rs`)
 - Added `RetryConfig` struct with exponential backoff fields
 - Added `timeout_ms` and `retry` fields to `CommandConfig`
 - Added `ErrorSeverity` enum
@@ -140,7 +140,7 @@ All passing, 1 ignored (schema regeneration)
 - Added `InitStep` struct
 - Added `init_sequence` and `default_retry` to `DeviceConfig`
 
-### GenericSerialDriver (`crates/daq-hardware/src/drivers/generic_serial.rs`)
+### GenericSerialDriver (`crates/hardware/src/drivers/generic_serial.rs`)
 - Added `DeviceError` and `CommandResult` types
 - Added `check_for_error()` method
 - Added `should_retry()` helper
@@ -156,7 +156,7 @@ All passing, 1 ignored (schema regeneration)
 - Added `[[init_sequence]]` steps
 
 ### Tests
-- Created `crates/daq-hardware/tests/production_hardening.rs`
+- Created `crates/hardware/tests/production_hardening.rs`
 
 ## Usage Examples
 

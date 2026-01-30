@@ -22,12 +22,12 @@ tech-stack:
 
 key-files:
   created:
-    - crates/daq-egui/src/graph/execution_state.rs
+    - crates/ui/src/graph/execution_state.rs
   modified:
-    - crates/daq-egui/src/graph/mod.rs
-    - crates/daq-egui/src/graph/viewer.rs
-    - crates/daq-egui/src/panels/experiment_designer.rs
-    - crates/daq-egui/src/app.rs
+    - crates/ui/src/graph/mod.rs
+    - crates/ui/src/graph/viewer.rs
+    - crates/ui/src/panels/experiment_designer.rs
+    - crates/ui/src/app.rs
 
 key-decisions:
   - "Channel-based async communication for gRPC calls (non-blocking UI)"
@@ -89,11 +89,11 @@ Each task was committed atomically:
    - Infrastructure ready (pending egui-snarl custom color API)
 
 ## Files Created/Modified
-- `crates/daq-egui/src/graph/execution_state.rs` - Execution state tracking with progress/ETA
-- `crates/daq-egui/src/graph/mod.rs` - Export ExecutionState types
-- `crates/daq-egui/src/graph/viewer.rs` - Node color computation based on state
-- `crates/daq-egui/src/panels/experiment_designer.rs` - Execution toolbar and async action handling
-- `crates/daq-egui/src/app.rs` - Pass client and runtime to experiment designer
+- `crates/ui/src/graph/execution_state.rs` - Execution state tracking with progress/ETA
+- `crates/ui/src/graph/mod.rs` - Export ExecutionState types
+- `crates/ui/src/graph/viewer.rs` - Node color computation based on state
+- `crates/ui/src/panels/experiment_designer.rs` - Execution toolbar and async action handling
+- `crates/ui/src/app.rs` - Pass client and runtime to experiment designer
 
 ## Decisions Made
 - **Channel-based async communication:** Used tokio::sync::mpsc to send async operation results to UI thread, avoiding blocking on gRPC calls
@@ -108,7 +108,7 @@ Each task was committed atomically:
 - **Found during:** Task 1 (execution_state module compilation)
 - **Issue:** NodeId::from_raw() doesn't exist, correct constructor is NodeId(usize)
 - **Fix:** Changed from NodeId::from_raw(idx) to NodeId(idx)
-- **Files modified:** crates/daq-egui/src/graph/execution_state.rs
+- **Files modified:** crates/ui/src/graph/execution_state.rs
 - **Verification:** Build passes, test_checkpoint_parsing passes
 - **Committed in:** d19a9735 (Task 1 commit)
 
@@ -116,7 +116,7 @@ Each task was committed atomically:
 - **Found during:** Task 2 (run_experiment method compilation)
 - **Issue:** GraphPlan::num_points() method not accessible without Plan trait import
 - **Fix:** Added `use daq_experiment::Plan;` import
-- **Files modified:** crates/daq-egui/src/panels/experiment_designer.rs
+- **Files modified:** crates/ui/src/panels/experiment_designer.rs
 - **Verification:** Build succeeds, method callable
 - **Committed in:** ec2adce0 (Task 2 commit)
 
@@ -124,7 +124,7 @@ Each task was committed atomically:
 - **Found during:** Task 2 (show_execution_toolbar compilation)
 - **Issue:** Multiple button handlers tried to move `client` Option, causing ownership errors
 - **Fix:** Changed to if/else-if chain (only one button can be clicked per frame)
-- **Files modified:** crates/daq-egui/src/panels/experiment_designer.rs
+- **Files modified:** crates/ui/src/panels/experiment_designer.rs
 - **Verification:** Build succeeds, UI invariant preserved (one action per frame)
 - **Committed in:** ec2adce0 (Task 2 commit)
 

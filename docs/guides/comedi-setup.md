@@ -195,11 +195,11 @@ The NI PCI-MIO-16XE-10 without calibration typically has:
 
 ```bash
 # Build the Comedi driver crate
-cargo build -p daq-driver-comedi --features hardware
+cargo build -p driver-comedi --features hardware
 
 # Run tests (requires hardware)
 export COMEDI_SMOKE_TEST=1
-cargo nextest run -p daq-driver-comedi --features hardware -- --nocapture
+cargo nextest run -p driver-comedi --features hardware -- --nocapture
 ```
 
 ### Environment Variables
@@ -340,7 +340,7 @@ The Comedi driver automatically looks for calibration files. To ensure calibrati
 is applied, the calibration file must exist before opening the device:
 
 ```rust
-use daq_driver_comedi::ComediDevice;
+use driver_comedi::ComediDevice;
 
 // Calibration is automatically applied if file exists
 let device = ComediDevice::open("/dev/comedi0")?;

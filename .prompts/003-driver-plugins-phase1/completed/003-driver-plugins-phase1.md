@@ -19,7 +19,7 @@ Key patterns to follow from research:
 Existing codebase context:
 - Current config: @config/config.v4.toml (Figment-based)
 - Config module: @crates/rust-daq/src/config_v4.rs (pattern to follow)
-- Existing drivers: @crates/daq-hardware/src/drivers/ell14.rs (reference for protocol details)
+- Existing drivers: @crates/hardware/src/drivers/ell14.rs (reference for protocol details)
 </context>
 
 <requirements>
@@ -59,14 +59,14 @@ Existing codebase context:
 
 **Constraints:**
 - No changes to existing driver code in this phase
-- Keep daq-hardware as the home for this module (not common)
+- Keep hardware as the home for this module (not common)
 - Support both TOML and YAML parsing (TOML primary)
 </requirements>
 
 <implementation>
 **File Structure:**
 ```
-crates/daq-hardware/
+crates/hardware/
 ├── Cargo.toml  # Add dependencies
 └── src/
     └── config/
@@ -189,19 +189,19 @@ evalexpr = "11"
 Create/modify files:
 
 **New files:**
-- `crates/daq-hardware/src/config/mod.rs` - Module root with DeviceConfig and re-exports
-- `crates/daq-hardware/src/config/schema.rs` - All schema struct definitions
-- `crates/daq-hardware/src/config/validation.rs` - Custom validators
-- `crates/daq-hardware/src/config/loader.rs` - Config loading functions
+- `crates/hardware/src/config/mod.rs` - Module root with DeviceConfig and re-exports
+- `crates/hardware/src/config/schema.rs` - All schema struct definitions
+- `crates/hardware/src/config/validation.rs` - Custom validators
+- `crates/hardware/src/config/loader.rs` - Config loading functions
 - `config/schemas/device.schema.json` - Generated JSON schema
 - `config/devices/.gitkeep` - Placeholder directory
 
 **Modify:**
-- `crates/daq-hardware/Cargo.toml` - Add dependencies
-- `crates/daq-hardware/src/lib.rs` - Add `pub mod config;`
+- `crates/hardware/Cargo.toml` - Add dependencies
+- `crates/hardware/src/lib.rs` - Add `pub mod config;`
 
 **Test files:**
-- `crates/daq-hardware/src/config/tests.rs` - Unit tests (inline or separate)
+- `crates/hardware/src/config/tests.rs` - Unit tests (inline or separate)
 </output>
 
 <verification>
@@ -209,13 +209,13 @@ Before declaring complete:
 
 1. **Build verification:**
    ```bash
-   cargo build -p daq-hardware
-   cargo clippy -p daq-hardware -- -D warnings
+   cargo build -p hardware
+   cargo clippy -p hardware -- -D warnings
    ```
 
 2. **Test verification:**
    ```bash
-   cargo test -p daq-hardware config:: -- --nocapture
+   cargo test -p hardware config:: -- --nocapture
    ```
 
 3. **Schema generation:**
@@ -257,8 +257,8 @@ Create `.prompts/003-driver-plugins-phase1/SUMMARY.md` with:
 - [ ] Validation works for regex patterns, evalexpr formulas, numeric ranges
 - [ ] Config loader loads TOML files and validates them
 - [ ] JSON schema generated and valid
-- [ ] `cargo build -p daq-hardware` succeeds
-- [ ] `cargo clippy -p daq-hardware` passes with no warnings
+- [ ] `cargo build -p hardware` succeeds
+- [ ] `cargo clippy -p hardware` passes with no warnings
 - [ ] Unit tests pass for parsing valid configs
 - [ ] Unit tests pass for rejecting invalid configs with clear errors
 - [ ] SUMMARY.md created with files list

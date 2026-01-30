@@ -14,7 +14,7 @@
 #![cfg(feature = "server")]
 
 use anyhow::Result;
-use daq_driver_pvcam::PvcamDriver;
+use driver_pvcam::PvcamDriver;
 use protocol::daq::hardware_service_server::HardwareService;
 use protocol::daq::{
     GetParameterRequest, SetParameterRequest, StartStreamRequest, StopStreamRequest,

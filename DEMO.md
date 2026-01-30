@@ -148,10 +148,10 @@ initial_position = 100.0
 
 ```bash
 # Explore more complex scenarios
-ls crates/daq-examples/examples/*.rhai
+ls crates/examples/examples/*.rhai
 
 # Run any example (daemon must be running)
-cargo run --bin rust-daq-daemon -- run crates/daq-examples/examples/polarization_test.rhai
+cargo run --bin rust-daq-daemon -- run crates/examples/examples/polarization_test.rhai
 ```
 
 ### 2. Write Your Own Script

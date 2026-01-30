@@ -26,10 +26,10 @@ tech-stack:
 
 key-files:
   created:
-    - crates/daq-egui/src/graph/codegen.rs
+    - crates/ui/src/graph/codegen.rs
   modified:
-    - crates/daq-egui/src/graph/mod.rs
-    - crates/daq-egui/src/graph/translation.rs
+    - crates/ui/src/graph/mod.rs
+    - crates/ui/src/graph/translation.rs
 
 key-decisions:
   - "One-way export only (visual editor is source of truth)"
@@ -77,9 +77,9 @@ Each task was committed atomically:
 
 ## Files Created/Modified
 
-- `crates/daq-egui/src/graph/codegen.rs` - Rhai code generation engine with node-to-code translation
-- `crates/daq-egui/src/graph/mod.rs` - Added codegen module and exported graph_to_rhai_script
-- `crates/daq-egui/src/graph/translation.rs` - Made build_adjacency and topological_sort public for reuse
+- `crates/ui/src/graph/codegen.rs` - Rhai code generation engine with node-to-code translation
+- `crates/ui/src/graph/mod.rs` - Added codegen module and exported graph_to_rhai_script
+- `crates/ui/src/graph/translation.rs` - Made build_adjacency and topological_sort public for reuse
 - `Cargo.lock` - Dependency updates
 
 ## Decisions Made

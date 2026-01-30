@@ -30,7 +30,7 @@ Validate that the declarative driver architecture generalizes across different p
 
 ### 2. Trait Implementations Added to GenericSerialDriver
 
-#### Readable Trait (`crates/daq-hardware/src/drivers/generic_serial.rs`)
+#### Readable Trait (`crates/hardware/src/drivers/generic_serial.rs`)
 ```rust
 #[async_trait]
 impl Readable for GenericSerialDriver {
@@ -50,7 +50,7 @@ impl Readable for GenericSerialDriver {
 - `open_shutter()` / `close_shutter()` - Control shutter state
 - `is_shutter_open()` - Queries state, converts numeric (0/1) to bool
 
-### 3. ConfiguredDriver Enum Updated (`crates/daq-hardware/src/factory.rs`)
+### 3. ConfiguredDriver Enum Updated (`crates/hardware/src/factory.rs`)
 
 ```rust
 #[enum_dispatch(Movable, Readable, WavelengthTunable, ShutterControl)]
@@ -120,13 +120,13 @@ The declarative driver pattern successfully generalizes across:
 - `config/devices/esp300.toml`
 - `config/devices/newport_1830c.toml`
 - `config/devices/maitai.toml`
-- `crates/daq-hardware/tests/esp300_migration.rs`
-- `crates/daq-hardware/tests/newport1830c_migration.rs`
-- `crates/daq-hardware/tests/maitai_migration.rs`
+- `crates/hardware/tests/esp300_migration.rs`
+- `crates/hardware/tests/newport1830c_migration.rs`
+- `crates/hardware/tests/maitai_migration.rs`
 
 ### Modified Files
-- `crates/daq-hardware/src/drivers/generic_serial.rs` - Added Readable, WavelengthTunable, ShutterControl impls
-- `crates/daq-hardware/src/factory.rs` - Added new variants and traits to ConfiguredDriver
+- `crates/hardware/src/drivers/generic_serial.rs` - Added Readable, WavelengthTunable, ShutterControl impls
+- `crates/hardware/src/factory.rs` - Added new variants and traits to ConfiguredDriver
 
 ## Next Steps (Phase 4)
 

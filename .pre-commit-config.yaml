@@ -48,18 +48,18 @@ repos:
     hooks:
       - id: cargo-clippy
         name: cargo clippy
-        entry: bash -c 'cargo clippy --workspace --all-targets --features full --exclude daq-egui -- -D warnings'
+        entry: bash -c 'cargo clippy --workspace --all-targets --features full --exclude ui -- -D warnings'
         language: system
         types: [rust]
         pass_filenames: false
-        description: "Lint Rust code with clippy (excludes daq-egui)"
+        description: "Lint Rust code with clippy (excludes ui)"
 
   # Rust tests (fast unit tests only, not integration tests)
   - repo: local
     hooks:
       - id: cargo-test
         name: cargo test (unit tests)
-        entry: bash -c 'cargo test --lib --bins --workspace --exclude daq-egui'
+        entry: bash -c 'cargo test --lib --bins --workspace --exclude ui'
         language: system
         types: [rust]
         pass_filenames: false

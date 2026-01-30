@@ -12,7 +12,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # FFI-stable plugin API
-daq-plugin-api = { path = "../../../crates/daq-plugin-api" }
+plugin-api = { path = "../../../crates/plugin-api" }
 
 # abi_stable for FFI-safe types
 abi_stable = "0.11"

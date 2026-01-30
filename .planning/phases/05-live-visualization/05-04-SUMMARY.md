@@ -27,7 +27,7 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/daq-egui/src/panels/experiment_designer.rs
+    - crates/ui/src/panels/experiment_designer.rs
 
 key-decisions:
   - "Simple heuristic for detector classification: device_id containing 'camera'/'cam' = camera, else plot"
@@ -70,7 +70,7 @@ Each task was committed atomically:
 2. **Task 2: Integrate visualization lifecycle with execution** - `4489cac` (feat)
 
 ## Files Created/Modified
-- `crates/daq-egui/src/panels/experiment_designer.rs` - Added visualization panel fields, detector extraction, lifecycle integration
+- `crates/ui/src/panels/experiment_designer.rs` - Added visualization panel fields, detector extraction, lifecycle integration
 
 ## Decisions Made
 

@@ -6,7 +6,7 @@ This document maps all integration points between the PVCAM FFI bindings and the
 
 ## Overview
 
-The PVCAM driver (`daq-driver-pvcam`) provides Rust bindings for Teledyne's PVCAM C SDK, enabling control of Prime BSI and other Photometrics cameras. The integration uses a layered architecture with FFI bindings, a component layer, and trait implementations.
+The PVCAM driver (`driver-pvcam`) provides Rust bindings for Teledyne's PVCAM C SDK, enabling control of Prime BSI and other Photometrics cameras. The integration uses a layered architecture with FFI bindings, a component layer, and trait implementations.
 
 ### Key Design Principles
 
@@ -20,23 +20,23 @@ The PVCAM driver (`daq-driver-pvcam`) provides Rust bindings for Teledyne's PVCA
 
 ```
 pvcam-sys (FFI bindings via bindgen)
-    └── daq-driver-pvcam (driver implementation)
-            ├── daq-hardware (HAL integration)
+    └── driver-pvcam (driver implementation)
+            ├── hardware (HAL integration)
             ├── rust-daq (prelude re-export)
-            └── daq-egui (GUI integration)
+            └── ui (GUI integration)
 ```
 
 ### Import Graph
 
 | Crate | Import | Purpose |
 |-------|--------|---------|
-| `daq-hardware` | `daq_pvcam::PvcamDriver` | Hardware registry integration |
+| `hardware` | `daq_pvcam::PvcamDriver` | Hardware registry integration |
 | `rust-daq` | `daq_pvcam` | Prelude re-export |
-| `daq-egui` | `daq_pvcam::PvcamDriver` | GUI camera panel |
+| `ui` | `daq_pvcam::PvcamDriver` | GUI camera panel |
 
 ## Trait Implementation Matrix
 
-PvcamDriver implements the following capability traits from `daq-hardware`:
+PvcamDriver implements the following capability traits from `hardware`:
 
 | Trait | Status | Notes |
 |-------|--------|-------|
@@ -186,7 +186,7 @@ Actual values discovered on Prime BSI camera (2026-01-10):
 
 ## gRPC Integration
 
-The driver integrates with `daq-server` via `HardwareService`:
+The driver integrates with `server` via `HardwareService`:
 
 ```
 HardwareService

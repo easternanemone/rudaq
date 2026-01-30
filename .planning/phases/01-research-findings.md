@@ -22,7 +22,7 @@ Research confirms feasibility of DynExp-inspired GUI redesign using existing egu
 ### Crate Structure
 
 ```
-crates/daq-egui/
+crates/ui/
 ├── src/
 │   ├── lib.rs              # Library exports
 │   ├── main.rs             # Standalone GUI binary (rust-daq-gui)
@@ -456,7 +456,7 @@ impl WidgetState for RoiSelector {
 
 ## Dependency Version Audit
 
-### Current (`daq-egui/Cargo.toml`)
+### Current (`ui/Cargo.toml`)
 
 | Dependency | Current | Latest | Action Required |
 |------------|---------|--------|-----------------|

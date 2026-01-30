@@ -23,7 +23,7 @@ All hardware tests passed on maitai (Prime BSI camera):
 
 ### Recent Improvements Validated
 
-- **Zero-allocation frame pool** (`daq-pool` crate): Eliminates per-frame heap allocations
+- **Zero-allocation frame pool** (`pool` crate): Eliminates per-frame heap allocations
 - **Comprehensive debug logging**: `PVCAM_TRACE` and `PVCAM_TRACE_EVERY` environment variables
 - **Feature flag fixes**: `pvcam_hardware` feature now properly gates SDK calls
 - **SDK pattern compliance**: EOF callback matches official SDK examples
@@ -68,7 +68,7 @@ The PVCAM driver has been fully migrated to the V5 architecture:
 - [x] ~~Add Rust smoke test~~ - **DONE**: 61 hardware tests passing
 - [x] ~~Test continuous streaming performance over extended periods~~ - **DONE**: 47 frames @ 46.18 fps streaming test passed (2026-01-16)
 - [x] ~~Measure actual frame rates in production configuration~~ - **DONE**: ~46 fps at full resolution (2048x2048)
-- [x] ~~Add zero-allocation frame handling~~ - **DONE**: `daq-pool` crate with `BufferPool` (2026-01-16)
+- [x] ~~Add zero-allocation frame handling~~ - **DONE**: `pool` crate with `BufferPool` (2026-01-16)
 - [x] ~~Add comprehensive debug logging~~ - **DONE**: `PVCAM_TRACE` environment variable (2026-01-16)
 - gRPC real-world scenario specification: `crates/rust-daq/docs/reference/instruments/PVCAM_GRPC_REAL_WORLD_SCENARIO.md`
 

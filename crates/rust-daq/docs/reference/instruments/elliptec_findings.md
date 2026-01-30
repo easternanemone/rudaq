@@ -144,5 +144,5 @@ Use `Ell14Bus` instead for all new code.
 - Elliptec Protocol Manual: https://www.thorlabs.com/Software/Elliptec/Communications_Protocol/ELLx%20modules%20protocol%20manual_Issue7.pdf
 - Manual specs: 9600 baud, 8N1, no parity, no handshake
 - IN command response: 30-33 bytes depending on firmware version
-- Driver implementation: `crates/daq-hardware/src/drivers/ell14.rs`
+- Driver implementation: `crates/hardware/src/drivers/ell14.rs`
 - Hardware tests: `crates/rust-daq/tests/hardware_elliptec_validation.rs`

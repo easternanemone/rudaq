@@ -82,11 +82,11 @@ cargo run --bin rust-daq-daemon -- run examples/demo_scan.rhai
 
 | Tier | Crates | Purpose |
 |------|--------|---------|
-| **Core** | `common`, `daq-hardware` | Foundations: error handling, device traits, registry |
-| **Drivers** | `daq-driver-pvcam`, `daq-driver-*` | Hardware integrations |
-| **Engine** | `daq-experiment`, `daq-scripting` | Orchestration and automation |
-| **Interfaces** | `daq-server`, `daq-egui`, `daq-proto` | gRPC, GUI, and network protocol |
-| **Data** | `daq-storage`, `daq-pool` | Persistence and high-performance buffers |
+| **Core** | `common`, `hardware` | Foundations: error handling, device traits, registry |
+| **Drivers** | `driver-pvcam`, `driver-*` | Hardware integrations |
+| **Engine** | `experiment`, `scripting` | Orchestration and automation |
+| **Interfaces** | `server`, `ui`, `protocol` | gRPC, GUI, and network protocol |
+| **Data** | `storage`, `pool` | Persistence and high-performance buffers |
 
 Full architecture docs: [System Architecture](docs/architecture/ARCHITECTURE.md)
 
@@ -161,19 +161,19 @@ Full architecture docs: [System Architecture](docs/architecture/ARCHITECTURE.md)
 #### Quick Build (Mock Hardware)
 ```bash
 # Build daemon with mock devices (no external dependencies)
-cargo build -p daq-bin
+cargo build -p bin
 
 # Or with HDF5 support
-cargo build -p daq-bin --features storage_hdf5
+cargo build -p bin --features storage_hdf5
 
 # Or build GUI separately
-cargo build -p daq-egui --release
+cargo build -p ui --release
 ```
 
 #### Full Build (All Features)
 ```bash
 # Everything: all drivers, HDF5, server, scripting
-cargo build -p daq-bin --features "server,all_hardware,storage_hdf5,scripting_rhai"
+cargo build -p bin --features "server,all_hardware,storage_hdf5,scripting_rhai"
 ```
 
 #### Maitai Hardware Build
@@ -193,7 +193,7 @@ Start the daemon:
 
 ```bash
 # With mock devices (no hardware needed)
-cargo run -p daq-bin -- daemon --hardware-config config/demo.toml
+cargo run -p bin -- daemon --hardware-config config/demo.toml
 
 # With real hardware (Maitai)
 ./target/release/rust-daq-daemon daemon \
@@ -201,10 +201,10 @@ cargo run -p daq-bin -- daemon --hardware-config config/demo.toml
   --hardware-config config/maitai_hardware.toml
 
 # Run a script (while daemon is running in another terminal)
-cargo run -p daq-bin -- run examples/demo_scan.rhai
+cargo run -p bin -- run examples/demo_scan.rhai
 
 # Start GUI (connects to daemon)
-cargo run -p daq-egui --release -- --daemon-url http://localhost:50051
+cargo run -p ui --release -- --daemon-url http://localhost:50051
 ```
 
 ---
@@ -215,10 +215,10 @@ cargo run -p daq-egui --release -- --daemon-url http://localhost:50051
 
 ```bash
 # Terminal 1
-cargo run -p daq-bin -- daemon --hardware-config config/demo.toml
+cargo run -p bin -- daemon --hardware-config config/demo.toml
 
 # Terminal 2
-cargo run -p daq-bin -- run examples/demo_scan.rhai
+cargo run -p bin -- run examples/demo_scan.rhai
 ```
 
 Output shows mock stage moving, power meter readings, and camera frames acquired.
@@ -250,7 +250,7 @@ for position in scan_range {
 
 Run it:
 ```bash
-cargo run -p daq-bin -- run my_experiment.rhai
+cargo run -p bin -- run my_experiment.rhai
 ```
 
 ### 3. Use Python Bindings
@@ -277,10 +277,10 @@ print(f"Current position: {position}")
 
 ```bash
 # Terminal 1: Start daemon
-cargo run -p daq-bin -- daemon --hardware-config config/demo.toml
+cargo run -p bin -- daemon --hardware-config config/demo.toml
 
 # Terminal 2: Start GUI
-cargo run -p daq-egui --release
+cargo run -p ui --release
 ```
 
 In the GUI, click "Connect" and enter `http://localhost:50051`. You'll see:
@@ -301,7 +301,7 @@ cargo nextest run
 
 # Run specific crate tests
 cargo nextest run -p common
-cargo nextest run -p daq-hardware
+cargo nextest run -p hardware
 
 # Run with CI profile (includes retries for flaky tests)
 cargo nextest run --profile ci
@@ -340,11 +340,11 @@ See [Testing Guide](docs/guides/testing.md) for comprehensive testing documentat
 Each crate has detailed README with API examples:
 
 - [**common**](crates/common/README.md) - Foundation types, error handling, observable parameters
-- [**daq-hardware**](crates/daq-hardware/README.md) - HAL, device registry, driver factory
-- [**daq-scripting**](crates/daq-scripting/README.md) - Rhai engine integration
-- [**daq-egui**](crates/daq-egui/README.md) - Desktop GUI components
-- [**daq-server**](crates/daq-server/README.md) - gRPC server and client examples
-- [**daq-experiment**](crates/daq-experiment/README.md) - RunEngine and experiment orchestration
+- [**hardware**](crates/hardware/README.md) - HAL, device registry, driver factory
+- [**scripting**](crates/scripting/README.md) - Rhai engine integration
+- [**ui**](crates/ui/README.md) - Desktop GUI components
+- [**server**](crates/server/README.md) - gRPC server and client examples
+- [**experiment**](crates/experiment/README.md) - RunEngine and experiment orchestration
 
 ---
 
@@ -409,7 +409,7 @@ See [Hardware Drivers Guide](docs/guides/hardware-drivers.md) for patterns and e
 Build native plugins with the FFI layer:
 
 ```rust
-use daq_plugin_api::prelude::*;
+use plugin_api::prelude::*;
 
 #[plugin_entry]
 pub fn create_plugin() -> Box<dyn Plugin> {
@@ -430,7 +430,7 @@ See [Plugin Quick Start](docs/plugins/QUICK_START.md).
 
 ```bash
 # Check available features
-cargo build -p daq-bin --features ?
+cargo build -p bin --features ?
 
 # Use env-check.sh on maitai
 source scripts/env-check.sh
@@ -447,10 +447,10 @@ bash scripts/build-maitai.sh
 cat config/maitai_hardware.toml
 
 # Verify build includes real drivers
-cargo build -p daq-bin --features pvcam_hardware,thorlabs,newport
+cargo build -p bin --features pvcam_hardware,thorlabs,newport
 
 # Check daemon log for device registration
-cargo run -p daq-bin -- daemon --hardware-config config/demo.toml 2>&1 | grep "Registered"
+cargo run -p bin -- daemon --hardware-config config/demo.toml 2>&1 | grep "Registered"
 ```
 
 ### Connection Issues

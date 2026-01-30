@@ -1,10 +1,10 @@
-# daq-scripting
+# scripting
 
 Embedded scripting engine for rust-daq experiments and automation using Rhai (pure Rust).
 
 ## Overview
 
-`daq-scripting` provides a safe, sandboxed scripting environment for controlling hardware devices and orchestrating complex experimental sequences. Scripts are written in Rhai—a dynamically-typed embedded language with zero external dependencies.
+`scripting` provides a safe, sandboxed scripting environment for controlling hardware devices and orchestrating complex experimental sequences. Scripts are written in Rhai—a dynamically-typed embedded language with zero external dependencies.
 
 ### Why Rhai?
 
@@ -776,8 +776,8 @@ This ensures:
 
 ## Related Documentation
 
-- [daq-hardware README](../daq-hardware/README.md) - Hardware abstraction and driver patterns
-- [daq-experiment README](../daq-experiment/README.md) - Plan definitions and experiment execution
+- [hardware README](../hardware/README.md) - Hardware abstraction and driver patterns
+- [experiment README](../experiment/README.md) - Plan definitions and experiment execution
 - [docs/guides/scripting.md](../../docs/guides/scripting.md) - Scripting guide with examples
 - [Architecture: Script Execution Model](../../docs/architecture/adr-script-execution.md)
 

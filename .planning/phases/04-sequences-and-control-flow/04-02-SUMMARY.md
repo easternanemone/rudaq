@@ -27,8 +27,8 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - crates/daq-egui/src/widgets/property_inspector.rs
-    - crates/daq-egui/src/panels/experiment_designer.rs
+    - crates/ui/src/widgets/property_inspector.rs
+    - crates/ui/src/panels/experiment_designer.rs
 
 key-decisions:
   - "Stateless DeviceSelector usage (created per-render) instead of storing as field"
@@ -76,8 +76,8 @@ Each task was committed atomically:
 _Note: Tasks 2 and 3 were completed as part of Task 1 since the implementation naturally included all inspectors and wiring in a single coherent change._
 
 ## Files Created/Modified
-- `crates/daq-egui/src/widgets/property_inspector.rs` - Complete refactor with per-node-type inspector methods, DeviceSelector integration, ComboBox type selectors for Wait/Loop
-- `crates/daq-egui/src/panels/experiment_designer.rs` - Added device_ids parameter to PropertyInspector::show() call with TODO for async fetch
+- `crates/ui/src/widgets/property_inspector.rs` - Complete refactor with per-node-type inspector methods, DeviceSelector integration, ComboBox type selectors for Wait/Loop
+- `crates/ui/src/panels/experiment_designer.rs` - Added device_ids parameter to PropertyInspector::show() call with TODO for async fetch
 
 ## Decisions Made
 

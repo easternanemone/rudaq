@@ -399,7 +399,7 @@ ssh maitai@100.117.5.12 'source /etc/profile.d/pvcam.sh && \
   export PVCAM_SDK_DIR=/opt/pvcam/sdk && \
   export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH && \
   export LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:$LD_LIBRARY_PATH && \
-  cd ~/rust-daq && cargo test --release -p daq-driver-pvcam --features pvcam_sdk \
+  cd ~/rust-daq && cargo test --release -p driver-pvcam --features pvcam_sdk \
     --test <test_name> -- --nocapture --test-threads=1'
 ```
 

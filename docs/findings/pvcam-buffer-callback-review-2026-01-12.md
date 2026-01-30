@@ -8,10 +8,10 @@
 - Metadata decoding and extensive validation in the Rust hot path add overhead absent in the C++ sample.
 
 ## Key Code References
-- Rust callback pattern: `crates/daq-driver-pvcam/src/components/acquisition.rs:369-416`
-- Rust buffer setup/start & callback registration: `crates/daq-driver-pvcam/src/components/acquisition.rs:1033-1161`
-- Rust circular buffer allocation & size: `crates/daq-driver-pvcam/src/components/acquisition.rs:1110-1154`
-- Rust frame drain (callback + FIFO fallback) and per-frame copy: `crates/daq-driver-pvcam/src/components/acquisition.rs:2346-2845` (copy at `sdk_bytes.to_vec()` around 2691-2704)
+- Rust callback pattern: `crates/driver-pvcam/src/components/acquisition.rs:369-416`
+- Rust buffer setup/start & callback registration: `crates/driver-pvcam/src/components/acquisition.rs:1033-1161`
+- Rust circular buffer allocation & size: `crates/driver-pvcam/src/components/acquisition.rs:1110-1154`
+- Rust frame drain (callback + FIFO fallback) and per-frame copy: `crates/driver-pvcam/src/components/acquisition.rs:2346-2845` (copy at `sdk_bytes.to_vec()` around 2691-2704)
 - C++ reference (SDK sample): `/opt/pvcam/sdk/examples/code_samples/src/LiveImage/LiveImage.cpp:21-63` (callback), `95-142` (buffer alloc/start), `143-206` (main loop wait/consume)
 
 ## Alignment with SDK Sample

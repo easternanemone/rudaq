@@ -16,11 +16,11 @@
 //!
 //! # Note
 //!
-//! This module re-exports from `daq-driver-mock` crate (bd-ha9c Driver Decoupling).
+//! This module re-exports from `driver-mock` crate (bd-ha9c Driver Decoupling).
 //! The standalone crate provides DriverFactory-based implementations.
 
-// Re-export all public items from daq-driver-mock
-pub use daq_driver_mock::{
+// Re-export all public items from driver-mock
+pub use driver_mock::{
     generate_test_pattern, MockCamera, MockCameraFactory, MockPowerMeter, MockPowerMeterFactory,
     MockStage, MockStageFactory,
 };

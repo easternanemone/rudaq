@@ -5,7 +5,7 @@ rule:
 message: "The V1 `crate::core::Instrument` trait is deprecated. Please use the V2 `common::Instrument` trait instead."
 severity: warning
 files:
-  - "crates/daq-hardware/src/"
+  - "crates/hardware/src/"
 ---
 id: use-v2-measurement
 language: rust

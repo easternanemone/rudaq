@@ -210,7 +210,7 @@
 - Use `pub use` to flatten API at module level
 - Hide implementation: keep driver modules private, expose via registry
 - Export types needed by users; hide internal structures
-- Example from `daq_driver_mock/lib.rs` (lines 38-44):
+- Example from `driver_mock/lib.rs` (lines 38-44):
   ```rust
   pub use mock_camera::{MockCamera, MockCameraFactory};
   pub use mock_power_meter::{MockPowerMeter, MockPowerMeterFactory};
@@ -227,7 +227,7 @@
 **Separation of Concerns:**
 - Test code (`#[cfg(test)]`) stays in same file, after implementation
 - Protocol definitions in separate `proto` crate (tonic/protobuf)
-- Driver implementations in dedicated crates (`daq-driver-*`)
+- Driver implementations in dedicated crates (`driver-*`)
 - Hardware abstraction traits in `common::capabilities`
 
 ## Async/Await Patterns

@@ -1,0 +1,26 @@
+[package]
+name = "driver-red-pitaya"
+version = "0.1.0"
+edition = "2021"
+description = "Red Pitaya FPGA-based PID controller driver for laser power stabilization"
+license = "MIT OR Apache-2.0"
+keywords = ["daq", "red-pitaya", "pid", "laser", "instrumentation"]
+
+[dependencies]
+common = { path = "../common" }
+anyhow.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "net", "io-util"] }
+tracing.workspace = true
+serde = { workspace = true, features = ["derive"] }
+toml.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[features]
+default = []
+
+[lints]
+workspace = true

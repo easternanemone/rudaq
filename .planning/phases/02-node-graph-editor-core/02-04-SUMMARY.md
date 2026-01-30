@@ -28,12 +28,12 @@ tech-stack:
     - "Status bar with auto-fading messages"
 key-files:
   created:
-    - crates/daq-egui/src/graph/serialization.rs
+    - crates/ui/src/graph/serialization.rs
   modified:
-    - crates/daq-egui/Cargo.toml (added rfd, chrono)
-    - crates/daq-egui/src/graph/mod.rs (added serialization export)
-    - crates/daq-egui/src/graph/viewer.rs (added node_errors HashMap)
-    - crates/daq-egui/src/panels/experiment_designer.rs (save/load UI, validation display)
+    - crates/ui/Cargo.toml (added rfd, chrono)
+    - crates/ui/src/graph/mod.rs (added serialization export)
+    - crates/ui/src/graph/viewer.rs (added node_errors HashMap)
+    - crates/ui/src/panels/experiment_designer.rs (save/load UI, validation display)
 decisions:
   - id: expgraph-extension
     summary: "Used .expgraph file extension for experiment graphs"
@@ -105,13 +105,13 @@ None significant. Implementation followed plan closely.
 ## Files Changed
 
 **Created (1 file):**
-- `crates/daq-egui/src/graph/serialization.rs` (65 lines) - GraphFile, save/load functions
+- `crates/ui/src/graph/serialization.rs` (65 lines) - GraphFile, save/load functions
 
 **Modified (4 files):**
-- `crates/daq-egui/Cargo.toml` (+2 deps) - rfd, chrono
-- `crates/daq-egui/src/graph/mod.rs` (+2 lines) - serialization export
-- `crates/daq-egui/src/graph/viewer.rs` (+25 lines) - node_errors, error methods
-- `crates/daq-egui/src/panels/experiment_designer.rs` (+120 lines) - file ops, validation display
+- `crates/ui/Cargo.toml` (+2 deps) - rfd, chrono
+- `crates/ui/src/graph/mod.rs` (+2 lines) - serialization export
+- `crates/ui/src/graph/viewer.rs` (+25 lines) - node_errors, error methods
+- `crates/ui/src/panels/experiment_designer.rs` (+120 lines) - file ops, validation display
 
 ## Commits
 

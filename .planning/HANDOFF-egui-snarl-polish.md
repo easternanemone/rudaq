@@ -22,12 +22,12 @@ All changes validated by **Gemini CLI** and **Codex CLI** - approved with minor 
 
 | File | Status | Description |
 |------|--------|-------------|
-| `crates/daq-egui/src/graph/viewer.rs` | Modified | Added `ui.push_id()` wrapper, `header_frame()` method |
-| `crates/daq-egui/src/panels/experiment_designer.rs` | Modified | Added `create_node_style()`, new imports |
+| `crates/ui/src/graph/viewer.rs` | Modified | Added `ui.push_id()` wrapper, `header_frame()` method |
+| `crates/ui/src/panels/experiment_designer.rs` | Modified | Added `create_node_style()`, new imports |
 
 ### Verification
 ```bash
-cargo check -p daq-egui  # Compiles successfully with warnings (pre-existing dead code)
+cargo check -p ui  # Compiles successfully with warnings (pre-existing dead code)
 ```
 
 ---
@@ -162,7 +162,7 @@ fn header_frame(&mut self, default: egui::Frame, node: NodeId, ...) -> egui::Fra
 
 ### Manual Testing
 ```bash
-cargo run -p daq-egui --bin rust-daq-gui
+cargo run -p ui --bin rust-daq-gui
 ```
 
 1. **Widget ID Isolation**:
@@ -188,8 +188,8 @@ cargo run -p daq-egui --bin rust-daq-gui
 ### To Commit These Changes
 ```bash
 # Stage the modified files
-git add crates/daq-egui/src/graph/viewer.rs
-git add crates/daq-egui/src/panels/experiment_designer.rs
+git add crates/ui/src/graph/viewer.rs
+git add crates/ui/src/panels/experiment_designer.rs
 git add .planning/HANDOFF-egui-snarl-polish.md
 
 # Commit with conventional commit message
@@ -213,7 +213,7 @@ git push
 ```bash
 # After committing base changes, create follow-up commit
 # Edit viewer.rs:547-568 to use node_state() helper (see code above)
-git add crates/daq-egui/src/graph/viewer.rs
+git add crates/ui/src/graph/viewer.rs
 git commit -m "refactor(egui): use node_state() helper in header_frame
 
 Adds Completed state (blue) header coloring.

@@ -28,7 +28,7 @@ The core technology stack leverages rust-daq's existing egui ecosystem while add
 - **tokio 1.36+**: Already integrated async runtime. Handles RunEngine execution, progress updates via channels, background validation.
 
 **Optional enhancements:**
-- **egui-async 0.1+**: Simplifies async task management across egui frames. Young crate (2025), evaluate vs manual tokio::sync::mpsc pattern already proven in daq-egui.
+- **egui-async 0.1+**: Simplifies async task management across egui frames. Young crate (2025), evaluate vs manual tokio::sync::mpsc pattern already proven in ui.
 - **tera 1.20+**: Template-based code generation if string interpolation becomes complex. Runtime loading supports customizable script templates.
 
 ### Expected Features
@@ -39,7 +39,7 @@ Scientific experiment design systems split between code-first (Bluesky, labscrip
 - **Parameter Scans (1D/2D)**: Core use case across all systems. Grid, linear, list-based sweeps with motor/laser/voltage control while acquiring detector data.
 - **Pause/Resume/Abort**: Interactive control essential for recovering from errors. Bluesky's checkpoint-based system is gold standard. rust-daq RunEngine already has Checkpoint support.
 - **Live Plotting**: Real-time visual feedback separates DAQ from batch processing. All modern systems have this. Challenge: high-FPS camera streams require downsampling.
-- **Auto-Save to Disk**: Stream to HDF5/CSV during acquisition. Data loss = career catastrophe in science. daq-storage already supports this.
+- **Auto-Save to Disk**: Stream to HDF5/CSV during acquisition. Data loss = career catastrophe in science. storage already supports this.
 - **Device Discovery**: List available motors/detectors from DeviceRegistry. Capability trait filtering (Movable, Readable, FrameProducer).
 - **Metadata Capture**: Reproducibility requirement. Auto-capture: timestamp, user, hostname, git commit. User-provided: sample ID, conditions, notes. REPRODUCE-ME model: Data, Agent, Activity, Plan, Step, Setting, Instrument, Material.
 - **Run History**: Browse past experiments, view parameters, rerun. StartDoc/StopDoc already tracked by RunEngine.
@@ -65,7 +65,7 @@ Scientific experiment design systems split between code-first (Bluesky, labscrip
 Visual experiment design follows three-layer architecture with strict separation: Presentation (node graph editor), Intermediate Representation (JSON graph structure), and Execution Backend (Plan translation and RunEngine integration). Visual graph is source of truth, code is export-only for inspection.
 
 **Major components:**
-1. **Node Graph Editor (daq-egui module)**: egui-snarl for visual manipulation. Node palette with categorized plan types (0d, 1d, 2d, control flow). Connection type enforcement. Parameter inspector panels. Undo/redo via Command pattern. Serialization to JSON on save.
+1. **Node Graph Editor (ui module)**: egui-snarl for visual manipulation. Node palette with categorized plan types (0d, 1d, 2d, control flow). Connection type enforcement. Parameter inspector panels. Undo/redo via Command pattern. Serialization to JSON on save.
 
 2. **Intermediate Representation (IR)**: JSON format with version, metadata, nodes (id, type, parameters, device_bindings, position), edges (source/target nodes and ports). Validation rules: acyclic, type compatibility, device existence, required ports connected. Human-readable diffs in version control.
 
@@ -110,7 +110,7 @@ Based on research, experiment design should be built in iterative phases that es
 
 ### Phase 1: Form-Based Scan Builder (Foundation - 2 weeks)
 
-**Rationale:** Validate core workflow (device discovery → scan config → execution → live plot → save) with minimal complexity before investing in node graph editor. Many users comfortable with forms (PyMoDAQ, ScopeFoundry pattern). Establishes integration points with existing RunEngine, DeviceRegistry, daq-storage.
+**Rationale:** Validate core workflow (device discovery → scan config → execution → live plot → save) with minimal complexity before investing in node graph editor. Many users comfortable with forms (PyMoDAQ, ScopeFoundry pattern). Establishes integration points with existing RunEngine, DeviceRegistry, storage.
 
 **Delivers:**
 - Device discovery panel listing available Movable/Readable devices from registry
@@ -348,7 +348,7 @@ Research quality across all four files (STACK, FEATURES, ARCHITECTURE, PITFALLS)
 
 **egui-snarl custom rendering (MEDIUM confidence):** Research confirms egui-snarl supports custom node rendering via Viewer trait, but specific patterns for multi-port nodes, validation feedback, execution state highlighting not documented. Low risk: can fall back to default rendering with parameter panels if custom rendering proves complex. Verify during Phase 2 planning.
 
-**Hardware state snapshot format (LOW confidence):** Provenance capture requires snapshotting device configurations, but optimal format unclear. Options: TOML (matches hardware_config.toml), JSON (matches IR format), custom format. Low impact: affects metadata structure but not core functionality. Decide during Phase 4 planning based on daq-storage integration.
+**Hardware state snapshot format (LOW confidence):** Provenance capture requires snapshotting device configurations, but optimal format unclear. Options: TOML (matches hardware_config.toml), JSON (matches IR format), custom format. Low impact: affects metadata structure but not core functionality. Decide during Phase 4 planning based on storage integration.
 
 **Nested scan data dimensionality (LOW confidence):** 3D/4D nested scans create complex data structures (wavelength × XY position). Optimal HDF5 hierarchy unclear (flat vs nested groups). Low risk: defer to Phase 5, extensive precedent in scientific HDF5 usage. Can follow existing patterns from scipy/h5py.
 

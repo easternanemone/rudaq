@@ -1,7 +1,7 @@
 //! ESP300 Native Plugin
 //!
 //! This example demonstrates how to create a native Rust plugin for rust-daq using
-//! the `daq-plugin-api` crate with `abi_stable` for FFI safety.
+//! the `plugin-api` crate with `abi_stable` for FFI safety.
 //!
 //! # Features Demonstrated
 //!
@@ -32,7 +32,7 @@
 
 #![allow(clippy::new_without_default)]
 
-use daq_plugin_api::prelude::*;
+use plugin_api::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -322,7 +322,10 @@ impl Esp300Stage {
     /// This demonstrates how to implement the Movable capability.
     /// In a real implementation, this would send serial commands to the ESP300.
     pub fn move_abs(&self, position: f64) -> Result<(), String> {
-        let mut inner = self.inner.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
 
         if !inner.state.is_homed && !inner.mock_mode {
             return Err("Stage must be homed before moving".to_string());
@@ -364,7 +367,10 @@ impl Esp300Stage {
 
     /// Moves the stage by a relative distance.
     pub fn move_rel(&self, distance: f64) -> Result<(), String> {
-        let inner = self.inner.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
         let current = inner.state.position;
         drop(inner);
 
@@ -373,7 +379,10 @@ impl Esp300Stage {
 
     /// Returns the current position.
     pub fn position(&self) -> Result<f64, String> {
-        let inner = self.inner.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
 
         if inner.mock_mode {
             Ok(inner.state.position)
@@ -393,18 +402,17 @@ impl Esp300Stage {
                 return Err("Timeout waiting for motion to settle".to_string());
             }
 
-            let inner = self.inner.lock().map_err(|e| format!("Lock error: {}", e))?;
+            let inner = self
+                .inner
+                .lock()
+                .map_err(|e| format!("Lock error: {}", e))?;
 
             if !inner.state.is_moving {
                 // Update final position
                 let pos = inner.state.position;
                 drop(inner);
 
-                self.emit_event(
-                    "motion_complete",
-                    &format!("Settled at {:.3} mm", pos),
-                    1,
-                );
+                self.emit_event("motion_complete", &format!("Settled at {:.3} mm", pos), 1);
                 self.emit_data("position", &[("position".to_string(), pos)]);
 
                 return Ok(());
@@ -413,7 +421,10 @@ impl Esp300Stage {
             if inner.mock_mode {
                 // Mock mode: complete motion immediately
                 drop(inner);
-                let mut inner = self.inner.lock().map_err(|e| format!("Lock error: {}", e))?;
+                let mut inner = self
+                    .inner
+                    .lock()
+                    .map_err(|e| format!("Lock error: {}", e))?;
                 if let Some(target) = inner.state.target_position {
                     inner.state.position = target;
                 }
@@ -431,7 +442,10 @@ impl Esp300Stage {
 
     /// Stops motion immediately.
     pub fn stop_motion(&self) -> Result<(), String> {
-        let mut inner = self.inner.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
 
         info!("ESP300[{}]: Stopping motion", inner.axis);
 
@@ -453,7 +467,10 @@ impl Esp300Stage {
 
     /// Homes the stage (finds mechanical zero).
     pub fn home(&self) -> Result<(), String> {
-        let mut inner = self.inner.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
 
         info!("ESP300[{}]: Homing axis", inner.axis);
 
@@ -477,16 +494,22 @@ impl Esp300Stage {
 
     /// Serializes state for hot-reload.
     pub fn serialize_state(&self) -> Result<String, String> {
-        let inner = self.inner.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
         serde_json::to_string(&inner.state).map_err(|e| format!("Serialization error: {}", e))
     }
 
     /// Restores state after hot-reload.
     pub fn restore_state(&self, state_json: &str) -> Result<(), String> {
-        let state: Esp300State =
-            serde_json::from_str(state_json).map_err(|e| format!("Deserialization error: {}", e))?;
+        let state: Esp300State = serde_json::from_str(state_json)
+            .map_err(|e| format!("Deserialization error: {}", e))?;
 
-        let mut inner = self.inner.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
         inner.state = state;
 
         info!("ESP300: State restored from hot-reload");
@@ -521,7 +544,8 @@ impl ModuleFfi for Esp300Stage {
                 inner.port_path = value.to_string();
                 debug!("ESP300: Configured port_path = {}", value);
             }
-            self.config.insert(RString::from("port_path"), value.clone());
+            self.config
+                .insert(RString::from("port_path"), value.clone());
         }
 
         // Parse axis

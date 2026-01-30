@@ -56,7 +56,7 @@ cargo clean 2>/dev/null || true
 
 # Build with maitai profile (includes pvcam_hardware)
 echo "🔨 Building with maitai profile..."
-cargo build --release -p daq-bin --features maitai
+cargo build --release -p bin --features maitai
 
 echo ""
 echo "✅ Build complete!"

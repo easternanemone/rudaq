@@ -253,39 +253,39 @@ bd close bd-123 --reason "Completed"
 rust-daq/
 ├── crates/
 │   ├── common/        # Core types, traits, errors
-│   ├── daq-pool/        # Zero-allocation frame pooling
-│   ├── daq-hardware/    # Device registry, drivers
-│   ├── daq-storage/     # Ring buffers, file writers
-│   ├── daq-experiment/  # Plans, RunEngine, documents
-│   ├── daq-scripting/   # Rhai scripting integration
-│   ├── daq-server/      # gRPC services
-│   ├── daq-bin/         # CLI and daemon
-│   ├── daq-egui/        # GUI application
-│   └── daq-driver-*/    # Hardware drivers
+│   ├── pool/        # Zero-allocation frame pooling
+│   ├── hardware/    # Device registry, drivers
+│   ├── storage/     # Ring buffers, file writers
+│   ├── experiment/  # Plans, RunEngine, documents
+│   ├── scripting/       # Rhai scripting integration
+│   ├── server/          # gRPC services
+│   ├── bin/             # CLI and daemon
+│   ├── ui/              # GUI application
+│   └── driver-*/        # Hardware drivers
 ```
 
 ### Key Abstractions
 
 1. **Capability Traits** (`common`): `Movable`, `Readable`, `FrameProducer`
 2. **Parameter System** (`common`): Reactive parameters with hardware sync
-3. **Device Registry** (`daq-hardware`): Central device management
-4. **Plans** (`daq-experiment`): Declarative experiment sequences
-5. **Document Model** (`daq-experiment`): Bluesky-style structured metadata
+3. **Device Registry** (`hardware`): Central device management
+4. **Plans** (`experiment`): Declarative experiment sequences
+5. **Document Model** (`experiment`): Bluesky-style structured metadata
 
 ### Adding a New Driver
 
 See `docs/architecture/NEWCOMER_GUIDE.md` for detailed instructions.
 
 Quick summary:
-1. Create a new crate `daq-driver-mydevice`
+1. Create a new crate `driver-mydevice`
 2. Implement capability traits (`Movable`, `Readable`, etc.)
 3. Implement `DriverFactory` for registration
-4. Add to `daq-drivers` for automatic registration
+4. Add to `drivers` for automatic registration
 
 ## Getting Help
 
 - **Documentation**: `docs/` directory
-- **Examples**: `crates/daq-examples/examples/`
+- **Examples**: `crates/examples/examples/`
 - **Issues**: Use `bd` to check and create issues
 
 ## License

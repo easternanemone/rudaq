@@ -102,7 +102,7 @@ message UploadRequest {
 ## 6. Migration Strategy
 
 ### Phase 1: Critical Path (Manual Trait)
-1.  Define `trait ValidateRequest` in `daq-server/src/grpc/validation.rs`.
+1.  Define `trait ValidateRequest` in `server/src/grpc/validation.rs`.
 2.  Implement for `HardwareService` requests (`MoveRequest`, `SetExposureRequest`).
 3.  Add calls to `req.validate()?` in `hardware_service.rs`.
 

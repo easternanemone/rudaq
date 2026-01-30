@@ -25,7 +25,7 @@ The established libraries/tools for node graph editors in egui:
 |---------|---------|---------|--------------|
 | egui-snarl | 0.9.0 (2026-01) | Node graph UI with trait-based customization | Actively maintained, typed nodes, serde support, beautiful wires |
 | undo | 3.x | Command pattern for undo/redo | Standard Rust undo library, Record + History structures |
-| egui | 0.33 | Immediate-mode GUI framework | Already used in daq-egui |
+| egui | 0.33 | Immediate-mode GUI framework | Already used in ui |
 | serde/serde_json | 1.0 | Graph serialization | De facto Rust serialization standard |
 
 ### Supporting
@@ -46,14 +46,14 @@ The established libraries/tools for node graph editors in egui:
 ```bash
 cargo add egui-snarl --features serde
 cargo add undo
-# egui, serde already present in daq-egui
+# egui, serde already present in ui
 ```
 
 ## Architecture Patterns
 
 ### Recommended Project Structure
 ```
-crates/daq-egui/src/
+crates/ui/src/
 ├── panels/
 │   └── experiment_designer.rs    # Main panel with egui-snarl integration
 ├── graph/

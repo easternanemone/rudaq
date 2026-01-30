@@ -2,7 +2,7 @@
 phase: 03-plan-translation-and-execution
 plan: 01
 subsystem: ui
-tags: [egui, grpc, graph-translation, cycle-detection, daq-experiment]
+tags: [egui, grpc, graph-translation, cycle-detection, experiment]
 
 # Dependency graph
 requires:
@@ -16,18 +16,18 @@ affects: [03-02, 03-03, 04-live-editing]
 
 # Tech tracking
 tech-stack:
-  added: [daq-experiment dependency in daq-egui]
+  added: [experiment dependency in ui]
   patterns: [topological sort with Kahn's algorithm for cycle detection, graph-to-plan translation]
 
 key-files:
   created:
-    - crates/daq-egui/src/graph/translation.rs
+    - crates/ui/src/graph/translation.rs
   modified:
-    - crates/daq-egui/src/client.rs
-    - crates/daq-egui/src/graph/mod.rs
-    - crates/daq-egui/src/graph/validation.rs
-    - crates/daq-egui/src/panels/experiment_designer.rs
-    - crates/daq-egui/Cargo.toml
+    - crates/ui/src/client.rs
+    - crates/ui/src/graph/mod.rs
+    - crates/ui/src/graph/validation.rs
+    - crates/ui/src/panels/experiment_designer.rs
+    - crates/ui/Cargo.toml
 
 key-decisions:
   - "Use Kahn's algorithm for cycle detection (standard, efficient O(V+E))"
@@ -71,28 +71,28 @@ Each task was committed atomically:
 3. **Task 3: Integrate cycle detection into graph validation** - `076ab1b8` (feat)
 
 ## Files Created/Modified
-- `crates/daq-egui/src/graph/translation.rs` - GraphPlan translation from Snarl to PlanCommands with cycle detection
-- `crates/daq-egui/src/client.rs` - Added pause_engine, resume_engine, get_engine_status methods
-- `crates/daq-egui/src/graph/mod.rs` - Export GraphPlan, TranslationError, detect_cycles, validate_graph_structure
-- `crates/daq-egui/src/graph/validation.rs` - Added validate_graph_structure() with Kahn's algorithm
-- `crates/daq-egui/src/panels/experiment_designer.rs` - Integrated cycle detection into validate_graph()
-- `crates/daq-egui/Cargo.toml` - Added daq-experiment dependency for Plan trait
+- `crates/ui/src/graph/translation.rs` - GraphPlan translation from Snarl to PlanCommands with cycle detection
+- `crates/ui/src/client.rs` - Added pause_engine, resume_engine, get_engine_status methods
+- `crates/ui/src/graph/mod.rs` - Export GraphPlan, TranslationError, detect_cycles, validate_graph_structure
+- `crates/ui/src/graph/validation.rs` - Added validate_graph_structure() with Kahn's algorithm
+- `crates/ui/src/panels/experiment_designer.rs` - Integrated cycle detection into validate_graph()
+- `crates/ui/Cargo.toml` - Added experiment dependency for Plan trait
 
 ## Decisions Made
 - **Kahn's algorithm for cycle detection:** Standard topological sort algorithm, O(V+E) complexity, clear cycle detection when sorted count != node count
 - **Display cycle error on first node:** Prevents overwhelming user with multiple errors; single error communicates the issue clearly
 - **Skip per-node validation on cycle:** Cycles make execution impossible, so per-node errors are secondary
-- **Add daq-experiment dependency:** Required for Plan trait; kept as direct dependency (not optional) since graph translation is core feature
+- **Add experiment dependency:** Required for Plan trait; kept as direct dependency (not optional) since graph translation is core feature
 
 ## Deviations from Plan
 
 ### Auto-fixed Issues
 
-**1. [Rule 3 - Blocking] Added daq-experiment dependency**
+**1. [Rule 3 - Blocking] Added experiment dependency**
 - **Found during:** Task 2 (GraphPlan implementation)
-- **Issue:** daq-experiment not in daq-egui dependencies, causing compilation error on Plan trait import
-- **Fix:** Added `daq-experiment = { path = "../daq-experiment" }` to Cargo.toml
-- **Files modified:** crates/daq-egui/Cargo.toml, Cargo.lock
+- **Issue:** experiment not in ui dependencies, causing compilation error on Plan trait import
+- **Fix:** Added `experiment = { path = "../experiment" }` to Cargo.toml
+- **Files modified:** crates/ui/Cargo.toml, Cargo.lock
 - **Verification:** Build succeeds, translation module compiles
 - **Committed in:** fccc0a6c (Task 2 commit)
 

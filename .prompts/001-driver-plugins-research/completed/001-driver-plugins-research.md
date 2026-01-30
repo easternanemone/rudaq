@@ -23,14 +23,14 @@ Output: driver-plugins-research.md with structured findings
 This research is for the rust-daq project - a Rust-based data acquisition system for scientific instrumentation.
 
 Current driver architecture:
-@crates/daq-hardware/src/drivers/ell14.rs (Thorlabs ELL14 rotators)
-@crates/daq-hardware/src/drivers/esp300.rs (Newport ESP300 motion controller)
-@crates/daq-hardware/src/drivers/maitai.rs (Spectra-Physics MaiTai laser)
-@crates/daq-hardware/src/drivers/newport_1830c.rs (Newport 1830-C power meter)
-@crates/daq-driver-pvcam/ (Photometrics PVCAM camera)
+@crates/hardware/src/drivers/ell14.rs (Thorlabs ELL14 rotators)
+@crates/hardware/src/drivers/esp300.rs (Newport ESP300 motion controller)
+@crates/hardware/src/drivers/maitai.rs (Spectra-Physics MaiTai laser)
+@crates/hardware/src/drivers/newport_1830c.rs (Newport 1830-C power meter)
+@crates/driver-pvcam/ (Photometrics PVCAM camera)
 
 Capability traits:
-@crates/daq-hardware/src/capabilities.rs (Movable, Readable, FrameProducer, etc.)
+@crates/hardware/src/capabilities.rs (Movable, Readable, FrameProducer, etc.)
 
 The goal is to replace hand-coded Rust drivers with a declarative system where:
 1. Device protocols are defined in TOML/YAML config files

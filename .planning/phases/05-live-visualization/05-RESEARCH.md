@@ -54,7 +54,7 @@ egui_plot = "0.34"
 
 ### Recommended Project Structure
 ```
-crates/daq-egui/src/
+crates/ui/src/
 ├── panels/
 │   ├── image_viewer.rs          # Camera frame display (exists)
 │   ├── scan_builder.rs          # Live plot updates (exists)
@@ -541,9 +541,9 @@ Things that couldn't be fully resolved:
 - egui_plot official docs: https://docs.rs/egui_plot/latest/egui_plot/struct.Plot.html
 - egui_extras official docs: https://docs.rs/egui_extras (StripBuilder)
 - Existing rust-daq codebase:
-  - `crates/daq-egui/src/panels/image_viewer.rs` (lines 1-880) - Complete implementation
-  - `crates/daq-egui/src/panels/scan_builder.rs` (lines 634-682) - Live plot updates
-  - `crates/daq-proto/proto/daq.proto` (lines 574-589) - gRPC streaming with quality modes
+  - `crates/ui/src/panels/image_viewer.rs` (lines 1-880) - Complete implementation
+  - `crates/ui/src/panels/scan_builder.rs` (lines 634-682) - Live plot updates
+  - `crates/protocol/proto/daq.proto` (lines 574-589) - gRPC streaming with quality modes
 
 ### Secondary (MEDIUM confidence)
 - Colormap perceptual uniformity: https://cran.r-project.org/web/packages/viridis/vignettes/intro-to-viridis.html
@@ -572,7 +572,7 @@ Things that couldn't be fully resolved:
 - ✅ Image texture management with `.set()` pattern (image_viewer.rs)
 - ✅ Background RGBA conversion with buffer recycling (image_viewer.rs:819-880)
 - ✅ Colormap LUTs (Grayscale, Viridis, Inferno, Plasma, Magma) (image_viewer.rs:344-420)
-- ✅ gRPC frame streaming with quality modes and backpressure (daq-proto, daq-server)
+- ✅ gRPC frame streaming with quality modes and backpressure (protocol, server)
 - ✅ Live plot updates with mpsc channels (scan_builder.rs, signal_plotter.rs)
 - ✅ Execution state tracking (ExecutionState in graph/execution_state.rs, Phase 3)
 - ✅ egui_extras::StripBuilder available via 'standalone' feature

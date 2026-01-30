@@ -29,13 +29,13 @@ rust-daq is a Rust-based data acquisition system with V5 headless-first architec
 ### Crate Structure
 
 - `crates/common/` - Domain types, parameters, error handling
-- `crates/daq-hardware/` - HAL, capability traits, drivers
-- `crates/daq-driver-pvcam/` - PVCAM camera driver
-- `crates/daq-proto/` - Protobuf definitions
-- `crates/daq-server/` - gRPC server implementation
-- `crates/daq-storage/` - Data persistence (CSV, HDF5, Arrow)
-- `crates/daq-egui/` - GUI application using egui
-- `crates/daq-experiment/` - RunEngine and Plan definitions
+- `crates/hardware/` - HAL, capability traits, drivers
+- `crates/driver-pvcam/` - PVCAM camera driver
+- `crates/protocol/` - Protobuf definitions
+- `crates/server/` - gRPC server implementation
+- `crates/storage/` - Data persistence (CSV, HDF5, Arrow)
+- `crates/ui/` - GUI application using egui
+- `crates/experiment/` - RunEngine and Plan definitions
 
 ### Key Patterns
 
