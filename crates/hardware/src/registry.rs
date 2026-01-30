@@ -84,6 +84,8 @@ use common::observable::ParameterMetadata;
 use common::pipeline::MeasurementSource;
 
 #[cfg(feature = "serial")]
+use crate::config::is_v2_manifest_path;
+#[cfg(feature = "serial")]
 use crate::plugin::driver::GenericDriver;
 // use crate::plugin::driver::{Connection, GenericDriver};
 // use crate::plugin::schema::{DriverType, InstrumentConfig, PluginMetadata, ScriptType};
@@ -132,6 +134,30 @@ pub fn validate_driver_config(driver: &DriverType) -> Result<(), DaqError> {
                 return Err(DaqError::Configuration(format!(
                     "Invalid ESP300 axis: {}. Must be 1-3",
                     axis
+                )));
+            }
+        }
+
+        #[cfg(feature = "serial")]
+        DriverType::GenericScpi { port, manifest, .. }
+        | DriverType::DeclarativeScpi { port, manifest, .. } => {
+            validate_serial_port(port, "Declarative SCPI device")?;
+            if manifest.trim().is_empty() {
+                return Err(DaqError::Configuration(
+                    "SCPI manifest path cannot be empty".to_string(),
+                ));
+            }
+            let path = std::path::Path::new(manifest);
+            if !path.exists() {
+                return Err(DaqError::Configuration(format!(
+                    "SCPI manifest path does not exist: {}",
+                    manifest
+                )));
+            }
+            if !is_v2_manifest_path(path) {
+                return Err(DaqError::Configuration(format!(
+                    "SCPI manifest must end with .scpi.toml or .declarative_scpi.toml: {}",
+                    manifest
                 )));
             }
         }
@@ -346,6 +372,38 @@ pub enum DriverType {
         axis: u8,
     },
 
+    /// Generic SCPI driver (v2 declarative manifest)
+    #[cfg(feature = "serial")]
+    #[serde(rename = "generic_scpi")]
+    GenericScpi {
+        /// Serial port path (e.g., "/dev/ttyUSB0")
+        port: String,
+        /// Device address (optional for SCPI)
+        #[serde(default = "default_scpi_address")]
+        address: String,
+        /// Optional baud rate override
+        #[serde(default)]
+        baud_rate: Option<u32>,
+        /// Path to the v2 manifest (schema_version = 2)
+        manifest: String,
+    },
+
+    /// Declarative SCPI driver (v2 declarative manifest)
+    #[cfg(feature = "serial")]
+    #[serde(rename = "declarative_scpi")]
+    DeclarativeScpi {
+        /// Serial port path (e.g., "/dev/ttyUSB0")
+        port: String,
+        /// Device address (optional for SCPI)
+        #[serde(default = "default_scpi_address")]
+        address: String,
+        /// Optional baud rate override
+        #[serde(default)]
+        baud_rate: Option<u32>,
+        /// Path to the v2 manifest (schema_version = 2)
+        manifest: String,
+    },
+
     /// Mock stage for testing (always available)
     MockStage {
         /// Initial position
@@ -428,6 +486,11 @@ fn default_mock_camera_height() -> u32 {
     480
 }
 
+#[cfg(feature = "serial")]
+fn default_scpi_address() -> String {
+    "0".to_string()
+}
+
 impl DriverType {
     /// Get the capabilities this driver type provides
     pub fn capabilities(&self) -> Vec<Capability> {
@@ -448,6 +511,10 @@ impl DriverType {
             DriverType::Ell14 { .. } => vec![Capability::Movable],
             #[cfg(feature = "serial")]
             DriverType::Esp300 { .. } => vec![Capability::Movable],
+            #[cfg(feature = "serial")]
+            DriverType::GenericScpi { .. } => vec![],
+            #[cfg(feature = "serial")]
+            DriverType::DeclarativeScpi { .. } => vec![],
             DriverType::MockStage { .. } => vec![Capability::Movable],
             DriverType::MockPowerMeter { .. } => vec![Capability::Readable],
             DriverType::MockCamera { .. } => vec![
@@ -493,6 +560,10 @@ impl DriverType {
             DriverType::Ell14 { .. } => "ell14",
             #[cfg(feature = "serial")]
             DriverType::Esp300 { .. } => "esp300",
+            #[cfg(feature = "serial")]
+            DriverType::GenericScpi { .. } => "generic_scpi",
+            #[cfg(feature = "serial")]
+            DriverType::DeclarativeScpi { .. } => "declarative_scpi",
             DriverType::MockStage { .. } => "mock_stage",
             DriverType::MockPowerMeter { .. } => "mock_power_meter",
             DriverType::MockCamera { .. } => "mock_camera",
@@ -1869,6 +1940,11 @@ impl DeviceRegistry {
             #[cfg(all(not(feature = "newport"), feature = "serial"))]
             DriverType::Esp300 { .. } => Err(anyhow!("ESP300 driver requires 'newport' feature")),
 
+            #[cfg(feature = "serial")]
+            DriverType::GenericScpi { .. } | DriverType::DeclarativeScpi { .. } => Err(anyhow!(
+                "Declarative SCPI devices must be registered via DriverFactory system"
+            )),
+
             // Factory-based Comedi drivers (must use factory registration)
             #[cfg(feature = "comedi")]
             DriverType::ComediAnalogInput { .. } => Err(anyhow!(
@@ -2487,6 +2563,20 @@ pub async fn register_all_factories(
         registry.register_factory(Box::new(ComediAnalogOutputFactory));
     }
 
+    // Register declarative SCPI factories (v2)
+    #[cfg(feature = "serial")]
+    {
+        use crate::factory::GenericScpiDriverFactory;
+        registry.register_factory(Box::new(GenericScpiDriverFactory::new(
+            "generic_scpi",
+            "Generic SCPI",
+        )));
+        registry.register_factory(Box::new(GenericScpiDriverFactory::new(
+            "declarative_scpi",
+            "Declarative SCPI",
+        )));
+    }
+
     // Load and register config-driven factories from TOML files
     #[cfg(feature = "serial")]
     if let Some(dir) = config_dir {
@@ -2507,10 +2597,114 @@ pub async fn register_all_factories(
                     );
                 }
             }
+
+            auto_register_v2_instances(registry, dir).await;
         }
     }
 
     Ok(())
+}
+
+async fn auto_register_v2_instances(registry: &DeviceRegistry, dir: &std::path::Path) {
+    tracing::info!(
+        config_dir = %dir.display(),
+        "Auto-registering v2 SCPI instances (ensure directory is trusted)"
+    );
+
+    let dir = dir.to_path_buf();
+    let scan_dir = dir.clone();
+    let discovered = tokio::task::spawn_blocking(move || -> Result<_, String> {
+        let mut manifests = Vec::new();
+        let entries = std::fs::read_dir(&scan_dir).map_err(|e| e.to_string())?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !is_v2_manifest_path(&path) {
+                continue;
+            }
+            match crate::config::load_device_manifest_v2(&path) {
+                Ok(manifest) => manifests.push((path, manifest)),
+                Err(e) => {
+                    tracing::warn!("Failed to load v2 manifest {}: {}", path.display(), e);
+                }
+            }
+        }
+        Ok(manifests)
+    })
+    .await;
+
+    let manifests = match discovered {
+        Ok(Ok(manifests)) => manifests,
+        Ok(Err(err)) => {
+            tracing::warn!(
+                "Failed to read config directory for v2 manifests {}: {}",
+                dir.display(),
+                err
+            );
+            return;
+        }
+        Err(err) => {
+            tracing::warn!(
+                "Failed to spawn v2 manifest scan task for {}: {}",
+                dir.display(),
+                err
+            );
+            return;
+        }
+    };
+
+    for (path, manifest) in manifests {
+        for instance in &manifest.instances {
+            if instance.disable {
+                tracing::debug!(
+                    manifest = %path.display(),
+                    device_id = %instance.id,
+                    "Skipping disabled v2 instance"
+                );
+                continue;
+            }
+
+            let driver_type = instance.driver_type.as_deref().unwrap_or("generic_scpi");
+
+            let instance_config = crate::factory::GenericScpiInstanceConfig {
+                port: instance.port.clone(),
+                address: instance.address.clone(),
+                baud_rate: instance.baud_rate,
+                manifest: path.display().to_string(),
+            };
+
+            let toml_config = match toml::Value::try_from(instance_config) {
+                Ok(value) => value,
+                Err(e) => {
+                    tracing::warn!(
+                        manifest = %path.display(),
+                        device_id = %instance.id,
+                        "Failed to serialize v2 instance config: {}",
+                        e
+                    );
+                    continue;
+                }
+            };
+
+            tracing::info!(
+                manifest = %path.display(),
+                device_id = %instance.id,
+                driver_type = %driver_type,
+                "Auto-registering v2 instance"
+            );
+
+            if let Err(e) = registry
+                .register_from_toml(&instance.id, &instance.name, driver_type, toml_config)
+                .await
+            {
+                tracing::warn!(
+                    manifest = %path.display(),
+                    device_id = %instance.id,
+                    "Failed to register v2 instance: {}",
+                    e
+                );
+            }
+        }
+    }
 }
 
 // =============================================================================
@@ -2520,6 +2714,29 @@ pub async fn register_all_factories(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common::driver::{DeviceComponents, DriverFactory};
+    use futures::future::BoxFuture;
+    use tempfile::tempdir;
+
+    struct NoopScpiFactory;
+
+    impl DriverFactory for NoopScpiFactory {
+        fn driver_type(&self) -> &'static str {
+            "generic_scpi"
+        }
+
+        fn name(&self) -> &'static str {
+            "Noop SCPI"
+        }
+
+        fn validate(&self, _config: &toml::Value) -> Result<()> {
+            Ok(())
+        }
+
+        fn build(&self, _config: toml::Value) -> BoxFuture<'static, Result<DeviceComponents>> {
+            Box::pin(async { Ok(DeviceComponents::default()) })
+        }
+    }
 
     #[test]
     fn test_mock_camera_deserializes_with_default_resolution() {
@@ -2606,6 +2823,54 @@ height = 240
 
         assert!(registry.get_movable("legacy_stage").is_some());
         assert!(registry.get_frame_producer("legacy_camera").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_auto_register_v2_instances() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("test_device.scpi.toml");
+        let manifest = r#"
+schema_version = 2
+name = "Auto Register Device"
+version = "1.0.0"
+
+[connection]
+type = "serial"
+baud_rate = 9600
+terminator = "\n"
+timeout_ms = 1000
+
+[commands.read_value]
+template = "READ?"
+query = true
+response_type = "float"
+
+[capabilities.readable]
+read = "read_value"
+
+[[instances]]
+id = "v2_enabled"
+name = "Auto Register Device"
+port = "/dev/ttyUSB0"
+address = "0"
+
+[[instances]]
+id = "v2_disabled"
+name = "Auto Register Disabled"
+port = "/dev/ttyUSB1"
+address = "0"
+disable = true
+"#;
+
+        std::fs::write(&manifest_path, manifest).unwrap();
+
+        let registry = DeviceRegistry::new();
+        registry.register_factory(Box::new(NoopScpiFactory));
+
+        auto_register_v2_instances(&registry, dir.path()).await;
+
+        assert!(registry.contains("v2_enabled"));
+        assert!(!registry.contains("v2_disabled"));
     }
 
     #[tokio::test]

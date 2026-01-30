@@ -1,0 +1,48 @@
+schema_version = 2
+name = "Newport ESP300"
+version = "1.0.0"
+
+[connection]
+type = "serial"
+baud_rate = 19200
+terminator = "\r\n"
+timeout_ms = 5000
+
+[commands.move_abs]
+template = "1PA {{ value }}"
+query = false
+response_type = "none"
+
+[commands.move_rel]
+template = "1PR {{ value }}"
+query = false
+response_type = "none"
+
+[commands.position]
+template = "1TP?"
+query = true
+response_type = "float"
+
+[commands.stop]
+template = "1ST"
+query = false
+response_type = "none"
+
+[commands.motion_done]
+template = "1MD?"
+query = true
+response_type = "boolean"
+
+[capabilities.movable]
+move_abs = "move_abs"
+move_rel = "move_rel"
+position = "position"
+stop = "stop"
+wait_settled = "motion_done"
+
+[[instances]]
+id = "esp300"
+name = "Newport ESP300"
+port = "/dev/ttyUSB0"
+address = "1"
+disable = true

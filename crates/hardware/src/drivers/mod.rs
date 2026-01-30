@@ -30,6 +30,9 @@ mod ell14_polling;
 #[cfg(feature = "serial")]
 pub mod generic_serial;
 
+// Declarative SCPI driver (v2 schema)
+#[cfg(feature = "serial")]
+pub mod generic_scpi;
 // Rhai scripting engine for config-driven drivers
 #[cfg(feature = "scripting")]
 pub mod script_engine;
@@ -37,9 +40,16 @@ pub mod script_engine;
 // Binary protocol support (Modbus RTU, etc.)
 pub mod binary_protocol;
 
+// Declarative SCPI parsing helpers (v2)
+pub mod parsing;
+
 // Re-export key types from generic_serial
 #[cfg(feature = "serial")]
 pub use generic_serial::{DynSerial, GenericSerialDriver, SharedPort};
+
+// Re-export SCPI driver types
+#[cfg(feature = "serial")]
+pub use generic_scpi::{GenericScpiDriver, SharedDeviceIo};
 
 // Re-export scripting types when enabled
 #[cfg(feature = "scripting")]

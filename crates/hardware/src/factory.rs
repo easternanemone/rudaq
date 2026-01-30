@@ -32,8 +32,9 @@
 // Traits used by enum_dispatch macro expansion
 #[allow(unused_imports)]
 use crate::capabilities::{Movable, Readable, ShutterControl, WavelengthTunable};
-use crate::config::load_device_config;
 use crate::config::schema::DeviceConfig;
+use crate::config::{load_device_config, load_device_manifest_v2, ConnectionConfigV2};
+use crate::drivers::generic_scpi::{GenericScpiDriver, SharedDeviceIo};
 use crate::drivers::generic_serial::{GenericSerialDriver, SharedPort};
 use anyhow::{anyhow, Context, Result};
 use common::driver::{
@@ -43,6 +44,7 @@ use enum_dispatch::enum_dispatch;
 use futures::future::BoxFuture;
 use std::path::Path;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 // =============================================================================
 // ConfiguredDriver Enum
@@ -473,10 +475,10 @@ pub struct GenericSerialDriverFactory {
     capabilities: Vec<CoreCapability>,
 
     /// Driver type string (from device protocol)
-    driver_type: String,
+    driver_type: &'static str,
 
     /// Human-readable name
-    name: String,
+    name: &'static str,
 
     /// Optional shared port cache for RS-485 bus sharing
     /// Map from port path -> shared port
@@ -490,8 +492,15 @@ impl GenericSerialDriverFactory {
     /// The factory extracts the driver type from the device protocol
     /// and capabilities from the device config.
     pub fn new(device_config: DeviceConfig) -> Self {
-        let driver_type = device_config.device.protocol.to_lowercase();
-        let name = device_config.device.name.clone();
+        // Leak once during construction to create 'static references
+        let driver_type = Box::leak(
+            device_config
+                .device
+                .protocol
+                .to_lowercase()
+                .into_boxed_str(),
+        );
+        let name = Box::leak(device_config.device.name.clone().into_boxed_str());
 
         // Convert device config capabilities to CoreCapability
         use crate::config::schema::CapabilityType;
@@ -540,13 +549,11 @@ impl GenericSerialDriverFactory {
 
 impl DriverFactoryTrait for GenericSerialDriverFactory {
     fn driver_type(&self) -> &'static str {
-        // Leak the string to get 'static lifetime
-        // This is acceptable since factories are long-lived
-        Box::leak(self.driver_type.clone().into_boxed_str())
+        self.driver_type
     }
 
     fn name(&self) -> &'static str {
-        Box::leak(self.name.clone().into_boxed_str())
+        self.name
     }
 
     fn capabilities(&self) -> &'static [CoreCapability] {
@@ -676,6 +683,184 @@ pub fn load_all_factories(dir: &Path) -> Result<Vec<GenericSerialDriverFactory>>
         .into_iter()
         .map(GenericSerialDriverFactory::new)
         .collect())
+}
+
+// =============================================================================
+// GenericScpiDriverFactory (v2 declarative SCPI)
+// =============================================================================
+
+/// Configuration for GenericScpiDriver instances.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct GenericScpiInstanceConfig {
+    /// Serial port path (e.g., "/dev/ttyUSB0")
+    pub port: String,
+
+    /// Device address on the bus (optional for SCPI)
+    #[serde(default = "default_address")]
+    pub address: String,
+
+    /// Baud rate override (uses manifest default if not specified)
+    pub baud_rate: Option<u32>,
+
+    /// Path to the v2 manifest (schema_version = 2)
+    pub manifest: String,
+}
+
+pub struct GenericScpiDriverFactory {
+    driver_type: &'static str,
+    name: &'static str,
+    #[cfg(feature = "serial")]
+    port_cache: Arc<std::sync::Mutex<std::collections::HashMap<String, SharedDeviceIo>>>,
+}
+
+impl GenericScpiDriverFactory {
+    pub fn new(driver_type: &str, name: &str) -> Self {
+        // Leak once during construction to create 'static references
+        let driver_type_static = Box::leak(driver_type.to_string().into_boxed_str());
+        let name_static = Box::leak(name.to_string().into_boxed_str());
+
+        Self {
+            driver_type: driver_type_static,
+            name: name_static,
+            #[cfg(feature = "serial")]
+            port_cache: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        }
+    }
+}
+
+impl DriverFactoryTrait for GenericScpiDriverFactory {
+    fn driver_type(&self) -> &'static str {
+        self.driver_type
+    }
+
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    fn capabilities(&self) -> &'static [CoreCapability] {
+        &[]
+    }
+
+    fn validate(&self, config: &toml::Value) -> Result<()> {
+        let instance: GenericScpiInstanceConfig = config.clone().try_into().map_err(|e| {
+            anyhow!(
+                "Invalid instance config for '{}': {}. \
+                 Expected 'port' (string) and 'manifest' (string).",
+                self.driver_type,
+                e
+            )
+        })?;
+
+        if instance.port.trim().is_empty() {
+            return Err(anyhow!(
+                "Instance config for '{}' requires non-empty 'port' field.",
+                self.driver_type
+            ));
+        }
+
+        if instance.manifest.trim().is_empty() {
+            return Err(anyhow!(
+                "Instance config for '{}' requires non-empty 'manifest' path.",
+                self.driver_type
+            ));
+        }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "serial")]
+    fn build(&self, config: toml::Value) -> BoxFuture<'static, Result<DeviceComponents>> {
+        let port_cache = self.port_cache.clone();
+        let driver_type = self.driver_type.clone();
+
+        Box::pin(async move {
+            let instance: GenericScpiInstanceConfig = config.try_into().map_err(|e| {
+                anyhow!(
+                    "Failed to parse instance config for '{}': {}",
+                    driver_type,
+                    e
+                )
+            })?;
+
+            let manifest_path = Path::new(&instance.manifest);
+            let manifest = load_device_manifest_v2(manifest_path)?;
+            let shared_io = match &manifest.connection {
+                ConnectionConfigV2::Serial { baud_rate, .. } => {
+                    let baud = instance.baud_rate.unwrap_or(*baud_rate);
+                    let resolved_path = crate::port_resolver::resolve_port(&instance.port)
+                        .map_err(|e| {
+                            anyhow!("Failed to resolve port '{}': {}", instance.port, e)
+                        })?;
+
+                    let shared = {
+                        let cache = port_cache.lock().unwrap_or_else(|p| p.into_inner());
+                        cache.get(&resolved_path).cloned()
+                    };
+
+                    match shared {
+                        Some(port) => port,
+                        None => {
+                            let port = common::serial::open_serial_async(
+                                &resolved_path,
+                                baud,
+                                &driver_type,
+                            )
+                            .await
+                            .context("Failed to open serial port")?;
+
+                            let boxed: crate::drivers::generic_scpi::DynDeviceIo = Box::new(port);
+                            let shared: SharedDeviceIo = Arc::new(Mutex::new(boxed));
+                            {
+                                let mut cache =
+                                    port_cache.lock().unwrap_or_else(|p| p.into_inner());
+                                cache.insert(resolved_path, shared.clone());
+                            }
+                            shared
+                        }
+                    }
+                }
+                ConnectionConfigV2::Tcp { .. } => {
+                    return Err(anyhow!(
+                        "TCP connections are not yet supported for {}.",
+                        driver_type
+                    ));
+                }
+            };
+
+            let driver = GenericScpiDriver::new(manifest, shared_io)?;
+            let driver_arc = Arc::new(driver);
+            let capabilities = driver_arc.manifest().capabilities.clone();
+
+            Ok(DeviceComponents {
+                movable: capabilities
+                    .movable
+                    .as_ref()
+                    .map(|_| driver_arc.clone() as Arc<dyn crate::capabilities::Movable>),
+                readable: capabilities
+                    .readable
+                    .as_ref()
+                    .map(|_| driver_arc.clone() as Arc<dyn crate::capabilities::Readable>),
+                wavelength_tunable: capabilities
+                    .wavelength_tunable
+                    .as_ref()
+                    .map(|_| driver_arc.clone() as Arc<dyn crate::capabilities::WavelengthTunable>),
+                shutter_control: capabilities
+                    .shutter_control
+                    .as_ref()
+                    .map(|_| driver_arc.clone() as Arc<dyn crate::capabilities::ShutterControl>),
+                ..Default::default()
+            })
+        })
+    }
+
+    #[cfg(not(feature = "serial"))]
+    fn build(&self, _config: toml::Value) -> BoxFuture<'static, Result<DeviceComponents>> {
+        Box::pin(async move {
+            Err(anyhow!(
+                "Serial feature not enabled. Cannot build GenericScpiDriver."
+            ))
+        })
+    }
 }
 
 // =============================================================================

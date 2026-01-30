@@ -1,0 +1,24 @@
+schema_version = 2
+name = "Example SCPI Device"
+version = "1.0.0"
+
+[connection]
+type = "serial"
+baud_rate = 9600
+terminator = "\r\n"
+timeout_ms = 1000
+
+[commands.read_value]
+template = "READ?"
+query = true
+response_type = "float"
+
+[capabilities.readable]
+read = "read_value"
+
+[[instances]]
+id = "example_device"
+name = "Example SCPI Device"
+port = "/dev/ttyUSB0"
+address = "0"
+disable = true

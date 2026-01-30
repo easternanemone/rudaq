@@ -1,0 +1,31 @@
+schema_version = 2
+name = "Spectra-Physics MaiTai"
+version = "2.0.0"
+
+[connection]
+type = "serial"
+baud_rate = 9600
+terminator = "\r\n"
+timeout_ms = 1000
+
+[commands.measure_power]
+template = "READ:POW?"
+query = true
+response_type = "float"
+
+[commands.set_wavelength]
+template = "WAVE {{ value }}"
+query = false
+response_type = "none"
+
+[commands.get_wavelength]
+template = "WAVE?"
+query = true
+response_type = "float"
+
+[capabilities.readable]
+read = "measure_power"
+
+[capabilities.wavelength_tunable]
+set_wavelength = "set_wavelength"
+get_wavelength = "get_wavelength"

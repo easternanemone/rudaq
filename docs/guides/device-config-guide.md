@@ -18,6 +18,60 @@ A step-by-step guide to creating TOML configuration files for the GenericSerialD
 
 The GenericSerialDriver allows you to add support for new hardware devices **without writing any Rust code**. Instead, you define the device protocol in a TOML configuration file.
 
+### V2 Declarative SCPI (schema_version = 2)
+
+The v2 declarative SCPI format lives alongside the v1 GenericSerialDriver configs and is identified by:
+
+- `schema_version = 2` inside the TOML
+- A filename suffix of `.scpi.toml` or `.declarative_scpi.toml`
+
+**Example v2 manifest** (see `config/devices/minimal_scpi_template.scpi.toml`):
+
+```toml
+schema_version = 2
+name = "Example SCPI Device"
+version = "1.0.0"
+
+[connection]
+type = "serial"
+baud_rate = 9600
+terminator = "\r\n"
+timeout_ms = 1000
+
+[commands.read_value]
+template = "READ?"
+query = true
+response_type = "float"
+
+[capabilities.readable]
+read = "read_value"
+```
+
+**Hardware config usage** (driver types `generic_scpi` or `declarative_scpi`):
+
+```toml
+[[devices]]
+id = "maitai"
+name = "MaiTai (v2)"
+
+[devices.driver]
+type = "generic_scpi"
+port = "/dev/ttyUSB0"
+address = "0"
+manifest = "config/devices/maitai.scpi.toml"
+```
+
+**Single-file auto-registration** (optional): add instances directly to the v2 manifest. Each instance may include `disable = true` to skip auto-registration when scanning.
+
+```toml
+[[instances]]
+id = "pm100"
+name = "Acme PM-100"
+port = "/dev/ttyUSB0"
+address = "0"
+disable = false
+```
+
 ### When to Use Config-Driven Drivers
 
 | Use Config-Driven | Use Native Rust |
