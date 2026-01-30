@@ -7,7 +7,6 @@ use futures::future::BoxFuture;
 use plugin_api::config::InstrumentConfig;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct GenericSerialInstanceConfig {
@@ -93,16 +92,22 @@ impl DriverFactoryTrait for GenericSerialDriverFactory {
             // Let's just use the port directly for now.
             let resolved_path = instance.port.clone();
 
-            let shared_port = {
-                let mut cache = port_cache.lock().unwrap_or_else(|p| p.into_inner());
-                if let Some(p) = cache.get(&resolved_path) {
-                    p.clone()
-                } else {
-                    use tokio_serial::SerialPortBuilderExt;
-                    let port = tokio_serial::new(&resolved_path, baud_rate).open_native_async()?;
-                    let shared: SharedPort = Arc::new(Mutex::new(Box::new(port)));
-                    cache.insert(resolved_path, shared.clone());
-                    shared
+            // Check cache first (lock held briefly, no await)
+            let cached = {
+                let cache = port_cache.lock().unwrap_or_else(|p| p.into_inner());
+                cache.get(&resolved_path).cloned()
+            };
+
+            let shared_port = match cached {
+                Some(p) => p,
+                None => {
+                    use common::serial::{open_serial_async, wrap_shared_unbuffered};
+                    let dyn_port =
+                        open_serial_async(&resolved_path, baud_rate, "GenericSerial").await?;
+                    let shared: SharedPort = wrap_shared_unbuffered(dyn_port);
+                    let mut cache = port_cache.lock().unwrap_or_else(|p| p.into_inner());
+                    // Double-check: use existing if another task inserted while we opened
+                    cache.entry(resolved_path).or_insert(shared).clone()
                 }
             };
 

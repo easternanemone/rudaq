@@ -62,7 +62,7 @@ impl RoiShape {
                     sum += (vertices[i].0 * vertices[j].1) as f64;
                     sum -= (vertices[j].0 * vertices[i].1) as f64;
                 }
-                (sum.abs() / 2.0)
+                sum.abs() / 2.0
             }
         }
     }

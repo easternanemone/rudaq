@@ -2227,11 +2227,11 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "serial2-tokio",
  "sha2",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
- "tokio-serial",
  "toml 0.9.11+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
@@ -3547,10 +3547,8 @@ dependencies = [
  "rhai",
  "serde",
  "serde_json",
- "serialport",
  "tempfile",
  "tokio",
- "tokio-serial",
  "toml 0.9.11+spec-1.1.0",
  "tracing",
 ]
@@ -3583,10 +3581,8 @@ dependencies = [
  "futures",
  "log",
  "serde",
- "serialport",
  "thiserror 1.0.69",
  "tokio",
- "tokio-serial",
  "toml 0.9.11+spec-1.1.0",
  "tracing",
 ]
@@ -3635,10 +3631,8 @@ dependencies = [
  "futures",
  "log",
  "serde",
- "serialport",
  "thiserror 1.0.69",
  "tokio",
- "tokio-serial",
  "toml 0.9.11+spec-1.1.0",
  "tracing",
 ]
@@ -3653,10 +3647,8 @@ dependencies = [
  "futures",
  "parking_lot 0.12.5",
  "serde",
- "serialport",
  "thiserror 1.0.69",
  "tokio",
- "tokio-serial",
  "toml 0.9.11+spec-1.1.0",
  "tracing",
 ]
@@ -5251,12 +5243,10 @@ dependencies = [
  "serde_json",
  "serde_valid",
  "serde_yaml",
- "serialport",
  "strfmt",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
- "tokio-serial",
  "toml 0.9.11+spec-1.1.0",
  "tracing",
 ]
@@ -6828,19 +6818,6 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "mio-serial"
-version = "5.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "029e1f407e261176a983a6599c084efd322d9301028055c87174beac71397ba3"
-dependencies = [
- "log",
- "mio 1.1.1",
- "nix 0.29.0",
- "serialport",
- "winapi",
 ]
 
 [[package]]
@@ -11333,7 +11310,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
- "serialport",
  "server",
  "sha2",
  "similar",
@@ -11341,7 +11317,6 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
- "tokio-serial",
  "tokio-stream",
  "tokio-test",
  "toml 0.9.11+spec-1.1.0",
@@ -11848,6 +11823,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "serial2"
+version = "0.2.33"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8cc76fa68e25e771492ca1e3c53d447ef0be3093e05cd3b47f4b712ba10c6f3c"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "winapi",
+]
+
+[[package]]
+name = "serial2-tokio"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2d51f8dc77e6c088e2b424dba447250d5ce113ad464f8824a06636026817243"
+dependencies = [
+ "libc",
+ "serial2",
+ "tokio",
+ "winapi",
+]
+
+[[package]]
 name = "serial_test"
 version = "3.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11927,7 +11925,6 @@ dependencies = [
  "sysinfo 0.37.2",
  "tempfile",
  "tokio",
- "tokio-serial",
  "tokio-stream",
  "toml 0.9.11+spec-1.1.0",
  "tonic 0.10.2",
@@ -12786,20 +12783,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1729aa945f29d91ba541258c8df89027d5792d85a8841fb65e8bf0f4ede4ef61"
 dependencies = [
  "rustls 0.23.36",
- "tokio",
-]
-
-[[package]]
-name = "tokio-serial"
-version = "5.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa1d5427f11ba7c5e6384521cfd76f2d64572ff29f3f4f7aa0f496282923fdc8"
-dependencies = [
- "cfg-if",
- "futures",
- "log",
- "mio-serial",
- "serialport",
  "tokio",
 ]
 

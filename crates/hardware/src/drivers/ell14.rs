@@ -96,21 +96,16 @@ use common::error::DaqError;
 use common::error_recovery::RetryPolicy;
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
+pub use common::serial::SharedPortUnbuffered as SharedPort;
+use common::serial::{open_serial_async, open_serial_sync, wrap_shared_unbuffered, DynSerial};
 use futures::future::BoxFuture;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{broadcast, Mutex};
-use tokio::task::spawn_blocking;
 use tokio::time::sleep;
-use tokio_serial::SerialPortBuilderExt;
 use tracing::instrument;
-
-pub trait SerialPortIO: AsyncRead + AsyncWrite + Unpin + Send {}
-impl<T: AsyncRead + AsyncWrite + Unpin + Send> SerialPortIO for T {}
-pub type DynSerial = Box<dyn SerialPortIO>;
-pub type SharedPort = Arc<Mutex<DynSerial>>;
 
 /// Represents the state of the Elliptec device
 #[derive(Debug, Clone, PartialEq)]
@@ -884,17 +879,9 @@ impl Ell14Driver {
         driver
     }
 
-    /// Internal helper to open a serial port with ELL14 settings
+    /// Internal helper to open a serial port with ELL14 settings (9600 baud, 8N1)
     fn open_port(port_path: &str) -> Result<DynSerial> {
-        let port = tokio_serial::new(port_path, 9600)
-            .data_bits(tokio_serial::DataBits::Eight)
-            .parity(tokio_serial::Parity::None)
-            .stop_bits(tokio_serial::StopBits::One)
-            .flow_control(tokio_serial::FlowControl::None)
-            .open_native_async()
-            .context(format!("Failed to open ELL14 serial port: {}", port_path))?;
-
-        Ok(Box::new(port))
+        open_serial_sync(port_path, 9600, "ELL14")
     }
 
     /// Create a new ELL14 driver instance asynchronously with default calibration
@@ -916,17 +903,12 @@ impl Ell14Driver {
         note = "Use Ell14Bus::open() and bus.device_uncalibrated() instead."
     )]
     pub async fn new_async(port_path: &str, address: &str) -> Result<Self> {
-        let port_path = port_path.to_string();
-        let address = address.to_string();
-
-        // Use spawn_blocking to avoid blocking the async runtime
-        let port = spawn_blocking(move || Self::open_port(&port_path))
-            .await
-            .context("spawn_blocking for ELL14 port opening failed")??;
+        let dyn_port = open_serial_async(port_path, 9600, "ELL14").await?;
+        let shared = wrap_shared_unbuffered(dyn_port);
 
         Ok(Self::build(
-            Arc::new(Mutex::new(port)),
-            address,
+            shared,
+            address.to_string(),
             Self::DEFAULT_PULSES_PER_DEGREE,
         ))
     }
@@ -960,15 +942,9 @@ impl Ell14Driver {
         note = "Use Ell14Bus::open() and bus.device() instead. This opens a dedicated port which fails for multidrop configurations."
     )]
     pub async fn new_async_with_device_calibration(port_path: &str, address: &str) -> Result<Self> {
-        let port_path_owned = port_path.to_string();
+        let dyn_port = open_serial_async(port_path, 9600, "ELL14").await?;
+        let shared_port = wrap_shared_unbuffered(dyn_port);
         let address_owned = address.to_string();
-
-        // Use spawn_blocking to avoid blocking the async runtime
-        let port = spawn_blocking(move || Self::open_port(&port_path_owned))
-            .await
-            .context("spawn_blocking for ELL14 port opening failed")??;
-
-        let shared_port = Arc::new(Mutex::new(port));
 
         // Create driver with default calibration first (needed for get_device_info)
         let mut driver = Self::build(

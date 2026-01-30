@@ -26,7 +26,8 @@ sha2 = "0.10"  # For graph file hashing
 regex-lite = "0.1"  # Lightweight regex for log scrubbing
 
 # Serial port support (optional, for driver crates)
-tokio-serial = { version = "5.4", optional = true }
+# serial2-tokio: single crate for async serial + port listing (replaces tokio-serial + serialport)
+serial2-tokio = { version = "0.1", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = ["sync", "macros", "rt", "time", "io-util"] }
@@ -47,7 +48,7 @@ tracing-subscriber = "0.3.22"
 
 [features]
 storage_arrow = ["dep:arrow"]
-serial = ["dep:tokio-serial"]  # Serial port support for driver crates
+serial = ["dep:serial2-tokio"]  # Serial port support for driver crates
 
 [lints]
 workspace = true

@@ -16,8 +16,7 @@ async-trait.workspace = true
 futures.workspace = true
 
 # Serial communication
-tokio-serial = "5.4"
-serialport = "4"
+# Serial: use common/serial (serial2-tokio) - no direct tokio-serial/serialport
 
 # Error handling
 anyhow.workspace = true

@@ -189,7 +189,7 @@ fn convert_frame_to_rgba_into(req: &RgbaConversionRequest, buffer: &mut Vec<u8>)
     let scale_mode = req.scale_mode;
     let display_min = req.display_min;
     let display_max = req.display_max;
-    let auto_contrast = req.auto_contrast;
+    let _auto_contrast = req.auto_contrast;
     let colorbar_midpoint = req.colorbar_midpoint;
     let data = &req.data;
 

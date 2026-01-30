@@ -10,7 +10,7 @@ path = "src/main.rs"
 [dependencies]
 rust_daq = { path = "../rust-daq", features = ["server", "all_hardware", "serial", "modules", "storage_csv", "mock"] }
 server = { path = "../server" }
-hardware = { path = "../hardware" }
+hardware = { path = "../hardware", features = ["serial"] }
 protocol = { path = "../protocol" }
 storage = { path = "../storage" }
 scripting = { path = "../scripting" }

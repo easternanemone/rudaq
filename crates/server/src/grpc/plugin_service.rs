@@ -98,7 +98,7 @@ impl PluginServiceImpl {
         }
     }
 
-    /// Create a stub PluginService when tokio_serial is not enabled
+    /// Create a stub PluginService when serial feature is not enabled
     #[cfg(not(feature = "serial"))]
     pub fn new_stub() -> Self {
         Self {
@@ -238,7 +238,7 @@ impl PluginService for PluginServiceImpl {
         {
             let _ = request;
             return Err(Status::unimplemented(
-                "Plugin system not available (tokio_serial feature disabled)",
+                "Plugin system not available (serial feature disabled)",
             ));
         }
 
@@ -378,7 +378,7 @@ impl PluginService for PluginServiceImpl {
         {
             let _ = request;
             return Err(Status::unimplemented(
-                "Plugin system not available (tokio_serial feature disabled)",
+                "Plugin system not available (serial feature disabled)",
             ));
         }
 

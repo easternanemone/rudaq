@@ -14,7 +14,7 @@
 //! Currently supports mouse/touch interaction. Keyboard support (arrow keys when focused)
 //! can be added in a future enhancement by implementing key event handling in the widget.
 
-use egui::{pos2, Color32, PointerButton, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2, Widget};
+use egui::{pos2, Color32, PointerButton, Rect, Response, Sense, Stroke, Ui, Vec2, Widget};
 
 use crate::layout;
 

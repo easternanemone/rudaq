@@ -25,10 +25,7 @@ mod storage;
 
 // Comedi panels for NI DAQ control
 pub use code_preview::CodePreviewPanel;
-pub use comedi::{
-    AnalogInputPanel, AnalogOutputPanel, ComediPanel, CounterDisplayPanel, CounterPanel,
-    DigitalIOPanel, DioMonitorPanel, OscilloscopePanel, VoltmeterPanel,
-};
+pub use comedi::ComediPanel;
 pub use devices::DevicesPanel;
 pub use document_viewer::DocumentViewerPanel;
 pub use experiment_designer::ExperimentDesignerPanel;

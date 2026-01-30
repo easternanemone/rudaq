@@ -8,10 +8,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::net::TcpStream;
-use tokio_serial::SerialPortBuilderExt;
 
 use crate::plugin::driver::GenericDriver;
 use crate::plugin::schema::{DriverType as SchemaDriverType, InstrumentConfig};
+use common::serial::open_serial_async;
 
 // =============================================================================
 // Plugin Load Errors
@@ -431,12 +431,11 @@ impl PluginFactory {
         port_path: &str,
     ) -> Result<GenericDriver> {
         let baud_rate = config.protocol.baud_rate;
-        let timeout_ms = config.protocol.timeout_ms;
+        let device_name = config.metadata.name.as_str();
 
-        // Open serial port with configured settings
-        let port = tokio_serial::new(port_path, baud_rate)
-            .timeout(Duration::from_millis(timeout_ms))
-            .open_native_async()
+        // Open serial port with configured settings (common::serial uses serial2-tokio)
+        let port = open_serial_async(port_path, baud_rate, device_name)
+            .await
             .map_err(|e| anyhow!("Failed to open serial port {}: {}", port_path, e))?;
 
         GenericDriver::new_serial(config, port)

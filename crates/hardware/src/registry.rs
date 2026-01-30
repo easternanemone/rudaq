@@ -233,14 +233,14 @@ fn validate_serial_port(port: &str, device_name: &str) -> Result<(), DaqError> {
 
     if !port_path.exists() {
         // Port doesn't exist - provide helpful diagnostics
-        let available = match serialport::available_ports() {
+        let available = match common::serial::available_ports() {
             Ok(ports) => {
                 if ports.is_empty() {
                     "No serial ports detected on this system".to_string()
                 } else {
                     let port_list: Vec<String> = ports
                         .iter()
-                        .map(|p| format!("  - {}", p.port_name))
+                        .map(|p| format!("  - {}", p.display()))
                         .collect();
                     format!("Available serial ports:\n{}", port_list.join("\n"))
                 }
@@ -734,11 +734,11 @@ pub struct DeviceRegistry {
     factories: DashMap<String, Box<dyn DriverFactory>>,
 
     /// Shared serial ports for ELL14 multidrop bus (interior mutability for async access)
-    /// Key: port path (e.g., "/dev/ttyUSB0"), Value: shared Arc<Mutex<SerialStream>>
+    /// Key: port path (e.g., "/dev/ttyUSB0"), Value: shared Arc<Mutex<DynSerial>>
     #[cfg(feature = "thorlabs")]
     ell14_shared_ports: RwLock<HashMap<String, crate::drivers::ell14::SharedPort>>,
 
-    /// Plugin factory for loading YAML-defined drivers (tokio_serial feature only)
+    /// Plugin factory for loading YAML-defined drivers (serial feature only)
     #[cfg(feature = "serial")]
     plugin_factory: Arc<RwLock<crate::plugin::registry::PluginFactory>>,
 

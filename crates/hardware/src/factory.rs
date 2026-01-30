@@ -43,7 +43,6 @@ use enum_dispatch::enum_dispatch;
 use futures::future::BoxFuture;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 // =============================================================================
 // ConfiguredDriver Enum
@@ -372,7 +371,7 @@ impl ConfiguredBus {
     #[cfg(feature = "serial")]
     pub async fn open(port_path: &str, config_path: &Path) -> Result<Self> {
         use crate::port_resolver::resolve_port;
-        use tokio_serial::SerialPortBuilderExt;
+        use common::serial::{open_serial_async, wrap_shared_unbuffered};
 
         let config = load_device_config(config_path)?;
 
@@ -380,26 +379,13 @@ impl ConfiguredBus {
         let resolved_path = resolve_port(port_path)
             .map_err(|e| anyhow!("Failed to resolve port '{}': {}", port_path, e))?;
 
-        // Open port with config settings
-        let port_path_clone = resolved_path.clone();
         let baud = config.connection.baud_rate;
 
-        let port = tokio::task::spawn_blocking(move || {
-            tokio_serial::new(&port_path_clone, baud)
-                .data_bits(tokio_serial::DataBits::Eight)
-                .parity(tokio_serial::Parity::None)
-                .stop_bits(tokio_serial::StopBits::One)
-                .flow_control(tokio_serial::FlowControl::None)
-                .open_native_async()
-                .context("Failed to open serial port")
-        })
-        .await
-        .context("spawn_blocking failed")??;
-
-        let boxed_port: crate::drivers::generic_serial::DynSerial = Box::new(port);
+        let dyn_port = open_serial_async(&resolved_path, baud, "ConfiguredBus").await?;
+        let port = wrap_shared_unbuffered(dyn_port);
 
         Ok(Self {
-            port: std::sync::Arc::new(tokio::sync::Mutex::new(boxed_port)),
+            port,
             config,
             port_path: resolved_path,
         })
@@ -613,23 +599,11 @@ impl DriverFactoryTrait for GenericSerialDriverFactory {
             let shared_port = match shared_port {
                 Some(port) => port,
                 None => {
-                    use tokio_serial::SerialPortBuilderExt;
+                    use common::serial::{open_serial_async, wrap_shared_unbuffered};
 
-                    let path_clone = resolved_path.clone();
-                    let port = tokio::task::spawn_blocking(move || {
-                        tokio_serial::new(&path_clone, baud_rate)
-                            .data_bits(tokio_serial::DataBits::Eight)
-                            .parity(tokio_serial::Parity::None)
-                            .stop_bits(tokio_serial::StopBits::One)
-                            .flow_control(tokio_serial::FlowControl::None)
-                            .open_native_async()
-                            .context("Failed to open serial port")
-                    })
-                    .await
-                    .context("spawn_blocking failed")??;
-
-                    let boxed: crate::drivers::generic_serial::DynSerial = Box::new(port);
-                    let shared: SharedPort = Arc::new(Mutex::new(boxed));
+                    let dyn_port =
+                        open_serial_async(&resolved_path, baud_rate, &driver_type).await?;
+                    let shared: SharedPort = wrap_shared_unbuffered(dyn_port);
 
                     // Cache it
                     {

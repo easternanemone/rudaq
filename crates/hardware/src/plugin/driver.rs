@@ -14,13 +14,13 @@ use strfmt::strfmt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, RwLock};
-use tokio_serial::SerialStream;
 
 use crate::plugin::schema::{CommandSequence, InstrumentConfig, ValueType};
 use common::driver::DeviceLifecycle;
 use common::error::DaqError;
 use common::limits::{self, validate_frame_size};
 use common::observable::ParameterSet; // NEW: For Parameterized trait implementation
+use common::serial::DynSerial;
 use futures::future::BoxFuture;
 
 // =============================================================================
@@ -33,7 +33,7 @@ use futures::future::BoxFuture;
 /// variant bypasses actual I/O for testing without hardware.
 pub enum Connection {
     /// Serial port connection (RS-232, USB-Serial, etc.)
-    Serial(SerialStream),
+    Serial(DynSerial),
     /// TCP/IP network connection
     Tcp(TcpStream),
     /// Mock connection for testing without hardware
@@ -167,12 +167,12 @@ impl GenericDriver {
     ///
     /// # Arguments
     /// * `config` - The instrument configuration loaded from YAML
-    /// * `port` - An open tokio_serial::SerialStream
+    /// * `port` - An open serial port (common::serial::DynSerial, e.g. from open_serial_async)
     ///
     /// # Returns
     /// A new GenericDriver instance, or an error if regex compilation fails.
     #[deprecated(since = "0.2.0", note = "use new_serial instead")]
-    pub fn new(config: InstrumentConfig, port: SerialStream) -> Result<Self> {
+    pub fn new(config: InstrumentConfig, port: DynSerial) -> Result<Self> {
         Self::new_serial(config, port)
     }
 
@@ -180,11 +180,11 @@ impl GenericDriver {
     ///
     /// # Arguments
     /// * `config` - The instrument configuration loaded from YAML
-    /// * `port` - An open tokio_serial::SerialStream
+    /// * `port` - An open serial port (common::serial::DynSerial, e.g. from open_serial_async)
     ///
     /// # Returns
     /// A new GenericDriver instance, or an error if regex compilation fails.
-    pub fn new_serial(config: InstrumentConfig, port: SerialStream) -> Result<Self> {
+    pub fn new_serial(config: InstrumentConfig, port: DynSerial) -> Result<Self> {
         Self::new_with_connection(config, Connection::Serial(port))
     }
 

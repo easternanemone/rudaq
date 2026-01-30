@@ -10,7 +10,6 @@
 
 use std::collections::VecDeque;
 use std::time::Instant;
-use tokio::sync::mpsc;
 
 use crate::connection_state_ext::ConnectionStateExt;
 use eframe::egui;

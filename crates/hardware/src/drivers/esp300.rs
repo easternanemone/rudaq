@@ -38,28 +38,20 @@ use common::error::DaqError;
 use common::error_recovery::RetryPolicy;
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
+use common::serial::{open_serial_async, open_serial_sync, wrap_shared};
 use futures::future::BoxFuture;
 use std::future::Future;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::Mutex;
-use tokio::task::spawn_blocking;
-use tokio_serial::SerialPortBuilderExt;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tracing::instrument;
-
-pub trait SerialPortIO: AsyncRead + AsyncWrite + Unpin + Send {}
-impl<T: AsyncRead + AsyncWrite + Unpin + Send> SerialPortIO for T {}
-type DynSerial = Box<dyn SerialPortIO>;
-type SharedPort = Arc<Mutex<BufReader<DynSerial>>>;
 
 /// Driver for Newport ESP300 Universal Motion Controller
 ///
 /// Supports up to 3 axes. Each axis is controlled independently via
 /// a separate driver instance.
 pub struct Esp300Driver {
-    /// Serial port protected by Mutex for exclusive access
-    port: SharedPort,
+    /// Serial port protected by Mutex for exclusive access (buffered for read_line)
+    port: common::serial::SharedPort,
     /// Axis number (1-3)
     axis: u8,
     /// Command timeout duration
@@ -118,20 +110,10 @@ impl Esp300Driver {
             return Err(anyhow!("ESP300 axis must be 1-3, got {}", axis));
         }
 
-        // Configure serial settings: 19200 baud, 8N1, no flow control
-        // Note: ESP300 v3.04 confirmed to work with FlowControl::None (tested 2025-11-02)
-        let port = tokio_serial::new(port_path, 19200)
-            .data_bits(tokio_serial::DataBits::Eight)
-            .parity(tokio_serial::Parity::None)
-            .stop_bits(tokio_serial::StopBits::One)
-            .flow_control(tokio_serial::FlowControl::None)
-            .open_native_async()
-            .context(format!("Failed to open ESP300 serial port: {}", port_path))?;
+        let dyn_port = open_serial_sync(port_path, 19200, "ESP300")?;
+        let shared: common::serial::SharedPort = wrap_shared(dyn_port);
 
-        Ok(Self::build(
-            Arc::new(Mutex::new(BufReader::new(Box::new(port)))),
-            axis,
-        ))
+        Ok(Self::build(shared, axis))
     }
 
     /// Create a new ESP300 driver instance asynchronously with device validation
@@ -155,25 +137,10 @@ impl Esp300Driver {
             return Err(anyhow!("ESP300 axis must be 1-3, got {}", axis));
         }
 
-        let port_path_owned = port_path.to_string();
+        let dyn_port = open_serial_async(port_path, 19200, "ESP300").await?;
+        let shared: common::serial::SharedPort = wrap_shared(dyn_port);
 
-        // Use spawn_blocking to avoid blocking the async runtime
-        let port = spawn_blocking(move || {
-            tokio_serial::new(&port_path_owned, 19200)
-                .data_bits(tokio_serial::DataBits::Eight)
-                .parity(tokio_serial::Parity::None)
-                .stop_bits(tokio_serial::StopBits::One)
-                .flow_control(tokio_serial::FlowControl::None)
-                .open_native_async()
-                .context(format!(
-                    "Failed to open ESP300 serial port: {}",
-                    port_path_owned
-                ))
-        })
-        .await
-        .context("spawn_blocking for ESP300 port opening failed")??;
-
-        let driver = Self::build(Arc::new(Mutex::new(BufReader::new(Box::new(port)))), axis);
+        let driver = Self::build(shared, axis);
 
         // Validate device identity by querying version
         // ESP300 responds with something like "ESP300 Version 3.04"
@@ -202,7 +169,7 @@ impl Esp300Driver {
         Ok(driver)
     }
 
-    fn build(port: SharedPort, axis: u8) -> Self {
+    fn build(port: common::serial::SharedPort, axis: u8) -> Self {
         let mut params = ParameterSet::new();
 
         let mut position = Parameter::new("position", 0.0)
@@ -214,7 +181,10 @@ impl Esp300Driver {
             move |position: f64| -> BoxFuture<'static, Result<(), DaqError>> {
                 let port = port.clone();
                 Box::pin(async move {
-                    let mut port = port.lock().await;
+                    let mut port: tokio::sync::MutexGuard<
+                        '_,
+                        tokio::io::BufReader<common::serial::DynSerial>,
+                    > = port.lock().await;
                     let cmd = format!("{}PA{:.6}\r\n", axis, position);
                     port.get_mut()
                         .write_all(cmd.as_bytes())
@@ -241,7 +211,7 @@ impl Esp300Driver {
     }
 
     #[cfg(test)]
-    fn with_test_port(port: SharedPort, axis: u8) -> Self {
+    fn with_test_port(port: common::serial::SharedPort, axis: u8) -> Self {
         Self::build(port, axis)
     }
 
@@ -311,7 +281,8 @@ impl Esp300Driver {
     }
 
     async fn query_once(&self, command: &str) -> Result<String> {
-        let mut port = self.port.lock().await;
+        let mut port: tokio::sync::MutexGuard<'_, tokio::io::BufReader<common::serial::DynSerial>> =
+            self.port.lock().await;
 
         // Write command with terminator
         let cmd = format!("{}\r\n", command);
@@ -341,7 +312,8 @@ impl Esp300Driver {
     }
 
     async fn send_command_once(&self, command: &str) -> Result<()> {
-        let mut port = self.port.lock().await;
+        let mut port: tokio::sync::MutexGuard<'_, tokio::io::BufReader<common::serial::DynSerial>> =
+            self.port.lock().await;
 
         let cmd = format!("{}\r\n", command);
         port.get_mut()
@@ -426,7 +398,10 @@ impl Movable for Esp300Driver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::io::AsyncReadExt;
+    use common::serial::SharedPort;
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, BufReader};
+    use tokio::sync::Mutex;
 
     #[test]
     fn test_axis_validation() {

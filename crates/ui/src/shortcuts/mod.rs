@@ -14,5 +14,4 @@ mod settings;
 
 pub use action::{ShortcutAction, ShortcutContext};
 pub use cheat_sheet::CheatSheetPanel;
-pub use manager::{KeyBinding, ShortcutManager};
-pub use settings::ShortcutSettingsPanel;
+pub use manager::ShortcutManager;

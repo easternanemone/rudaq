@@ -1,0 +1,13 @@
+# Qodo Merge (PR-Agent) Configuration
+# https://qodo-merge-docs.qodo.ai/
+
+[rag_arguments]
+# Enable RAG context enrichment for code review
+# NOTE: Requires Qodo Merge Enterprise (single-tenant or on-premises)
+# Contact Qodo support to arrange database setup and indexing
+enable_rag = true
+
+# Repositories to index for semantic search
+# Options: ['all'] for entire codebase, or specific repos like ['my-org/my-repo']
+# Default: the repository where the PR originates
+rag_repo_list = ['all']

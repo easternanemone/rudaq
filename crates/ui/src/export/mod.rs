@@ -15,9 +15,7 @@ mod signal;
 
 pub use signal::{export_signal_traces, SignalExportOptions, SignalTraceData};
 
-use std::fs::File;
 use std::io::{self, Write};
-use std::path::Path;
 
 /// CSV delimiter options
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

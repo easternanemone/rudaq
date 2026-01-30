@@ -17,7 +17,7 @@ use std::time::Duration;
 /// Matches patterns like `${param}` or `${param:format}`.
 static INTERPOLATION_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\{([^}]+)\}").expect("Invalid interpolation regex"));
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
 // Rhai scripting support (optional)
@@ -29,11 +29,8 @@ use crate::script_engine::{
 #[cfg(feature = "scripting")]
 use rhai::Engine;
 
-// Re-use the serial port types
-pub trait SerialPortIO: AsyncRead + AsyncWrite + Unpin + Send {}
-impl<T: AsyncRead + AsyncWrite + Unpin + Send> SerialPortIO for T {}
-pub type DynSerial = Box<dyn SerialPortIO>;
-pub type SharedPort = Arc<Mutex<DynSerial>>;
+// Serial port types from common::serial (serial2-tokio)
+pub use common::serial::{DynSerial, SerialPortIO, SharedPortUnbuffered as SharedPort};
 
 /// Parsed response values from regex matching
 #[derive(Debug, Clone)]

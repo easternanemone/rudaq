@@ -34,10 +34,8 @@ pub use device_controls::{
 };
 #[allow(unused_imports)]
 pub use device_selector::DeviceSelector;
-pub use double_slider::{double_slider, DoubleSlider};
 pub use gauge::*;
 pub use histogram::*;
-pub use line_profile::*;
 pub use metadata_editor::MetadataEditor;
 #[allow(unused_imports)]
 pub use node_palette::{NodePalette, NodeType};

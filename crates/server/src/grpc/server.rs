@@ -24,8 +24,6 @@ use scripting::RhaiEngine;
 #[cfg(feature = "scripting")]
 use scripting::ScriptPlanRunner;
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
 use std::sync::Arc;
 #[cfg(feature = "storage_hdf5")]
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -1123,7 +1121,6 @@ pub async fn start_server_with_hardware(
             bind_addr.ip()
         );
     }
-    use std::path::Path;
 
     // Create ring buffer for scan data persistence (The Mullet Strategy)
     // Use /dev/shm on Linux, /tmp on macOS for memory-mapped storage

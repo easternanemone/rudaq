@@ -44,7 +44,7 @@ use std::time::Duration;
 /// Matches patterns like `${param}` or `${param:format}`.
 static INTERPOLATION_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\{([^}]+)\}").expect("Invalid interpolation regex"));
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tracing::{debug, instrument, trace, warn};
 
@@ -57,10 +57,17 @@ use crate::drivers::script_engine::{
 #[cfg(feature = "scripting")]
 use rhai::Engine;
 
-// Re-use the serial port types from ell14 driver
-pub trait SerialPortIO: AsyncRead + AsyncWrite + Unpin + Send {}
-impl<T: AsyncRead + AsyncWrite + Unpin + Send> SerialPortIO for T {}
+// Serial port types: use common::serial when serial feature is on
+#[cfg(feature = "serial")]
+pub use common::serial::{DynSerial, SharedPortUnbuffered as SharedPort};
+
+#[cfg(not(feature = "serial"))]
+pub trait SerialPortIO: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+#[cfg(not(feature = "serial"))]
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> SerialPortIO for T {}
+#[cfg(not(feature = "serial"))]
 pub type DynSerial = Box<dyn SerialPortIO>;
+#[cfg(not(feature = "serial"))]
 pub type SharedPort = Arc<Mutex<DynSerial>>;
 
 /// Parsed response values from regex matching

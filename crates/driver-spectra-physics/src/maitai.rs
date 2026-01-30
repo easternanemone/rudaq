@@ -235,7 +235,10 @@ impl MaiTaiDriver {
             Box::pin(async move {
                 // Use lowercase command with LF terminator (per MaiTai protocol)
                 let cmd = format!("wav {:.3}\n", target);
-                let mut guard = port.lock().await;
+                let mut guard: tokio::sync::MutexGuard<
+                    '_,
+                    tokio::io::BufReader<common::serial::DynSerial>,
+                > = port.lock().await;
                 guard
                     .get_mut()
                     .write_all(cmd.as_bytes())
@@ -421,7 +424,8 @@ impl MaiTaiDriver {
     /// 2. Send command with \n terminator (NOT \r\n)
     /// 3. Read response line
     async fn query(&self, command: &str) -> Result<String> {
-        let mut port = self.port.lock().await;
+        let mut port: tokio::sync::MutexGuard<'_, tokio::io::BufReader<common::serial::DynSerial>> =
+            self.port.lock().await;
 
         // Clear any stale data from buffer (per C++ GetInfo pattern)
         // First drain software buffer
@@ -483,7 +487,8 @@ impl MaiTaiDriver {
     ///
     /// Uses LF terminator (NOT CRLF!) per MaiTai protocol
     async fn send_command(&self, command: &str) -> Result<()> {
-        let mut port = self.port.lock().await;
+        let mut port: tokio::sync::MutexGuard<'_, tokio::io::BufReader<common::serial::DynSerial>> =
+            self.port.lock().await;
 
         // Use LF terminator only (per MaiTai protocol)
         let cmd = format!("{}\n", command);

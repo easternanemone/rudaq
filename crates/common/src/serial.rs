@@ -51,7 +51,7 @@ use tokio::sync::Mutex;
 ///
 /// Any type implementing `AsyncRead + AsyncWrite + Unpin + Send` can be used
 /// as a serial port. This includes:
-/// - `tokio_serial::SerialStream` (real hardware)
+/// - `serial2_tokio::SerialPort` (real hardware)
 /// - `tokio::io::DuplexStream` (testing)
 /// - Any mock implementing the async I/O traits
 pub trait SerialPortIO: AsyncRead + AsyncWrite + Unpin + Send {}
@@ -73,7 +73,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> SerialPortIO for T {}
 /// use common::serial::DynSerial;
 ///
 /// fn create_port(path: &str) -> anyhow::Result<DynSerial> {
-///     let port = tokio_serial::new(path, 9600).open_native_async()?;
+///     let port = serial2_tokio::SerialPort::open(path, 9600)?;
 ///     Ok(Box::new(port))
 /// }
 /// ```
@@ -141,7 +141,7 @@ pub type SharedPortUnbuffered = Arc<Mutex<DynSerial>>;
 /// ```rust,ignore
 /// use common::serial::{DynSerial, SharedPort, wrap_shared};
 ///
-/// let port: DynSerial = Box::new(tokio_serial::new("/dev/ttyUSB0", 9600).open_native_async()?);
+/// let port: DynSerial = Box::new(serial2_tokio::SerialPort::open("/dev/ttyUSB0", 9600)?);
 /// let shared: SharedPort = wrap_shared(port);
 /// ```
 pub fn wrap_shared(port: DynSerial) -> SharedPort {
@@ -155,7 +155,7 @@ pub fn wrap_shared(port: DynSerial) -> SharedPort {
 /// ```rust,ignore
 /// use common::serial::{DynSerial, SharedPortUnbuffered, wrap_shared_unbuffered};
 ///
-/// let port: DynSerial = Box::new(tokio_serial::new("/dev/ttyUSB0", 9600).open_native_async()?);
+/// let port: DynSerial = Box::new(serial2_tokio::SerialPort::open("/dev/ttyUSB0", 9600)?);
 /// let shared: SharedPortUnbuffered = wrap_shared_unbuffered(port);
 /// ```
 pub fn wrap_shared_unbuffered(port: DynSerial) -> SharedPortUnbuffered {
@@ -165,6 +165,35 @@ pub fn wrap_shared_unbuffered(port: DynSerial) -> SharedPortUnbuffered {
 // =============================================================================
 // Serial Port Utilities
 // =============================================================================
+
+/// Open a serial port synchronously (blocking).
+///
+/// Prefer [`open_serial_async`] in async code to avoid blocking the runtime.
+/// Use this only when a sync context is required (e.g. legacy sync constructors).
+///
+/// # Parameters
+///
+/// - `port_path`: Path to the serial port (e.g., "/dev/ttyUSB0")
+/// - `baud_rate`: Baud rate (e.g., 9600, 115200)
+/// - `device_name`: Human-readable device name for error messages
+///
+/// # Returns
+///
+/// A type-erased serial port ([`DynSerial`]) ready for async I/O (8N1, no flow control).
+pub fn open_serial_sync(
+    port_path: &str,
+    baud_rate: u32,
+    device_name: &str,
+) -> anyhow::Result<DynSerial> {
+    use anyhow::Context;
+
+    let port = serial2_tokio::SerialPort::open(port_path, baud_rate).context(format!(
+        "Failed to open {} serial port: {}",
+        device_name, port_path
+    ))?;
+
+    Ok(Box::new(port))
+}
 
 /// Open a serial port asynchronously using spawn_blocking.
 ///
@@ -180,7 +209,7 @@ pub fn wrap_shared_unbuffered(port: DynSerial) -> SharedPortUnbuffered {
 ///
 /// # Returns
 ///
-/// A `tokio_serial::SerialStream` ready for async I/O.
+/// A type-erased serial port ([`DynSerial`]) ready for async I/O (8N1, no flow control).
 ///
 /// # Example
 ///
@@ -197,28 +226,42 @@ pub async fn open_serial_async(
     port_path: &str,
     baud_rate: u32,
     device_name: &str,
-) -> anyhow::Result<tokio_serial::SerialStream> {
+) -> anyhow::Result<DynSerial> {
     use anyhow::Context;
     use tokio::task::spawn_blocking;
-    use tokio_serial::SerialPortBuilderExt;
 
     let port_path_owned = port_path.to_string();
     let device_name_owned = device_name.to_string();
 
-    spawn_blocking(move || {
-        tokio_serial::new(&port_path_owned, baud_rate)
-            .data_bits(tokio_serial::DataBits::Eight)
-            .parity(tokio_serial::Parity::None)
-            .stop_bits(tokio_serial::StopBits::One)
-            .flow_control(tokio_serial::FlowControl::None)
-            .open_native_async()
-            .context(format!(
-                "Failed to open {} serial port: {}",
-                device_name_owned, port_path_owned
-            ))
+    let port = spawn_blocking(move || {
+        serial2_tokio::SerialPort::open(&port_path_owned, baud_rate).context(format!(
+            "Failed to open {} serial port: {}",
+            device_name_owned, port_path_owned
+        ))
     })
     .await
-    .context("spawn_blocking for serial port opening failed")?
+    .context("spawn_blocking for serial port opening failed")??;
+
+    Ok(Box::new(port))
+}
+
+/// List available serial port paths.
+///
+/// Returns paths that can be passed to [`open_serial_async`].
+/// Not supported on all platforms; on unsupported platforms returns an error.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use common::serial::available_ports;
+///
+/// let ports = available_ports()?;
+/// for path in &ports {
+///     println!("  {}", path.display());
+/// }
+/// ```
+pub fn available_ports() -> anyhow::Result<Vec<std::path::PathBuf>> {
+    serial2_tokio::SerialPort::available_ports().map_err(Into::into)
 }
 
 /// Drain stale data from a serial port buffer.

@@ -1,25 +1,22 @@
 //! Shared resource pool for serial connections.
 //!
-//! Keeps a single `tokio_serial::SerialStream` per port path and reuses it across
+//! Keeps a single shared serial port per port path and reuses it across
 //! drivers that need the same physical connection (e.g., multidrop buses).
+//! Uses `common::serial` (serial2-tokio) for async port opening.
 
 #[cfg(feature = "serial")]
-use tokio_serial::{SerialPortBuilderExt, SerialStream};
+use common::serial::{open_serial_async, wrap_shared_unbuffered, SharedPortUnbuffered};
 
 #[cfg(feature = "serial")]
 use anyhow::Result;
 #[cfg(feature = "serial")]
 use std::collections::HashMap;
-#[cfg(feature = "serial")]
-use std::sync::Arc;
-#[cfg(feature = "serial")]
-use tokio::sync::Mutex;
 
 /// Pool of shared serial connections keyed by port path.
 #[cfg(feature = "serial")]
 #[derive(Default)]
 pub struct SerialPool {
-    connections: HashMap<String, Arc<Mutex<SerialStream>>>,
+    connections: HashMap<String, SharedPortUnbuffered>,
 }
 
 #[cfg(feature = "serial")]
@@ -32,18 +29,14 @@ impl SerialPool {
     }
 
     /// Get an existing connection for `port`, or open a new one at `baud`.
-    pub async fn get_or_create(
-        &mut self,
-        port: &str,
-        baud: u32,
-    ) -> Result<Arc<Mutex<SerialStream>>> {
+    pub async fn get_or_create(&mut self, port: &str, baud: u32) -> Result<SharedPortUnbuffered> {
         if let Some(existing) = self.connections.get(port) {
             return Ok(existing.clone());
         }
 
-        let stream = tokio_serial::new(port, baud).open_native_async()?;
-        let arc = Arc::new(Mutex::new(stream));
-        self.connections.insert(port.to_string(), arc.clone());
-        Ok(arc)
+        let dyn_port = open_serial_async(port, baud, "SerialPool").await?;
+        let shared = wrap_shared_unbuffered(dyn_port);
+        self.connections.insert(port.to_string(), shared.clone());
+        Ok(shared)
     }
 }

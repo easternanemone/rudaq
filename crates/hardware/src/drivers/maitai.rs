@@ -48,13 +48,10 @@ use async_trait::async_trait;
 use common::error::DaqError;
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
+use common::serial::{open_serial_async, open_serial_sync, wrap_shared};
 use futures::future::BoxFuture;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::Mutex;
-use tokio::task::spawn_blocking;
-use tokio_serial::{SerialPortBuilderExt, SerialStream};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tracing::instrument;
 
 /// Driver for Spectra-Physics MaiTai tunable Ti:Sapphire laser
@@ -62,8 +59,8 @@ use tracing::instrument;
 /// Implements Readable capability trait for power measurement.
 /// Uses MaiTai's ASCII protocol for hardware communication.
 pub struct MaiTaiDriver {
-    /// Serial port protected by Mutex for exclusive access
-    port: Arc<Mutex<BufReader<SerialStream>>>,
+    /// Serial port protected by Mutex for exclusive access (buffered for read_line)
+    port: common::serial::SharedPort,
     /// Command timeout duration
     timeout: Duration,
     /// Current wavelength setting (cached for reference)
@@ -90,31 +87,25 @@ impl MaiTaiDriver {
     /// to a different device (e.g., an ELL14 rotator). Use [`new_async`] which performs
     /// an `*IDN?` handshake to verify the device is actually a MaiTai laser.
     pub fn new(port_path: &str) -> Result<Self> {
-        // Configure serial settings for USB-to-USB connection (115200, 8N1, no flow control)
-        // Note: RS-232 connections may require 9600 baud - adjust if using serial adapter
-        let port = tokio_serial::new(port_path, 115200)
-            .data_bits(tokio_serial::DataBits::Eight)
-            .parity(tokio_serial::Parity::None)
-            .stop_bits(tokio_serial::StopBits::One)
-            .flow_control(tokio_serial::FlowControl::None)
-            .open_native_async()
-            .context(format!("Failed to open MaiTai serial port: {}", port_path))?;
-
-        let port_mutex = Arc::new(Mutex::new(BufReader::new(port)));
+        let dyn_port = open_serial_sync(port_path, 115200, "MaiTai")?;
+        let port_mutex: common::serial::SharedPort = wrap_shared(dyn_port);
 
         // Create wavelength parameter with metadata and hardware callback
         let mut params = ParameterSet::new();
-        let mut wavelength = Parameter::new("wavelength_nm", 800.0)
+        let mut wavelength: Parameter<f64> = Parameter::new("wavelength_nm", 800.0)
             .with_description("Tunable laser wavelength")
             .with_unit("nm")
             .with_range(690.0, 1040.0); // MaiTai tuning range
 
         wavelength.connect_to_hardware_write({
-            let port = port_mutex.clone();
+            let port: common::serial::SharedPort = port_mutex.clone();
             move |wavelength: f64| -> BoxFuture<'static, Result<(), DaqError>> {
                 let port = port.clone();
                 Box::pin(async move {
-                    let mut p = port.lock().await;
+                    let mut p: tokio::sync::MutexGuard<
+                        '_,
+                        tokio::io::BufReader<common::serial::DynSerial>,
+                    > = port.lock().await;
                     let cmd = format!("WAVELENGTH:{}\r\n", wavelength);
                     p.get_mut()
                         .write_all(cmd.as_bytes())
@@ -176,37 +167,25 @@ impl MaiTaiDriver {
     /// - Device does not respond to `*IDN?` query
     /// - Device identity does not contain "MaiTai" (wrong device connected)
     pub async fn new_async(port_path: &str) -> Result<Self> {
-        let port_path = port_path.to_string();
-
-        // Use spawn_blocking to avoid blocking the async runtime
-        // USB-to-USB connection: 115200 baud, 8N1, no flow control
-        let port = spawn_blocking(move || {
-            tokio_serial::new(&port_path, 115200)
-                .data_bits(tokio_serial::DataBits::Eight)
-                .parity(tokio_serial::Parity::None)
-                .stop_bits(tokio_serial::StopBits::One)
-                .flow_control(tokio_serial::FlowControl::None)
-                .open_native_async()
-                .context(format!("Failed to open MaiTai serial port: {}", port_path))
-        })
-        .await
-        .context("spawn_blocking for MaiTai port opening failed")??;
-
-        let port_mutex = Arc::new(Mutex::new(BufReader::new(port)));
+        let dyn_port = open_serial_async(port_path, 115200, "MaiTai").await?;
+        let port_mutex: common::serial::SharedPort = wrap_shared(dyn_port);
 
         // Create wavelength parameter with metadata and hardware callback
         let mut params = ParameterSet::new();
-        let mut wavelength = Parameter::new("wavelength_nm", 800.0)
+        let mut wavelength: Parameter<f64> = Parameter::new("wavelength_nm", 800.0)
             .with_description("Tunable laser wavelength")
             .with_unit("nm")
             .with_range(690.0, 1040.0); // MaiTai tuning range
 
         wavelength.connect_to_hardware_write({
-            let port = port_mutex.clone();
+            let port: common::serial::SharedPort = port_mutex.clone();
             move |wavelength: f64| -> BoxFuture<'static, Result<(), DaqError>> {
                 let port = port.clone();
                 Box::pin(async move {
-                    let mut p = port.lock().await;
+                    let mut p: tokio::sync::MutexGuard<
+                        '_,
+                        tokio::io::BufReader<common::serial::DynSerial>,
+                    > = port.lock().await;
                     let cmd = format!("WAVELENGTH:{}\r\n", wavelength);
                     p.get_mut()
                         .write_all(cmd.as_bytes())
@@ -411,7 +390,8 @@ impl MaiTaiDriver {
 
     /// Send query and read response
     async fn query(&self, command: &str) -> Result<String> {
-        let mut port = self.port.lock().await;
+        let mut port: tokio::sync::MutexGuard<'_, tokio::io::BufReader<common::serial::DynSerial>> =
+            self.port.lock().await;
 
         // Write command with CR+LF terminator (per MaiTai protocol)
         let cmd = format!("{}\r\n", command);
@@ -420,16 +400,13 @@ impl MaiTaiDriver {
             .await
             .context("MaiTai write failed")?;
 
-        // Flush to ensure command is sent immediately
         port.get_mut()
             .flush()
             .await
             .context("MaiTai flush failed")?;
 
-        // Small delay for device to process command
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        // Read response with timeout
         let mut response = String::new();
         tokio::time::timeout(self.timeout, port.read_line(&mut response))
             .await
@@ -445,7 +422,8 @@ impl MaiTaiDriver {
     /// 2. Get command acknowledgment/echo
     /// 3. Ensure device is ready for the next command
     async fn send_command(&self, command: &str) -> Result<()> {
-        let mut port = self.port.lock().await;
+        let mut port: tokio::sync::MutexGuard<'_, tokio::io::BufReader<common::serial::DynSerial>> =
+            self.port.lock().await;
 
         // Use CR+LF terminator (per MaiTai protocol - validated in hardware tests)
         let cmd = format!("{}\r\n", command);
@@ -454,17 +432,13 @@ impl MaiTaiDriver {
             .await
             .context("MaiTai write failed")?;
 
-        // Flush to ensure command is sent immediately
         port.get_mut()
             .flush()
             .await
             .context("MaiTai flush failed")?;
 
-        // Wait for device to process command
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        // Read and discard any response/echo to clear the buffer
-        // Device may send acknowledgment, echo, or error
         let mut response = String::new();
         match tokio::time::timeout(Duration::from_millis(500), port.read_line(&mut response)).await
         {
