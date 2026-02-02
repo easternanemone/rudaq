@@ -14,6 +14,8 @@ This guide covers testing practices, tools, and patterns for the rust-daq projec
 - [CI/CD Integration](#cicd-integration)
 - [Linting & Code Quality](#linting--code-quality)
 - [Troubleshooting](#troubleshooting)
+- [Best Practices](#best-practices)
+- [Linting & Code Quality](#linting--code-quality)
 
 ---
 
@@ -491,50 +493,119 @@ If timing tests fail in CI:
 
 ## Linting & Code Quality
 
-### CI Enforces `clippy::unwrap_used`
+### Clippy Unwrap Enforcement
 
-The CI pipeline enforces **no `.unwrap()` calls in library code** to prevent panics in the daemon during hardware operations.
+The project enforces `clippy::unwrap_used` in all library code via CI. This prevents silent panics in production code.
 
-| Code Type | `.unwrap()` Allowed? | What to Use Instead |
-|-----------|---------------------|---------------------|
-| Library crates (`--lib`) | No | `.expect("context")` or `?` operator |
-| Binary crates (bins) | Yes | (exempt from lint) |
-| Test code | Yes | (exempt from lint) |
+**What's enforced:**
 
-**Why this matters:** Panics in library code can crash the daemon during hardware operations, potentially leaving devices in undefined states. Using `.expect()` with context or propagating errors with `?` provides better diagnostics and allows graceful error handling.
+| Code Type | Allows `.unwrap()` | Allows `expect()` | CI Check |
+|-----------|-------------------|-----------------|----------|
+| Library code (src/*.rs) | NO | YES | `-D clippy::unwrap_used` |
+| Test code (tests/, #[cfg(test)]) | YES | YES | Exempt |
+| Binary code (bin/*.rs) | YES | YES | Exempt |
 
-### Check Locally Before Pushing
+**Why this matters:**
 
-Run the same clippy check that CI runs:
+- `.unwrap()` panics silently if a Result is Err - hard to debug in production
+- `expect()` requires a message explaining why the Result should never fail
+- Tests can use `.unwrap()` for simplicity; the test harness catches failures
+- Binaries can use `.unwrap()` for CLI errors; the process exits anyway
+
+### Running the Check Locally
+
+To match the CI check before pushing:
 
 ```bash
-cargo clippy --workspace --lib --features full --exclude ui -- -D clippy::unwrap_used
+# Full library check (matches CI)
+cargo clippy --lib --features full -- -D clippy::unwrap_used
+
+# Specific crate
+cargo clippy -p common --lib -- -D clippy::unwrap_used
+
+# All clippy checks with full warnings
+cargo clippy --workspace --all-targets --features full --exclude ui -- -D warnings
 ```
 
-This checks all library code (excluding the `ui` crate) for `.unwrap()` usage.
+### Fixing Unwrap Violations
 
-### Fixing Violations
+**Pattern 1: Result that should never fail**
 
-**Before (will fail CI):**
+Use `expect()` with a clear explanation:
+
 ```rust
-let value = config.get("key").unwrap();
-let parsed: u32 = text.parse().unwrap();
+// WRONG: Silent panic
+let file = std::fs::read_to_string("config.toml").unwrap();
+
+// RIGHT: Clear justification
+let file = std::fs::read_to_string("config.toml")
+    .expect("config.toml must exist at startup");
 ```
 
-**After (preferred approaches):**
+**Pattern 2: Recoverable error**
+
+Handle the Result:
+
 ```rust
-// Option 1: Use .expect() with context
-let value = config.get("key").expect("config must have 'key'");
+// WRONG: Panics on bad input
+pub fn parse_config(input: &str) -> Config {
+    let data = serde_json::from_str(input).unwrap();
+    Config::from_json(data)
+}
 
-// Option 2: Propagate errors with ?
-let value = config.get("key").ok_or_else(|| anyhow!("missing 'key'"))?;
-let parsed: u32 = text.parse().context("failed to parse as u32")?;
-
-// Option 3: Handle with match/if-let for recoverable cases
-if let Some(value) = config.get("key") {
-    // use value
+// RIGHT: Propagate the error
+pub fn parse_config(input: &str) -> Result<Config> {
+    let data = serde_json::from_str(input)?;
+    Ok(Config::from_json(data))
 }
 ```
+
+**Pattern 3: Already validated**
+
+Use early returns:
+
+```rust
+// WRONG: Panics if validation missed
+if let Some(value) = maybe_value {
+    return Some(value.unwrap());
+}
+
+// RIGHT: Safe extraction
+if let Some(value) = maybe_value {
+    return Some(value);
+}
+```
+
+**Pattern 4: Truly impossible path**
+
+Use `expect()` in tests or with detailed comments:
+
+```rust
+// In production code
+fn process_device(path: &Path) -> Result<()> {
+    let port = std::fs::read_to_string(path)
+        .context("Failed to read device config")?;
+    // ...
+}
+
+// In test code (unwrap is fine)
+#[test]
+fn test_device_processing() {
+    let result = process_device("test/config.json").unwrap();
+    assert!(result.is_ok());
+}
+```
+
+### Common Exceptions
+
+Some legitimate uses of `expect()`:
+
+| Scenario | Example | Justification |
+|----------|---------|---------------|
+| Hardcoded config | `serde_json::from_str(r#"{"x":1}"#).expect("valid JSON")` | Compile-time constant |
+| Initialization | `PORT.parse().expect("PORT env var must be valid u16")` | Startup-time validation |
+| Test setup | `device.connect().expect("test device must connect")` | Test infrastructure |
+| Invariant guarantee | `state.get(KEY).expect("KEY always set in invariant")` | Code contract verified |
 
 ---
 

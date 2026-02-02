@@ -172,21 +172,44 @@ Supervisors read the bead comments for full investigation context, then execute 
 
 ## Beads Commands
 
+### Human-Readable Commands (Interactive Use)
+
 ```bash
 bd create "Title" -d "Description"                    # Create task
 bd create "Title" -d "..." --type epic                # Create epic
 bd create "Title" -d "..." --parent {EPIC_ID}         # Create child task
 bd create "Title" -d "..." --parent {ID} --deps {ID}  # Child with dependency
-bd list                                               # List beads
-bd show ID                                            # Details
-bd show ID --json                                     # JSON output
-bd ready                                              # Tasks with no blockers
+bd list                                               # List all beads
+bd show ID                                            # Show details
+bd ready                                              # Find unblocked tasks
 bd update ID --status done                            # Mark child done
 bd update ID --status inreview                        # Mark standalone done
 bd update ID --design ".designs/{ID}.md"              # Set design doc path
-bd close ID                                           # Close
+bd close ID                                           # Close task
 bd epic status ID                                     # Epic completion status
 ```
+
+### JSON Output Commands (Automation & Scripting)
+
+Add `--json` flag for machine parsing in scripts:
+
+```bash
+bd list --json                                        # Parse all beads as JSON
+bd show ID --json                                     # Get single bead as JSON
+bd ready --json                                       # Find unblocked tasks (parseable)
+bd epic status ID --json                              # Epic status as JSON
+```
+
+**When to use `--json`:**
+- Piping to `jq` for filtering/transforming (e.g., `bd ready --json | jq '.[] | select(.type=="epic")'`)
+- Parsing in shell scripts or tools (reduces ~80% parsing complexity)
+- Continuous integration or automation workflows
+- Exporting data to external systems
+
+**When to use human-readable:**
+- One-off interactive commands
+- Checking quick status in terminal
+- Reading investigation notes or comments
 
 ## When to Use Epic vs Standalone
 

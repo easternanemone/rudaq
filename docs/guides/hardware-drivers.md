@@ -20,7 +20,7 @@ A comprehensive guide for developers implementing new hardware drivers for rust-
 
 ### Prerequisites
 
-- Rust 1.70+
+- Rust 1.75+
 - Basic understanding of async/await
 - Familiarity with the hardware you're implementing (protocol docs, command specs)
 
@@ -185,9 +185,9 @@ impl DriverFactory for YourDeviceFactory {
             // Parse configuration
             let cfg: YourDeviceConfig = config.try_into()?;
 
-            // Create driver instance
+            // Create driver instance using new_async() which validates device identity
             let driver = Arc::new(
-                YourDevice::new(&cfg.port, cfg.baud_rate).await?
+                YourDevice::new_async(&cfg.port, cfg.baud_rate).await?
             );
 
             // Return components with implemented capabilities
@@ -425,42 +425,65 @@ impl FrameProducer for YourDevice {
 }
 ```
 
-### Parameterized Trait (Observable Parameters)
+### Parameterized Trait (Parameter Registry)
 
-Allows reading/writing device parameters with change notifications.
+Allows generic code (gRPC, presets, HDF5 writers) to discover and introspect device parameters.
+
+The trait is synchronous and provides access to a static ParameterSet registry. Parameters are registered at initialization and accessed through the parameter metadata API.
 
 ```rust
 use common::capabilities::Parameterized;
 use common::observable::ParameterSet;
-use common::parameter::Parameter;
-use async_trait::async_trait;
 use anyhow::Result;
 
-#[async_trait]
-impl Parameterized for YourDevice {
-    /// Get the parameter set (lazy init)
-    async fn parameters(&self) -> Result<Arc<ParameterSet>> {
-        Ok(self.params.clone())
-    }
+struct RotatorDevice {
+    params: ParameterSet,
+}
 
-    /// Subscribe to parameter changes
-    async fn subscribe(&self, param_id: &str) -> Result<tokio::sync::broadcast::Receiver<f64>> {
-        // Return broadcast receiver for this parameter
-        let (tx, rx) = tokio::sync::broadcast::channel(100);
-        // Store tx for when values change
-        Ok(rx)
-    }
+impl RotatorDevice {
+    pub fn new() -> Self {
+        let mut params = ParameterSet::new();
 
-    /// Update a parameter value
-    async fn set_parameter(&self, param_id: &str, value: f64) -> Result<()> {
-        match param_id {
-            "velocity" => {
-                self.send_command(&format!("SV{}", value as u8)).await?;
-                self.velocity.set(value).await?;
-            }
-            _ => anyhow::bail!("unknown parameter: {}", param_id),
+        // Register parameters that this device supports
+        // (These would typically be loaded from device metadata or config)
+        params.register_metadata("velocity", "u8", "Motor speed (0-100%)");
+        params.register_metadata("position", "f64", "Current position in degrees");
+
+        Self {
+            params,
         }
+    }
+}
+
+impl Parameterized for RotatorDevice {
+    /// Return reference to the parameter registry (only method in trait)
+    fn parameters(&self) -> &ParameterSet {
+        &self.params
+    }
+}
+
+// Generic code can now enumerate parameters
+fn list_device_parameters<D: Parameterized>(device: &D) {
+    for name in device.parameters().names() {
+        println!("Parameter: {}", name);
+        if let Some(meta) = device.get_parameter_metadata(name) {
+            println!("  Type: {:?}", meta.param_type);
+            println!("  Description: {}", meta.description);
+        }
+    }
+}
+
+// Actual parameter modification happens through device-specific methods,
+// not through the Parameterized trait
+impl RotatorDevice {
+    pub async fn set_velocity(&self, speed: u8) -> Result<()> {
+        // Device-specific implementation
         Ok(())
+    }
+
+    pub async fn get_velocity(&self) -> Result<u8> {
+        // Device-specific implementation
+        Ok(0)
     }
 }
 ```
@@ -469,32 +492,87 @@ impl Parameterized for YourDevice {
 
 ## Serial Device Patterns
 
-### Pattern 1: Simple Request-Response
+### Constructor Conventions
 
-For straightforward devices that respond to ASCII commands:
+All serial hardware drivers follow a strict constructor pattern to prevent silent misconfiguration:
+
+**Primary Constructor: `new_async()`**
+
+The `new_async()` method is the **primary constructor** exposed to users. It:
+- Opens the serial port
+- Validates device identity (queries device-specific response)
+- Returns only if the correct device is on the port
+- Fails fast with clear errors if wrong device or port is unavailable
 
 ```rust
-use tokio_serial::SerialPortBuilderExt;
+impl SimpleDevice {
+    /// Primary constructor - validates device identity, fails fast
+    pub async fn new_async(port_path: &str, baud_rate: u32) -> Result<Self> {
+        let mut device = Self::new(port_path, baud_rate).await?;
+        device.validate_device().await?;
+        Ok(device)
+    }
+
+    async fn validate_device(&mut self) -> Result<()> {
+        // Query device for identity
+        let response = self.send_command("*IDN?").await?;
+        if !response.contains("EXPECTED_DEVICE") {
+            return Err(anyhow!("Wrong device at {}: got {}", self.port_path, response));
+        }
+        tracing::info!("Device validated: {}", response);
+        Ok(())
+    }
+}
+```
+
+**Internal Constructor: `new()`**
+
+The `new()` method is **for internal/test use only**. It:
+- Opens the serial port only (no device validation)
+- Allows unit tests to create instances without real hardware
+- Should NOT be called directly by users or in production
+- May be made `pub(crate)` to restrict visibility
+
+### Pattern 1: Simple Request-Response
+
+For straightforward devices that respond to ASCII commands, use `common::serial::open_serial_async` which handles cross-platform serial port setup with `serial2-tokio`:
+
+```rust
+use common::serial::{open_serial_async, wrap_shared, SharedPort};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use anyhow::{anyhow, Context, Result};
 
 pub struct SimpleDevice {
-    port: Box<dyn tokio::io::AsyncReadWrite + Unpin + Send>,
+    port: SharedPort,
+    port_path: String,
 }
 
 impl SimpleDevice {
-    pub async fn new(port_path: &str, baud_rate: u32) -> Result<Self> {
-        // Open serial port asynchronously
-        let port = tokio::task::spawn_blocking({
-            let path = port_path.to_string();
-            move || {
-                tokio_serial::new(&path, baud_rate)
-                    .open_native_async()
-                    .context("Failed to open serial port")
-            }
-        }).await??;
+    /// Internal constructor - opens port only, validates device with new_async()
+    pub(crate) async fn new(port_path: &str, baud_rate: u32) -> Result<Self> {
+        // open_serial_async handles spawn_blocking and cross-platform setup
+        let port = open_serial_async(port_path, baud_rate, "SimpleDevice").await?;
+        let shared = wrap_shared(port);
 
-        Ok(Self { port })
+        Ok(Self {
+            port: shared,
+            port_path: port_path.to_string(),
+        })
+    }
+
+    /// Primary constructor - opens port AND validates device identity
+    pub async fn new_async(port_path: &str, baud_rate: u32) -> Result<Self> {
+        let mut device = Self::new(port_path, baud_rate).await?;
+        device.validate_device().await?;
+        Ok(device)
+    }
+
+    async fn validate_device(&mut self) -> Result<()> {
+        let response = self.send_command("*IDN?").await?;
+        if !response.contains("EXPECTED_DEVICE") {
+            return Err(anyhow!("Wrong device at {}: got {}", self.port_path, response));
+        }
+        Ok(())
     }
 
     async fn send_command(&mut self, cmd: &str) -> Result<String> {
@@ -515,10 +593,13 @@ impl SimpleDevice {
 ```
 
 **Best Practices:**
-- Use `spawn_blocking` to open serial ports (not async)
+- Always use `spawn_blocking` to open serial ports (they block, not async)
+- Expose `new_async()` as the primary public constructor
+- Keep `new()` private or `pub(crate)` for testing
+- Validate device identity on initialization to catch misconfiguration
 - Set appropriate timeouts on ports
 - Handle both expected responses and timeouts
-- Validate device identity on initialization
+- Never expose invalid devices to users
 
 ### Pattern 2: RS-485 Multidrop Bus
 
@@ -527,6 +608,7 @@ For devices that share a single serial port via address:
 ```rust
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use anyhow::{anyhow, Result};
 
 pub type SharedPort = Arc<Mutex<Box<dyn AsyncReadWrite>>>;
 
@@ -536,15 +618,18 @@ pub struct MultidropDevice {
 }
 
 impl MultidropDevice {
-    pub async fn new(port: SharedPort, address: &str) -> Result<Self> {
-        let device = Self {
+    /// Internal constructor - opens port only, validates device with new_async()
+    pub(crate) async fn new(port: SharedPort, address: &str) -> Result<Self> {
+        Ok(Self {
             port,
             address: address.to_string(),
-        };
+        })
+    }
 
-        // Validate device at this address
+    /// Primary constructor - validates device identity at this address
+    pub async fn new_async(port: SharedPort, address: &str) -> Result<Self> {
+        let device = Self::new(port, address).await?;
         device.validate_device().await?;
-
         Ok(device)
     }
 
@@ -553,17 +638,19 @@ impl MultidropDevice {
         let response = self.send_command("*IDN?").await?;
 
         if !response.contains("EXPECTED_MODEL") {
-            anyhow::bail!(
-                "wrong device at address {}: got {}",
+            return Err(anyhow!(
+                "Wrong device at address {}: got {}",
                 self.address,
                 response
-            );
+            ));
         }
 
+        tracing::info!("Device validated at address {}: {}", self.address, response);
         Ok(())
     }
 
     async fn send_command(&self, cmd: &str) -> Result<String> {
+        // CRITICAL: Lock port for exclusive access during command/response cycle
         let mut port = self.port.lock().await;
 
         // Prefix command with device address
@@ -578,15 +665,18 @@ impl MultidropDevice {
         let n = port.read(&mut buf).await?;
         response.push_str(&String::from_utf8_lossy(&buf[..n]));
 
+        // Lock is released here when port goes out of scope
         Ok(response)
     }
 }
 ```
 
 **Key Pattern:**
-- Lock the shared port for exclusive access during command/response
+- Lock the shared port for exclusive access during command/response cycle
+- Release lock immediately after response is read (don't hold across awaits)
 - Prefix all commands with device address
 - Validate device identity on connection to catch misconfigurations
+- Use `new_async()` as public API, keep `new()` private
 
 ### Pattern 3: Binary Protocol with CRC
 
@@ -831,11 +921,87 @@ cargo test --all-features
 
 ---
 
+## Declarative Drivers (V2 Schema)
+
+For serial SCPI and ASCII instruments, use declarative TOML configurations instead of writing Rust code.
+
+### Overview
+
+The v2 declarative driver system allows you to define instruments using TOML:
+
+```toml
+[device]
+name = "My Custom Instrument"
+manufacturer = "Acme Corp"
+capabilities = ["Movable", "Parameterized"]
+
+[connection]
+port = "/dev/ttyUSB0"
+baud_rate = 19200
+timeout_ms = 500
+terminator = "\n"
+
+[commands.move_absolute]
+template = "MOVE {{ position }}"
+query = false
+
+[commands.get_position]
+template = "*POS?"
+query = true
+response_type = "float"
+```
+
+**Benefits:**
+- Define new instruments without writing Rust code
+- Change behavior via configuration
+- Template-based command generation with minijinja (formerly strfmt)
+
+### Template Syntax
+
+Commands use minijinja templates for dynamic values:
+
+```toml
+[commands.set_velocity]
+template = "VELOCITY {{ speed }}"
+query = false
+
+[commands.read_with_units]
+template = "READ {{ param }};UNITS?"
+query = true
+response_type = "string"
+```
+
+### Response Types
+
+| Type | Example | Usage |
+|------|---------|-------|
+| `string` | `"ACTIVE"` | Status strings, model names |
+| `float` | `"+.12E-5"` | Numeric values |
+| `int` | `"42"` | Integer counts |
+| `bool` | `"1"` or `"0"` | Binary responses |
+
+### Configuration File Locations
+
+Place TOML files in `config/devices/` directory. They are loaded at daemon startup:
+
+```
+config/devices/
+  ell14.toml           # ELL14 rotator definition
+  newport_1830c.toml   # Newport power meter definition
+  my_device.toml       # Your custom device
+```
+
+See `crates/hardware/src/drivers/generic_scpi.rs` for implementation details.
+
+---
+
 ## Common Protocols
 
 ### SCPI (Standard Commands for Programmable Instruments)
 
-Used by many RF, power, and meter devices:
+Used by many RF, power, and meter devices.
+
+**Imperative (Rust Code):**
 
 ```rust
 // SCPI command structure: [:SYSTem]:SUBSYS:PARAM VALUE UNIT
@@ -853,6 +1019,35 @@ async fn read_voltage(&mut self) -> Result<f64> {
     Ok(value)
 }
 ```
+
+**Declarative (TOML + minijinja):**
+
+For SCPI instruments, prefer the v2 declarative system in `config/devices/`:
+
+```toml
+[device]
+name = "Example SCPI Device"
+capabilities = ["Readable"]
+
+[commands.read_voltage]
+template = "CONF:VOLT:DC {{ range }}"
+query = false
+
+[commands.measure]
+template = "READ?"
+query = true
+response_type = "float"
+```
+
+**When to Use Declarative:**
+- Pure SCPI instruments (no complex logic needed)
+- Quick device prototyping
+- Configuration-based behavior changes
+
+**When to Use Imperative:**
+- Complex command sequences or state machines
+- Specialized error handling
+- Device-specific optimizations
 
 ### Modbus RTU (Industrial Standard)
 
@@ -939,35 +1134,57 @@ impl NetworkDevice {
 
 ## Reference Implementations
 
-### ELL14 Rotator (RS-485 Multidrop)
+### ELL14 Rotator (RS-485 Multidrop with new_async)
 
 Location: `crates/driver-thorlabs/src/ell14.rs`
 
 **Key Features:**
 - Multidrop RS-485 bus with address 0-F
+- `new_async()` validates device at address
 - Velocity control (0-100%)
 - Cached settings for non-blocking queries
 - Device identity validation on connection
 
+**Constructor Pattern:**
+```rust
+// Public API - always use this
+let rotator = Ell14Driver::new_async(port, address).await?;
+
+// Multidrop bus pattern with Ell14Bus
+let bus = Ell14Bus::open("/dev/ttyUSB1").await?;
+let rotator = bus.device("2").await?;  // Returns validated driver
+```
+
 **Study this for:**
 - How to handle shared serial ports
+- `new_async()` constructor pattern with validation
 - Parameter caching patterns
 - Motor optimization sequences
+- RS-485 multidrop bus management
 
-### Newport 1830-C Power Meter (Simple Serial ASCII)
+### Newport 1830-C Power Meter (Simple Serial ASCII with new_async)
 
 Location: `crates/driver-newport/src/newport_1830c.rs`
 
 **Key Features:**
-- Simple ASCII command protocol
+- Simple ASCII command protocol (NOT SCPI)
+- `new_async()` validates device identity
 - Zero calibration with/without attenuator
 - Readable trait implementation
 - Port path discovery
 
+**Constructor Pattern:**
+```rust
+// Public API - validates device responds with correct model
+let meter = Newport1830CDriver::new_async("/dev/ttyS0", 9600).await?;
+```
+
 **Study this for:**
 - Simple Readable trait implementation
+- `new_async()` pattern for single-device serial ports
 - Error handling patterns
-- Device validation without complex state
+- Device identity validation
+- Baud rate and terminator configuration
 
 ### PVCAM Camera (Complex FrameProducer)
 
@@ -1005,6 +1222,37 @@ Location: `crates/driver-spectra-physics/src/maitai.rs`
 
 ## Troubleshooting
 
+### "Device identity mismatch" or "Wrong device connected"
+
+**Cause:** The device on the port does not match what the driver expected.
+
+**Root Cause:** Using `new()` instead of `new_async()`, which skips device validation.
+
+**Solution:**
+```rust
+// WRONG - no device validation
+let device = MyDriver::new(&port, 9600).await?;
+
+// CORRECT - validates device identity
+let device = MyDriver::new_async(&port, 9600).await?;
+```
+
+The `new_async()` constructor:
+1. Opens the serial port
+2. Queries device identity (e.g., `*IDN?`)
+3. Verifies response matches expected device model
+4. Fails fast with clear error if wrong device
+
+This prevents silent misconfiguration where the daemon connects to the wrong hardware.
+
+**Debug:**
+```bash
+# Query device manually to see what it returns
+stty -F /dev/ttyUSB0 9600 raw -echo
+echo "*IDN?" > /dev/ttyUSB0
+cat /dev/ttyUSB0
+```
+
 ### "Failed to open serial port"
 
 **Causes:**
@@ -1028,19 +1276,32 @@ lsof /dev/ttyUSB0
 # Use: /dev/serial/by-id/usb-FTDI_... (stable)
 ```
 
-### "Device identity mismatch"
+### Device Identity Validation (Best Practices)
 
-**Cause:** Wrong device connected to the port, or identity query failed
+The device identity validation on initialization prevents misconfigurations:
 
-**Debug:**
 ```rust
-// Add logging in validation
-let response = self.send_command("*IDN?").await?;
-tracing::info!("Device identity response: {}", response);
+async fn validate_device(&mut self) -> Result<()> {
+    let response = self.send_command("*IDN?").await?;
 
-// Should show model number
-// If garbled: check baud rate, line endings, encoding
+    if !response.contains("EXPECTED_MODEL") {
+        return Err(anyhow!(
+            "Device identity mismatch. Expected 'EXPECTED_MODEL', got: {}",
+            response
+        ));
+    }
+
+    tracing::info!("Device validated: {}", response);
+    Ok(())
+}
 ```
+
+**If validation fails:**
+- Check baud rate matches device spec
+- Check line endings (LF vs CRLF vs CR)
+- Verify character encoding (should be ASCII)
+- Query device manually: `echo "*IDN?" > /dev/ttyUSB0 && cat /dev/ttyUSB0`
+- Check cable connections and power
 
 ### "CRC mismatch"
 

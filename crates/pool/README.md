@@ -77,7 +77,129 @@ The pool uses a semaphore + lock-free queue pattern:
    - `acquire()`: to get slot pointer (once per loan)
    - `release()`: to apply reset function
    - `grow()`: to add new slots (rare)
-4. **`Loaned`** caches raw pointer for lock-free access thereafter
+4. **`Loaned`** (generic `Pool<T>`) caches raw pointer for lock-free access thereafter
+5. **`PermitGuard`** (specific to `BufferPool`) ensures semaphore permits are returned even on panic (see below)
+
+## Panic Safety: PermitGuard Pattern
+
+The `BufferPool` uses an RAII guard pattern (`PermitGuard`) to ensure semaphore permits are never leaked, even if code panics between acquiring a permit and successfully returning the buffer to the pool.
+
+### The Problem
+
+Without `PermitGuard`, a permit leak can occur if code panics after acquiring a permit:
+
+```rust
+// Dangerous pattern (WITHOUT PermitGuard):
+let permit = semaphore.try_acquire()?;
+std::mem::forget(permit);  // Disable automatic permit return
+
+let buffer = free_buffers.pop()?;  // May return None, or subsequent code could panic
+
+// If a panic occurs here before returning/reusing the buffer,
+// the semaphore permit is lost forever!
+// Pool capacity is permanently reduced by 1.
+```
+
+### The Solution
+
+`PermitGuard` tracks the forgotten permit and returns it if dropped without being explicitly released:
+
+```rust
+// Safe pattern (WITH PermitGuard):
+let permit = semaphore.try_acquire()?;
+std::mem::forget(permit);           // Disable auto-return
+let guard = PermitGuard::new(pool); // Guard tracks the permit
+
+let buffer = free_buffers.pop();    // <-- If this panics...
+                                    // guard.drop() returns permit!
+
+guard.release();  // Success path: buffer now owns the permit
+```
+
+### Invariant Maintained
+
+**Invariant**: `semaphore.available_permits() + outstanding_buffers == pool_size`
+
+The `PermitGuard` ensures this invariant holds even under panic conditions:
+
+- **Normal path**: `guard.release()` is called, buffer takes ownership of the permit
+- **Panic path**: `guard.drop()` runs, permit is returned via `semaphore.add_permits(1)`
+
+### Implementation
+
+```rust
+struct PermitGuard<'a> {
+    pool: &'a BufferPoolInner,
+    released: bool,
+}
+
+impl<'a> PermitGuard<'a> {
+    /// Create a new permit guard for a permit that has already been forgotten.
+    ///
+    /// IMPORTANT: The caller MUST call `std::mem::forget(permit)` before creating this guard.
+    /// If this guard is dropped without calling `release()`, the permit will be
+    /// returned to the semaphore.
+    fn new(pool: &'a BufferPoolInner) -> Self {
+        Self {
+            pool,
+            released: false,
+        }
+    }
+
+    /// Mark the permit as released (buffer is now responsible for returning it).
+    ///
+    /// This should be called in the success path when the buffer has been successfully
+    /// acquired and will be responsible for returning the permit via its own Drop impl.
+    fn release(mut self) {
+        self.released = true;
+        // Don't add permit back - it's being used by PooledBuffer
+    }
+}
+
+impl Drop for PermitGuard<'_> {
+    fn drop(&mut self) {
+        if !self.released {
+            // Panic/error path - return the permit
+            self.pool.semaphore.add_permits(1);
+        }
+    }
+}
+```
+
+### Usage in BufferPool
+
+Every acquire method follows this pattern:
+
+```rust
+pub fn try_acquire(&self) -> Option<PooledBuffer> {
+    // Try to acquire semaphore permit without blocking
+    let Ok(permit) = self.inner.semaphore.try_acquire() else {
+        return None;
+    };
+
+    // Forget the permit to prevent automatic return, then create guard
+    std::mem::forget(permit);
+    let guard = PermitGuard::new(&self.inner);
+
+    // Pop a buffer from the free queue
+    let Some(buffer) = self.inner.free_buffers.pop() else {
+        return None;
+    };
+
+    // Update metrics
+    self.inner.available.fetch_sub(1, Ordering::Relaxed);
+    self.inner.total_acquires.fetch_add(1, Ordering::Relaxed);
+
+    // Release the guard - buffer is now responsible for returning the permit
+    guard.release();
+
+    Some(PooledBuffer {
+        buffer: Some(buffer),
+        actual_len: 0,
+        pool: Arc::clone(&self.inner),
+    })
+}
+```
 
 ## PVCAM Integration
 
