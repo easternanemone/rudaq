@@ -85,8 +85,8 @@ jobs:
     name: AST-Grep Quality Checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Only run on main branch or if PR has 'ci:full' label
-    if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'ci:full')
+    # Only run on main branch
+    if: github.ref == 'refs/heads/main'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -153,8 +153,8 @@ jobs:
     name: MSRV Check (1.75)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Only run on main branch or if PR has 'ci:full' label
-    if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'ci:full')
+    # Only run on main branch
+    if: github.ref == 'refs/heads/main'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -174,8 +174,8 @@ jobs:
     name: Security Audit
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Only run on main branch or if PR has 'ci:full' label
-    if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'ci:full')
+    # Only run on main branch
+    if: github.ref == 'refs/heads/main'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -193,8 +193,8 @@ jobs:
     name: License Compliance
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Only run on main branch or if PR has 'ci:full' label
-    if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'ci:full')
+    # Only run on main branch
+    if: github.ref == 'refs/heads/main'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -233,8 +233,8 @@ jobs:
     name: Documentation
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Only run on main branch or if PR has 'ci:full' label
-    if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'ci:full')
+    # Only run on main branch
+    if: github.ref == 'refs/heads/main'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -261,8 +261,8 @@ jobs:
     name: Rerun Blueprints
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Only run on main branch or if PR has 'ci:full' label
-    if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'ci:full')
+    # Only run on main branch
+    if: github.ref == 'refs/heads/main'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -288,7 +288,7 @@ jobs:
     name: Tee Bench Sample
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [lint, ast-grep]
+    needs: [lint]
     if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'tee-bench')
     steps:
       - name: Checkout
@@ -325,7 +325,7 @@ jobs:
     name: Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    needs: [lint, ast-grep]
+    needs: [lint]
     strategy:
       fail-fast: false
       matrix:
@@ -362,7 +362,7 @@ jobs:
     name: Hardware Tests (Tailnet)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [lint, ast-grep]
+    needs: [lint]
     # Only run on main branch pushes (OAuth creates ephemeral nodes with tag:ci)
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
@@ -422,8 +422,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: lint
-    # Only run on main branch or if PR has 'ci:full' label
-    if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'ci:full')
+    # Only run on main branch
+    if: github.ref == 'refs/heads/main'
     strategy:
       fail-fast: false
       matrix:
@@ -461,8 +461,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [test, features, security, license-check, docs]
-    # Only run on main branch or if PR has 'ci:full' label
-    if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'ci:full')
+    # Only run on main branch
+    if: github.ref == 'refs/heads/main'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
