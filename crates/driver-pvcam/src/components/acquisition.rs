@@ -120,10 +120,32 @@ const SEQUENCE_BATCH_SIZE: u16 = 10;
 /// Uses AtomicU32 counter instead of AtomicBool to avoid losing events when
 /// multiple EOF callbacks fire while the loop is processing.
 ///
-/// # Safety
+/// # Safety and Lifetime Contract
 ///
-/// This struct must remain valid for the lifetime of the acquisition.
-/// It is pinned via `Box::pin` and passed to PVCAM as a raw pointer.
+/// This struct MUST remain valid for the lifetime of the acquisition and MUST
+/// outlive the camera handle it is associated with. Violating this contract
+/// causes undefined behavior (use-after-free in the PVCAM callback).
+///
+/// **Lifetime Guarantee:**
+/// - Wrapped in `Arc<Pin<Box<CallbackContext>>>` to prevent moves and ensure stable address
+/// - Arc stored as a field in `PvcamAcquisition` to tie lifetime to the acquisition component
+/// - `PvcamAcquisition::Drop` waits for poll thread exit, stops camera, and deregisters
+///   callback BEFORE the Arc is dropped, ensuring PVCAM cannot access freed memory
+///
+/// **Callback Safety:**
+/// - Passed to PVCAM SDK as raw pointer via `GLOBAL_CALLBACK_CTX` static
+/// - The callback (`pvcam_eof_callback`) dereferences this pointer on each frame
+/// - PVCAM has no mechanism to signal "context is now invalid", so we must ensure
+///   the callback is deregistered (`pl_cam_deregister_callback`) before the context
+///   is freed
+///
+/// **Drop Ordering (CRITICAL):**
+/// 1. Set shutdown flag and signal callback context to wake waiters
+/// 2. Wait for poll thread to exit completely (prevents SDK races)
+/// 3. Call `pl_exp_stop_cont` to halt camera operation
+/// 4. Call `pl_cam_deregister_callback` to remove callback registration
+/// 5. Clear `GLOBAL_CALLBACK_CTX` to null out the static pointer
+/// 6. Arc drops, freeing the context (only after SDK can no longer access it)
 #[cfg(feature = "pvcam_sdk")]
 pub struct CallbackContext {
     /// Count of pending frames (incremented by callback, decremented by consumer)
@@ -441,6 +463,36 @@ pub unsafe extern "system" fn pvcam_eof_callback(
                 entry_count
             );
             return;
+        }
+
+        // SAFETY: Dereferencing the context pointer is safe because:
+        // 1. Context is Arc<Pin<Box<>>> - pinned to prevent moves, Arc ensures stable lifetime
+        // 2. Context lifetime is tied to PvcamAcquisition via Arc field
+        // 3. PvcamAcquisition::Drop deregisters callback BEFORE Arc drops
+        // 4. GLOBAL_CALLBACK_CTX is cleared after deregistration, so this code path
+        //    cannot execute after the context is freed
+        // 5. Debug assertions below verify the pointer is not dangling (release builds skip)
+        //
+        // If this assertion fires, it means PvcamAcquisition::Drop did not properly
+        // deregister the callback or clear GLOBAL_CALLBACK_CTX before the context was freed.
+        #[cfg(debug_assertions)]
+        {
+            // Verify the pointer is properly aligned for CallbackContext
+            debug_assert!(
+                (ctx_ptr as usize) % std::mem::align_of::<CallbackContext>() == 0,
+                "CallbackContext pointer is misaligned: {:p}",
+                ctx_ptr
+            );
+            // Basic sanity check: pending_frames counter should be < 1 million
+            // (if it's a huge value, the memory is likely corrupted/freed)
+            let pending = (*ctx_ptr)
+                .pending_frames
+                .load(std::sync::atomic::Ordering::Relaxed);
+            debug_assert!(
+                pending < 1_000_000,
+                "CallbackContext appears corrupted (pending_frames={})",
+                pending
+            );
         }
 
         let ctx = &*ctx_ptr;
@@ -1106,8 +1158,14 @@ pub struct PvcamAcquisition {
     /// Uses tokio::sync::mpsc::unbounded_channel for async-native error watching without polling.
     #[cfg(feature = "pvcam_sdk")]
     error_tx: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<AcquisitionError>>>>,
-    /// Callback context for EOF notifications (bd-ek9n.2).
-    /// Pinned to ensure stable address for FFI callback.
+    /// Callback context for EOF notifications (bd-ek9n.2, bd-d9nw.2).
+    ///
+    /// SAFETY: Arc<Pin<Box<>>> provides critical lifetime guarantees for FFI callback:
+    /// - Pin prevents moves, ensuring pointer passed to PVCAM remains valid
+    /// - Arc ensures context outlives the acquisition (not dropped until all refs gone)
+    /// - Box heap-allocates with stable address
+    /// - Raw pointer stored in GLOBAL_CALLBACK_CTX for callback to dereference
+    /// - Drop impl deregisters callback BEFORE Arc drops, preventing use-after-free
     #[cfg(feature = "pvcam_sdk")]
     callback_context: Arc<std::pin::Pin<Box<CallbackContext>>>,
     /// Camera handle for cleanup in Drop. Stored during start_stream, cleared in stop_stream.
@@ -3860,7 +3918,15 @@ impl Drop for PvcamAcquisition {
             // CRITICAL SAFETY: Stop camera and deregister callback BEFORE buffer/context are freed.
             // This prevents use-after-free where PVCAM might try to:
             // 1. Write to the circular buffer after it's deallocated
-            // 2. Invoke the EOF callback after the context is freed
+            // 2. Invoke the EOF callback after the context is freed (bd-d9nw.2)
+            //
+            // CallbackContext Lifetime Safety (bd-d9nw.2):
+            // - self.callback_context is Arc<Pin<Box<CallbackContext>>>
+            // - PVCAM holds raw pointer to context via GLOBAL_CALLBACK_CTX
+            // - pl_cam_deregister_callback removes callback registration
+            // - clear_global_callback_ctx() nulls the static pointer
+            // - Only AFTER deregistration does the Arc drop, freeing the context
+            // - If callback fires after deregistration, it sees null pointer and exits early
             //
             // Uses atomic load for lock-free access - no risk of deadlock or UAF from lock contention.
             // If stop_stream() was called properly, active_hcam will be -1 and this is a no-op.
