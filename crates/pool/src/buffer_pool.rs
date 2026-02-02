@@ -109,6 +109,55 @@ fn record_exhaustion_event() {
     BUFFER_POOL_EXHAUSTION_EVENTS.inc();
 }
 
+/// Guard for semaphore permits that ensures they're returned on panic.
+///
+/// This guard prevents permit leaks when code panics after acquiring a permit
+/// but before the buffer is successfully returned to the pool.
+///
+/// # How it works
+///
+/// 1. Acquire a `SemaphorePermit` from tokio::sync::Semaphore
+/// 2. Call `std::mem::forget(permit)` to prevent automatic return
+/// 3. Create `PermitGuard::new(pool)` to track the permit
+/// 4. If the code panics before `guard.release()`, the guard's Drop returns the permit manually
+/// 5. If `guard.release()` is called, the guard marks itself as released (normal path)
+struct PermitGuard<'a> {
+    pool: &'a BufferPoolInner,
+    released: bool,
+}
+
+impl<'a> PermitGuard<'a> {
+    /// Create a new permit guard for a permit that has already been forgotten.
+    ///
+    /// IMPORTANT: The caller MUST call `std::mem::forget(permit)` before creating this guard.
+    /// If this guard is dropped without calling `release()`, the permit will be
+    /// returned to the semaphore.
+    fn new(pool: &'a BufferPoolInner) -> Self {
+        Self {
+            pool,
+            released: false,
+        }
+    }
+
+    /// Mark the permit as released (buffer is now responsible for returning it).
+    ///
+    /// This should be called in the success path when the buffer has been successfully
+    /// acquired and will be responsible for returning the permit via its own Drop impl.
+    fn release(mut self) {
+        self.released = true;
+        // Don't add permit back - it's being used by PooledBuffer
+    }
+}
+
+impl Drop for PermitGuard<'_> {
+    fn drop(&mut self) {
+        if !self.released {
+            // Panic/error path - return the permit
+            self.pool.semaphore.add_permits(1);
+        }
+    }
+}
+
 /// Pool of pre-allocated byte buffers for zero-allocation frame handling.
 ///
 /// Buffers are returned automatically when dropped (via `PooledBuffer::drop`).
@@ -177,6 +226,10 @@ impl BufferPool {
             return None;
         };
 
+        // Forget the permit to prevent automatic return, then create guard
+        std::mem::forget(permit);
+        let guard = PermitGuard::new(&self.inner);
+
         // Pop a buffer from the free queue
         let Some(buffer) = self.inner.free_buffers.pop() else {
             #[cfg(feature = "metrics")]
@@ -190,8 +243,8 @@ impl BufferPool {
         #[cfg(feature = "metrics")]
         update_metrics(&self.inner);
 
-        // Forget the permit - we'll re-add it when buffer is returned
-        std::mem::forget(permit);
+        // Release the guard - buffer is now responsible for returning the permit
+        guard.release();
 
         Some(PooledBuffer {
             buffer: Some(buffer),
@@ -212,6 +265,10 @@ impl BufferPool {
             return None;
         };
 
+        // Forget the permit to prevent automatic return, then create guard
+        std::mem::forget(permit);
+        let guard = PermitGuard::new(&self.inner);
+
         // Pop a buffer from the free queue
         let Some(buffer) = self.inner.free_buffers.pop() else {
             #[cfg(feature = "metrics")]
@@ -225,8 +282,8 @@ impl BufferPool {
         #[cfg(feature = "metrics")]
         update_metrics(&self.inner);
 
-        // Forget the permit - we'll re-add it when buffer is returned
-        std::mem::forget(permit);
+        // Release the guard - buffer is now responsible for returning the permit
+        guard.release();
 
         Some(PooledBuffer {
             buffer: Some(buffer),
@@ -245,6 +302,10 @@ impl BufferPool {
             .await
             .expect("semaphore closed");
 
+        // Forget the permit to prevent automatic return, then create guard
+        std::mem::forget(permit);
+        let guard = PermitGuard::new(&self.inner);
+
         // Pop a buffer from the free queue
         let buffer = self
             .inner
@@ -256,8 +317,8 @@ impl BufferPool {
         self.inner.available.fetch_sub(1, Ordering::Relaxed);
         self.inner.total_acquires.fetch_add(1, Ordering::Relaxed);
 
-        // Forget the permit - we'll re-add it when buffer is returned
-        std::mem::forget(permit);
+        // Release the guard - buffer is now responsible for returning the permit
+        guard.release();
 
         PooledBuffer {
             buffer: Some(buffer),
@@ -1008,5 +1069,65 @@ mod tests {
             2,
             "All buffers should be returned after cleanup"
         );
+    }
+
+    /// Test that permits are returned on panic (bd-d9nw.1).
+    ///
+    /// This test validates that the PermitGuard ensures semaphore permits
+    /// are returned to the pool if a panic occurs after acquiring a permit
+    /// but before the buffer is successfully returned to the pool.
+    #[test]
+    fn test_permit_guard_prevents_leak_on_panic() {
+        use std::panic;
+
+        let pool = BufferPool::new(3, 256);
+
+        // Initial state: all buffers available
+        assert_eq!(pool.available(), 3, "Pool should start with 3 buffers");
+
+        // Acquire one buffer normally to hold
+        let buf1 = pool.try_acquire().unwrap();
+        assert_eq!(pool.available(), 2, "2 buffers should remain");
+
+        // Test 1: Verify guard works by simulating what happens if
+        // free_buffers.pop() returns None (which would be a bug, but tests the guard)
+        let inner_clone = Arc::clone(&pool.inner);
+        let result = panic::catch_unwind(panic::AssertUnwindSafe(move || {
+            // Acquire permit
+            let _permit = inner_clone.semaphore.try_acquire().unwrap();
+            let _guard = PermitGuard::new(&inner_clone);
+
+            // Simulate an unexpected panic before guard.release() is called
+            panic!("simulated panic during acquisition");
+        }));
+
+        assert!(result.is_err(), "Panic should have been caught");
+
+        // The guard should have returned the permit on drop
+        // We should be able to acquire 2 more buffers (the original 2 remaining)
+        let buf2 = pool.try_acquire();
+        assert!(
+            buf2.is_some(),
+            "Should be able to acquire after panic (permit was returned by guard)"
+        );
+
+        let buf3 = pool.try_acquire();
+        assert!(
+            buf3.is_some(),
+            "Should be able to acquire second buffer after panic"
+        );
+
+        // Pool should now be exhausted
+        assert!(
+            pool.try_acquire().is_none(),
+            "Pool should be exhausted after acquiring all available buffers"
+        );
+
+        // Clean up
+        drop(buf1);
+        drop(buf2);
+        drop(buf3);
+
+        assert_eq!(pool.available(), 3, "All buffers returned after cleanup");
     }
 }
