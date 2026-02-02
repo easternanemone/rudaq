@@ -12,6 +12,7 @@ This guide covers testing practices, tools, and patterns for the rust-daq projec
 - [Timing Tests](#timing-tests)
 - [Hardware Tests](#hardware-tests)
 - [CI/CD Integration](#cicd-integration)
+- [Linting & Code Quality](#linting--code-quality)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -485,6 +486,55 @@ If timing tests fail in CI:
 5. **Run `cargo test --doc`** separately for doctests
 6. **Use the `ci` profile** in GitHub Actions
 7. **Use the `hardware` profile** for physical device tests
+
+---
+
+## Linting & Code Quality
+
+### CI Enforces `clippy::unwrap_used`
+
+The CI pipeline enforces **no `.unwrap()` calls in library code** to prevent panics in the daemon during hardware operations.
+
+| Code Type | `.unwrap()` Allowed? | What to Use Instead |
+|-----------|---------------------|---------------------|
+| Library crates (`--lib`) | No | `.expect("context")` or `?` operator |
+| Binary crates (bins) | Yes | (exempt from lint) |
+| Test code | Yes | (exempt from lint) |
+
+**Why this matters:** Panics in library code can crash the daemon during hardware operations, potentially leaving devices in undefined states. Using `.expect()` with context or propagating errors with `?` provides better diagnostics and allows graceful error handling.
+
+### Check Locally Before Pushing
+
+Run the same clippy check that CI runs:
+
+```bash
+cargo clippy --workspace --lib --features full --exclude ui -- -D clippy::unwrap_used
+```
+
+This checks all library code (excluding the `ui` crate) for `.unwrap()` usage.
+
+### Fixing Violations
+
+**Before (will fail CI):**
+```rust
+let value = config.get("key").unwrap();
+let parsed: u32 = text.parse().unwrap();
+```
+
+**After (preferred approaches):**
+```rust
+// Option 1: Use .expect() with context
+let value = config.get("key").expect("config must have 'key'");
+
+// Option 2: Propagate errors with ?
+let value = config.get("key").ok_or_else(|| anyhow!("missing 'key'"))?;
+let parsed: u32 = text.parse().context("failed to parse as u32")?;
+
+// Option 3: Handle with match/if-let for recoverable cases
+if let Some(value) = config.get("key") {
+    // use value
+}
+```
 
 ---
 
