@@ -5,6 +5,8 @@
 //! - Acquisition: Streaming and buffers
 //! - Features: Parameters and settings
 
+#![allow(unsafe_code)]
+
 pub mod components;
 
 #[cfg(feature = "pvcam_sdk")]

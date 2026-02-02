@@ -129,7 +129,7 @@ pub trait FrameTap: Send + Sync {
     }
 
     /// Optional: Return a descriptive name for this tap (for debugging).
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "unnamed_tap"
     }
 }
@@ -516,7 +516,7 @@ impl FrameTap for DecimatedTap {
         }
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "DecimatedTap"
     }
 }
@@ -602,7 +602,7 @@ impl FrameTap for SnapshotTap {
         }
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "SnapshotTap"
     }
 }
@@ -721,7 +721,7 @@ impl FrameTap for MetricsTap {
             .store(frame.frame_number, Ordering::Relaxed);
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "MetricsTap"
     }
 }
@@ -842,7 +842,7 @@ impl FrameTap for ObserverAdapter {
         }
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         self.observer.name()
     }
 }

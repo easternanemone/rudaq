@@ -2350,7 +2350,7 @@ impl PvcamAcquisition {
                         // Copy pixel data (u16 -> u8 bytes)
                         let byte_len = pixels.len() * 2;
                         if byte_len <= frame_data.pixels.capacity() {
-                            let src_ptr = pixels.as_ptr() as *const u8;
+                            let src_ptr = pixels.as_ptr().cast::<u8>();
                             // SAFETY: copy_nonoverlapping is safe because:
                             // 1. src_ptr points to valid pixel data (Vec<u16> on stack)
                             // 2. frame_data.pixels has sufficient capacity (checked above)

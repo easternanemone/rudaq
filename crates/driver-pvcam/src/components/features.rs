@@ -2521,7 +2521,7 @@ impl PvcamFeatures {
         _enabled: bool,
     ) -> Result<()> {
         // PP features typically have an "Enabled" parameter at index 0
-        Self::set_pp_param(_conn, _feature_index, 0, if _enabled { 1 } else { 0 })
+        Self::set_pp_param(_conn, _feature_index, 0, u32::from(_enabled))
     }
 
     /// Reset all post-processing features to defaults
