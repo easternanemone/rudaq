@@ -1,269 +1,368 @@
 # Rhai Scripting Guide
 
-This guide covers writing experiment scripts using Rhai, rust-daq's embedded scripting language.
+This guide covers the Rhai scripting system for experiment automation in rust-daq.
 
-## Getting Started
+## Overview
 
-### Your First Script
+The `scripting` crate provides a Rhai-based scripting engine for writing
+experiment scripts that control hardware devices. Rhai is an embedded scripting
+language for Rust that provides:
 
-Create a file `my_experiment.rhai`:
+- Safe execution with operation limits
+- Synchronous script syntax with async hardware underneath
+- Type-safe hardware handles
+- Automatic shutter safety via `with_shutter_open()`
 
-```rhai
-// Simple wavelength scan with power measurement
-let start_wavelength = 800;
-let end_wavelength = 900;
-let step = 10;
+## Quick Start
 
-for wavelength in range(start_wavelength, end_wavelength + 1, step) {
-    laser.set_wavelength(wavelength);
-    sleep(500);  // Wait 500ms for stabilization
+### Building Script Runners
 
-    let power = power_meter.read();
-    print(`${wavelength} nm: ${power} mW`);
-}
+Scripts are executed via binary runners. Build with the `scripting_full` feature:
 
-print("Scan complete!");
-```
-
-### Running Scripts
-
-**Via GUI:**
-1. Open Script Editor panel
-2. Load or paste your script
-3. Click "Run"
-
-**Via CLI:**
 ```bash
-./rust-daq-daemon run-script my_experiment.rhai
+# Build all script runners
+cargo build --release -p scripting --features scripting_full
+
+# Available binaries:
+# - run_polarization      - Polarization element characterization
+# - run_waveplate_cal     - Full 4D waveplate calibration (2-3 hours)
+# - run_waveplate_cal_test - Quick test version (24 points)
 ```
 
-**Via gRPC (Python):**
-```python
-from rust_daq import DaqClient
+**IMPORTANT**: You must use `--features scripting_full` to enable the
+hardware factory functions (`create_maitai`, `create_newport_1830c`, etc.).
+The `scripting_full` feature includes all necessary dependencies: hardware factories,
+serial drivers, HDF5 support, and the generic driver.
 
-client = DaqClient("localhost:50051")
-result = client.run_script("my_experiment.rhai")
+### Running a Script
+
+```bash
+cd ~/rust-daq
+./target/release/run_waveplate_cal_test
 ```
 
-## Available Hardware Bindings
+## Available Functions
 
-### Stage Control
+### Device Factory Functions
+
+| Function | Returns | Description |
+|----------|---------|-------------|
+| `create_maitai(port)` | `Shutter` | MaiTai laser (shutter only) |
+| `create_maitai_tunable(port)` | `MaiTaiLaser` | MaiTai with wavelength control |
+| `create_newport_1830c(port)` | `Newport1830C` | Power meter |
+| `create_elliptec(port, addr)` | `Ell14` | ELL14 rotator |
+| `create_comedi(device)` | `ComediDAQ` | Comedi DAQ (requires `comedi_scripting` feature) |
+| `create_hdf5(path)` | `Hdf5File` | HDF5 file for data storage |
+
+### MaiTai Laser Methods (MaiTaiLaser type)
 
 ```rhai
-// Absolute movement
-stage.move_abs(10.0);       // Move to position 10
-stage.wait_settled();       // Wait until motion complete
+let laser = create_maitai_tunable("/dev/serial/by-id/...");
 
-// Relative movement
-stage.move_rel(5.0);        // Move +5 from current position
+// Shutter control
+laser.open();              // Open shutter
+laser.close();             // Close shutter  
+laser.is_open();           // Query shutter state
 
-// Query position
-let pos = stage.position(); // Get current position
-print(`Position: ${pos}`);
+// Wavelength control
+laser.set_wavelength(800.0);  // Set to 800nm
+let wl = laser.get_wavelength();  // Query wavelength
 
-// Velocity control
-stage.set_velocity(10.0);   // Set speed
+// For use with with_shutter_open()
+let shutter = laser.as_shutter();
 ```
 
-### Camera/Frame Acquisition
+### Newport 1830-C Power Meter Methods
 
 ```rhai
-// Single frame
-let frame = camera.snap();
+let pm = create_newport_1830c("/dev/ttyS0");
 
-// Continuous acquisition
-camera.start_acquisition();
-for i in 0..100 {
-    let frame = camera.get_frame();
-    // Process frame...
-}
-camera.stop_acquisition();
+// Power reading
+let power = pm.read();              // Read power (Watts)
+let avg = pm.read_averaged(10);     // Average 10 readings
 
-// Triggered acquisition
-camera.set_trigger_mode("external");
-camera.arm();
-// Wait for external trigger...
-let frame = camera.get_frame();
+// Calibration
+pm.zero();                          // Zero without attenuator
+pm.zero_with_attenuator();          // Zero with attenuator
+pm.set_attenuator(true);            // Enable/disable attenuator
+
+// Wavelength calibration (NEW)
+pm.set_wavelength(800.0);           // Set calibration wavelength
+let wl = pm.get_wavelength();       // Query calibration wavelength
 ```
 
-### Power Meter
+### ELL14 Rotator Methods
 
 ```rhai
-// Simple reading
-let power = power_meter.read();
-print(`Power: ${power} W`);
-
-// Set wavelength for calibration
-power_meter.set_wavelength(800);
-
-// Averaged reading
-let sum = 0.0;
-for i in 0..10 {
-    sum += power_meter.read();
-    sleep(100);
-}
-let avg = sum / 10.0;
-```
-
-### Laser Control
-
-```rhai
-// Wavelength
-laser.set_wavelength(850);
-let wl = laser.wavelength();
-
-// Shutter
-laser.open_shutter();
-// ... do measurement ...
-laser.close_shutter();
-
-// Emission
-laser.emission_on();
-laser.emission_off();
-```
-
-### Rotator (ELL14)
-
-```rhai
-// Create rotator handle
 let rotator = create_elliptec("/dev/serial/by-id/...", "2");
 
-// Move to angle
-rotator.move_abs(45.0);
-rotator.wait_settled();
+// Motion
+rotator.move_abs(45.0);     // Move to 45 degrees
+rotator.move_rel(10.0);     // Move 10 degrees relative
+rotator.home();             // Home the rotator
+rotator.wait_settled();     // Wait for motion complete
 
 // Query
-let angle = rotator.position();
-let velocity = rotator.velocity();
-
-// Speed control (0-100%)
-rotator.set_velocity(100);  // Maximum speed
+let pos = rotator.position();   // Current position
+let vel = rotator.velocity();   // Cached velocity (0-100%)
 ```
 
-### Comedi DAQ
+### Comedi DAQ Methods (requires `comedi_scripting` feature)
 
 ```rhai
-// Read analog input
-let voltage = comedi.read_ai(0);  // Channel 0
+let daq = create_comedi("/dev/comedi0");
 
-// Write analog output
-comedi.write_ao(0, 2.5);  // Set channel 0 to 2.5V
+// Device info
+print("Board: " + daq.board_name());
+print("Driver: " + daq.driver_name());
+print("AI channels: " + daq.n_ai_channels());
+print("AO channels: " + daq.n_ao_channels());
+print("DIO channels: " + daq.n_dio_channels());
+
+// Analog input
+let voltage = daq.read_voltage(0);              // Read AI channel 0
+let v = daq.read_voltage_range(0, 1);           // Read with specific range
+
+// Analog output (EOM control)
+daq.write_voltage(1, 2.5);                      // Write 2.5V to AO channel 1
+// WARNING: AO channel 0 controls EOM - be careful!
 
 // Digital I/O
-comedi.write_dio(0, true);   // Set high
-let state = comedi.read_dio(0);
+daq.set_dio(0, true);                           // Set DIO channel 0 high
+let state = daq.get_dio(1);                     // Read DIO channel 1
 ```
 
-## Common Experiment Patterns
+**Building with Comedi support:**
+```bash
+cargo build --release -p scripting --features scripting_full_comedi
+```
 
-### 1D Scan (Wavelength Sweep)
+### HDF5 Data Storage
 
 ```rhai
-let results = [];
+let hdf5 = create_hdf5("output.h5");
 
-for wavelength in range(800, 901, 5) {
-    laser.set_wavelength(wavelength);
-    sleep(200);
+// Attributes
+hdf5.write_attr("name", "value");           // String attribute
+hdf5.write_attr_f64("wavelength", 800.0);   // Float attribute
+hdf5.write_attr_i64("samples", 100);        // Integer attribute
 
-    let power = power_meter.read();
-    results.push([wavelength, power]);
+// Arrays
+hdf5.write_array_1d("angles", [0.0, 10.0, 20.0]);
+hdf5.write_array_2d("data", [[0.0, 1.0], [2.0, 3.0]]);
 
-    print(`${wavelength} nm: ${power} W`);
+// Groups
+hdf5.create_group("wavelength_800");
+
+// Close (required!)
+hdf5.close();
+```
+
+### Utility Functions
+
+```rhai
+sleep(1.0);                 // Sleep for 1 second
+let ts = timestamp();       // "20260127_115319" format
+let iso = timestamp_iso();  // Full ISO8601 timestamp
+```
+
+## GenericDriver: Config-Driven Devices
+
+The GenericDriver allows you to control any serial device defined by a TOML
+configuration file, without writing any Rust code. This is useful for:
+
+- Prototyping new device support quickly
+- Controlling devices with simple ASCII protocols
+- Sharing device configurations across scripts
+
+### Creating a GenericDriver
+
+```rhai
+let driver = create_generic_driver(
+    "config/devices/ell14.toml",  // Device config path
+    "/dev/serial/by-id/...",      // Serial port
+    "2"                           // Device address
+);
+```
+
+### Available Methods
+
+| Method | Description |
+|--------|-------------|
+| `move_abs(pos)` | Move to absolute position |
+| `move_rel(dist)` | Move relative amount |
+| `position()` | Get current position |
+| `wait_settled()` | Wait for motion complete |
+| `stop()` | Emergency stop |
+| `read()` | Read value (Readable trait) |
+| `set_wavelength(nm)` | Set wavelength (WavelengthTunable) |
+| `get_wavelength()` | Get wavelength |
+| `open()`, `close()`, `is_open()` | Shutter control |
+| `transaction(cmd)` | Send raw command, get response |
+| `get_param(name)` | Get device parameter |
+| `set_param(name, val)` | Set device parameter |
+| `set_soft_limits(min, max)` | Set motion limits |
+| `address()` | Get device address |
+
+### Example: Using ELL14 via GenericDriver
+
+```rhai
+let rotator = create_generic_driver(
+    "config/devices/ell14.toml",
+    "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0",
+    "2"
+);
+
+// Configure safety limits
+rotator.set_soft_limits(0.0, 360.0);
+
+// Move to position
+rotator.move_abs(45.0);
+rotator.wait_settled();
+print("Position: " + rotator.position());
+
+// Scan positions
+for angle in [0.0, 45.0, 90.0, 135.0, 180.0] {
+    rotator.move_abs(angle);
+    rotator.wait_settled();
+    // Take measurement here
 }
-
-// Results available after script
-results
 ```
 
-### 2D Scan (XY Stage)
+### Feature Flag
+
+Requires `generic_driver` feature (included in `scripting_full`):
+
+```bash
+cargo build -p scripting --features generic_driver
+```
+
+## Shutter Safety
+
+**CRITICAL**: Always use `with_shutter_open()` for laser experiments. This
+guarantees shutter closure even if the script errors or is interrupted.
 
 ```rhai
-let x_start = 0.0;
-let x_end = 10.0;
-let y_start = 0.0;
-let y_end = 10.0;
-let step = 1.0;
+let laser = create_maitai_tunable("/dev/serial/by-id/...");
+let shutter = laser.as_shutter();
 
-for y in range(y_start, y_end + step, step) {
-    stage_y.move_abs(y);
-    stage_y.wait_settled();
+let result = with_shutter_open(shutter, || {
+    // Shutter is open here
+    let power = power_meter.read();
+    
+    // Even if this errors, shutter will close
+    do_measurement();
+    
+    // Return value from closure
+    power
+});
 
-    for x in range(x_start, x_end + step, step) {
-        stage_x.move_abs(x);
-        stage_x.wait_settled();
+// Shutter is guaranteed closed here
+print("Result: " + result);
+```
 
-        let frame = camera.snap();
-        // Frame is automatically saved
+## Example: Multi-Dimensional Sweep
 
-        print(`Captured at (${x}, ${y})`);
+```rhai
+// 4D Waveplate Calibration Example
+let ELLIPTEC_PORT = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0";
+let NEWPORT_PORT = "/dev/ttyS0";
+let MAITAI_PORT = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0";
+
+// Initialize hardware
+let power_meter = create_newport_1830c(NEWPORT_PORT);
+let laser = create_maitai_tunable(MAITAI_PORT);
+let rotator_lp = create_elliptec(ELLIPTEC_PORT, "3");
+let rotator_hwp = create_elliptec(ELLIPTEC_PORT, "2");
+
+// Create output file
+let hdf5 = create_hdf5("calibration_" + timestamp() + ".h5");
+
+// Run with shutter safety
+let shutter = laser.as_shutter();
+let data = with_shutter_open(shutter, || {
+    let results = [];
+    
+    for wavelength in [780.0, 800.0, 820.0] {
+        // Set wavelengths
+        laser.set_wavelength(wavelength);
+        power_meter.set_wavelength(wavelength);
+        sleep(60.0);  // Stabilization
+        
+        for lp_angle in [0.0, 45.0, 90.0] {
+            rotator_lp.move_abs(lp_angle);
+            rotator_lp.wait_settled();
+            
+            let power = power_meter.read_averaged(3);
+            results.push([wavelength, lp_angle, power]);
+        }
+    }
+    
+    results
+});
+
+// Save data
+hdf5.write_array_2d("measurements", data);
+hdf5.close();
+```
+
+## Serial Port Paths
+
+Always use stable `/dev/serial/by-id/` paths that don't change on reboot:
+
+| Device | Port Path |
+|--------|-----------|
+| MaiTai Laser | `/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0` |
+| ELL14 Rotators | `/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0` |
+| Newport 1830-C | `/dev/ttyS0` (built-in RS-232, always stable) |
+
+## Creating New Script Runners
+
+To create a runner for a new script:
+
+1. Create the Rhai script in `crates/examples/examples/`:
+
+```rhai
+// my_experiment.rhai
+print("Starting experiment...");
+// ... script content
+```
+
+2. Create a binary in `crates/scripting/src/bin/`:
+
+```rust
+// run_my_experiment.rs
+use scripting::traits::ScriptEngine;
+use scripting::RhaiEngine;
+use tracing_subscriber::EnvFilter;
+
+const SCRIPT: &str = include_str!("../../../examples/examples/my_experiment.rhai");
+const MAX_OPERATIONS: u64 = 1_000_000;
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
+
+    let mut engine = RhaiEngine::with_hardware_and_limit(MAX_OPERATIONS)
+        .expect("Failed to create RhaiEngine");
+
+    match engine.execute_script(SCRIPT).await {
+        Ok(result) => println!("Success: {:?}", result),
+        Err(e) => {
+            eprintln!("Error: {:?}", e);
+            std::process::exit(1);
+        }
     }
 }
 ```
 
-### Time Series Acquisition
+3. Build with hardware features:
 
-```rhai
-let interval_ms = 100;
-let duration_s = 10;
-let num_points = (duration_s * 1000) / interval_ms;
-
-for i in 0..num_points {
-    let power = power_meter.read();
-    let timestamp = i * interval_ms;
-
-    print(`${timestamp} ms: ${power} W`);
-    sleep(interval_ms);
-}
+```bash
+cargo build --release -p scripting --features scripting_full --bin run_my_experiment
 ```
-
-### Triggered Frame Capture
-
-```rhai
-camera.set_trigger_mode("external");
-camera.set_exposure(50.0);  // 50 ms
-
-let num_frames = 100;
-camera.arm();
-
-for i in 0..num_frames {
-    // External trigger fires...
-    let frame = camera.get_frame();
-    print(`Frame ${i}: ${frame.timestamp}`);
-}
-
-camera.disarm();
-```
-
-## Error Handling
-
-```rhai
-// Try-catch for error handling
-try {
-    stage.move_abs(1000.0);  // May exceed limits
-} catch(err) {
-    print(`Error: ${err}`);
-    stage.stop();  // Emergency stop
-}
-
-// Check device availability
-if stage.is_connected() {
-    stage.move_abs(10.0);
-} else {
-    print("Stage not available!");
-}
-```
-
-## Resource Limits
-
-Scripts have built-in safety limits:
-
-| Limit | Value | Purpose |
-|-------|-------|---------|
-| Max iterations | 1,000,000 | Prevent infinite loops |
-| Max script size | 1 MB | Memory protection |
-| Operation timeout | 30s | Prevent hanging |
-
-These limits protect against runaway scripts but allow long experiments.
 
 ## Tips and Best Practices
 
@@ -273,17 +372,23 @@ These limits protect against runaway scripts but allow long experiments.
    stage.wait_settled();  // Don't skip this!
    ```
 
-2. **Close shutters when done**
+2. **Use `with_shutter_open()` for all laser work**
    ```rhai
-   laser.open_shutter();
-   // ... experiment ...
-   laser.close_shutter();  // Always close!
+   // WRONG - shutter may stay open on error
+   laser.open();
+   do_risky_operation();
+   laser.close();
+
+   // CORRECT - shutter always closes
+   with_shutter_open(shutter, || {
+       do_risky_operation();
+   });
    ```
 
 3. **Use sleep() for stabilization**
    ```rhai
    laser.set_wavelength(850);
-   sleep(500);  // Wait for wavelength to stabilize
+   sleep(0.5);  // Wait for wavelength to stabilize
    ```
 
 4. **Return results as last expression**
@@ -303,46 +408,61 @@ These limits protect against runaway scripts but allow long experiments.
    }
    ```
 
-## Related Documentation
-
-- [scripting README](../../crates/scripting/README.md) - Full API reference
-- [Testing Guide](testing.md) - Running script tests
-- [Hardware Drivers](hardware-drivers.md) - Driver implementation
+6. **Handle incomplete results on error**
+   ```rhai
+   try {
+       // ... experiment ...
+       results
+   } catch(err) {
+       print(`Error: ${err}`);
+       results  // Return partial results on error
+   }
+   ```
 
 ## Troubleshooting
 
-**Script won't start:**
-- Check device connections in GUI
-- Verify daemon is running
-- Check script syntax with "Validate" button
-- Review daemon logs for device initialization errors
+### "Function not found: create_newport_1830c"
 
-**Device not responding:**
-- Use `device.is_connected()` to check status
-- Check physical connections (USB cables, power)
-- Restart daemon if needed
-- Check hardware permissions
-
-**Script runs too slow:**
-- Reduce sleep() durations if not needed for stabilization
-- Use triggered acquisition instead of polling
-- Check for unnecessary wait_settled() calls
-- Profile with print() statements to identify bottlenecks
-
-**Incomplete results:**
-If your script returns partial results:
-```rhai
-try {
-    // ... experiment ...
-    results
-} catch(err) {
-    print(`Error: ${err}`);
-    results  // Return partial results on error
-}
+Build with the correct feature flag:
+```bash
+cargo build --release -p scripting --features scripting_full  # CORRECT
+cargo build --release -p scripting --features hardware_factories  # WRONG - incomplete
 ```
 
-**Memory or iteration limits:**
-If you hit resource limits:
-- Break the experiment into smaller scripts
-- Use higher step values in loops
-- Move data processing to post-analysis
+### Script hits operation limit
+
+Increase `MAX_OPERATIONS` in the binary runner:
+```rust
+const MAX_OPERATIONS: u64 = 10_000_000;  // For long experiments
+```
+
+### Shutter not closing on error
+
+Ensure you're using `with_shutter_open()`:
+```rhai
+// WRONG - shutter may stay open on error
+laser.open();
+do_risky_operation();
+laser.close();
+
+// CORRECT - shutter always closes
+with_shutter_open(shutter, || {
+    do_risky_operation();
+});
+```
+
+## Feature Flags
+
+| Feature | Description |
+|---------|-------------|
+| `hardware_factories` | Marker feature for cfg guards (enabled by scripting_full) |
+| `hdf5_scripting` | HDF5 data storage |
+| `comedi_scripting` | Comedi DAQ support (requires comedilib on Linux) |
+| `scripting_full` | **Recommended** - All serial hardware + HDF5 |
+| `scripting_full_comedi` | scripting_full + Comedi DAQ support |
+
+## Related Documentation
+
+- [Comedi Setup](comedi-setup.md) - NI DAQ card configuration
+- [Testing Guide](testing.md) - Running hardware tests
+- [EOM Power Sweep](eom-power-sweep.md) - Power sweep experiments
