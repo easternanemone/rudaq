@@ -13,7 +13,6 @@ serde = { workspace = true, features = ["derive"] }
 tracing.workspace = true
 serde_json.workspace = true
 regex = "1.0.8"
-strfmt = "0.2.5"
 garde = { version = "0.18", features = ["derive", "serde"] }
 minijinja = { version = "2.10", features = ["loader"] }
 winnow = "0.6"

@@ -4,13 +4,13 @@
 //! interprets YAML plugin definitions to control serial or TCP instruments without
 //! recompilation.
 
+use crate::plugin::templating::render_command;
 use anyhow::{anyhow, Result};
 use rand::Rng;
 use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::time::Duration;
-use strfmt::strfmt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, RwLock};
@@ -561,11 +561,11 @@ impl GenericDriver {
             return Ok(());
         }
 
-        // Prepare context for strfmt
+        // Prepare context for template rendering
         let mut fmt_context = HashMap::new();
         fmt_context.insert("val".to_string(), value.to_string());
 
-        let command = strfmt(&settable_cap.set_cmd, &fmt_context)
+        let command = render_command(&settable_cap.set_cmd, &fmt_context)
             .map_err(|e| anyhow!("Failed to format command for '{}': {}", capability_name, e))?;
 
         self.execute_command(&command).await?;
@@ -860,7 +860,7 @@ impl GenericDriver {
         fmt_context.insert("axis".to_string(), axis_name.to_string());
         fmt_context.insert("val".to_string(), position.to_string());
 
-        let command = strfmt(&movable.set_cmd, &fmt_context)
+        let command = render_command(&movable.set_cmd, &fmt_context)
             .map_err(|e| anyhow!("Failed to format move command: {}", e))?;
 
         self.execute_command(&command).await?;
@@ -920,7 +920,7 @@ impl GenericDriver {
         let mut fmt_context = HashMap::new();
         fmt_context.insert("axis".to_string(), axis_name.to_string());
 
-        let command = strfmt(&movable.get_cmd, &fmt_context)
+        let command = render_command(&movable.get_cmd, &fmt_context)
             .map_err(|e| anyhow!("Failed to format get position command: {}", e))?;
 
         let response = self.execute_command(&command).await?;
@@ -1021,7 +1021,7 @@ impl GenericDriver {
         let mut fmt_context = HashMap::new();
         fmt_context.insert("val".to_string(), seconds.to_string());
 
-        let command = strfmt(&exposure_cap.set_cmd, &fmt_context)
+        let command = render_command(&exposure_cap.set_cmd, &fmt_context)
             .map_err(|e| anyhow!("Failed to format exposure set command: {}", e))?;
 
         self.execute_command(&command).await?;

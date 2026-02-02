@@ -64,3 +64,5 @@ pub mod lib_reload;
 #[cfg(feature = "serial")]
 pub mod registry;
 pub mod schema;
+#[cfg(feature = "serial")]
+pub mod templating;
