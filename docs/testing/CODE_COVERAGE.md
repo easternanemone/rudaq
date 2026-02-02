@@ -4,64 +4,65 @@ This document explains how test coverage is measured, enforced, and reported in 
 
 ## Overview
 
-Code coverage is enforced in CI to maintain test quality:
+Code coverage is measured in CI to maintain test quality:
 
-- **Tool**: cargo-tarpaulin (Rust coverage tool)
-- **Threshold**: 40% minimum line coverage
-- **Enforcement**: PRs failing coverage threshold are blocked
+- **Tool**: cargo-llvm-cov (LLVM-based coverage tool)
+- **Reference**: Coverage results available in CI artifacts
+- **Enforcement**: No automatic threshold enforcement
 
 ## Running Coverage Locally
 
-### Install cargo-tarpaulin
+### Install cargo-llvm-cov
 
 ```bash
-cargo install cargo-tarpaulin
+cargo install cargo-llvm-cov
 ```
 
 ### Run Coverage
 
 ```bash
-# Basic coverage run
-cargo tarpaulin --workspace --out Html --output-dir coverage
+# Basic coverage run (HTML report)
+cargo llvm-cov --workspace --html --output-dir coverage/html
+
+# Generate LCOV format (for CI integration)
+cargo llvm-cov --workspace --lcov --output-path coverage/lcov.info
 
 # Exclude crates that require special hardware/environment
-cargo tarpaulin \
+cargo llvm-cov \
   --workspace \
   --exclude ui \
   --exclude driver-pvcam \
   --exclude driver-comedi \
-  --out Html \
-  --output-dir coverage
+  --html \
+  --output-dir coverage/html
 ```
 
 ### View Report
 
 ```bash
 # Open HTML report (macOS)
-open coverage/tarpaulin-report.html
+open coverage/html/index.html
 
 # Open HTML report (Linux)
-xdg-open coverage/tarpaulin-report.html
+xdg-open coverage/html/index.html
 ```
 
 ## CI Coverage Workflow
 
-The `.github/workflows/coverage.yml` workflow:
+The `coverage` job in `.github/workflows/ci.yml`:
 
-1. **Runs on**: All PRs and pushes to main
+1. **Runs on**: Main branch pushes and PRs with `ci:full` label
 2. **Excludes**: ui (requires X11), hardware-specific crates
-3. **Outputs**: 
-   - Cobertura XML for tooling integration
+3. **Outputs**:
+   - LCOV format for tooling integration
    - HTML report as artifact
-   - PR comment with coverage summary
-4. **Threshold**: 40% minimum (configurable via `COVERAGE_THRESHOLD` env var)
+4. **Threshold**: No automatic enforcement (informational only)
 
 ### Coverage Artifacts
 
 Each CI run produces:
-- `coverage/cobertura.xml` - Machine-readable coverage data
-- `coverage/tarpaulin-report.html` - Human-readable report
-- PR comment with coverage summary
+- `coverage/lcov.info` - LCOV format for tooling integration
+- `coverage/html/` - Human-readable HTML report directory
 
 ## Improving Coverage
 
@@ -123,12 +124,12 @@ async fn test_with_paused_time() {
 
 ## Excluded Code
 
-Some code is intentionally excluded from coverage:
+Some code is intentionally excluded from coverage using the `coverage` attribute:
 
 ### Hardware-Specific Code
 
 ```rust
-#[cfg(not(tarpaulin_include))]
+#[cfg(not(coverage))]
 fn hardware_specific_function() {
     // This requires actual hardware
 }
@@ -137,35 +138,21 @@ fn hardware_specific_function() {
 ### Unreachable Error Paths
 
 ```rust
-#[cfg(not(tarpaulin_include))]
+#[cfg(not(coverage))]
 fn handle_impossible_error() {
     unreachable!("This should never happen")
 }
 ```
 
-## Coverage Thresholds
+## Coverage Notes
 
-The current threshold is 40%, which is intentionally low because:
+Coverage measurement is informational and helps identify which areas need additional tests:
 
 1. **Hardware drivers** - Many driver crates require actual hardware for meaningful tests
 2. **GUI code** - ui requires X11/Wayland runtime
 3. **Integration paths** - Some code paths only execute in production environments
 
-The threshold should be raised as more mock-based tests are added.
-
-## Codecov Integration
-
-If `CODECOV_TOKEN` is configured, coverage is also uploaded to Codecov for:
-
-- Historical tracking
-- PR decorations
-- Coverage trend visualization
-
-### Setting Up Codecov
-
-1. Go to [codecov.io](https://codecov.io) and connect your repository
-2. Get the repository upload token
-3. Add `CODECOV_TOKEN` as a GitHub repository secret
+Coverage results should inform testing priorities rather than be treated as strict metrics.
 
 ## Troubleshooting
 
@@ -173,30 +160,31 @@ If `CODECOV_TOKEN` is configured, coverage is also uploaded to Codecov for:
 
 ```bash
 # Try with verbose output
-cargo tarpaulin --workspace -v
+cargo llvm-cov --workspace -v
 
-# Skip problematic tests
-cargo tarpaulin --workspace --skip-clean --ignore-tests
+# Build without coverage first to check for compilation issues
+cargo build --workspace --exclude ui
 ```
 
 ### Coverage Lower Than Expected
 
-1. **Check excluded crates**: Some crates may be excluded in CI
+1. **Check excluded crates**: Some crates may be excluded in CI (ui, hardware-specific)
 2. **Check test isolation**: Tests may not run due to `#[ignore]`
 3. **Check feature flags**: Some code is behind feature gates
+4. **Check coverage attribute**: Code marked with `#[cfg(not(coverage))]` is excluded
 
 ### Slow Coverage Runs
 
 ```bash
-# Use multiple threads
-cargo tarpaulin --workspace -j 4
+# Run a subset of crates (faster iteration)
+cargo llvm-cov --package common --html
 
-# Skip clean build
-cargo tarpaulin --workspace --skip-clean
+# Skip specific crates during development
+cargo llvm-cov --workspace --exclude driver-pvcam --exclude driver-comedi
 ```
 
 ## See Also
 
 - [Testing Guide](../guides/testing.md) - General testing documentation
 - [AGENTS.md](../../AGENTS.md) - Build and test commands
-- [cargo-tarpaulin documentation](https://github.com/xd009642/tarpaulin)
+- [cargo-llvm-cov documentation](https://github.com/taiki-e/cargo-llvm-cov)
