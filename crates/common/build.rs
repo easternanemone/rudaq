@@ -38,7 +38,7 @@ fn main() {
     // Get build timestamp
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .expect("System time should be after UNIX epoch")
         .as_secs();
     println!("cargo:rustc-env=VERGEN_BUILD_TIMESTAMP={}", now);
 

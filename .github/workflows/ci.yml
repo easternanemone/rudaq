@@ -53,6 +53,11 @@ jobs:
         # Exclude ui which requires full desktop environment (X11/Wayland runtime)
         run: cargo clippy --workspace --all-targets --features full --exclude ui -- -D warnings
 
+      - name: Deny unwrap in library code
+        # Enforce no .unwrap() calls in production library code (tests are exempt)
+        # Use expect() with justification comment for legitimate cases
+        run: cargo clippy --workspace --lib --features full --exclude ui -- -D clippy::unwrap_used
+
       - name: cargo clippy (SARIF)
         run: |
           # Ensure SARIF file exists even if clippy fails (for upload step)

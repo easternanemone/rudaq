@@ -96,7 +96,9 @@ fn generate_bindings() {
         .generate()
         .expect("Unable to generate comedi bindings");
 
-    let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let out_path = PathBuf::from(
+        env::var("OUT_DIR").expect("OUT_DIR environment variable must be set by Cargo"),
+    );
     bindings
         .write_to_file(out_path.join("bindings.rs"))
         .expect("Couldn't write bindings!");
@@ -106,7 +108,9 @@ fn generate_bindings() {
 /// This allows the crate to compile on systems without comedilib installed.
 #[cfg(not(feature = "comedi-sdk"))]
 fn generate_dummy_bindings() {
-    let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let out_path = PathBuf::from(
+        env::var("OUT_DIR").expect("OUT_DIR environment variable must be set by Cargo"),
+    );
     let dummy = r#"
 // Dummy bindings - comedi-sdk feature not enabled
 //
