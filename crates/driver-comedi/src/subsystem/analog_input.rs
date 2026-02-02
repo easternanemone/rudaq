@@ -237,6 +237,6 @@ impl std::fmt::Debug for AnalogInput {
             .field("subdevice", &self.subdevice)
             .field("n_channels", &self.n_channels)
             .field("resolution", &format!("{}-bit", self.resolution_bits()))
-            .finish()
+            .finish_non_exhaustive()
     }
 }

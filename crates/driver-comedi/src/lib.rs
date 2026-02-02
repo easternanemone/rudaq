@@ -1,3 +1,4 @@
+#![allow(unsafe_code)]
 //! Safe Rust driver for Comedi DAQ devices.
 //!
 //! This crate provides a safe, ergonomic interface to Comedi (Control and

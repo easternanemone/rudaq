@@ -152,7 +152,7 @@ impl DigitalIO {
                 self.device.handle(),
                 self.subdevice,
                 channel,
-                if value { 1 } else { 0 },
+                u32::from(value),
             )
         };
 
@@ -255,6 +255,6 @@ impl std::fmt::Debug for DigitalIO {
         f.debug_struct("DigitalIO")
             .field("subdevice", &self.subdevice)
             .field("n_channels", &self.n_channels)
-            .finish()
+            .finish_non_exhaustive()
     }
 }

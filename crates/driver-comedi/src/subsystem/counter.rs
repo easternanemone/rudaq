@@ -198,6 +198,6 @@ impl std::fmt::Debug for Counter {
             .field("subdevice", &self.subdevice)
             .field("n_channels", &self.n_channels)
             .field("bit_width", &self.bit_width())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
