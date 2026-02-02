@@ -17,6 +17,7 @@ pyo3 = { version = "0.24", features = ["auto-initialize"], optional = true }
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow.workspace = true
+serde_json.workspace = true
 
 # Optional hardware driver dependencies for factory functions
 driver-thorlabs = { path = "../driver-thorlabs", optional = true }

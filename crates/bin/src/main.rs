@@ -33,6 +33,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use rust_daq::hardware::mock::{MockCamera, MockStage};
+use scripting::shutter_safety::ShutterRegistry;
 use scripting::{CameraHandle, RhaiEngine, ScriptEngine, ScriptValue, SoftLimits, StageHandle};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -343,6 +344,12 @@ async fn start_daemon(
         println!();
 
         let registry = Arc::new(registry);
+
+        // Install panic hook for hardware emergency shutdown (bd-d9nw.8)
+        println!("🛡️  Installing hardware safety panic hook...");
+        ShutterRegistry::install_panic_hook_with_hardware(&registry);
+        println!("   Emergency shutdown will activate on panic (shutters + motors + DAQ)");
+        println!();
 
         // Start registry monitoring
         let mon_registry = registry.clone();

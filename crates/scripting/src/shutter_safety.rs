@@ -54,12 +54,13 @@
 //! // Shutter auto-closes on drop OR if heartbeats stop
 //! ```
 
+use common::driver::Capability;
 use hardware::capabilities::ShutterControl;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
-use tokio::runtime::Handle;
+use tokio::runtime::{Handle, Runtime};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
@@ -69,6 +70,28 @@ pub const DEFAULT_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Maximum allowed heartbeat timeout (60 seconds)
 pub const MAX_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Pre-allocated emergency runtime for panic/signal handlers.
+///
+/// This runtime is created at startup to avoid allocation failures during emergencies.
+/// If this runtime cannot be created, the process will fail-fast at initialization
+/// rather than during an emergency shutdown.
+static EMERGENCY_RUNTIME: OnceLock<Runtime> = OnceLock::new();
+
+/// Initialize the emergency runtime.
+///
+/// This must be called during application startup. If runtime creation fails,
+/// the process will panic immediately (fail-fast) rather than during an emergency.
+///
+/// This is called automatically by `ShutterRegistry::global()`.
+pub fn init_emergency_runtime() {
+    EMERGENCY_RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("CRITICAL: Failed to create emergency Tokio runtime during initialization")
+    });
+}
 
 // =============================================================================
 // Global Shutter Registry
@@ -89,14 +112,26 @@ pub struct ShutterRegistry {
     shutters: Mutex<HashMap<u64, Weak<dyn ShutterControl>>>,
     /// Flag indicating if signal handlers are installed
     handlers_installed: AtomicBool,
+    /// Optional reference to hardware registry for emergency motor stop and DAQ zeroing
+    /// This is set via install_panic_hook_with_hardware()
+    hardware_registry: Mutex<Option<Weak<hardware::registry::DeviceRegistry>>>,
+    /// Flag ensuring emergency close runs only once
+    emergency_closed: AtomicBool,
 }
 
 impl ShutterRegistry {
     /// Get or create the global registry
     pub fn global() -> &'static ShutterRegistry {
-        SHUTTER_REGISTRY.get_or_init(|| ShutterRegistry {
-            shutters: Mutex::new(HashMap::new()),
-            handlers_installed: AtomicBool::new(false),
+        SHUTTER_REGISTRY.get_or_init(|| {
+            // Initialize emergency runtime at startup (fail-fast if creation fails)
+            init_emergency_runtime();
+
+            ShutterRegistry {
+                shutters: Mutex::new(HashMap::new()),
+                handlers_installed: AtomicBool::new(false),
+                hardware_registry: Mutex::new(None),
+                emergency_closed: AtomicBool::new(false),
+            }
         })
     }
 
@@ -130,20 +165,47 @@ impl ShutterRegistry {
         }
     }
 
+    /// Get or create a tokio runtime handle for emergency operations
+    ///
+    /// First tries to use the current runtime, then falls back to the pre-allocated
+    /// emergency runtime. Returns None only if the emergency runtime was never initialized.
+    fn get_or_create_runtime() -> Option<Handle> {
+        // Try to use existing runtime first
+        if let Ok(handle) = Handle::try_current() {
+            return Some(handle);
+        }
+
+        // Fallback: use pre-allocated emergency runtime
+        if let Some(rt) = EMERGENCY_RUNTIME.get() {
+            return Some(rt.handle().clone());
+        }
+
+        // This should never happen if init_emergency_runtime() was called at startup
+        error!("Emergency runtime requested but not initialized");
+        None
+    }
+
     /// Emergency close all registered shutters
     ///
     /// This is called by signal handlers and panic hooks.
     /// It attempts to close all shutters but cannot guarantee success
     /// (e.g., if hardware is unresponsive).
     pub fn emergency_close_all() {
+        // Idempotency check - ensure emergency close runs only once
+        if Self::global().emergency_closed.swap(true, Ordering::SeqCst) {
+            info!("Emergency close already executed, skipping");
+            return;
+        }
+
         warn!("EMERGENCY: Closing all registered shutters");
 
         let shutters: Vec<Arc<dyn ShutterControl>> = {
-            if let Ok(guard) = Self::global().shutters.lock() {
-                guard.values().filter_map(|weak| weak.upgrade()).collect()
-            } else {
-                error!("Failed to acquire shutter registry lock during emergency close");
-                return;
+            match Self::global().shutters.try_lock() {
+                Ok(guard) => guard.values().filter_map(|weak| weak.upgrade()).collect(),
+                Err(_) => {
+                    error!("Failed to acquire shutter registry lock during emergency close (deadlock risk)");
+                    return;
+                }
             }
         };
 
@@ -154,47 +216,241 @@ impl ShutterRegistry {
 
         info!("Attempting to close {} registered shutters", shutters.len());
 
-        // Try to close each shutter
-        // Note: We're in an emergency context, so we use blocking calls
-        for (i, shutter) in shutters.iter().enumerate() {
-            // Try to get a runtime handle
-            if let Ok(handle) = Handle::try_current() {
-                // We're in an async context
-                let shutter = shutter.clone();
-                let result = std::thread::spawn(move || {
-                    handle.block_on(async {
-                        match tokio::time::timeout(Duration::from_secs(2), shutter.close_shutter())
-                            .await
-                        {
-                            Ok(Ok(())) => {
-                                info!(shutter_index = i, "Emergency shutter close: SUCCESS");
-                                true
-                            }
-                            Ok(Err(e)) => {
-                                error!(
-                                    shutter_index = i,
-                                    error = %e,
-                                    "Emergency shutter close: FAILED"
-                                );
-                                false
-                            }
-                            Err(_) => {
-                                error!(shutter_index = i, "Emergency shutter close: TIMEOUT (2s)");
-                                false
-                            }
-                        }
-                    })
-                })
-                .join();
+        // Try to get a runtime handle once (with fallback)
+        let handle = Self::get_or_create_runtime();
 
-                if let Err(e) = result {
-                    error!(shutter_index = i, error = ?e, "Emergency close thread panicked");
+        // Use single bridge thread pattern for all shutters
+        if let Some(handle) = handle {
+            let result = std::thread::spawn(move || {
+                handle.block_on(async {
+                    // Spawn parallel tasks for each shutter
+                    let tasks: Vec<_> = shutters
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, shutter)| {
+                            tokio::spawn(async move {
+                                match tokio::time::timeout(
+                                    Duration::from_secs(2),
+                                    shutter.close_shutter(),
+                                )
+                                .await
+                                {
+                                    Ok(Ok(())) => {
+                                        info!(
+                                            shutter_index = i,
+                                            "Emergency shutter close: SUCCESS"
+                                        );
+                                        true
+                                    }
+                                    Ok(Err(e)) => {
+                                        error!(
+                                            shutter_index = i,
+                                            error = %e,
+                                            "Emergency shutter close: FAILED"
+                                        );
+                                        false
+                                    }
+                                    Err(_) => {
+                                        error!(
+                                            shutter_index = i,
+                                            "Emergency shutter close: TIMEOUT (2s)"
+                                        );
+                                        false
+                                    }
+                                }
+                            })
+                        })
+                        .collect();
+
+                    // Wait for all tasks to complete
+                    for (i, task) in tasks.into_iter().enumerate() {
+                        if let Err(e) = task.await {
+                            error!(shutter_index = i, error = ?e, "Emergency close task panicked");
+                        }
+                    }
+                })
+            })
+            .join();
+
+            if let Err(e) = result {
+                error!(error = ?e, "Emergency close bridge thread panicked");
+            }
+        } else {
+            error!(
+                "No tokio runtime available for emergency shutter close (runtime creation failed)"
+            );
+        }
+    }
+
+    /// Emergency stop all motors (Movable devices)
+    ///
+    /// This is called by panic hooks to halt all motion.
+    /// Best-effort - does not panic if shutdown fails.
+    fn emergency_stop_motors() {
+        warn!("EMERGENCY: Stopping all motors");
+
+        let registry: Option<Arc<hardware::registry::DeviceRegistry>> = {
+            match Self::global().hardware_registry.try_lock() {
+                Ok(guard) => guard.as_ref().and_then(|weak| weak.upgrade()),
+                Err(_) => {
+                    error!("Failed to acquire hardware registry lock during emergency stop (deadlock risk)");
+                    return;
                 }
-            } else {
-                warn!(
-                    shutter_index = i,
-                    "No tokio runtime available for emergency shutter close"
-                );
+            }
+        };
+
+        let Some(registry) = registry else {
+            info!("No hardware registry available for emergency motor stop");
+            return;
+        };
+
+        let devices = registry.list_devices();
+        let movable_devices: Vec<_> = devices
+            .iter()
+            .filter(|d| d.capabilities.contains(&Capability::Movable))
+            .collect();
+
+        if movable_devices.is_empty() {
+            info!("No movable devices registered for emergency stop");
+            return;
+        }
+
+        info!("Attempting to stop {} motors", movable_devices.len());
+
+        // Try to get a runtime handle once (with fallback)
+        let handle = Self::get_or_create_runtime();
+
+        for (i, device_info) in movable_devices.iter().enumerate() {
+            if let Some(motor) = registry.get_movable(&device_info.id) {
+                if let Some(ref handle) = handle {
+                    let motor = motor.clone();
+                    let device_id = device_info.id.clone();
+                    let handle = handle.clone();
+                    let result = std::thread::spawn(move || {
+                        handle.block_on(async {
+                            match tokio::time::timeout(Duration::from_secs(2), motor.stop()).await
+                            {
+                                Ok(Ok(())) => {
+                                    info!(device_id = %device_id, motor_index = i, "Emergency motor stop: SUCCESS");
+                                    true
+                                }
+                                Ok(Err(e)) => {
+                                    error!(
+                                        device_id = %device_id,
+                                        motor_index = i,
+                                        error = %e,
+                                        "Emergency motor stop: FAILED"
+                                    );
+                                    false
+                                }
+                                Err(_) => {
+                                    error!(device_id = %device_id, motor_index = i, "Emergency motor stop: TIMEOUT (2s)");
+                                    false
+                                }
+                            }
+                        })
+                    })
+                    .join();
+
+                    if let Err(e) = result {
+                        error!(device_id = %device_info.id, motor_index = i, error = ?e, "Emergency stop thread panicked");
+                    }
+                } else {
+                    error!(
+                        device_id = %device_info.id,
+                        motor_index = i,
+                        "No tokio runtime available for emergency motor stop (runtime creation failed)"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Emergency zero all DAQ analog outputs (Settable devices)
+    ///
+    /// This is called by panic hooks to set critical outputs (e.g., EOM control) to zero.
+    /// Best-effort - does not panic if shutdown fails.
+    fn emergency_zero_outputs() {
+        warn!("EMERGENCY: Zeroing DAQ analog outputs");
+
+        let registry: Option<Arc<hardware::registry::DeviceRegistry>> = {
+            match Self::global().hardware_registry.try_lock() {
+                Ok(guard) => guard.as_ref().and_then(|weak| weak.upgrade()),
+                Err(_) => {
+                    error!("Failed to acquire hardware registry lock during emergency zero (deadlock risk)");
+                    return;
+                }
+            }
+        };
+
+        let Some(registry) = registry else {
+            info!("No hardware registry available for emergency DAQ zeroing");
+            return;
+        };
+
+        let devices = registry.list_devices();
+        let settable_devices: Vec<_> = devices
+            .iter()
+            .filter(|d| d.capabilities.contains(&Capability::Settable))
+            .collect();
+
+        if settable_devices.is_empty() {
+            info!("No settable devices registered for emergency zero");
+            return;
+        }
+
+        info!("Attempting to zero {} DAQ outputs", settable_devices.len());
+
+        // Try to get a runtime handle once (with fallback)
+        let handle = Self::get_or_create_runtime();
+
+        for (i, device_info) in settable_devices.iter().enumerate() {
+            if let Some(output) = registry.get_settable(&device_info.id) {
+                if let Some(ref handle) = handle {
+                    let output = output.clone();
+                    let device_id = device_info.id.clone();
+                    let handle = handle.clone();
+                    let result = std::thread::spawn(move || {
+                        handle.block_on(async {
+                            // Try to set "value" parameter to 0.0 (common convention for DAQ outputs)
+                            match tokio::time::timeout(
+                                Duration::from_secs(2),
+                                output.set_value("value", ::serde_json::json!(0.0)),
+                            )
+                            .await
+                            {
+                                Ok(Ok(())) => {
+                                    info!(device_id = %device_id, output_index = i, "Emergency DAQ zero: SUCCESS");
+                                    true
+                                }
+                                Ok(Err(e)) => {
+                                    error!(
+                                        device_id = %device_id,
+                                        output_index = i,
+                                        error = %e,
+                                        "Emergency DAQ zero: FAILED"
+                                    );
+                                    false
+                                }
+                                Err(_) => {
+                                    error!(device_id = %device_id, output_index = i, "Emergency DAQ zero: TIMEOUT (2s)");
+                                    false
+                                }
+                            }
+                        })
+                    })
+                    .join();
+
+                    if let Err(e) = result {
+                        error!(device_id = %device_info.id, output_index = i, error = ?e, "Emergency zero thread panicked");
+                    }
+                } else {
+                    error!(
+                        device_id = %device_info.id,
+                        output_index = i,
+                        "No tokio runtime available for emergency DAQ zero (runtime creation failed)"
+                    );
+                }
             }
         }
     }
@@ -295,6 +551,8 @@ impl ShutterRegistry {
 
     /// Install a panic hook that closes all shutters
     ///
+    /// DEPRECATED: Use `install_panic_hook_with_hardware()` instead for full hardware safety.
+    ///
     /// This should be called once during application startup.
     pub fn install_panic_hook() {
         let default_hook = std::panic::take_hook();
@@ -307,7 +565,63 @@ impl ShutterRegistry {
             default_hook(info);
         }));
 
-        info!("Installed panic hook for shutter safety");
+        info!("Installed panic hook for shutter safety (shutters only)");
+    }
+
+    /// Install a panic hook with full hardware emergency shutdown
+    ///
+    /// This registers a panic hook that will:
+    /// 1. Close all laser shutters
+    /// 2. Stop all motors (Movable devices)
+    /// 3. Zero critical DAQ outputs (Settable devices)
+    ///
+    /// # Arguments
+    /// * `registry` - Reference to the hardware device registry
+    ///
+    /// # Safety
+    /// This is best-effort emergency shutdown. Cannot protect against:
+    /// - SIGKILL (kill -9)
+    /// - Power failure
+    /// - Hardware crashes
+    ///
+    /// Always use hardware interlocks for production laser labs.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// use scripting::shutter_safety::ShutterRegistry;
+    /// use hardware::registry::DeviceRegistry;
+    /// use std::sync::Arc;
+    ///
+    /// let registry = Arc::new(DeviceRegistry::new());
+    /// // ... register devices ...
+    ///
+    /// ShutterRegistry::install_panic_hook_with_hardware(&registry);
+    /// ```
+    pub fn install_panic_hook_with_hardware(registry: &Arc<hardware::registry::DeviceRegistry>) {
+        // Store weak reference to hardware registry
+        if let Ok(mut hw_guard) = Self::global().hardware_registry.lock() {
+            *hw_guard = Some(Arc::downgrade(registry));
+        } else {
+            error!("Failed to store hardware registry reference for panic hook");
+            return;
+        }
+
+        let default_hook = std::panic::take_hook();
+
+        std::panic::set_hook(Box::new(move |info| {
+            error!("PANIC detected - attempting emergency hardware shutdown");
+
+            // Best-effort hardware shutdown sequence (don't panic in panic handler)
+            // Order: shutters first (fastest), then motors, then DAQ outputs
+            Self::emergency_close_all();
+            Self::emergency_stop_motors();
+            Self::emergency_zero_outputs();
+
+            // Call the default hook to print the panic message
+            default_hook(info);
+        }));
+
+        info!("Installed panic hook for full hardware safety (shutters + motors + DAQ)");
     }
 }
 

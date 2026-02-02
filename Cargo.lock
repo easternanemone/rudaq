@@ -11627,6 +11627,7 @@ dependencies = [
  "ndarray 0.15.6",
  "pyo3",
  "rhai",
+ "serde_json",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
