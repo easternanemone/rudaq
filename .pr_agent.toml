@@ -1,5 +1,22 @@
-# Qodo Merge (PR-Agent) Configuration
-# https://qodo-merge-docs.qodo.ai/
+# Qodo PR-Agent Configuration
+# For self-hosted deployment with CLIProxyAPI on Proxmox LXC
+# OpenAI-compatible API endpoint serving Claude/GPT/Gemini models
+# https://github.com/qodo-ai/pr-agent
+
+[config]
+# CLIProxyAPI server on Proxmox LXC (ai-proxy)
+# Tailnet IP: 100.105.113.58 | Hostname: ai-proxy
+# Using thinking model for deep semantic code analysis
+model = "openai/gemini-claude-opus-4-5-thinking"
+model_turbo = "openai/gpt-5.2"
+fallback_models = ["openai/gpt-5.2", "openai/claude-sonnet-4-5-20250929"]
+# Required for custom models not in LiteLLM's token database
+custom_model_max_tokens = 200000
+
+[openai]
+# CLIProxyAPI on Proxmox LXC (accessible via tailnet)
+# API key configured in LXC: rust-daq-proxy-key
+api_base = "http://100.105.113.58:8317/v1"
 
 [rag_arguments]
 # Enable RAG context enrichment for code review
@@ -11,3 +28,67 @@ enable_rag = true
 # Options: ['all'] for entire codebase, or specific repos like ['my-org/my-repo']
 # Default: the repository where the PR originates
 rag_repo_list = ['all']
+
+[pr_reviewer]
+# Rust-specific review instructions
+extra_instructions = """
+This is a Rust data acquisition (DAQ) system with hardware drivers.
+
+CRITICAL REVIEW AREAS:
+1. **Unsafe Code**: All `unsafe` blocks MUST have `// SAFETY:` comments explaining invariants.
+   Check FFI boundaries in driver-pvcam, driver-comedi, comedi-sys.
+2. **Async Blocking**: Never hold `std::sync::Mutex` guards across .await points.
+   Use `tokio::sync::Mutex` if locking is required during async I/O.
+3. **spawn_blocking**: FFI calls that block (wait for hardware) MUST use `tokio::task::spawn_blocking`.
+4. **Panic Safety**: Drivers must NOT panic. Use `Result` propagation, not unwrap()/expect().
+5. **Drop Safety**: Verify `Drop` implementations safely release hardware resources
+   (turn off lasers, close cameras, release serial ports) to prevent hardware damage.
+6. **Memory Safety**: Validate buffer sizes before FFI calls. Check frame size calculations
+   use common::limits::validate_frame_size().
+7. **FFI Correctness**: Structs passed to C must use `#[repr(C)]`. Check pointer validity.
+
+DOMAIN-SPECIFIC PATTERNS:
+- Serial drivers use `new_async()` for construction with device validation
+- ELL14 rotators use RS-485 multidrop bus pattern (Ell14Bus::open())
+- PVCAM uses CIRC_OVERWRITE buffer mode - check frame ordering
+- Comedi uses kernel driver - watch for root privilege requirements
+"""
+
+require_security_review = true
+require_tests_review = true
+require_can_be_split_review = false
+enable_code_suggestions = true
+num_code_suggestions = 4
+
+[pr_code_suggestions]
+# Suggestions for Rust idioms
+extra_instructions = """
+Suggest Rust-idiomatic improvements:
+- Replace .unwrap() with .context() (anyhow) or specific error handling
+- Use .get() when accessing buffers with untrusted/external indices
+- Prefer &str over String for function parameters
+- Use Into<T> for flexible APIs
+- Suggest derive macros where applicable (Clone, Debug, Default)
+- Flag std::thread::sleep in async code - use tokio::time::sleep
+"""
+
+num_code_suggestions = 6
+rank_suggestions = true
+
+[pr_description]
+# Auto-generate PR descriptions
+publish_labels = true
+publish_description_as_comment = false
+
+extra_instructions = """
+For hardware-related PRs, note:
+- Which devices/drivers are affected
+- Whether changes require hardware testing
+- Any breaking changes to the gRPC API
+- Any new unsafe code added
+"""
+
+[pr_commands]
+# Automatically run on every PR
+# Note: /improve pushes code, so run manually when needed
+commands = ["/review", "/describe"]

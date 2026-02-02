@@ -1,0 +1,55 @@
+# CodeRabbit Configuration
+# https://docs.coderabbit.ai/configuration
+
+language: en-US
+
+reviews:
+  profile: assertive  # Hardware code requires strict review
+  request_changes_workflow: true  # Request changes for safety violations
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+
+  path_instructions:
+    - path: "crates/driver-*/**"
+      instructions: |
+        Hardware driver code - CRITICAL SAFETY CHECKS:
+        1. No panics (unwrap/expect) in runtime paths - propagate errors
+        2. Verify Drop implementations safely shut down hardware
+        3. FFI pointers must be valid and properly managed
+        4. Blocking FFI calls must use spawn_blocking
+        Unsafe code is expected for FFI but must have // SAFETY: comments.
+    - path: "crates/ui/**"
+      instructions: "egui GUI code - focus on UX consistency and state management."
+    - path: "crates/server/**"
+      instructions: "gRPC server - check for proper async handling, backpressure, and error propagation."
+    - path: "crates/storage/**"
+      instructions: "Data storage layer - verify thread safety and proper HDF5 resource management."
+    - path: "crates/common/**"
+      instructions: "Shared library code - ensure no panics, proper error types, and Send/Sync correctness."
+    - path: "scripts/**"
+      instructions: "Build and utility scripts - check for portability, error handling, and avoid hardcoded device paths."
+
+  auto_review:
+    enabled: true
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+      - "wip"
+    drafts: false
+
+  # Exclude generated and vendored code (use ! prefix for exclusions)
+  path_filters:
+    - "!target/**"
+    - "!.worktrees/**"
+    - "!**/node_modules/**"
+    - "!**/*.lock"
+    - "!Cargo.lock"
+    - "!.git/**"
+    - "!**/*.pb.rs"
+    - "!**/pvcam-sys/src/bindings.rs"
+    - "!**/comedi-sys/src/bindings.rs"
+
+chat:
+  auto_reply: true
