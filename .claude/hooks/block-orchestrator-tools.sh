@@ -35,6 +35,11 @@ if [[ "$FILE_PATH" == *"/.claude/"* ]]; then
   exit 0  # Allow orchestrator to manage Claude configuration
 fi
 
+# Allow Edit/Write for documentation files (scribe can edit docs without worktree)
+if [[ "$FILE_PATH" == */docs/* ]] || [[ "$FILE_PATH" == *.md ]]; then
+  exit 0  # Allow documentation edits
+fi
+
 # DENYLIST: Block implementation tools for orchestrator (code files only)
 BLOCKED="Edit|Write|NotebookEdit"
 

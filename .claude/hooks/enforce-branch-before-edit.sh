@@ -15,6 +15,11 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
 # Get the file path being edited
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
 
+# Allow documentation files on any branch (scribe can edit docs without worktree)
+if [[ "$FILE_PATH" == */docs/* ]] || [[ "$FILE_PATH" == *.md ]]; then
+  exit 0
+fi
+
 # Allow if editing within .worktrees/ directory
 if [[ "$FILE_PATH" == *"/.worktrees/"* ]] || [[ "$FILE_PATH" == *"\.worktrees\"* ]]; then
   exit 0
