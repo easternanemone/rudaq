@@ -82,6 +82,7 @@
 use crate::observable::{ParameterMetadata, ParameterSet};
 use anyhow::Result;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 pub use crate::data::Frame;
 
@@ -1156,6 +1157,389 @@ pub trait Commandable: Send + Sync {
         command: &str,
         args: serde_json::Value,
     ) -> Result<serde_json::Value>;
+}
+
+// =============================================================================
+// LIBS-Specific Capabilities
+// =============================================================================
+
+/// Gate mode for ICCD cameras with digital delay generators
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GateMode {
+    /// Continuous wave mode - gate always open
+    CWOn,
+    /// Digital delay generator mode - gate controlled by DDG
+    Ddg,
+    /// Fire and forget mode - single gate pulse
+    FireAndForget,
+}
+
+/// Temperature status for ICCD cameras
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TemperatureStatus {
+    /// CCD is at target temperature and stabilized
+    Stabilized,
+    /// CCD is actively cooling toward target
+    Cooling,
+    /// CCD is not at target temperature
+    NotStabilized,
+}
+
+/// Capability: Gated Camera Control (ICCD)
+///
+/// Intensified CCD cameras with digital delay generator and MCP gain control.
+/// Used for time-resolved spectroscopy (LIBS, fluorescence).
+///
+/// # Contract
+/// - Extends `FrameProducer` with gating and intensifier controls
+/// - Gate timing is in picoseconds for sub-nanosecond precision
+/// - MCP gain range is device-specific (typically 0-1000)
+/// - IntelliGate mode enables automatic gain adjustment
+///
+/// # Safety
+/// CAUTION: High MCP gain with bright light can damage the intensifier.
+/// Always verify gate timing and ambient light conditions before enabling MCP.
+#[async_trait]
+pub trait GatedCamera: FrameProducer {
+    /// Set gate mode
+    ///
+    /// # Arguments
+    /// * `mode` - Gate mode (CwOn, Ddg, FireAndForget)
+    ///
+    /// # Returns
+    /// - Ok(()) if mode set successfully
+    /// - Err if mode not supported or hardware error
+    async fn set_gate_mode(&self, mode: GateMode) -> Result<()>;
+
+    /// Set digital delay generator timing
+    ///
+    /// # Arguments
+    /// * `delay_ps` - Gate delay in picoseconds (relative to trigger)
+    /// * `width_ps` - Gate width in picoseconds
+    ///
+    /// # Contract
+    /// - Delay and width must be within hardware limits (device-specific)
+    /// - Only applies when gate mode is `Ddg`
+    ///
+    /// # Returns
+    /// - Ok(()) if timing set successfully
+    /// - Err if values out of range or hardware error
+    async fn set_ddg_timing(&self, delay_ps: u64, width_ps: u64) -> Result<()>;
+
+    /// Set MCP (micro-channel plate) gain
+    ///
+    /// # Arguments
+    /// * `gain` - Gain value (device-specific range, typically 0-1000)
+    ///
+    /// # Safety
+    /// High gain with bright light can damage the intensifier.
+    /// Start with low gain and increase gradually.
+    ///
+    /// # Returns
+    /// - Ok(()) if gain set successfully
+    /// - Err if gain out of range or hardware error
+    async fn set_mcp_gain(&self, gain: u16) -> Result<()>;
+
+    /// Enable/disable IntelliGate automatic gain mode
+    ///
+    /// # Arguments
+    /// * `enabled` - True to enable IntelliGate, false to disable
+    ///
+    /// # Contract
+    /// - IntelliGate automatically adjusts MCP gain based on signal level
+    /// - Manual gain setting is ignored when IntelliGate is enabled
+    ///
+    /// # Returns
+    /// - Ok(()) if mode changed successfully
+    /// - Err if not supported or hardware error
+    async fn set_intelligate(&self, enabled: bool) -> Result<()>;
+
+    /// Get CCD temperature status
+    ///
+    /// # Returns
+    /// - Ok(status) indicating cooling state
+    /// - Err if temperature cannot be read or not supported
+    async fn get_temperature_status(&self) -> Result<TemperatureStatus>;
+}
+
+/// Capability: Spectrometer Control
+///
+/// Devices with tunable wavelength, grating selection, and wavelength calibration.
+/// Used for spectroscopy applications (LIBS, Raman, fluorescence).
+///
+/// # Contract
+/// - Grating numbers are device-specific (1-indexed, typically 1-3)
+/// - Wavelength is in nanometers
+/// - Slit widths are in micrometers
+/// - Calibration returns pixel-to-wavelength mapping
+///
+/// # Safety
+/// CAUTION: Moving gratings while shutters are open can expose
+/// sensitive detectors to uncalibrated wavelengths.
+#[async_trait]
+pub trait SpectrometerControl: Send + Sync {
+    /// Set active grating
+    ///
+    /// # Arguments
+    /// * `grating_num` - Grating number (1-indexed, device-specific)
+    ///
+    /// # Returns
+    /// - Ok(()) if grating set successfully
+    /// - Err if grating number invalid or hardware error
+    async fn set_grating(&self, grating_num: u8) -> Result<()>;
+
+    /// Get active grating
+    ///
+    /// # Returns
+    /// - Ok(grating_num) - Current grating number
+    /// - Err if grating cannot be read
+    async fn get_grating(&self) -> Result<u8>;
+
+    /// Set center wavelength
+    ///
+    /// # Arguments
+    /// * `nm` - Center wavelength in nanometers
+    ///
+    /// # Contract
+    /// - Valid range depends on grating and spectrometer model
+    /// - Moving to zero-order position may require special handling
+    ///
+    /// # Returns
+    /// - Ok(()) if wavelength set successfully
+    /// - Err if wavelength out of range or hardware error
+    async fn set_wavelength(&self, nm: f64) -> Result<()>;
+
+    /// Get current center wavelength
+    ///
+    /// # Returns
+    /// - Ok(nm) - Current center wavelength
+    /// - Err if wavelength cannot be read
+    async fn get_wavelength(&self) -> Result<f64>;
+
+    /// Set slit width
+    ///
+    /// # Arguments
+    /// * `slit_id` - Slit identifier (1=entrance, 2=exit, device-specific)
+    /// * `width_um` - Slit width in micrometers
+    ///
+    /// # Returns
+    /// - Ok(()) if slit width set successfully
+    /// - Err if slit_id invalid or width out of range
+    async fn set_slit_width(&self, slit_id: u8, width_um: u16) -> Result<()>;
+
+    /// Get wavelength calibration for detector
+    ///
+    /// # Arguments
+    /// * `num_pixels` - Number of detector pixels (for array size)
+    ///
+    /// # Returns
+    /// - Ok(Vec<f64>) - Wavelength in nm for each pixel
+    /// - Err if calibration unavailable or num_pixels invalid
+    ///
+    /// # Contract
+    /// - Returns a vector of length `num_pixels`
+    /// - Calibration depends on current grating and center wavelength
+    async fn get_calibration(&self, num_pixels: usize) -> Result<Vec<f64>>;
+
+    /// Check if spectrometer is at zero order position
+    ///
+    /// # Returns
+    /// - Ok(true) if at zero order (direct beam path)
+    /// - Ok(false) if dispersed position
+    /// - Err if position cannot be determined
+    async fn is_at_zero_order(&self) -> Result<bool>;
+
+    /// Set shutter state
+    ///
+    /// # Arguments
+    /// * `open` - True to open shutter, false to close
+    ///
+    /// # Returns
+    /// - Ok(()) if shutter state changed successfully
+    /// - Err if shutter control failed or not supported
+    async fn set_shutter(&self, open: bool) -> Result<()>;
+}
+
+/// Trigger source for pulse generators and motion controllers
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TriggerSource {
+    /// Software trigger command
+    Software,
+    /// External hardware trigger
+    External {
+        /// Hardware channel identifier
+        channel: String,
+    },
+    /// Position-based trigger (for TriggerOnPosition)
+    Position,
+}
+
+/// Capability: Trigger on Position (Dover Motion Controllers)
+///
+/// Motion stages that can generate trigger pulses at precise position increments.
+/// Used for synchronized scanning with cameras/spectrometers.
+///
+/// # Contract
+/// - Extends `Movable` with position-triggered output
+/// - Trigger pulses are generated at `increment` intervals between `start_pos` and `end_pos`
+/// - Pulse width is in nanoseconds
+/// - Bidirectional mode generates triggers in both directions
+///
+/// # Safety
+/// CAUTION: Ensure connected devices can handle the trigger rate
+/// at maximum velocity and minimum increment.
+#[async_trait]
+pub trait TriggerOnPosition: Movable {
+    /// Enable trigger-on-position mode
+    ///
+    /// # Arguments
+    /// * `start_pos` - Position where triggering begins (device units)
+    /// * `end_pos` - Position where triggering ends (device units)
+    /// * `increment` - Position increment between triggers (device units)
+    /// * `bidirectional` - Generate triggers in both directions if true
+    /// * `pulse_width_ns` - Trigger pulse width in nanoseconds
+    ///
+    /// # Contract
+    /// - Triggers are generated at: start_pos, start_pos+increment, start_pos+2*increment, ...
+    /// - In bidirectional mode, triggers also occur during reverse motion
+    /// - Pulse width must be sufficient for connected device (typically 1-10µs)
+    ///
+    /// # Returns
+    /// - Ok(()) if TOP enabled successfully
+    /// - Err if parameters invalid or hardware error
+    async fn enable_top(
+        &self,
+        start_pos: f64,
+        end_pos: f64,
+        increment: f64,
+        bidirectional: bool,
+        pulse_width_ns: u64,
+    ) -> Result<()>;
+
+    /// Disable trigger-on-position mode
+    ///
+    /// # Returns
+    /// - Ok(()) if TOP disabled successfully
+    /// - Err if hardware error
+    async fn disable_top(&self) -> Result<()>;
+
+    /// Check if trigger-on-position is enabled
+    ///
+    /// # Returns
+    /// - Ok(true) if TOP is enabled
+    /// - Ok(false) if TOP is disabled
+    /// - Err if state cannot be determined
+    async fn is_top_enabled(&self) -> Result<bool>;
+}
+
+/// Capability: Pulse Generator
+///
+/// Devices that can generate pulse trains with precise timing.
+/// Used for triggering cameras, lasers, and other instruments.
+///
+/// # Contract
+/// - Pulse train timing is in seconds (not milliseconds)
+/// - `wait_done()` blocks until pulse train completes
+/// - Trigger source determines when pulse train starts
+#[async_trait]
+pub trait PulseGenerator: Send + Sync {
+    /// Configure pulse train parameters
+    ///
+    /// # Arguments
+    /// * `high_time_s` - Duration of high state in seconds
+    /// * `low_time_s` - Duration of low state in seconds
+    /// * `num_pulses` - Number of pulses to generate (0 = continuous)
+    ///
+    /// # Contract
+    /// - Pulse frequency = 1 / (high_time_s + low_time_s)
+    /// - Timing precision depends on hardware (typically 1-10ns)
+    ///
+    /// # Returns
+    /// - Ok(()) if configuration successful
+    /// - Err if timing values invalid or hardware error
+    async fn configure_pulse_train(
+        &self,
+        high_time_s: f64,
+        low_time_s: f64,
+        num_pulses: u32,
+    ) -> Result<()>;
+
+    /// Wait for pulse train to complete
+    ///
+    /// # Contract
+    /// - Blocks until `num_pulses` have been generated
+    /// - Returns immediately if num_pulses=0 (continuous mode)
+    /// - Should have internal timeout to prevent infinite blocking
+    ///
+    /// # Returns
+    /// - Ok(()) when pulse train completes
+    /// - Err on timeout or hardware error
+    async fn wait_done(&self) -> Result<()>;
+
+    /// Set trigger source for pulse train
+    ///
+    /// # Arguments
+    /// * `source` - Trigger source (Software, External, Position)
+    ///
+    /// # Contract
+    /// - Software: pulse train starts on explicit trigger command
+    /// - External: pulse train starts on hardware trigger signal
+    /// - Position: pulse train synchronized with motion (requires TriggerOnPosition)
+    ///
+    /// # Returns
+    /// - Ok(()) if trigger source set successfully
+    /// - Err if source not supported or hardware error
+    async fn set_trigger_source(&self, source: TriggerSource) -> Result<()>;
+}
+
+/// Interlock status for safety systems
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InterlockStatus {
+    /// Interlock is closed (safe to operate)
+    Closed,
+    /// Interlock is open (unsafe condition detected)
+    Open,
+    /// Interlock status cannot be determined
+    Unknown,
+}
+
+/// Capability: Safety Interlock
+///
+/// Devices with safety interlock monitoring for laser safety systems.
+///
+/// # Contract
+/// - Interlock open indicates unsafe condition (door open, beam path obstructed)
+/// - Systems should refuse to enable emission when interlock is open
+/// - GUI should display prominent warning when interlock is open
+///
+/// # Safety
+/// CRITICAL: This is a monitoring capability only. Never rely on software
+/// interlocks alone for laser safety. Always use hardware interlocks that
+/// directly cut power to the laser in unsafe conditions.
+#[async_trait]
+pub trait SafetyInterlock: Send + Sync {
+    /// Check if safety interlock is open
+    ///
+    /// # Returns
+    /// - Ok(true) if interlock is OPEN (unsafe condition)
+    /// - Ok(false) if interlock is CLOSED (safe to operate)
+    /// - Err if interlock status cannot be determined
+    ///
+    /// # Safety
+    /// This is a monitoring function only. Hardware interlocks
+    /// should independently disable hazardous systems.
+    async fn is_interlock_open(&self) -> Result<bool>;
+
+    /// Get detailed interlock status
+    ///
+    /// # Returns
+    /// - Ok(status) with current interlock state
+    /// - Err if status cannot be determined
+    async fn interlock_status(&self) -> Result<InterlockStatus>;
 }
 
 #[cfg(test)]

@@ -67,8 +67,9 @@
 //! ```
 
 use crate::capabilities::{
-    Commandable, DeviceCategory, EmissionControl, ExposureControl, FrameProducer, Movable,
-    Parameterized, Readable, Settable, ShutterControl, Stageable, Triggerable, WavelengthTunable,
+    Commandable, DeviceCategory, EmissionControl, ExposureControl, FrameProducer, GatedCamera,
+    Movable, Parameterized, PulseGenerator, Readable, SafetyInterlock, Settable, ShutterControl,
+    SpectrometerControl, Stageable, TriggerOnPosition, Triggerable, WavelengthTunable,
 };
 use crate::data::Frame;
 use crate::pipeline::MeasurementSource;
@@ -147,6 +148,26 @@ pub enum Capability {
     /// Has observable parameters with subscriptions
     /// Corresponds to [`crate::capabilities::Parameterized`]
     Parameterized,
+
+    /// Gated camera with DDG and MCP control (ICCD)
+    /// Corresponds to [`crate::capabilities::GatedCamera`]
+    GatedCamera,
+
+    /// Spectrometer with grating and wavelength control
+    /// Corresponds to [`crate::capabilities::SpectrometerControl`]
+    SpectrometerControl,
+
+    /// Motion stage with position-based triggering
+    /// Corresponds to [`crate::capabilities::TriggerOnPosition`]
+    TriggerOnPosition,
+
+    /// Pulse generator with configurable timing
+    /// Corresponds to [`crate::capabilities::PulseGenerator`]
+    PulseGenerator,
+
+    /// Safety interlock monitoring
+    /// Corresponds to [`crate::capabilities::SafetyInterlock`]
+    SafetyInterlock,
 }
 
 impl Capability {
@@ -165,6 +186,11 @@ impl Capability {
             Self::Commandable => "Commandable",
             Self::Stageable => "Stageable",
             Self::Parameterized => "Parameterized",
+            Self::GatedCamera => "Gated Camera",
+            Self::SpectrometerControl => "Spectrometer Control",
+            Self::TriggerOnPosition => "Trigger On Position",
+            Self::PulseGenerator => "Pulse Generator",
+            Self::SafetyInterlock => "Safety Interlock",
         }
     }
 
@@ -183,6 +209,11 @@ impl Capability {
             Self::Commandable => "commandable",
             Self::Stageable => "stageable",
             Self::Parameterized => "parameterized",
+            Self::GatedCamera => "gated_camera",
+            Self::SpectrometerControl => "spectrometer_control",
+            Self::TriggerOnPosition => "trigger_on_position",
+            Self::PulseGenerator => "pulse_generator",
+            Self::SafetyInterlock => "safety_interlock",
         }
     }
 }
@@ -262,6 +293,21 @@ pub struct DeviceComponents {
     /// WavelengthTunable implementation (tunable wavelength)
     pub wavelength_tunable: Option<Arc<dyn WavelengthTunable>>,
 
+    /// GatedCamera implementation (ICCD with DDG and MCP)
+    pub gated_camera: Option<Arc<dyn GatedCamera>>,
+
+    /// SpectrometerControl implementation (grating and wavelength control)
+    pub spectrometer_control: Option<Arc<dyn SpectrometerControl>>,
+
+    /// TriggerOnPosition implementation (position-based triggering)
+    pub trigger_on_position: Option<Arc<dyn TriggerOnPosition>>,
+
+    /// PulseGenerator implementation (pulse train generation)
+    pub pulse_generator: Option<Arc<dyn PulseGenerator>>,
+
+    /// SafetyInterlock implementation (interlock monitoring)
+    pub safety_interlock: Option<Arc<dyn SafetyInterlock>>,
+
     /// Optional lifecycle hooks for device registration/shutdown
     pub lifecycle: Option<Arc<dyn DeviceLifecycle>>,
 
@@ -314,6 +360,21 @@ impl DeviceComponents {
         }
         if self.parameterized.is_some() {
             caps.push(Capability::Parameterized);
+        }
+        if self.gated_camera.is_some() {
+            caps.push(Capability::GatedCamera);
+        }
+        if self.spectrometer_control.is_some() {
+            caps.push(Capability::SpectrometerControl);
+        }
+        if self.trigger_on_position.is_some() {
+            caps.push(Capability::TriggerOnPosition);
+        }
+        if self.pulse_generator.is_some() {
+            caps.push(Capability::PulseGenerator);
+        }
+        if self.safety_interlock.is_some() {
+            caps.push(Capability::SafetyInterlock);
         }
 
         caps
@@ -405,6 +466,36 @@ impl DeviceComponents {
     /// Set WavelengthTunable implementation
     pub fn with_wavelength_tunable(mut self, w: Arc<dyn WavelengthTunable>) -> Self {
         self.wavelength_tunable = Some(w);
+        self
+    }
+
+    /// Set GatedCamera implementation
+    pub fn with_gated_camera(mut self, g: Arc<dyn GatedCamera>) -> Self {
+        self.gated_camera = Some(g);
+        self
+    }
+
+    /// Set SpectrometerControl implementation
+    pub fn with_spectrometer_control(mut self, s: Arc<dyn SpectrometerControl>) -> Self {
+        self.spectrometer_control = Some(s);
+        self
+    }
+
+    /// Set TriggerOnPosition implementation
+    pub fn with_trigger_on_position(mut self, t: Arc<dyn TriggerOnPosition>) -> Self {
+        self.trigger_on_position = Some(t);
+        self
+    }
+
+    /// Set PulseGenerator implementation
+    pub fn with_pulse_generator(mut self, p: Arc<dyn PulseGenerator>) -> Self {
+        self.pulse_generator = Some(p);
+        self
+    }
+
+    /// Set SafetyInterlock implementation
+    pub fn with_safety_interlock(mut self, s: Arc<dyn SafetyInterlock>) -> Self {
+        self.safety_interlock = Some(s);
         self
     }
 
