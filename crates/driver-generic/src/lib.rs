@@ -22,9 +22,13 @@
 
 pub mod driver;
 pub mod factory;
+pub mod transform;
 
 #[cfg(feature = "scripting")]
 pub mod script_engine;
+
+#[cfg(feature = "repl")]
+pub mod repl;
 
 // Re-export main driver types
 pub use driver::{
@@ -32,3 +36,4 @@ pub use driver::{
     SerialPortIO, SharedPort,
 };
 pub use factory::{load_all_factories, GenericSerialDriverFactory, GenericSerialInstanceConfig};
+pub use transform::{TransformOp, TransformPipeline, TransformValue};

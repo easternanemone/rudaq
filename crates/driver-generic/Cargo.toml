@@ -16,7 +16,7 @@ regex = "1.12.2"
 evalexpr = "11"
 toml.workspace = true
 futures.workspace = true
-tokio = { workspace = true, features = ["sync", "time", "macros", "io-util"] }
+tokio = { workspace = true, features = ["sync", "time", "macros", "io-util", "rt-multi-thread"] }
 # Serial: use common/serial (serial2-tokio) - no direct tokio-serial/serialport
 
 [dependencies.rhai]
@@ -24,9 +24,33 @@ version = "1.19"
 features = ["sync"]
 optional = true
 
+[dependencies.rustyline]
+version = "14"
+optional = true
+
+[dependencies.colored]
+version = "2"
+optional = true
+
+[dependencies.clap]
+version = "4"
+features = ["derive"]
+optional = true
+
+[dependencies.tracing-subscriber]
+version = "0.3"
+features = ["env-filter"]
+optional = true
+
+[[bin]]
+name = "daq-driver-dev"
+path = "src/bin/daq_driver_dev.rs"
+required-features = ["repl"]
+
 [features]
 default = []
 scripting = ["dep:rhai"]
+repl = ["dep:rustyline", "dep:colored", "dep:clap", "dep:tracing-subscriber"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "io-util", "sync"] }

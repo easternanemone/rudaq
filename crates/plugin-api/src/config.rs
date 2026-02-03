@@ -4,11 +4,14 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct InstrumentConfig {
+    /// Optional base template to inherit from
+    #[serde(default)]
+    pub extends: Option<String>,
     pub device: DeviceConfig,
     #[serde(default)]
     pub connection: ConnectionConfig,
     #[serde(default)]
-    pub parameters: HashMap<String, ParameterConfig>,
+    pub parameters: HashMap<String, ParameterDef>,
     #[serde(default)]
     pub commands: HashMap<String, CommandConfig>,
     #[serde(default)]
@@ -21,6 +24,10 @@ pub struct InstrumentConfig {
     pub error_codes: HashMap<String, ErrorCodeConfig>,
     #[serde(default)]
     pub default_retry: Option<RetryConfig>,
+    /// Expanded parameters (shorthand → full ParameterConfig).
+    /// Populated by calling `expand_shorthand()`.
+    #[serde(skip)]
+    pub expanded_parameters: Option<HashMap<String, ParameterConfig>>,
 }
 
 impl InstrumentConfig {
@@ -30,6 +37,62 @@ impl InstrumentConfig {
                 .map_err(|e| format!("Invalid regex in response '{}': {}", name, e))?;
         }
         Ok(())
+    }
+
+    /// Expand all shorthand parameter definitions to full ParameterConfig form.
+    ///
+    /// This converts all `ParameterDef` variants (Simple, GetSet, Full) into
+    /// their expanded `ParameterConfig` representation and stores them in
+    /// `expanded_parameters`.
+    ///
+    /// This should be called after loading a config file and before using it
+    /// to construct a driver.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use plugin_api::config::InstrumentConfig;
+    ///
+    /// let toml_str = r#"
+    /// [device]
+    /// name = "Test Device"
+    /// protocol = "test"
+    ///
+    /// [connection]
+    /// baud_rate = 9600
+    ///
+    /// [parameters]
+    /// voltage = "VOLT?"
+    ///
+    /// [commands]
+    /// [responses]
+    /// [trait_mapping]
+    /// "#;
+    ///
+    /// let mut config: InstrumentConfig = toml::from_str(toml_str).unwrap();
+    /// config.expand_shorthand();
+    ///
+    /// assert!(config.expanded_parameters.is_some());
+    /// let expanded = config.expanded_parameters.as_ref().unwrap();
+    /// assert!(expanded.contains_key("voltage"));
+    /// ```
+    pub fn expand_shorthand(&mut self) {
+        let expanded: HashMap<String, ParameterConfig> = self
+            .parameters
+            .iter()
+            .map(|(name, def)| (name.clone(), def.expand(name)))
+            .collect();
+        self.expanded_parameters = Some(expanded);
+    }
+
+    /// Get the expanded parameter config for a given parameter name.
+    ///
+    /// Returns None if expand_shorthand() hasn't been called yet or if the
+    /// parameter doesn't exist.
+    pub fn get_expanded_parameter(&self, name: &str) -> Option<&ParameterConfig> {
+        self.expanded_parameters
+            .as_ref()
+            .and_then(|params| params.get(name))
     }
 }
 
@@ -129,7 +192,93 @@ pub enum AddressFormat {
     HexByte,
 }
 
+/// Parameter definition supporting shorthand and verbose syntax.
+///
+/// # Variant Order (CRITICAL)
+/// Serde tries variants in order. Primitives MUST come before structs:
+/// 1. Simple (String) - primitive
+/// 2. GetSet (struct with get/set) - specific struct shape
+/// 3. Full (ParameterConfig) - any struct
+///
+/// # Examples
+/// ```toml
+/// # Simple: read-only float
+/// voltage = "MEAS:VOLT?"
+///
+/// # GetSet: read-write float
+/// current = { get = "MEAS:CURR?", set = "CURR {}" }
+///
+/// # Full: verbose form (existing)
+/// [parameters.power]
+/// type = "float"
+/// default = 0.0
+/// unit = "W"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ParameterDef {
+    /// Simple read-only parameter: "COMMAND?" → infers RO float
+    Simple(String),
+
+    /// Get/Set pair: { get = "X?", set = "X {}" } → infers RW float
+    GetSet { get: String, set: String },
+
+    /// Full verbose form (existing ParameterConfig)
+    Full(ParameterConfig),
+}
+
+impl ParameterDef {
+    /// Expand shorthand to full ParameterConfig.
+    ///
+    /// # Simple Form
+    /// Infers: type=Float, read-only (no set command)
+    ///
+    /// # GetSet Form
+    /// Infers: type=Float, read-write
+    ///
+    /// # Full Form
+    /// Returns as-is
+    pub fn expand(&self, name: &str) -> ParameterConfig {
+        match self {
+            ParameterDef::Simple(_cmd) => ParameterConfig {
+                r#type: ParameterType::Float,
+                default: serde_json::Value::Null,
+                range: None,
+                unit: None,
+                description: Some(format!("Parameter: {}", name)),
+            },
+            ParameterDef::GetSet { get: _, set: _ } => ParameterConfig {
+                r#type: ParameterType::Float,
+                default: serde_json::Value::Null,
+                range: None,
+                unit: None,
+                description: Some(format!("Parameter: {}", name)),
+            },
+            ParameterDef::Full(config) => config.clone(),
+        }
+    }
+
+    /// Get the command string for simple form (if applicable).
+    pub fn get_command(&self) -> Option<&str> {
+        match self {
+            ParameterDef::Simple(cmd) => Some(cmd.as_str()),
+            ParameterDef::GetSet { get, set: _ } => Some(get.as_str()),
+            ParameterDef::Full(_) => None,
+        }
+    }
+
+    /// Get the set command string (if applicable).
+    pub fn set_command(&self) -> Option<&str> {
+        match self {
+            ParameterDef::Simple(_) => None,
+            ParameterDef::GetSet { get: _, set } => Some(set.as_str()),
+            ParameterDef::Full(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ParameterConfig {
     pub r#type: ParameterType,
     #[serde(default)]
@@ -174,6 +323,15 @@ pub struct ResponseFieldConfig {
     pub r#type: ResponseFieldType,
     #[serde(default)]
     pub signed: bool,
+    /// Optional regex pattern to extract a substring before applying transforms.
+    /// Uses the first capture group (group 1) by default.
+    #[serde(default)]
+    pub extract_regex: Option<String>,
+    /// Optional declarative transform pipeline (string shorthand).
+    /// Applied after extract_regex (if present) and before type parsing.
+    /// Example: `["trim", "remove_suffix('C')", "to_float"]`
+    #[serde(default)]
+    pub transform: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -248,19 +406,24 @@ pub struct RetryConfig {
     pub no_retry_on_errors: Vec<String>,
 }
 
-fn default_baud_rate() -> u32 {
+/// Default baud rate for serial connections (9600).
+pub fn default_baud_rate() -> u32 {
     9600
 }
-fn default_data_bits() -> u8 {
+/// Default data bits for serial connections (8).
+pub fn default_data_bits() -> u8 {
     8
 }
-fn default_stop_bits() -> u8 {
+/// Default stop bits for serial connections (1).
+pub fn default_stop_bits() -> u8 {
     1
 }
-fn default_terminator_rx() -> String {
+/// Default receive terminator ("\r\n").
+pub fn default_terminator_rx() -> String {
     "\r\n".to_string()
 }
-fn default_timeout_ms() -> u64 {
+/// Default timeout in milliseconds (1000).
+pub fn default_timeout_ms() -> u64 {
     1000
 }
 fn default_expects_response() -> bool {
@@ -286,4 +449,277 @@ fn default_max_delay_ms() -> u32 {
 }
 fn default_backoff_multiplier() -> f64 {
     2.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parameter_def_simple_roundtrip() {
+        let toml_str = r#"voltage = "MEAS:VOLT?""#;
+        let parsed: HashMap<String, ParameterDef> = toml::from_str(toml_str).unwrap();
+
+        let voltage = parsed.get("voltage").unwrap();
+        assert!(matches!(voltage, ParameterDef::Simple(_)));
+
+        if let ParameterDef::Simple(cmd) = voltage {
+            assert_eq!(cmd, "MEAS:VOLT?");
+        }
+
+        // Round-trip
+        let serialized = toml::to_string(&parsed).unwrap();
+        let reparsed: HashMap<String, ParameterDef> = toml::from_str(&serialized).unwrap();
+        assert!(matches!(
+            reparsed.get("voltage").unwrap(),
+            ParameterDef::Simple(_)
+        ));
+    }
+
+    #[test]
+    fn test_parameter_def_getset_roundtrip() {
+        let toml_str = r#"current = { get = "MEAS:CURR?", set = "CURR {}" }"#;
+        let parsed: HashMap<String, ParameterDef> = toml::from_str(toml_str).unwrap();
+
+        let current = parsed.get("current").unwrap();
+        assert!(matches!(current, ParameterDef::GetSet { .. }));
+
+        if let ParameterDef::GetSet { get, set } = current {
+            assert_eq!(get, "MEAS:CURR?");
+            assert_eq!(set, "CURR {}");
+        }
+
+        // Round-trip
+        let serialized = toml::to_string(&parsed).unwrap();
+        let reparsed: HashMap<String, ParameterDef> = toml::from_str(&serialized).unwrap();
+        assert!(matches!(
+            reparsed.get("current").unwrap(),
+            ParameterDef::GetSet { .. }
+        ));
+    }
+
+    #[test]
+    fn test_parameter_def_full_roundtrip() {
+        let toml_str = r#"
+[power]
+type = "float"
+default = 0.0
+unit = "W"
+description = "Output power"
+"#;
+        let parsed: HashMap<String, ParameterDef> = toml::from_str(toml_str).unwrap();
+
+        let power = parsed.get("power").unwrap();
+        assert!(matches!(power, ParameterDef::Full(_)));
+
+        if let ParameterDef::Full(config) = power {
+            assert_eq!(config.r#type, ParameterType::Float);
+            assert_eq!(config.unit, Some("W".to_string()));
+            assert_eq!(config.description, Some("Output power".to_string()));
+        }
+
+        // Round-trip
+        let serialized = toml::to_string(&parsed).unwrap();
+        let reparsed: HashMap<String, ParameterDef> = toml::from_str(&serialized).unwrap();
+        assert!(matches!(
+            reparsed.get("power").unwrap(),
+            ParameterDef::Full(_)
+        ));
+    }
+
+    #[test]
+    fn test_parameter_def_expand_simple() {
+        let def = ParameterDef::Simple("MEAS:VOLT?".to_string());
+        let config = def.expand("voltage");
+
+        assert_eq!(config.r#type, ParameterType::Float);
+        assert_eq!(config.default, serde_json::Value::Null);
+        assert_eq!(config.range, None);
+        assert_eq!(config.unit, None);
+        assert_eq!(config.description, Some("Parameter: voltage".to_string()));
+    }
+
+    #[test]
+    fn test_parameter_def_expand_getset() {
+        let def = ParameterDef::GetSet {
+            get: "MEAS:CURR?".to_string(),
+            set: "CURR {}".to_string(),
+        };
+        let config = def.expand("current");
+
+        assert_eq!(config.r#type, ParameterType::Float);
+        assert_eq!(config.default, serde_json::Value::Null);
+    }
+
+    #[test]
+    fn test_parameter_def_expand_full() {
+        let original = ParameterConfig {
+            r#type: ParameterType::Int,
+            default: serde_json::json!(42),
+            range: Some((serde_json::json!(0), serde_json::json!(100))),
+            unit: Some("mA".to_string()),
+            description: Some("Current setpoint".to_string()),
+        };
+
+        let def = ParameterDef::Full(original.clone());
+        let expanded = def.expand("current");
+
+        assert_eq!(expanded.r#type, original.r#type);
+        assert_eq!(expanded.default, original.default);
+        assert_eq!(expanded.range, original.range);
+        assert_eq!(expanded.unit, original.unit);
+        assert_eq!(expanded.description, original.description);
+    }
+
+    #[test]
+    fn test_parameter_def_get_command() {
+        let simple = ParameterDef::Simple("VOLT?".to_string());
+        assert_eq!(simple.get_command(), Some("VOLT?"));
+
+        let getset = ParameterDef::GetSet {
+            get: "CURR?".to_string(),
+            set: "CURR {}".to_string(),
+        };
+        assert_eq!(getset.get_command(), Some("CURR?"));
+
+        let full = ParameterDef::Full(ParameterConfig {
+            r#type: ParameterType::Float,
+            default: serde_json::Value::Null,
+            range: None,
+            unit: None,
+            description: None,
+        });
+        assert_eq!(full.get_command(), None);
+    }
+
+    #[test]
+    fn test_parameter_def_set_command() {
+        let simple = ParameterDef::Simple("VOLT?".to_string());
+        assert_eq!(simple.set_command(), None);
+
+        let getset = ParameterDef::GetSet {
+            get: "CURR?".to_string(),
+            set: "CURR {}".to_string(),
+        };
+        assert_eq!(getset.set_command(), Some("CURR {}"));
+
+        let full = ParameterDef::Full(ParameterConfig {
+            r#type: ParameterType::Float,
+            default: serde_json::Value::Null,
+            range: None,
+            unit: None,
+            description: None,
+        });
+        assert_eq!(full.set_command(), None);
+    }
+
+    #[test]
+    fn test_mixed_parameter_definitions() {
+        let toml_str = r#"
+# Simple form
+voltage = "MEAS:VOLT?"
+
+# GetSet form
+current = { get = "MEAS:CURR?", set = "CURR {}" }
+
+# Full form
+[power]
+type = "float"
+default = 1.0
+unit = "W"
+"#;
+
+        let parsed: HashMap<String, ParameterDef> = toml::from_str(toml_str).unwrap();
+
+        assert_eq!(parsed.len(), 3);
+        assert!(matches!(
+            parsed.get("voltage").unwrap(),
+            ParameterDef::Simple(_)
+        ));
+        assert!(matches!(
+            parsed.get("current").unwrap(),
+            ParameterDef::GetSet { .. }
+        ));
+        assert!(matches!(
+            parsed.get("power").unwrap(),
+            ParameterDef::Full(_)
+        ));
+    }
+
+    #[test]
+    fn test_existing_verbose_configs_still_parse() {
+        // This ensures backward compatibility with existing config files
+        let toml_str = r#"
+[wavelength_nm]
+type = "float"
+default = 800.0
+range = [690.0, 1040.0]
+unit = "nm"
+description = "Tunable laser wavelength"
+"#;
+
+        let parsed: HashMap<String, ParameterDef> = toml::from_str(toml_str).unwrap();
+        let wavelength = parsed.get("wavelength_nm").unwrap();
+
+        assert!(matches!(wavelength, ParameterDef::Full(_)));
+
+        if let ParameterDef::Full(config) = wavelength {
+            assert_eq!(config.r#type, ParameterType::Float);
+            assert_eq!(config.unit, Some("nm".to_string()));
+            assert!(config.range.is_some());
+        }
+    }
+
+    #[test]
+    fn test_real_maitai_config_snippet() {
+        // Real snippet from config/devices/maitai.toml to ensure backward compat
+        let toml_str = r#"
+[wavelength_nm]
+type = "float"
+default = 800.0
+range = [690.0, 1040.0]
+unit = "nm"
+description = "Tunable laser wavelength"
+
+[shutter_open]
+type = "bool"
+default = false
+description = "Shutter state (true=open, false=closed)"
+
+[emission_on]
+type = "bool"
+default = false
+description = "Emission state (true=on, false=off)"
+"#;
+
+        let parsed: HashMap<String, ParameterDef> = toml::from_str(toml_str).unwrap();
+
+        // All should parse as Full variants
+        assert_eq!(parsed.len(), 3);
+        assert!(matches!(
+            parsed.get("wavelength_nm").unwrap(),
+            ParameterDef::Full(_)
+        ));
+        assert!(matches!(
+            parsed.get("shutter_open").unwrap(),
+            ParameterDef::Full(_)
+        ));
+        assert!(matches!(
+            parsed.get("emission_on").unwrap(),
+            ParameterDef::Full(_)
+        ));
+
+        // Verify wavelength details
+        if let ParameterDef::Full(config) = parsed.get("wavelength_nm").unwrap() {
+            assert_eq!(config.r#type, ParameterType::Float);
+            assert_eq!(config.default, serde_json::json!(800.0));
+            assert_eq!(config.unit, Some("nm".to_string()));
+        }
+
+        // Verify bool types
+        if let ParameterDef::Full(config) = parsed.get("shutter_open").unwrap() {
+            assert_eq!(config.r#type, ParameterType::Bool);
+            assert_eq!(config.default, serde_json::json!(false));
+        }
+    }
 }

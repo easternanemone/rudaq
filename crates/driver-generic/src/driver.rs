@@ -7,11 +7,13 @@ use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use common::capabilities::{Movable, Readable, ShutterControl, WavelengthTunable};
 use evalexpr::{eval_number_with_context, ContextWithMutableVariables, HashMapContext, Value};
-use plugin_api::config::{ErrorSeverity, InstrumentConfig, ResponseFieldType};
+use plugin_api::config::{ErrorSeverity, InstrumentConfig, ResponseFieldConfig, ResponseFieldType};
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
+
+use crate::transform::TransformPipeline;
 
 /// Cached regex for template interpolation (compiled once).
 /// Matches patterns like `${param}` or `${param:format}`.
@@ -146,14 +148,15 @@ impl GenericSerialDriver {
         for (name, response) in &config.responses {
             let regex = Regex::new(&response.pattern)
                 .with_context(|| format!("Failed to compile regex for response '{}'", name))?;
-            response_patterns.insert(name.to_string(), regex);
+            response_patterns.insert(name.clone(), regex);
         }
 
         // Initialize parameters with defaults
         let mut parameters: HashMap<String, f64> = HashMap::new();
         for (name, param) in &config.parameters {
-            if let Some(default_val) = param.default.as_f64() {
-                parameters.insert(name.to_string(), default_val);
+            let param_config = param.expand(name);
+            if let Some(default_val) = param_config.default.as_f64() {
+                parameters.insert(name.clone(), default_val);
             }
         }
 
@@ -323,12 +326,8 @@ impl GenericSerialDriver {
                 let mut fields: HashMap<String, ResponseValue> = HashMap::new();
                 for (field_name, field_config) in &response_config.fields {
                     if let Some(captured) = captures.name(field_name.as_str()) {
-                        let value = self.parse_field_value(
-                            captured.as_str(),
-                            &field_config.r#type,
-                            field_config.signed,
-                        )?;
-                        fields.insert(field_name.to_string(), value);
+                        let value = self.parse_field_value(captured.as_str(), field_config)?;
+                        fields.insert(field_name.clone(), value);
                     }
                 }
                 return Ok(ParsedResponse {
@@ -346,23 +345,84 @@ impl GenericSerialDriver {
     fn parse_field_value(
         &self,
         raw: &str,
-        field_type: &ResponseFieldType,
-        signed: bool,
+        field_config: &ResponseFieldConfig,
     ) -> Result<ResponseValue> {
-        match field_type {
-            ResponseFieldType::String => Ok(ResponseValue::String(raw.to_string())),
+        let mut value_str = raw.to_string();
+
+        // Step 1: Apply extract_regex if present
+        if let Some(ref pattern) = field_config.extract_regex {
+            let regex = Regex::new(pattern).context("Failed to compile extract_regex pattern")?;
+            let captures = regex
+                .captures(&value_str)
+                .ok_or_else(|| anyhow!("extract_regex pattern did not match"))?;
+            // Use group 1 by default (first capture group)
+            value_str = captures
+                .get(1)
+                .ok_or_else(|| anyhow!("extract_regex capture group 1 not found"))?
+                .as_str()
+                .to_string();
+        }
+
+        // Step 2: Apply transform pipeline if present
+        if let Some(ref transform_steps) = field_config.transform {
+            let pipeline = TransformPipeline::from_shorthand(transform_steps)
+                .context("Failed to build transform pipeline")?;
+            let transformed = pipeline
+                .execute(&value_str)
+                .context("Transform pipeline execution failed")?;
+
+            // Convert TransformValue to ResponseValue based on field type
+            return match field_config.r#type {
+                ResponseFieldType::String => Ok(ResponseValue::String(transformed.as_string())),
+                ResponseFieldType::Int => {
+                    let val = transformed
+                        .as_i64()
+                        .ok_or_else(|| anyhow!("Transform result is not an integer"))?;
+                    Ok(ResponseValue::Int(val))
+                }
+                ResponseFieldType::Float => {
+                    let val = transformed
+                        .as_f64()
+                        .ok_or_else(|| anyhow!("Transform result is not a float"))?;
+                    Ok(ResponseValue::Float(val))
+                }
+                // For hex types, the transform should produce a string that we then parse
+                ResponseFieldType::HexU32 => {
+                    let hex_str = transformed.as_string();
+                    Ok(ResponseValue::Uint(
+                        u32::from_str_radix(&hex_str, 16).context("Failed to parse hex_u32")?
+                            as u64,
+                    ))
+                }
+                ResponseFieldType::HexI32 => {
+                    let hex_str = transformed.as_string();
+                    let unsigned =
+                        u32::from_str_radix(&hex_str, 16).context("Failed to parse hex_i32")?;
+                    if field_config.signed {
+                        Ok(ResponseValue::Int(unsigned as i32 as i64))
+                    } else {
+                        Ok(ResponseValue::Uint(unsigned as u64))
+                    }
+                }
+            };
+        }
+
+        // Step 3: Fall back to legacy parsing if no transform pipeline
+        match field_config.r#type {
+            ResponseFieldType::String => Ok(ResponseValue::String(value_str)),
             ResponseFieldType::Int => Ok(ResponseValue::Int(
-                raw.parse().context("Failed to parse int")?,
+                value_str.parse().context("Failed to parse int")?,
             )),
             ResponseFieldType::Float => Ok(ResponseValue::Float(
-                raw.parse().context("Failed to parse float")?,
+                value_str.parse().context("Failed to parse float")?,
             )),
             ResponseFieldType::HexU32 => Ok(ResponseValue::Uint(
-                u32::from_str_radix(raw, 16).context("Failed to parse hex_u32")? as u64,
+                u32::from_str_radix(&value_str, 16).context("Failed to parse hex_u32")? as u64,
             )),
             ResponseFieldType::HexI32 => {
-                let unsigned = u32::from_str_radix(raw, 16).context("Failed to parse hex_i32")?;
-                if signed {
+                let unsigned =
+                    u32::from_str_radix(&value_str, 16).context("Failed to parse hex_i32")?;
+                if field_config.signed {
                     Ok(ResponseValue::Int(unsigned as i32 as i64))
                 } else {
                     Ok(ResponseValue::Uint(unsigned as u64))
@@ -398,7 +458,7 @@ impl GenericSerialDriver {
     }
 
     pub async fn transaction(&self, command: &str) -> Result<String> {
-        let timeout = Duration::from_millis(self.config.connection.timeout_ms as u64);
+        let timeout = Duration::from_millis(self.config.connection.timeout_ms);
         let mut port = self.port.lock().await;
         port.write_all(command.as_bytes())
             .await
@@ -412,6 +472,8 @@ impl GenericSerialDriver {
         let mut response_buf = Vec::new();
         let mut buf = [0u8; 64];
         let deadline = tokio::time::Instant::now() + timeout;
+        let terminator = self.config.connection.terminator_rx.as_bytes();
+
         loop {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {
@@ -425,10 +487,18 @@ impl GenericSerialDriver {
             {
                 Ok(Ok(n)) if n > 0 => {
                     response_buf.extend_from_slice(&buf[..n]);
+
+                    // Check if we've received the terminator
+                    if !terminator.is_empty() && response_buf.ends_with(terminator) {
+                        break;
+                    }
+
                     tokio::time::sleep(Duration::from_millis(20)).await;
                 }
                 _ => {
-                    if !response_buf.is_empty() {
+                    // Only break if we have data AND no terminator was expected,
+                    // or if we've waited long enough
+                    if !response_buf.is_empty() && terminator.is_empty() {
                         break;
                     }
                 }
@@ -450,6 +520,7 @@ impl GenericSerialDriver {
         Ok(())
     }
 
+    #[allow(clippy::unused_async)] // Stub for future init sequence support
     pub async fn run_init_sequence(&self) -> Result<()> {
         Ok(())
     }
@@ -502,11 +573,11 @@ impl GenericSerialDriver {
             &method.from_param,
         ) {
             params.insert(
-                input_param.to_string(),
+                input_param.clone(),
                 self.apply_conversion(conv_name, from_param, input).await?,
             );
         } else if let (Some(input), Some(ref input_param)) = (input_value, &method.input_param) {
-            params.insert(input_param.to_string(), input);
+            params.insert(input_param.clone(), input);
         }
 
         let command_name = method
@@ -546,6 +617,7 @@ impl GenericSerialDriver {
         Ok(None)
     }
 
+    #[allow(clippy::unused_async)] // Stub for future poll method support
     pub async fn execute_poll_method(&self, _trait_name: &str, _method_name: &str) -> Result<()> {
         Ok(())
     }

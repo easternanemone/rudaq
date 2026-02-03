@@ -1,0 +1,50 @@
+# Base template for Newport motion controllers
+# Common settings for ESP300, ESP301, and similar devices
+
+[device]
+protocol = "serial_scpi"
+manufacturer = "Newport"
+capabilities = ["Movable"]
+
+[connection]
+baud_rate = 19200
+data_bits = 8
+stop_bits = 1
+parity = "none"
+flow_control = "none"
+terminator_tx = "\r\n"
+terminator_rx = "\r\n"
+timeout_ms = 1000
+
+[commands.move_abs]
+template = "PA{{ axis }}{{ position }}"
+description = "Move to absolute position"
+expects_response = false
+
+[commands.get_position]
+template = "TP{{ axis }}"
+description = "Get current position"
+expects_response = true
+response = "position_response"
+
+[commands.stop]
+template = "ST{{ axis }}"
+description = "Stop motion"
+expects_response = false
+
+[responses.position_response]
+pattern = r"(?P<position>-?\d+\.?\d*)"
+
+[responses.position_response.fields.position]
+type = "float"
+
+[trait_mapping.Movable.move_absolute]
+command = "move_abs"
+input_param = "position"
+
+[trait_mapping.Movable.get_position]
+command = "get_position"
+output_field = "position"
+
+[trait_mapping.Movable.stop]
+command = "stop"

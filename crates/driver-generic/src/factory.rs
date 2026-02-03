@@ -4,9 +4,11 @@ use common::driver::{
     Capability as CoreCapability, DeviceComponents, DriverFactory as DriverFactoryTrait,
 };
 use futures::future::BoxFuture;
-use plugin_api::config::InstrumentConfig;
+use plugin_api::config::{DeviceConfig, InstrumentConfig};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use tokio::sync::OnceCell;
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct GenericSerialInstanceConfig {
@@ -25,7 +27,7 @@ pub struct GenericSerialDriverFactory {
     capabilities: Vec<CoreCapability>,
     driver_type: String,
     name: String,
-    port_cache: Arc<std::sync::Mutex<std::collections::HashMap<String, SharedPort>>>,
+    port_cache: Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<OnceCell<SharedPort>>>>>,
 }
 
 impl GenericSerialDriverFactory {
@@ -55,10 +57,169 @@ impl GenericSerialDriverFactory {
     }
 
     pub fn from_file(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)?;
-        let config: InstrumentConfig = toml::from_str(&content)?;
+        // Load config with inheritance support
+        let mut config =
+            Self::load_config_with_inheritance(path, &mut std::collections::HashSet::new())?;
+
+        // Expand shorthand parameter definitions to full form
+        config.expand_shorthand();
+
         config.validate().map_err(|e: String| anyhow!(e))?;
         Ok(Self::new(config))
+    }
+
+    fn load_config_with_inheritance(
+        path: &Path,
+        visited: &mut std::collections::HashSet<std::path::PathBuf>,
+    ) -> Result<InstrumentConfig> {
+        let canonical_path = path.canonicalize()?;
+
+        // Detect circular dependencies
+        if visited.contains(&canonical_path) {
+            return Err(anyhow!(
+                "Circular dependency detected: {}",
+                canonical_path.display()
+            ));
+        }
+        visited.insert(canonical_path.clone());
+
+        let content = std::fs::read_to_string(path)?;
+        let mut config: InstrumentConfig = toml::from_str(&content)?;
+
+        // Handle inheritance
+        if let Some(base_path_str) = &config.extends {
+            let base_dir = path.parent().unwrap_or(Path::new("."));
+            let base_file = base_dir.join(base_path_str);
+
+            let base = Self::load_config_with_inheritance(&base_file, visited)?;
+            config = Self::merge_configs(base, config)?;
+        }
+
+        Ok(config)
+    }
+
+    fn merge_configs(base: InstrumentConfig, child: InstrumentConfig) -> Result<InstrumentConfig> {
+        Ok(InstrumentConfig {
+            // Don't propagate extends from base
+            extends: None,
+
+            // Device config: merge fields, child wins
+            device: DeviceConfig {
+                name: child.device.name,
+                protocol: if child.device.protocol.is_empty() {
+                    base.device.protocol
+                } else {
+                    child.device.protocol
+                },
+                capabilities: if child.device.capabilities.is_empty() {
+                    base.device.capabilities
+                } else {
+                    child.device.capabilities
+                },
+                description: child.device.description.or(base.device.description),
+                manufacturer: child.device.manufacturer.or(base.device.manufacturer),
+                model: child.device.model.or(base.device.model),
+            },
+
+            // Connection config: merge fields, child wins
+            connection: Self::merge_connection(base.connection, child.connection),
+
+            // HashMaps: merge with child keys winning
+            parameters: Self::merge_hashmaps(base.parameters, child.parameters),
+            commands: Self::merge_hashmaps(base.commands, child.commands),
+            responses: Self::merge_hashmaps(base.responses, child.responses),
+            conversions: Self::merge_hashmaps(base.conversions, child.conversions),
+            error_codes: Self::merge_hashmaps(base.error_codes, child.error_codes),
+
+            // Trait mapping: special merge
+            trait_mapping: Self::merge_trait_mapping(base.trait_mapping, child.trait_mapping),
+
+            // Retry: child wins if present
+            default_retry: child.default_retry.or(base.default_retry),
+
+            // Expanded parameters: will be populated by expand_shorthand() later
+            expanded_parameters: None,
+        })
+    }
+
+    fn merge_connection(
+        base: plugin_api::config::ConnectionConfig,
+        child: plugin_api::config::ConnectionConfig,
+    ) -> plugin_api::config::ConnectionConfig {
+        use plugin_api::config::{
+            default_baud_rate, default_data_bits, default_stop_bits, default_timeout_ms,
+        };
+
+        // For numeric/enum fields, inherit from base if child has the default value.
+        // This allows child configs to omit fields they want to inherit.
+        plugin_api::config::ConnectionConfig {
+            r#type: child.r#type, // Type is typically explicit, not inherited
+            baud_rate: if child.baud_rate == default_baud_rate() {
+                base.baud_rate
+            } else {
+                child.baud_rate
+            },
+            data_bits: if child.data_bits == default_data_bits() {
+                base.data_bits
+            } else {
+                child.data_bits
+            },
+            stop_bits: if child.stop_bits == default_stop_bits() {
+                base.stop_bits
+            } else {
+                child.stop_bits
+            },
+            parity: if child.parity == Default::default() {
+                base.parity
+            } else {
+                child.parity
+            },
+            flow_control: if child.flow_control == Default::default() {
+                base.flow_control
+            } else {
+                child.flow_control
+            },
+            // For strings, empty can mean "inherit from base"
+            terminator_tx: if child.terminator_tx.is_empty() {
+                base.terminator_tx
+            } else {
+                child.terminator_tx
+            },
+            terminator_rx: if child.terminator_rx.is_empty() {
+                base.terminator_rx
+            } else {
+                child.terminator_rx
+            },
+            timeout_ms: if child.timeout_ms == default_timeout_ms() {
+                base.timeout_ms
+            } else {
+                child.timeout_ms
+            },
+            bus: child.bus.or(base.bus),
+        }
+    }
+
+    fn merge_hashmaps<T: Clone>(
+        mut base: HashMap<String, T>,
+        child: HashMap<String, T>,
+    ) -> HashMap<String, T> {
+        base.extend(child);
+        base
+    }
+
+    fn merge_trait_mapping(
+        mut base: plugin_api::config::TraitMappingConfig,
+        child: plugin_api::config::TraitMappingConfig,
+    ) -> plugin_api::config::TraitMappingConfig {
+        // Merge movable
+        if child.movable.is_some() {
+            base.movable = child.movable;
+        }
+
+        // Merge other traits
+        base.traits.extend(child.traits);
+
+        base
     }
 }
 
@@ -92,24 +253,24 @@ impl DriverFactoryTrait for GenericSerialDriverFactory {
             // Let's just use the port directly for now.
             let resolved_path = instance.port.clone();
 
-            // Check cache first (lock held briefly, no await)
-            let cached = {
-                let cache = port_cache.lock().unwrap_or_else(|p| p.into_inner());
-                cache.get(&resolved_path).cloned()
+            let cell = {
+                let mut cache = port_cache.lock().unwrap_or_else(|p| p.into_inner());
+                cache
+                    .entry(resolved_path.clone())
+                    .or_insert_with(|| Arc::new(OnceCell::new()))
+                    .clone()
             };
 
-            let shared_port = match cached {
-                Some(p) => p,
-                None => {
+            let resolved_path_clone = resolved_path.clone();
+            let shared_port = cell
+                .get_or_try_init(|| async move {
                     use common::serial::{open_serial_async, wrap_shared_unbuffered};
                     let dyn_port =
-                        open_serial_async(&resolved_path, baud_rate, "GenericSerial").await?;
-                    let shared: SharedPort = wrap_shared_unbuffered(dyn_port);
-                    let mut cache = port_cache.lock().unwrap_or_else(|p| p.into_inner());
-                    // Double-check: use existing if another task inserted while we opened
-                    cache.entry(resolved_path).or_insert(shared).clone()
-                }
-            };
+                        open_serial_async(&resolved_path_clone, baud_rate, "GenericSerial").await?;
+                    Ok::<SharedPort, anyhow::Error>(wrap_shared_unbuffered(dyn_port))
+                })
+                .await?
+                .clone();
 
             let driver = GenericSerialDriver::new(inst_config, shared_port, &instance.address)?;
             let driver_arc = Arc::new(driver);

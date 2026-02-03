@@ -4,6 +4,8 @@
 //! device interactions, including command/response transactions, response parsing,
 //! unit conversions, and trait method execution.
 
+#![allow(clippy::float_cmp)] // Test assertions use exact float comparisons for simplicity
+
 use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::pin::Pin;
@@ -99,7 +101,7 @@ impl AsyncWrite for MockSerialPort {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         match self.writes_tx.send(buf.to_vec()) {
-            Ok(_) => Poll::Ready(Ok(buf.len())),
+            Ok(()) => Poll::Ready(Ok(buf.len())),
             Err(_) => Poll::Ready(Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
                 "mock device harness disconnected",
@@ -134,9 +136,9 @@ impl MockDeviceHarness {
             match timeout(timeout_duration, self.writes_rx.recv()).await {
                 Ok(Some(chunk)) => self.write_buffer.extend_from_slice(&chunk),
                 Ok(None) => panic!("Client-side port closed while expecting a write."),
-                Err(_) => {
+                Err(elapsed) => {
                     panic!(
-                        "Timeout waiting for write. Expected `{:?}` ({} bytes), got `{:?}` ({} bytes).",
+                        "Timeout ({elapsed}) waiting for write. Expected `{:?}` ({} bytes), got `{:?}` ({} bytes).",
                         String::from_utf8_lossy(expected),
                         expected.len(),
                         String::from_utf8_lossy(&self.write_buffer),
@@ -877,6 +879,150 @@ mod trait_execution_tests {
     }
 }
 
+mod transform_pipeline_tests {
+    use super::*;
+    use driver_generic::GenericSerialDriver;
+    use plugin_api::config::InstrumentConfig;
+
+    fn load_config(toml_str: &str) -> InstrumentConfig {
+        toml::from_str(toml_str).expect("Failed to parse test config")
+    }
+
+    // Config with transform pipeline for temperature response
+    const TRANSFORM_CONFIG: &str = r#"
+[device]
+name = "Temperature Sensor"
+protocol = "temp_sensor"
+capabilities = ["Readable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+terminator_tx = "\r\n"
+terminator_rx = "\r\n"
+
+[commands.get_temperature]
+template = "TEMP?"
+response = "temperature"
+
+[responses.temperature]
+pattern = "^(?P<value>.+)$"
+
+[responses.temperature.fields.value]
+type = "float"
+transform = ["trim", "remove_suffix('C')", "to_float"]
+
+[trait_mapping.Readable.read]
+command = "get_temperature"
+output_field = "value"
+"#;
+
+    // Config with extract_regex before transform
+    const EXTRACT_REGEX_CONFIG: &str = r#"
+[device]
+name = "Voltage Sensor"
+protocol = "volt_sensor"
+capabilities = ["Readable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+terminator_tx = "\r\n"
+terminator_rx = "\r\n"
+
+[commands.get_voltage]
+template = "VOLT?"
+response = "voltage"
+
+[responses.voltage]
+pattern = "^(?P<value>.+)$"
+
+[responses.voltage.fields.value]
+type = "float"
+extract_regex = "VOLT\\s+([+-]?\\d+\\.\\d+)"
+transform = ["to_float", "scale(1000.0)"]
+
+[trait_mapping.Readable.read]
+command = "get_voltage"
+output_field = "value"
+"#;
+
+    #[tokio::test]
+    async fn test_transform_pipeline_temperature() {
+        let config = load_config(TRANSFORM_CONFIG);
+        let (port, mut harness) = new_mock_serial();
+        let shared_port = create_shared_port(port);
+
+        let driver = GenericSerialDriver::new(config, shared_port, "").unwrap();
+
+        let harness_task = tokio::spawn(async move {
+            harness.expect_write(b"TEMP?").await;
+            harness.send_response(b" 25.5C \r\n").unwrap();
+            harness
+        });
+
+        // Parse the response manually
+        let response = driver.transaction("TEMP?").await.unwrap();
+        let parsed = driver.parse_response("temperature", &response).unwrap();
+
+        // Verify the transform pipeline worked: " 25.5C " -> trim -> "25.5C" -> remove_suffix('C') -> "25.5" -> to_float -> 25.5
+        let value = parsed.fields.get("value").unwrap();
+        assert_eq!(value.as_f64().unwrap(), 25.5);
+
+        harness_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_extract_regex_then_transform() {
+        let config = load_config(EXTRACT_REGEX_CONFIG);
+        let (port, mut harness) = new_mock_serial();
+        let shared_port = create_shared_port(port);
+
+        let driver = GenericSerialDriver::new(config, shared_port, "").unwrap();
+
+        let harness_task = tokio::spawn(async move {
+            harness.expect_write(b"VOLT?").await;
+            harness.send_response(b"VOLT 2.5\r\n").unwrap();
+            harness
+        });
+
+        // Parse the response manually
+        let response = driver.transaction("VOLT?").await.unwrap();
+        let parsed = driver.parse_response("voltage", &response).unwrap();
+
+        // Verify: "VOLT 2.5" -> extract_regex -> "2.5" -> to_float -> 2.5 -> scale(1000) -> 2500.0
+        let value = parsed.fields.get("value").unwrap();
+        assert_eq!(value.as_f64().unwrap(), 2500.0);
+
+        harness_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_transform_with_trait_execution() {
+        use common::capabilities::Readable;
+
+        let config = load_config(TRANSFORM_CONFIG);
+        let (port, mut harness) = new_mock_serial();
+        let shared_port = create_shared_port(port);
+
+        let driver = GenericSerialDriver::new(config, shared_port, "").unwrap();
+
+        let harness_task = tokio::spawn(async move {
+            harness.expect_write(b"TEMP?").await;
+            harness.send_response(b" 37.0C \r\n").unwrap();
+            harness
+        });
+
+        // Execute via Readable trait
+        let temperature = driver.read().await.unwrap();
+
+        // Verify the transform pipeline worked through the trait
+        assert_eq!(temperature, 37.0);
+
+        harness_task.await.unwrap();
+    }
+}
+
 mod config_validation_tests {
     use super::*;
     use plugin_api::config::InstrumentConfig;
@@ -912,5 +1058,201 @@ type = "serial"
 
         let config: Result<InstrumentConfig, _> = toml::from_str(invalid_config);
         assert!(config.is_err(), "Invalid config should fail to parse");
+    }
+}
+
+mod shorthand_expansion_tests {
+    use super::*;
+    use driver_generic::GenericSerialDriver;
+    use plugin_api::config::InstrumentConfig;
+
+    // Config using shorthand parameter syntax
+    const SHORTHAND_CONFIG: &str = r#"
+[device]
+name = "Shorthand Test Device"
+protocol = "shorthand_test"
+capabilities = ["Readable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+terminator_tx = "\r\n"
+terminator_rx = "\r\n"
+
+[parameters]
+# Simple read-only parameter (shorthand)
+voltage = "VOLT?"
+
+# Get/Set parameter (shorthand)
+current = { get = "CURR?", set = "CURR {}" }
+
+# Full verbose parameter (backward compatibility)
+[parameters.power]
+type = "float"
+default = 1.0
+unit = "W"
+
+[commands.read_voltage]
+template = "VOLT?"
+response = "voltage"
+
+[responses.voltage]
+pattern = "^(?P<value>[+-]?\\d+\\.?\\d*)$"
+
+[responses.voltage.fields.value]
+type = "float"
+
+[trait_mapping.Readable.read]
+command = "read_voltage"
+output_field = "value"
+"#;
+
+    #[test]
+    fn test_expand_shorthand_creates_expanded_parameters() {
+        let mut config: InstrumentConfig = toml::from_str(SHORTHAND_CONFIG).unwrap();
+
+        // Before expansion, expanded_parameters should be None
+        assert!(config.expanded_parameters.is_none());
+
+        // Expand shorthand
+        config.expand_shorthand();
+
+        // After expansion, expanded_parameters should be Some
+        assert!(config.expanded_parameters.is_some());
+
+        let expanded = config.expanded_parameters.as_ref().unwrap();
+
+        // All three parameters should be expanded
+        assert_eq!(expanded.len(), 3);
+        assert!(expanded.contains_key("voltage"));
+        assert!(expanded.contains_key("current"));
+        assert!(expanded.contains_key("power"));
+
+        // Shorthand forms should be expanded to default types (Float)
+        let voltage = expanded.get("voltage").unwrap();
+        assert_eq!(format!("{:?}", voltage.r#type), "Float");
+
+        let current = expanded.get("current").unwrap();
+        assert_eq!(format!("{:?}", current.r#type), "Float");
+
+        // Full form should be preserved as-is
+        let power = expanded.get("power").unwrap();
+        assert_eq!(format!("{:?}", power.r#type), "Float");
+        assert_eq!(power.unit, Some("W".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_shorthand_end_to_end_with_driver() {
+        let mut config: InstrumentConfig = toml::from_str(SHORTHAND_CONFIG).unwrap();
+        config.expand_shorthand();
+
+        let (port, mut harness) = new_mock_serial();
+        let shared_port = create_shared_port(port);
+
+        let driver = GenericSerialDriver::new(config, shared_port, "").unwrap();
+
+        // Test that driver works with shorthand config
+        let harness_task = tokio::spawn(async move {
+            harness.expect_write(b"VOLT?").await;
+            harness.send_response(b"3.25\r\n").unwrap();
+            harness
+        });
+
+        // Execute via Readable trait
+        use common::capabilities::Readable;
+        let voltage = driver.read().await.unwrap();
+
+        assert!((voltage - 3.25).abs() < 0.01);
+
+        harness_task.await.unwrap();
+    }
+
+    #[test]
+    fn test_get_expanded_parameter() {
+        let mut config: InstrumentConfig = toml::from_str(SHORTHAND_CONFIG).unwrap();
+
+        // Before expansion, get_expanded_parameter returns None
+        assert!(config.get_expanded_parameter("voltage").is_none());
+
+        // Expand shorthand
+        config.expand_shorthand();
+
+        // After expansion, get_expanded_parameter returns Some
+        let voltage_param = config.get_expanded_parameter("voltage");
+        assert!(voltage_param.is_some());
+
+        // Nonexistent parameter still returns None
+        assert!(config.get_expanded_parameter("nonexistent").is_none());
+    }
+
+    // Config combining shorthand parameters + transform pipeline
+    const SHORTHAND_WITH_TRANSFORM_CONFIG: &str = r#"
+[device]
+name = "Shorthand + Transform Test"
+protocol = "shorthand_transform"
+capabilities = ["Readable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+terminator_tx = "\r\n"
+terminator_rx = "\r\n"
+
+[parameters]
+# Shorthand parameter
+temperature = "TEMP?"
+
+[commands.read_temp]
+template = "TEMP?"
+response = "temperature"
+
+[responses.temperature]
+pattern = "^(?P<value>.+)$"
+
+# Transform pipeline: trim, remove suffix, convert to float
+[responses.temperature.fields.value]
+type = "float"
+transform = ["trim", "remove_suffix('C')", "to_float"]
+
+[trait_mapping.Readable.read]
+command = "read_temp"
+output_field = "value"
+"#;
+
+    #[tokio::test]
+    async fn test_shorthand_plus_transform_integration() {
+        use common::capabilities::Readable;
+
+        let mut config: InstrumentConfig = toml::from_str(SHORTHAND_WITH_TRANSFORM_CONFIG).unwrap();
+
+        // Expand shorthand before creating driver
+        config.expand_shorthand();
+
+        // Verify shorthand expansion happened
+        assert!(config.expanded_parameters.is_some());
+        let expanded = config.expanded_parameters.as_ref().unwrap();
+        assert!(expanded.contains_key("temperature"));
+
+        let (port, mut harness) = new_mock_serial();
+        let shared_port = create_shared_port(port);
+
+        let driver = GenericSerialDriver::new(config, shared_port, "").unwrap();
+
+        // Simulate device response with transform pipeline test
+        let harness_task = tokio::spawn(async move {
+            harness.expect_write(b"TEMP?").await;
+            // Response has spaces and suffix that transform will clean
+            harness.send_response(b"  42.5C  \r\n").unwrap();
+            harness
+        });
+
+        // Execute via Readable trait
+        let temperature = driver.read().await.unwrap();
+
+        // Verify transform pipeline worked:
+        // "  42.5C  " -> trim -> "42.5C" -> remove_suffix('C') -> "42.5" -> to_float -> 42.5
+        assert!((temperature - 42.5).abs() < 0.01);
+
+        harness_task.await.unwrap();
     }
 }

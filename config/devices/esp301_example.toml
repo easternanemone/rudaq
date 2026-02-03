@@ -1,0 +1,18 @@
+# Example: Newport ESP301 using inheritance
+# This inherits common Newport motion controller settings and only specifies differences
+
+extends = "bases/newport_motion_base.toml"
+
+[device]
+name = "Newport ESP301"
+model = "ESP301"
+description = "Newport ESP301 3-axis motion controller"
+
+# Override home command (ESP301 uses OR1 instead of base OR0)
+[commands.home]
+template = "OR{{ axis }}"
+description = "Home the axis"
+expects_response = false
+
+[trait_mapping.Movable.home]
+command = "home"

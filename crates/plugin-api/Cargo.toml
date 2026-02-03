@@ -12,6 +12,9 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tracing.workspace = true
 
+[dev-dependencies]
+toml = "0.8"
+
 [features]
 default = []
 # Enable hot-reload support for development
