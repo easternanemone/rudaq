@@ -209,6 +209,11 @@ impl Settable for SwitchableDigitalIO {
                 .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
                 .map_err(|e| anyhow::anyhow!("Configure error: {}", e))?;
 
+            // Update the directions cache so Debug output stays consistent
+            if let Some(dir) = self.directions.write().get_mut(channel as usize) {
+                *dir = Some(direction);
+            }
+
             return Ok(());
         }
 
@@ -267,6 +272,7 @@ impl std::fmt::Debug for SwitchableDigitalIO {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SwitchableDigitalIO")
             .field("n_channels", &self.inner.n_channels())
+            .field("directions", &*self.directions.read())
             .finish_non_exhaustive()
     }
 }

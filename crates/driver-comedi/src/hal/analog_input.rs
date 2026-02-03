@@ -139,9 +139,11 @@ impl Readable for ReadableAnalogInput {
 impl std::fmt::Debug for ReadableAnalogInput {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ReadableAnalogInput")
+            .field("inner", &self.inner)
             .field("channel", &self.channel)
             .field("range_index", &self.range_index)
             .field("aref", &self.aref)
+            .field("range", &*self.range.read())
             .finish_non_exhaustive()
     }
 }
