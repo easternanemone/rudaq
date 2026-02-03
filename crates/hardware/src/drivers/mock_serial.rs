@@ -140,7 +140,7 @@ impl AsyncWrite for MockSerialPort {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         match self.writes_tx.send(buf.to_vec()) {
-            Ok(_) => Poll::Ready(Ok(buf.len())),
+            Ok(()) => Poll::Ready(Ok(buf.len())),
             Err(_) => {
                 // The receiving end (harness) was dropped
                 Poll::Ready(Err(io::Error::new(
@@ -196,9 +196,10 @@ impl MockDeviceHarness {
             match timeout(timeout_duration, self.writes_rx.recv()).await {
                 Ok(Some(chunk)) => self.write_buffer.extend_from_slice(&chunk),
                 Ok(None) => panic!("Client-side port closed while expecting a write."),
-                Err(_) => {
+                Err(e) => {
                     panic!(
-                        "Timeout waiting for write. Expected `{:?}` ({} bytes), but only received `{:?}` ({} bytes).",
+                        "Timeout waiting for write ({}). Expected `{:?}` ({} bytes), but only received `{:?}` ({} bytes).",
+                        e,
                         String::from_utf8_lossy(expected),
                         expected.len(),
                         String::from_utf8_lossy(&self.write_buffer),

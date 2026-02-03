@@ -259,7 +259,7 @@ async fn run_laser_device(device: DuplexStream, laser: MockLaser) {
             }
             "SHUT?" => {
                 let open = laser.is_shutter_open().await.unwrap();
-                let response = format!("{}{}", if open { 1 } else { 0 }, TERMINATOR);
+                let response = format!("{}{}", u8::from(open), TERMINATOR);
                 reader
                     .get_mut()
                     .write_all(response.as_bytes())
@@ -355,6 +355,7 @@ async fn test_scpi_power_meter_parity() {
 }
 
 #[tokio::test]
+#[allow(clippy::float_cmp)]
 async fn test_scpi_laser_parity() {
     let manifest = build_laser_manifest();
     let (client, device) = tokio::io::duplex(2048);
@@ -389,6 +390,7 @@ async fn test_scpi_laser_parity() {
 }
 
 #[tokio::test]
+#[allow(clippy::float_cmp)]
 async fn test_scpi_stage_parity() {
     let manifest = build_stage_manifest();
     let (client, device) = tokio::io::duplex(2048);

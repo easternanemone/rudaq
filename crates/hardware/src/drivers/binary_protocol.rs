@@ -704,6 +704,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn test_resolve_hex_value() {
         let builder = BinaryFrameBuilder::new();
         let params = HashMap::new();
@@ -714,6 +715,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn test_resolve_param_value() {
         let builder = BinaryFrameBuilder::new();
         let mut params = HashMap::new();
@@ -723,6 +725,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn test_resolve_decimal_value() {
         let builder = BinaryFrameBuilder::new();
         let params = HashMap::new();

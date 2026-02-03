@@ -151,6 +151,7 @@ pub struct GenericDriver {
 
     /// Frame observers for secondary frame access (taps).
     /// Stores (observer_id, observer) pairs for dispatching on_frame() calls.
+    #[allow(clippy::type_complexity)]
     observers: std::sync::Arc<RwLock<Vec<(u64, Box<dyn crate::capabilities::FrameObserver>)>>>,
 
     /// Monotonic counter for generating unique observer IDs.
@@ -482,7 +483,7 @@ impl GenericDriver {
     }
 
     /// Returns a mock value if mock data is configured, otherwise an error indicating no mock.
-    fn get_mock_value(mock_data: &Option<crate::plugin::schema::MockData>) -> Result<Value> {
+    fn get_mock_value(mock_data: Option<&crate::plugin::schema::MockData>) -> Result<Value> {
         if let Some(mock) = mock_data {
             let mut rng = rand::thread_rng();
             let jitter_amount = rng.gen_range(-mock.jitter..=mock.jitter);
@@ -519,7 +520,7 @@ impl GenericDriver {
             })?;
 
         if is_mocking {
-            return GenericDriver::get_mock_value(&readable_cap.mock)?
+            return GenericDriver::get_mock_value(readable_cap.mock.as_ref())?
                 .as_f64()
                 .ok_or_else(|| anyhow!("Mock value for '{}' is not a float", capability_name));
         }
@@ -592,7 +593,7 @@ impl GenericDriver {
             })?;
 
         if is_mocking {
-            if let Ok(mock_val) = GenericDriver::get_mock_value(&settable_cap.mock) {
+            if let Ok(mock_val) = GenericDriver::get_mock_value(settable_cap.mock.as_ref()) {
                 return Ok(mock_val);
             } else {
                 let state_read = self.state.read().await;
@@ -797,7 +798,7 @@ impl GenericDriver {
         }
 
         if is_mocking {
-            return GenericDriver::get_mock_value(&loggable_cap.mock)?
+            return GenericDriver::get_mock_value(loggable_cap.mock.as_ref())?
                 .as_str()
                 .map(|s| s.to_string())
                 .ok_or_else(|| anyhow!("Mock value for '{}' is not a string", capability_name));
@@ -1045,7 +1046,7 @@ impl GenericDriver {
             .ok_or_else(|| anyhow!("No exposure control capability configured"))?;
 
         if is_mocking {
-            if let Ok(mock_val) = GenericDriver::get_mock_value(&exposure_cap.mock) {
+            if let Ok(mock_val) = GenericDriver::get_mock_value(exposure_cap.mock.as_ref()) {
                 return mock_val
                     .as_f64()
                     .ok_or_else(|| anyhow!("Mock exposure value is not a float"));
@@ -1188,7 +1189,7 @@ impl GenericDriver {
         } else {
             // If no pattern specified, check if response contains "armed" or "1"
             let response_lower = response.to_lowercase();
-            Ok(response_lower.contains("armed") || response_lower.contains("1"))
+            Ok(response_lower.contains("armed") || response_lower.contains('1'))
         }
     }
 
@@ -1419,7 +1420,7 @@ impl GenericDriver {
 
             // Generate or acquire frame
             let frame = if is_mocking {
-                self.generate_mock_frame(width, height, &frame_producer.mock)?
+                self.generate_mock_frame(width, height, frame_producer.mock.as_ref())?
             } else {
                 // Real frame acquisition from hardware
                 self.acquire_frame(frame_producer).await?
@@ -1476,7 +1477,7 @@ impl GenericDriver {
         &self,
         width: u32,
         height: u32,
-        mock_config: &Option<crate::plugin::schema::MockFrameConfig>,
+        mock_config: Option<&crate::plugin::schema::MockFrameConfig>,
     ) -> Result<crate::Frame> {
         let pattern = mock_config
             .as_ref()
@@ -1511,7 +1512,7 @@ impl GenericDriver {
             }
             "noise" => {
                 let mut rng = rand::thread_rng();
-                for pixel in buffer.iter_mut() {
+                for pixel in &mut buffer {
                     *pixel = rng.gen_range(0..intensity);
                 }
             }

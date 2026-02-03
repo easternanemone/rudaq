@@ -744,12 +744,9 @@ impl PluginRegistry {
             return;
         }
 
-        let info = match self.get_latest(name) {
-            Some(i) => i,
-            None => {
-                // Plugin not found - this is handled by caller
-                return;
-            }
+        let Some(info) = self.get_latest(name) else {
+            // Plugin not found - this is handled by caller
+            return;
         };
 
         in_progress.insert(name.to_string());
@@ -927,7 +924,7 @@ mod tests {
                 plugin: super::super::manifest::PluginConfig {
                     name: "versioned-plugin".to_string(),
                     version: version.to_string(),
-                    description: "".to_string(),
+                    description: String::new(),
                     author: None,
                     license: None,
                     repository: None,
@@ -973,7 +970,7 @@ mod tests {
                 plugin: super::super::manifest::PluginConfig {
                     name: name.to_string(),
                     version: "1.0.0".to_string(),
-                    description: "".to_string(),
+                    description: String::new(),
                     author: None,
                     license: None,
                     repository: None,

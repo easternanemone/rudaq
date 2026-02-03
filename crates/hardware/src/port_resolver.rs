@@ -152,9 +152,8 @@ impl PortSpec {
     /// The by-id format is: `usb-{VENDOR}_{MODEL}_{SERIAL}-if{N}-port{N}`
     fn matches_name(&self, name: &str) -> bool {
         // Must start with "usb-"
-        let name = match name.strip_prefix("usb-") {
-            Some(n) => n,
-            None => return false,
+        let Some(name) = name.strip_prefix("usb-") else {
+            return false;
         };
 
         // Check vendor if specified
@@ -293,9 +292,8 @@ pub struct PortInfo {
 /// Format: `usb-{VENDOR}_{MODEL}_{SERIAL}-if{N}-port{N}`
 fn parse_by_id_name(name: &str) -> (Option<String>, Option<String>, Option<String>) {
     // Strip "usb-" prefix
-    let name = match name.strip_prefix("usb-") {
-        Some(n) => n,
-        None => return (None, None, None),
+    let Some(name) = name.strip_prefix("usb-") else {
+        return (None, None, None);
     };
 
     // Strip "-ifN-portN" suffix

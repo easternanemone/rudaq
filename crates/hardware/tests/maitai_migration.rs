@@ -651,6 +651,7 @@ fn test_maitai_capabilities() {
 // =============================================================================
 
 #[test]
+#[allow(clippy::float_cmp)]
 fn test_maitai_parameters() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

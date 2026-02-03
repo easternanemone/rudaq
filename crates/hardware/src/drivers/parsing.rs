@@ -2,8 +2,7 @@ use crate::config::ResponseType;
 use std::str::FromStr;
 use winnow::ascii::{dec_int, float, multispace0, Caseless};
 use winnow::combinator::{alt, delimited, separated};
-use winnow::PResult;
-use winnow::Parser;
+use winnow::{ModalResult, Parser};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParsedValue {
@@ -15,7 +14,7 @@ pub enum ParsedValue {
     ArrayFloat(Vec<f64>),
 }
 
-pub fn parse_scpi_bool(input: &mut &str) -> PResult<bool> {
+pub fn parse_scpi_bool(input: &mut &str) -> ModalResult<bool> {
     alt((
         Caseless("ON").value(true),
         Caseless("OFF").value(false),
@@ -25,15 +24,15 @@ pub fn parse_scpi_bool(input: &mut &str) -> PResult<bool> {
     .parse_next(input)
 }
 
-pub fn parse_scpi_float(input: &mut &str) -> PResult<f64> {
+pub fn parse_scpi_float(input: &mut &str) -> ModalResult<f64> {
     delimited(multispace0, float, multispace0).parse_next(input)
 }
 
-pub fn parse_scpi_int(input: &mut &str) -> PResult<i64> {
+pub fn parse_scpi_int(input: &mut &str) -> ModalResult<i64> {
     delimited(multispace0, dec_int, multispace0).parse_next(input)
 }
 
-pub fn parse_float_array(input: &mut &str) -> PResult<Vec<f64>> {
+pub fn parse_float_array(input: &mut &str) -> ModalResult<Vec<f64>> {
     separated(0.., parse_scpi_float, ',').parse_next(input)
 }
 
@@ -91,9 +90,9 @@ mod tests {
     #[test]
     fn test_parse_scpi_bool() {
         let mut input = "ON";
-        assert_eq!(parse_scpi_bool(&mut input).unwrap(), true);
+        assert!(parse_scpi_bool(&mut input).unwrap());
         let mut input = "0";
-        assert_eq!(parse_scpi_bool(&mut input).unwrap(), false);
+        assert!(!parse_scpi_bool(&mut input).unwrap());
     }
 
     #[test]

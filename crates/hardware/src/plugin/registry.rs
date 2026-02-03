@@ -933,7 +933,7 @@ mod tests {
     #[test]
     fn test_validate_empty_id() {
         let mut config = create_minimal_valid_config();
-        config.metadata.id = "".to_string();
+        config.metadata.id = String::new();
         let errors = validate_plugin_config(&config);
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].path, "metadata.id");

@@ -99,21 +99,16 @@ pub struct CommandProfile {
     pub query: bool,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ResponseType {
+    #[default]
     None,
     String,
     Float,
     Integer,
     Boolean,
     ArrayFloat,
-}
-
-impl Default for ResponseType {
-    fn default() -> Self {
-        ResponseType::None
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate, Default)]

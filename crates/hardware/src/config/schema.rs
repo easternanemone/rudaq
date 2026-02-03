@@ -1868,6 +1868,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn test_preset_value_variants() {
         // Simple number
         let simple: PresetValue = serde_json::from_str("45.0").unwrap();

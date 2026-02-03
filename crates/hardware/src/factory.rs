@@ -609,7 +609,7 @@ impl DriverFactoryTrait for GenericSerialDriverFactory {
                     use common::serial::{open_serial_async, wrap_shared_unbuffered};
 
                     let dyn_port =
-                        open_serial_async(&resolved_path, baud_rate, &driver_type).await?;
+                        open_serial_async(&resolved_path, baud_rate, driver_type).await?;
                     let shared: SharedPort = wrap_shared_unbuffered(dyn_port);
 
                     // Cache it
@@ -803,7 +803,7 @@ impl DriverFactoryTrait for GenericScpiDriverFactory {
                             let port = common::serial::open_serial_async(
                                 &resolved_path,
                                 baud,
-                                &driver_type,
+                                driver_type,
                             )
                             .await
                             .context("Failed to open serial port")?;

@@ -328,7 +328,6 @@ fn validate_ell14_address(address: &str) -> Result<(), DaqError> {
 /// Format: lowercase alphanumeric with underscores (e.g., "power_meter", "rotator_2")
 pub type DeviceId = String;
 
-/// Capabilities a device can have (for introspection)
 // =============================================================================
 // Driver Types (Configuration)
 // =============================================================================
@@ -699,7 +698,7 @@ struct RegisteredDevice {
 
 impl RegisteredDevice {
     fn build_parameter_metadata(
-        parameterized: &Option<Arc<dyn Parameterized>>,
+        parameterized: Option<&Arc<dyn Parameterized>>,
     ) -> HashMap<String, ParameterMetadata> {
         let Some(parameterized) = parameterized else {
             return HashMap::new();
@@ -846,7 +845,7 @@ impl DeviceRegistry {
         &self,
         device_id: &str,
         driver_type: &str,
-        lifecycle: &Option<Arc<dyn DeviceLifecycle>>,
+        lifecycle: Option<&Arc<dyn DeviceLifecycle>>,
     ) -> Result<(), DaqError> {
         if let Some(hook) = lifecycle {
             hook.on_register().await.map_err(|e| {
@@ -867,7 +866,7 @@ impl DeviceRegistry {
         &self,
         device_id: &str,
         driver_type: &str,
-        lifecycle: &Option<Arc<dyn DeviceLifecycle>>,
+        lifecycle: Option<&Arc<dyn DeviceLifecycle>>,
     ) -> Result<(), DaqError> {
         if let Some(hook) = lifecycle {
             hook.on_unregister().await.map_err(|e| {
@@ -1117,11 +1116,11 @@ impl DeviceRegistry {
         })?;
 
         if let Err(err) = self
-            .run_on_register(device_id, driver_type, &components.lifecycle)
+            .run_on_register(device_id, driver_type, components.lifecycle.as_ref())
             .await
         {
             let _ = self
-                .run_on_unregister(device_id, driver_type, &components.lifecycle)
+                .run_on_unregister(device_id, driver_type, components.lifecycle.as_ref())
                 .await;
             return Err(err);
         }
@@ -1178,7 +1177,7 @@ impl DeviceRegistry {
         };
 
         let parameter_metadata =
-            RegisteredDevice::build_parameter_metadata(&components.parameterized);
+            RegisteredDevice::build_parameter_metadata(components.parameterized.as_ref());
 
         // Log the actual driver_type for debugging (not the synthetic one)
         tracing::debug!(
@@ -1253,11 +1252,19 @@ impl DeviceRegistry {
             ))
         })?;
         if let Err(err) = self
-            .run_on_register(&registered.config.id, &driver_type, &registered.lifecycle)
+            .run_on_register(
+                &registered.config.id,
+                &driver_type,
+                registered.lifecycle.as_ref(),
+            )
             .await
         {
             let _ = self
-                .run_on_unregister(&registered.config.id, &driver_type, &registered.lifecycle)
+                .run_on_unregister(
+                    &registered.config.id,
+                    &driver_type,
+                    registered.lifecycle.as_ref(),
+                )
                 .await;
             return Err(err);
         }
@@ -1305,11 +1312,19 @@ impl DeviceRegistry {
             })?;
         let driver_type = registered.driver_type.clone();
         if let Err(err) = self
-            .run_on_register(&registered.config.id, &driver_type, &registered.lifecycle)
+            .run_on_register(
+                &registered.config.id,
+                &driver_type,
+                registered.lifecycle.as_ref(),
+            )
             .await
         {
             let _ = self
-                .run_on_unregister(&registered.config.id, &driver_type, &registered.lifecycle)
+                .run_on_unregister(
+                    &registered.config.id,
+                    &driver_type,
+                    registered.lifecycle.as_ref(),
+                )
                 .await;
             return Err(err);
         }
@@ -1331,7 +1346,7 @@ impl DeviceRegistry {
     pub async fn unregister(&self, id: &str) -> Result<bool, DaqError> {
         if let Some((_, device)) = self.devices.remove(id) {
             let driver_type = device.driver_type.clone();
-            self.run_on_unregister(&device.config.id, &driver_type, &device.lifecycle)
+            self.run_on_unregister(&device.config.id, &driver_type, device.lifecycle.as_ref())
                 .await?;
             Ok(true)
         } else {
@@ -1594,7 +1609,8 @@ impl DeviceRegistry {
                     initial_position,
                 ));
                 let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
-                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
+                let parameter_metadata =
+                    RegisteredDevice::build_parameter_metadata(parameterized.as_ref());
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -1625,7 +1641,8 @@ impl DeviceRegistry {
             DriverType::MockPowerMeter { reading } => {
                 let driver = Arc::new(crate::drivers::mock::MockPowerMeter::new(reading));
                 let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
-                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
+                let parameter_metadata =
+                    RegisteredDevice::build_parameter_metadata(parameterized.as_ref());
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -1654,7 +1671,8 @@ impl DeviceRegistry {
             DriverType::MockCamera { width, height } => {
                 let driver = Arc::new(crate::drivers::mock::MockCamera::new(width, height));
                 let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
-                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
+                let parameter_metadata =
+                    RegisteredDevice::build_parameter_metadata(parameterized.as_ref());
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -1694,7 +1712,8 @@ impl DeviceRegistry {
                 );
                 let (width, height) = driver.resolution();
                 let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
-                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
+                let parameter_metadata =
+                    RegisteredDevice::build_parameter_metadata(parameterized.as_ref());
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -1735,7 +1754,8 @@ impl DeviceRegistry {
                 // For registry purposes, we register the device as having Readable/Settable capabilities.
                 // TODO: Implement HAL trait wrappers for Comedi subsystems
                 let parameterized: Option<Arc<dyn Parameterized>> = None;
-                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
+                let parameter_metadata =
+                    RegisteredDevice::build_parameter_metadata(parameterized.as_ref());
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -1792,7 +1812,8 @@ impl DeviceRegistry {
                     .await?,
                 );
                 let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
-                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
+                let parameter_metadata =
+                    RegisteredDevice::build_parameter_metadata(parameterized.as_ref());
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -1829,7 +1850,8 @@ impl DeviceRegistry {
                 // Newport1830C implements WavelengthTunable (bd-3xw2.5)
                 let wavelength_range = driver.wavelength_range();
                 let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
-                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
+                let parameter_metadata =
+                    RegisteredDevice::build_parameter_metadata(parameterized.as_ref());
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -1863,7 +1885,8 @@ impl DeviceRegistry {
                 let driver =
                     Arc::new(driver_spectra_physics::MaiTaiDriver::new_async_default(&port).await?);
                 let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
-                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
+                let parameter_metadata =
+                    RegisteredDevice::build_parameter_metadata(parameterized.as_ref());
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -1895,7 +1918,8 @@ impl DeviceRegistry {
                 let driver =
                     Arc::new(crate::drivers::esp300::Esp300Driver::new_async(&port, axis).await?);
                 let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
-                let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
+                let parameter_metadata =
+                    RegisteredDevice::build_parameter_metadata(parameterized.as_ref());
                 Ok(RegisteredDevice {
                     config,
                     driver_type: driver_type_name.clone(),
@@ -2058,7 +2082,7 @@ impl DeviceRegistry {
         // Note: FrameProducer, Triggerable, and ExposureControl are not yet
         // supported by the plugin system, so we leave them as None
         let parameterized: Option<Arc<dyn Parameterized>> = Some(driver.clone());
-        let parameter_metadata = RegisteredDevice::build_parameter_metadata(&parameterized);
+        let parameter_metadata = RegisteredDevice::build_parameter_metadata(parameterized.as_ref());
 
         Ok(RegisteredDevice {
             config,
@@ -3251,9 +3275,8 @@ disable = true
             .unwrap();
 
         let result = registry.shutdown_all().await;
-        let errors = match result {
-            Err(DaqError::ShutdownFailed(errors)) => errors,
-            _ => panic!("Expected ShutdownFailed error"),
+        let Err(DaqError::ShutdownFailed(errors)) = result else {
+            panic!("Expected ShutdownFailed error");
         };
 
         assert_eq!(errors.len(), 1);

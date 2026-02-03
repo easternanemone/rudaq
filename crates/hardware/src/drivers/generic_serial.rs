@@ -446,7 +446,7 @@ impl GenericSerialDriver {
                         let raw_value = captured.as_str();
                         let value = self.parse_field_value(
                             raw_value,
-                            &field_config.field_type,
+                            field_config.field_type,
                             field_config.signed,
                         )?;
                         fields.insert(field_name.clone(), value);
@@ -477,7 +477,7 @@ impl GenericSerialDriver {
     fn parse_field_value(
         &self,
         raw: &str,
-        field_type: &FieldType,
+        field_type: FieldType,
         signed: bool,
     ) -> Result<ResponseValue> {
         match field_type {
@@ -779,7 +779,7 @@ impl GenericSerialDriver {
                 self.transaction_with_timeout(&cmd, cmd_config.timeout_ms)
                     .await
             } else {
-                self.send_command(&cmd).await.map(|_| String::new())
+                self.send_command(&cmd).await.map(|()| String::new())
             };
 
             match result {
