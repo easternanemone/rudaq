@@ -1256,3 +1256,537 @@ output_field = "value"
         harness_task.await.unwrap();
     }
 }
+
+// =============================================================================
+// Init Sequence and Wait Settled Tests
+// =============================================================================
+
+mod init_sequence_tests {
+    use super::*;
+    use driver_generic::GenericSerialDriver;
+    use plugin_api::config::InstrumentConfig;
+
+    /// Configuration with init_sequence for testing initialization.
+    const INIT_SEQUENCE_CONFIG: &str = r#"
+[device]
+name = "Init Sequence Test Device"
+protocol = "init_test"
+capabilities = ["Movable"]
+
+[connection]
+type = "serial"
+timeout_ms = 1000
+terminator_tx = "\r\n"
+terminator_rx = "\r\n"
+
+[parameters.address]
+type = "string"
+default = "1"
+
+[commands.query_id]
+template = "*IDN?"
+response = "idn"
+
+[commands.reset]
+template = "*RST"
+expects_response = false
+
+[commands.get_status]
+template = "STATUS?"
+response = "status"
+
+[responses.idn]
+pattern = "^(?P<manufacturer>.+),(?P<model>.+),(?P<serial>.+),(?P<version>.+)$"
+
+[responses.idn.fields.manufacturer]
+type = "string"
+
+[responses.idn.fields.model]
+type = "string"
+
+[responses.idn.fields.serial]
+type = "string"
+
+[responses.idn.fields.version]
+type = "string"
+
+[responses.status]
+pattern = "^(?P<status>\\d+)$"
+
+[responses.status.fields.status]
+type = "int"
+
+[conversions]
+
+[trait_mapping]
+
+[[init_sequence]]
+command = "query_id"
+description = "Query device identity"
+expect = "TestCo"
+required = true
+
+[[init_sequence]]
+command = "reset"
+description = "Reset device to defaults"
+required = false
+delay_ms = 10
+"#;
+
+    /// Configuration with a required init step that will fail.
+    const INIT_FAIL_CONFIG: &str = r#"
+[device]
+name = "Init Fail Test Device"
+protocol = "init_fail_test"
+
+[connection]
+type = "serial"
+timeout_ms = 500
+terminator_tx = "\r\n"
+terminator_rx = "\r\n"
+
+[parameters]
+
+[commands.query_id]
+template = "*IDN?"
+response = "idn"
+
+[responses.idn]
+pattern = "^(?P<id>.+)$"
+
+[responses.idn.fields.id]
+type = "string"
+
+[conversions]
+
+[trait_mapping]
+
+[[init_sequence]]
+command = "query_id"
+description = "Query device identity"
+expect = "EXPECTED_DEVICE"
+required = true
+"#;
+
+    #[tokio::test]
+    async fn test_init_sequence_success() {
+        let config: InstrumentConfig = toml::from_str(INIT_SEQUENCE_CONFIG).unwrap();
+
+        let (port, mut harness) = new_mock_serial();
+        let shared_port = create_shared_port(port);
+
+        let driver = GenericSerialDriver::new(config, shared_port, "1").unwrap();
+
+        // Simulate device responses for init sequence
+        let harness_task = tokio::spawn(async move {
+            // First init step: query_id
+            harness.expect_write(b"*IDN?\r\n").await;
+            harness
+                .send_response(b"TestCo,Model123,SN001,v1.0\r\n")
+                .unwrap();
+
+            // Second init step: reset (no response expected)
+            harness.expect_write(b"*RST\r\n").await;
+
+            harness
+        });
+
+        // Run init sequence
+        let result = driver.run_init_sequence().await;
+        assert!(result.is_ok(), "Init sequence should succeed: {:?}", result);
+
+        harness_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_init_sequence_required_step_fails_expect() {
+        let config: InstrumentConfig = toml::from_str(INIT_FAIL_CONFIG).unwrap();
+
+        let (port, mut harness) = new_mock_serial();
+        let shared_port = create_shared_port(port);
+
+        let driver = GenericSerialDriver::new(config, shared_port, "").unwrap();
+
+        // Simulate device response that doesn't match expected pattern
+        let harness_task = tokio::spawn(async move {
+            harness.expect_write(b"*IDN?\r\n").await;
+            harness.send_response(b"WRONG_DEVICE\r\n").unwrap();
+            harness
+        });
+
+        // Run init sequence - should fail because response doesn't contain "EXPECTED_DEVICE"
+        let result = driver.run_init_sequence().await;
+        assert!(
+            result.is_err(),
+            "Init sequence should fail when expect pattern not matched"
+        );
+
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("expected")
+                || err.to_string().contains("Expected")
+                || err.to_string().contains("EXPECTED_DEVICE"),
+            "Error should mention expected pattern: {}",
+            err
+        );
+
+        harness_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_init_sequence_optional_step_continues_on_failure() {
+        // Config where first step is optional and will fail, second step required
+        const OPTIONAL_FAIL_CONFIG: &str = r#"
+[device]
+name = "Optional Step Test"
+protocol = "optional_test"
+
+[connection]
+type = "serial"
+timeout_ms = 500
+terminator_tx = "\r\n"
+terminator_rx = "\r\n"
+
+[parameters]
+
+[commands.optional_cmd]
+template = "OPT?"
+response = "opt_response"
+
+[commands.required_cmd]
+template = "REQ?"
+response = "req_response"
+
+[responses.opt_response]
+pattern = "^(?P<val>.+)$"
+
+[responses.opt_response.fields.val]
+type = "string"
+
+[responses.req_response]
+pattern = "^(?P<val>.+)$"
+
+[responses.req_response.fields.val]
+type = "string"
+
+[conversions]
+
+[trait_mapping]
+
+[[init_sequence]]
+command = "optional_cmd"
+description = "Optional step"
+expect = "NEVER_MATCH"
+required = false
+
+[[init_sequence]]
+command = "required_cmd"
+description = "Required step"
+required = true
+"#;
+
+        let config: InstrumentConfig = toml::from_str(OPTIONAL_FAIL_CONFIG).unwrap();
+
+        let (port, mut harness) = new_mock_serial();
+        let shared_port = create_shared_port(port);
+
+        let driver = GenericSerialDriver::new(config, shared_port, "").unwrap();
+
+        let harness_task = tokio::spawn(async move {
+            // Optional step - response won't match expect, but should continue
+            harness.expect_write(b"OPT?\r\n").await;
+            harness.send_response(b"WRONG\r\n").unwrap();
+
+            // Required step - should still execute
+            harness.expect_write(b"REQ?\r\n").await;
+            harness.send_response(b"OK\r\n").unwrap();
+
+            harness
+        });
+
+        // Init should succeed even though optional step failed
+        let result = driver.run_init_sequence().await;
+        assert!(
+            result.is_ok(),
+            "Init should succeed when optional step fails: {:?}",
+            result
+        );
+
+        harness_task.await.unwrap();
+    }
+}
+
+mod wait_settled_tests {
+    use super::*;
+    use common::capabilities::Movable;
+    use driver_generic::GenericSerialDriver;
+    use plugin_api::config::InstrumentConfig;
+
+    /// Configuration for testing wait_settled behavior.
+    const WAIT_SETTLED_CONFIG: &str = r#"
+[device]
+name = "Wait Settled Test Device"
+protocol = "wait_settled_test"
+capabilities = ["Movable"]
+
+[connection]
+type = "serial"
+timeout_ms = 1000
+terminator_tx = ""
+terminator_rx = ""
+
+[parameters.address]
+type = "string"
+default = "0"
+
+[parameters.pulses_per_degree]
+type = "float"
+default = 398.2222
+
+[commands.get_position]
+template = "${address}gp"
+response = "position"
+
+[commands.move_absolute]
+template = "${address}ma${position_pulses:08X}"
+parameters = { position_pulses = "int32" }
+response = "position"
+
+[commands.get_status]
+template = "${address}gs"
+response = "status"
+
+[commands.stop]
+template = "${address}st"
+expects_response = false
+
+[responses.position]
+pattern = "^(?P<addr>[0-9A-Fa-f])PO(?P<pulses>[0-9A-Fa-f]{1,8})$"
+
+[responses.position.fields.addr]
+type = "string"
+
+[responses.position.fields.pulses]
+type = "hex_i32"
+signed = true
+
+[responses.status]
+pattern = "^(?P<addr>[0-9A-Fa-f])GS(?P<code>[0-9A-Fa-f]{2})$"
+
+[responses.status.fields.addr]
+type = "string"
+
+[responses.status.fields.code]
+type = "hex_u32"
+
+[conversions.degrees_to_pulses]
+formula = "round(degrees * pulses_per_degree)"
+
+[conversions.pulses_to_degrees]
+formula = "pulses / pulses_per_degree"
+
+[trait_mapping.Movable.move_abs]
+command = "move_absolute"
+input_conversion = "degrees_to_pulses"
+input_param = "position_pulses"
+from_param = "degrees"
+
+[trait_mapping.Movable.position]
+command = "get_position"
+output_conversion = "pulses_to_degrees"
+output_field = "pulses"
+
+[trait_mapping.Movable.stop]
+command = "stop"
+
+[trait_mapping.Movable.wait_settled]
+poll_command = "get_status"
+success_condition = "code == 0"
+poll_interval_ms = 20
+timeout_ms = 500
+"#;
+
+    #[tokio::test]
+    async fn test_wait_settled_immediate_success() {
+        let config: InstrumentConfig = toml::from_str(WAIT_SETTLED_CONFIG).unwrap();
+
+        let (port, mut harness) = new_mock_serial();
+        let shared_port = create_shared_port(port);
+
+        let driver = GenericSerialDriver::new(config, shared_port, "0").unwrap();
+
+        // Simulate immediate settled status (code == 0)
+        let harness_task = tokio::spawn(async move {
+            harness.expect_write(b"0gs").await;
+            harness.send_response(b"0GS00").unwrap(); // code=0 means settled
+            harness
+        });
+
+        let result = driver.wait_settled().await;
+        assert!(
+            result.is_ok(),
+            "wait_settled should succeed when status is 0: {:?}",
+            result
+        );
+
+        harness_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_wait_settled_after_multiple_polls() {
+        let config: InstrumentConfig = toml::from_str(WAIT_SETTLED_CONFIG).unwrap();
+
+        let (port, mut harness) = new_mock_serial();
+        let shared_port = create_shared_port(port);
+
+        let driver = GenericSerialDriver::new(config, shared_port, "0").unwrap();
+
+        // Simulate device that takes a few polls to settle
+        let harness_task = tokio::spawn(async move {
+            // First poll: still moving (code=1)
+            harness.expect_write(b"0gs").await;
+            harness.send_response(b"0GS01").unwrap();
+
+            // Second poll: still moving (code=1)
+            harness.expect_write(b"0gs").await;
+            harness.send_response(b"0GS01").unwrap();
+
+            // Third poll: settled (code=0)
+            harness.expect_write(b"0gs").await;
+            harness.send_response(b"0GS00").unwrap();
+
+            harness
+        });
+
+        let result = driver.wait_settled().await;
+        assert!(
+            result.is_ok(),
+            "wait_settled should succeed after multiple polls: {:?}",
+            result
+        );
+
+        harness_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_wait_settled_timeout() {
+        // Use shorter timeout for faster test
+        const SHORT_TIMEOUT_CONFIG: &str = r#"
+[device]
+name = "Timeout Test"
+protocol = "timeout_test"
+capabilities = ["Movable"]
+
+[connection]
+type = "serial"
+timeout_ms = 100
+terminator_tx = ""
+terminator_rx = ""
+
+[parameters.address]
+type = "string"
+default = "0"
+
+[commands.get_status]
+template = "${address}gs"
+response = "status"
+
+[commands.stop]
+template = "${address}st"
+expects_response = false
+
+[responses.status]
+pattern = "^(?P<addr>[0-9A-Fa-f])GS(?P<code>[0-9A-Fa-f]{2})$"
+
+[responses.status.fields.addr]
+type = "string"
+
+[responses.status.fields.code]
+type = "hex_u32"
+
+[conversions]
+
+[trait_mapping.Movable.wait_settled]
+poll_command = "get_status"
+success_condition = "code == 0"
+poll_interval_ms = 20
+timeout_ms = 100
+"#;
+
+        let config: InstrumentConfig = toml::from_str(SHORT_TIMEOUT_CONFIG).unwrap();
+
+        let (port, mut harness) = new_mock_serial();
+        let shared_port = create_shared_port(port);
+
+        let driver = GenericSerialDriver::new(config, shared_port, "0").unwrap();
+
+        // Device never settles (always returns code=1)
+        let harness_task = tokio::spawn(async move {
+            // Keep responding with non-settled status
+            for _ in 0..10 {
+                harness.expect_write(b"0gs").await;
+                harness.send_response(b"0GS01").unwrap(); // code=1, not settled
+            }
+            harness
+        });
+
+        let result = driver.wait_settled().await;
+        assert!(result.is_err(), "wait_settled should timeout");
+
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("timeout") || err.to_string().contains("timed out"),
+            "Error should mention timeout: {}",
+            err
+        );
+
+        harness_task.abort(); // Clean up the harness task
+    }
+
+    #[tokio::test]
+    async fn test_wait_settled_parse_error_propagates() {
+        let config: InstrumentConfig = toml::from_str(WAIT_SETTLED_CONFIG).unwrap();
+
+        let (port, mut harness) = new_mock_serial();
+        let shared_port = create_shared_port(port);
+
+        let driver = GenericSerialDriver::new(config, shared_port, "0").unwrap();
+
+        // Send malformed response that won't match the response pattern
+        let harness_task = tokio::spawn(async move {
+            harness.expect_write(b"0gs").await;
+            harness.send_response(b"INVALID_RESPONSE").unwrap();
+            harness
+        });
+
+        let result = driver.wait_settled().await;
+        assert!(
+            result.is_err(),
+            "wait_settled should fail on parse error: {:?}",
+            result
+        );
+
+        let err = result.unwrap_err();
+        // Should mention parsing failure or condition evaluation failure, not timeout
+        let err_str = err.to_string();
+        assert!(
+            err_str.contains("parse")
+                || err_str.contains("Parse")
+                || err_str.contains("match")
+                || err_str.contains("Match")
+                || err_str.contains("evaluate")
+                || err_str.contains("condition")
+                || err_str.contains("Failed"),
+            "Error should mention parse/condition failure, not timeout: {}",
+            err
+        );
+        // Make sure it's NOT a timeout error
+        assert!(
+            !err_str.contains("timeout") && !err_str.contains("timed out"),
+            "Error should NOT be timeout (should fail fast on parse): {}",
+            err
+        );
+
+        harness_task.await.unwrap();
+    }
+}

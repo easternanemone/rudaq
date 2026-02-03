@@ -520,8 +520,101 @@ impl GenericSerialDriver {
         Ok(())
     }
 
-    #[allow(clippy::unused_async)] // Stub for future init sequence support
+    /// Run the device initialization sequence.
+    ///
+    /// Executes each step in the `init_sequence` configuration, validating
+    /// responses against expected patterns if specified. This method MUST be
+    /// called during driver initialization to validate device connectivity.
     pub async fn run_init_sequence(&self) -> Result<()> {
+        if self.config.init_sequence.is_empty() {
+            tracing::debug!("No initialization sequence configured");
+            return Ok(());
+        }
+
+        tracing::debug!(
+            steps = self.config.init_sequence.len(),
+            "Running initialization sequence"
+        );
+
+        for (i, step) in self.config.init_sequence.iter().enumerate() {
+            tracing::debug!(
+                step = i + 1,
+                command = %step.command,
+                description = %step.description,
+                "Running init step"
+            );
+
+            // Convert params from JSON values to f64
+            let mut params = HashMap::new();
+            for (name, value) in &step.params {
+                if let Some(num) = value.as_f64() {
+                    params.insert(name.clone(), num);
+                }
+            }
+
+            // Format and execute the command
+            let formatted_cmd = self.format_command(&step.command, &params).await?;
+
+            // Get command config to check if response is expected
+            let cmd_config = self.config.commands.get(&step.command);
+            let expects_response = cmd_config.map_or(false, |c| c.expects_response);
+
+            let result = if expects_response {
+                self.transaction(&formatted_cmd).await
+            } else {
+                self.send_command(&formatted_cmd).await?;
+                Ok(String::new())
+            };
+
+            match result {
+                Ok(response) => {
+                    // Validate expected response if configured
+                    if let Some(ref expect) = step.expect {
+                        if !response.contains(expect) {
+                            if step.required {
+                                return Err(anyhow!(
+                                    "Init step {} ('{}') failed: expected '{}' in response, got '{}'",
+                                    i + 1,
+                                    step.command,
+                                    expect,
+                                    response
+                                ));
+                            } else {
+                                tracing::warn!(
+                                    step = i + 1,
+                                    expected = %expect,
+                                    got = %response,
+                                    "Init step validation failed (non-required)"
+                                );
+                            }
+                        }
+                    }
+
+                    // Apply post-step delay
+                    if step.delay_ms > 0 {
+                        tokio::time::sleep(Duration::from_millis(step.delay_ms as u64)).await;
+                    }
+                }
+                Err(e) => {
+                    if step.required {
+                        return Err(e.context(format!(
+                            "Required init step {} ('{}') failed",
+                            i + 1,
+                            step.command
+                        )));
+                    } else {
+                        tracing::warn!(
+                            step = i + 1,
+                            command = %step.command,
+                            error = %e,
+                            "Optional init step failed, continuing"
+                        );
+                    }
+                }
+            }
+        }
+
+        tracing::debug!("Initialization sequence complete");
         Ok(())
     }
 
@@ -540,6 +633,38 @@ impl GenericSerialDriver {
             }
         }
         None
+    }
+
+    /// Evaluate a boolean condition expression using parsed response fields.
+    ///
+    /// The condition can reference response fields by name (e.g., "code == 0").
+    /// Uses the evalexpr library to evaluate the expression with field values.
+    fn evaluate_condition(
+        &self,
+        condition: &str,
+        fields: &HashMap<String, ResponseValue>,
+    ) -> Result<bool> {
+        let mut context = HashMapContext::new();
+
+        // Add all response fields to evaluation context
+        for (name, value) in fields {
+            let eval_value = match value {
+                ResponseValue::Int(i) => Value::Int(*i),
+                ResponseValue::Uint(u) => Value::Int(*u as i64),
+                ResponseValue::Float(f) => Value::Float(*f),
+                ResponseValue::Bool(b) => Value::Boolean(*b),
+                ResponseValue::String(s) => Value::String(s.clone()),
+            };
+            context
+                .set_value(name.clone(), eval_value)
+                .map_err(|e| anyhow!("Failed to set context value '{}': {}", name, e))?;
+        }
+
+        // Evaluate the condition
+        let result = evalexpr::eval_boolean_with_context(condition, &context)
+            .with_context(|| format!("Failed to evaluate condition: {}", condition))?;
+
+        Ok(result)
     }
 
     pub async fn execute_trait_method(
@@ -644,7 +769,75 @@ impl Movable for GenericSerialDriver {
     }
 
     async fn wait_settled(&self) -> Result<()> {
-        Ok(())
+        // Get the wait_settled configuration from trait mapping
+        let movable_mapping = self
+            .config
+            .trait_mapping
+            .traits
+            .get("Movable")
+            .or_else(|| self.config.trait_mapping.movable.as_ref())
+            .ok_or_else(|| anyhow!("No Movable trait mapping configured"))?;
+
+        let mapping = movable_mapping
+            .get("wait_settled")
+            .ok_or_else(|| anyhow!("No wait_settled mapping configured for Movable trait"))?;
+
+        let poll_command = mapping
+            .poll_command
+            .as_ref()
+            .ok_or_else(|| anyhow!("No poll_command specified for wait_settled"))?;
+
+        let success_condition = mapping
+            .success_condition
+            .as_ref()
+            .ok_or_else(|| anyhow!("No success_condition specified for wait_settled"))?;
+
+        let poll_interval = Duration::from_millis(mapping.poll_interval_ms.unwrap_or(100));
+        let timeout = Duration::from_millis(mapping.timeout_ms.unwrap_or(5000));
+        let start = tokio::time::Instant::now();
+
+        loop {
+            // Execute poll command to check status
+            let params = HashMap::new();
+            let formatted_cmd = self.format_command(poll_command, &params).await?;
+            let response = self.transaction(&formatted_cmd).await?;
+
+            // Parse response (use command name to look up response pattern)
+            let cmd_config = self.config.commands.get(poll_command);
+            let response_name = cmd_config.and_then(|c| c.response.as_ref());
+
+            if let Some(resp_name) = response_name {
+                let parsed = self.parse_response(resp_name, &response).with_context(|| {
+                    format!(
+                        "Failed to parse response '{}' for poll command '{}'",
+                        resp_name, poll_command
+                    )
+                })?;
+
+                // Evaluate success condition
+                if self.evaluate_condition(success_condition, &parsed.fields)? {
+                    return Ok(());
+                }
+            } else {
+                // No response parsing configured, can't check condition
+                return Err(anyhow!(
+                    "No response pattern configured for poll command '{}'",
+                    poll_command
+                ));
+            }
+
+            // Check timeout
+            if start.elapsed() >= timeout {
+                return Err(anyhow!(
+                    "wait_settled timed out after {:?} waiting for condition '{}'",
+                    timeout,
+                    success_condition
+                ));
+            }
+
+            // Wait before next poll
+            tokio::time::sleep(poll_interval).await;
+        }
     }
 
     async fn stop(&self) -> Result<()> {

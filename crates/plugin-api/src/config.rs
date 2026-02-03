@@ -28,6 +28,8 @@ pub struct InstrumentConfig {
     /// Populated by calling `expand_shorthand()`.
     #[serde(skip)]
     pub expanded_parameters: Option<HashMap<String, ParameterConfig>>,
+    #[serde(default)]
+    pub init_sequence: Vec<InitStep>,
 }
 
 impl InstrumentConfig {
@@ -449,6 +451,32 @@ fn default_max_delay_ms() -> u32 {
 }
 fn default_backoff_multiplier() -> f64 {
     2.0
+}
+
+fn default_required() -> bool {
+    true
+}
+
+/// Initialization sequence step
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct InitStep {
+    /// Name of the command to execute
+    pub command: String,
+    /// Human-readable description of this step
+    #[serde(default)]
+    pub description: String,
+    /// Optional parameters for the command
+    #[serde(default)]
+    pub params: HashMap<String, serde_json::Value>,
+    /// Expected response pattern for validation (optional)
+    #[serde(default)]
+    pub expect: Option<String>,
+    /// Whether to fail initialization if this step fails
+    #[serde(default = "default_required")]
+    pub required: bool,
+    /// Delay after this step (milliseconds)
+    #[serde(default)]
+    pub delay_ms: u32,
 }
 
 #[cfg(test)]

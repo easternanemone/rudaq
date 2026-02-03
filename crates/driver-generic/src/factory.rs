@@ -1,5 +1,5 @@
 use crate::driver::{GenericSerialDriver, SharedPort};
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use common::driver::{
     Capability as CoreCapability, DeviceComponents, DriverFactory as DriverFactoryTrait,
 };
@@ -139,6 +139,13 @@ impl GenericSerialDriverFactory {
 
             // Expanded parameters: will be populated by expand_shorthand() later
             expanded_parameters: None,
+
+            // Init sequence: merge base and child sequences
+            init_sequence: {
+                let mut seq = base.init_sequence;
+                seq.extend(child.init_sequence);
+                seq
+            },
         })
     }
 
@@ -273,6 +280,12 @@ impl DriverFactoryTrait for GenericSerialDriverFactory {
                 .clone();
 
             let driver = GenericSerialDriver::new(inst_config, shared_port, &instance.address)?;
+
+            // Validate device connection by running init sequence
+            driver.run_init_sequence().await.context(
+                "Failed to run init sequence - device may not be connected or responding",
+            )?;
+
             let driver_arc = Arc::new(driver);
             Ok(DeviceComponents {
                 movable: Some(driver_arc.clone() as Arc<dyn common::capabilities::Movable>),
