@@ -149,7 +149,7 @@ impl Triggerable for FailableCamera {
     }
 
     async fn is_armed(&self) -> Result<bool> {
-        Ok(self.inner.is_armed().await)
+        Ok(self.inner.is_armed())
     }
 }
 

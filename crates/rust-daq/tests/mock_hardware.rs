@@ -170,7 +170,7 @@ async fn test_mock_camera_streaming() {
 
     // Start streaming
     camera.start_stream().await.unwrap();
-    assert!(camera.is_streaming().await);
+    assert!(camera.is_streaming());
 
     // Cannot start while already streaming
     let result = camera.start_stream().await;
@@ -178,7 +178,7 @@ async fn test_mock_camera_streaming() {
 
     // Stop streaming
     camera.stop_stream().await.unwrap();
-    assert!(!camera.is_streaming().await);
+    assert!(!camera.is_streaming());
 }
 
 #[tokio::test]
