@@ -301,6 +301,7 @@ impl MockCameraBuilder {
 /// camera.arm().await?;
 /// camera.trigger().await?;
 /// ```
+#[allow(dead_code)]
 pub struct MockCamera {
     resolution: (u32, u32),
     frame_count: Arc<AtomicU64>,
@@ -400,6 +401,7 @@ impl MockCamera {
         let primary_tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<LoanedFrame>>>> =
             Arc::new(Mutex::new(None));
         let frame_pool: Arc<Mutex<Option<Arc<Pool<FrameData>>>>> = Arc::new(Mutex::new(None));
+        #[allow(clippy::type_complexity)]
         let observers: Arc<RwLock<Vec<(u64, Box<dyn FrameObserver>)>>> =
             Arc::new(RwLock::new(Vec::new()));
 
@@ -562,7 +564,10 @@ impl MockCamera {
 
                                         let byte_len = buffer.len() * 2;
                                         if byte_len <= frame_data.pixels.capacity() {
-                                            let src_ptr = buffer.as_ptr() as *const u8;
+                                            let src_ptr = buffer.as_ptr().cast::<u8>();
+                                            // SAFETY: src_ptr points to valid u16 buffer data,
+                                            // dst has sufficient capacity, and byte_len is checked above.
+                                            #[allow(unsafe_code)]
                                             unsafe {
                                                 std::ptr::copy_nonoverlapping(
                                                     src_ptr,

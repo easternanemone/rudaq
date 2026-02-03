@@ -3,7 +3,7 @@
 //! Defines hardware-like delays to simulate real device behavior in integration tests.
 
 /// Timing configuration for realistic mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TimingConfig {
     /// Frame readout time in milliseconds (camera)
     pub frame_readout_ms: u64,
@@ -65,16 +65,6 @@ impl TimingConfig {
             frame_readout_ms: 0,
             settling_time_ms: 1,
             communication_delay_ms: 1,
-        }
-    }
-}
-
-impl Default for TimingConfig {
-    fn default() -> Self {
-        Self {
-            frame_readout_ms: 0,
-            settling_time_ms: 0,
-            communication_delay_ms: 0,
         }
     }
 }

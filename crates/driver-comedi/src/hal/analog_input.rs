@@ -142,7 +142,7 @@ impl std::fmt::Debug for ReadableAnalogInput {
             .field("channel", &self.channel)
             .field("range_index", &self.range_index)
             .field("aref", &self.aref)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

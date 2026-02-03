@@ -560,7 +560,7 @@ impl StreamAcquisition {
         let read_result = unsafe {
             libc::read(
                 fd,
-                state.read_buffer.as_mut_ptr() as *mut libc::c_void,
+                state.read_buffer.as_mut_ptr().cast::<libc::c_void>(),
                 bytes_to_read,
             )
         };

@@ -103,7 +103,7 @@ impl SimpleRingBuffer {
             let idx = (start_idx + i) % self.capacity;
             // SAFETY: Single writer, idx is always in bounds
             unsafe {
-                let ptr = self.data.as_ptr().add(idx) as *mut f64;
+                let ptr = self.data.as_ptr().add(idx).cast_mut();
                 ptr.write(*sample);
             }
         }

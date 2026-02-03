@@ -188,11 +188,11 @@ impl Ell14StatusCode {
         }
     }
 
-    pub fn is_ok(&self) -> bool {
+    pub fn is_ok(self) -> bool {
         matches!(self, Self::Ok)
     }
 
-    pub fn description(&self) -> &'static str {
+    pub fn description(self) -> &'static str {
         match self {
             Self::Ok => "No error",
             Self::CommunicationTimeout => "Communication timeout",

@@ -203,7 +203,7 @@ impl std::fmt::Debug for SettableAnalogOutput {
         f.debug_struct("SettableAnalogOutput")
             .field("range_index", &self.range_index)
             .field("n_channels", &self.inner.n_channels())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

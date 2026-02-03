@@ -7,20 +7,15 @@
 //! - **Chaos**: Configurable failures for resilience testing
 
 /// Operational modes for mock devices
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MockMode {
     /// Zero delays, deterministic - for unit tests
+    #[default]
     Instant,
     /// Hardware-like timing - for integration tests
     Realistic,
     /// Configurable failures - for resilience testing
     Chaos,
-}
-
-impl Default for MockMode {
-    fn default() -> Self {
-        MockMode::Instant
-    }
 }
 
 #[cfg(test)]

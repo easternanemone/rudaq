@@ -284,7 +284,7 @@ impl MaiTaiDriver {
                         }
                     }
                     Ok(Err(e)) => {
-                        log::debug!("MaiTai wavelength read error (may be OK): {}", e)
+                        log::debug!("MaiTai wavelength read error (may be OK): {}", e);
                     }
                     Err(_) => log::debug!("MaiTai wavelength no response (may be OK)"),
                 }

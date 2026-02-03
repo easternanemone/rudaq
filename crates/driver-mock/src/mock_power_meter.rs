@@ -104,9 +104,10 @@ impl DriverFactory for MockPowerMeterFactory {
 // =============================================================================
 
 /// Power unit modes (matching Newport 1830-C)
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum PowerUnit {
     /// Watts (scientific notation)
+    #[default]
     Watts,
     /// Milliwatts
     Milliwatts,
@@ -118,16 +119,11 @@ pub enum PowerUnit {
     Relative,
 }
 
-impl Default for PowerUnit {
-    fn default() -> Self {
-        PowerUnit::Watts
-    }
-}
-
 /// Filter settings (integration time)
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum FilterSetting {
     /// No averaging
+    #[default]
     None,
     /// Short integration (~10ms)
     Fast,
@@ -139,19 +135,13 @@ pub enum FilterSetting {
 
 impl FilterSetting {
     /// Get integration time in milliseconds
-    fn integration_time_ms(&self) -> u64 {
+    fn integration_time_ms(self) -> u64 {
         match self {
             FilterSetting::None => 0,
             FilterSetting::Fast => 10,
             FilterSetting::Medium => 100,
             FilterSetting::Slow => 1000,
         }
-    }
-}
-
-impl Default for FilterSetting {
-    fn default() -> Self {
-        FilterSetting::None
     }
 }
 
