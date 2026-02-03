@@ -1366,7 +1366,7 @@ impl GenericDriver {
     }
 
     /// Subscribes to the frame stream.
-    pub async fn subscribe_frames(
+    pub fn subscribe_frames(
         &self,
     ) -> Option<tokio::sync::broadcast::Receiver<std::sync::Arc<crate::Frame>>> {
         if self.config.capabilities.frame_producer.is_some() {
@@ -1377,7 +1377,7 @@ impl GenericDriver {
     }
 
     /// Checks if currently streaming frames.
-    pub async fn is_frame_streaming(&self, _is_mocking: bool) -> Result<bool> {
+    pub fn is_frame_streaming(&self, _is_mocking: bool) -> Result<bool> {
         Ok(self.is_streaming.load(std::sync::atomic::Ordering::SeqCst))
     }
 
@@ -1419,8 +1419,7 @@ impl GenericDriver {
 
             // Generate or acquire frame
             let frame = if is_mocking {
-                self.generate_mock_frame(width, height, &frame_producer.mock)
-                    .await?
+                self.generate_mock_frame(width, height, &frame_producer.mock)?
             } else {
                 // Real frame acquisition from hardware
                 self.acquire_frame(frame_producer).await?
@@ -1473,7 +1472,7 @@ impl GenericDriver {
     }
 
     /// Generates a mock frame for testing.
-    async fn generate_mock_frame(
+    fn generate_mock_frame(
         &self,
         width: u32,
         height: u32,

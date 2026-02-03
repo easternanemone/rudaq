@@ -578,7 +578,7 @@ impl DriverFactoryTrait for GenericSerialDriverFactory {
     fn build(&self, config: toml::Value) -> BoxFuture<'static, Result<DeviceComponents>> {
         let device_config = self.device_config.clone();
         let port_cache = self.port_cache.clone();
-        let driver_type = self.driver_type.clone();
+        let driver_type = self.driver_type;
 
         Box::pin(async move {
             let instance: GenericSerialInstanceConfig = config.try_into().map_err(|e| {
@@ -771,7 +771,7 @@ impl DriverFactoryTrait for GenericScpiDriverFactory {
     #[cfg(feature = "serial")]
     fn build(&self, config: toml::Value) -> BoxFuture<'static, Result<DeviceComponents>> {
         let port_cache = self.port_cache.clone();
-        let driver_type = self.driver_type.clone();
+        let driver_type = self.driver_type;
 
         Box::pin(async move {
             let instance: GenericScpiInstanceConfig = config.try_into().map_err(|e| {

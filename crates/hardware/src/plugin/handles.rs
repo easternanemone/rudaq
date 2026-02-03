@@ -535,11 +535,11 @@ impl FrameProducer for PluginFrameProducerHandle {
     async fn subscribe_frames(
         &self,
     ) -> Option<tokio::sync::broadcast::Receiver<std::sync::Arc<crate::Frame>>> {
-        self.driver.subscribe_frames().await
+        self.driver.subscribe_frames()
     }
 
     async fn is_streaming(&self) -> Result<bool> {
-        self.driver.is_frame_streaming(self.is_mocking).await
+        self.driver.is_frame_streaming(self.is_mocking)
     }
 
     fn frame_count(&self) -> u64 {

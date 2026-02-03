@@ -1986,13 +1986,10 @@ impl DeviceRegistry {
         config: DeviceConfig,
         driver: Arc<GenericDriver>,
     ) -> Result<RegisteredDevice> {
-        let plugin_id = match &config.driver {
-            DriverType::Plugin { plugin_id, .. } => plugin_id,
-            _ => {
-                return Err(anyhow!(
-                    "Invalid driver type for create_registered_plugin: expected Plugin"
-                ));
-            }
+        let DriverType::Plugin { plugin_id, .. } = &config.driver else {
+            return Err(anyhow!(
+                "Invalid driver type for create_registered_plugin: expected Plugin"
+            ));
         };
         let driver_type_name = config.driver.driver_name().to_string();
 
@@ -2009,7 +2006,7 @@ impl DeviceRegistry {
             // Extract metadata from first axis
             if let Some(movable_cap) = &plugin_config.capabilities.movable {
                 if let Some(first_axis) = movable_cap.axes.first() {
-                    metadata.position_units = first_axis.unit.clone();
+                    metadata.position_units.clone_from(&first_axis.unit);
                     metadata.min_position = first_axis.min;
                     metadata.max_position = first_axis.max;
                 }
@@ -2038,7 +2035,7 @@ impl DeviceRegistry {
         {
             // Extract metadata from first readable
             if let Some(first_readable) = plugin_config.capabilities.readable.first() {
-                metadata.measurement_units = first_readable.unit.clone();
+                metadata.measurement_units.clone_from(&first_readable.unit);
             }
 
             // Create readable handle for the first readable capability (convention)
@@ -2111,7 +2108,7 @@ impl DeviceRegistry {
     pub fn snapshot_all_parameters(&self) -> HashMap<String, HashMap<String, serde_json::Value>> {
         let mut snapshot = HashMap::new();
 
-        for entry in self.devices.iter() {
+        for entry in &self.devices {
             let device_id = entry.key();
             let device = entry.value();
             if let Some(parameterized) = &device.parameterized {
