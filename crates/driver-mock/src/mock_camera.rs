@@ -752,12 +752,12 @@ impl MockCamera {
     }
 
     /// Check if camera is currently armed.
-    pub async fn is_armed(&self) -> bool {
+    pub fn is_armed(&self) -> bool {
         self.armed_flag.load(Ordering::SeqCst)
     }
 
     /// Check if camera is streaming.
-    pub async fn is_streaming(&self) -> bool {
+    pub fn is_streaming(&self) -> bool {
         self.streaming_flag.load(Ordering::SeqCst)
     }
 
@@ -1106,7 +1106,7 @@ mod tests {
 
         // Arm and trigger
         camera.arm().await.unwrap();
-        assert!(camera.is_armed().await);
+        assert!(camera.is_armed());
 
         camera.trigger().await.unwrap();
         assert_eq!(camera.get_frame_count(), 1);
@@ -1129,13 +1129,13 @@ mod tests {
         let camera = MockCamera::new(1920, 1080);
 
         camera.start_stream().await.unwrap();
-        assert!(camera.is_streaming().await);
+        assert!(camera.is_streaming());
 
         let result = camera.start_stream().await;
         assert!(result.is_err());
 
         camera.stop_stream().await.unwrap();
-        assert!(!camera.is_streaming().await);
+        assert!(!camera.is_streaming());
 
         camera.stop_stream().await.unwrap();
     }
@@ -1148,7 +1148,7 @@ mod tests {
         camera.arm().await.unwrap();
         camera.arm().await.unwrap();
 
-        assert!(camera.is_armed().await);
+        assert!(camera.is_armed());
     }
 
     #[tokio::test]
@@ -1161,10 +1161,10 @@ mod tests {
             .expect("streaming parameter registered");
 
         streaming_param.set(true).await.unwrap();
-        assert!(camera.is_streaming().await);
+        assert!(camera.is_streaming());
 
         streaming_param.set(false).await.unwrap();
-        assert!(!camera.is_streaming().await);
+        assert!(!camera.is_streaming());
 
         let exposure_param = params
             .get_typed::<Parameter<f64>>("exposure_s")
@@ -1179,11 +1179,11 @@ mod tests {
         let camera = MockCamera::new(1920, 1080);
 
         assert!(!camera.is_staged().await.unwrap());
-        assert!(!camera.is_armed().await);
+        assert!(!camera.is_armed());
 
         camera.stage().await.unwrap();
         assert!(camera.is_staged().await.unwrap());
-        assert!(camera.is_armed().await);
+        assert!(camera.is_armed());
 
         camera.trigger().await.unwrap();
         assert_eq!(camera.get_frame_count(), 1);
@@ -1193,7 +1193,7 @@ mod tests {
 
         camera.unstage().await.unwrap();
         assert!(!camera.is_staged().await.unwrap());
-        assert!(!camera.is_armed().await);
+        assert!(!camera.is_armed());
 
         let result = camera.trigger().await;
         assert!(result.is_err());
@@ -1205,10 +1205,10 @@ mod tests {
 
         camera.stage().await.unwrap();
         camera.start_stream().await.unwrap();
-        assert!(camera.is_streaming().await);
+        assert!(camera.is_streaming());
 
         camera.unstage().await.unwrap();
-        assert!(!camera.is_streaming().await);
+        assert!(!camera.is_streaming());
     }
 
     #[tokio::test]

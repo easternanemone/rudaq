@@ -156,9 +156,10 @@ impl Default for FilterSetting {
 }
 
 /// Attenuator settings
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum Attenuator {
     /// No attenuation (0 dB)
+    #[default]
     None,
     /// 10 dB attenuation
     Db10,
@@ -170,19 +171,13 @@ pub enum Attenuator {
 
 impl Attenuator {
     /// Get attenuation factor (multiplicative)
-    fn factor(&self) -> f64 {
+    fn factor(self) -> f64 {
         match self {
             Attenuator::None => 1.0,
             Attenuator::Db10 => 0.1,
             Attenuator::Db20 => 0.01,
             Attenuator::Db30 => 0.001,
         }
-    }
-}
-
-impl Default for Attenuator {
-    fn default() -> Self {
-        Attenuator::None
     }
 }
 
