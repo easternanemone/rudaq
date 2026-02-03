@@ -220,15 +220,56 @@ impl DaemonLauncher {
     pub fn stop(&mut self) {
         if let Some(mut child) = self.child.take() {
             tracing::info!("Stopping local daemon");
-            // Try graceful termination first
-            let _ = child.kill();
-            // Wait for process to exit
-            match child.wait() {
-                Ok(status) => {
-                    tracing::info!("Daemon stopped with status: {}", status);
+
+            // Try graceful termination first (SIGTERM on Unix)
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::CommandExt;
+                if let Some(pid) = child.id().try_into().ok() {
+                    // Send SIGTERM (signal 15)
+                    unsafe {
+                        libc::kill(pid, libc::SIGTERM);
+                    }
+                    tracing::debug!("Sent SIGTERM to daemon process");
+                }
+            }
+
+            // Wait up to 2 seconds for graceful exit
+            let start = std::time::Instant::now();
+            let timeout = std::time::Duration::from_secs(2);
+            while start.elapsed() < timeout {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        tracing::info!("Daemon stopped gracefully: {}", status);
+                        self.started_at = None;
+                        return;
+                    }
+                    Ok(None) => {
+                        // Still running, sleep briefly and check again
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    Err(e) => {
+                        tracing::warn!("Error checking daemon status: {}", e);
+                        break;
+                    }
+                }
+            }
+
+            // Force kill if still running (SIGKILL)
+            tracing::warn!(
+                "Daemon did not stop gracefully within {:?}, forcing kill",
+                timeout
+            );
+            match child.kill() {
+                Ok(()) => {
+                    if let Err(e) = child.wait() {
+                        tracing::warn!("Error waiting after force kill: {}", e);
+                    } else {
+                        tracing::info!("Daemon force-killed successfully");
+                    }
                 }
                 Err(e) => {
-                    tracing::warn!("Error waiting for daemon to stop: {}", e);
+                    tracing::error!("Failed to force kill daemon: {}", e);
                 }
             }
             self.started_at = None;

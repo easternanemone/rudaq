@@ -13490,6 +13490,7 @@ dependencies = [
  "futures",
  "hardware",
  "hdf5-metno",
+ "libc",
  "lz4_flex 0.11.5",
  "mimalloc",
  "once_cell",
