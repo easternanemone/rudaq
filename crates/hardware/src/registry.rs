@@ -2161,6 +2161,13 @@ pub struct HardwareConfig {
 
     /// List of devices to register
     pub devices: Vec<DeviceConfig>,
+
+    /// Require factory-based registration (fail if factory not found).
+    /// When true, devices without a registered factory will fail to load
+    /// instead of silently falling back to legacy DriverType registration.
+    /// Default: false (allow legacy fallback for backward compatibility)
+    #[serde(default)]
+    pub require_factory: bool,
 }
 
 impl HardwareConfig {
@@ -2203,11 +2210,12 @@ impl HardwareConfig {
 /// ```
 pub async fn create_registry_from_config(
     config: &HardwareConfig,
+    config_dir: Option<&std::path::Path>,
 ) -> Result<DeviceRegistry, DaqError> {
     let registry = DeviceRegistry::new();
 
     // Register all available driver factories BEFORE loading devices
-    register_all_factories(&registry, None).await?;
+    register_all_factories(&registry, config_dir).await?;
 
     // Validate all device configurations first (fail fast)
     let mut validation_errors = Vec::new();
@@ -2277,6 +2285,11 @@ pub async fn create_registry_from_config(
         // Check if a factory is registered for this driver type
         let result = if registry.has_factory(driver_type) {
             // Use factory-based registration
+            tracing::info!(
+                device_id = %device_config.id,
+                driver_type = %driver_type,
+                "Using factory-based registration (declarative driver)"
+            );
             match toml::Value::try_from(&device_config.driver) {
                 Ok(toml_config) => {
                     registry
@@ -2293,8 +2306,25 @@ pub async fn create_registry_from_config(
                     e
                 ))),
             }
+        } else if config.require_factory {
+            // Strict mode: fail if factory not found
+            tracing::error!(
+                device_id = %device_config.id,
+                driver_type = %driver_type,
+                "Factory required but not found (require_factory=true)"
+            );
+            Err(DaqError::Configuration(format!(
+                "Device '{}' requires factory-based registration but no factory found for driver type '{}'",
+                device_config.id,
+                driver_type
+            )))
         } else {
             // Use legacy DriverType enum registration
+            tracing::warn!(
+                device_id = %device_config.id,
+                driver_type = %driver_type,
+                "Using legacy DriverType registration (no factory found)"
+            );
             registry.register(device_config.clone()).await
         };
 
@@ -2332,7 +2362,12 @@ pub async fn create_registry_from_config(
 /// Load hardware configuration from a file and create a DeviceRegistry
 pub async fn create_registry_from_file(path: &std::path::Path) -> Result<DeviceRegistry, DaqError> {
     let config = HardwareConfig::from_file(path)?;
-    create_registry_from_config(&config).await
+    // Default factory directory is alongside the hardware config (config/devices).
+    let config_dir = path
+        .parent()
+        .map(|p| p.join("devices"))
+        .filter(|p| p.exists());
+    create_registry_from_config(&config, config_dir.as_deref()).await
 }
 
 // =============================================================================
@@ -2806,7 +2841,7 @@ height = 240
 "#;
 
         let config: HardwareConfig = toml::from_str(toml_str).unwrap();
-        let registry = create_registry_from_config(&config).await.unwrap();
+        let registry = create_registry_from_config(&config, None).await.unwrap();
 
         let devices = registry.list_devices();
         assert_eq!(devices.len(), 2);
@@ -2823,6 +2858,56 @@ height = 240
 
         assert!(registry.get_movable("legacy_stage").is_some());
         assert!(registry.get_frame_producer("legacy_camera").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_require_factory_strict_mode() {
+        // Test that require_factory=true works when factory exists
+        let toml_str = r#"
+require_factory = true
+
+[[devices]]
+id = "test_device"
+name = "Test Device With Factory"
+
+[devices.driver]
+type = "mock_stage"
+initial_position = 0.0
+"#;
+
+        let config: HardwareConfig = toml::from_str(toml_str).unwrap();
+
+        // MockStageFactory is registered by register_mock_factories(),
+        // so this should succeed
+        let result = create_registry_from_config(&config, None).await;
+        assert!(result.is_ok(), "Should succeed when factory exists");
+
+        let registry = result.unwrap();
+        let devices = registry.list_devices();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].id, "test_device");
+    }
+
+    #[tokio::test]
+    async fn test_factory_path_logging() {
+        // Test that logging distinguishes between factory and legacy paths
+        // This is a smoke test - actual verification would require log capture
+        let toml_str = r#"
+[[devices]]
+id = "factory_device"
+name = "Device Using Factory"
+
+[devices.driver]
+type = "mock_stage"
+initial_position = 0.0
+"#;
+
+        let config: HardwareConfig = toml::from_str(toml_str).unwrap();
+        let registry = create_registry_from_config(&config, None).await.unwrap();
+
+        let devices = registry.list_devices();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].id, "factory_device");
     }
 
     #[tokio::test]
