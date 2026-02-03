@@ -48,6 +48,20 @@ enum HealthCheckResult {
     Failed(String),
 }
 
+/// Device reconciliation result (validates persisted panels against daemon)
+enum DeviceReconcileMsg {
+    Ok {
+        epoch: u64,
+        daemon_url: String,
+        devices: Vec<DeviceInfo>,
+    },
+    Err {
+        epoch: u64,
+        daemon_url: String,
+        error: String,
+    },
+}
+
 /// Main application state
 pub struct DaqApp {
     /// gRPC client (wrapped in Option for lazy initialization)
@@ -101,6 +115,13 @@ pub struct DaqApp {
     /// Channel for health check results
     health_tx: mpsc::Sender<HealthCheckResult>,
     health_rx: mpsc::Receiver<HealthCheckResult>,
+
+    /// Device reconciliation epoch (incremented on each reconcile request)
+    device_reconcile_epoch: u64,
+
+    /// Channel for device reconciliation results
+    device_reconcile_tx: mpsc::Sender<DeviceReconcileMsg>,
+    device_reconcile_rx: mpsc::Receiver<DeviceReconcileMsg>,
 
     /// Previous connection state (for detecting transitions)
     was_connected: bool,
@@ -175,6 +196,55 @@ enum UiAction {
         /// Full device info with capability flags
         device_info: Box<DeviceInfo>,
     },
+    /// Close a device control panel by ID
+    CloseDevicePanel {
+        id: usize,
+    },
+}
+
+/// Device availability state after reconciliation with daemon
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DeviceAvailability {
+    #[default]
+    Pending, // Not yet verified against daemon
+    Available, // Confirmed present on daemon
+    Missing,   // Not found on daemon
+}
+
+/// Panel kind classification (for detecting capability changes)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DevicePanelKind {
+    MaiTai,
+    PowerMeter,
+    Rotator,
+    Stage,
+    AnalogOutput,
+}
+
+/// Determine panel kind from device capabilities
+fn panel_kind_for_device(device: &DeviceInfo) -> DevicePanelKind {
+    let driver_lower = device.driver_type.to_lowercase();
+
+    if device.is_emission_controllable || device.is_shutter_controllable {
+        DevicePanelKind::MaiTai
+    } else if driver_lower.contains("comedi_analog_output")
+        || driver_lower.contains("analog_output")
+    {
+        DevicePanelKind::AnalogOutput
+    } else if device.is_readable && !device.is_movable {
+        DevicePanelKind::PowerMeter
+    } else if device.is_movable {
+        if driver_lower.contains("ell14")
+            || driver_lower.contains("rotator")
+            || driver_lower.contains("thorlabs")
+        {
+            DevicePanelKind::Rotator
+        } else {
+            DevicePanelKind::Stage
+        }
+    } else {
+        DevicePanelKind::Stage // fallback
+    }
 }
 
 /// Info about a docked device control panel (runtime state)
@@ -182,6 +252,10 @@ enum UiAction {
 pub(crate) struct DevicePanelInfo {
     /// Full device info with capability flags (avoids inferring capabilities from driver_type)
     device_info: DeviceInfo,
+    /// Availability after reconciliation with daemon
+    availability: DeviceAvailability,
+    /// Panel kind (for detecting capability changes)
+    kind: DevicePanelKind,
 }
 
 /// Serializable version of device panel info for layout persistence.
@@ -342,6 +416,9 @@ impl DaqApp {
         // Create health check channel
         let (health_tx, health_rx) = mpsc::channel(4);
 
+        // Create device reconciliation channel
+        let (device_reconcile_tx, device_reconcile_rx) = mpsc::channel(4);
+
         // Load application settings from storage
         let app_settings: crate::settings::AppSettings = cc
             .storage
@@ -371,29 +448,35 @@ impl DaqApp {
 
             for (id, persisted_info) in persisted {
                 let device_info: DeviceInfo = persisted_info.clone().into();
+                let kind = panel_kind_for_device(&device_info);
 
-                // Create the appropriate panel widget based on capability flags
-                // Priority: laser (emission/shutter) > power meter (readable) > rotator/stage (movable)
-                // Note: Power meters may have is_wavelength_tunable for calibration, but lack emission/shutter
-                if device_info.is_emission_controllable || device_info.is_shutter_controllable {
-                    maitai.insert(id, MaiTaiControlPanel::default());
-                } else if device_info.is_readable && !device_info.is_movable {
-                    power_meter.insert(id, PowerMeterControlPanel::default());
-                } else if device_info.is_movable {
-                    let driver_lower = device_info.driver_type.to_lowercase();
-                    if driver_lower.contains("ell14")
-                        || driver_lower.contains("rotator")
-                        || driver_lower.contains("thorlabs")
-                    {
+                // Create the appropriate panel widget based on panel kind
+                match kind {
+                    DevicePanelKind::MaiTai => {
+                        maitai.insert(id, MaiTaiControlPanel::default());
+                    }
+                    DevicePanelKind::PowerMeter => {
+                        power_meter.insert(id, PowerMeterControlPanel::default());
+                    }
+                    DevicePanelKind::Rotator => {
                         rotator.insert(id, RotatorControlPanel::default());
-                    } else {
+                    }
+                    DevicePanelKind::Stage => {
                         stage.insert(id, StageControlPanel::default());
                     }
-                } else {
-                    stage.insert(id, StageControlPanel::default());
+                    DevicePanelKind::AnalogOutput => {
+                        // analog_output - not persisted yet
+                    }
                 }
 
-                device_info_map.insert(id, DevicePanelInfo { device_info });
+                device_info_map.insert(
+                    id,
+                    DevicePanelInfo {
+                        device_info,
+                        availability: DeviceAvailability::Pending,
+                        kind,
+                    },
+                );
             }
 
             (
@@ -501,6 +584,9 @@ impl DaqApp {
             runtime,
             health_tx,
             health_rx,
+            device_reconcile_epoch: 0,
+            device_reconcile_tx,
+            device_reconcile_rx,
             was_connected: false,
             daemon_mode,
             daemon_launcher,
@@ -1298,6 +1384,180 @@ impl DaqApp {
 
         self.logging_panel
             .info("Connection", "Connected - panels will refresh data");
+
+        // Start device reconciliation to validate persisted panels
+        self.start_device_reconcile();
+    }
+
+    /// Start device reconciliation - validates persisted panels against daemon
+    fn start_device_reconcile(&mut self) {
+        let Some(ref client) = self.client else {
+            return;
+        };
+
+        // Increment epoch to invalidate stale results
+        self.device_reconcile_epoch = self.device_reconcile_epoch.wrapping_add(1);
+        let epoch = self.device_reconcile_epoch;
+        let daemon_url = self.daemon_address.to_string();
+
+        // Clone what we need for async task
+        let mut client = client.clone();
+        let tx = self.device_reconcile_tx.clone();
+
+        self.runtime.spawn(async move {
+            match client.list_devices().await {
+                Ok(devices) => {
+                    let _ = tx
+                        .send(DeviceReconcileMsg::Ok {
+                            epoch,
+                            daemon_url,
+                            devices,
+                        })
+                        .await;
+                }
+                Err(e) => {
+                    let _ = tx
+                        .send(DeviceReconcileMsg::Err {
+                            epoch,
+                            daemon_url,
+                            error: e.to_string(),
+                        })
+                        .await;
+                }
+            }
+        });
+    }
+
+    /// Poll for device reconciliation results and apply if epoch matches
+    fn poll_device_reconcile(&mut self) {
+        while let Ok(msg) = self.device_reconcile_rx.try_recv() {
+            match msg {
+                DeviceReconcileMsg::Ok {
+                    epoch,
+                    daemon_url,
+                    devices,
+                } => {
+                    // Ignore stale results
+                    if epoch != self.device_reconcile_epoch
+                        || daemon_url != self.daemon_address.to_string()
+                    {
+                        tracing::debug!(
+                            epoch,
+                            current_epoch = self.device_reconcile_epoch,
+                            "Ignoring stale device reconciliation result"
+                        );
+                        continue;
+                    }
+
+                    self.apply_device_reconcile(devices);
+                }
+                DeviceReconcileMsg::Err {
+                    epoch,
+                    daemon_url,
+                    error,
+                } => {
+                    // Ignore stale errors
+                    if epoch != self.device_reconcile_epoch
+                        || daemon_url != self.daemon_address.to_string()
+                    {
+                        continue;
+                    }
+
+                    tracing::warn!("Device reconciliation failed: {}", error);
+                    // Mark all panels as Pending (will retry on next connection)
+                    for info in self.device_panel_info.values_mut() {
+                        info.availability = DeviceAvailability::Pending;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Apply device reconciliation results - update availability and migrate panels if needed
+    fn apply_device_reconcile(&mut self, devices: Vec<DeviceInfo>) {
+        let device_map: HashMap<String, DeviceInfo> =
+            devices.into_iter().map(|d| (d.id.clone(), d)).collect();
+
+        // Collect panel migrations to avoid borrowing conflicts
+        let mut migrations: Vec<(usize, DevicePanelKind)> = Vec::new();
+
+        for (panel_id, panel_info) in &mut self.device_panel_info {
+            let device_id = &panel_info.device_info.id;
+
+            if let Some(daemon_device) = device_map.get(device_id) {
+                // Device found on daemon
+                panel_info.availability = DeviceAvailability::Available;
+
+                // Check if capabilities changed (requires panel migration)
+                let new_kind = panel_kind_for_device(daemon_device);
+                if new_kind != panel_info.kind {
+                    tracing::info!(
+                        panel_id,
+                        device_id,
+                        old_kind = ?panel_info.kind,
+                        new_kind = ?new_kind,
+                        "Device capabilities changed - migrating panel"
+                    );
+
+                    // Update kind and device info
+                    panel_info.kind = new_kind;
+                    panel_info.device_info = daemon_device.clone();
+
+                    // Defer migration to avoid borrow conflicts
+                    migrations.push((*panel_id, new_kind));
+                } else {
+                    // Just update device info (metadata may have changed)
+                    panel_info.device_info = daemon_device.clone();
+                }
+            } else {
+                // Device not found on daemon
+                panel_info.availability = DeviceAvailability::Missing;
+                tracing::warn!(
+                    panel_id,
+                    device_id,
+                    "Device panel references missing device"
+                );
+            }
+        }
+
+        // Apply panel migrations
+        for (panel_id, new_kind) in migrations {
+            self.ensure_panel_widget_kind(panel_id, new_kind);
+        }
+    }
+
+    /// Ensure panel widget exists in the correct HashMap for its kind
+    fn ensure_panel_widget_kind(&mut self, panel_id: usize, kind: DevicePanelKind) {
+        // Remove from all widget maps
+        self.docked_maitai_panels.remove(&panel_id);
+        self.docked_power_meter_panels.remove(&panel_id);
+        self.docked_rotator_panels.remove(&panel_id);
+        self.docked_stage_panels.remove(&panel_id);
+        self.docked_analog_output_panels.remove(&panel_id);
+
+        // Insert into correct map based on new kind
+        match kind {
+            DevicePanelKind::MaiTai => {
+                self.docked_maitai_panels
+                    .insert(panel_id, MaiTaiControlPanel::default());
+            }
+            DevicePanelKind::PowerMeter => {
+                self.docked_power_meter_panels
+                    .insert(panel_id, PowerMeterControlPanel::default());
+            }
+            DevicePanelKind::Rotator => {
+                self.docked_rotator_panels
+                    .insert(panel_id, RotatorControlPanel::default());
+            }
+            DevicePanelKind::Stage => {
+                self.docked_stage_panels
+                    .insert(panel_id, StageControlPanel::default());
+            }
+            DevicePanelKind::AnalogOutput => {
+                self.docked_analog_output_panels
+                    .insert(panel_id, AnalogOutputControlPanel::default());
+            }
+        }
     }
 
     /// Detect connection state transitions and handle them
@@ -1585,6 +1845,52 @@ impl<'a> DaqTabViewer<'a> {
 
         let device_info = &info.device_info;
 
+        // Gate rendering based on availability
+        match info.availability {
+            DeviceAvailability::Pending => {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(20.0);
+                    ui.spinner();
+                    ui.label("Validating device with daemon...");
+                    ui.add_space(10.0);
+                    ui.label(format!("Device: {}", device_info.name));
+                    ui.label(format!("ID: {}", device_info.id));
+                });
+                return;
+            }
+            DeviceAvailability::Missing => {
+                ui.vertical(|ui| {
+                    ui.add_space(10.0);
+                    ui.colored_label(egui::Color32::RED, "⚠ Device Not Found");
+                    ui.add_space(10.0);
+
+                    ui.label(format!("Device: {}", device_info.name));
+                    ui.label(format!("ID: {}", device_info.id));
+                    ui.label(format!("Daemon: {}", self.app.daemon_address));
+
+                    ui.add_space(10.0);
+                    ui.label("This device is not available on the connected daemon.");
+                    ui.label("The daemon may have been restarted with a different configuration.");
+
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Refresh").clicked() {
+                            self.app.start_device_reconcile();
+                        }
+                        if ui.button("Close Panel").clicked() {
+                            self.app
+                                .ui_actions
+                                .push(UiAction::CloseDevicePanel { id: panel_id });
+                        }
+                    });
+                });
+                return;
+            }
+            DeviceAvailability::Available => {
+                // Continue to normal rendering below
+            }
+        }
+
         // Debug: log which HashMap contains this panel (bd-kj7i)
         let panel_type = if self.app.docked_maitai_panels.contains_key(&panel_id) {
             "MaiTai"
@@ -1629,6 +1935,7 @@ impl eframe::App for DaqApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_logs();
         self.poll_connect_results(ctx);
+        self.poll_device_reconcile(); // bd-vjzq
         self.maybe_spawn_health_check();
         self.poll_health_checks();
         self.update_connection_diagnostics(); // bd-j3xz.3.3
@@ -1690,6 +1997,9 @@ impl eframe::App for DaqApp {
             });
         }
 
+        // Collect panels to close to avoid borrow conflicts
+        let mut panels_to_close = Vec::new();
+
         // Process deferred UI actions
         for action in self.ui_actions.drain(..) {
             match action {
@@ -1701,6 +2011,14 @@ impl eframe::App for DaqApp {
                         // Add to focused leaf or fallback to root
                         dock_state.main_surface_mut().push_to_focused_leaf(panel);
                     }
+                }
+                UiAction::CloseDevicePanel { id } => {
+                    // Remove panel from dock
+                    dock_state.retain_tabs(|tab| {
+                        !matches!(tab, Panel::DeviceControl { id: panel_id } if *panel_id == id)
+                    });
+                    // Defer cleanup to avoid borrow conflicts
+                    panels_to_close.push(id);
                 }
                 UiAction::OpenDeviceControl { device_info } => {
                     let device_info = *device_info;
@@ -1723,62 +2041,48 @@ impl eframe::App for DaqApp {
                         "OpenDeviceControl: creating pop-out panel with capabilities"
                     );
 
+                    // Determine panel kind from device capabilities
+                    let kind = panel_kind_for_device(&device_info);
+
                     // Store device info (full proto with capability flags)
                     self.device_panel_info.insert(
                         panel_id,
                         DevicePanelInfo {
                             device_info: device_info.clone(),
+                            availability: DeviceAvailability::Available, // Fresh from daemon
+                            kind,
                         },
                     );
 
-                    // Create the appropriate panel widget based on capability flags and driver type
-                    // Priority: laser (emission/shutter) > analog output (comedi_analog_output) > power meter (readable) > rotator/stage (movable)
-                    // Note: Power meters may have is_wavelength_tunable for calibration, but lack emission/shutter control
-                    let driver_lower = device_info.driver_type.to_lowercase();
+                    // Create the appropriate panel widget based on panel kind
+                    tracing::info!(
+                        panel_id,
+                        ?kind,
+                        device_id = %device_info.id,
+                        "OpenDeviceControl: routing to panel"
+                    );
 
-                    if device_info.is_emission_controllable || device_info.is_shutter_controllable {
-                        // Laser with control capabilities (emission or shutter)
-                        tracing::info!(panel_id, "OpenDeviceControl: routing to MaiTai panel");
-                        self.docked_maitai_panels
-                            .insert(panel_id, MaiTaiControlPanel::default());
-                    } else if driver_lower.contains("comedi_analog_output")
-                        || driver_lower.contains("analog_output")
-                    {
-                        // Analog output device (EOM, DAC) - route to voltage control panel
-                        tracing::info!(
-                            panel_id,
-                            "OpenDeviceControl: routing to AnalogOutput panel"
-                        );
-                        self.docked_analog_output_panels
-                            .insert(panel_id, AnalogOutputControlPanel::default());
-                    } else if device_info.is_readable && !device_info.is_movable {
-                        // Pure readable device (power meter, sensor) - may have wavelength calibration
-                        tracing::info!(panel_id, "OpenDeviceControl: routing to PowerMeter panel");
-                        self.docked_power_meter_panels
-                            .insert(panel_id, PowerMeterControlPanel::default());
-                    } else if device_info.is_movable {
-                        // Check driver_type for rotator vs stage distinction
-                        // (both are movable, but rotators have different UI)
-                        if driver_lower.contains("ell14")
-                            || driver_lower.contains("rotator")
-                            || driver_lower.contains("thorlabs")
-                        {
-                            tracing::info!(panel_id, "OpenDeviceControl: routing to Rotator panel");
+                    match kind {
+                        DevicePanelKind::MaiTai => {
+                            self.docked_maitai_panels
+                                .insert(panel_id, MaiTaiControlPanel::default());
+                        }
+                        DevicePanelKind::PowerMeter => {
+                            self.docked_power_meter_panels
+                                .insert(panel_id, PowerMeterControlPanel::default());
+                        }
+                        DevicePanelKind::Rotator => {
                             self.docked_rotator_panels
                                 .insert(panel_id, RotatorControlPanel::default());
-                        } else {
-                            tracing::info!(panel_id, "OpenDeviceControl: routing to Stage panel");
+                        }
+                        DevicePanelKind::Stage => {
                             self.docked_stage_panels
                                 .insert(panel_id, StageControlPanel::default());
                         }
-                    } else {
-                        // Fallback to stage panel for unknown devices
-                        tracing::info!(
-                            panel_id,
-                            "OpenDeviceControl: routing to Stage panel (fallback)"
-                        );
-                        self.docked_stage_panels
-                            .insert(panel_id, StageControlPanel::default());
+                        DevicePanelKind::AnalogOutput => {
+                            self.docked_analog_output_panels
+                                .insert(panel_id, AnalogOutputControlPanel::default());
+                        }
                     }
 
                     // Add the panel to the dock
@@ -1786,6 +2090,11 @@ impl eframe::App for DaqApp {
                     dock_state.main_surface_mut().push_to_focused_leaf(panel);
                 }
             }
+        }
+
+        // Clean up closed panels
+        for id in panels_to_close {
+            self.remove_panel_data(id);
         }
 
         self.dock_state = Some(dock_state);
