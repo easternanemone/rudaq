@@ -143,8 +143,9 @@ impl ScriptPluginLoader {
                 continue;
             }
 
-            let entries = std::fs::read_dir(&search_path)
-                .map_err(|e| anyhow!("Failed to read directory {:?}: {}", search_path, e))?;
+            let entries = std::fs::read_dir(&search_path).map_err(|e| {
+                anyhow!("Failed to read directory {}: {}", search_path.display(), e)
+            })?;
 
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -185,7 +186,7 @@ impl ScriptPluginLoader {
     ) -> Result<ScriptModuleInfo> {
         // Read and cache the script source
         let source = std::fs::read_to_string(path)
-            .map_err(|e| anyhow!("Failed to read {:?}: {}", path, e))?;
+            .map_err(|e| anyhow!("Failed to read {}: {}", path.display(), e))?;
 
         self.script_cache.insert(path.to_path_buf(), source.clone());
 

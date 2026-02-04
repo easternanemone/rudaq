@@ -506,6 +506,7 @@ impl ComediStreamWriter {
 
     /// Fallback when HDF5 is not available
     #[cfg(not(feature = "storage_hdf5"))]
+    #[allow(clippy::unused_async)]
     async fn initialize_hdf5(&self) -> Result<()> {
         Ok(())
     }
@@ -664,6 +665,7 @@ impl ComediStreamWriter {
     }
 
     #[cfg(not(feature = "storage_hdf5"))]
+    #[allow(clippy::unused_async)]
     async fn flush_hdf5(&self, _chunk_data: &[f64], _samples_per_channel: usize) -> Result<()> {
         Ok(())
     }
@@ -733,6 +735,7 @@ impl ComediStreamWriter {
     }
 
     #[cfg(not(feature = "storage_arrow"))]
+    #[allow(clippy::unused_async)] // Matches trait signature, no async work needed in stub
     async fn flush_arrow(&self, _chunk_data: &[f64], _samples_per_channel: usize) -> Result<()> {
         Ok(())
     }

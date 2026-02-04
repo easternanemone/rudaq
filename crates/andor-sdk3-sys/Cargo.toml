@@ -1,0 +1,27 @@
+[package]
+name = "andor-sdk3-sys"
+version = "0.1.0"
+edition = "2021"
+description = "FFI bindings for the Andor SDK3 (camera and spectrograph)"
+license = "MIT OR Apache-2.0"
+links = "andor-sdk3"
+
+[build-dependencies]
+bindgen = "0.69"
+
+[dependencies]
+widestring = "1.0"
+
+[features]
+default = []
+# Enable this feature to generate bindings from Andor SDK3 headers.
+# Requires ANDOR_SDK3_DIR environment variable to be set (Windows only).
+andor-sdk3 = []
+# Individual hardware component features
+camera = []
+spectrograph = []
+# Enable for real hardware (requires SDK installation)
+hardware = ["andor-sdk3", "camera", "spectrograph"]
+
+[lints]
+workspace = true

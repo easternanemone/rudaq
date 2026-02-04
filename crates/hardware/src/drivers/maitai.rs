@@ -128,10 +128,10 @@ impl MaiTaiDriver {
                     .await
                     {
                         Ok(Ok(_)) => {
-                            log::debug!("MaiTai wavelength response: {}", response.trim())
+                            log::debug!("MaiTai wavelength response: {}", response.trim());
                         }
                         Ok(Err(e)) => {
-                            log::debug!("MaiTai wavelength read error (may be OK): {}", e)
+                            log::debug!("MaiTai wavelength read error (may be OK): {}", e);
                         }
                         Err(_) => log::debug!("MaiTai wavelength no response (may be OK)"),
                     }
@@ -208,10 +208,10 @@ impl MaiTaiDriver {
                     .await
                     {
                         Ok(Ok(_)) => {
-                            log::debug!("MaiTai wavelength response: {}", response.trim())
+                            log::debug!("MaiTai wavelength response: {}", response.trim());
                         }
                         Ok(Err(e)) => {
-                            log::debug!("MaiTai wavelength read error (may be OK): {}", e)
+                            log::debug!("MaiTai wavelength read error (may be OK): {}", e);
                         }
                         Err(_) => log::debug!("MaiTai wavelength no response (may be OK)"),
                     }
@@ -380,8 +380,8 @@ impl MaiTaiDriver {
         let clean = response.trim().to_lowercase();
         let clean = clean
             .trim_end_matches("mw")
-            .trim_end_matches("w")
-            .trim_end_matches("%")
+            .trim_end_matches('w')
+            .trim_end_matches('%')
             .trim();
         clean
             .parse::<f64>()
@@ -588,8 +588,8 @@ mod tests {
             let clean = response.trim().to_lowercase();
             let clean = clean
                 .trim_end_matches("mw")
-                .trim_end_matches("w")
-                .trim_end_matches("%")
+                .trim_end_matches('w')
+                .trim_end_matches('%')
                 .trim();
             let power: f64 = clean.parse().unwrap();
             assert_eq!(power, expected, "Failed to parse '{}'", response);

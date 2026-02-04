@@ -1,0 +1,19 @@
+[package]
+name = "dover-motion-sys"
+version = "0.1.0"
+edition = "2021"
+description = "FFI bindings for Dover Motion's MotionSynergyAPI C++ library"
+license = "MIT OR Apache-2.0"
+links = "MotionSynergyCore"
+
+[build-dependencies]
+bindgen = "0.69"
+
+[features]
+default = []
+# Enable this feature to generate bindings from Dover Motion SDK headers.
+# Requires MotionSynergyAPI SDK to be installed.
+dover-sdk = []
+
+[lints]
+workspace = true

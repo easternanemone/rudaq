@@ -8,7 +8,7 @@ inputs:
   rust-toolchain:
     description: 'Rust toolchain to install (stable/nightly/etc)'
     required: false
-    default: 'stable'
+    default: '1.92.0'
   components:
     description: 'Rust components to install'
     required: false

@@ -1,0 +1,51 @@
+[package]
+name = "driver-dover-motion"
+version = "0.1.0"
+edition = "2021"
+description = "Dover Motion SmartStage driver for rust-daq (via MotionSynergyAPI FFI)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/TheFermiSea/rust-daq"
+
+[dependencies]
+# Core dependencies (DriverFactory trait, capabilities)
+common = { path = "../common" }
+
+# FFI bindings
+dover-motion-sys = { path = "../dover-motion-sys" }
+
+# Async runtime
+tokio = { workspace = true, features = ["sync", "time", "rt"] }
+async-trait.workspace = true
+futures.workspace = true
+
+# Error handling
+anyhow.workspace = true
+thiserror.workspace = true
+
+# Configuration
+serde = { workspace = true, features = ["derive"] }
+toml.workspace = true
+
+# Logging
+tracing.workspace = true
+
+[features]
+default = []
+# Enable real Dover Motion SDK (requires hardware)
+dover-hardware = ["dover-motion-sys/dover-sdk"]
+hardware = ["dover-hardware"]  # Standard hardware flag alias
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tracing-subscriber = "0.3"
+
+[[example]]
+name = "basic_motion"
+path = "examples/basic_motion.rs"
+
+[[example]]
+name = "trigger_on_position"
+path = "examples/trigger_on_position.rs"
+
+[lints]
+workspace = true

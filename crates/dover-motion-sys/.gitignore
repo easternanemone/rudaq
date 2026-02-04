@@ -1,0 +1,12 @@
+# Build artifacts
+/target/
+Cargo.lock
+
+# Bindgen output (generated during build)
+/bindings.rs
+
+# Platform-specific SDK artifacts
+*.dll
+*.lib
+*.so
+*.dylib

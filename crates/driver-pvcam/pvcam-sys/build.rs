@@ -154,8 +154,8 @@ fn main() {
                 ],
             );
             panic!(
-                "PVCAM SDK include path does not exist: {:?}",
-                sdk_include_path
+                "PVCAM SDK include path does not exist: {}",
+                sdk_include_path.display()
             );
         }
 

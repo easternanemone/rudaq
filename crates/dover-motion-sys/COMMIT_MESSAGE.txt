@@ -1,0 +1,60 @@
+feat(dover-motion-sys): create FFI bindings for Dover Motion MotionSynergyAPI
+
+Create low-level FFI bindings crate for Dover Motion's MotionSynergyAPI C++ library,
+supporting Windows (primary) and Linux (secondary) platforms.
+
+Key Features:
+- OS-aware build script with automatic SDK path detection
+- Feature flag 'dover-sdk' for conditional compilation
+- Dummy bindings for CI/development without SDK
+- Comprehensive documentation (400+ lines README)
+- Platform-specific linking (.dll for Windows, .so for Linux)
+- Bindgen configuration for C++17 with namespace support
+
+Critical LIBS Functions:
+- EnableTriggerOnPosition() - GPIO pulses at position increments
+- MoveAbsolute/MoveRelative() - Motion control
+- GetActualPosition/GetCommandedPosition() - Position queries
+- SetVelocity/SetAcceleration/SetDeceleration() - Motion parameters
+
+Platform Support:
+- Windows: C:\Program Files\Dover Motion\MotionSynergyAPI
+- Linux: /usr/local (headers + libMotionSynergyCore.so)
+- macOS: Not supported (Dover Motion SDK limitation)
+
+Documentation:
+- README.md: Installation, usage, API reference, CI/CD examples
+- NOTES.md: Implementation details and design decisions
+- CI.md: GitHub Actions configuration for both platforms
+- CHANGELOG.md: Version history and feature tracking
+- verify-build.sh/ps1: Automated build verification scripts
+
+Files Created:
+- Cargo.toml: Crate manifest with dover-sdk feature
+- build.rs: OS detection, SDK path resolution, library linking
+- wrapper.hpp: Bindgen C++ header wrapper
+- src/lib.rs: Main library with safety documentation
+- README.md, NOTES.md, CI.md, CHANGELOG.md
+- verify-build.sh (Linux), verify-build.ps1 (Windows)
+- .gitignore: Ignore build artifacts and SDK binaries
+
+Workspace:
+- Added crates/dover-motion-sys to workspace members
+
+Pattern:
+- Follows comedi-sys structure for consistency
+- Dummy bindings allow workspace build without SDK
+- Runtime panic on SDK function calls without feature flag
+
+Testing:
+- Without SDK: Dummy bindings compile and test
+- With SDK: Real bindings generate from platform headers
+- CI/CD: Multi-platform testing (ubuntu-latest, windows-latest)
+- Hardware: Self-hosted runners with SDK installed
+
+References:
+- Dover Motion - Motion Synergy API User Manual (Document 102925)
+- Section 6: C++ Software Integration (pp. 121-163)
+- Section 6.2: Public Interface (pp. 127-163)
+
+Bead: bd-3yb8.1

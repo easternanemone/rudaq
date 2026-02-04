@@ -318,6 +318,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "andor-sdk3-sys"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+ "widestring",
+]
+
+[[package]]
 name = "android-activity"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3530,6 +3538,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "dover-motion-sys"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+]
+
+[[package]]
 name = "downcast-rs"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3540,6 +3555,23 @@ name = "dpi"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
+
+[[package]]
+name = "driver-andor-sdk3"
+version = "0.1.0"
+dependencies = [
+ "andor-sdk3-sys",
+ "anyhow",
+ "async-trait",
+ "bytemuck",
+ "bytes",
+ "common",
+ "futures",
+ "thiserror 2.0.17",
+ "tokio",
+ "toml 0.9.11+spec-1.1.0",
+ "tracing",
+]
 
 [[package]]
 name = "driver-comedi"
@@ -3564,6 +3596,23 @@ dependencies = [
  "tokio",
  "toml 0.9.11+spec-1.1.0",
  "tracing",
+]
+
+[[package]]
+name = "driver-dover-motion"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "common",
+ "dover-motion-sys",
+ "futures",
+ "serde",
+ "thiserror 1.0.69",
+ "tokio",
+ "toml 0.9.11+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -11408,7 +11457,9 @@ dependencies = [
  "config",
  "criterion",
  "csv",
+ "driver-andor-sdk3",
  "driver-comedi",
+ "driver-dover-motion",
  "driver-generic",
  "driver-mock",
  "driver-newport",
@@ -14399,6 +14450,12 @@ dependencies = [
  "rustix 0.38.44",
  "winsafe",
 ]
+
+[[package]]
+name = "widestring"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72069c3113ab32ab29e5584db3c6ec55d416895e60715417b5b883a357c3e471"
 
 [[package]]
 name = "winapi"

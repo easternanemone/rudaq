@@ -89,9 +89,12 @@ async fn run_benchmark_case(
         tokio::time::sleep(Duration::from_micros(100)).await;
     }
 
-    if errors > requests / 10 {
-        panic!("Too many errors: {}/{} requests failed", errors, requests);
-    }
+    assert!(
+        errors <= requests / 10,
+        "Too many errors: {}/{} requests failed",
+        errors,
+        requests
+    );
 
     latencies.sort();
     latencies

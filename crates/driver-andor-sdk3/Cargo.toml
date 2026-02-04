@@ -1,0 +1,30 @@
+[package]
+name = "driver-andor-sdk3"
+version = "0.1.0"
+edition = "2021"
+description = "Safe Rust driver for Andor iStar camera and Shamrock spectrograph (SDK3)"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+andor-sdk3-sys = { path = "../andor-sdk3-sys" }
+anyhow = "1.0"
+async-trait = "0.1"
+bytes = "1.5"
+tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
+tracing = "0.1"
+common = { path = "../common" }
+toml.workspace = true
+thiserror = "2.0"
+bytemuck = "1.14"
+futures = "0.3"
+
+[features]
+default = []
+# Enable for real hardware (requires Andor SDK3 installation on Windows)
+hardware = ["andor-sdk3-sys/hardware"]
+# Individual component features
+camera = ["andor-sdk3-sys/camera"]
+spectrograph = ["andor-sdk3-sys/spectrograph"]
+
+[lints]
+workspace = true

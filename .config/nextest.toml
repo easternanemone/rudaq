@@ -42,6 +42,14 @@ fail-fast = false
 failure-output = "immediate-final"
 
 # =============================================================================
+# LIBS Hardware Test Profile
+# =============================================================================
+# For LIBS integration tests (stage-camera sync, laser safety). Extends hardware
+# with LIBS-specific settings. Use: cargo nextest run --profile libs-hardware
+[profile.libs-hardware]
+inherits = "hardware"
+
+# =============================================================================
 # Coverage Profile
 # =============================================================================
 [profile.coverage]

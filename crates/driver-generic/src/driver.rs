@@ -557,7 +557,7 @@ impl GenericSerialDriver {
 
             // Get command config to check if response is expected
             let cmd_config = self.config.commands.get(&step.command);
-            let expects_response = cmd_config.map_or(false, |c| c.expects_response);
+            let expects_response = cmd_config.is_some_and(|c| c.expects_response);
 
             let result = if expects_response {
                 self.transaction(&formatted_cmd).await

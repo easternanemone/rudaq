@@ -24,6 +24,8 @@ workspace = true
 # tokio replaced below with correct features
 
 common = { path = "../common" }
+driver-dover-motion = { path = "../driver-dover-motion", optional = true }
+driver-andor-sdk3 = { path = "../driver-andor-sdk3", optional = true }
 protocol = { path = "../protocol" }
 hardware = { path = "../hardware", default-features = false }
 storage = { path = "../storage", default-features = false }
@@ -164,6 +166,12 @@ pvcam_hardware = ["pvcam_sdk"]
 comedi = ["dep:driver-comedi", "hardware/comedi", "server/comedi"]
 comedi_hardware = ["comedi", "driver-comedi/hardware", "hardware/comedi_hardware", "server/comedi_hardware"]
 
+# LIBS drivers
+libs_drivers = ["dep:driver-dover-motion", "dep:driver-andor-sdk3"]
+# TODO: Enable driver-spirit-laser once crate is implemented
+# See test: libs_integration_smoke::hardware_libs_safety_sequence
+libs_spirit_driver = []
+
 # All hardware drivers (with mock PVCAM and Comedi)
 all_hardware = ["thorlabs", "newport", "spectra_physics", "newport_power_meter", "pvcam", "comedi", "generic"]
 
@@ -210,6 +218,11 @@ native_plugins = ["dep:plugin-api"]
 # [[bin]]
 # name = "script_runner"
 # path = "tools/script_runner/main.rs"
+
+[[bin]]
+name = "pvcam_grpc_harness"
+path = "src/bin/pvcam_grpc_harness.rs"
+required-features = ["server"]
 
 # [[example]]
 # name = "test_maitai_serial"

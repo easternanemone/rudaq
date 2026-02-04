@@ -1,6 +1,20 @@
 // TODO: Fix doc comment generic types to use backticks
 #![allow(rustdoc::invalid_html_tags)]
 #![allow(rustdoc::broken_intra_doc_links)]
+// Allow Rust 1.93+ clippy lints that require significant refactoring
+#![allow(
+    clippy::unnecessary_literal_bound,         // lifetime-related str returns
+    clippy::assigning_clones,                  // clone vs clone_from
+    clippy::needless_continue,                 // redundant continue
+    clippy::iter_over_hash_type,               // iter over HashMap
+    clippy::missing_const_for_thread_local,    // thread_local const init (renamed from thread_local_initializer_can_be_made_const)
+    clippy::manual_let_else,                   // if-let to let-else
+    clippy::match_single_binding,              // matching over ()
+    clippy::manual_string_new,                 // String::new() vs "".to_string()
+    clippy::explicit_iter_loop,                // for x in iter.iter() vs for x in iter
+    clippy::semicolon_if_nothing_returned,     // missing semicolons
+    clippy::ignored_unit_patterns              // _ vs () in patterns
+)]
 
 pub mod bindings;
 pub mod comedi_bindings;
@@ -51,7 +65,7 @@ use tokio::runtime::{Handle, RuntimeFlavor};
 use tokio::task::block_in_place;
 
 thread_local! {
-    static SCRIPT_RUNTIME_HANDLE: RefCell<Option<Handle>> = RefCell::new(None);
+    static SCRIPT_RUNTIME_HANDLE: RefCell<Option<Handle>> = const { RefCell::new(None) };
 }
 
 /// Set the Tokio runtime handle for the current script thread.

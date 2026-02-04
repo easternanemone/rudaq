@@ -31,7 +31,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.92.0
         with:
           components: clippy
 
@@ -79,7 +79,7 @@ jobs:
 
       - name: Run clippy with cognitive complexity
         run: |
-          cargo clippy --workspace --all-targets --features full --exclude ui -- \
+          cargo clippy --workspace --all-targets --features full --exclude ui --exclude driver-dover-motion --exclude driver-andor-sdk3 --exclude dover-motion-sys --exclude andor-sdk3-sys -- \
             -W clippy::cognitive_complexity \
             -A clippy::too_many_lines 2>&1 | tee clippy-complexity.log || true
 
@@ -278,7 +278,7 @@ jobs:
 
           # Test: cargo build works
           echo "Testing: cargo build..." >> $GITHUB_STEP_SUMMARY
-          if cargo build --workspace --exclude ui 2>&1; then
+          if cargo build --workspace --exclude ui --exclude driver-dover-motion --exclude driver-andor-sdk3 --exclude dover-motion-sys --exclude andor-sdk3-sys 2>&1; then
             echo "✅ cargo build - PASS" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ cargo build - FAIL" >> $GITHUB_STEP_SUMMARY
@@ -295,7 +295,7 @@ jobs:
 
           # Test: cargo clippy works
           echo "Testing: cargo clippy..." >> $GITHUB_STEP_SUMMARY
-          if cargo clippy --workspace --all-targets --exclude ui -- -D warnings 2>&1; then
+          if cargo clippy --workspace --all-targets --exclude ui --exclude driver-dover-motion --exclude driver-andor-sdk3 --exclude dover-motion-sys --exclude andor-sdk3-sys -- -D warnings 2>&1; then
             echo "✅ cargo clippy - PASS" >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ cargo clippy - warnings present (non-blocking)" >> $GITHUB_STEP_SUMMARY
@@ -307,7 +307,7 @@ jobs:
             echo "✅ cargo-nextest install - PASS" >> $GITHUB_STEP_SUMMARY
 
             # Test: tests can be listed
-            if cargo nextest list --workspace --exclude ui 2>&1 | head -20; then
+            if cargo nextest list --workspace --exclude ui --exclude driver-dover-motion --exclude driver-andor-sdk3 --exclude dover-motion-sys --exclude andor-sdk3-sys 2>&1 | head -20; then
               echo "✅ cargo nextest list - PASS" >> $GITHUB_STEP_SUMMARY
             else
               echo "❌ cargo nextest list - FAIL" >> $GITHUB_STEP_SUMMARY

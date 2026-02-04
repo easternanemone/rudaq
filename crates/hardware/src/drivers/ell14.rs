@@ -2476,7 +2476,7 @@ impl Ell14Driver {
                 "Rotator {} not in slave mode, nothing to revert",
                 self.physical_address
             );
-            self.active_address = self.physical_address.clone();
+            self.active_address.clone_from(&self.physical_address);
             self.group_offset_degrees = 0.0;
             return Ok(());
         }
@@ -2524,7 +2524,7 @@ impl Ell14Driver {
         drop(port); // Release lock
 
         // Reset internal state regardless of response
-        self.active_address = self.physical_address.clone();
+        self.active_address.clone_from(&self.physical_address);
         self.is_slave_in_group = false;
         self.group_offset_degrees = 0.0;
 
@@ -3294,7 +3294,8 @@ mod tests {
             let mut buf = vec![0u8; 64];
 
             // First attempt: truncated response (simulates bus contention)
-            host.read(&mut buf)
+            let _bytes_read = host
+                .read(&mut buf)
                 .await
                 .expect("Mock should receive first request");
             host.write_all(b"2IN0E14002842202115\n")
@@ -3302,7 +3303,8 @@ mod tests {
                 .expect("Mock should send truncated response"); // 16 chars
 
             // Second attempt (after driver retry): full 30-char response
-            host.read(&mut buf)
+            let _bytes_read = host
+                .read(&mut buf)
                 .await
                 .expect("Mock should receive second request after retry");
             host.write_all(b"2IN0E140028422021150168000023000\n")
