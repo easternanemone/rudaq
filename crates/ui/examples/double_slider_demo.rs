@@ -5,7 +5,7 @@
 #![cfg(feature = "standalone")]
 
 use eframe::egui;
-use ui::widgets::DoubleSlider;
+use ui::widgets::double_slider::DoubleSlider;
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {

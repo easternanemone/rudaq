@@ -21,8 +21,8 @@ pub enum ColorbarOrientation {
 ///
 /// The midpoint (0.0-1.0) acts as a gamma-like control:
 /// - 0.5 = linear mapping (default)
-/// - < 0.5 = darkens midtones (emphasizes bright features)
-/// - > 0.5 = brightens midtones (reveals dark features)
+/// - < 0.5 = brightens midtones (reveals dark features)
+/// - > 0.5 = darkens midtones (emphasizes bright features)
 #[derive(Debug, Clone)]
 pub struct Colorbar {
     /// Midpoint position (0.0-1.0) for non-linear intensity mapping
@@ -97,12 +97,12 @@ impl Colorbar {
             // Fast path for linear mapping
             value
         } else {
-            // Convert midpoint to gamma: gamma = ln(midpoint) / ln(0.5).
+            // Convert midpoint to gamma: gamma = ln(0.5) / ln(midpoint).
             // This ensures: adjusted(midpoint) = 0.5. midpoint < 0.5 -> gamma > 1 (darkens);
-            // midpoint > 0.5 -> gamma < 1 (brightens). (bd-2m11.2: was inverted.)
+            // midpoint > 0.5 -> gamma < 1 (brightens).
             // Clamp midpoint to avoid ln(0) / ln(1) NaN/Inf (PR review).
             let midpoint = self.midpoint.clamp(1.0e-6, 1.0 - 1.0e-6);
-            let gamma = midpoint.ln() / 0.5_f32.ln();
+            let gamma = 0.5_f32.ln() / midpoint.ln();
             value.clamp(0.0, 1.0).powf(gamma).clamp(0.0, 1.0)
         }
     }
@@ -484,28 +484,28 @@ mod tests {
     #[test]
     fn test_midpoint_adjustment_darkens() {
         let mut colorbar = Colorbar::new();
-        colorbar.midpoint = 0.3; // Darkens midtones
+        colorbar.midpoint = 0.7; // Darkens midtones
 
-        // At midpoint=0.3, gamma > 1.0, so midtones are darker
+        // At midpoint=0.7, gamma > 1.0, so midtones are darker
         let mid = colorbar.apply_adjustment(0.5);
         assert!(mid < 0.5, "Midtones should be darker");
 
         // But adjusted(midpoint) should still be ~0.5
-        let at_midpoint = colorbar.apply_adjustment(0.3);
+        let at_midpoint = colorbar.apply_adjustment(0.7);
         assert!((at_midpoint - 0.5).abs() < 0.1, "adjusted(midpoint) ≈ 0.5");
     }
 
     #[test]
     fn test_midpoint_adjustment_brightens() {
         let mut colorbar = Colorbar::new();
-        colorbar.midpoint = 0.7; // Brightens midtones
+        colorbar.midpoint = 0.3; // Brightens midtones
 
-        // At midpoint=0.7, gamma < 1.0, so midtones are brighter
+        // At midpoint=0.3, gamma < 1.0, so midtones are brighter
         let mid = colorbar.apply_adjustment(0.5);
         assert!(mid > 0.5, "Midtones should be brighter");
 
         // But adjusted(midpoint) should still be ~0.5
-        let at_midpoint = colorbar.apply_adjustment(0.7);
+        let at_midpoint = colorbar.apply_adjustment(0.3);
         assert!((at_midpoint - 0.5).abs() < 0.1, "adjusted(midpoint) ≈ 0.5");
     }
 

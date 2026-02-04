@@ -48,11 +48,22 @@ repos:
     hooks:
       - id: cargo-clippy
         name: cargo clippy
-        entry: bash -c 'cargo clippy --workspace --all-targets --features full --exclude ui -- -D warnings'
+        entry: bash -c 'cargo clippy --workspace --all-targets --all-features --exclude ui -- -D warnings'
         language: system
         types: [rust]
         pass_filenames: false
         description: "Lint Rust code with clippy (excludes ui)"
+
+  # Deny unwrap in library code (enforce expect() with justification)
+  - repo: local
+    hooks:
+      - id: cargo-clippy-unwrap
+        name: cargo clippy (deny unwrap)
+        entry: bash -c 'cargo clippy --workspace --lib --all-features --exclude ui -- -D clippy::unwrap_used'
+        language: system
+        types: [rust]
+        pass_filenames: false
+        description: "Deny .unwrap() in library code"
 
   # Rust tests (fast unit tests only, not integration tests)
   - repo: local
@@ -119,4 +130,4 @@ fail_fast: false
 
 # CI mode (for GitHub Actions)
 ci:
-  skip: [cargo-clippy, cargo-test, cargo-check]  # These run separately in CI
+  skip: [cargo-clippy, cargo-clippy-unwrap, cargo-test, cargo-check]  # These run separately in CI
