@@ -1,9 +1,10 @@
 //! Common types and enums for Andor SDK3 driver
 
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Trigger mode for camera acquisition
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TriggerMode {
     /// Internal (free-running) mode
     Internal,
@@ -37,7 +38,7 @@ impl TryFrom<&str> for TriggerMode {
 }
 
 /// Gate mode for MCP (Micro-Channel Plate) intensifier
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GateMode {
     /// Continuous Wave - MCP always active
     CW,
@@ -67,7 +68,7 @@ impl TryFrom<&str> for GateMode {
 }
 
 /// Spectrograph grating index (1-3)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Grating {
     Grating1 = 1,
     Grating2 = 2,
@@ -94,7 +95,7 @@ impl TryFrom<i32> for Grating {
 }
 
 /// Flipper mirror position
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FlipperMirror {
     /// Direct output (mirror out of beam path)
     Direct,

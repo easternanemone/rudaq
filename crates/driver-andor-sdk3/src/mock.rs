@@ -14,7 +14,7 @@
 //! - Realistic parameter ranges
 //! - Async delays to simulate hardware timing
 
-use crate::types::{CameraInfo, SpectrographInfo, WavelengthCalibration};
+use crate::types::{CameraInfo, Grating, SpectrographInfo, WavelengthCalibration};
 use anyhow::Result;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -24,6 +24,7 @@ use common::capabilities::{
 };
 use common::data::Frame;
 use common::observable::ParameterSet;
+use common::parameter::Parameter;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -40,8 +41,8 @@ struct MockCameraInner {
     streaming: AtomicBool,
     armed: AtomicBool,
     frame_count: AtomicU32,
-    exposure_s: Mutex<f64>,
-    mcp_gain: Mutex<u32>,
+    exposure_s: Parameter<f64>,
+    mcp_gain: Parameter<u32>,
     observers: Mutex<Vec<(ObserverHandle, Box<dyn FrameObserver>)>>,
     next_observer_id: AtomicU64,
     params: ParameterSet,
@@ -57,16 +58,27 @@ impl MockCamera {
             sensor_height: 2048,
         };
 
+        let exposure_s = Parameter::new("exposure_s", 0.001)
+            .with_unit("s")
+            .with_description("Integration time");
+        let mcp_gain = Parameter::new("mcp_gain", 1000u32)
+            .with_range(0, 4095)
+            .with_description("MCP intensifier gain");
+
+        let mut params = ParameterSet::new();
+        params.register(exposure_s.clone());
+        params.register(mcp_gain.clone());
+
         let inner = Arc::new(MockCameraInner {
             info,
             streaming: AtomicBool::new(false),
             armed: AtomicBool::new(false),
             frame_count: AtomicU32::new(0),
-            exposure_s: Mutex::new(0.001),
-            mcp_gain: Mutex::new(1000),
+            exposure_s,
+            mcp_gain,
             observers: Mutex::new(Vec::new()),
             next_observer_id: AtomicU64::new(1),
-            params: ParameterSet::new(),
+            params,
         });
 
         Self { inner }
@@ -122,7 +134,7 @@ impl FrameProducer for MockCamera {
             let mut frame_number = 0u32;
 
             while inner.streaming.load(Ordering::Relaxed) {
-                let exposure = *inner.exposure_s.lock().await;
+                let exposure = inner.exposure_s.get();
                 tokio::time::sleep(Duration::from_secs_f64(exposure)).await;
 
                 let _frame = MockCamera {
@@ -191,12 +203,12 @@ impl Triggerable for MockCamera {
 #[async_trait]
 impl ExposureControl for MockCamera {
     async fn set_exposure(&self, seconds: f64) -> Result<()> {
-        *self.inner.exposure_s.lock().await = seconds;
+        self.inner.exposure_s.set(seconds).await?;
         Ok(())
     }
 
     async fn get_exposure(&self) -> Result<f64> {
-        Ok(*self.inner.exposure_s.lock().await)
+        Ok(self.inner.exposure_s.get())
     }
 }
 
@@ -214,8 +226,8 @@ pub struct MockSpectrograph {
 
 struct MockSpectrographInner {
     info: SpectrographInfo,
-    wavelength_nm: Mutex<f64>,
-    grating: Mutex<i32>,
+    wavelength_nm: Parameter<f64>,
+    grating: Parameter<Grating>,
     shutter_open: AtomicBool,
     params: ParameterSet,
 }
@@ -228,12 +240,22 @@ impl MockSpectrograph {
             num_gratings: 3,
         };
 
+        let wavelength_nm = Parameter::new("wavelength_nm", 310.0)
+            .with_unit("nm")
+            .with_description("Center wavelength");
+        let grating =
+            Parameter::new("grating", Grating::Grating2).with_description("Active grating");
+
+        let mut params = ParameterSet::new();
+        params.register(wavelength_nm.clone());
+        params.register(grating.clone());
+
         let inner = Arc::new(MockSpectrographInner {
             info,
-            wavelength_nm: Mutex::new(310.0),
-            grating: Mutex::new(2),
+            wavelength_nm,
+            grating,
             shutter_open: AtomicBool::new(false),
-            params: ParameterSet::new(),
+            params,
         });
 
         Self { inner }
@@ -243,7 +265,7 @@ impl MockSpectrograph {
         &self,
         num_pixels: u32,
     ) -> Result<WavelengthCalibration> {
-        let center = *self.inner.wavelength_nm.lock().await;
+        let center = self.inner.wavelength_nm.get();
         let dispersion = 0.05; // nm per pixel
 
         let wavelengths: Vec<f64> = (0..num_pixels)
@@ -257,14 +279,14 @@ impl MockSpectrograph {
 #[async_trait]
 impl WavelengthTunable for MockSpectrograph {
     async fn set_wavelength(&self, wavelength_nm: f64) -> Result<()> {
-        *self.inner.wavelength_nm.lock().await = wavelength_nm;
+        self.inner.wavelength_nm.set(wavelength_nm).await?;
         // Simulate hardware delay
         tokio::time::sleep(Duration::from_millis(100)).await;
         Ok(())
     }
 
     async fn get_wavelength(&self) -> Result<f64> {
-        Ok(*self.inner.wavelength_nm.lock().await)
+        Ok(self.inner.wavelength_nm.get())
     }
 
     fn wavelength_range(&self) -> (f64, f64) {

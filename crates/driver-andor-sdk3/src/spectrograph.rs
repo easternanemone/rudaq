@@ -47,7 +47,9 @@ use crate::types::{FlipperMirror, Grating, GratingInfo, SpectrographInfo, Wavele
 use anyhow::Result;
 use async_trait::async_trait;
 use common::capabilities::{Parameterized, ShutterControl, WavelengthTunable};
+use common::error::DaqError;
 use common::observable::ParameterSet;
+use common::parameter::Parameter;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -88,10 +90,10 @@ struct AndorSpectrographInner {
     shutter_open: AtomicBool,
 
     // Configuration
-    wavelength_nm: Mutex<f64>,
-    grating: Mutex<Grating>,
-    slit_width_um: Mutex<f64>,
-    flipper_mirror: Mutex<FlipperMirror>,
+    wavelength_nm: Parameter<f64>,
+    grating: Parameter<Grating>,
+    slit_width_um: Parameter<f64>,
+    flipper_mirror: Parameter<FlipperMirror>,
 
     // Calibration cache
     calibration: Mutex<Option<WavelengthCalibration>>,
@@ -127,16 +129,52 @@ impl AndorSpectrograph {
         #[cfg(not(feature = "spectrograph"))]
         let info = Self::mock_spectrograph_info(device_index);
 
+        // Create parameters with descriptive metadata
+        #[allow(unused_mut)]
+        let mut wavelength_nm = Parameter::new("wavelength_nm", 310.0)
+            .with_unit("nm")
+            .with_description("Center wavelength");
+
+        #[allow(unused_mut)]
+        let mut grating =
+            Parameter::new("grating", Grating::Grating2).with_description("Active grating");
+
+        #[allow(unused_mut)]
+        let mut slit_width_um = Parameter::new("slit_width_um", 150.0)
+            .with_unit("µm")
+            .with_description("Slit width");
+
+        #[allow(unused_mut)]
+        let mut flipper_mirror = Parameter::new("flipper_mirror", FlipperMirror::Direct)
+            .with_description("Flipper mirror position");
+
+        // Connect hardware callbacks when SDK is available
+        #[cfg(feature = "spectrograph")]
+        {
+            Self::attach_wavelength_callback(&mut wavelength_nm, device_index);
+            Self::attach_grating_callback(&mut grating, device_index);
+            Self::attach_wavelength_reader(&mut wavelength_nm, device_index);
+            Self::attach_slit_width_callback(&mut slit_width_um, device_index);
+            Self::attach_flipper_mirror_callback(&mut flipper_mirror, device_index);
+        }
+
+        // Register all parameters for GUI/API exposure
+        let mut params = ParameterSet::new();
+        params.register(wavelength_nm.clone());
+        params.register(grating.clone());
+        params.register(slit_width_um.clone());
+        params.register(flipper_mirror.clone());
+
         let inner = Arc::new(AndorSpectrographInner {
             handle: device_index,
             info,
             shutter_open: AtomicBool::new(false),
-            wavelength_nm: Mutex::new(310.0),
-            grating: Mutex::new(Grating::Grating2),
-            slit_width_um: Mutex::new(150.0),
-            flipper_mirror: Mutex::new(FlipperMirror::Direct),
+            wavelength_nm,
+            grating,
+            slit_width_um,
+            flipper_mirror,
             calibration: Mutex::new(None),
-            params: ParameterSet::new(),
+            params,
         });
 
         Ok(Self { inner })
@@ -238,32 +276,14 @@ impl AndorSpectrograph {
     /// Set active grating
     pub async fn set_grating(&self, grating_index: i32) -> Result<()> {
         let grating = Grating::try_from(grating_index).map_err(|e| anyhow::anyhow!(e))?;
-
-        #[cfg(feature = "spectrograph")]
-        {
-            let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || {
-                use crate::error::sdk_result;
-                // SAFETY: handle is a valid device index from successful initialization.
-                // grating_index is validated by Grating::try_from above.
-                // spawn_blocking ensures no concurrent FFI calls to the same device.
-                unsafe {
-                    let ret = ShamrockSetGrating(handle, grating_index);
-                    sdk_result(ret)?;
-                    Ok::<(), anyhow::Error>(())
-                }
-            })
-            .await??;
-        }
-
-        *self.inner.grating.lock().await = grating;
+        self.inner.grating.set(grating).await?;
         tracing::info!("Grating set to {}", grating_index);
         Ok(())
     }
 
     /// Get active grating index
     pub async fn get_grating(&self) -> Result<i32> {
-        Ok(*self.inner.grating.lock().await as i32)
+        Ok(self.inner.grating.get() as i32)
     }
 
     /// Get grating information (lines/mm, blaze wavelength)
@@ -276,7 +296,8 @@ impl AndorSpectrograph {
                 // SAFETY: handle is valid from initialization. All output parameters
                 // (lines, blaze, home, offset) are stack-allocated with valid pointers.
                 // ShamrockGetGratingInfo writes to these locations.
-                // spawn_blocking ensures no concurrent FFI calls.
+                // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
+                // It does not serialize concurrent calls.
                 unsafe {
                     let mut lines = 0.0;
                     let mut blaze = 0.0;
@@ -316,14 +337,19 @@ impl AndorSpectrograph {
     /// * `port` - Slit port number (typically 2 for output slit)
     /// * `width_um` - Slit width in micrometers
     pub async fn set_slit_width(&self, port: i32, width_um: f64) -> Result<()> {
+        // Update parameter (triggers hardware callback for default port 2)
+        self.inner.slit_width_um.set(width_um).await?;
+
+        // If a non-default port is specified, also write to that port directly
         #[cfg(feature = "spectrograph")]
-        {
+        if port != 2 {
             let handle = self.inner.handle;
             tokio::task::spawn_blocking(move || {
                 use crate::error::sdk_result;
                 // SAFETY: handle is valid from initialization.
                 // port and width_um are validated by the SDK (will return error if invalid).
-                // spawn_blocking ensures no concurrent FFI calls.
+                // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
+                // It does not serialize concurrent calls.
                 unsafe {
                     let ret = ShamrockSetAutoSlitWidth(handle, port, width_um as f32);
                     sdk_result(ret)?;
@@ -333,8 +359,7 @@ impl AndorSpectrograph {
             .await??;
         }
 
-        *self.inner.slit_width_um.lock().await = width_um;
-        tracing::info!("Slit width set to {}µm", width_um);
+        tracing::info!("Slit width set to {}µm (port {})", width_um, port);
         Ok(())
     }
 
@@ -348,7 +373,8 @@ impl AndorSpectrograph {
                 // SAFETY: handle is valid from initialization.
                 // width is a stack-allocated f32 with a valid pointer.
                 // ShamrockGetAutoSlitWidth writes the slit width to this location.
-                // spawn_blocking ensures no concurrent FFI calls.
+                // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
+                // It does not serialize concurrent calls.
                 unsafe {
                     let mut width = 0.0;
                     let ret = ShamrockGetAutoSlitWidth(handle, port, &mut width);
@@ -360,20 +386,25 @@ impl AndorSpectrograph {
         }
 
         #[cfg(not(feature = "spectrograph"))]
-        Ok(*self.inner.slit_width_um.lock().await)
+        Ok(self.inner.slit_width_um.get())
     }
 
     /// Set flipper mirror position
     pub async fn set_flipper_mirror(&self, port: i32, position: FlipperMirror) -> Result<()> {
+        // Update parameter (triggers hardware callback for default port 1)
+        self.inner.flipper_mirror.set(position).await?;
+
+        // If a non-default port is specified, also write to that port directly
         #[cfg(feature = "spectrograph")]
-        {
+        if port != 1 {
             let handle = self.inner.handle;
             let pos = position as i32;
             tokio::task::spawn_blocking(move || {
                 use crate::error::sdk_result;
                 // SAFETY: handle is valid from initialization.
                 // pos is a valid FlipperMirror enum value cast to i32.
-                // spawn_blocking ensures no concurrent FFI calls.
+                // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
+                // It does not serialize concurrent calls.
                 unsafe {
                     let ret = ShamrockSetFlipperMirror(handle, port, pos);
                     sdk_result(ret)?;
@@ -383,8 +414,7 @@ impl AndorSpectrograph {
             .await??;
         }
 
-        *self.inner.flipper_mirror.lock().await = position;
-        tracing::info!("Flipper mirror set to {:?}", position);
+        tracing::info!("Flipper mirror set to {:?} (port {})", position, port);
         Ok(())
     }
 
@@ -408,7 +438,8 @@ impl AndorSpectrograph {
                 // wavelengths is a heap-allocated Vec with num_pixels elements.
                 // ShamrockGetCalibration writes wavelength values to this buffer.
                 // The buffer size matches num_pixels, preventing buffer overflow.
-                // spawn_blocking ensures no concurrent FFI calls.
+                // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
+                // It does not serialize concurrent calls.
                 unsafe {
                     let mut wavelengths = vec![0.0f32; num_pixels as usize];
                     let ret =
@@ -429,7 +460,7 @@ impl AndorSpectrograph {
         #[cfg(not(feature = "spectrograph"))]
         {
             // Mock linear calibration
-            let center = *self.inner.wavelength_nm.lock().await;
+            let center = self.inner.wavelength_nm.get();
             let dispersion = 0.05; // nm per pixel
             let wavelengths: Vec<f64> = (0..num_pixels)
                 .map(|i| center + (i as f64 - num_pixels as f64 / 2.0) * dispersion)
@@ -438,6 +469,127 @@ impl AndorSpectrograph {
             Ok(WavelengthCalibration::new(wavelengths))
         }
     }
+
+    // --- Hardware callback attachment methods ---
+
+    #[cfg(feature = "spectrograph")]
+    fn attach_wavelength_callback(param: &mut Parameter<f64>, handle: i32) {
+        param.connect_to_hardware_write(move |val: f64| {
+            Box::pin(async move {
+                tokio::task::spawn_blocking(move || {
+                    use crate::error::sdk_result;
+                    // SAFETY: handle is valid from initialization.
+                    // val is cast to f32 for the SDK API.
+                    // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
+                    // It does not serialize concurrent calls.
+                    unsafe {
+                        let ret = ShamrockSetWavelength(handle, val as f32);
+                        sdk_result(ret)?;
+                        Ok::<(), anyhow::Error>(())
+                    }
+                })
+                .await
+                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
+                .map_err(|e| DaqError::Instrument(e.to_string()))
+            })
+        });
+    }
+
+    #[cfg(feature = "spectrograph")]
+    fn attach_grating_callback(param: &mut Parameter<Grating>, handle: i32) {
+        param.connect_to_hardware_write(move |grating: Grating| {
+            Box::pin(async move {
+                let grating_index = grating as i32;
+                tokio::task::spawn_blocking(move || {
+                    use crate::error::sdk_result;
+                    // SAFETY: handle is valid from initialization.
+                    // grating_index is a valid Grating enum value cast to i32.
+                    // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
+                    // It does not serialize concurrent calls.
+                    unsafe {
+                        let ret = ShamrockSetGrating(handle, grating_index);
+                        sdk_result(ret)?;
+                        Ok::<(), anyhow::Error>(())
+                    }
+                })
+                .await
+                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
+                .map_err(|e| DaqError::Instrument(e.to_string()))
+            })
+        });
+    }
+
+    #[cfg(feature = "spectrograph")]
+    fn attach_wavelength_reader(param: &mut Parameter<f64>, handle: i32) {
+        param.connect_to_hardware_read(move || {
+            Box::pin(async move {
+                tokio::task::spawn_blocking(move || {
+                    use crate::error::sdk_result;
+                    // SAFETY: handle is valid from initialization.
+                    // wavelength is a stack-allocated f32 with a valid pointer.
+                    // ShamrockGetWavelength writes the current wavelength to this location.
+                    // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
+                    // It does not serialize concurrent calls.
+                    unsafe {
+                        let mut wavelength: f32 = 0.0;
+                        let ret = ShamrockGetWavelength(handle, &mut wavelength);
+                        sdk_result(ret)?;
+                        Ok(wavelength as f64)
+                    }
+                })
+                .await
+                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
+                .map_err(|e| DaqError::Instrument(e.to_string()))
+            })
+        });
+    }
+
+    #[cfg(feature = "spectrograph")]
+    fn attach_slit_width_callback(param: &mut Parameter<f64>, handle: i32) {
+        param.connect_to_hardware_write(move |width_um: f64| {
+            Box::pin(async move {
+                tokio::task::spawn_blocking(move || {
+                    use crate::error::sdk_result;
+                    // SAFETY: handle is valid from initialization.
+                    // Bound to default port 2 (Input Direct).
+                    // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
+                    // It does not serialize concurrent calls.
+                    unsafe {
+                        let ret = ShamrockSetAutoSlitWidth(handle, 2, width_um as f32);
+                        sdk_result(ret)?;
+                        Ok::<(), anyhow::Error>(())
+                    }
+                })
+                .await
+                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
+                .map_err(|e| DaqError::Instrument(e.to_string()))
+            })
+        });
+    }
+
+    #[cfg(feature = "spectrograph")]
+    fn attach_flipper_mirror_callback(param: &mut Parameter<FlipperMirror>, handle: i32) {
+        param.connect_to_hardware_write(move |position: FlipperMirror| {
+            Box::pin(async move {
+                let pos = position as i32;
+                tokio::task::spawn_blocking(move || {
+                    use crate::error::sdk_result;
+                    // SAFETY: handle is valid from initialization.
+                    // Bound to default port 1.
+                    // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
+                    // It does not serialize concurrent calls.
+                    unsafe {
+                        let ret = ShamrockSetFlipperMirror(handle, 1, pos);
+                        sdk_result(ret)?;
+                        Ok::<(), anyhow::Error>(())
+                    }
+                })
+                .await
+                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
+                .map_err(|e| DaqError::Instrument(e.to_string()))
+            })
+        });
+    }
 }
 
 // Implement capability traits
@@ -445,50 +597,16 @@ impl AndorSpectrograph {
 #[async_trait]
 impl WavelengthTunable for AndorSpectrograph {
     async fn set_wavelength(&self, wavelength_nm: f64) -> Result<()> {
-        #[cfg(feature = "spectrograph")]
-        {
-            let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || {
-                use crate::error::sdk_result;
-                // SAFETY: handle is valid from initialization.
-                // wavelength_nm is validated by the SDK (will return error if out of range).
-                // spawn_blocking ensures no concurrent FFI calls.
-                unsafe {
-                    let ret = ShamrockSetWavelength(handle, wavelength_nm as f32);
-                    sdk_result(ret)?;
-                    Ok::<(), anyhow::Error>(())
-                }
-            })
-            .await??;
-        }
-
-        *self.inner.wavelength_nm.lock().await = wavelength_nm;
+        self.inner.wavelength_nm.set(wavelength_nm).await?;
         tracing::info!("Wavelength set to {} nm", wavelength_nm);
         Ok(())
     }
 
     async fn get_wavelength(&self) -> Result<f64> {
         #[cfg(feature = "spectrograph")]
-        {
-            let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || {
-                use crate::error::sdk_result;
-                // SAFETY: handle is valid from initialization.
-                // wavelength is a stack-allocated f32 with a valid pointer.
-                // ShamrockGetWavelength writes the current wavelength to this location.
-                // spawn_blocking ensures no concurrent FFI calls.
-                unsafe {
-                    let mut wavelength = 0.0;
-                    let ret = ShamrockGetWavelength(handle, &mut wavelength);
-                    sdk_result(ret)?;
-                    Ok(wavelength as f64)
-                }
-            })
-            .await?
-        }
+        self.inner.wavelength_nm.read_from_hardware().await?;
 
-        #[cfg(not(feature = "spectrograph"))]
-        Ok(*self.inner.wavelength_nm.lock().await)
+        Ok(self.inner.wavelength_nm.get())
     }
 
     fn wavelength_range(&self) -> (f64, f64) {
@@ -507,7 +625,8 @@ impl ShutterControl for AndorSpectrograph {
                 use crate::error::sdk_result;
                 // SAFETY: handle is valid from initialization.
                 // 1 is a valid shutter command (open).
-                // spawn_blocking ensures no concurrent FFI calls.
+                // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
+                // It does not serialize concurrent calls.
                 unsafe {
                     let ret = ShamrockSetShutter(handle, 1);
                     sdk_result(ret)?;
@@ -530,7 +649,8 @@ impl ShutterControl for AndorSpectrograph {
                 use crate::error::sdk_result;
                 // SAFETY: handle is valid from initialization.
                 // 0 is a valid shutter command (close).
-                // spawn_blocking ensures no concurrent FFI calls.
+                // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
+                // It does not serialize concurrent calls.
                 unsafe {
                     let ret = ShamrockSetShutter(handle, 0);
                     sdk_result(ret)?;

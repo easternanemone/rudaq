@@ -53,7 +53,9 @@ use common::capabilities::{
     ExposureControl, FrameObserver, FrameProducer, ObserverHandle, Parameterized, Triggerable,
 };
 use common::core::Roi;
+use common::error::DaqError;
 use common::observable::ParameterSet;
+use common::parameter::Parameter;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -103,19 +105,19 @@ struct AndorCameraInner {
     frame_count: AtomicU32,
 
     // Acquisition parameters
-    exposure_s: Mutex<f64>,
-    trigger_mode: Mutex<TriggerMode>,
-    gate_mode: Mutex<GateMode>,
-    mcp_gain: Mutex<u32>,
-    ddg_output_delay_ps: Mutex<u64>,
-    ddg_output_width_ps: Mutex<u64>,
+    exposure_s: Parameter<f64>,
+    trigger_mode: Parameter<TriggerMode>,
+    gate_mode: Parameter<GateMode>,
+    mcp_gain: Parameter<u32>,
+    ddg_output_delay_ps: Parameter<u64>,
+    ddg_output_width_ps: Parameter<u64>,
 
     // AOI parameters
-    roi: Mutex<Roi>,
-    binning: Mutex<(u32, u32)>,
+    roi: Parameter<Roi>,
+    binning: Parameter<(u32, u32)>,
 
     // Temperature
-    temperature_c: Mutex<f64>,
+    temperature_c: Parameter<f64>,
     cooling_enabled: AtomicBool,
 
     // Frame observers (bd-0dax.4)
@@ -158,30 +160,97 @@ impl AndorCamera {
         let sensor_width = info.sensor_width;
         let sensor_height = info.sensor_height;
 
+        // Create parameters with descriptive metadata
+        #[allow(unused_mut)]
+        let mut exposure_s = Parameter::new("exposure_s", 0.001)
+            .with_unit("s")
+            .with_description("Integration time");
+
+        #[allow(unused_mut)]
+        let mut trigger_mode =
+            Parameter::new("trigger_mode", TriggerMode::Internal).with_description("Trigger mode");
+
+        #[allow(unused_mut)]
+        let mut gate_mode =
+            Parameter::new("gate_mode", GateMode::CW).with_description("MCP gate mode");
+
+        #[allow(unused_mut)]
+        let mut mcp_gain = Parameter::new("mcp_gain", 0u32)
+            .with_description("MCP gain (0-4095)")
+            .with_range(0, 4095);
+
+        #[allow(unused_mut)]
+        let mut ddg_output_delay_ps = Parameter::new("ddg_output_delay_ps", 0u64)
+            .with_unit("ps")
+            .with_description("DDG output delay");
+
+        #[allow(unused_mut)]
+        let mut ddg_output_width_ps = Parameter::new("ddg_output_width_ps", 1_000_000u64)
+            .with_unit("ps")
+            .with_description("DDG output width");
+
+        let roi = Parameter::new(
+            "roi",
+            Roi {
+                x: 0,
+                y: 0,
+                width: sensor_width,
+                height: sensor_height,
+            },
+        )
+        .with_description("Region of interest");
+
+        let binning =
+            Parameter::new("binning", (1u32, 1u32)).with_description("Pixel binning (x, y)");
+
+        #[allow(unused_mut)]
+        let mut temperature_c = Parameter::new("temperature_c", 20.0)
+            .with_unit("°C")
+            .with_description("Sensor temperature");
+
+        // Connect hardware callbacks when SDK is available
+        #[cfg(feature = "camera")]
+        {
+            Self::attach_exposure_callback(&mut exposure_s, handle);
+            Self::attach_trigger_mode_callback(&mut trigger_mode, handle);
+            Self::attach_gate_mode_callback(&mut gate_mode, handle);
+            Self::attach_mcp_gain_callback(&mut mcp_gain, handle);
+            Self::attach_ddg_delay_callback(&mut ddg_output_delay_ps, handle);
+            Self::attach_ddg_width_callback(&mut ddg_output_width_ps, handle);
+            Self::attach_temperature_reader(&mut temperature_c, handle);
+        }
+
+        // Register all parameters for GUI/API exposure
+        let mut params = ParameterSet::new();
+        params.register(exposure_s.clone());
+        params.register(trigger_mode.clone());
+        params.register(gate_mode.clone());
+        params.register(mcp_gain.clone());
+        params.register(ddg_output_delay_ps.clone());
+        params.register(ddg_output_width_ps.clone());
+        params.register(roi.clone());
+        params.register(binning.clone());
+        params.register(temperature_c.clone());
+
         let inner = Arc::new(AndorCameraInner {
             handle,
             info,
             streaming: AtomicBool::new(false),
             armed: AtomicBool::new(false),
             frame_count: AtomicU32::new(0),
-            exposure_s: Mutex::new(0.001),
-            trigger_mode: Mutex::new(TriggerMode::Internal),
-            gate_mode: Mutex::new(GateMode::CW),
-            mcp_gain: Mutex::new(0),
-            ddg_output_delay_ps: Mutex::new(0),
-            ddg_output_width_ps: Mutex::new(1000000),
-            roi: Mutex::new(Roi {
-                x: 0,
-                y: 0,
-                width: sensor_width,
-                height: sensor_height,
-            }),
-            binning: Mutex::new((1, 1)),
-            temperature_c: Mutex::new(20.0),
+            exposure_s,
+            trigger_mode,
+            gate_mode,
+            mcp_gain,
+            ddg_output_delay_ps,
+            ddg_output_width_ps,
+            roi,
+            binning,
+            temperature_c,
             cooling_enabled: AtomicBool::new(false),
             observers: Mutex::new(Vec::new()),
             next_observer_id: AtomicU64::new(1),
-            params: ParameterSet::new(),
+            params,
         });
 
         Ok(Self { inner })
@@ -316,95 +385,42 @@ impl AndorCamera {
     /// Set trigger mode
     pub async fn set_trigger_mode(&self, mode: &str) -> Result<()> {
         let trigger_mode = TriggerMode::try_from(mode).map_err(|e| anyhow::anyhow!(e))?;
-
-        #[cfg(feature = "camera")]
-        {
-            let handle = self.inner.handle;
-            let mode_str = trigger_mode.to_string();
-            tokio::task::spawn_blocking(move || {
-                Self::set_enum_feature(handle, "TriggerMode", &mode_str)
-            })
-            .await??;
-        }
-
-        *self.inner.trigger_mode.lock().await = trigger_mode;
+        self.inner.trigger_mode.set(trigger_mode).await?;
         Ok(())
     }
 
     /// Get trigger mode
     pub async fn get_trigger_mode(&self) -> Result<String> {
-        Ok(self.inner.trigger_mode.lock().await.to_string())
+        Ok(self.inner.trigger_mode.get().to_string())
     }
 
     /// Set gate mode (CW or DDG)
     pub async fn set_gate_mode(&self, mode: &str) -> Result<()> {
         let gate_mode = GateMode::try_from(mode).map_err(|e| anyhow::anyhow!(e))?;
-
-        #[cfg(feature = "camera")]
-        {
-            let handle = self.inner.handle;
-            let mode_str = gate_mode.to_string();
-            tokio::task::spawn_blocking(move || {
-                Self::set_enum_feature(handle, "GateMode", &mode_str)
-            })
-            .await??;
-        }
-
-        *self.inner.gate_mode.lock().await = gate_mode;
+        self.inner.gate_mode.set(gate_mode).await?;
         Ok(())
     }
 
     /// Set MCP gain (0-4095)
     pub async fn set_mcp_gain(&self, gain: u32) -> Result<()> {
-        if gain > 4095 {
-            anyhow::bail!("MCP gain must be 0-4095, got {}", gain);
-        }
-
-        #[cfg(feature = "camera")]
-        {
-            let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || {
-                Self::set_int_feature(handle, "MCPGain", gain as i64)
-            })
-            .await??;
-        }
-
-        *self.inner.mcp_gain.lock().await = gain;
+        self.inner.mcp_gain.set(gain).await?;
         Ok(())
     }
 
     /// Get MCP gain
     pub async fn get_mcp_gain(&self) -> Result<u32> {
-        Ok(*self.inner.mcp_gain.lock().await)
+        Ok(self.inner.mcp_gain.get())
     }
 
     /// Set DDG output delay in picoseconds
     pub async fn set_ddg_output_delay(&self, delay_ps: u64) -> Result<()> {
-        #[cfg(feature = "camera")]
-        {
-            let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || {
-                Self::set_float_feature(handle, "DDGOutputDelay", delay_ps as f64)
-            })
-            .await??;
-        }
-
-        *self.inner.ddg_output_delay_ps.lock().await = delay_ps;
+        self.inner.ddg_output_delay_ps.set(delay_ps).await?;
         Ok(())
     }
 
     /// Set DDG output width in picoseconds
     pub async fn set_ddg_output_width(&self, width_ps: u64) -> Result<()> {
-        #[cfg(feature = "camera")]
-        {
-            let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || {
-                Self::set_float_feature(handle, "DDGOutputWidth", width_ps as f64)
-            })
-            .await??;
-        }
-
-        *self.inner.ddg_output_width_ps.lock().await = width_ps;
+        self.inner.ddg_output_width_ps.set(width_ps).await?;
         Ok(())
     }
 
@@ -426,18 +442,9 @@ impl AndorCamera {
     /// Get sensor temperature in Celsius
     pub async fn get_temperature(&self) -> Result<f64> {
         #[cfg(feature = "camera")]
-        {
-            let handle = self.inner.handle;
-            let temp = tokio::task::spawn_blocking(move || {
-                Self::get_float_feature(handle, "SensorTemperature")
-            })
-            .await??;
-            *self.inner.temperature_c.lock().await = temp;
-            Ok(temp)
-        }
+        self.inner.temperature_c.read_from_hardware().await?;
 
-        #[cfg(not(feature = "camera"))]
-        Ok(*self.inner.temperature_c.lock().await)
+        Ok(self.inner.temperature_c.get())
     }
 
     #[cfg(feature = "camera")]
@@ -511,6 +518,112 @@ impl AndorCamera {
             sdk_result(ret)?;
             Ok(value)
         }
+    }
+
+    // =========================================================================
+    // Parameter<T> hardware callback attachment methods
+    // =========================================================================
+    // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
+    // It does not serialize concurrent calls.
+
+    #[cfg(feature = "camera")]
+    fn attach_exposure_callback(param: &mut Parameter<f64>, handle: AT_H) {
+        param.connect_to_hardware_write(move |val: f64| {
+            Box::pin(async move {
+                tokio::task::spawn_blocking(move || {
+                    AndorCamera::set_float_feature(handle, "ExposureTime", val)
+                })
+                .await
+                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
+                .map_err(|e| DaqError::Instrument(e.to_string()))
+            })
+        });
+    }
+
+    #[cfg(feature = "camera")]
+    fn attach_trigger_mode_callback(param: &mut Parameter<TriggerMode>, handle: AT_H) {
+        param.connect_to_hardware_write(move |mode: TriggerMode| {
+            Box::pin(async move {
+                let mode_str = mode.to_string();
+                tokio::task::spawn_blocking(move || {
+                    AndorCamera::set_enum_feature(handle, "TriggerMode", &mode_str)
+                })
+                .await
+                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
+                .map_err(|e| DaqError::Instrument(e.to_string()))
+            })
+        });
+    }
+
+    #[cfg(feature = "camera")]
+    fn attach_gate_mode_callback(param: &mut Parameter<GateMode>, handle: AT_H) {
+        param.connect_to_hardware_write(move |mode: GateMode| {
+            Box::pin(async move {
+                let mode_str = mode.to_string();
+                tokio::task::spawn_blocking(move || {
+                    AndorCamera::set_enum_feature(handle, "GateMode", &mode_str)
+                })
+                .await
+                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
+                .map_err(|e| DaqError::Instrument(e.to_string()))
+            })
+        });
+    }
+
+    #[cfg(feature = "camera")]
+    fn attach_mcp_gain_callback(param: &mut Parameter<u32>, handle: AT_H) {
+        param.connect_to_hardware_write(move |gain: u32| {
+            Box::pin(async move {
+                tokio::task::spawn_blocking(move || {
+                    AndorCamera::set_int_feature(handle, "MCPGain", gain as i64)
+                })
+                .await
+                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
+                .map_err(|e| DaqError::Instrument(e.to_string()))
+            })
+        });
+    }
+
+    #[cfg(feature = "camera")]
+    fn attach_ddg_delay_callback(param: &mut Parameter<u64>, handle: AT_H) {
+        param.connect_to_hardware_write(move |delay_ps: u64| {
+            Box::pin(async move {
+                tokio::task::spawn_blocking(move || {
+                    AndorCamera::set_float_feature(handle, "DDGOutputDelay", delay_ps as f64)
+                })
+                .await
+                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
+                .map_err(|e| DaqError::Instrument(e.to_string()))
+            })
+        });
+    }
+
+    #[cfg(feature = "camera")]
+    fn attach_ddg_width_callback(param: &mut Parameter<u64>, handle: AT_H) {
+        param.connect_to_hardware_write(move |width_ps: u64| {
+            Box::pin(async move {
+                tokio::task::spawn_blocking(move || {
+                    AndorCamera::set_float_feature(handle, "DDGOutputWidth", width_ps as f64)
+                })
+                .await
+                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
+                .map_err(|e| DaqError::Instrument(e.to_string()))
+            })
+        });
+    }
+
+    #[cfg(feature = "camera")]
+    fn attach_temperature_reader(param: &mut Parameter<f64>, handle: AT_H) {
+        param.connect_to_hardware_read(move || {
+            Box::pin(async move {
+                tokio::task::spawn_blocking(move || {
+                    AndorCamera::get_float_feature(handle, "SensorTemperature")
+                })
+                .await
+                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
+                .map_err(|e| DaqError::Instrument(e.to_string()))
+            })
+        });
     }
 }
 
@@ -625,21 +738,12 @@ impl ExposureControl for AndorCamera {
             anyhow::bail!("Exposure must be positive, got {}", seconds);
         }
 
-        #[cfg(feature = "camera")]
-        {
-            let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || {
-                Self::set_float_feature(handle, "ExposureTime", seconds)
-            })
-            .await??;
-        }
-
-        *self.inner.exposure_s.lock().await = seconds;
+        self.inner.exposure_s.set(seconds).await?;
         Ok(())
     }
 
     async fn get_exposure(&self) -> Result<f64> {
-        Ok(*self.inner.exposure_s.lock().await)
+        Ok(self.inner.exposure_s.get())
     }
 }
 

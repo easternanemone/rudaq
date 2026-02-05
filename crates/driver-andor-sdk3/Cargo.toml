@@ -10,6 +10,7 @@ andor-sdk3-sys = { path = "../andor-sdk3-sys" }
 anyhow = "1.0"
 async-trait = "0.1"
 bytes = "1.5"
+serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 tracing = "0.1"
 common = { path = "../common" }
