@@ -32,7 +32,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use rust_daq::hardware::mock::{MockCamera, MockStage};
+use driver_mock::{MockCamera, MockStage};
 use scripting::shutter_safety::ShutterRegistry;
 use scripting::{CameraHandle, RhaiEngine, ScriptEngine, ScriptValue, SoftLimits, StageHandle};
 use std::path::PathBuf;
@@ -301,7 +301,7 @@ async fn start_daemon(
     #[cfg(feature = "networking")]
     {
         // use server::grpc::start_server_with_hardware; // Imported at top level
-        use rust_daq::hardware::registry::{
+        use hardware::registry::{
             create_lab_registry, create_mock_registry, create_registry_from_file,
             register_all_factories,
         };

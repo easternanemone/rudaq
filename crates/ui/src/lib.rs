@@ -3,6 +3,7 @@ pub mod connection;
 pub mod daemon_launcher;
 #[cfg(feature = "standalone")]
 pub mod gui_log_layer;
+pub mod log_capture;
 pub mod reconnect;
 
 #[cfg(feature = "standalone")]

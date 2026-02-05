@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/rust-daq",
+    # "crates/rust-daq", # DELETED - Phase 8 dissolution
     # "crates/rust-daq/pvcam-sys", # Moved to driver-pvcam
     "crates/common",
     "crates/client",
@@ -29,6 +29,8 @@ members = [
     "crates/bin", "crates/server", "crates/experiment",
     "crates/storage",
     "crates/ui",
+    "crates/daq-modules",
+    "crates/integration-tests",
     # "crates/examples",
 ]
 exclude = [

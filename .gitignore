@@ -151,3 +151,7 @@ whats-next.md
 
 # Git worktrees
 .worktrees/
+**/Cargo.lock
+!Cargo.lock
+__pycache__/
+.serena/

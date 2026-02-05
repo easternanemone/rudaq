@@ -6,7 +6,7 @@
 # Issue prefix for this repository (used by bd init)
 # If not set, bd init will auto-detect from directory name
 # Example: issue-prefix: "myproject" creates issues like "myproject-1", "myproject-2", etc.
-issue-prefix: "bd"
+# issue-prefix: ""
 
 # Use no-db mode: load from JSONL, no SQLite, write back after each command
 # When true, bd will use .beads/issues.jsonl as the source of truth
@@ -37,6 +37,18 @@ issue-prefix: "bd"
 # Debounce interval for auto-flush (can also use BEADS_FLUSH_DEBOUNCE)
 # flush-debounce: "5s"
 
+# Export events (audit trail) to .beads/events.jsonl on each flush/sync
+# When enabled, new events are appended incrementally using a high-water mark.
+# Use 'bd export --events' to trigger manually regardless of this setting.
+# events-export: false
+
+# Git branch for beads commits (bd sync will commit to this branch)
+# IMPORTANT: Set this for team projects so all clones use the same sync branch.
+# This setting persists across clones (unlike database config which is gitignored).
+# Can also use BEADS_SYNC_BRANCH env var for local override.
+# If not set, bd sync will require you to run 'bd config set sync.branch <branch>'.
+sync-branch: "beads-sync"
+
 # Multi-repo configuration (experimental - bd-307)
 # Allows hydrating from multiple repositories and routing writes to the correct JSONL
 # repos:
@@ -44,10 +56,6 @@ issue-prefix: "bd"
 #   additional:   # Additional repos to hydrate from (read-only)
 #     - ~/beads-planning  # Personal planning repo
 #     - ~/work-planning   # Work planning repo
-
-# Sync branch configuration
-# When set, beads commits go to this branch instead of the working branch
-sync-branch: "beads-sync"
 
 # Integration settings (access with 'bd config get/set')
 # These are stored in the database, not in this file:
@@ -57,4 +65,3 @@ sync-branch: "beads-sync"
 # - linear.api-key
 # - github.org
 # - github.repo
-# - sync.branch - Git branch for beads commits (use BEADS_SYNC_BRANCH env var or bd config set)

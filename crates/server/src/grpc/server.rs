@@ -1003,9 +1003,13 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
     let run_engine_instance = std::sync::Arc::new(experiment::RunEngine::new(registry));
 
     // Create DaqServer with shared RunEngine when scripting enabled (bd-si2c)
-    #[cfg(feature = "scripting")]
+    #[cfg(all(feature = "scripting", feature = "storage_hdf5"))]
+    let server = DaqServer::new(None, run_engine_instance.clone())?;
+    #[cfg(all(feature = "scripting", not(feature = "storage_hdf5")))]
     let server = DaqServer::new(run_engine_instance.clone())?;
-    #[cfg(not(feature = "scripting"))]
+    #[cfg(all(not(feature = "scripting"), feature = "storage_hdf5"))]
+    let server = DaqServer::new(None)?;
+    #[cfg(all(not(feature = "scripting"), not(feature = "storage_hdf5")))]
     let server = DaqServer::new()?;
 
     let run_engine = RunEngineServiceImpl::new(run_engine_instance);
@@ -1555,7 +1559,14 @@ mod tests {
     fn create_test_server() -> DaqServer {
         let registry = std::sync::Arc::new(hardware::registry::DeviceRegistry::new());
         let run_engine = std::sync::Arc::new(experiment::RunEngine::new(registry));
-        DaqServer::new(run_engine).expect("failed to create test DaqServer")
+        #[cfg(feature = "storage_hdf5")]
+        {
+            DaqServer::new(None, run_engine).expect("failed to create test DaqServer")
+        }
+        #[cfg(not(feature = "storage_hdf5"))]
+        {
+            DaqServer::new(run_engine).expect("failed to create test DaqServer")
+        }
     }
 
     #[tokio::test]

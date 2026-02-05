@@ -1,1 +1,0 @@
-/opt/pvcam/sdk/helpers/pvcam_helper_color/inc/pvcam_helper_color.h

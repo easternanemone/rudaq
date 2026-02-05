@@ -1,8 +1,0 @@
-# ast-grep Configuration for rust-daq Development
-# Optimized for AI agent code analysis and pattern discovery
-
-ruleDirs:
-  - rules
-
-utilDirs:
-  - utils
