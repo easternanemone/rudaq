@@ -31,13 +31,11 @@ members = [
     "crates/ui",
     "crates/daq-modules",
     "crates/integration-tests",
-    # "crates/examples",
 ]
 exclude = [
     "crates/rust-daq/python",
     "crates/rust-daq/fuzz",
     # "crates/bin",
-    "crates/examples",
 ]
 
 # Shared dependency versions across all crates
