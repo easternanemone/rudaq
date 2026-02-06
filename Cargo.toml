@@ -29,11 +29,8 @@ members = [
     "crates/ui",
     "crates/daq-modules",
     "crates/integration-tests",
-    # "crates/examples",
 ]
-exclude = [
-    "crates/examples",
-]
+exclude = []
 
 # Shared dependency versions across all crates
 [workspace.dependencies]
