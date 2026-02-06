@@ -111,10 +111,11 @@ pub use loader::{load_all_devices, load_device_config, load_device_config_from_s
 pub use loader_v2::{is_v2_manifest_path, load_all_device_manifests_v2, load_device_manifest_v2};
 pub use schema::{
     AddressFormat, BusConfig, BusType, CapabilityType, CommandConfig, CommandParameterType,
-    ConnectionConfig, ConnectionType, ConversionConfig, DeviceCategory, DeviceConfig,
-    DeviceIdentity, ErrorCodeConfig, FieldType, FlowControlSetting, ParameterConfig, ParameterType,
-    ParitySetting, ResponseConfig, ResponseFieldConfig, ScriptDefinition, ScriptReturnType,
-    TraitMappingConfig, TraitMethodMapping, ValidationRuleConfig,
+    ConnectionConfig, ConnectionType, ControlPanelConfig, ControlSection, ConversionConfig,
+    DeviceCategory, DeviceConfig, DeviceIdentity, ErrorCodeConfig, FieldType, FlowControlSetting,
+    ParameterConfig, ParameterType, ParitySetting, ResponseConfig, ResponseFieldConfig,
+    ScriptDefinition, ScriptReturnType, TraitMappingConfig, TraitMethodMapping, UiConfig,
+    ValidationRuleConfig,
 };
 pub use schema_v2::{
     CapabilityMapping, CommandProfile, ConnectionConfig as ConnectionConfigV2, InstrumentManifest,

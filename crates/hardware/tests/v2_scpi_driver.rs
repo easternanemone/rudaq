@@ -44,6 +44,7 @@ fn build_manifest() -> InstrumentManifest {
             ..hardware::config::CapabilityMapping::default()
         },
         instances: Vec::new(),
+        ui: None,
     }
 }
 

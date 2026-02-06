@@ -40,6 +40,7 @@ fn build_power_meter_manifest() -> InstrumentManifest {
             }),
             ..CapabilityMapping::default()
         },
+        ui: None,
         instances: Vec::new(),
     }
 }
@@ -110,6 +111,7 @@ fn build_laser_manifest() -> InstrumentManifest {
             }),
             ..CapabilityMapping::default()
         },
+        ui: None,
         instances: Vec::new(),
     }
 }
@@ -178,6 +180,7 @@ fn build_stage_manifest() -> InstrumentManifest {
             }),
             ..CapabilityMapping::default()
         },
+        ui: None,
         instances: Vec::new(),
     }
 }

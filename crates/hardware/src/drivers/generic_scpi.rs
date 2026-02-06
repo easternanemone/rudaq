@@ -1,4 +1,4 @@
-use crate::config::{CapabilityMapping, ConnectionConfigV2, InstrumentManifest};
+use crate::config::{CapabilityMapping, ConnectionConfigV2, InstrumentManifest, UiConfig};
 use crate::drivers::parsing::{parse_response, ParsedValue};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -41,6 +41,11 @@ impl GenericScpiDriver {
         &self.manifest
     }
 
+    /// Get UI configuration if defined in manifest.
+    pub fn ui_config(&self) -> Option<&UiConfig> {
+        self.manifest.ui.as_ref()
+    }
+
     fn terminator(&self) -> &str {
         match &self.manifest.connection {
             ConnectionConfigV2::Serial { terminator, .. } => terminator.as_str(),
@@ -81,7 +86,7 @@ impl GenericScpiDriver {
 
         let timeout_ms = match &self.manifest.connection {
             ConnectionConfigV2::Serial { timeout_ms, .. } => *timeout_ms,
-            ConnectionConfigV2::Tcp { .. } => 1000,
+            ConnectionConfigV2::Tcp { timeout_ms, .. } => *timeout_ms,
         };
         let timeout = Duration::from_millis(timeout_ms.max(1));
 

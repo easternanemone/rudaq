@@ -2,6 +2,8 @@ use garde::{Error, Path, Report, Validate};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use super::schema::UiConfig;
+
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 #[serde(deny_unknown_fields)]
 pub struct InstrumentManifest {
@@ -24,6 +26,10 @@ pub struct InstrumentManifest {
     #[serde(default)]
     #[garde(dive)]
     pub instances: Vec<ScpiInstanceConfig>,
+    /// Optional UI configuration for control panel layout
+    #[serde(default)]
+    #[garde(skip)] // UiConfig uses serde_valid validation
+    pub ui: Option<UiConfig>,
 }
 
 impl InstrumentManifest {
@@ -83,6 +89,9 @@ pub enum ConnectionConfig {
         port: u16,
         #[garde(length(min = 1))]
         terminator: String,
+        #[serde(default = "default_timeout_ms")]
+        #[garde(range(min = 1))]
+        timeout_ms: u64,
     },
 }
 
@@ -388,6 +397,10 @@ fn path_for(segments: &[&str]) -> Path {
     path
 }
 
+fn default_timeout_ms() -> u64 {
+    1000
+}
+
 fn default_scpi_address() -> String {
     "0".to_string()
 }
@@ -425,6 +438,7 @@ mod tests {
                 ..CapabilityMapping::default()
             },
             instances: Vec::new(),
+            ui: None,
         }
     }
 
@@ -444,5 +458,55 @@ mod tests {
             .validate_strict()
             .expect_err("expected validation error");
         assert!(!report.is_empty());
+    }
+
+    #[test]
+    fn test_v2_manifest_with_ui_config() {
+        let toml_str = r##"
+            schema_version = 2
+            name = "Test Device"
+            version = "1.0.0"
+
+            [connection]
+            type = "tcp"
+            host = "localhost"
+            port = 5000
+            terminator = "\n"
+
+            [commands]
+
+            [ui]
+            icon = "laser"
+            color = "#FF6B00"
+
+            [ui.control_panel]
+            layout = "vertical"
+            show_header = true
+        "##;
+        let manifest: InstrumentManifest = toml::from_str(toml_str).unwrap();
+        assert!(manifest.ui.is_some());
+        let ui = manifest.ui.unwrap();
+        assert_eq!(ui.icon, Some("laser".to_string()));
+        assert_eq!(ui.color, Some("#FF6B00".to_string()));
+        assert!(ui.control_panel.is_some());
+    }
+
+    #[test]
+    fn test_v2_manifest_without_ui_config() {
+        let toml_str = r#"
+            schema_version = 2
+            name = "Test Device"
+            version = "1.0.0"
+
+            [connection]
+            type = "tcp"
+            host = "localhost"
+            port = 5000
+            terminator = "\n"
+
+            [commands]
+        "#;
+        let manifest: InstrumentManifest = toml::from_str(toml_str).unwrap();
+        assert!(manifest.ui.is_none());
     }
 }

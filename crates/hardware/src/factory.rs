@@ -692,7 +692,9 @@ pub fn load_all_factories(dir: &Path) -> Result<Vec<GenericSerialDriverFactory>>
 /// Configuration for GenericScpiDriver instances.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct GenericScpiInstanceConfig {
-    /// Serial port path (e.g., "/dev/ttyUSB0")
+    /// Serial port path (e.g., "/dev/ttyUSB0").
+    /// Required for serial connections, ignored for TCP (host/port come from manifest).
+    #[serde(default)]
     pub port: String,
 
     /// Device address on the bus (optional for SCPI)
@@ -745,24 +747,36 @@ impl DriverFactoryTrait for GenericScpiDriverFactory {
         let instance: GenericScpiInstanceConfig = config.clone().try_into().map_err(|e| {
             anyhow!(
                 "Invalid instance config for '{}': {}. \
-                 Expected 'port' (string) and 'manifest' (string).",
+                 Expected 'manifest' (string) and optionally 'port' (string for serial).",
                 self.driver_type,
                 e
             )
         })?;
-
-        if instance.port.trim().is_empty() {
-            return Err(anyhow!(
-                "Instance config for '{}' requires non-empty 'port' field.",
-                self.driver_type
-            ));
-        }
 
         if instance.manifest.trim().is_empty() {
             return Err(anyhow!(
                 "Instance config for '{}' requires non-empty 'manifest' path.",
                 self.driver_type
             ));
+        }
+
+        // Load manifest to check connection type
+        let manifest_path = Path::new(&instance.manifest);
+        let manifest = load_device_manifest_v2(manifest_path)?;
+
+        // Port is required for serial, optional for TCP (host/port in manifest)
+        match &manifest.connection {
+            ConnectionConfigV2::Serial { .. } => {
+                if instance.port.trim().is_empty() {
+                    return Err(anyhow!(
+                        "Instance config for '{}' requires non-empty 'port' field for serial connections.",
+                        self.driver_type
+                    ));
+                }
+            }
+            ConnectionConfigV2::Tcp { .. } => {
+                // TCP gets host/port from manifest, port field is ignored
+            }
         }
 
         Ok(())
@@ -819,11 +833,30 @@ impl DriverFactoryTrait for GenericScpiDriverFactory {
                         }
                     }
                 }
-                ConnectionConfigV2::Tcp { .. } => {
-                    return Err(anyhow!(
-                        "TCP connections are not yet supported for {}.",
-                        driver_type
-                    ));
+                ConnectionConfigV2::Tcp {
+                    host,
+                    port,
+                    timeout_ms,
+                    ..
+                } => {
+                    use tokio::net::TcpStream;
+
+                    let addr = format!("{}:{}", host, port);
+                    let timeout = std::time::Duration::from_millis(*timeout_ms);
+
+                    // Connect with timeout
+                    let stream = tokio::time::timeout(timeout, TcpStream::connect(&addr))
+                        .await
+                        .with_context(|| format!("TCP connection timeout to {}", addr))?
+                        .with_context(|| format!("Failed to connect to {}", addr))?;
+
+                    // Disable Nagle's algorithm for responsive communication
+                    stream.set_nodelay(true)?;
+
+                    tracing::info!("Connected to {} via TCP", addr);
+
+                    let boxed: crate::drivers::generic_scpi::DynDeviceIo = Box::new(stream);
+                    Arc::new(Mutex::new(boxed))
                 }
             };
 
