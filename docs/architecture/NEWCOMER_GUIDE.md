@@ -35,7 +35,7 @@ graph TD
 1. **Capabilities** (`common`): The atomic building blocks of hardware support.
 2. **Parameters** (`common`): How state is managed and synchronized.
 3. **Drivers** (`driver-*` crates): How concrete hardware implements capabilities.
-4. **Generic Drivers** (`driver-generic`): How TOML configs define devices without custom Rust code.
+4. **Declarative Drivers** (`driver-universal`): How TOML configs define devices without custom Rust code (schema v3).
 5. **Frame Pipeline** (`pool`, `storage`): How high-speed data moves efficiently.
 6. **Orchestration** (`experiment`): How experiments are defined and executed.
 
@@ -97,26 +97,31 @@ name = "Prime BSI"
 
 If you add a new hardware driver, you must register it in the `DriverFactory` enum so it can be instantiated from config. The `DriverType` enum includes both hand-coded drivers (e.g., `Pvcam`, `Thorlabs`) and generic config-driven types.
 
-### Config-Driven Drivers (driver-generic)
+### Declarative Drivers (driver-universal)
 
-For simple serial instruments (SCPI, ASCII protocols), you can skip writing Rust entirely. The `driver-generic` crate lets you define a device in TOML:
+For serial, TCP, and SCPI instruments, you can skip writing Rust entirely. The `driver-universal` crate (schema v3) lets you define a device in TOML:
 
 ```toml
+schema_version = 3
+
 [device]
 name = "My Instrument"
 capabilities = ["Readable"]
 
 [connection]
+type = "serial"
 baud_rate = 9600
 terminator = "\n"
 
 [commands.read_value]
 template = "READ?"
-query = true
 response_type = "float"
+
+[capabilities.readable]
+read = { command = "read_value" }
 ```
 
-Place configs in `config/devices/` — they are loaded at daemon startup. See `crates/driver-generic/` for full schema and `docs/guides/hardware-drivers.md` for the declarative driver guide.
+Place configs in `config/devices/` — they are loaded at daemon startup via `load_all_factories()`. See `crates/driver-universal/` for implementation details and `docs/guides/hardware-drivers.md` for the full declarative driver guide.
 
 ---
 

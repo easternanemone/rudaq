@@ -17,7 +17,7 @@ The architecture follows a **Headless-First** design: the core daemon runs as a 
 
 ## System Components
 
-The project is structured as a Cargo workspace with 30 crates organized by layer:
+The project is structured as a Cargo workspace with 31 crates organized by layer:
 
 ### 1. Application Layer
 *   **`bin`**: The entry point for the daemon (`rust-daq-daemon`). Wires together the system based on compile-time features.
@@ -55,7 +55,8 @@ Each driver lives in its own crate for independent compilation, testing, and opt
 *   **`driver-red-pitaya`**: Red Pitaya FPGA board for signal generation.
 
 #### Generic & Testing
-*   **`driver-generic`**: Config-driven serial driver system. Define new instruments via TOML files without writing Rust code. Uses minijinja templates for command generation.
+*   **`driver-universal`**: Universal config-driven driver (schema v3). Define new instruments via TOML files without writing Rust code. Supports serial, TCP, and SCPI transports with MiniJinja templates, tiered response parsing, and evalexpr formula evaluation. Successor to `driver-generic`.
+*   **`driver-generic`**: Original config-driven serial driver (schema v2). Superseded by `driver-universal` for new devices, but still in the workspace.
 *   **`driver-mock`**: Mock hardware drivers for testing, simulation, and demo mode.
 
 ### 5. Infrastructure
@@ -111,6 +112,7 @@ graph TD
             DrvSpectra[driver-spectra-physics]
             DrvComedi[driver-comedi]
             DrvGeneric[driver-generic]
+            DrvUniversal[driver-universal]
             DrvMock[driver-mock]
         end
     end
@@ -121,7 +123,7 @@ graph TD
     Server --> Modules
     Script --> HW
     HW --> DrvMeta
-    DrvMeta --> DrvPvcam & DrvAndor & DrvThorlabs & DrvNewport & DrvDover & DrvSpectra & DrvComedi & DrvGeneric & DrvMock
+    DrvMeta --> DrvPvcam & DrvAndor & DrvThorlabs & DrvNewport & DrvDover & DrvSpectra & DrvComedi & DrvGeneric & DrvUniversal & DrvMock
     HW -->|Frame Data| Ring
     Ring -->|Zero-Copy| Writer
     Ring -.->|Stream| Server
@@ -181,7 +183,8 @@ Experiments are written in [Rhai](https://rhai.rs), a scripting language designe
 │   ├── driver-andor-sdk3/    # Andor iStar camera / Shamrock spectrograph
 │   ├── driver-comedi/        # Comedi DAQ driver for Linux boards
 │   ├── driver-dover-motion/  # Dover Motion SmartStage driver
-│   ├── driver-generic/       # Config-driven serial driver (TOML-defined)
+│   ├── driver-generic/       # Config-driven serial driver (schema v2)
+│   ├── driver-universal/     # Universal config-driven driver (schema v3)
 │   ├── driver-mock/          # Mock hardware for testing/demo
 │   ├── driver-newport/       # Newport ESP300 + 1830-C power meter
 │   ├── driver-pvcam/         # PVCAM camera driver

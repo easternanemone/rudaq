@@ -84,7 +84,7 @@ Device-specific setup, configuration, and troubleshooting.
 | **Linux Comedi DAQ** | [Build Verification](BUILD_VERIFICATION.md) | Current | NI PCI-MIO-16XE-10 integration |
 | **Serial Devices** | [Hardware Drivers Guide](guides/hardware-drivers.md) | Current | Thorlabs, Newport, Spectra Physics |
 | **Dover Motion** | [Dover Motion API](reference/dover-motion-api.md) | Active | SmartStage via MotionSynergyAPI |
-| **Config-Driven Devices** | [Hardware Drivers Guide](guides/hardware-drivers.md#declarative-drivers-v2-schema) | Current | TOML-defined instruments (driver-generic) |
+| **Config-Driven Devices** | [Hardware Drivers Guide](guides/hardware-drivers.md#declarative-drivers-schema-v3--driver-universal) | Current | TOML-defined instruments (driver-universal, schema v3) |
 | **Platform Notes** | [Platform Guide](troubleshooting/PLATFORM_NOTES.md) | Reference | OS-specific considerations |
 
 ### Troubleshooting & Reference
@@ -128,7 +128,8 @@ The workspace is organized into specialized crates. Each has its own detailed RE
 | **common** | Foundation types, parameters, error handling | [common README](../crates/common/README.md) |
 | **hardware** | Hardware abstraction layer and device registry | [hardware README](../crates/hardware/README.md) |
 | **drivers** | Metacrate aggregating all drivers with unified feature flags | [drivers Cargo.toml](../crates/drivers/Cargo.toml) |
-| **driver-generic** | Config-driven serial driver (define instruments via TOML) | [driver-generic Cargo.toml](../crates/driver-generic/Cargo.toml) |
+| **driver-universal** | Universal config-driven driver, schema v3 (serial, TCP, SCPI via TOML) | [driver-universal Cargo.toml](../crates/driver-universal/Cargo.toml) |
+| **driver-generic** | Original config-driven serial driver, schema v2 (superseded by driver-universal) | [driver-generic Cargo.toml](../crates/driver-generic/Cargo.toml) |
 | **driver-pvcam** | Photometrics PVCAM camera driver | [driver-pvcam README](../crates/driver-pvcam/README.md) |
 | **driver-andor-sdk3** | Andor iStar camera and Shamrock spectrograph (SDK3) | [driver-andor-sdk3 Cargo.toml](../crates/driver-andor-sdk3/Cargo.toml) |
 | **driver-comedi** | Linux Comedi DAQ board driver | [driver-comedi README](../crates/driver-comedi/README.md) |

@@ -100,12 +100,12 @@ The `drivers` metacrate provides unified feature flags for all driver crates:
 | `comedi` | Linux Comedi DAQ (mock mode) | `driver-comedi` |
 | `comedi_hardware` | Linux Comedi DAQ (real hardware) | `driver-comedi` with `hardware` |
 | `mock` | Mock hardware for testing | `driver-mock` |
-| `generic` | Config-driven serial driver | `driver-generic` |
+| `generic` | Config-driven serial driver (v2) | `driver-generic` |
 | `all` | All drivers with mock implementations | All of the above |
 | `maitai` | Maitai lab hardware profile | thorlabs + newport + spectra_physics + pvcam_sdk |
 | `hardware` | All drivers with real hardware | All + pvcam_sdk + comedi_hardware |
 
-**Note:** `driver-andor-sdk3` and `driver-dover-motion` are not yet integrated into the `drivers` metacrate. They are available as direct workspace dependencies.
+**Note:** `driver-andor-sdk3`, `driver-dover-motion`, and `driver-universal` are not yet integrated into the `drivers` metacrate. They are available as direct workspace dependencies. `driver-universal` (schema v3) is the successor to `driver-generic` (schema v2) and is wired into the hardware registry via `load_all_factories()`.
 
 ### Camera Hardware
 
