@@ -2,6 +2,10 @@
 
 **Declarative driver specification for rust-daq**
 
+> **Note:** This document describes the legacy v1/v2 schema used by `GenericSerialDriver`.
+> The current system uses **schema v3** implemented in the `driver-universal` crate.
+> See `config/devices/ell14.toml` for a v3 example and `crates/driver-universal/` for implementation.
+
 ## Overview
 
 This schema defines the structure of `InstrumentConfig` TOML files used by the `GenericSerialDriver`. It allows adding support for new serial (RS-232, RS-485, USB-Serial) and network (TCP/UDP) instruments purely through configuration, without writing Rust code.

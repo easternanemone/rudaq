@@ -921,68 +921,79 @@ cargo test --all-features
 
 ---
 
-## Declarative Drivers (V2 Schema)
+## Declarative Drivers (Schema v3 — `driver-universal`)
 
-For serial SCPI and ASCII instruments, use declarative TOML configurations instead of writing Rust code.
+For serial, TCP, and SCPI instruments, use declarative TOML configurations instead of writing Rust code. The `driver-universal` crate provides a parse-don't-validate config pipeline.
 
 ### Overview
 
-The v2 declarative driver system allows you to define instruments using TOML:
+Define instruments using schema v3 TOML files:
 
 ```toml
+schema_version = 3
+
 [device]
 name = "My Custom Instrument"
-manufacturer = "Acme Corp"
 capabilities = ["Movable", "Parameterized"]
 
 [connection]
-port = "/dev/ttyUSB0"
+type = "serial"
 baud_rate = 19200
 timeout_ms = 500
 terminator = "\n"
 
 [commands.move_absolute]
 template = "MOVE {{ position }}"
-query = false
+parameters = { position = "float" }
+expects_response = false
 
 [commands.get_position]
 template = "*POS?"
-query = true
 response_type = "float"
+
+[conversions.deg_to_steps]
+formula = "round(degrees * 100.0)"
+
+[capabilities.movable]
+move_abs = { command = "move_absolute", input_conversion = "deg_to_steps", input_param = "position", from_param = "degrees" }
+position = { command = "get_position" }
 ```
 
 **Benefits:**
 - Define new instruments without writing Rust code
-- Change behavior via configuration
-- Template-based command generation with minijinja (formerly strfmt)
+- Real Serial and TCP transports (no mock in production)
+- MiniJinja template-based command generation
+- Tiered response parsing: SCPI auto-parse, format strings, transform pipelines, regex
+- evalexpr formula evaluation with device parameter binding
+- Security hardened: regex length/complexity limits, formula length limits
 
 ### Template Syntax
 
-Commands use minijinja templates for dynamic values:
+Commands use MiniJinja templates for dynamic values:
 
 ```toml
 [commands.set_velocity]
 template = "VELOCITY {{ speed }}"
-query = false
+parameters = { speed = "float" }
+expects_response = false
 
 [commands.read_with_units]
 template = "READ {{ param }};UNITS?"
-query = true
 response_type = "string"
 ```
 
-### Response Types
+### Response Parsing Tiers
 
-| Type | Example | Usage |
-|------|---------|-------|
-| `string` | `"ACTIVE"` | Status strings, model names |
-| `float` | `"+.12E-5"` | Numeric values |
-| `int` | `"42"` | Integer counts |
-| `bool` | `"1"` or `"0"` | Binary responses |
+| Tier | Field | Example | Use Case |
+|------|-------|---------|----------|
+| SCPI auto-parse | `response_type` | `"float"`, `"int"`, `"bool"` | Simple SCPI responses |
+| Format strings | `format` | `"{header}{value:hex8}"` | Binary/hex protocols (ELL14) |
+| Transform pipeline | `transform` | `["split_comma", "index:0", "to_float"]` | Multi-step text processing |
+| Regex | `regex` | `"(?P<value>\\d+\\.\\d+)"` | Complex response patterns |
 
 ### Configuration File Locations
 
-Place TOML files in `config/devices/` directory. They are loaded at daemon startup:
+Place TOML files in `config/devices/` directory. They are loaded at daemon startup via `load_all_factories()`:
 
 ```
 config/devices/
@@ -991,7 +1002,7 @@ config/devices/
   my_device.toml       # Your custom device
 ```
 
-See `crates/hardware/src/drivers/generic_scpi.rs` for implementation details.
+See `crates/driver-universal/` for implementation details.
 
 ---
 
@@ -1020,23 +1031,31 @@ async fn read_voltage(&mut self) -> Result<f64> {
 }
 ```
 
-**Declarative (TOML + minijinja):**
+**Declarative (TOML + MiniJinja, schema v3):**
 
-For SCPI instruments, prefer the v2 declarative system in `config/devices/`:
+For SCPI instruments, prefer the declarative system in `config/devices/`:
 
 ```toml
+schema_version = 3
+
 [device]
 name = "Example SCPI Device"
 capabilities = ["Readable"]
 
+[connection]
+type = "serial"
+baud_rate = 9600
+
 [commands.read_voltage]
 template = "CONF:VOLT:DC {{ range }}"
-query = false
+expects_response = false
 
 [commands.measure]
 template = "READ?"
-query = true
 response_type = "float"
+
+[capabilities.readable]
+read = { command = "measure" }
 ```
 
 **When to Use Declarative:**
