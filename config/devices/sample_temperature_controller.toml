@@ -58,7 +58,7 @@ terminator_tx = "\r\n"                # Sent after each command (CR+LF)
 terminator_rx = "\r\n"                # Expected in responses
 
 # Optional: specify port path (usually set at runtime)
-# port_path = "/dev/ttyUSB0"
+# port_path = "/dev/serial/by-id/usb-Acme_TC2000-if00-port0"
 
 # ==============================================================================
 # SECTION 3: Retry Configuration (Default)

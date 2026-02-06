@@ -8,7 +8,7 @@ schema_version = 3
 [device]
 name = "IPG Fiber Laser"
 description = "IPG fiber laser with TCP control"
-capabilities = ["Readable"]
+capabilities = ["Readable", "EmissionControl"]
 
 [connection]
 type = "tcp"
@@ -83,6 +83,10 @@ expects_response = false
 
 [capabilities.readable]
 read = { command = "read_power" }
+
+[capabilities.emission_control]
+enable = { command = "emission_on" }
+disable = { command = "emission_off" }
 
 # ==============================================================================
 # UI Configuration

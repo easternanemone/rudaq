@@ -166,15 +166,16 @@ impl UniversalDriver {
                 .get(output_field)
                 .ok_or_else(|| anyhow!("Output field '{}' not found in response", output_field))?
                 .clone()
+        } else if let Some(value) = fields.get("value") {
+            value.clone()
+        } else if fields.len() == 1 {
+            fields
+                .values()
+                .next()
+                .cloned()
+                .unwrap_or(serde_json::Value::Null)
         } else {
-            // For SCPI auto-parse, use "value" key
-            fields.get("value").cloned().unwrap_or_else(|| {
-                fields
-                    .values()
-                    .next()
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null)
-            })
+            anyhow::bail!("output_field must be set when response contains multiple fields");
         };
 
         let raw_f64 = raw_value
@@ -486,8 +487,23 @@ impl common::capabilities::Settable for UniversalDriver {
             serde_json::Value::String(name.to_string()),
         );
 
-        // Use from_param as the template variable name for the value
-        if let Some(param_name) = &mapping.from_param {
+        // Apply optional input conversion (mirror execute_method logic)
+        if let Some(conv_ref) = &mapping.input_conversion {
+            let input_f =
+                f_val.ok_or_else(|| anyhow!("set_value requires numeric input for conversion"))?;
+            let conv = self
+                .manifest
+                .conversions
+                .get(&conv_ref.0)
+                .ok_or_else(|| anyhow!("Conversion '{}' not found", conv_ref.0))?;
+            let converted = self.evaluate_formula(conv, mapping.from_param.as_ref(), input_f)?;
+            let target = mapping
+                .input_param
+                .as_deref()
+                .unwrap_or("value")
+                .to_string();
+            params.insert(target, serde_json::json!(converted.round() as i64));
+        } else if let Some(param_name) = &mapping.from_param {
             params.insert(param_name.clone(), value);
         } else {
             params.insert("value".to_string(), value);
@@ -503,7 +519,6 @@ impl common::capabilities::Settable for UniversalDriver {
         }
         drop(transport);
 
-        let _ = f_val; // may be used later for input conversion
         Ok(())
     }
 

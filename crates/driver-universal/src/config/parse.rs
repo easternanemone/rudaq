@@ -229,6 +229,21 @@ fn validate_responses(
     let mut responses = HashMap::new();
 
     for (name, resp) in &raw.responses {
+        // Reject responses that define multiple parser tiers
+        let has_format = resp.format.is_some();
+        let has_transform = resp.transform.is_some();
+        let has_regex = resp.regex.is_some() || resp.pattern.is_some();
+        let tier_count = [has_format, has_transform, has_regex]
+            .iter()
+            .filter(|b| **b)
+            .count();
+        if tier_count > 1 {
+            errors.push(ConfigError::Other(format!(
+                "response '{name}' must define exactly one of: format, transform, or regex"
+            )));
+            continue;
+        }
+
         // Determine which tier this response uses
         if let Some(ref fmt_str) = resp.format {
             // Tier 1: Format string
@@ -266,7 +281,10 @@ fn validate_responses(
                 )));
                 continue;
             }
-            match regex::RegexBuilder::new(regex_str).size_limit(1 << 20).build() {
+            match regex::RegexBuilder::new(regex_str)
+                .size_limit(1 << 20)
+                .build()
+            {
                 Ok(regex) => {
                     responses.insert(
                         name.clone(),
@@ -642,7 +660,7 @@ formula = "round(degrees * pulses_per_degree)"
 formula = "pulses / pulses_per_degree"
 
 [capabilities.movable]
-move_abs = { command = "move_absolute", input_conversion = "degrees_to_pulses", input_param = "position_pulses", from_param = "position" }
+move_abs = { command = "move_absolute", input_conversion = "degrees_to_pulses", input_param = "position_pulses", from_param = "degrees" }
 position = { command = "get_position", output_conversion = "pulses_to_degrees", output_field = "pulses" }
 stop = { command = "stop" }
 

@@ -79,7 +79,7 @@ pub fn parse_with_format(input: &str, format: &ValidatedFormat) -> Result<HashMa
 /// Returns the final value as a JSON value.
 pub fn parse_with_transform(input: &str, pipeline: &TransformPipeline) -> Result<Value> {
     let result = pipeline.execute(input)?;
-    Ok(transform_value_to_json(&result))
+    transform_value_to_json(&result)
 }
 
 /// Parse a response using a regex with named capture groups (Tier 3).
@@ -120,13 +120,13 @@ pub fn parse_with_parser(input: &str, parser: &ResponseParser) -> Result<Value> 
     }
 }
 
-fn transform_value_to_json(value: &crate::transform::TransformValue) -> Value {
+fn transform_value_to_json(value: &crate::transform::TransformValue) -> Result<Value> {
     match value {
-        crate::transform::TransformValue::String(s) => Value::String(s.clone()),
+        crate::transform::TransformValue::String(s) => Ok(Value::String(s.clone())),
         crate::transform::TransformValue::Float(f) => serde_json::Number::from_f64(*f)
             .map(Value::Number)
-            .unwrap_or(Value::Null),
-        crate::transform::TransformValue::Int(i) => Value::Number((*i).into()),
+            .ok_or_else(|| anyhow!("transform produced non-finite float: {f}")),
+        crate::transform::TransformValue::Int(i) => Ok(Value::Number((*i).into())),
     }
 }
 

@@ -183,6 +183,6 @@ command = "stop"
 
 [capabilities.movable.wait_settled]
 poll_command = "get_motion_done"
-success_condition = "status == 0"
+success_condition = "value == 0"
 poll_interval_ms = 100
 timeout_ms = 60000

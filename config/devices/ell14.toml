@@ -384,7 +384,7 @@ pattern = "^[0-9A-Fa-f]$"
 command = "move_absolute"
 input_conversion = "degrees_to_pulses"
 input_param = "position_pulses"
-from_param = "position"
+from_param = "degrees"
 
 [capabilities.movable.position]
 command = "get_position"

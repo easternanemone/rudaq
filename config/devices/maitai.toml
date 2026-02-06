@@ -178,7 +178,7 @@ read = { command = "get_power", output_field = "value" }
 # ==============================================================================
 
 [capabilities.wavelength_tunable]
-set_wavelength = { command = "set_wavelength", input_param = "wavelength", from_param = "wavelength" }
+set_wavelength = { command = "set_wavelength", input_param = "wavelength", from_param = "wavelength_nm" }
 get_wavelength = { command = "get_wavelength", output_field = "wavelength" }
 
 # ==============================================================================

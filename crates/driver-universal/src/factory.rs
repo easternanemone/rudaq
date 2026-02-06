@@ -66,8 +66,9 @@ impl UniversalDriverFactory {
                 "WavelengthTunable" => Some(CoreCapability::WavelengthTunable),
                 "ShutterControl" => Some(CoreCapability::ShutterControl),
                 "EmissionControl" => Some(CoreCapability::EmissionControl),
-                "Commandable" => Some(CoreCapability::Commandable),
-                "Parameterized" => Some(CoreCapability::Parameterized),
+                // Commandable and Parameterized are not implemented by UniversalDriver;
+                // skip them to avoid advertising unsupported capabilities.
+                "Commandable" | "Parameterized" => None,
                 _ => None,
             })
             .collect();
@@ -248,8 +249,9 @@ pub fn load_all_factories(dir: &Path) -> Result<Vec<UniversalDriverFactory>> {
             if path.extension().and_then(|s| s.to_str()) == Some("toml") {
                 // Only load schema_version = 3 files
                 if let Ok(content) = std::fs::read_to_string(&path) {
-                    let check: VersionCheck = toml::from_str(&content)
-                        .unwrap_or(VersionCheck { schema_version: None });
+                    let check: VersionCheck = toml::from_str(&content).unwrap_or(VersionCheck {
+                        schema_version: None,
+                    });
                     if check.schema_version == Some(3) {
                         match UniversalDriverFactory::from_file(&path) {
                             Ok(f) => factories.push(f),

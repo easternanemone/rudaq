@@ -222,6 +222,16 @@ pub fn parse_response(
         }
     }
 
+    // Reject unexpected trailing non-whitespace
+    if pos < chars.len() && !chars[pos..].iter().all(|c| c.is_whitespace()) {
+        let trailing: String = chars[pos..].iter().collect();
+        anyhow::bail!(
+            "unexpected trailing input at position {}: '{}'",
+            pos,
+            trailing
+        );
+    }
+
     Ok(result)
 }
 
@@ -323,7 +333,7 @@ fn extract_field(
                 }
                 None => &remaining,
             };
-            let len = captured.len();
+            let len = captured.chars().count();
             Ok((Value::String(captured.to_string()), len))
         }
     }
