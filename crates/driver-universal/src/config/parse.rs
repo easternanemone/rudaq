@@ -258,7 +258,15 @@ fn validate_responses(
             }
         } else if let Some(regex_str) = resp.regex.as_ref().or(resp.pattern.as_ref()) {
             // Tier 3: Regex (supports both `regex` and legacy `pattern` fields)
-            match regex::Regex::new(regex_str) {
+            const MAX_REGEX_LENGTH: usize = 1024;
+            if regex_str.len() > MAX_REGEX_LENGTH {
+                errors.push(ConfigError::Other(format!(
+                    "response '{name}': regex pattern too long ({} > {MAX_REGEX_LENGTH} chars)",
+                    regex_str.len()
+                )));
+                continue;
+            }
+            match regex::RegexBuilder::new(regex_str).size_limit(1 << 20).build() {
                 Ok(regex) => {
                     responses.insert(
                         name.clone(),
@@ -292,6 +300,14 @@ fn validate_conversions(
     let mut conversions = HashMap::new();
 
     for (name, conv) in &raw.conversions {
+        const MAX_FORMULA_LENGTH: usize = 512;
+        if conv.formula.len() > MAX_FORMULA_LENGTH {
+            errors.push(ConfigError::Other(format!(
+                "conversion '{name}': formula too long ({} > {MAX_FORMULA_LENGTH} chars)",
+                conv.formula.len()
+            )));
+            continue;
+        }
         // Validate the evalexpr formula by attempting to build its AST.
         // We use `build_operator_tree` which parses but doesn't evaluate.
         match evalexpr::build_operator_tree(&conv.formula) {
@@ -1030,5 +1046,69 @@ port = 8080
         let raw: RawManifest = toml::from_str(toml_str).unwrap();
         let manifest = parse_manifest(raw).expect("should parse UDP config");
         assert!(matches!(manifest.connection, ConnectionConfig::Udp { .. }));
+    }
+
+    #[test]
+    fn rejects_regex_too_long() {
+        let long_pattern = "a".repeat(2000);
+        let toml_str = format!(
+            r#"
+schema_version = 3
+
+[device]
+name = "Test"
+capabilities = ["Readable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.read]
+template = "READ?"
+
+[responses.data]
+regex = "{long_pattern}"
+
+[capabilities.readable]
+read = {{ command = "read" }}
+"#
+        );
+        let raw: RawManifest = toml::from_str(&toml_str).unwrap();
+        let errors = parse_manifest(raw).unwrap_err();
+        let msg = errors.iter().map(|e| e.to_string()).collect::<String>();
+        assert!(msg.contains("too long"), "expected 'too long' in: {msg}");
+    }
+
+    #[test]
+    fn rejects_formula_too_long() {
+        // Build a formula exceeding 512 chars
+        let long_formula = format!("x + {}", "1 + ".repeat(200));
+        let toml_str = format!(
+            r#"
+schema_version = 3
+
+[device]
+name = "Test"
+capabilities = ["Readable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.read]
+template = "READ?"
+response_type = "float"
+
+[conversions.too_long]
+formula = "{long_formula}"
+
+[capabilities.readable]
+read = {{ command = "read" }}
+"#
+        );
+        let raw: RawManifest = toml::from_str(&toml_str).unwrap();
+        let errors = parse_manifest(raw).unwrap_err();
+        let msg = errors.iter().map(|e| e.to_string()).collect::<String>();
+        assert!(msg.contains("too long"), "expected 'too long' in: {msg}");
     }
 }
