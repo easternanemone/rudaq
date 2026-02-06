@@ -26,73 +26,24 @@ defaults:
     shell: bash
 
 jobs:
-  ast-grep:
-    name: AST-Grep Quality Checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    # Only run on main branch
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install ast-grep
-        uses: taiki-e/install-action@v2
-        with:
-          tool: ast-grep
-
-      - name: Run ast-grep scan
-        id: ast-grep-scan
-        run: |
-          # Run ast-grep and capture JSON output
-          ast-grep scan --config crates/rust-daq/ast-grep-rules/ --json > ast-grep-results.json || true
-
-          # Check for ERROR severity violations
-          ERROR_COUNT=$(jq '[.[] | select(.severity == "error")] | length' ast-grep-results.json)
-          WARNING_COUNT=$(jq '[.[] | select(.severity == "warning")] | length' ast-grep-results.json)
-          HINT_COUNT=$(jq '[.[] | select(.severity == "hint")] | length' ast-grep-results.json)
-
-          echo "error_count=$ERROR_COUNT" >> $GITHUB_OUTPUT
-          echo "warning_count=$WARNING_COUNT" >> $GITHUB_OUTPUT
-          echo "hint_count=$HINT_COUNT" >> $GITHUB_OUTPUT
-
-          # Display summary
-          echo "### AST-Grep Results"
-          echo "- Errors: $ERROR_COUNT"
-          echo "- Warnings: $WARNING_COUNT"
-          echo "- Hints: $HINT_COUNT"
-
-          # Show detailed results if any violations found
-          if [ "$ERROR_COUNT" -gt 0 ] || [ "$WARNING_COUNT" -gt 0 ] || [ "$HINT_COUNT" -gt 0 ]; then
-            echo ""
-            echo "Detailed violations:"
-            jq -r '.[] | "[\(.severity | ascii_upcase)] \(.file):\(.range.start.line) - \(.message)"' ast-grep-results.json
-          fi
-
-      - name: Upload ast-grep results artifact
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: ast-grep-results-${{ github.sha }}
-          path: ast-grep-results.json
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Fail on ERROR violations
-        if: steps.ast-grep-scan.outputs.error_count > 0
-        run: |
-          echo "::error::Found ${{ steps.ast-grep-scan.outputs.error_count }} ERROR severity violations"
-          echo "Please fix the ERROR violations before merging."
-          exit 1
-
-      - name: Comment on warnings
-        if: steps.ast-grep-scan.outputs.warning_count > 0 || steps.ast-grep-scan.outputs.hint_count > 0
-        run: |
-          echo "::warning::Found ${{ steps.ast-grep-scan.outputs.warning_count }} warnings and ${{ steps.ast-grep-scan.outputs.hint_count }} hints"
-          echo "These are informational and do not block the build."
+  # ast-grep:
+  #   name: AST-Grep Quality Checks
+  #   # DISABLED: ast-grep rules were in crates/rust-daq/ which was dissolved in Phase 8.
+  #   # To re-enable: recreate rules at project root (e.g., ast-grep-rules/) and update config path.
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 10
+  #   if: github.ref == 'refs/heads/main'
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+  #     - name: Setup Rust
+  #       uses: dtolnay/rust-toolchain@stable
+  #     - name: Install ast-grep
+  #       uses: taiki-e/install-action@v2
+  #       with:
+  #         tool: ast-grep
+  #     - name: Run ast-grep scan
+  #       run: ast-grep scan --config crates/rust-daq/ast-grep-rules/ --json > ast-grep-results.json || true
 
   msrv:
     name: MSRV Check (1.75)
@@ -373,16 +324,10 @@ jobs:
             args: ""
           - feature-set: full
             args: "--features full"
-          - feature-set: storage_csv
-            args: "--no-default-features --features storage_csv"
           - feature-set: storage_hdf5
-            args: "--no-default-features --features storage_hdf5"
+            args: "--features storage_hdf5"
           - feature-set: storage_arrow
-            args: "--no-default-features --features storage_arrow"
-          - feature-set: instrument_serial
-            args: "--no-default-features --features instrument_serial"
-          - feature-set: instrument_visa
-            args: "--no-default-features --features instrument_visa"
+            args: "--features storage_arrow"
     steps:
       - name: Checkout
         uses: actions/checkout@v4

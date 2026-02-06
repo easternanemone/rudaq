@@ -44,16 +44,13 @@ comedi_hardware = ["hardware/comedi_hardware"]
 # ============================================================================
 # HIGH-LEVEL PROFILES
 # ============================================================================
-backend = ["modules", "all_hardware", "storage_csv"]
-cli = ["all_hardware", "storage_csv", "scripting_python"]
-full = ["storage_csv", "storage_arrow", "storage_matlab", "serial", "modules", "all_hardware"]
+backend = ["modules", "all_hardware"]
+cli = ["all_hardware", "scripting_python"]
+full = ["storage_arrow", "serial", "modules", "all_hardware"]
 
-# Legacy alias
-storage_csv = []
 modules = ["dep:daq-modules"]
 all_hardware = ["hardware/all_hardware"]
 scripting_python = ["scripting/python"]
-storage_matlab = [] # Not yet implemented in storage crate?
 serial = ["hardware/serial"]
 
 # ============================================================================

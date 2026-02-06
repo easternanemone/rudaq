@@ -1,8 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-    # "crates/rust-daq", # DELETED - Phase 8 dissolution
-    # "crates/rust-daq/pvcam-sys", # Moved to driver-pvcam
     "crates/common",
     "crates/client",
     "crates/pool",
@@ -32,11 +30,7 @@ members = [
     "crates/daq-modules",
     "crates/integration-tests",
 ]
-exclude = [
-    "crates/rust-daq/python",
-    "crates/rust-daq/fuzz",
-    # "crates/bin",
-]
+exclude = []
 
 # Shared dependency versions across all crates
 [workspace.dependencies]

@@ -7,16 +7,14 @@ on:
       - main
     paths:
       - 'crates/**/benches/**'
-      - 'crates/rust-daq/Cargo.toml'
-      - 'crates/daq-storage/**'
-      - 'crates/daq-driver-pvcam/benches/**'
+      - 'crates/storage/**'
+      - 'crates/driver-pvcam/benches/**'
       - '.github/workflows/benchmarks.yml'
   pull_request:
     paths:
       - 'crates/**/benches/**'
-      - 'crates/rust-daq/Cargo.toml'
-      - 'crates/daq-storage/**'
-      - 'crates/daq-driver-pvcam/benches/**'
+      - 'crates/storage/**'
+      - 'crates/driver-pvcam/benches/**'
       - '.github/workflows/benchmarks.yml'
 
 # Cancel stale runs when new commits are pushed
@@ -52,9 +50,9 @@ jobs:
       - name: Rust micro-benchmarks
         run: |
           # Run benchmarks and output in JSON format for regression tracking
-          cargo bench --package rust_daq -- --noplot 2>&1 | tee benchmark-output.txt
+          cargo bench --workspace --exclude ui --exclude driver-dover-motion --exclude driver-andor-sdk3 --exclude dover-motion-sys --exclude andor-sdk3-sys -- --noplot 2>&1 | tee benchmark-output.txt
           # Also run with JSON output for benchmark-action
-          cargo bench --package rust_daq -- --noplot --save-baseline current 2>&1 || true
+          cargo bench --workspace --exclude ui --exclude driver-dover-motion --exclude driver-andor-sdk3 --exclude dover-motion-sys --exclude andor-sdk3-sys -- --noplot --save-baseline current 2>&1 || true
 
       - name: Extract benchmark results
         id: extract-benchmarks

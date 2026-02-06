@@ -28,6 +28,7 @@ tempfile.workspace = true
 [features]
 scripting = ["dep:scripting"]
 native_plugins = ["dep:plugin-api"]
+scripting_python = ["scripting/python"]
 
 [lints]
 workspace = true
