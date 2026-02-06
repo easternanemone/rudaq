@@ -10,8 +10,8 @@
 # The TC-2000 is a fictional device that demonstrates:
 # - Serial communication with terminators
 # - Multiple capability traits (Readable, Settable, Parameterized)
-# - Command templating with parameter interpolation
-# - Response parsing with regex patterns
+# - Command templating with MiniJinja interpolation
+# - Response parsing with transform pipelines and regex patterns
 # - Unit conversions with evalexpr formulas
 # - Error code mapping with recovery actions
 # - Retry configuration with exponential backoff
@@ -20,6 +20,8 @@
 # - UI configuration for control panels
 #
 # Reference: This is a sample file - no real device exists
+
+schema_version = 3
 
 # ==============================================================================
 # SECTION 1: Device Identity
@@ -43,7 +45,7 @@ capabilities = ["Readable", "Settable", "Parameterized"]
 # How to communicate with the device over serial port.
 
 [connection]
-type = "serial"                       # Connection type: serial, rs485, tcp, udp
+type = "serial"                       # Connection type: serial, tcp, udp
 baud_rate = 9600                      # Serial baud rate (300-921600)
 data_bits = 8                         # Data bits (5-8)
 parity = "none"                       # Parity: none, odd, even
@@ -56,7 +58,7 @@ terminator_tx = "\r\n"                # Sent after each command (CR+LF)
 terminator_rx = "\r\n"                # Expected in responses
 
 # Optional: specify port path (usually set at runtime)
-# port_path = "/dev/ttyUSB0"
+# port_path = "/dev/serial/by-id/usb-Acme_TC2000-if00-port0"
 
 # ==============================================================================
 # SECTION 3: Retry Configuration (Default)
@@ -85,13 +87,13 @@ no_retry_on_errors = ["ERR_FATAL", "ERR_OVERTEMP"]
 type = "float"
 default = 25.0
 range = [-40.0, 200.0]                # Valid range [min, max]
-unit = "°C"
+unit = "C"
 description = "Target temperature setpoint"
 
 [parameters.actual_temp_celsius]
 type = "float"
 default = 25.0
-unit = "°C"
+unit = "C"
 description = "Current measured temperature"
 read_only = true                      # Cannot be set directly
 
@@ -125,7 +127,7 @@ description = "PID derivative gain"
 type = "float"
 default = 5.0
 range = [0.1, 50.0]
-unit = "°C/min"
+unit = "C/min"
 description = "Temperature ramp rate"
 
 [parameters.control_mode]
@@ -138,22 +140,21 @@ description = "Temperature control mode"
 type = "float"
 default = 150.0
 range = [-40.0, 250.0]
-unit = "°C"
+unit = "C"
 description = "High temperature alarm threshold"
 
 [parameters.alarm_low_celsius]
 type = "float"
 default = 0.0
 range = [-50.0, 200.0]
-unit = "°C"
+unit = "C"
 description = "Low temperature alarm threshold"
 
 # ==============================================================================
 # SECTION 5: Command Definitions
 # ==============================================================================
 # Define all commands the device supports.
-# Template syntax: ${param_name} or ${param_name:format}
-# Formats: 08X (8-char hex), 04d (4-digit decimal), etc.
+# Template syntax: {{ param_name }} (MiniJinja)
 
 # --- Temperature Query/Set Commands ---
 
@@ -168,8 +169,8 @@ description = "Query temperature setpoint"
 response = "setpoint"
 
 [commands.set_setpoint]
-template = "SETP ${value}"
-description = "Set temperature setpoint (°C)"
+template = "SETP {{ value }}"
+description = "Set temperature setpoint (C)"
 parameters = { value = "float" }
 expects_response = false              # No response expected
 
@@ -186,7 +187,7 @@ description = "Query PID parameters"
 response = "pid_values"
 
 [commands.set_pid]
-template = "PID ${p},${i},${d}"
+template = "PID {{ p }},{{ i }},{{ d }}"
 description = "Set PID parameters (P, I, D)"
 parameters = { p = "float", i = "float", d = "float" }
 expects_response = false
@@ -199,7 +200,7 @@ description = "Query control mode"
 response = "mode"
 
 [commands.set_mode]
-template = "MODE ${mode}"
+template = "MODE {{ mode }}"
 description = "Set control mode"
 parameters = { mode = "string" }
 expects_response = false
@@ -224,13 +225,13 @@ description = "Query alarm settings"
 response = "alarms"
 
 [commands.set_alarm_high]
-template = "ALMHI ${temp}"
+template = "ALMHI {{ temp }}"
 description = "Set high temperature alarm"
 parameters = { temp = "float" }
 expects_response = false
 
 [commands.set_alarm_low]
-template = "ALMLO ${temp}"
+template = "ALMLO {{ temp }}"
 description = "Set low temperature alarm"
 parameters = { temp = "float" }
 expects_response = false
@@ -243,13 +244,13 @@ expects_response = false
 # --- Ramp Commands ---
 
 [commands.set_ramp_rate]
-template = "RAMP ${rate}"
-description = "Set ramp rate (°C/min)"
+template = "RAMP {{ rate }}"
+description = "Set ramp rate (C/min)"
 parameters = { rate = "float" }
 expects_response = false
 
 [commands.start_ramp]
-template = "RAMP:START ${target}"
+template = "RAMP:START {{ target }}"
 description = "Start ramping to target temperature"
 parameters = { target = "float" }
 expects_response = false
@@ -276,83 +277,40 @@ delay_ms = 2000                       # Wait after command
 # ==============================================================================
 # SECTION 6: Response Definitions
 # ==============================================================================
-# Define how to parse responses using regex with named capture groups.
-# Field types: string, int, uint, float, bool, hex_u8, hex_u16, hex_u32, hex_i32
+# Define how to parse responses using transform pipelines or regex.
+# Prefer transform pipelines for simple parsing, regex for complex patterns.
 
 # Temperature response: "TEMP 25.50"
 [responses.temperature]
-pattern = "^TEMP\\s+(?P<value>[+-]?\\d+\\.?\\d*)$"
-
-[responses.temperature.fields.value]
-type = "float"
-unit = "°C"
+regex = "^TEMP\\s+(?P<value>[+-]?\\d+\\.?\\d*)$"
 
 # Setpoint response: "SETP 30.00"
 [responses.setpoint]
-pattern = "^SETP\\s+(?P<value>[+-]?\\d+\\.?\\d*)$"
-
-[responses.setpoint.fields.value]
-type = "float"
+regex = "^SETP\\s+(?P<value>[+-]?\\d+\\.?\\d*)$"
 
 # PID response: "PID 10.0,0.5,2.0"
 [responses.pid_values]
-pattern = "^PID\\s+(?P<p>\\d+\\.?\\d*),(?P<i>\\d+\\.?\\d*),(?P<d>\\d+\\.?\\d*)$"
-
-[responses.pid_values.fields.p]
-type = "float"
-
-[responses.pid_values.fields.i]
-type = "float"
-
-[responses.pid_values.fields.d]
-type = "float"
+regex = "^PID\\s+(?P<p>\\d+\\.?\\d*),(?P<i>\\d+\\.?\\d*),(?P<d>\\d+\\.?\\d*)$"
 
 # Mode response: "MODE PID"
 [responses.mode]
-pattern = "^MODE\\s+(?P<mode>\\w+)$"
-
-[responses.mode.fields.mode]
-type = "string"
+regex = "^MODE\\s+(?P<mode>\\w+)$"
 
 # Status response: "STAT 0x05" (bit flags as hex)
 [responses.status]
-pattern = "^STAT\\s+0x(?P<flags>[0-9A-Fa-f]+)$"
-
-[responses.status.fields.flags]
-type = "hex_u8"
+regex = "^STAT\\s+0x(?P<flags>[0-9A-Fa-f]+)$"
 
 # Heater power response: "HTR 45.2"
 [responses.heater_power]
-pattern = "^HTR\\s+(?P<power>\\d+\\.?\\d*)$"
-
-[responses.heater_power.fields.power]
-type = "float"
+regex = "^HTR\\s+(?P<power>\\d+\\.?\\d*)$"
 
 # Alarm response: "ALARM HI:150.0 LO:0.0"
 [responses.alarms]
-pattern = "^ALARM\\s+HI:(?P<high>[+-]?\\d+\\.?\\d*)\\s+LO:(?P<low>[+-]?\\d+\\.?\\d*)$"
-
-[responses.alarms.fields.high]
-type = "float"
-
-[responses.alarms.fields.low]
-type = "float"
+regex = "^ALARM\\s+HI:(?P<high>[+-]?\\d+\\.?\\d*)\\s+LO:(?P<low>[+-]?\\d+\\.?\\d*)$"
 
 # Identity response: "ACME,TC-2000,SN12345,v1.2"
 [responses.identity]
-pattern = "^(?P<manufacturer>\\w+),(?P<model>[\\w-]+),(?P<serial>\\w+),v(?P<version>[\\d.]+)$"
-
-[responses.identity.fields.manufacturer]
-type = "string"
-
-[responses.identity.fields.model]
-type = "string"
-
-[responses.identity.fields.serial]
-type = "string"
-
-[responses.identity.fields.version]
-type = "string"
+regex = "^(?P<manufacturer>\\w+),(?P<model>[\\w-]+),(?P<serial>\\w+),v(?P<version>[\\d.]+)$"
 
 # ==============================================================================
 # SECTION 7: Unit Conversions
@@ -363,19 +321,15 @@ type = "string"
 
 [conversions.celsius_to_fahrenheit]
 formula = "celsius * 9.0 / 5.0 + 32.0"
-description = "Convert Celsius to Fahrenheit"
 
 [conversions.fahrenheit_to_celsius]
 formula = "(fahrenheit - 32.0) * 5.0 / 9.0"
-description = "Convert Fahrenheit to Celsius"
 
 [conversions.celsius_to_kelvin]
 formula = "celsius + 273.15"
-description = "Convert Celsius to Kelvin"
 
 [conversions.kelvin_to_celsius]
 formula = "kelvin - 273.15"
-description = "Convert Kelvin to Celsius"
 
 # ==============================================================================
 # SECTION 8: Error Code Mapping
@@ -448,29 +402,26 @@ manual_instructions = "Power cycle the device. Contact support if issue persists
 
 [validation.setpoint_celsius]
 range = [-40.0, 200.0]
-unit = "°C"
-error_message = "Setpoint must be between -40°C and 200°C"
+unit = "C"
+error_message = "Setpoint must be between -40C and 200C"
 
 [validation.ramp_rate_c_per_min]
 range = [0.1, 50.0]
-unit = "°C/min"
-error_message = "Ramp rate must be between 0.1 and 50 °C/min"
+unit = "C/min"
+error_message = "Ramp rate must be between 0.1 and 50 C/min"
 
 # ==============================================================================
-# SECTION 10: Trait Mapping
+# SECTION 10: Capability Mapping
 # ==============================================================================
 # Maps capability trait methods to device commands.
 
 # --- Readable trait: read() returns current temperature ---
-[trait_mapping.Readable.read]
-command = "get_temperature"
-output_field = "value"
+[capabilities.readable]
+read = { command = "get_temperature", output_field = "value" }
 
-# --- Settable trait (if implemented) ---
-# [trait_mapping.Settable.set]
-# command = "set_setpoint"
-# input_param = "value"
-# from_param = "setpoint"
+# --- Settable trait: set() writes a temperature setpoint ---
+[capabilities.settable]
+set = { command = "set_setpoint", input_param = "value", from_param = "setpoint_celsius" }
 
 # ==============================================================================
 # SECTION 11: Initialization Sequence
@@ -514,26 +465,26 @@ returns = "float"
 script = """
     // Set the ramp target
     let target = input;
-    
+
     // Configure ramp rate (use parameter or default)
     let rate = if ramp_rate_c_per_min > 0.0 {
         ramp_rate_c_per_min
     } else {
         5.0
     };
-    
+
     // Start the ramp
     driver.set_ramp_rate(rate);
     driver.start_ramp(target);
-    
+
     // Poll until temperature is stable
     let stable_count = 0;
-    let tolerance = 0.5;  // °C
-    
+    let tolerance = 0.5;  // C
+
     loop {
         driver.wait_ms(1000);
         let temp = driver.get_temperature();
-        
+
         if abs(temp - target) < tolerance {
             stable_count += 1;
             if stable_count >= 3 {
@@ -543,7 +494,7 @@ script = """
             stable_count = 0;
         }
     }
-    
+
     // Return final temperature
     driver.get_temperature()
 """
@@ -556,15 +507,15 @@ returns = "string"
 script = """
     // Save current setpoint
     let original_setpoint = driver.get_setpoint();
-    
+
     // Put in manual mode for autotuning
     driver.set_mode("MANUAL");
     driver.wait_ms(500);
-    
+
     // Simple relay autotuning (simplified example)
     let cycles = 0;
     let oscillations = [];
-    
+
     while cycles < 5 {
         // Toggle heater and measure response
         // (simplified - real implementation would be more complex)
@@ -573,26 +524,26 @@ script = """
         oscillations.push(temp);
         cycles += 1;
     }
-    
+
     // Calculate new PID values (simplified)
     let amplitude = 5.0;  // Would calculate from oscillations
     let period = 60.0;    // Would calculate from oscillations
-    
+
     let ku = 4.0 / (3.14159 * amplitude);
     let tu = period;
-    
+
     // Ziegler-Nichols tuning
     let new_p = 0.6 * ku;
     let new_i = 2.0 * new_p / tu;
     let new_d = new_p * tu / 8.0;
-    
+
     // Apply new PID values
     driver.set_pid(new_p, new_i, new_d);
-    
+
     // Restore PID mode
     driver.set_mode("PID");
     driver.set_setpoint(original_setpoint);
-    
+
     // Return result
     "Autotune complete: P=" + new_p + ", I=" + new_i + ", D=" + new_d
 """
@@ -616,7 +567,7 @@ collapsible = true
 type = "sensor"
 label = "Temperature"
 precision = 2
-unit = "°C"
+unit = "C"
 show_trend = true
 refresh_ms = 1000
 
@@ -639,9 +590,9 @@ label = "Quick Setpoints"
 vertical = false
 presets = [
     { label = "Room", value = 25.0 },
-    { label = "37°C", value = 37.0 },
-    { label = "50°C", value = 50.0 },
-    { label = "100°C", value = 100.0 },
+    { label = "37C", value = 37.0 },
+    { label = "50C", value = 50.0 },
+    { label = "100C", value = 100.0 },
 ]
 
 # Control mode selector
@@ -687,5 +638,5 @@ style = "secondary"
 # Status display configuration (for device tree/summary)
 [ui.status_display]
 summary_params = ["actual_temp_celsius", "setpoint_celsius"]
-summary_format = "${actual_temp_celsius}°C → ${setpoint_celsius}°C"
+summary_format = "{{ actual_temp_celsius }}C -> {{ setpoint_celsius }}C"
 show_connection = true

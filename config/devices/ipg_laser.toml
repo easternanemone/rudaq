@@ -1,72 +1,96 @@
-schema_version = 2
+# config/devices/ipg_laser.toml
+# IPG Fiber Laser - Protocol Definition
+#
+# Converted from v2 SCPI format to v3 schema.
+
+schema_version = 3
+
+[device]
 name = "IPG Fiber Laser"
-version = "1.0.0"
+description = "IPG fiber laser with TCP control"
+capabilities = ["Readable", "EmissionControl"]
 
 [connection]
 type = "tcp"
 host = "10.0.0.15"
 port = 10001
-terminator = "\r"
 timeout_ms = 1000
 
-# === Commands ===
+# ==============================================================================
+# Command Definitions
+# ==============================================================================
 
 [commands.emission_on]
 template = "EMON"
-query = false
+description = "Enable laser emission"
+expects_response = false
 
 [commands.emission_off]
 template = "EMOFF"
-query = false
+description = "Disable laser emission"
+expects_response = false
 
 [commands.read_emission]
 template = "REM"
-query = true
+description = "Read emission status"
 response_type = "string"
 
 [commands.set_current]
 template = "SCS {{ value }}"
-query = false
+description = "Set laser current"
+parameters = { value = "float" }
+expects_response = false
 
 [commands.read_current]
 template = "RCS"
-query = true
+description = "Read laser current"
 response_type = "float"
 
 [commands.read_power]
 template = "ROP"
-query = true
+description = "Read output power"
 response_type = "float"
 
 [commands.read_status]
 template = "STA"
-query = true
+description = "Read laser status"
 response_type = "integer"
 
 [commands.read_error]
 template = "REF"
-query = true
+description = "Read error status"
 response_type = "string"
 
 [commands.set_rep_rate]
 template = "SRR {{ value }}"
-query = false
+description = "Set repetition rate"
+parameters = { value = "float" }
+expects_response = false
 
 [commands.read_rep_rate]
 template = "RRR"
-query = true
+description = "Read repetition rate"
 response_type = "float"
 
 [commands.reset_errors]
 template = "RERR"
-query = false
+description = "Reset error flags"
+expects_response = false
 
-# === Capabilities ===
+# ==============================================================================
+# Capability Mapping
+# ==============================================================================
 
 [capabilities.readable]
-read = "read_power"
+read = { command = "read_power" }
 
-# === UI Configuration ===
+[capabilities.emission_control]
+enable = { command = "emission_on" }
+disable = { command = "emission_off" }
+
+# ==============================================================================
+# UI Configuration
+# ==============================================================================
 
 [ui]
 icon = "laser"
@@ -118,5 +142,5 @@ compact = true
 
 [ui.status_display]
 summary_params = ["power"]
-summary_format = "${power} W"
+summary_format = "{{ power }} W"
 show_connection = true

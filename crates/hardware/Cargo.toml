@@ -49,6 +49,9 @@ optional = true
 path = "../driver-comedi"
 optional = true
 
+[dependencies.driver-universal]
+path = "../driver-universal"
+
 [dependencies.driver-mock]
 path = "../driver-mock"
 

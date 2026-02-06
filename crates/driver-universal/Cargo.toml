@@ -1,0 +1,31 @@
+[package]
+name = "driver-universal"
+version = "0.1.0"
+edition = "2021"
+description = "Universal config-driven driver for rust-daq"
+
+[dependencies]
+common = { path = "../common", features = ["serial"] }
+anyhow.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+regex = "1"
+minijinja = "2"
+evalexpr = "11"
+thiserror.workspace = true
+toml.workspace = true
+futures.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "macros", "io-util", "net"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "io-util", "sync"] }
+tempfile.workspace = true
+
+[features]
+default = ["serial"]
+serial = ["common/serial"]
+
+[lints]
+workspace = true

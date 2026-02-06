@@ -35,6 +35,12 @@ use super::validation::{validate_evalexpr_formula, validate_regex_pattern};
 /// Complete device configuration loaded from TOML.
 ///
 /// This is the top-level struct that contains all device protocol definitions.
+///
+/// **Deprecated:** New drivers should use `driver_universal::config` instead.
+/// This type is retained for compatibility with the `scripting` and `ui` crates.
+#[deprecated(
+    note = "Use driver_universal::config instead. Retained for scripting/UI compatibility."
+)]
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(deny_unknown_fields)]
 pub struct DeviceConfig {

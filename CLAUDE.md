@@ -828,21 +828,32 @@ cargo run -p driver-comedi --features hardware --example counter
 
 **Documentation:** See `docs/guides/comedi-setup.md` for full setup instructions.
 
-## Declarative Driver Plugins
+## Declarative Driver Plugins (Schema v3)
 
-Add serial instruments without Rust code using TOML configs in `config/devices/`:
+Add serial/TCP instruments without Rust code using TOML configs in `config/devices/`.
+The `driver-universal` crate provides a parse-don't-validate pipeline: TOML → RawManifest → DeviceManifest → DeviceComponents.
 
 ```toml
+schema_version = 3
+
 [device]
 name = "My Device"
-capabilities = ["Movable"]
+capabilities = ["Readable"]
 
 [connection]
+type = "serial"
 baud_rate = 9600
+timeout_ms = 1000
 
-[commands.move_absolute]
-template = "MA${position}"
+[commands.read]
+template = "READ?"
+response_type = "float"
+
+[capabilities.readable]
+read = { command = "read" }
 ```
+
+Features: MiniJinja templates, tiered response parsing (SCPI auto-parse, format strings, transform pipelines, regex), evalexpr formulas, real Serial/TCP transports.
 
 See `config/devices/ell14.toml` for a complete example.
 

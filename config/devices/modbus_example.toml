@@ -7,6 +7,8 @@
 # Protocol: Modbus RTU over RS-485
 # Reference: Modbus Application Protocol V1.1b3
 
+schema_version = 3
+
 [device]
 name = "Modbus Example Device"
 description = "Example configuration for a Modbus RTU slave device"
@@ -73,7 +75,7 @@ timeout_ms = 1000
 [[binary_commands.read_holding_registers.fields]]
 name = "address"
 type = "u8"
-value = "${device_address}"
+value = "{{ device_address }}"
 
 [[binary_commands.read_holding_registers.fields]]
 name = "function_code"
@@ -83,12 +85,12 @@ value = "0x03"
 [[binary_commands.read_holding_registers.fields]]
 name = "start_register"
 type = "u16_be"
-value = "${holding_register_start}"
+value = "{{ holding_register_start }}"
 
 [[binary_commands.read_holding_registers.fields]]
 name = "register_count"
 type = "u16_be"
-value = "${register_count}"
+value = "{{ register_count }}"
 
 [binary_commands.read_holding_registers.crc]
 algorithm = "crc16_modbus"
@@ -105,7 +107,7 @@ timeout_ms = 1000
 [[binary_commands.write_single_register.fields]]
 name = "address"
 type = "u8"
-value = "${device_address}"
+value = "{{ device_address }}"
 
 [[binary_commands.write_single_register.fields]]
 name = "function_code"
@@ -115,12 +117,12 @@ value = "0x06"
 [[binary_commands.write_single_register.fields]]
 name = "register_address"
 type = "u16_be"
-value = "${holding_register_start}"
+value = "{{ holding_register_start }}"
 
 [[binary_commands.write_single_register.fields]]
 name = "register_value"
 type = "u16_be"
-value = "${value}"
+value = "{{ value }}"
 
 [binary_commands.write_single_register.crc]
 algorithm = "crc16_modbus"
@@ -137,7 +139,7 @@ timeout_ms = 2000
 [[binary_commands.write_multiple_registers.fields]]
 name = "address"
 type = "u8"
-value = "${device_address}"
+value = "{{ device_address }}"
 
 [[binary_commands.write_multiple_registers.fields]]
 name = "function_code"
@@ -147,17 +149,17 @@ value = "0x10"
 [[binary_commands.write_multiple_registers.fields]]
 name = "start_register"
 type = "u16_be"
-value = "${holding_register_start}"
+value = "{{ holding_register_start }}"
 
 [[binary_commands.write_multiple_registers.fields]]
 name = "register_count"
 type = "u16_be"
-value = "${register_count}"
+value = "{{ register_count }}"
 
 [[binary_commands.write_multiple_registers.fields]]
 name = "byte_count"
 type = "u8"
-value = "${byte_count}"
+value = "{{ byte_count }}"
 
 # Note: Data bytes would be appended programmatically
 
@@ -345,13 +347,11 @@ retry_on_errors = ["0x05", "0x06"]
 no_retry_on_errors = ["0x01", "0x02", "0x03", "0x04"]
 
 # ==============================================================================
-# Trait Mapping
+# Capability Mapping
 # ==============================================================================
 
-[trait_mapping.Readable.read]
-command = "read_holding_registers"
-output_field = "data"
+[capabilities.readable]
+read = { command = "read_holding_registers", output_field = "data" }
 
-[trait_mapping.Settable.set]
-command = "write_single_register"
-input_param = "value"
+[capabilities.settable]
+set = { command = "write_single_register", input_param = "value" }

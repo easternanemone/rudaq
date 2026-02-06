@@ -15,6 +15,7 @@ members = [
     "crates/driver-pvcam/pvcam-sys",
     "crates/driver-comedi",
     "crates/driver-generic",
+    "crates/driver-universal",
     "crates/driver-mock",
     "crates/driver-thorlabs",
     "crates/driver-newport",
