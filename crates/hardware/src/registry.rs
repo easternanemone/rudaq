@@ -84,8 +84,6 @@ use common::observable::ParameterMetadata;
 use common::pipeline::MeasurementSource;
 
 #[cfg(feature = "serial")]
-use crate::config::is_v2_manifest_path;
-#[cfg(feature = "serial")]
 use crate::plugin::driver::GenericDriver;
 // use crate::plugin::driver::{Connection, GenericDriver};
 // use crate::plugin::schema::{DriverType, InstrumentConfig, PluginMetadata, ScriptType};
@@ -154,7 +152,9 @@ pub fn validate_driver_config(driver: &DriverType) -> Result<(), DaqError> {
                     manifest
                 )));
             }
-            if !is_v2_manifest_path(path) {
+            let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            if !file_name.ends_with(".scpi.toml") && !file_name.ends_with(".declarative_scpi.toml")
+            {
                 return Err(DaqError::Configuration(format!(
                     "SCPI manifest must end with .scpi.toml or .declarative_scpi.toml: {}",
                     manifest

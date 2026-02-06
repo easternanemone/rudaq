@@ -164,6 +164,12 @@ pub struct CommandResult {
 /// - Applying unit conversions using evalexpr formulas
 /// - Implementing capability traits based on config mappings
 /// - Executing Rhai scripts for complex operations (when `scripting` feature is enabled)
+///
+/// **Deprecated:** New drivers should use `driver_universal::driver::UniversalDriver` instead.
+/// This type is retained for compatibility with the `scripting` and `ui` crates.
+#[deprecated(
+    note = "Use driver_universal::driver::UniversalDriver instead. Retained for scripting/UI compatibility."
+)]
 #[derive(Clone)]
 pub struct GenericSerialDriver {
     /// Device configuration
