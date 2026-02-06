@@ -77,8 +77,8 @@ pub struct VersionInfo {
 /// # Example
 ///
 /// ```rust,no_run
-/// use rust_daq::config::versioning::VersionManager;
-/// use rust_daq::config::Settings;
+/// use common::config::versioning::VersionManager;
+/// use common::config::Settings;
 /// use std::path::PathBuf;
 ///
 /// # async fn example() -> anyhow::Result<()> {
@@ -124,7 +124,7 @@ impl VersionManager {
     /// # Example
     ///
     /// ```rust
-    /// use rust_daq::config::versioning::VersionManager;
+    /// use common::config::versioning::VersionManager;
     /// use std::path::PathBuf;
     ///
     /// let manager = VersionManager::new(PathBuf::from("config/versions"));
@@ -163,8 +163,8 @@ impl VersionManager {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use rust_daq::config::versioning::VersionManager;
-    /// # use rust_daq::config::Settings;
+    /// # use common::config::versioning::VersionManager;
+    /// # use common::config::Settings;
     /// # use std::path::PathBuf;
     /// # async fn example() -> anyhow::Result<()> {
     /// let manager = VersionManager::new(PathBuf::from("config/versions"));
@@ -257,7 +257,7 @@ impl VersionManager {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use rust_daq::config::versioning::{VersionManager, VersionId};
+    /// # use common::config::versioning::{VersionManager, VersionId};
     /// # use std::path::PathBuf;
     /// # async fn example() -> anyhow::Result<()> {
     /// let manager = VersionManager::new(PathBuf::from("config/versions"));
@@ -295,7 +295,7 @@ impl VersionManager {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use rust_daq::config::versioning::VersionManager;
+    /// # use common::config::versioning::VersionManager;
     /// # use std::path::PathBuf;
     /// # async fn example() -> anyhow::Result<()> {
     /// let manager = VersionManager::new(PathBuf::from("config/versions"));
@@ -386,7 +386,7 @@ impl VersionManager {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use rust_daq::config::versioning::VersionManager;
+    /// # use common::config::versioning::VersionManager;
     /// # use std::path::PathBuf;
     /// # async fn example() -> anyhow::Result<()> {
     /// let manager = VersionManager::new(PathBuf::from("config/versions"));

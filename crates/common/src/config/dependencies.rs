@@ -17,7 +17,7 @@
 //! # Example
 //!
 //! ```rust
-//! use rust_daq::config::dependencies::DependencyGraph;
+//! use common::config::dependencies::DependencyGraph;
 //!
 //! let mut graph = DependencyGraph::new();
 //!
@@ -48,7 +48,7 @@ use std::collections::{HashMap, HashSet};
 /// # Example
 ///
 /// ```rust
-/// use rust_daq::config::dependencies::DependencyGraph;
+/// use common::config::dependencies::DependencyGraph;
 ///
 /// let mut graph = DependencyGraph::new();
 ///
@@ -82,7 +82,7 @@ impl DependencyGraph {
     /// # Example
     ///
     /// ```rust
-    /// use rust_daq::config::dependencies::DependencyGraph;
+    /// use common::config::dependencies::DependencyGraph;
     ///
     /// let graph = DependencyGraph::new();
     /// ```
@@ -106,7 +106,7 @@ impl DependencyGraph {
     /// # Example
     ///
     /// ```rust
-    /// # use rust_daq::config::dependencies::DependencyGraph;
+    /// # use common::config::dependencies::DependencyGraph;
     /// let mut graph = DependencyGraph::new();
     ///
     /// // Polarimetry module uses camera1 as detector
@@ -135,7 +135,7 @@ impl DependencyGraph {
     /// # Example
     ///
     /// ```rust
-    /// # use rust_daq::config::dependencies::DependencyGraph;
+    /// # use common::config::dependencies::DependencyGraph;
     /// let mut graph = DependencyGraph::new();
     /// graph.add_assignment("module1", "detector", "camera1");
     /// graph.add_assignment("module1", "reference", "camera1");
@@ -163,7 +163,7 @@ impl DependencyGraph {
     /// # Example
     ///
     /// ```rust
-    /// # use rust_daq::config::dependencies::DependencyGraph;
+    /// # use common::config::dependencies::DependencyGraph;
     /// let mut graph = DependencyGraph::new();
     /// graph.add_assignment("polarimetry", "detector", "camera1");
     /// graph.add_assignment("imaging", "sensor", "camera1");
@@ -196,7 +196,7 @@ impl DependencyGraph {
     /// # Example
     ///
     /// ```rust
-    /// # use rust_daq::config::dependencies::DependencyGraph;
+    /// # use common::config::dependencies::DependencyGraph;
     /// let mut graph = DependencyGraph::new();
     /// graph.add_assignment("module1", "detector", "camera1");
     ///
@@ -232,7 +232,7 @@ impl DependencyGraph {
     /// # Example
     ///
     /// ```rust
-    /// # use rust_daq::config::dependencies::DependencyGraph;
+    /// # use common::config::dependencies::DependencyGraph;
     /// let mut graph = DependencyGraph::new();
     /// graph.add_assignment("module1", "detector", "camera1");
     ///

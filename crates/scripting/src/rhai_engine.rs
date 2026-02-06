@@ -52,7 +52,7 @@
 //!
 //! ```rust,ignore
 //! use daq_scripting::{ScriptEngine, RhaiEngine, ScriptValue, StageHandle};
-//! use rust_daq::hardware::mock::MockStage;
+//! use driver_mock::mock_stage::MockStage;
 //! use std::sync::Arc;
 //!
 //! #[tokio::main]
@@ -223,7 +223,7 @@ impl RhaiEngine {
     ///
     /// ```rust,ignore
     /// use daq_scripting::{RhaiEngine, ScriptEngine, ScriptValue, StageHandle};
-    /// use rust_daq::hardware::mock::MockStage;
+    /// use driver_mock::mock_stage::MockStage;
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]

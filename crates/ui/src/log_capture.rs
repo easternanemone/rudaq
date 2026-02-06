@@ -43,14 +43,14 @@ const MAX_LOG_ENTRIES: usize = 10000;
 /// # Example
 ///
 /// ```rust
-/// use rust_daq::log_capture::LogEntry;
+/// use ui::log_capture::LogEntry;
 /// use log::Level;
 /// use chrono::Local;
 ///
 /// let entry = LogEntry {
 ///     timestamp: Local::now(),
 ///     level: Level::Info,
-///     target: "rust_daq::hardware".to_string(),
+///     target: "hardware".to_string(),
 ///     message: "Camera connected".to_string(),
 /// };
 /// ```
@@ -82,7 +82,7 @@ impl LogEntry {
     /// # Example
     ///
     /// ```rust
-    /// # use rust_daq::log_capture::LogEntry;
+    /// # use ui::log_capture::LogEntry;
     /// # use log::Level;
     /// # use chrono::Local;
     /// use egui::Color32;
@@ -117,7 +117,7 @@ impl LogEntry {
 /// # Example
 ///
 /// ```rust
-/// use rust_daq::log_capture::LogBuffer;
+/// use ui::log_capture::LogBuffer;
 ///
 /// let buffer = LogBuffer::new();
 /// // Buffer can be cloned and shared across threads
@@ -154,7 +154,7 @@ impl LogBuffer {
     /// # Example
     ///
     /// ```rust
-    /// use rust_daq::log_capture::LogBuffer;
+    /// use ui::log_capture::LogBuffer;
     ///
     /// let buffer = LogBuffer::new();
     /// ```
@@ -175,7 +175,7 @@ impl LogBuffer {
     /// # Example
     ///
     /// ```rust
-    /// use rust_daq::log_capture::LogBuffer;
+    /// use ui::log_capture::LogBuffer;
     ///
     /// let buffer = LogBuffer::new();
     /// let entries = buffer.read();
@@ -196,7 +196,7 @@ impl LogBuffer {
     /// # Example
     ///
     /// ```rust
-    /// use rust_daq::log_capture::LogBuffer;
+    /// use ui::log_capture::LogBuffer;
     ///
     /// let buffer = LogBuffer::new();
     /// buffer.clear();
@@ -216,7 +216,7 @@ impl LogBuffer {
 /// # Example
 ///
 /// ```rust,no_run
-/// use rust_daq::log_capture::{LogBuffer, LogCollector};
+/// use ui::log_capture::{LogBuffer, LogCollector};
 /// use log::LevelFilter;
 ///
 /// let buffer = LogBuffer::new();
@@ -244,7 +244,7 @@ impl LogCollector {
     /// # Example
     ///
     /// ```rust
-    /// use rust_daq::log_capture::{LogBuffer, LogCollector};
+    /// use ui::log_capture::{LogBuffer, LogCollector};
     ///
     /// let buffer = LogBuffer::new();
     /// let collector = LogCollector::new(buffer.clone());
@@ -258,7 +258,7 @@ impl LogCollector {
     /// # Example
     ///
     /// ```rust
-    /// use rust_daq::log_capture::{LogBuffer, LogCollector};
+    /// use ui::log_capture::{LogBuffer, LogCollector};
     ///
     /// let buffer = LogBuffer::new();
     /// let collector = LogCollector::new(buffer.clone());

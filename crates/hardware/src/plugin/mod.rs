@@ -19,8 +19,8 @@
 //!
 //! ```rust,ignore
 //! use std::sync::Arc;
-//! use rust_daq::hardware::plugin::registry::PluginFactory;
-//! use rust_daq::hardware::capabilities::Movable;
+//! use hardware::plugin::registry::PluginFactory;
+//! use common::capabilities::Movable;
 //!
 //! let mut factory = PluginFactory::new();
 //! factory.load_plugins(Path::new("plugins/")).await?;
@@ -36,7 +36,7 @@
 //! # Example (Native Plugin Discovery)
 //!
 //! ```rust,ignore
-//! use rust_daq::hardware::plugin::discovery::PluginRegistry;
+//! use hardware::plugin::discovery::PluginRegistry;
 //!
 //! let mut registry = PluginRegistry::new();
 //! registry.add_search_path("~/.config/rust-daq/plugins/");
