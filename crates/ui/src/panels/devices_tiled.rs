@@ -7,6 +7,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use client::DaqClient;
+use crate::device_ext::DeviceInfoExt;
 
 /// A single device pane
 #[derive(Clone)]
@@ -14,10 +15,7 @@ pub struct DevicePane {
     pub device_id: String,
     pub device_name: String,
     pub driver_type: String,
-    pub is_movable: bool,
-    pub is_readable: bool,
-    pub is_triggerable: bool,
-    pub is_frame_producer: bool,
+    pub capabilities: Vec<String>,
     // Cached state
     pub position: Option<f64>,
     pub last_reading: Option<f64>,
@@ -32,10 +30,7 @@ impl DevicePane {
             device_id: info.id.clone(),
             device_name: info.name.clone(),
             driver_type: info.driver_type.clone(),
-            is_movable: info.is_movable,
-            is_readable: info.is_readable,
-            is_triggerable: info.is_triggerable,
-            is_frame_producer: info.is_frame_producer,
+            capabilities: info.capabilities.clone(),
             position: None,
             last_reading: None,
             online: false,
@@ -47,6 +42,12 @@ impl DevicePane {
         self.online = state.online;
         self.position = state.position;
         self.last_reading = state.last_reading;
+    }
+}
+
+impl DeviceInfoExt for DevicePane {
+    fn has_capability(&self, name: &str) -> bool {
+        self.capabilities.iter().any(|c| c == name)
     }
 }
 
@@ -122,7 +123,7 @@ impl<'a> egui_tiles::Behavior<DevicePane> for DevicePaneBehavior<'a> {
             ui.add_space(8.0);
 
             // Controls for movable devices
-            if pane.is_movable {
+            if pane.is_movable() {
                 ui.group(|ui| {
                     ui.label("Motion Control");
                     ui.horizontal(|ui| {
@@ -165,7 +166,7 @@ impl<'a> egui_tiles::Behavior<DevicePane> for DevicePaneBehavior<'a> {
             }
 
             // Controls for readable devices
-            if pane.is_readable {
+            if pane.is_readable() {
                 ui.add_space(4.0);
                 if ui.button("📖 Read").clicked() {
                     self.pending_actions.push(DeviceAction::ReadValue {

@@ -8,6 +8,7 @@
 
 #![allow(dead_code)]
 
+use crate::device_ext::DeviceInfoExt;
 use protocol::daq::DeviceInfo;
 
 /// The type of control panel to use for a device.
@@ -53,20 +54,20 @@ pub fn determine_panel_type(device: &DeviceInfo) -> PanelType {
     }
 
     // Priority 2: Laser controls (MaiTai-style devices)
-    if device.is_emission_controllable
-        || device.is_shutter_controllable
-        || device.is_wavelength_tunable
+    if device.is_emission_controllable()
+        || device.is_shutter_controllable()
+        || device.is_wavelength_tunable()
     {
         return PanelType::MaiTai;
     }
 
     // Priority 3: Pure readable devices (power meters, sensors)
-    if device.is_readable && !device.is_movable {
+    if device.is_readable() && !device.is_movable() {
         return PanelType::PowerMeter;
     }
 
     // Priority 4: Movable devices - distinguish rotator vs stage
-    if device.is_movable {
+    if device.is_movable() {
         if driver_lower.contains("ell14") || driver_lower.contains("rotator") {
             return PanelType::Rotator;
         }
@@ -90,15 +91,28 @@ mod tests {
         shutter: bool,
         wavelength: bool,
     ) -> DeviceInfo {
+        let mut capabilities = Vec::new();
+        if movable {
+            capabilities.push("movable".to_string());
+        }
+        if readable {
+            capabilities.push("readable".to_string());
+        }
+        if emission {
+            capabilities.push("emission_controllable".to_string());
+        }
+        if shutter {
+            capabilities.push("shutter_controllable".to_string());
+        }
+        if wavelength {
+            capabilities.push("wavelength_tunable".to_string());
+        }
+        #[allow(deprecated)]
         DeviceInfo {
             id: "test-device".to_string(),
             name: "Test Device".to_string(),
             driver_type: driver.to_string(),
-            is_movable: movable,
-            is_readable: readable,
-            is_emission_controllable: emission,
-            is_shutter_controllable: shutter,
-            is_wavelength_tunable: wavelength,
+            capabilities,
             ..Default::default()
         }
     }

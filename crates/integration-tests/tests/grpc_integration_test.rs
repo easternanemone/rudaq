@@ -68,10 +68,18 @@ mod camera_integration_tests {
         assert_eq!(devices.len(), 1);
         let camera = &devices[0];
         assert_eq!(camera.id, "test_camera");
-        assert!(camera.is_triggerable, "Camera should be triggerable");
-        assert!(camera.is_frame_producer, "Camera should be frame producer");
         assert!(
-            camera.is_exposure_controllable,
+            camera.capabilities.contains(&"triggerable".to_string()),
+            "Camera should be triggerable"
+        );
+        assert!(
+            camera.capabilities.contains(&"frame_producer".to_string()),
+            "Camera should be frame producer"
+        );
+        assert!(
+            camera
+                .capabilities
+                .contains(&"exposure_controllable".to_string()),
             "Camera should have exposure control"
         );
     }

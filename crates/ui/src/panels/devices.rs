@@ -13,6 +13,7 @@ use eframe::egui;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
+use crate::device_ext::DeviceInfoExt;
 use crate::icons;
 use crate::layout;
 use crate::widgets::{
@@ -200,10 +201,10 @@ impl Default for DevicesPanel {
 }
 
 fn infer_device_icon(info: &protocol::daq::DeviceInfo) -> &'static str {
-    if info.is_frame_producer {
+    if info.is_frame_producer() {
         return icons::device::CAMERA;
     }
-    if info.is_movable {
+    if info.is_movable() {
         return icons::device::MOTOR;
     }
 
@@ -217,7 +218,7 @@ fn infer_device_icon(info: &protocol::daq::DeviceInfo) -> &'static str {
         || driver_lower.contains("esp")
     {
         icons::device::MOTOR
-    } else if name_lower.contains("sensor") || name_lower.contains("meter") || info.is_readable {
+    } else if name_lower.contains("sensor") || name_lower.contains("meter") || info.is_readable() {
         icons::device::SENSOR
     } else if name_lower.contains("laser") || driver_lower.contains("maitai") {
         icons::device::LASER
@@ -591,28 +592,28 @@ impl DevicesPanel {
             ui.separator();
             ui.label("Capabilities:");
             ui.horizontal(|ui| {
-                if info.is_movable {
+                if info.is_movable() {
                     ui.label("📐 Movable");
                 }
-                if info.is_readable {
+                if info.is_readable() {
                     ui.label("📖 Readable");
                 }
-                if info.is_triggerable {
+                if info.is_triggerable() {
                     ui.label("⚡ Triggerable");
                 }
-                if info.is_frame_producer {
+                if info.is_frame_producer() {
                     ui.label("📷 Camera");
                 }
-                if info.is_exposure_controllable {
+                if info.is_exposure_controllable() {
                     ui.label("⏱ Exposure");
                 }
-                if info.is_shutter_controllable {
+                if info.is_shutter_controllable() {
                     ui.label("🚪 Shutter");
                 }
-                if info.is_wavelength_tunable {
+                if info.is_wavelength_tunable() {
                     ui.label("🌈 Wavelength");
                 }
-                if info.is_emission_controllable {
+                if info.is_emission_controllable() {
                     ui.label("💡 Emission");
                 }
             });
@@ -644,7 +645,7 @@ impl DevicesPanel {
         }
 
         // Control section for movable devices
-        if info.is_movable {
+        if info.is_movable() {
             ui.add_space(8.0);
             ui.group(|ui| {
                 ui.heading("Motion Control");
@@ -693,7 +694,7 @@ impl DevicesPanel {
         }
 
         // Read button for readable devices
-        if info.is_readable {
+        if info.is_readable() {
             ui.add_space(8.0);
             ui.group(|ui| {
                 ui.heading("Read Value");

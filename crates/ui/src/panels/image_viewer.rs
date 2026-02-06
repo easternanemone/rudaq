@@ -18,6 +18,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 
+use crate::device_ext::DeviceInfoExt;
 use crate::icons;
 use crate::layout::{self, colors};
 use crate::widgets::{Histogram, HistogramPosition, ParameterCache, RoiSelector};
@@ -1383,7 +1384,7 @@ impl ImageViewerPanel {
                         .into_iter()
                         .filter(|d| {
                             // Check is_frame_producer flag or camera category
-                            d.is_frame_producer
+                            d.is_frame_producer()
                                 || d.category == protocol::daq::DeviceCategory::Camera as i32
                         })
                         .map(|d| d.id)

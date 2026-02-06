@@ -13,6 +13,7 @@ use crate::connection::{
 };
 use crate::connection_state_ext::ConnectionStateExt;
 use crate::daemon_launcher::{AutoConnectState, DaemonLauncher, DaemonMode};
+use crate::device_ext::DeviceInfoExt;
 use crate::icons;
 use crate::layout;
 use crate::panels::{
@@ -225,15 +226,15 @@ pub enum DevicePanelKind {
 fn panel_kind_for_device(device: &DeviceInfo) -> DevicePanelKind {
     let driver_lower = device.driver_type.to_lowercase();
 
-    if device.is_emission_controllable || device.is_shutter_controllable {
+    if device.is_emission_controllable() || device.is_shutter_controllable() {
         DevicePanelKind::MaiTai
     } else if driver_lower.contains("comedi_analog_output")
         || driver_lower.contains("analog_output")
     {
         DevicePanelKind::AnalogOutput
-    } else if device.is_readable && !device.is_movable {
+    } else if device.is_readable() && !device.is_movable() {
         DevicePanelKind::PowerMeter
-    } else if device.is_movable {
+    } else if device.is_movable() {
         if driver_lower.contains("ell14")
             || driver_lower.contains("rotator")
             || driver_lower.contains("thorlabs")
@@ -265,11 +266,18 @@ struct PersistedPanelInfo {
     device_id: String,
     device_name: String,
     driver_type: String,
-    // Capability flags for panel type determination
+    #[serde(default)]
+    capabilities: Vec<String>,
+    // Legacy fields for backward compatibility during deserialization
+    #[serde(default)]
     is_emission_controllable: bool,
+    #[serde(default)]
     is_shutter_controllable: bool,
+    #[serde(default)]
     is_wavelength_tunable: bool,
+    #[serde(default)]
     is_readable: bool,
+    #[serde(default)]
     is_movable: bool,
 }
 
@@ -279,32 +287,57 @@ impl From<&DeviceInfo> for PersistedPanelInfo {
             device_id: info.id.clone(),
             device_name: info.name.clone(),
             driver_type: info.driver_type.clone(),
-            is_emission_controllable: info.is_emission_controllable,
-            is_shutter_controllable: info.is_shutter_controllable,
-            is_wavelength_tunable: info.is_wavelength_tunable,
-            is_readable: info.is_readable,
-            is_movable: info.is_movable,
+            capabilities: info.capabilities.clone(),
+            // Legacy fields no longer populated
+            is_emission_controllable: false,
+            is_shutter_controllable: false,
+            is_wavelength_tunable: false,
+            is_readable: false,
+            is_movable: false,
         }
     }
 }
 
 impl From<PersistedPanelInfo> for DeviceInfo {
     fn from(info: PersistedPanelInfo) -> Self {
+        // Migrate from legacy booleans if capabilities is empty (old format)
+        let capabilities = if info.capabilities.is_empty() {
+            let mut caps = Vec::new();
+            if info.is_movable {
+                caps.push("movable".to_string());
+            }
+            if info.is_readable {
+                caps.push("readable".to_string());
+            }
+            if info.is_shutter_controllable {
+                caps.push("shutter_controllable".to_string());
+            }
+            if info.is_wavelength_tunable {
+                caps.push("wavelength_tunable".to_string());
+            }
+            if info.is_emission_controllable {
+                caps.push("emission_controllable".to_string());
+            }
+            caps
+        } else {
+            info.capabilities
+        };
+        #[allow(deprecated)]
         Self {
             id: info.device_id,
             name: info.device_name,
             driver_type: info.driver_type,
-            category: 0, // Will be updated when daemon connects
-            is_movable: info.is_movable,
-            is_readable: info.is_readable,
+            category: 0,
+            is_movable: false,
+            is_readable: false,
             is_triggerable: false,
             is_frame_producer: false,
             is_exposure_controllable: false,
-            is_shutter_controllable: info.is_shutter_controllable,
-            is_wavelength_tunable: info.is_wavelength_tunable,
-            is_emission_controllable: info.is_emission_controllable,
+            is_shutter_controllable: false,
+            is_wavelength_tunable: false,
+            is_emission_controllable: false,
             is_parameterized: false,
-            capabilities: vec![],
+            capabilities,
             metadata: None,
         }
     }
@@ -2033,11 +2066,11 @@ impl eframe::App for DaqApp {
                         device_id = %device_info.id,
                         device_name = %device_info.name,
                         driver_type = %device_info.driver_type,
-                        is_emission_controllable = device_info.is_emission_controllable,
-                        is_shutter_controllable = device_info.is_shutter_controllable,
-                        is_wavelength_tunable = device_info.is_wavelength_tunable,
-                        is_readable = device_info.is_readable,
-                        is_movable = device_info.is_movable,
+                        is_emission_controllable = device_info.is_emission_controllable(),
+                        is_shutter_controllable = device_info.is_shutter_controllable(),
+                        is_wavelength_tunable = device_info.is_wavelength_tunable(),
+                        is_readable = device_info.is_readable(),
+                        is_movable = device_info.is_movable(),
                         "OpenDeviceControl: creating pop-out panel with capabilities"
                     );
 
