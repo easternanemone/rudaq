@@ -18,7 +18,7 @@
 //! # Usage
 //!
 //! ```rust,ignore
-//! use rust_daq::plugins::ScriptPluginLoader;
+//! use daq_modules::plugins::ScriptPluginLoader;
 //!
 //! let mut loader = ScriptPluginLoader::new();
 //! loader.add_search_path("./scripts");

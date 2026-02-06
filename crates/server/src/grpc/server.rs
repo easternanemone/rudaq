@@ -1071,8 +1071,8 @@ use common::pipeline::{MeasurementSink, Tee};
 ///
 /// # Example
 /// ```ignore
-/// use rust_daq::grpc::start_server_with_hardware;
-/// use rust_daq::hardware::registry::create_mock_registry;
+/// use server::grpc::start_server_with_hardware;
+/// use hardware::registry::create_mock_registry;
 /// use std::sync::Arc;
 /// use tokio::sync::RwLock;
 ///

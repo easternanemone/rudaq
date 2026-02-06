@@ -14,7 +14,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use rust_daq::hardware::mock_serial;
+//! use hardware::drivers::mock_serial;
 //! use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 //!
 //! #[tokio::test]

@@ -36,7 +36,7 @@
 //! # Example Usage
 //!
 //! ```rust,ignore
-//! use rust_daq::hardware::registry::{DeviceRegistry, DeviceConfig, DriverType};
+//! use hardware::registry::{DeviceRegistry, DeviceConfig, DriverType};
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {

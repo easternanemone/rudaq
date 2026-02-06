@@ -795,8 +795,8 @@ impl ModuleRegistry {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use rust_daq::plugins::PluginManager;
-    /// use rust_daq::modules::ModuleRegistry;
+    /// use daq_modules::plugins::PluginManager;
+    /// use daq_modules::ModuleRegistry;
     ///
     /// let mut plugin_manager = PluginManager::new();
     /// plugin_manager.add_search_path("./plugins");
