@@ -125,11 +125,10 @@ impl DriverFactory for MyDriverFactory {
 ### Import Conventions
 
 ```rust
-// Recommended: use prelude or direct crate imports
-use rust_daq::prelude::*;
-// or
+// Import directly from individual crates
 use common::error::DaqError;
-use daq_storage::ring_buffer::RingBuffer;
+use common::capabilities::Movable;
+use storage::ring_buffer::RingBuffer;
 ```
 
 ### Capability Traits

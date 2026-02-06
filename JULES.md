@@ -29,17 +29,21 @@ rust-daq is a Rust-based data acquisition system with V5 headless-first architec
 ### Crate Structure
 
 - `crates/common/` - Domain types, parameters, error handling
-- `crates/hardware/` - HAL, capability traits, drivers
-- `crates/driver-pvcam/` - PVCAM camera driver
+- `crates/hardware/` - HAL, capability traits, DeviceRegistry
+- `crates/drivers/` - Metacrate aggregating all drivers (feature flags)
+- `crates/driver-*/` - Standalone driver crates (pvcam, andor-sdk3, thorlabs, newport, spectra-physics, dover-motion, comedi, generic, mock, red-pitaya)
+- `crates/client/` - gRPC client library
+- `crates/daq-modules/` - Experiment modules and plugin system
 - `crates/protocol/` - Protobuf definitions
 - `crates/server/` - gRPC server implementation
 - `crates/storage/` - Data persistence (CSV, HDF5, Arrow)
 - `crates/ui/` - GUI application using egui
 - `crates/experiment/` - RunEngine and Plan definitions
+- `crates/integration-tests/` - Cross-crate integration tests
 
 ### Key Patterns
 
-1. **Import from prelude**: Use `rust_daq::prelude::*` or import directly from focused crates
+1. **Import directly from crates**: Use `common::`, `hardware::`, `storage::`, etc. (the `rust-daq` facade crate has been removed)
 2. **Error handling**: Use `DaqError` from `common`
 3. **Async**: All hardware methods are async, use tokio runtime
 4. **Parameters**: Use `Parameter<T>` for reactive hardware state

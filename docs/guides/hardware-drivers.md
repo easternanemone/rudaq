@@ -2,6 +2,12 @@
 
 A comprehensive guide for developers implementing new hardware drivers for rust-daq.
 
+> **Note on driver locations:** Drivers now live in standalone crates under `crates/driver-*/`.
+> The `crates/hardware/src/drivers/` directory contains legacy driver code that is being migrated
+> to these standalone crates. For new driver development, always create a new `crates/driver-<name>/`
+> crate. For config-driven serial instruments (no custom Rust needed), see
+> [Declarative Drivers](#declarative-drivers-v2-schema) and the `crates/driver-generic/` crate.
+
 ## Table of Contents
 
 - [Getting Started](#getting-started)

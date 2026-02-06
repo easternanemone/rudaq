@@ -86,6 +86,27 @@ Use these for common build configurations:
 | `instrument_newport_power_meter` | Newport 1830-C | tokio_serial only |
 | `all_hardware` | All above drivers | All driver features |
 
+#### Drivers Metacrate Features (`crates/drivers`)
+
+The `drivers` metacrate provides unified feature flags for all driver crates:
+
+| Feature | Description | Driver Crate |
+|---------|-------------|--------------|
+| `thorlabs` | Thorlabs ELL14 rotation mounts | `driver-thorlabs` |
+| `newport` | Newport ESP300 + 1830-C | `driver-newport` |
+| `spectra_physics` | MaiTai laser | `driver-spectra-physics` |
+| `pvcam` | PVCAM cameras (mock mode) | `driver-pvcam` |
+| `pvcam_sdk` | PVCAM cameras (real SDK) | `driver-pvcam` with `pvcam_sdk` |
+| `comedi` | Linux Comedi DAQ (mock mode) | `driver-comedi` |
+| `comedi_hardware` | Linux Comedi DAQ (real hardware) | `driver-comedi` with `hardware` |
+| `mock` | Mock hardware for testing | `driver-mock` |
+| `generic` | Config-driven serial driver | `driver-generic` |
+| `all` | All drivers with mock implementations | All of the above |
+| `maitai` | Maitai lab hardware profile | thorlabs + newport + spectra_physics + pvcam_sdk |
+| `hardware` | All drivers with real hardware | All + pvcam_sdk + comedi_hardware |
+
+**Note:** `driver-andor-sdk3` and `driver-dover-motion` are not yet integrated into the `drivers` metacrate. They are available as direct workspace dependencies.
+
 ### Camera Hardware
 
 | Feature | Description | Requirements |

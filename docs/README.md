@@ -79,9 +79,12 @@ Device-specific setup, configuration, and troubleshooting.
 | Device | Setup Guide | Status | Notes |
 |--------|------------|--------|-------|
 | **Photometrics Cameras** | [PVCAM Setup](troubleshooting/PVCAM_SETUP.md) | Active | Prime 95B, Prime BSI |
+| **Andor iStar / Shamrock** | [Andor SDK3 Guide](guides/driver-andor-sdk3.md) | Active | iStar sCMOS camera, Kymera spectrograph |
 | **Maitai Hardware Stack** | [Maitai Setup](MAITAI_SETUP.md) | Current | Multi-device system at maitai machine |
 | **Linux Comedi DAQ** | [Build Verification](BUILD_VERIFICATION.md) | Current | NI PCI-MIO-16XE-10 integration |
 | **Serial Devices** | [Hardware Drivers Guide](guides/hardware-drivers.md) | Current | Thorlabs, Newport, Spectra Physics |
+| **Dover Motion** | [Dover Motion API](reference/dover-motion-api.md) | Active | SmartStage via MotionSynergyAPI |
+| **Config-Driven Devices** | [Hardware Drivers Guide](guides/hardware-drivers.md#declarative-drivers-v2-schema) | Current | TOML-defined instruments (driver-generic) |
 | **Platform Notes** | [Platform Guide](troubleshooting/PLATFORM_NOTES.md) | Reference | OS-specific considerations |
 
 ### Troubleshooting & Reference
@@ -124,11 +127,15 @@ The workspace is organized into specialized crates. Each has its own detailed RE
 |-------|---------|--------|
 | **common** | Foundation types, parameters, error handling | [common README](../crates/common/README.md) |
 | **hardware** | Hardware abstraction layer and device registry | [hardware README](../crates/hardware/README.md) |
+| **drivers** | Metacrate aggregating all drivers with unified feature flags | [drivers Cargo.toml](../crates/drivers/Cargo.toml) |
+| **driver-generic** | Config-driven serial driver (define instruments via TOML) | [driver-generic Cargo.toml](../crates/driver-generic/Cargo.toml) |
 | **driver-pvcam** | Photometrics PVCAM camera driver | [driver-pvcam README](../crates/driver-pvcam/README.md) |
+| **driver-andor-sdk3** | Andor iStar camera and Shamrock spectrograph (SDK3) | [driver-andor-sdk3 Cargo.toml](../crates/driver-andor-sdk3/Cargo.toml) |
 | **driver-comedi** | Linux Comedi DAQ board driver | [driver-comedi README](../crates/driver-comedi/README.md) |
 | **driver-thorlabs** | Thorlabs ELL14 rotator driver | [driver-thorlabs README](../crates/driver-thorlabs/README.md) |
 | **driver-newport** | Newport ESP300 motion and 1830-C power meter | [driver-newport README](../crates/driver-newport/README.md) |
 | **driver-spectra-physics** | Spectra Physics MaiTai laser driver | [driver-spectra-physics README](../crates/driver-spectra-physics/README.md) |
+| **driver-dover-motion** | Dover Motion SmartStage driver (FFI) | [driver-dover-motion Cargo.toml](../crates/driver-dover-motion/Cargo.toml) |
 | **driver-mock** | Mock drivers for testing | [driver-mock README](../crates/driver-mock/README.md) |
 | **driver-red-pitaya** | Red Pitaya FPGA board support | [driver-red-pitaya README](../crates/driver-red-pitaya/README.md) |
 
@@ -140,20 +147,37 @@ The workspace is organized into specialized crates. Each has its own detailed RE
 | **pool** | High-performance object pool for frame handling | [pool README](../crates/pool/README.md) |
 | **protocol** | Protobuf definitions and gRPC interfaces | Embedded in core |
 | **plugin-api** | Native plugin FFI system (abi_stable) | Embedded in core |
+| **plugin-example** | Example plugin implementation | Embedded in core |
 
 ### User Interfaces & Servers
 
 | Crate | Purpose | README |
 |-------|---------|--------|
 | **server** | gRPC server with auth and streaming | Embedded in core |
+| **client** | gRPC client library for daemon communication | [client Cargo.toml](../crates/client/Cargo.toml) |
 | **ui** | Desktop GUI (egui + egui_dock) | [ui README](../crates/ui/README.md) |
 | **bin** | CLI and daemon entry points | Part of main README |
 
-### Integration
+### Domain Logic
 
 | Crate | Purpose | README |
 |-------|---------|--------|
-| **rust-daq** | Workspace facade and prelude | [rust-daq README](../crates/rust-daq/README.md) |
+| **daq-modules** | Experiment modules and plugin system | [daq-modules Cargo.toml](../crates/daq-modules/Cargo.toml) |
+
+### FFI Bindings
+
+| Crate | Purpose | README |
+|-------|---------|--------|
+| **andor-sdk3-sys** | Raw FFI bindings to Andor SDK3 | [andor-sdk3-sys Cargo.toml](../crates/andor-sdk3-sys/Cargo.toml) |
+| **comedi-sys** | Raw FFI bindings to Linux Comedi | [comedi-sys Cargo.toml](../crates/comedi-sys/Cargo.toml) |
+| **dover-motion-sys** | Raw FFI bindings to Dover MotionSynergyAPI | [dover-motion-sys Cargo.toml](../crates/dover-motion-sys/Cargo.toml) |
+| **pvcam-sys** | Raw FFI bindings to PVCAM (nested under driver-pvcam) | Embedded in driver-pvcam |
+
+### Testing
+
+| Crate | Purpose | README |
+|-------|---------|--------|
+| **integration-tests** | Cross-crate integration test suite | [integration-tests Cargo.toml](../crates/integration-tests/Cargo.toml) |
 
 ---
 
@@ -249,12 +273,15 @@ docs/
 
 crates/
 ├── common/README.md                 (Foundation types)
-├── hardware/README.md             (HAL and device registry)
-├── scripting/README.md            (Rhai scripting)
-├── pool/README.md                 (Object pool)
-├── ui/README.md                 (Desktop GUI)
-├── driver-*/README.md                 (Device drivers)
-└── rust-daq/README.md                 (Integration facade)
+├── hardware/README.md               (HAL and device registry)
+├── drivers/Cargo.toml               (Driver metacrate)
+├── driver-*/                        (Standalone driver crates)
+├── client/                          (gRPC client library)
+├── daq-modules/                     (Experiment modules)
+├── scripting/README.md              (Rhai scripting)
+├── pool/README.md                   (Object pool)
+├── ui/README.md                     (Desktop GUI)
+└── integration-tests/               (Cross-crate tests)
 ```
 
 ---
@@ -293,6 +320,6 @@ For more commands, see [README.md](../README.md).
 
 ---
 
-**Last Updated:** 2026-01-25
+**Last Updated:** 2026-02-06
 **Coverage:** All major documentation categories
 **Status:** Current

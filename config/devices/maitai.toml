@@ -148,8 +148,7 @@ transform = ["trim", "remove_suffix('nm')", "remove_suffix('NM')", "to_float"]
 [responses.shutter_state]
 transform = ["trim", "to_int"]
 
-# Power response: may include units like "3.00W", "100mW", "50%"
-# Strip units and parse numeric value
+# Power response: MaiTai returns bare numeric values (e.g., "3.00")
 [responses.power]
 transform = ["trim", "to_float"]
 

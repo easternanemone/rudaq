@@ -205,14 +205,16 @@ impl UniversalDriver {
                 .get(output_field)
                 .ok_or_else(|| anyhow!("Output field '{}' not found in response", output_field))?
                 .clone()
+        } else if let Some(value) = fields.get("value") {
+            value.clone()
+        } else if fields.len() == 1 {
+            fields
+                .values()
+                .next()
+                .cloned()
+                .unwrap_or(serde_json::Value::Null)
         } else {
-            fields.get("value").cloned().unwrap_or_else(|| {
-                fields
-                    .values()
-                    .next()
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null)
-            })
+            anyhow::bail!("output_field must be set when response contains multiple fields");
         };
 
         match &value {

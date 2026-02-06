@@ -419,9 +419,9 @@ error_message = "Ramp rate must be between 0.1 and 50 C/min"
 [capabilities.readable]
 read = { command = "get_temperature", output_field = "value" }
 
-# --- Settable trait (if implemented) ---
-# [capabilities.settable]
-# set = { command = "set_setpoint", input_param = "value", from_param = "setpoint" }
+# --- Settable trait: set() writes a temperature setpoint ---
+[capabilities.settable]
+set = { command = "set_setpoint", input_param = "value", from_param = "setpoint_celsius" }
 
 # ==============================================================================
 # SECTION 11: Initialization Sequence
