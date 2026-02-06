@@ -17,7 +17,7 @@ evalexpr = "11"
 thiserror.workspace = true
 toml.workspace = true
 futures.workspace = true
-tokio = { workspace = true, features = ["sync", "time", "macros", "io-util"] }
+tokio = { workspace = true, features = ["sync", "time", "macros", "io-util", "net"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "io-util", "sync"] }

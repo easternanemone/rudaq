@@ -1,11 +1,14 @@
 //! Transport abstraction for serial, TCP, and UDP communication.
 //!
-//! Provides [`MockTransport`] for testing. Real serial/TCP/UDP transports
-//! will be added in a future phase.
+//! Provides:
+//! - [`SerialTransport`] — real serial via `common::serial`
+//! - [`TcpTransport`] — real TCP via `tokio::net`
+//! - [`MockTransport`] — pre-programmed responses for testing
 
 use anyhow::Result;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 /// Transport trait abstracting the communication layer.
 ///
@@ -25,6 +28,109 @@ pub trait Transport: Send + Sync {
         self.receive(timeout).await
     }
 }
+
+// ---------------------------------------------------------------------------
+// SerialTransport
+// ---------------------------------------------------------------------------
+
+/// Real serial transport backed by `common::serial`.
+///
+/// Uses a `SharedPort` (buffered) for line-delimited protocols and appends
+/// an optional terminator (e.g., `\r\n`, `\n`) after each send.
+pub struct SerialTransport {
+    port: common::serial::SharedPort,
+    terminator: String,
+}
+
+impl SerialTransport {
+    /// Open a serial port and wrap it for use as a `Transport`.
+    pub async fn open(port_path: &str, baud_rate: u32, terminator: Option<&str>) -> Result<Self> {
+        let port = common::serial::open_serial_async(port_path, baud_rate, "Universal").await?;
+        let shared = common::serial::wrap_shared(port);
+        Ok(Self {
+            port: shared,
+            terminator: terminator.unwrap_or("").to_string(),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl Transport for SerialTransport {
+    async fn send(&self, data: &[u8]) -> Result<()> {
+        let mut guard = self.port.lock().await;
+        let writer = guard.get_mut();
+        writer.write_all(data).await?;
+        if !self.terminator.is_empty() {
+            writer.write_all(self.terminator.as_bytes()).await?;
+        }
+        writer.flush().await?;
+        Ok(())
+    }
+
+    async fn receive(&self, timeout: Duration) -> Result<String> {
+        let mut guard = self.port.lock().await;
+        let mut response = String::new();
+        tokio::time::timeout(timeout, guard.read_line(&mut response))
+            .await
+            .map_err(|_| anyhow::anyhow!("serial receive timed out"))??;
+        Ok(response.trim().to_string())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TcpTransport
+// ---------------------------------------------------------------------------
+
+/// Real TCP transport using `tokio::net::TcpStream`.
+///
+/// Wraps the stream in a `BufReader` for line-delimited reads. Disables
+/// Nagle's algorithm for low-latency command-response exchanges.
+pub struct TcpTransport {
+    stream: tokio::sync::Mutex<BufReader<tokio::net::TcpStream>>,
+}
+
+impl TcpTransport {
+    /// Connect to a TCP endpoint.
+    pub async fn connect(host: &str, port: u16, connect_timeout: Duration) -> Result<Self> {
+        let addr: std::net::SocketAddr = format!("{host}:{port}").parse()?;
+        let stream = tokio::time::timeout(connect_timeout, tokio::net::TcpStream::connect(addr))
+            .await
+            .map_err(|_| anyhow::anyhow!("TCP connect to {addr} timed out"))??;
+        stream.set_nodelay(true)?;
+        Ok(Self {
+            stream: tokio::sync::Mutex::new(BufReader::new(stream)),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl Transport for TcpTransport {
+    async fn send(&self, data: &[u8]) -> Result<()> {
+        let mut guard = self.stream.lock().await;
+        let writer = guard.get_mut();
+        writer.write_all(data).await?;
+        writer.flush().await?;
+        Ok(())
+    }
+
+    async fn receive(&self, timeout: Duration) -> Result<String> {
+        let mut guard = self.stream.lock().await;
+        // Discard stale buffered data before reading fresh response
+        let stale = guard.buffer().len();
+        if stale > 0 {
+            guard.consume(stale);
+        }
+        let mut response = String::new();
+        tokio::time::timeout(timeout, guard.read_line(&mut response))
+            .await
+            .map_err(|_| anyhow::anyhow!("TCP receive timed out"))??;
+        Ok(response.trim().to_string())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MockTransport
+// ---------------------------------------------------------------------------
 
 /// Shared inner state for `MockTransport`.
 ///

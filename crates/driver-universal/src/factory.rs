@@ -28,6 +28,9 @@ pub struct InstanceConfig {
     pub address: String,
     /// Optional baud rate override.
     pub baud_rate: Option<u32>,
+    /// Use a mock transport instead of real hardware (for testing).
+    #[serde(default)]
+    pub mock: bool,
 }
 
 fn default_address() -> String {
@@ -142,12 +145,49 @@ impl DriverFactory for UniversalDriverFactory {
         Box::pin(async move {
             let instance: InstanceConfig = config.try_into()?;
 
-            // Create a MockTransport for now.
-            // Real serial/TCP/UDP transports will be wired in a future phase
-            // when the daemon integration is ready. The driver is fully functional
-            // with any Transport implementation.
-            let transport: Box<dyn crate::transport::Transport> =
-                Box::new(crate::transport::MockTransport::new(vec![]));
+            use crate::config::validated::ConnectionConfig;
+            let transport: Box<dyn crate::transport::Transport> = if instance.mock {
+                Box::new(crate::transport::MockTransport::new(vec![]))
+            } else {
+                match &manifest.connection {
+                    ConnectionConfig::Serial {
+                        baud_rate,
+                        terminator,
+                        ..
+                    } => {
+                        let port_path = instance.port.as_deref().ok_or_else(|| {
+                            anyhow!("serial device requires 'port' in instance config")
+                        })?;
+                        let baud = instance.baud_rate.unwrap_or_else(|| baud_rate.value());
+                        Box::new(
+                            crate::transport::SerialTransport::open(
+                                port_path,
+                                baud,
+                                terminator.as_deref(),
+                            )
+                            .await?,
+                        )
+                    }
+                    ConnectionConfig::Tcp {
+                        host,
+                        port,
+                        timeout,
+                    } => {
+                        let host = instance.host.as_deref().unwrap_or(host.as_str());
+                        Box::new(
+                            crate::transport::TcpTransport::connect(
+                                host,
+                                *port,
+                                timeout.as_duration(),
+                            )
+                            .await?,
+                        )
+                    }
+                    ConnectionConfig::Udp { .. } => {
+                        anyhow::bail!("UDP transport not yet implemented")
+                    }
+                }
+            };
 
             let driver = UniversalDriver::new(manifest.clone(), transport, &instance.address);
 
@@ -355,11 +395,47 @@ read = { command = "read" }
         let config = toml::toml! {
             port = "/dev/ttyUSB0"
             address = "1"
+            mock = true
         };
 
         let components = factory.build(config.into()).await.unwrap();
         assert!(components.readable.is_some());
         assert!(components.movable.is_none());
+    }
+
+    #[tokio::test]
+    async fn factory_build_serial_requires_port() {
+        let factory = UniversalDriverFactory::from_toml_str(
+            r#"
+schema_version = 3
+
+[device]
+name = "Test Device"
+capabilities = ["Readable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.read]
+template = "READ?"
+response_type = "float"
+
+[capabilities.readable]
+read = { command = "read" }
+"#,
+        )
+        .unwrap();
+
+        // No port and not mock — should fail with clear error
+        let config = toml::toml! {
+            address = "1"
+        };
+
+        let result = factory.build(config.into()).await;
+        assert!(result.is_err());
+        let err = result.err().unwrap().to_string();
+        assert!(err.contains("port"), "expected 'port' in error: {err}");
     }
 
     #[test]
