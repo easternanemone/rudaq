@@ -13,6 +13,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
+use crate::device_ext::DeviceInfoExt;
 use crate::widgets::{offline_notice, MetadataEditor, OfflineContext};
 use client::DaqClient;
 use protocol::daq::Document;
@@ -956,7 +957,7 @@ impl ScanBuilderPanel {
 
     /// Render the actuator (movable devices) selection section
     fn render_actuator_section(&mut self, ui: &mut egui::Ui) {
-        let actuators: Vec<_> = self.devices.iter().filter(|d| d.is_movable).collect();
+        let actuators: Vec<_> = self.devices.iter().filter(|d| d.is_movable()).collect();
 
         ui.group(|ui| {
             ui.heading("Actuators");
@@ -1077,7 +1078,7 @@ impl ScanBuilderPanel {
         let detectors: Vec<_> = self
             .devices
             .iter()
-            .filter(|d| d.is_readable || d.is_frame_producer)
+            .filter(|d| d.is_readable() || d.is_frame_producer())
             .collect();
 
         ui.group(|ui| {
@@ -1094,7 +1095,7 @@ impl ScanBuilderPanel {
             // Multi-select checkboxes for detectors
             for device in &detectors {
                 let mut is_selected = self.selected_detectors.contains(&device.id);
-                let device_type = if device.is_frame_producer {
+                let device_type = if device.is_frame_producer() {
                     "Camera"
                 } else {
                     "Sensor"

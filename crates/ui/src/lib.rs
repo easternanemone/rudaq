@@ -12,6 +12,9 @@ pub mod connection_state_ext;
 pub use connection_state_ext::ConnectionStateExt;
 
 #[cfg(feature = "standalone")]
+pub(crate) mod device_ext;
+
+#[cfg(feature = "standalone")]
 pub mod app;
 #[cfg(feature = "standalone")]
 pub mod export;

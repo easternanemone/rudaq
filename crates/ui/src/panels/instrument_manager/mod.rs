@@ -39,6 +39,7 @@ use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
+use crate::device_ext::DeviceInfoExt;
 use crate::panels::ComediPanel;
 use crate::widgets::{
     offline_notice, DeviceControlWidget, MaiTaiControlPanel, OfflineContext,
@@ -838,13 +839,13 @@ impl InstrumentManagerPanel {
             }
 
             // Capability badges
-            if device.is_movable {
+            if device.is_movable() {
                 ui.label("🔄");
             }
-            if device.is_readable {
+            if device.is_readable() {
                 ui.label("📖");
             }
-            if device.is_frame_producer {
+            if device.is_frame_producer() {
                 ui.label("📷");
             }
 
@@ -887,13 +888,13 @@ impl InstrumentManagerPanel {
                 // Capabilities
                 ui.separator();
                 ui.label("Capabilities:");
-                if device.is_movable {
+                if device.is_movable() {
                     ui.label("• Movable");
                 }
-                if device.is_readable {
+                if device.is_readable() {
                     ui.label("• Readable");
                 }
-                if device.is_frame_producer {
+                if device.is_frame_producer() {
                     ui.label("• Frame Producer");
                 }
 
@@ -1457,7 +1458,7 @@ impl InstrumentManagerPanel {
         // Check for MaiTai laser
         if driver_lower.contains("maitai")
             || driver_lower.contains("mai_tai")
-            || (device.is_wavelength_tunable && device.is_emission_controllable)
+            || (device.is_wavelength_tunable() && device.is_emission_controllable())
         {
             let panel = self.maitai_panels.entry(device_id.clone()).or_default();
             // Use push_id to avoid widget ID collisions with docked panels
@@ -1485,7 +1486,7 @@ impl InstrumentManagerPanel {
         // Check for power meter
         if driver_lower.contains("1830")
             || driver_lower.contains("power_meter")
-            || (device.is_readable && !device.is_movable && !device.is_frame_producer)
+            || (device.is_readable() && !device.is_movable() && !device.is_frame_producer())
         {
             let panel = self
                 .power_meter_panels
@@ -1517,7 +1518,7 @@ impl InstrumentManagerPanel {
         }
 
         // Check for ESP300 stage or other movable devices
-        if device.is_movable {
+        if device.is_movable() {
             let panel = self.stage_panels.entry(device_id.clone()).or_default();
             // Use push_id to avoid widget ID collisions with docked panels
             ui.push_id(("instr_mgr", &device_id), |ui| {
@@ -1564,19 +1565,19 @@ impl InstrumentManagerPanel {
         let mut actions = Vec::new();
 
         // Show appropriate controls based on device capabilities
-        if device.is_movable {
+        if device.is_movable() {
             if let Some(action) = self.render_motion_controls(ui, &device_id, state.as_ref()) {
                 actions.push(action);
             }
         }
 
-        if device.is_readable {
+        if device.is_readable() {
             if let Some(action) = self.render_read_controls(ui, &device_id) {
                 actions.push(action);
             }
         }
 
-        if device.is_frame_producer {
+        if device.is_frame_producer() {
             if let Some(action) = self.render_camera_controls(ui, &device_id, state.as_ref()) {
                 actions.push(action);
             }
@@ -1636,7 +1637,7 @@ impl InstrumentManagerPanel {
 
         // Camera controls (exposure, streaming)
         let mut actions = Vec::new();
-        if device.is_frame_producer {
+        if device.is_frame_producer() {
             if let Some(action) = self.render_camera_controls(ui, &device_id, state.as_ref()) {
                 actions.push(action);
             }

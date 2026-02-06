@@ -2790,17 +2790,19 @@ fn device_info_to_proto(info: &hardware::registry::DeviceInfo) -> DeviceInfo {
         &info.capabilities,
     );
 
+    #[allow(deprecated)]
     DeviceInfo {
         id: info.id.clone(),
         name: info.name.clone(),
         driver_type: info.driver_type.clone(),
         category: category as i32,
+        // Deprecated booleans - kept populated for backward compatibility
+        // Canonical source is the `capabilities` repeated string field below
         is_movable: info.capabilities.contains(&Capability::Movable),
         is_readable: info.capabilities.contains(&Capability::Readable),
         is_triggerable: info.capabilities.contains(&Capability::Triggerable),
         is_frame_producer: info.capabilities.contains(&Capability::FrameProducer),
         is_exposure_controllable: info.capabilities.contains(&Capability::ExposureControl),
-        // Laser control capabilities (bd-pwjo)
         is_shutter_controllable: info.capabilities.contains(&Capability::ShutterControl),
         is_wavelength_tunable: info.capabilities.contains(&Capability::WavelengthTunable),
         is_emission_controllable: info.capabilities.contains(&Capability::EmissionControl),

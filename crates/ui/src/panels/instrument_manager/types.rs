@@ -4,6 +4,7 @@
 //! and icon methods. It mirrors `common::capabilities::DeviceCategory` but adds
 //! GUI presentation logic that depends on `protocol::daq::DeviceInfo`.
 
+use crate::device_ext::DeviceInfoExt;
 use protocol::daq::DeviceInfo;
 
 /// Device category for grouping in the tree view.
@@ -47,16 +48,16 @@ impl DeviceCategory {
     /// Infer category from device capabilities
     pub fn from_device_info(info: &DeviceInfo) -> Self {
         // Priority: Laser > Camera > Stage > PowerMeter > Detector > Other
-        if info.is_emission_controllable
-            || info.is_shutter_controllable
-            || info.is_wavelength_tunable
+        if info.is_emission_controllable()
+            || info.is_shutter_controllable()
+            || info.is_wavelength_tunable()
         {
             Self::Laser
-        } else if info.is_frame_producer {
+        } else if info.is_frame_producer() {
             Self::Camera
-        } else if info.is_movable {
+        } else if info.is_movable() {
             Self::Stage
-        } else if info.is_readable {
+        } else if info.is_readable() {
             // Could be detector or power meter - check driver name
             if info.driver_type.to_lowercase().contains("power") {
                 Self::PowerMeter

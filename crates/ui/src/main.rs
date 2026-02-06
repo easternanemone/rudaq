@@ -22,6 +22,8 @@ mod connection;
 mod connection_state_ext;
 mod daemon_launcher;
 #[cfg(feature = "standalone")]
+mod device_ext;
+#[cfg(feature = "standalone")]
 mod export;
 #[cfg(feature = "standalone")]
 mod graph;

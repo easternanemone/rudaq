@@ -95,11 +95,21 @@ mod rerun_app {
         pub id: String,
         pub name: String,
         pub driver: String,
-        pub is_movable: bool,
-        pub is_readable: bool,
-        pub is_frame_producer: bool,
+        pub capabilities: Vec<String>,
         pub position: Option<f64>,
         pub reading: Option<f64>,
+    }
+
+    impl DeviceInfo {
+        pub fn is_movable(&self) -> bool {
+            self.capabilities.iter().any(|c| c == "movable")
+        }
+        pub fn is_readable(&self) -> bool {
+            self.capabilities.iter().any(|c| c == "readable")
+        }
+        pub fn is_frame_producer(&self) -> bool {
+            self.capabilities.iter().any(|c| c == "frame_producer")
+        }
     }
 
     impl Default for DaqControlState {
@@ -278,9 +288,7 @@ mod rerun_app {
                                 id: d.id,
                                 name: d.name,
                                 driver: d.driver_type,
-                                is_movable: d.is_movable,
-                                is_readable: d.is_readable,
-                                is_frame_producer: d.is_frame_producer,
+                                capabilities: d.capabilities.clone(),
                                 position: state.as_ref().and_then(|s| s.position),
                                 reading: state.as_ref().and_then(|s| s.last_reading),
                             });
@@ -319,7 +327,7 @@ mod rerun_app {
                                 }
 
                                 ui.horizontal(|ui| {
-                                    if device.is_movable {
+                                    if device.is_movable() {
                                         ui.add(
                                             egui::DragValue::new(&mut self.daq_state.move_target)
                                                 .speed(0.1),
@@ -342,12 +350,12 @@ mod rerun_app {
                                             }
                                         }
                                     }
-                                    if device.is_readable {
+                                    if device.is_readable() {
                                         if ui.small_button("📖").clicked() {
                                             self.read_device(&device.id);
                                         }
                                     }
-                                    if device.is_frame_producer {
+                                    if device.is_frame_producer() {
                                         if ui.small_button("▶ Stream 10").clicked() {
                                             self.start_stream(&device.id, Some(10));
                                         }
