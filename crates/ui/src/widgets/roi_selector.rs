@@ -495,6 +495,7 @@ impl RoiSelector {
     }
 
     /// Delete selected ROI
+    #[allow(dead_code)]
     pub fn delete_selected(&mut self) {
         if let Some(idx) = self.selected_roi {
             if idx < self.rois.len() {
@@ -1043,6 +1044,7 @@ impl RoiSelector {
     }
 
     /// Export ROI coordinates
+    #[allow(dead_code)]
     pub fn export_coordinates(&self) -> String {
         let mut output = String::new();
         for roi in &self.rois {

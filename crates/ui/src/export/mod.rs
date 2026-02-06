@@ -19,6 +19,7 @@ use std::io::{self, Write};
 
 /// CSV delimiter options
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum CsvDelimiter {
     Comma,
     Tab,
@@ -26,6 +27,7 @@ pub enum CsvDelimiter {
 }
 
 impl CsvDelimiter {
+    #[allow(dead_code)]
     pub fn as_byte(&self) -> u8 {
         match self {
             CsvDelimiter::Comma => b',',

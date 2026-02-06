@@ -1,5 +1,6 @@
 //! Node graph editor module for experiment design.
 
+#[allow(dead_code)]
 pub mod adaptive;
 pub mod codegen;
 pub mod commands;

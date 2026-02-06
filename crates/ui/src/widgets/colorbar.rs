@@ -12,6 +12,7 @@ use eframe::egui::{self, StrokeKind};
 
 /// Orientation of the colorbar
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum ColorbarOrientation {
     Vertical,
     Horizontal,
@@ -36,6 +37,7 @@ pub struct Colorbar {
     /// Unit string (e.g., "counts", "%", "AU")
     pub units: String,
     /// Use logarithmic scale for value axis
+    #[allow(dead_code)]
     pub log_scale: bool,
     /// Currently dragging the midpoint handle
     dragging: bool,
@@ -68,6 +70,7 @@ impl Colorbar {
     }
 
     /// Set data value range
+    #[allow(dead_code)]
     pub fn value_range(mut self, min: f64, max: f64) -> Self {
         self.min_value = min;
         self.max_value = max;
@@ -92,6 +95,7 @@ impl Colorbar {
     /// - midpoint < 0.5 → gamma > 1.0 (darkens midtones)
     /// - midpoint > 0.5 → gamma < 1.0 (brightens midtones)
     #[inline]
+    #[allow(dead_code)]
     pub fn apply_adjustment(&self, value: f32) -> f32 {
         if self.midpoint == 0.5 {
             // Fast path for linear mapping
@@ -116,18 +120,10 @@ impl Colorbar {
         colormap: &impl ColormapTrait,
         size: egui::Vec2,
     ) -> bool {
-        let mut changed = false;
-
         match self.orientation {
-            ColorbarOrientation::Vertical => {
-                changed = self.show_vertical(ui, colormap, size);
-            }
-            ColorbarOrientation::Horizontal => {
-                changed = self.show_horizontal(ui, colormap, size);
-            }
+            ColorbarOrientation::Vertical => self.show_vertical(ui, colormap, size),
+            ColorbarOrientation::Horizontal => self.show_horizontal(ui, colormap, size),
         }
-
-        changed
     }
 
     /// Show vertical colorbar

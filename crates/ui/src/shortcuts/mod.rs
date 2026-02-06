@@ -10,7 +10,6 @@
 mod action;
 mod cheat_sheet;
 mod manager;
-mod settings;
 
 pub use action::{ShortcutAction, ShortcutContext};
 pub use cheat_sheet::CheatSheetPanel;

@@ -192,7 +192,7 @@ impl DocumentWriter {
                                         let shape = ds.shape();
                                         let current_len = shape[0];
                                         ds.resize((current_len + 1,))?;
-                                        ds.write_slice(&[*value], (current_len..))?;
+                                        ds.write_slice(&[*value], current_len..)?;
                                     }
                                 }
                             }
@@ -240,20 +240,20 @@ impl DocumentWriter {
                                 ds.resize((current_len + 1,))?;
                                 ds.write_slice(
                                     &[event.time_ns as f64 / 1_000_000_000.0],
-                                    (current_len..),
+                                    current_len..,
                                 )?;
                             } else {
                                 // Create if missing (lazy)
                                 let ds = group
                                     .new_dataset::<f64>()
                                     .chunk(1024)
-                                    .shape((0..))
+                                    .shape(0..)
                                     .create("timestamps")?;
                                 let shape = ds.shape();
                                 ds.resize((shape[0] + 1,))?;
                                 ds.write_slice(
                                     &[event.time_ns as f64 / 1_000_000_000.0],
-                                    (shape[0]..),
+                                    shape[0]..,
                                 )?;
                             }
                         }

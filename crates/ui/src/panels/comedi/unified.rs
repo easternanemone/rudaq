@@ -2,7 +2,6 @@
 //!
 //! Combines all subsystem panels into a tabbed interface with device status overview.
 
-use crate::connection_state_ext::ConnectionStateExt;
 use eframe::egui::{self, Color32, RichText, Ui};
 use tokio::runtime::Runtime;
 

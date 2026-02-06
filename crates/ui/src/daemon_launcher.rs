@@ -224,7 +224,6 @@ impl DaemonLauncher {
             // Try graceful termination first (SIGTERM on Unix)
             #[cfg(unix)]
             {
-                use std::os::unix::process::CommandExt;
                 if let Some(pid) = child.id().try_into().ok() {
                     // Send SIGTERM (signal 15)
                     unsafe {
