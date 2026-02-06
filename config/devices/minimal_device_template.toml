@@ -9,18 +9,20 @@
 # For a comprehensive example with ALL available options, see:
 #   config/devices/sample_temperature_controller.toml
 
+schema_version = 3
+
 # ==============================================================================
 # REQUIRED: Device Identity
 # ==============================================================================
 
 [device]
 name = "My Device"                    # Human-readable name (REQUIRED)
-protocol = "my_protocol"              # Unique protocol identifier (REQUIRED)
 
 # Optional identity fields (uncomment as needed):
 # description = "Device description"
 # manufacturer = "Manufacturer Name"
 # model = "Model Number"
+# protocol = "my_protocol"
 # category = "other"                  # stage, sensor, source, detector, modulator, analyzer, data_acquisition, other
 # capabilities = ["Readable"]         # Movable, Readable, Settable, ShutterControl, WavelengthTunable, etc.
 
@@ -29,10 +31,10 @@ protocol = "my_protocol"              # Unique protocol identifier (REQUIRED)
 # ==============================================================================
 
 [connection]
-type = "serial"                       # REQUIRED: serial, rs485, tcp, udp
+type = "serial"                       # REQUIRED: serial, tcp, udp
+baud_rate = 9600
 
 # All other settings have sensible defaults:
-# baud_rate = 9600
 # data_bits = 8
 # parity = "none"
 # stop_bits = 1
@@ -50,9 +52,9 @@ type = "serial"                       # REQUIRED: serial, rs485, tcp, udp
 # template = "*IDN?"
 # expects_response = true
 
-# Command with parameter:
+# Command with MiniJinja parameter:
 # [commands.set_value]
-# template = "SET ${value}"
+# template = "SET {{ value }}"
 # parameters = { value = "float" }
 # expects_response = false
 
@@ -60,11 +62,17 @@ type = "serial"                       # REQUIRED: serial, rs485, tcp, udp
 # OPTIONAL: Add response parsing as needed
 # ==============================================================================
 
-# Simple response with one value:
+# Simple response with transform pipeline:
 # [responses.reading]
-# pattern = "^(?P<value>[+-]?\\d+\\.?\\d*)$"
-# [responses.reading.fields.value]
-# type = "float"
+# transform = ["trim", "to_float"]
+
+# Response with regex:
+# [responses.reading]
+# regex = "^(?P<value>[+-]?\\d+\\.?\\d*)$"
+
+# Response with format string:
+# [responses.status]
+# format = "{addr:1}GS{code:hex2}"
 
 # ==============================================================================
 # That's it! Everything else is optional.
@@ -76,7 +84,7 @@ type = "serial"                       # REQUIRED: serial, rs485, tcp, udp
 # [conversions.*]      - Unit conversion formulas (evalexpr syntax)
 # [error_codes.*]      - Error code mapping with recovery actions
 # [validation.*]       - Parameter validation rules
-# [trait_mapping.*]    - Map trait methods to commands
+# [capabilities.*]     - Map trait methods to commands (v3 syntax)
 # [[init_sequence]]    - Commands to run on connect
 # [scripts.*]          - Rhai scripts for complex operations
 # [ui]                 - Control panel configuration

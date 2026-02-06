@@ -14,6 +14,8 @@
 # - Response terminator: LF (\n)
 # - Response format: "820nm" for wavelength, "0"/"1" for shutter
 
+schema_version = 3
+
 [device]
 name = "Spectra-Physics MaiTai"
 description = "Tunable Ti:Sapphire laser (690-1040 nm)"
@@ -80,7 +82,7 @@ description = "Laser emission state"
 # --- Wavelength Commands ---
 
 [commands.set_wavelength]
-template = "WAVELENGTH:${wavelength}"
+template = "WAVELENGTH:{{ wavelength }}"
 description = "Set output wavelength (nm)"
 parameters = { wavelength = "float" }
 expects_response = false
@@ -138,33 +140,22 @@ response = "identity"
 # ==============================================================================
 
 # Wavelength response: "820nm" or "820NM"
+# Strip suffix and convert to float
 [responses.wavelength]
-pattern = "^\\s*(?P<wavelength>\\d+\\.?\\d*)[nN][mM]?\\s*$"
-
-[responses.wavelength.fields.wavelength]
-type = "float"
+transform = ["trim", "remove_suffix('nm')", "remove_suffix('NM')", "to_float"]
 
 # Shutter state response: "0" or "1"
 [responses.shutter_state]
-pattern = "^\\s*(?P<state>[01])\\s*$"
-
-[responses.shutter_state.fields.state]
-type = "int"
+transform = ["trim", "to_int"]
 
 # Power response: may include units like "3.00W", "100mW", "50%"
 # Strip units and parse numeric value
 [responses.power]
-pattern = "^\\s*(?P<value>\\d+\\.?\\d*)[mM]?[wW%]?\\s*$"
-
-[responses.power.fields.value]
-type = "float"
+transform = ["trim", "to_float"]
 
 # Identity response: free-form string
 [responses.identity]
-pattern = "^(?P<identity>.+)$"
-
-[responses.identity.fields.identity]
-type = "string"
+transform = ["trim"]
 
 # ==============================================================================
 # Error Code Mapping
@@ -176,39 +167,28 @@ description = "General error"
 recoverable = true
 
 # ==============================================================================
-# Trait Mapping: Readable
+# Capability Mapping: Readable
 # ==============================================================================
 
-[trait_mapping.Readable.read]
-command = "get_power"
-output_field = "value"
+[capabilities.readable]
+read = { command = "get_power", output_field = "value" }
 
 # ==============================================================================
-# Trait Mapping: WavelengthTunable
+# Capability Mapping: WavelengthTunable
 # ==============================================================================
 
-[trait_mapping.WavelengthTunable.set_wavelength]
-command = "set_wavelength"
-input_param = "wavelength"
-from_param = "wavelength"
-
-[trait_mapping.WavelengthTunable.get_wavelength]
-command = "get_wavelength"
-output_field = "wavelength"
+[capabilities.wavelength_tunable]
+set_wavelength = { command = "set_wavelength", input_param = "wavelength", from_param = "wavelength" }
+get_wavelength = { command = "get_wavelength", output_field = "wavelength" }
 
 # ==============================================================================
-# Trait Mapping: ShutterControl
+# Capability Mapping: ShutterControl
 # ==============================================================================
 
-[trait_mapping.ShutterControl.open_shutter]
-command = "open_shutter"
-
-[trait_mapping.ShutterControl.close_shutter]
-command = "close_shutter"
-
-[trait_mapping.ShutterControl.is_shutter_open]
-command = "get_shutter"
-output_field = "state"
+[capabilities.shutter_control]
+open = { command = "open_shutter" }
+close = { command = "close_shutter" }
+is_open = { command = "get_shutter", output_field = "state" }
 
 # ==============================================================================
 # Initialization Sequence
@@ -275,5 +255,5 @@ compact = true
 
 [ui.status_display]
 summary_params = ["wavelength_nm", "shutter_open"]
-summary_format = "${wavelength_nm} nm | Shutter: ${shutter_open}"
+summary_format = "{{ wavelength_nm }} nm | Shutter: {{ shutter_open }}"
 show_connection = true

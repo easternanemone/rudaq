@@ -103,6 +103,7 @@ fn validate_connection(
             baud_rate,
             timeout_ms,
             terminator,
+            ..
         } => {
             let br = match BaudRate::new(*baud_rate) {
                 Ok(br) => br,
@@ -237,8 +238,8 @@ fn validate_responses(
                     )));
                 }
             }
-        } else if let Some(ref regex_str) = resp.regex {
-            // Tier 3: Regex
+        } else if let Some(regex_str) = resp.regex.as_ref().or(resp.pattern.as_ref()) {
+            // Tier 3: Regex (supports both `regex` and legacy `pattern` fields)
             match regex::Regex::new(regex_str) {
                 Ok(regex) => {
                     responses.insert(

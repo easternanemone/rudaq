@@ -1,5 +1,11 @@
 # Example: Newport ESP301 using inheritance
 # This inherits common Newport motion controller settings and only specifies differences
+#
+# Note: The `extends` field indicates this config would be merged with a base
+# config at load time. The connection section below provides defaults that
+# would normally come from the base config.
+
+schema_version = 3
 
 extends = "bases/newport_motion_base.toml"
 
@@ -7,6 +13,13 @@ extends = "bases/newport_motion_base.toml"
 name = "Newport ESP301"
 model = "ESP301"
 description = "Newport ESP301 3-axis motion controller"
+capabilities = ["Movable"]
+
+# Default connection (would be inherited from base in practice)
+[connection]
+type = "serial"
+baud_rate = 19200
+timeout_ms = 5000
 
 # Override home command (ESP301 uses OR1 instead of base OR0)
 [commands.home]
@@ -14,5 +27,5 @@ template = "OR{{ axis }}"
 description = "Home the axis"
 expects_response = false
 
-[trait_mapping.Movable.home]
-command = "home"
+[capabilities.movable]
+# NOTE: Other movable methods inherited from base config

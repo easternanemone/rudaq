@@ -33,6 +33,50 @@ pub struct RawManifest {
     /// Capability-to-command mappings.
     #[serde(default)]
     pub capabilities: RawCapabilityConfig,
+
+    /// Device parameters (type, default, range, etc.).
+    #[serde(default)]
+    pub parameters: HashMap<String, toml::Value>,
+
+    /// Error code definitions.
+    #[serde(default)]
+    pub error_codes: HashMap<String, toml::Value>,
+
+    /// Initialization sequence (commands to run on connect).
+    #[serde(default)]
+    pub init_sequence: Vec<toml::Value>,
+
+    /// Default retry configuration.
+    #[serde(default)]
+    pub default_retry: Option<toml::Value>,
+
+    /// UI configuration for control panels.
+    #[serde(default)]
+    pub ui: Option<toml::Value>,
+
+    /// Inherits from another config file.
+    #[serde(default)]
+    pub extends: Option<String>,
+
+    /// Validation rules for parameters.
+    #[serde(default)]
+    pub validation: Option<toml::Value>,
+
+    /// Rhai scripts for complex operations (v1 legacy).
+    #[serde(default)]
+    pub scripts: Option<toml::Value>,
+
+    /// Binary command definitions (Modbus, etc.).
+    #[serde(default)]
+    pub binary_commands: Option<toml::Value>,
+
+    /// Binary response definitions (Modbus, etc.).
+    #[serde(default)]
+    pub binary_responses: Option<toml::Value>,
+
+    /// Legacy v1 trait mappings (accepted but ignored in v3; use `capabilities`).
+    #[serde(default)]
+    pub trait_mapping: Option<toml::Value>,
 }
 
 /// Device metadata section.
@@ -44,6 +88,26 @@ pub struct RawDeviceConfig {
     /// List of capabilities this device supports.
     #[serde(default)]
     pub capabilities: Vec<String>,
+
+    /// Human-readable description.
+    #[serde(default)]
+    pub description: Option<String>,
+
+    /// Device manufacturer.
+    #[serde(default)]
+    pub manufacturer: Option<String>,
+
+    /// Device model number.
+    #[serde(default)]
+    pub model: Option<String>,
+
+    /// Protocol identifier.
+    #[serde(default)]
+    pub protocol: Option<String>,
+
+    /// Device category (stage, sensor, source, etc.).
+    #[serde(default)]
+    pub category: Option<String>,
 }
 
 /// Connection configuration, tagged by type.
@@ -57,6 +121,27 @@ pub enum RawConnectionConfig {
         /// Optional line terminator (e.g. "\n", "\r\n").
         #[serde(default)]
         terminator: Option<String>,
+        /// Data bits (5-8).
+        #[serde(default)]
+        data_bits: Option<u8>,
+        /// Parity: none, odd, even.
+        #[serde(default)]
+        parity: Option<String>,
+        /// Stop bits: 1 or 2.
+        #[serde(default)]
+        stop_bits: Option<u8>,
+        /// Flow control: none, software, hardware.
+        #[serde(default)]
+        flow_control: Option<String>,
+        /// Separate TX terminator.
+        #[serde(default)]
+        terminator_tx: Option<String>,
+        /// Separate RX terminator.
+        #[serde(default)]
+        terminator_rx: Option<String>,
+        /// RS-485 bus configuration.
+        #[serde(default)]
+        bus: Option<toml::Value>,
     },
     Tcp {
         host: String,
@@ -97,6 +182,26 @@ pub struct RawCommandConfig {
     /// Whether this command expects a response at all. Default true.
     #[serde(default = "default_true")]
     pub expects_response: bool,
+
+    /// Human-readable description.
+    #[serde(default)]
+    pub description: Option<String>,
+
+    /// Per-command timeout in milliseconds.
+    #[serde(default)]
+    pub timeout_ms: Option<u32>,
+
+    /// Per-command retry configuration.
+    #[serde(default)]
+    pub retry: Option<toml::Value>,
+
+    /// Delay after command execution (ms).
+    #[serde(default)]
+    pub delay_ms: Option<u32>,
+
+    /// Whether this is a query command (v2 legacy).
+    #[serde(default)]
+    pub query: Option<bool>,
 }
 
 fn default_true() -> bool {
@@ -114,9 +219,17 @@ pub struct RawResponseConfig {
     #[serde(default)]
     pub transform: Option<Vec<String>>,
 
-    /// Tier 3: Regex with named capture groups.
+    /// Tier 3: Regex with named capture groups (v3) or `pattern` (v1 legacy).
     #[serde(default)]
     pub regex: Option<String>,
+
+    /// Legacy v1 regex pattern (alias for regex).
+    #[serde(default)]
+    pub pattern: Option<String>,
+
+    /// Field type declarations for regex captures (v1 legacy).
+    #[serde(default)]
+    pub fields: Option<HashMap<String, toml::Value>>,
 }
 
 /// A conversion formula definition.
@@ -378,5 +491,116 @@ baud_rate = 9600
             }
             _ => panic!("expected serial connection"),
         }
+    }
+
+    /// Returns the path to the config/devices directory relative to the crate root.
+    fn config_devices_dir() -> std::path::PathBuf {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        manifest_dir.join("../../config/devices")
+    }
+
+    #[test]
+    fn load_all_config_files_as_raw_manifest() {
+        let dir = config_devices_dir();
+        assert!(dir.exists(), "config/devices dir should exist at {:?}", dir);
+
+        let mut count = 0;
+        let mut failures: Vec<String> = Vec::new();
+
+        for entry in std::fs::read_dir(&dir).expect("should read config/devices") {
+            let entry = entry.expect("should read dir entry");
+            let path = entry.path();
+
+            // Skip directories and non-TOML files
+            if path.is_dir() || path.extension().and_then(|e| e.to_str()) != Some("toml") {
+                continue;
+            }
+
+            let contents = std::fs::read_to_string(&path).expect("should read TOML file");
+
+            match toml::from_str::<RawManifest>(&contents) {
+                Ok(manifest) => {
+                    assert_eq!(
+                        manifest.schema_version,
+                        3,
+                        "{}: expected schema_version=3, got {}",
+                        path.display(),
+                        manifest.schema_version
+                    );
+                    count += 1;
+                }
+                Err(e) => {
+                    failures.push(format!("{}: {e}", path.display()));
+                }
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "Config files failed to parse as RawManifest:\n{}",
+            failures.join("\n")
+        );
+
+        // We expect at least 9 config files
+        assert!(
+            count >= 9,
+            "expected at least 9 config files, found {count}"
+        );
+    }
+
+    #[test]
+    fn load_ell14_toml_from_disk() {
+        let path = config_devices_dir().join("ell14.toml");
+        let contents = std::fs::read_to_string(&path).expect("should read ell14.toml");
+        let raw: RawManifest = toml::from_str(&contents).expect("should parse ell14.toml");
+        assert_eq!(raw.schema_version, 3);
+        assert_eq!(raw.device.name, "Thorlabs ELL14");
+        assert!(raw.capabilities.movable.is_some());
+        assert!(!raw.commands.is_empty());
+        assert!(!raw.responses.is_empty());
+        assert!(!raw.conversions.is_empty());
+    }
+
+    #[test]
+    fn load_maitai_toml_from_disk() {
+        let path = config_devices_dir().join("maitai.toml");
+        let contents = std::fs::read_to_string(&path).expect("should read maitai.toml");
+        let raw: RawManifest = toml::from_str(&contents).expect("should parse maitai.toml");
+        assert_eq!(raw.schema_version, 3);
+        assert_eq!(raw.device.name, "Spectra-Physics MaiTai");
+        assert!(raw.capabilities.readable.is_some());
+        assert!(raw.capabilities.wavelength_tunable.is_some());
+        assert!(raw.capabilities.shutter_control.is_some());
+    }
+
+    #[test]
+    fn load_esp300_toml_from_disk() {
+        let path = config_devices_dir().join("esp300.toml");
+        let contents = std::fs::read_to_string(&path).expect("should read esp300.toml");
+        let raw: RawManifest = toml::from_str(&contents).expect("should parse esp300.toml");
+        assert_eq!(raw.schema_version, 3);
+        assert_eq!(raw.device.name, "Newport ESP300");
+        assert!(raw.capabilities.movable.is_some());
+    }
+
+    #[test]
+    fn load_newport_1830c_toml_from_disk() {
+        let path = config_devices_dir().join("newport_1830c.toml");
+        let contents = std::fs::read_to_string(&path).expect("should read newport_1830c.toml");
+        let raw: RawManifest = toml::from_str(&contents).expect("should parse newport_1830c.toml");
+        assert_eq!(raw.schema_version, 3);
+        assert_eq!(raw.device.name, "Newport 1830-C");
+        assert!(raw.capabilities.readable.is_some());
+        assert!(raw.capabilities.wavelength_tunable.is_some());
+    }
+
+    #[test]
+    fn load_ipg_laser_toml_from_disk() {
+        let path = config_devices_dir().join("ipg_laser.toml");
+        let contents = std::fs::read_to_string(&path).expect("should read ipg_laser.toml");
+        let raw: RawManifest = toml::from_str(&contents).expect("should parse ipg_laser.toml");
+        assert_eq!(raw.schema_version, 3);
+        assert_eq!(raw.device.name, "IPG Fiber Laser");
+        assert!(raw.capabilities.readable.is_some());
     }
 }

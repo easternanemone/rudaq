@@ -17,6 +17,8 @@
 # - No hardware flow control required
 # - Unit commands are 1-indexed: U1=W, U2=dBm, U3=dB, U4=REL
 
+schema_version = 3
+
 [device]
 name = "Newport 1830-C"
 description = "Optical power meter with wavelength compensation"
@@ -82,7 +84,7 @@ description = "Query wavelength setting"
 response = "wavelength"
 
 [commands.set_wavelength]
-template = "W${wavelength_nm:04d}"
+template = "W{{ wavelength_nm | pad(4, '0') }}"
 description = "Set wavelength for accurate measurement (4-digit format)"
 parameters = { wavelength_nm = "int32" }
 expects_response = false
@@ -139,33 +141,21 @@ expects_response = false
 # Power response: scientific notation
 # Examples: "5E-9", "1.234E-6", "+.75E-9", "-1.5E-3"
 [responses.power]
-pattern = "^\\s*(?P<value>[+-]?\\.?\\d+\\.?\\d*[Ee][+-]?\\d+|[+-]?\\d+\\.?\\d*)\\s*$"
-
-[responses.power.fields.value]
-type = "float"
+transform = ["trim", "to_float"]
 
 # Wavelength response: 4-digit nm value
 # Example: "0780" for 780nm
 [responses.wavelength]
-pattern = "^\\s*(?P<wavelength>\\d+)\\s*$"
-
-[responses.wavelength.fields.wavelength]
-type = "int"
+transform = ["trim", "to_int"]
 
 # Range response: single digit 1-8
 [responses.range]
-pattern = "^\\s*(?P<range>[1-8])\\s*$"
-
-[responses.range.fields.range]
-type = "int"
+transform = ["trim", "to_int"]
 
 # Units response: 1=W, 2=dBm, 3=dB, 4=REL (1-indexed)
 # Note: Commands are also 1-indexed: U1=Watts, U2=dBm, U3=dB, U4=REL
 [responses.units]
-pattern = "^\\s*(?P<units>[1234])\\s*$"
-
-[responses.units.fields.units]
-type = "int"
+transform = ["trim", "to_int"]
 
 # ==============================================================================
 # Error Code Mapping
@@ -192,22 +182,16 @@ description = "Detector saturated (overloaded)"
 recoverable = true
 
 # ==============================================================================
-# Trait Mapping: Readable
+# Capability Mapping: Readable
 # ==============================================================================
 
-[trait_mapping.Readable.read]
-command = "read_power"
-output_field = "value"
+[capabilities.readable]
+read = { command = "read_power", output_field = "value" }
 
 # ==============================================================================
-# Trait Mapping: WavelengthTunable
+# Capability Mapping: WavelengthTunable
 # ==============================================================================
 
-[trait_mapping.WavelengthTunable.set_wavelength]
-command = "set_wavelength"
-input_param = "wavelength_nm"
-from_param = "wavelength"
-
-[trait_mapping.WavelengthTunable.get_wavelength]
-command = "get_wavelength"
-output_field = "wavelength"
+[capabilities.wavelength_tunable]
+set_wavelength = { command = "set_wavelength", input_param = "wavelength_nm", from_param = "wavelength" }
+get_wavelength = { command = "get_wavelength", output_field = "wavelength" }

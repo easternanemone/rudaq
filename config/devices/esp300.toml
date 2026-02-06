@@ -7,6 +7,8 @@
 #
 # Reference: ESP300 Universal Motion Controller/Driver User's Manual
 
+schema_version = 3
+
 [device]
 name = "Newport ESP300"
 description = "Multi-axis motion controller (up to 3 axes)"
@@ -66,59 +68,59 @@ description = "Motion acceleration"
 # --- Movement Commands ---
 
 [commands.move_absolute]
-template = "${address}PA${position}"
+template = "{{ address }}PA{{ position }}"
 description = "Move to absolute position (mm)"
 parameters = { position = "float" }
 expects_response = false
 
 [commands.move_relative]
-template = "${address}PR${distance}"
+template = "{{ address }}PR{{ distance }}"
 description = "Move relative distance (mm)"
 parameters = { distance = "float" }
 expects_response = false
 
 [commands.home]
-template = "${address}OR"
+template = "{{ address }}OR"
 description = "Home axis (find mechanical zero)"
 expects_response = false
 
 [commands.stop]
-template = "${address}ST"
+template = "{{ address }}ST"
 description = "Stop motion immediately"
 expects_response = false
 
 # --- Query Commands ---
 
 [commands.get_position]
-template = "${address}TP?"
+template = "{{ address }}TP?"
 description = "Query current position"
 response = "position"
 
 [commands.get_motion_done]
-template = "${address}MD?"
+template = "{{ address }}MD?"
 description = "Query motion status (0=stationary, 1=moving)"
 response = "motion_status"
 
 # --- Configuration Commands ---
 
 [commands.get_velocity]
-template = "${address}VA?"
+template = "{{ address }}VA?"
 description = "Query velocity"
 response = "velocity"
 
 [commands.set_velocity]
-template = "${address}VA${velocity}"
+template = "{{ address }}VA{{ velocity }}"
 description = "Set velocity (mm/s)"
 parameters = { velocity = "float" }
 expects_response = false
 
 [commands.get_acceleration]
-template = "${address}AC?"
+template = "{{ address }}AC?"
 description = "Query acceleration"
 response = "acceleration"
 
 [commands.set_acceleration]
-template = "${address}AC${acceleration}"
+template = "{{ address }}AC{{ acceleration }}"
 description = "Set acceleration (mm/s^2)"
 parameters = { acceleration = "float" }
 expects_response = false
@@ -130,31 +132,19 @@ expects_response = false
 # Position response: numeric value (may have whitespace)
 # Example: "12.345" or "  12.345  "
 [responses.position]
-pattern = "^\\s*(?P<value>[+-]?\\d+\\.?\\d*)\\s*$"
-
-[responses.position.fields.value]
-type = "float"
+transform = ["trim", "to_float"]
 
 # Motion status: 0=stationary, 1=moving
 [responses.motion_status]
-pattern = "^\\s*(?P<status>[01])\\s*$"
-
-[responses.motion_status.fields.status]
-type = "int"
+transform = ["trim", "to_int"]
 
 # Velocity response
 [responses.velocity]
-pattern = "^\\s*(?P<value>[+-]?\\d+\\.?\\d*)\\s*$"
-
-[responses.velocity.fields.value]
-type = "float"
+transform = ["trim", "to_float"]
 
 # Acceleration response
 [responses.acceleration]
-pattern = "^\\s*(?P<value>[+-]?\\d+\\.?\\d*)\\s*$"
-
-[responses.acceleration.fields.value]
-type = "float"
+transform = ["trim", "to_float"]
 
 # ==============================================================================
 # Error Code Mapping
@@ -176,27 +166,22 @@ description = "Command not allowed in current state"
 recoverable = true
 
 # ==============================================================================
-# Trait Mapping: Movable
+# Capability Mapping: Movable
 # ==============================================================================
 
-[trait_mapping.Movable.move_abs]
+[capabilities.movable.move_abs]
 command = "move_absolute"
 input_param = "position"
 from_param = "position"
 
-[trait_mapping.Movable.move_rel]
-command = "move_relative"
-input_param = "distance"
-from_param = "distance"
-
-[trait_mapping.Movable.position]
+[capabilities.movable.position]
 command = "get_position"
 output_field = "value"
 
-[trait_mapping.Movable.stop]
+[capabilities.movable.stop]
 command = "stop"
 
-[trait_mapping.Movable.wait_settled]
+[capabilities.movable.wait_settled]
 poll_command = "get_motion_done"
 success_condition = "status == 0"
 poll_interval_ms = 100
