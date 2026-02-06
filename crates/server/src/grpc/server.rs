@@ -45,9 +45,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{GrpcSettings, ServerConfig};
 
-#[cfg(feature = "storage_hdf5")]
-use storage::hdf5_writer::HDF5Writer;
-
 #[cfg(feature = "scripting")]
 /// Metadata about an uploaded script
 #[derive(Clone, Debug)]
@@ -199,7 +196,7 @@ pub struct DaqServer {
 
     /// Optional ring buffer for persistent storage (only when storage features enabled)
     #[cfg(feature = "storage_hdf5")]
-    ring_buffer: Option<Arc<storage::ring_buffer::RingBuffer>>,
+    _ring_buffer: Option<Arc<storage::ring_buffer::RingBuffer>>,
 }
 
 impl DaqServer {
@@ -319,7 +316,7 @@ impl DaqServer {
             start_time: SystemTime::now(),
             data_tx,
             #[cfg(feature = "storage_hdf5")]
-            ring_buffer,
+            _ring_buffer: ring_buffer,
         })
     }
 
@@ -360,7 +357,7 @@ impl DaqServer {
         Ok(Self {
             start_time: SystemTime::now(),
             data_tx,
-            ring_buffer,
+            _ring_buffer: ring_buffer,
         })
     }
 

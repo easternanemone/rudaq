@@ -938,6 +938,7 @@ impl SignalPlotterPanel {
     ///
     /// Format: timestamp, trace1_value, trace2_value, ...
     /// Uses NaN for missing values when traces have different timestamps
+    #[allow(dead_code)]
     pub fn generate_csv(&self) -> String {
         if self.traces.is_empty() {
             return String::from("# No data\n");

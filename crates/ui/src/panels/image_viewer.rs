@@ -1813,34 +1813,6 @@ impl ImageViewerPanel {
         self.frame_tx.clone()
     }
 
-    /// Get pixel intensity value at given coordinates (bd-pgcb)
-    pub(crate) fn get_pixel_value(&self, frame_data: &[u8], x: u32, y: u32) -> Option<u32> {
-        if x >= self.width || y >= self.height {
-            return None;
-        }
-
-        let pixel_index = (y * self.width + x) as usize;
-
-        match self.bit_depth {
-            8 => {
-                // 8-bit grayscale: 1 byte per pixel
-                frame_data.get(pixel_index).map(|&b| b as u32)
-            }
-            12 | 16 => {
-                // 12-bit or 16-bit: 2 bytes per pixel (little-endian)
-                let byte_index = pixel_index * 2;
-                if byte_index + 1 < frame_data.len() {
-                    let low = frame_data[byte_index] as u32;
-                    let high = frame_data[byte_index + 1] as u32;
-                    Some(low | (high << 8))
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-
     /// Start streaming frames from a device (public API for external control)
     pub fn start_stream(&mut self, device_id: &str, client: &mut DaqClient, runtime: &Runtime) {
         // Cancel existing subscription and ensure server-side stream is stopped

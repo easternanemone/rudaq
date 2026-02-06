@@ -27,6 +27,7 @@ impl DeviceConfigCache {
     }
 
     /// Set the configuration directory
+    #[allow(dead_code)]
     pub fn with_config_dir(mut self, dir: impl Into<PathBuf>) -> Self {
         self.config_dir = dir.into();
         self
@@ -77,6 +78,7 @@ impl DeviceConfigCache {
     }
 
     /// Get a device config by protocol name
+    #[allow(dead_code)]
     pub fn get_by_protocol(&self, protocol: &str) -> Option<&DeviceConfig> {
         self.configs.get(protocol)
     }

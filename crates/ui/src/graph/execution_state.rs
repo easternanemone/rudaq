@@ -16,6 +16,7 @@ pub struct DimensionProgress {
     pub total: u32,
 }
 
+#[allow(dead_code)]
 impl DimensionProgress {
     pub fn new(name: impl Into<String>, current: u32, total: u32) -> Self {
         Self {
@@ -49,6 +50,7 @@ impl NestedProgress {
     /// Create new nested progress with the given dimensions.
     ///
     /// flat_total is automatically computed as the product of all dimension totals.
+    #[allow(dead_code)]
     pub fn new(dimensions: Vec<DimensionProgress>) -> Self {
         let flat_total = dimensions.iter().map(|d| d.total).product::<u32>().max(1);
         Self {
@@ -197,6 +199,7 @@ impl ExecutionState {
         self.nested_progress = None;
     }
 
+    #[allow(dead_code)]
     /// Start a new execution with nested progress tracking for multi-dimensional scans.
     pub fn start_nested_execution(&mut self, run_uid: String, nested: NestedProgress) {
         self.engine_state = EngineStateLocal::Running;

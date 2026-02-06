@@ -169,6 +169,7 @@ impl ShortcutManager {
         }
     }
 
+    #[allow(dead_code)]
     /// Get all bindings for a specific context
     pub fn bindings_for_context(
         &self,
@@ -187,6 +188,7 @@ impl ShortcutManager {
     }
 
     /// Check for conflicts when setting a new binding
+    #[allow(dead_code)]
     pub fn find_conflict(
         &self,
         action: ShortcutAction,
@@ -211,6 +213,7 @@ impl ShortcutManager {
     }
 
     /// Reset all bindings to defaults
+    #[allow(dead_code)]
     pub fn reset_to_defaults(&mut self) {
         *self = Self::with_defaults();
     }

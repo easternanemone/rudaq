@@ -170,12 +170,6 @@ impl<R> DevicePanelState<R> {
         self.actions_in_flight > 0
     }
 
-    /// Clear error and status messages.
-    pub fn clear_messages(&mut self) {
-        self.error = None;
-        self.status = None;
-    }
-
     /// Set an error message (clears status).
     pub fn set_error(&mut self, msg: impl Into<String>) {
         self.error = Some(msg.into());

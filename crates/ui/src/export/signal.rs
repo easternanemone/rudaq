@@ -15,14 +15,14 @@ pub struct SignalExportOptions {
     /// Common CSV options
     pub csv_options: CsvExportOptions,
     /// Include trace labels in filename
-    pub include_labels_in_filename: bool,
+    pub _include_labels_in_filename: bool,
 }
 
 impl Default for SignalExportOptions {
     fn default() -> Self {
         Self {
             csv_options: CsvExportOptions::default(),
-            include_labels_in_filename: false,
+            _include_labels_in_filename: false,
         }
     }
 }
@@ -32,7 +32,7 @@ impl Default for SignalExportOptions {
 pub struct SignalTraceData {
     pub label: String,
     pub device_id: String,
-    pub observable_name: String,
+    pub _observable_name: String,
     pub points: Vec<(f64, f64)>, // (time_offset, value)
 }
 
@@ -41,13 +41,13 @@ impl SignalTraceData {
     pub fn from_deque(
         label: String,
         device_id: String,
-        observable_name: String,
+        _observable_name: String,
         points: &VecDeque<(f64, f64)>,
     ) -> Self {
         Self {
             label,
             device_id,
-            observable_name,
+            _observable_name,
             points: points.iter().copied().collect(),
         }
     }
@@ -201,7 +201,7 @@ mod tests {
         let trace = SignalTraceData {
             label: "Test Signal".to_string(),
             device_id: "device1".to_string(),
-            observable_name: "power".to_string(),
+            _observable_name: "power".to_string(),
             points: vec![(0.0, 1.0), (1.0, 2.0), (2.0, 3.0)],
         };
 
@@ -230,14 +230,14 @@ mod tests {
         let trace1 = SignalTraceData {
             label: "Signal A".to_string(),
             device_id: "dev1".to_string(),
-            observable_name: "obs1".to_string(),
+            _observable_name: "obs1".to_string(),
             points: vec![(0.0, 1.0), (1.0, 2.0)],
         };
 
         let trace2 = SignalTraceData {
             label: "Signal B".to_string(),
             device_id: "dev2".to_string(),
-            observable_name: "obs2".to_string(),
+            _observable_name: "obs2".to_string(),
             points: vec![(0.0, 10.0), (1.0, 20.0)],
         };
 
@@ -261,7 +261,7 @@ mod tests {
         let trace = SignalTraceData {
             label: "Test".to_string(),
             device_id: "dev1".to_string(),
-            observable_name: "obs1".to_string(),
+            _observable_name: "obs1".to_string(),
             points: vec![(0.0, 1.0)],
         };
 
@@ -282,7 +282,7 @@ mod tests {
         let trace = SignalTraceData {
             label: "Test".to_string(),
             device_id: "dev1".to_string(),
-            observable_name: "obs1".to_string(),
+            _observable_name: "obs1".to_string(),
             points: vec![(0.0, 1.0)],
         };
 
