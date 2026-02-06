@@ -100,8 +100,11 @@ impl UniversalDriver {
         // Render command template
         let command_str = template::render_command(&cmd_config.template, &params)?;
 
-        // Send and receive
-        let timeout = std::time::Duration::from_secs(1);
+        // Send and receive — use manifest connection timeout
+        let timeout = self.manifest.connection.timeout().as_duration();
+        // NOTE: We intentionally hold the transport lock across send+receive.
+        // Serial ports require exclusive access during a command-response cycle
+        // to prevent interleaved commands from concurrent tasks.
         let transport = self.transport.lock().await;
         let raw_response = if cmd_config.expects_response {
             transport.query(command_str.as_bytes(), timeout).await?
@@ -236,14 +239,10 @@ impl UniversalDriver {
             context.set_value(name.clone(), Value::Float(value))?;
         }
 
-        // Also bind common device parameters as constants.
-        // For ELL14: pulses_per_degree = 398.2222...
-        // These come from the manifest's conversion context, but for now we
-        // hard-code the well-known ones. A future phase will add a [parameters]
-        // section to the manifest.
-        //
-        // For the ELL14, the pulses_per_degree constant is: 143360 / 360
-        // This is well-known from the ELL14 documentation.
+        // Bind device parameters from the manifest's [parameters] section
+        for (param_name, param_val) in &self.manifest.parameters {
+            context.set_value(param_name.clone(), Value::Float(*param_val))?;
+        }
 
         // Add round function
         context.set_function(
@@ -292,7 +291,7 @@ impl UniversalDriver {
             );
             let command_str = template::render_command(&cmd_config.template, &params)?;
 
-            let timeout = std::time::Duration::from_secs(1);
+            let timeout = self.manifest.connection.timeout().as_duration();
             let transport = self.transport.lock().await;
             let raw_response = transport.query(command_str.as_bytes(), timeout).await?;
             drop(transport);
@@ -376,9 +375,18 @@ impl common::capabilities::Movable for UniversalDriver {
     }
 
     async fn move_rel(&self, distance: f64) -> Result<()> {
-        // move_rel is not part of the current config schema; fall back to error
-        let _ = distance;
-        anyhow::bail!("move_rel not yet supported in UniversalDriver config schema")
+        let config = self
+            .manifest
+            .capabilities
+            .movable
+            .as_ref()
+            .ok_or_else(|| anyhow!("Movable not configured"))?;
+        let mapping = config
+            .move_rel
+            .as_ref()
+            .ok_or_else(|| anyhow!("move_rel not configured in manifest"))?;
+        self.execute_method(mapping, Some(distance)).await?;
+        Ok(())
     }
 
     async fn position(&self) -> Result<f64> {
@@ -486,7 +494,7 @@ impl common::capabilities::Settable for UniversalDriver {
         }
 
         let command_str = template::render_command(&cmd_config.template, &params)?;
-        let timeout = std::time::Duration::from_secs(1);
+        let timeout = self.manifest.connection.timeout().as_duration();
         let transport = self.transport.lock().await;
         if cmd_config.expects_response {
             transport.query(command_str.as_bytes(), timeout).await?;
@@ -500,8 +508,7 @@ impl common::capabilities::Settable for UniversalDriver {
     }
 
     async fn get_value(&self, name: &str) -> Result<serde_json::Value> {
-        // Settable get_value is not supported in the current config schema
-        anyhow::bail!("get_value('{}') not supported in UniversalDriver", name)
+        anyhow::bail!("get_value('{}') not configured in manifest", name)
     }
 }
 

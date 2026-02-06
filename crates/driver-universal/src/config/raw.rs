@@ -269,6 +269,7 @@ pub struct RawCapabilityConfig {
 #[derive(Debug, Deserialize)]
 pub struct RawMovableMapping {
     pub move_abs: Option<RawMethodMapping>,
+    pub move_rel: Option<RawMethodMapping>,
     pub position: Option<RawMethodMapping>,
     pub stop: Option<RawMethodMapping>,
     pub wait_settled: Option<RawWaitSettledMapping>,

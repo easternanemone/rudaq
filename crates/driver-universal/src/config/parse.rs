@@ -77,6 +77,23 @@ pub fn parse_manifest(raw: RawManifest) -> Result<DeviceManifest, Vec<ConfigErro
     // 7. Cross-validate capabilities
     let capabilities = validate_capabilities(&raw, &mut errors);
 
+    // 8. Extract device parameters (numeric defaults for formula evaluation)
+    let mut parameters = HashMap::new();
+    for (name, value) in &raw.parameters {
+        if let Some(table) = value.as_table() {
+            if let Some(default) = table
+                .get("default")
+                .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)))
+            {
+                parameters.insert(name.clone(), default);
+            }
+        } else if let Some(f) = value.as_float() {
+            parameters.insert(name.clone(), f);
+        } else if let Some(i) = value.as_integer() {
+            parameters.insert(name.clone(), i as f64);
+        }
+    }
+
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -91,6 +108,7 @@ pub fn parse_manifest(raw: RawManifest) -> Result<DeviceManifest, Vec<ConfigErro
         responses,
         conversions,
         capabilities,
+        parameters,
     })
 }
 
@@ -455,6 +473,15 @@ fn validate_movable(
             errors,
         )
     });
+    let move_rel = m.move_rel.as_ref().map(|mm| {
+        validate_method_mapping(
+            mm,
+            "movable.move_rel",
+            command_names,
+            conversion_names,
+            errors,
+        )
+    });
     let position = m.position.as_ref().map(|mm| {
         validate_method_mapping(
             mm,
@@ -474,6 +501,7 @@ fn validate_movable(
 
     MovableConfig {
         move_abs,
+        move_rel,
         position,
         stop,
         wait_settled,

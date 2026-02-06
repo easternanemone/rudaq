@@ -33,6 +33,10 @@ pub struct DeviceManifest {
 
     /// Validated capability configurations.
     pub capabilities: CapabilitySet,
+
+    /// Device parameters with their default numeric values.
+    /// Extracted from `[parameters]` section for use in formula evaluation.
+    pub parameters: HashMap<String, f64>,
 }
 
 /// Device metadata.
@@ -60,6 +64,17 @@ pub enum ConnectionConfig {
         port: u16,
         timeout: Timeout,
     },
+}
+
+impl ConnectionConfig {
+    /// Get the timeout for this connection.
+    pub fn timeout(&self) -> Timeout {
+        match self {
+            Self::Serial { timeout, .. } => *timeout,
+            Self::Tcp { timeout, .. } => *timeout,
+            Self::Udp { timeout, .. } => *timeout,
+        }
+    }
 }
 
 /// Validated baud rate (300..=921_600).
@@ -230,6 +245,7 @@ pub struct CapabilitySet {
 #[derive(Debug)]
 pub struct MovableConfig {
     pub move_abs: Option<MethodConfig>,
+    pub move_rel: Option<MethodConfig>,
     pub position: Option<MethodConfig>,
     pub stop: Option<MethodConfig>,
     pub wait_settled: Option<WaitSettledConfig>,
