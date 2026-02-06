@@ -452,7 +452,7 @@ rust-daq/
 1. If crate-independent: Add to `crates/common/src/` new module
 2. If hardware-specific: Add to driver crate's utilities module
 3. If UI: Add to `crates/ui/src/widgets/` for reusable components
-4. Cross-crate imports via `use rust_daq::prelude::*` or direct crate imports
+4. Cross-crate imports via direct crate imports (e.g., `use common::error::DaqError`)
 
 ## Special Directories
 

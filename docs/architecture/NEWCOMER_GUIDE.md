@@ -34,9 +34,10 @@ graph TD
 ### Learning Order
 1. **Capabilities** (`common`): The atomic building blocks of hardware support.
 2. **Parameters** (`common`): How state is managed and synchronized.
-3. **Drivers** (`hardware`): How concrete hardware implements capabilities.
-4. **Frame Pipeline** (`pool`, `storage`): How high-speed data moves efficiently.
-5. **Orchestration** (`experiment`): How experiments are defined and executed.
+3. **Drivers** (`driver-*` crates): How concrete hardware implements capabilities.
+4. **Generic Drivers** (`driver-generic`): How TOML configs define devices without custom Rust code.
+5. **Frame Pipeline** (`pool`, `storage`): How high-speed data moves efficiently.
+6. **Orchestration** (`experiment`): How experiments are defined and executed.
 
 ---
 
@@ -94,7 +95,28 @@ driver = "Pvcam"
 name = "Prime BSI"
 ```
 
-If you add a new hardware driver, you must register it in the `DriverFactory` enum so it can be instantiated from config.
+If you add a new hardware driver, you must register it in the `DriverFactory` enum so it can be instantiated from config. The `DriverType` enum includes both hand-coded drivers (e.g., `Pvcam`, `Thorlabs`) and generic config-driven types.
+
+### Config-Driven Drivers (driver-generic)
+
+For simple serial instruments (SCPI, ASCII protocols), you can skip writing Rust entirely. The `driver-generic` crate lets you define a device in TOML:
+
+```toml
+[device]
+name = "My Instrument"
+capabilities = ["Readable"]
+
+[connection]
+baud_rate = 9600
+terminator = "\n"
+
+[commands.read_value]
+template = "READ?"
+query = true
+response_type = "float"
+```
+
+Place configs in `config/devices/` — they are loaded at daemon startup. See `crates/driver-generic/` for full schema and `docs/guides/hardware-drivers.md` for the declarative driver guide.
 
 ---
 

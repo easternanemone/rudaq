@@ -9,30 +9,12 @@ description = "Metacrate aggregating all rust-daq driver crates with unified fea
 common = { path = "../common" }
 
 # Driver crates (all optional, enabled via features)
-#
-# Note: The following driver crates will be created during the driver decoupling migration:
-# - driver-thorlabs (Phase 4) - ELL14 rotation mounts
-# - driver-newport (Phase 5) - ESP300, 1830-C
-# - driver-spectra-physics (Phase 6) - MaiTai laser
-# - driver-mock (Phase 3) - Mock devices for testing
-#
-# For now, we include the existing driver crates:
 driver-pvcam = { path = "../driver-pvcam", optional = true }
 driver-comedi = { path = "../driver-comedi", optional = true }
-
-# Mock drivers for testing and simulation
 driver-mock = { path = "../driver-mock", optional = true }
-
-# Thorlabs ELL14 rotation mount driver
 driver-thorlabs = { path = "../driver-thorlabs", optional = true }
-
-# Newport ESP300 motion controller and 1830-C power meter
 driver-newport = { path = "../driver-newport", optional = true }
-
-# Generic config-driven serial driver
 driver-generic = { path = "../driver-generic", optional = true }
-
-# Spectra-Physics MaiTai Ti:Sapphire laser
 driver-spectra-physics = { path = "../driver-spectra-physics", optional = true }
 
 [features]

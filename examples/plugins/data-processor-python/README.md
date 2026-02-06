@@ -38,7 +38,7 @@ uv pip install -r requirements.txt
 ### Loading the Plugin
 
 ```rust
-use rust_daq::plugins::ScriptPluginLoader;
+use scripting::plugins::ScriptPluginLoader;
 
 // Create loader and add search path
 let mut loader = ScriptPluginLoader::new();

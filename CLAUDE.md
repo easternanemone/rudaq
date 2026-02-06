@@ -399,9 +399,9 @@ Supervisors write code in worktrees. Use `Task(subagent_type="...", prompt="BEAD
 | Supervisor | Scope (Crates) |
 |------------|----------------|
 | **egui-supervisor** (Eve) | `ui` - GUI, visualization, UX |
-| **driver-supervisor** (Diana) | `driver-*`, `comedi-sys`, `hardware` - FFI, hardware |
+| **driver-supervisor** (Diana) | `driver-*`, `drivers`, `*-sys`, `hardware` - FFI, hardware |
 | **scripting-supervisor** (Sage) | `scripting`, `experiment` - DSL, automation |
-| **core-supervisor** (Corey) | `common`, `server`, `storage`, `plugin-*`, `protocol`, `pool` |
+| **core-supervisor** (Corey) | `common`, `server`, `client`, `storage`, `plugin-*`, `protocol`, `pool`, `daq-modules` |
 | **python-supervisor** (Tessa) | `python/` - Python client library |
 | **infra-supervisor** (Olive) | `.github/`, CI/CD pipelines |
 
@@ -990,11 +990,10 @@ cargo modules structure --package hardware --max-depth 3
 ## Import Conventions
 
 ```rust
-// Recommended: use prelude or direct crate imports
-use rust_daq::prelude::*;
-// or
+// Import directly from individual crates
 use common::error::DaqError;
-use daq_storage::ring_buffer::RingBuffer;
+use common::capabilities::Movable;
+use storage::ring_buffer::RingBuffer;
 ```
 
 

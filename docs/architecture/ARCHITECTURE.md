@@ -17,33 +17,65 @@ The architecture follows a **Headless-First** design: the core daemon runs as a 
 
 ## System Components
 
-The project is structured as a Cargo workspace with distinct responsibilities:
+The project is structured as a Cargo workspace with 30 crates organized by layer:
 
 ### 1. Application Layer
 *   **`bin`**: The entry point for the daemon (`rust-daq-daemon`). Wires together the system based on compile-time features.
 *   **`ui`**: The desktop client application. Built with `egui` and `egui_dock` for a flexible, pane-based layout. Connects to the daemon via gRPC. Features auto-reconnect with exponential backoff, health monitoring, and real-time logging panel.
-*   **`rust-daq`**: A facade crate providing a clean `prelude` for external consumers and integration tests. Feature-gates optional dependencies (`server`, `scripting`).
+*   **`client`**: gRPC client library for connecting to the daemon. Provides a typed API for remote hardware control, streaming, and device management.
 
 ### 2. Domain Logic
 *   **`experiment`**: The orchestration engine ("RunEngine"). Executes declarative plans and manages the experiment state machine.
 *   **`scripting`**: Embeds the **Rhai** scripting engine. Provides a safe sandbox for user scripts to control hardware (10k operation limit, timeout protection). Optional Python bindings via PyO3.
 *   **`server`**: The network interface. Implements a gRPC server (`tonic`) exposing hardware control, script execution, and data streaming. Includes token-based authentication and CORS configuration.
+*   **`daq-modules`**: Experiment modules and plugin system. Provides a modular framework for composing experiment workflows with runtime module assignment.
 
-### 3. Infrastructure
-*   **`hardware`**: The Hardware Abstraction Layer (HAL). Defines capability traits and contains drivers for serial devices (Thorlabs ELL14, Newport ESP300, MaiTai laser, Newport 1830-C power meter).
-*   **`driver-pvcam`**: Dedicated driver crate for Photometrics PVCAM cameras (Prime 95B, Prime BSI). Requires PVCAM SDK.
-*   **`driver-comedi`**: Driver for Linux Comedi DAQ boards. Provides analog/digital I/O capabilities.
+### 3. Hardware Abstraction
+*   **`hardware`**: The Hardware Abstraction Layer (HAL). Defines capability traits, `DeviceRegistry`, and `DriverFactory`. Also contains legacy serial drivers (migration to standalone crates in progress).
+*   **`drivers`**: Metacrate aggregating all driver crates with unified feature flags. Provides convenience feature sets (`all`, `maitai`, `hardware`) so consumers can depend on a single crate.
+
+### 4. Driver Crates (Standalone)
+
+Each driver lives in its own crate for independent compilation, testing, and optional inclusion:
+
+#### Camera Drivers
+*   **`driver-pvcam`**: Photometrics PVCAM cameras (Prime 95B, Prime BSI). Requires PVCAM SDK.
+*   **`driver-andor-sdk3`**: Andor iStar camera and Shamrock spectrograph via SDK3.
+
+#### Motion Control
+*   **`driver-thorlabs`**: Thorlabs ELL14 rotation mounts (RS-485 multidrop bus).
+*   **`driver-newport`**: Newport ESP300 motion controller and 1830-C power meter.
+*   **`driver-dover-motion`**: Dover Motion SmartStage driver via MotionSynergyAPI FFI.
+
+#### Laser & Light Sources
+*   **`driver-spectra-physics`**: Spectra-Physics MaiTai Ti:Sapphire tunable laser.
+
+#### DAQ & Signal
+*   **`driver-comedi`**: Linux Comedi DAQ boards (NI PCI-MIO-16XE-10). Analog/digital I/O.
+*   **`driver-red-pitaya`**: Red Pitaya FPGA board for signal generation.
+
+#### Generic & Testing
+*   **`driver-generic`**: Config-driven serial driver system. Define new instruments via TOML files without writing Rust code. Uses minijinja templates for command generation.
+*   **`driver-mock`**: Mock hardware drivers for testing, simulation, and demo mode.
+
+### 5. Infrastructure
 *   **`pool`**: Zero-allocation object pool for high-performance frame handling. Provides `Pool<T>` for generic objects and `BufferPool` for byte buffers with `bytes::Bytes` integration. Critical for high-FPS camera streaming where per-frame allocations cause latency.
 *   **`storage`**: Handles data persistence. Implements the "Mullet Strategy": fast **Arrow** ring buffer in the front, reliable **HDF5** writer in the back. Also supports CSV, MATLAB (.mat), and NetCDF formats.
 *   **`protocol`**: Defines the wire protocol (Protobuf) for all network communication. Includes domain↔proto conversion utilities.
 *   **`plugin-api`**: Native FFI plugin system using `abi_stable` for cross-version binary compatibility. Enables third-party Rust plugins without recompilation.
+*   **`plugin-example`**: Example plugin implementation demonstrating the plugin-api.
 
-### 4. Core
+### 6. Core
 *   **`common`**: The foundation. Defines shared types (`Parameter<T>`, `Observable<T>`), error handling, size limits (`limits.rs`), and module domain types.
 
-### 5. FFI Bindings
+### 7. FFI Bindings
 *   **`pvcam-sys`**: Raw FFI bindings to the PVCAM C library (nested under `driver-pvcam`).
 *   **`comedi-sys`**: Raw FFI bindings to the Linux Comedi library.
+*   **`andor-sdk3-sys`**: Raw FFI bindings to the Andor SDK3 C library.
+*   **`dover-motion-sys`**: Raw FFI bindings to the Dover MotionSynergyAPI C library.
+
+### 8. Testing
+*   **`integration-tests`**: Workspace-level integration test suite covering cross-crate workflows.
 
 ---
 
@@ -57,6 +89,7 @@ graph TD
         subgraph "Daemon Process (rust-daq-daemon)"
             Server[gRPC Server]
             Script[Rhai Engine]
+            Modules[DAQ Modules]
             HW[Hardware Manager]
             Ring[Ring Buffer / Arrow]
             Writer[HDF5 Writer]
@@ -67,12 +100,28 @@ graph TD
             Dock[Docking System]
             Plot[Real-time Plots]
         end
+
+        subgraph "Driver Layer"
+            DrvMeta[drivers metacrate]
+            DrvPvcam[driver-pvcam]
+            DrvAndor[driver-andor-sdk3]
+            DrvThorlabs[driver-thorlabs]
+            DrvNewport[driver-newport]
+            DrvDover[driver-dover-motion]
+            DrvSpectra[driver-spectra-physics]
+            DrvComedi[driver-comedi]
+            DrvGeneric[driver-generic]
+            DrvMock[driver-mock]
+        end
     end
 
     GUI <-->|gRPC / HTTP2| Server
-    
+
     Server --> Script
+    Server --> Modules
     Script --> HW
+    HW --> DrvMeta
+    DrvMeta --> DrvPvcam & DrvAndor & DrvThorlabs & DrvNewport & DrvDover & DrvSpectra & DrvComedi & DrvGeneric & DrvMock
     HW -->|Frame Data| Ring
     Ring -->|Zero-Copy| Writer
     Ring -.->|Stream| Server
@@ -124,30 +173,44 @@ Experiments are written in [Rhai](https://rhai.rs), a scripting language designe
 ```
 .
 ├── crates/
-│   ├── bin/            # Application entry points (daemon, CLI)
-│   ├── common/           # Foundation types, errors, parameters, limits
-│   ├── driver-comedi/      # Comedi DAQ driver for Linux boards
-│   ├── driver-pvcam/       # PVCAM camera driver
-│   │   └── pvcam-sys/      # Raw FFI bindings to PVCAM
-│   ├── ui/           # Desktop GUI (egui + egui_dock)
-│   ├── examples/       # Example code and usage patterns
-│   ├── experiment/     # RunEngine and Plan definitions
-│   ├── hardware/       # HAL with capability traits and serial drivers
-│   ├── plugin-api/         # Native FFI plugin system (abi_stable)
-│   ├── pool/           # Zero-allocation object pool for frame handling
-│   ├── protocol/          # Protobuf definitions and conversions
-│   ├── scripting/      # Rhai scripting engine integration
-│   ├── server/         # gRPC server implementation
-│   ├── storage/        # Ring buffers, CSV, HDF5, Arrow storage
-│   ├── comedi-sys/         # Raw FFI bindings to Comedi
-│   └── rust-daq/           # Integration layer with prelude and plugins
-├── config/                 # Runtime configuration (TOML)
-│   └── devices/            # Declarative driver configs (TOML)
-├── docs/                   # Documentation
-│   ├── architecture/       # ADRs and design decisions
-│   ├── benchmarks/         # Performance documentation
-│   ├── project_management/ # Roadmaps and planning
-│   └── troubleshooting/    # Platform notes and setup guides
-├── examples/               # Rhai script examples
-└── proto/                  # Protobuf source files
+│   ├── bin/                  # Application entry points (daemon, CLI)
+│   ├── client/               # gRPC client library
+│   ├── common/               # Foundation types, errors, parameters, limits
+│   ├── daq-modules/          # Experiment modules and plugin system
+│   ├── drivers/              # Metacrate aggregating all drivers (feature flags)
+│   ├── driver-andor-sdk3/    # Andor iStar camera / Shamrock spectrograph
+│   ├── driver-comedi/        # Comedi DAQ driver for Linux boards
+│   ├── driver-dover-motion/  # Dover Motion SmartStage driver
+│   ├── driver-generic/       # Config-driven serial driver (TOML-defined)
+│   ├── driver-mock/          # Mock hardware for testing/demo
+│   ├── driver-newport/       # Newport ESP300 + 1830-C power meter
+│   ├── driver-pvcam/         # PVCAM camera driver
+│   │   └── pvcam-sys/        # Raw FFI bindings to PVCAM
+│   ├── driver-red-pitaya/    # Red Pitaya FPGA board
+│   ├── driver-spectra-physics/ # Spectra-Physics MaiTai laser
+│   ├── driver-thorlabs/      # Thorlabs ELL14 rotators
+│   ├── andor-sdk3-sys/       # Raw FFI bindings to Andor SDK3
+│   ├── comedi-sys/           # Raw FFI bindings to Comedi
+│   ├── dover-motion-sys/     # Raw FFI bindings to Dover MotionSynergyAPI
+│   ├── experiment/           # RunEngine and Plan definitions
+│   ├── hardware/             # HAL with capability traits and DeviceRegistry
+│   ├── integration-tests/    # Cross-crate integration tests
+│   ├── plugin-api/           # Native FFI plugin system (abi_stable)
+│   ├── plugin-example/       # Example plugin implementation
+│   ├── pool/                 # Zero-allocation object pool for frame handling
+│   ├── protocol/             # Protobuf definitions and conversions
+│   ├── scripting/            # Rhai scripting engine integration
+│   ├── server/               # gRPC server implementation
+│   ├── storage/              # Ring buffers, CSV, HDF5, Arrow storage
+│   └── ui/                   # Desktop GUI (egui + egui_dock)
+├── config/                   # Runtime configuration (TOML)
+│   └── devices/              # Declarative driver configs (TOML)
+├── docs/                     # Documentation
+│   ├── architecture/         # ADRs and design decisions
+│   ├── benchmarks/           # Performance documentation
+│   ├── guides/               # User and developer guides
+│   ├── project_management/   # Roadmaps and planning
+│   └── troubleshooting/      # Platform notes and setup guides
+├── examples/                 # Rhai script examples
+└── proto/                    # Protobuf source files
 ```
