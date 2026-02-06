@@ -4983,6 +4983,7 @@ dependencies = [
  "driver-red-pitaya",
  "driver-spectra-physics",
  "driver-thorlabs",
+ "driver-universal",
  "enum_dispatch",
  "evalexpr",
  "figment",
