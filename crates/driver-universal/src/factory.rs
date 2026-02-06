@@ -40,20 +40,19 @@ fn default_address() -> String {
 /// `DeviceRegistry` at daemon startup.
 pub struct UniversalDriverFactory {
     manifest: Arc<DeviceManifest>,
-    capabilities: Vec<CoreCapability>,
-    driver_type: String,
-    name: String,
+    capabilities: &'static [CoreCapability],
+    driver_type: &'static str,
+    name: &'static str,
 }
 
 impl UniversalDriverFactory {
     /// Create a factory from a validated `DeviceManifest`.
     pub fn new(manifest: DeviceManifest) -> Self {
-        let driver_type = format!(
+        let driver_type_string = format!(
             "universal_{}",
             manifest.device.name.to_lowercase().replace(' ', "_")
         );
-        let name = manifest.device.name.clone();
-        let capabilities = manifest
+        let caps_vec: Vec<CoreCapability> = manifest
             .device
             .capability_names
             .iter()
@@ -69,6 +68,13 @@ impl UniversalDriverFactory {
                 _ => None,
             })
             .collect();
+
+        // Leak once at construction time to satisfy the &'static lifetime
+        // required by the DriverFactory trait. Factory instances are long-lived
+        // singletons created once at startup, so this is bounded.
+        let driver_type: &'static str = Box::leak(driver_type_string.into_boxed_str());
+        let name: &'static str = Box::leak(manifest.device.name.clone().into_boxed_str());
+        let capabilities: &'static [CoreCapability] = Box::leak(caps_vec.into_boxed_slice());
 
         Self {
             manifest: Arc::new(manifest),
@@ -114,18 +120,15 @@ impl UniversalDriverFactory {
 
 impl DriverFactory for UniversalDriverFactory {
     fn driver_type(&self) -> &'static str {
-        // SAFETY: We leak the string to get a 'static lifetime.
-        // This is acceptable because factories live for the entire program lifetime
-        // and are typically created once at startup.
-        Box::leak(self.driver_type.clone().into_boxed_str())
+        self.driver_type
     }
 
     fn name(&self) -> &'static str {
-        Box::leak(self.name.clone().into_boxed_str())
+        self.name
     }
 
     fn capabilities(&self) -> &'static [CoreCapability] {
-        Box::leak(self.capabilities.clone().into_boxed_slice())
+        self.capabilities
     }
 
     fn validate(&self, config: &toml::Value) -> Result<()> {
@@ -191,6 +194,12 @@ impl DriverFactory for UniversalDriverFactory {
 /// and attempts to parse each one as a `UniversalDriverFactory`.
 ///
 /// Files that fail to parse are logged as warnings and skipped.
+/// Helper for quick schema version check without full parsing.
+#[derive(serde::Deserialize)]
+struct VersionCheck {
+    schema_version: Option<u32>,
+}
+
 pub fn load_all_factories(dir: &Path) -> Result<Vec<UniversalDriverFactory>> {
     let mut factories = Vec::new();
     if dir.exists() {
@@ -199,7 +208,9 @@ pub fn load_all_factories(dir: &Path) -> Result<Vec<UniversalDriverFactory>> {
             if path.extension().and_then(|s| s.to_str()) == Some("toml") {
                 // Only load schema_version = 3 files
                 if let Ok(content) = std::fs::read_to_string(&path) {
-                    if content.contains("schema_version = 3") {
+                    let check: VersionCheck = toml::from_str(&content)
+                        .unwrap_or(VersionCheck { schema_version: None });
+                    if check.schema_version == Some(3) {
                         match UniversalDriverFactory::from_file(&path) {
                             Ok(f) => factories.push(f),
                             Err(e) => tracing::warn!("Skipping {}: {}", path.display(), e),
@@ -394,5 +405,38 @@ name = "Old"
 
         let factories = load_all_factories(dir.path()).unwrap();
         assert!(factories.is_empty());
+    }
+
+    #[test]
+    fn load_all_factories_detects_compact_schema_version() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Write a file with no spaces around '=' — the old contains() check would miss this
+        std::fs::write(
+            dir.path().join("compact.toml"),
+            r#"
+schema_version=3
+
+[device]
+name = "Compact Device"
+capabilities = ["Readable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.read]
+template = "READ?"
+response_type = "float"
+
+[capabilities.readable]
+read = { command = "read" }
+"#,
+        )
+        .unwrap();
+
+        let factories = load_all_factories(dir.path()).unwrap();
+        assert_eq!(factories.len(), 1);
+        assert!(factories[0].name().contains("Compact"));
     }
 }

@@ -121,6 +121,21 @@ pub fn parse_format(format: &str) -> Result<Vec<FormatSegment>, ConfigError> {
         segments.push(FormatSegment::Literal(literal));
     }
 
+    // Validate: reject adjacent greedy fields with no literal separator
+    for window in segments.windows(2) {
+        if let [FormatSegment::Field(a), FormatSegment::Field(b)] = window {
+            if matches!(a.kind, FieldKind::Greedy) && matches!(b.kind, FieldKind::Greedy) {
+                return Err(ConfigError::InvalidFormat {
+                    format: format.to_string(),
+                    reason: format!(
+                        "adjacent greedy fields '{}' and '{}' with no literal separator",
+                        a.name, b.name
+                    ),
+                });
+            }
+        }
+    }
+
     Ok(segments)
 }
 
@@ -242,9 +257,16 @@ fn extract_field(
                 );
             }
             let hex_str: String = chars[pos..pos + width].iter().collect();
-            let value = i64::from_str_radix(&hex_str, 16).map_err(|e| {
+            let raw = u64::from_str_radix(&hex_str, 16).map_err(|e| {
                 anyhow::anyhow!("field '{}': invalid hex '{}': {}", field.name, hex_str, e)
             })?;
+            // Width-aware two's complement interpretation
+            let value: i64 = match width {
+                2 => (raw as u8) as i8 as i64,
+                4 => (raw as u16) as i16 as i64,
+                8 => (raw as u32) as i32 as i64,
+                _ => raw as i64, // Non-standard widths: unsigned
+            };
             Ok((Value::Number(serde_json::Number::from(value)), *width))
         }
         FieldKind::Int => {
@@ -444,12 +466,12 @@ mod tests {
 
     #[test]
     fn parse_format_all_specifiers() {
-        // Test hex2
+        // Test hex2 — two's complement: 0xFF = -1 as i8
         let segments = parse_format("{v:hex2}").unwrap();
         let result = parse_response(&segments, "FF").unwrap();
-        assert_eq!(result["v"], Value::Number(255.into()));
+        assert_eq!(result["v"], Value::Number((-1).into()));
 
-        // Test hex4
+        // Test hex4 — 0x00FF = 255, positive in i16
         let segments = parse_format("{v:hex4}").unwrap();
         let result = parse_response(&segments, "00FF").unwrap();
         assert_eq!(result["v"], Value::Number(255.into()));
@@ -500,5 +522,55 @@ mod tests {
         let result = parse_response(&segments, "1.5e3").unwrap();
         let v = result["v"].as_f64().unwrap();
         assert!((v - 1500.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parse_format_adjacent_greedy_error() {
+        let result = parse_format("{a}{b}");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("adjacent greedy"));
+    }
+
+    #[test]
+    fn parse_format_adjacent_greedy_with_separator_ok() {
+        let result = parse_format("{a}={b}");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn hex_twos_complement_2() {
+        let segments = parse_format("{v:hex2}").unwrap();
+        // FF -> -1 (signed byte)
+        let result = parse_response(&segments, "FF").unwrap();
+        assert_eq!(result["v"], Value::Number((-1).into()));
+        // 80 -> -128
+        let result = parse_response(&segments, "80").unwrap();
+        assert_eq!(result["v"], Value::Number((-128).into()));
+        // 7F -> 127
+        let result = parse_response(&segments, "7F").unwrap();
+        assert_eq!(result["v"], Value::Number(127.into()));
+    }
+
+    #[test]
+    fn hex_twos_complement_4() {
+        let segments = parse_format("{v:hex4}").unwrap();
+        // FFFF -> -1
+        let result = parse_response(&segments, "FFFF").unwrap();
+        assert_eq!(result["v"], Value::Number((-1).into()));
+        // 7FFF -> 32767
+        let result = parse_response(&segments, "7FFF").unwrap();
+        assert_eq!(result["v"], Value::Number(32767.into()));
+    }
+
+    #[test]
+    fn hex_twos_complement_8() {
+        let segments = parse_format("{v:hex8}").unwrap();
+        // FFFFFFFF -> -1
+        let result = parse_response(&segments, "FFFFFFFF").unwrap();
+        assert_eq!(result["v"], Value::Number((-1).into()));
+        // 0000A1B3 -> 41395 (positive, same as before)
+        let result = parse_response(&segments, "0000A1B3").unwrap();
+        assert_eq!(result["v"], Value::Number(41395.into()));
     }
 }
