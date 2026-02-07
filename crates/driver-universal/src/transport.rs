@@ -44,8 +44,87 @@ pub struct SerialTransport {
 
 impl SerialTransport {
     /// Open a serial port and wrap it for use as a `Transport`.
-    pub async fn open(port_path: &str, baud_rate: u32, terminator: Option<&str>) -> Result<Self> {
-        let port = common::serial::open_serial_async(port_path, baud_rate, "Universal").await?;
+    ///
+    /// When `serial_config` fields are `None`, defaults to 8N1 with no flow control.
+    pub async fn open(
+        port_path: &str,
+        baud_rate: u32,
+        terminator: Option<&str>,
+        serial_config: &crate::config::validated::SerialConfig,
+    ) -> Result<Self> {
+        let has_custom_config = serial_config.data_bits.is_some()
+            || serial_config.parity.is_some()
+            || serial_config.stop_bits.is_some()
+            || serial_config.flow_control.is_some();
+
+        let port: common::serial::DynSerial = if has_custom_config {
+            // Use serial2_tokio directly for custom serial config
+            #[cfg(feature = "serial")]
+            {
+                use anyhow::Context;
+                use serial2_tokio::{CharSize, FlowControl, Parity, StopBits};
+                use tokio::task::spawn_blocking;
+
+                let port_path_owned = port_path.to_string();
+                let sc = serial_config.clone();
+                let port = spawn_blocking(move || {
+                    let mut port = serial2_tokio::SerialPort::open(&port_path_owned, baud_rate)
+                        .context(format!("Failed to open serial port: {port_path_owned}"))?;
+
+                    // Read current settings and apply overrides
+                    let mut settings = port
+                        .get_configuration()
+                        .context("Failed to read serial port settings")?;
+                    if let Some(db) = sc.data_bits {
+                        settings.set_char_size(match db {
+                            5 => CharSize::Bits5,
+                            6 => CharSize::Bits6,
+                            7 => CharSize::Bits7,
+                            _ => CharSize::Bits8,
+                        });
+                    }
+                    if let Some(p) = sc.parity {
+                        use crate::config::validated::SerialParity;
+                        settings.set_parity(match p {
+                            SerialParity::Odd => Parity::Odd,
+                            SerialParity::Even => Parity::Even,
+                            SerialParity::None => Parity::None,
+                        });
+                    }
+                    if let Some(sb) = sc.stop_bits {
+                        settings.set_stop_bits(match sb {
+                            2 => StopBits::Two,
+                            _ => StopBits::One,
+                        });
+                    }
+                    if let Some(fc) = sc.flow_control {
+                        use crate::config::validated::SerialFlowControl;
+                        settings.set_flow_control(match fc {
+                            SerialFlowControl::Software => FlowControl::XonXoff,
+                            SerialFlowControl::Hardware => FlowControl::RtsCts,
+                            SerialFlowControl::None => FlowControl::None,
+                        });
+                    }
+                    port.set_configuration(&settings)
+                        .context("Failed to apply serial port settings")?;
+
+                    Ok::<_, anyhow::Error>(port)
+                })
+                .await
+                .context("spawn_blocking for serial port opening failed")??;
+                Box::new(port)
+            }
+            #[cfg(not(feature = "serial"))]
+            {
+                anyhow::bail!(
+                    "serial feature not enabled; cannot open serial port with custom config"
+                )
+            }
+        } else {
+            // Default 8N1 — use common::serial
+            common::serial::open_serial_async(port_path, baud_rate, "Universal").await?
+        };
+
         let shared = common::serial::wrap_shared(port);
         Ok(Self {
             port: shared,
@@ -74,6 +153,58 @@ impl Transport for SerialTransport {
             .await
             .map_err(|_| anyhow::anyhow!("serial receive timed out"))??;
         Ok(response.trim().to_string())
+    }
+
+    /// Override query to drain stale BufReader data before each command-response cycle.
+    ///
+    /// After init_sequence commands (which use send() without reading), stale
+    /// echo data may sit in the BufReader's internal buffer. Consuming it before
+    /// sending ensures read_line() receives the actual response.
+    async fn query(&self, data: &[u8], timeout: Duration) -> Result<String> {
+        let mut guard = self.port.lock().await;
+
+        // Drain BufReader's internal buffer (stale echo/response data)
+        let stale = guard.buffer().len();
+        if stale > 0 {
+            guard.consume(stale);
+        }
+
+        // Send command
+        let writer = guard.get_mut();
+        writer.write_all(data).await?;
+        if !self.terminator.is_empty() {
+            writer.write_all(self.terminator.as_bytes()).await?;
+        }
+        writer.flush().await?;
+
+        // Read response — loop to skip empty lines and echoes
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            let remaining = deadline - tokio::time::Instant::now();
+            if remaining.is_zero() {
+                anyhow::bail!("serial receive timed out");
+            }
+
+            let mut response = String::new();
+            tokio::time::timeout(remaining, guard.read_line(&mut response))
+                .await
+                .map_err(|_| anyhow::anyhow!("serial receive timed out"))??;
+
+            let trimmed = response.trim();
+
+            // Skip empty lines
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            // Skip echoes of the command we just sent
+            let cmd_str = String::from_utf8_lossy(data);
+            if trimmed == cmd_str.as_ref() {
+                continue;
+            }
+
+            return Ok(trimmed.to_string());
+        }
     }
 }
 

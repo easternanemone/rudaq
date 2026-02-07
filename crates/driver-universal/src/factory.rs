@@ -154,6 +154,7 @@ impl DriverFactory for UniversalDriverFactory {
                     ConnectionConfig::Serial {
                         baud_rate,
                         terminator,
+                        ref serial_config,
                         ..
                     } => {
                         let port_path = instance.port.as_deref().ok_or_else(|| {
@@ -165,6 +166,7 @@ impl DriverFactory for UniversalDriverFactory {
                                 port_path,
                                 baud,
                                 terminator.as_deref(),
+                                serial_config,
                             )
                             .await?,
                         )
@@ -191,6 +193,11 @@ impl DriverFactory for UniversalDriverFactory {
             };
 
             let driver = UniversalDriver::new(manifest.clone(), transport, &instance.address);
+
+            // Run initialization sequence before advertising capabilities
+            if !manifest.init_sequence.is_empty() {
+                driver.run_init_sequence().await?;
+            }
 
             let driver_arc = Arc::new(driver);
             let mut components = DeviceComponents::new();

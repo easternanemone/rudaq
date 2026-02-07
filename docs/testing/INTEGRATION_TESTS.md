@@ -167,15 +167,71 @@ Ignored tests are **not** run in CI by default. They require manual setup or ded
 - **Cause**: Daemon not running or wrong address
 - **Solution**: Start daemon manually: `cargo run -p bin -- daemon --port 50051`
 
+### Universal Driver Validation Tests
+
+Located in `crates/integration-tests/tests/hardware_universal_driver_validation.rs`:
+
+These tests validate the `driver-universal` crate's declarative TOML-based drivers (schema v3) against both mock transports and real hardware, ensuring they behave identically to hand-coded legacy Rust drivers.
+
+**Feature gate:** `#![cfg(feature = "universal")]`
+
+#### Mock Tests (Run in CI — No Hardware Required)
+
+| Test | Description |
+|------|-------------|
+| `test_load_newport_1830c_config` | Load Newport 1830-C TOML via `UniversalDriverFactory::from_file()` |
+| `test_load_esp300_config` | Load ESP300 TOML config |
+| `test_load_ell14_config` | Load ELL14 TOML config |
+| `test_load_maitai_config` | Load MaiTai TOML config |
+| `test_newport_readable_mock` | Readable::read() with mock transport (scientific notation parsing) |
+| `test_newport_wavelength_get_mock` | WavelengthTunable::get_wavelength() with mock transport |
+| `test_newport_wavelength_set_mock` | WavelengthTunable::set_wavelength() command generation |
+| `test_newport_init_sequence_mock` | Init sequence sends E0 (disable echo) then U1 (set watts) |
+| `test_esp300_movable_position_mock` | Movable::position() with mock transport |
+| `test_esp300_movable_move_abs_mock` | Movable::move_abs() command generation |
+| `test_esp300_movable_stop_mock` | Movable::stop() command generation |
+| `test_ell14_movable_position_mock` | Movable::position() with hex response decoding |
+| `test_ell14_movable_move_abs_mock` | Movable::move_abs() with degrees→pulses conversion |
+| `test_newport_capabilities_wiring` | Verify Readable + WavelengthTunable capabilities present |
+| `test_esp300_capabilities_wiring` | Verify Movable capability present |
+
+```bash
+# Run mock tests only (no hardware)
+cargo nextest run -p integration-tests --features universal -- mock_tests
+```
+
+#### Hardware Tests (Run on Maitai — Requires Physical Instruments)
+
+Gated by `#[cfg(feature = "hardware_tests")]` and `#[ignore]`. Must run sequentially since they share serial ports.
+
+| Test | Hardware | Description |
+|------|----------|-------------|
+| `test_newport_read_power` | Newport 1830-C | Read power value, verify valid f64 |
+| `test_newport_get_wavelength` | Newport 1830-C | Query wavelength, verify in 300–1100 nm range |
+| `test_newport_set_wavelength` | Newport 1830-C | Set wavelength to 800nm, verify readback |
+| `test_newport_rapid_reads` | Newport 1830-C | 5 sequential reads, all valid |
+| `test_newport_wavelength_cycle` | Newport 1830-C | Cycle through 780→850→800nm, verify each |
+
+```bash
+# Run on maitai (sequential, with hardware)
+cargo nextest run -p integration-tests --features "universal,hardware_tests" \
+  --run-ignored all -- hardware_universal --test-threads=1
+```
+
+**Port configuration:** Set `NEWPORT_1830C_PORT` env var (default: `/dev/ttyS0`).
+
 ## Next Steps
 
 1. **Add more end-to-end scenarios**: Multi-device workflows, error recovery
 2. **Performance benchmarks**: Measure daemon startup time, connection latency
 3. **Integration with CI**: Automated daemon provisioning for E2E tests
 4. **Contract testing**: Verify gRPC API compatibility between daemon and GUI
+5. **ESP300 hardware tests**: Identify correct serial port for ESP300 on maitai
+6. **ELL14/MaiTai universal driver tests**: Add hardware validation once drivers are verified
 
 ## See Also
 
 - [Testing Guide](../guides/testing.md) - Comprehensive testing documentation
+- [Device Config Guide](../guides/device-config-guide.md) - Creating TOML device configs
 - [AGENTS.md](../../AGENTS.md) - Build and test commands
 - [CONTRIBUTING.md](../../CONTRIBUTING.md) - Development workflow

@@ -35,13 +35,25 @@ capabilities = ["Readable", "WavelengthTunable", "Parameterized"]
 [connection]
 type = "serial"
 baud_rate = 9600
-data_bits = 8
-parity = "none"
-stop_bits = 1
-flow_control = "none"
-timeout_ms = 500
+# data_bits, parity, stop_bits, flow_control omitted → defaults to 8N1 no flow control
+# (matches common::serial::open_serial_async defaults)
+timeout_ms = 1000
 terminator_tx = "\n"          # LF terminator for commands
 terminator_rx = "\n"
+
+# ==============================================================================
+# Initialization Sequence
+# ==============================================================================
+# The 1830-C starts with echo mode enabled, which causes read_line() to pick up
+# the echoed command before the response. Disable echo first, then set units.
+
+[[init_sequence]]
+command = "disable_echo"
+delay_ms = 100
+
+[[init_sequence]]
+command = "set_units_watts"
+delay_ms = 100
 
 # ==============================================================================
 # Device Parameters
@@ -84,7 +96,7 @@ description = "Query wavelength setting"
 response = "wavelength"
 
 [commands.set_wavelength]
-template = "W{{ wavelength_nm | pad(4, '0') }}"
+template = "W{{ wavelength_nm | int | pad(4, '0') }}"
 description = "Set wavelength for accurate measurement (4-digit format)"
 parameters = { wavelength_nm = "int32" }
 expects_response = false
@@ -127,6 +139,11 @@ expects_response = false
 [commands.set_filter_fast]
 template = "F3"
 description = "Set filter to Fast (shortest integration time)"
+expects_response = false
+
+[commands.disable_echo]
+template = "E0"
+description = "Disable echo mode (prevents command echo before response)"
 expects_response = false
 
 [commands.clear_status]
@@ -193,5 +210,5 @@ read = { command = "read_power", output_field = "value" }
 # ==============================================================================
 
 [capabilities.wavelength_tunable]
-set_wavelength = { command = "set_wavelength", input_param = "wavelength_nm", from_param = "wavelength" }
-get_wavelength = { command = "get_wavelength", output_field = "wavelength" }
+set_wavelength = { command = "set_wavelength", from_param = "wavelength_nm" }
+get_wavelength = { command = "get_wavelength", output_field = "value" }

@@ -18,7 +18,59 @@ A step-by-step guide to creating TOML configuration files for the GenericSerialD
 
 The GenericSerialDriver allows you to add support for new hardware devices **without writing any Rust code**. Instead, you define the device protocol in a TOML configuration file.
 
-### V2 Declarative SCPI (schema_version = 2)
+### V3 Universal Driver (schema_version = 3) — Recommended
+
+The v3 format is the current standard, implemented by the `driver-universal` crate. It uses MiniJinja templates, tiered response parsing, and a validated config pipeline (TOML → RawManifest → DeviceManifest → DeviceComponents).
+
+**Example v3 manifest** (see `config/devices/newport_1830c.toml`):
+
+```toml
+schema_version = 3
+
+[device]
+name = "Newport 1830-C"
+capabilities = ["Readable", "WavelengthTunable", "Parameterized"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+timeout_ms = 1000
+terminator_tx = "\n"
+terminator_rx = "\n"
+
+[[init_sequence]]
+command = "disable_echo"
+delay_ms = 100
+
+[commands.read_power]
+template = "D?"
+response = "power"
+
+[responses.power]
+transform = ["trim", "to_float"]
+
+[capabilities.readable]
+read = { command = "read_power", output_field = "value" }
+```
+
+**Key v3 features:**
+- MiniJinja templates with custom filters (`hex`, `pad`, `int`)
+- Transform pipelines for response parsing (`trim`, `to_float`, `to_int`, regex)
+- `evalexpr` formulas for unit conversions
+- Real `SerialTransport` / `TcpTransport` with echo-skipping query logic
+- `MockTransport` for CI testing without hardware
+
+**Loading a v3 config programmatically:**
+
+```rust
+use driver_universal::UniversalDriverFactory;
+let factory = UniversalDriverFactory::from_file("config/devices/newport_1830c.toml")?;
+let components = factory.build(toml::toml! { port = "/dev/ttyS0" }.into()).await?;
+let readable = components.readable.unwrap();
+let value = readable.read().await?;
+```
+
+### V2 Declarative SCPI (schema_version = 2) — Legacy
 
 The v2 declarative SCPI format lives alongside the v1 GenericSerialDriver configs and is identified by:
 
@@ -183,16 +235,20 @@ capabilities = ["Readable"]           # See capabilities below
 [connection]
 type = "serial"                       # serial, rs485, tcp, udp
 baud_rate = 19200                     # Device-specific
-data_bits = 8                         # Usually 8
-parity = "none"                       # none, odd, even
-stop_bits = 1                         # 1 or 2
-flow_control = "none"                 # none, software, hardware
 timeout_ms = 2000                     # Response timeout
 
 # Command/response terminators (IMPORTANT - check your device manual!)
 terminator_tx = "\r\n"                # Sent after each command
 terminator_rx = "\r\n"                # Expected in responses
+
+# Optional serial config (omit for default 8N1 with no flow control)
+# data_bits = 8                       # 5, 6, 7, or 8
+# parity = "none"                     # none, odd, even
+# stop_bits = 1                       # 1 or 2
+# flow_control = "none"              # none, software, hardware
 ```
+
+**Important:** Use `terminator_tx` (not `terminator`) for schema v3 configs. The `terminator_tx` field specifies what is appended after each command sent to the device. If your device uses standard 8N1 serial settings, **omit** `data_bits`, `parity`, `stop_bits`, and `flow_control` — the defaults match 8N1 and avoid unnecessary serial port reconfiguration.
 
 **Common terminator patterns**:
 - `"\r\n"` - Carriage return + line feed (most common)
@@ -483,28 +539,57 @@ initial_delay_ms = 500
 python3 -c "import tomllib; tomllib.load(open('config/devices/my_device.toml', 'rb')); print('✅ Valid TOML')"
 ```
 
-### 2. Test with Real Hardware
+### 2. Write Mock Tests (Schema v3)
 
-Create a simple test script:
+For v3 configs, use `MockTransport` to test without hardware. See `crates/integration-tests/tests/hardware_universal_driver_validation.rs` for examples:
 
 ```rust
-use driver_generic::{DriverFactory, load_device_config};
-use std::path::Path;
+use driver_universal::UniversalDriverFactory;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    // Load config
-    let config = load_device_config(Path::new("config/devices/my_device.toml"))?;
-    println!("Loaded config for: {}", config.device.name);
-    
-    // Create driver (requires actual hardware)
-    // let driver = DriverFactory::create_from_config(config, port, address).await?;
-    
-    Ok(())
+#[tokio::test]
+async fn test_my_device_readable_mock() {
+    let factory = UniversalDriverFactory::from_file("config/devices/my_device.toml").unwrap();
+    // Build with mock = true in instance config
+    let config: toml::Value = toml::toml! {
+        mock = true
+        mock_responses = ["1.234"]
+    }.into();
+    let components = factory.build(config).await.unwrap();
+    let readable = components.readable.unwrap();
+    let value = readable.read().await.unwrap();
+    assert!((value - 1.234).abs() < 1e-6);
 }
 ```
 
-### 3. Test Commands Manually
+```bash
+# Run all universal driver mock tests
+cargo nextest run -p integration-tests --features universal -- mock_tests
+```
+
+### 3. Test with Real Hardware
+
+Hardware tests use `#[ignore]` and require the `hardware_tests` feature:
+
+```rust
+#[tokio::test]
+#[ignore = "Requires real hardware"]
+#[cfg(feature = "hardware_tests")]
+async fn test_my_device_read() {
+    let factory = UniversalDriverFactory::from_file("config/devices/my_device.toml").unwrap();
+    let port = std::env::var("MY_DEVICE_PORT").unwrap_or_else(|_| "/dev/ttyUSB0".to_string());
+    let config: toml::Value = toml::toml! { port = port }.into();
+    let components = factory.build(config).await.unwrap();
+    // ... test against real hardware
+}
+```
+
+```bash
+# Run hardware tests on maitai (sequential for shared serial ports)
+cargo nextest run -p integration-tests --features "universal,hardware_tests" \
+  --run-ignored all -- hardware_universal --test-threads=1
+```
+
+### 4. Test Commands Manually
 
 Use a serial terminal (like `minicom`, `screen`, or `picocom`) to test commands before adding them to your config:
 
@@ -572,12 +657,13 @@ MEAS:POW?
 
 ## Reference Examples
 
-| Device Type | Example Config | Key Features |
-|-------------|----------------|--------------|
-| Rotation mount | `ell14.toml` | RS-485 multidrop, hex commands |
-| Motion controller | `esp300.toml` | Multi-axis, SCPI-like |
-| Power meter | `newport_1830c.toml` | Simple ASCII, Readable trait |
-| Temperature controller | `sample_temperature_controller.toml` | All features demonstrated |
+| Device Type | Example Config | Schema | Key Features |
+|-------------|----------------|--------|--------------|
+| Rotation mount | `ell14.toml` | v3 | RS-485 multidrop, hex commands, degrees↔pulses conversion |
+| Motion controller | `esp300.toml` | v3 | Multi-axis, SCPI-like, Movable trait |
+| Power meter | `newport_1830c.toml` | v3 | Simple ASCII, init sequence, Readable + WavelengthTunable |
+| Ti:Sapphire laser | `maitai.toml` | v3 | Complex protocol, multiple capabilities |
+| Temperature controller | `sample_temperature_controller.toml` | v1 | All v1 features demonstrated |
 
 ---
 

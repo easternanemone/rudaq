@@ -48,6 +48,57 @@ impl UniversalDriver {
         }
     }
 
+    /// Run the device initialization sequence.
+    ///
+    /// Sends each command in `manifest.init_sequence` via the transport,
+    /// with optional delays between commands. Commands that expect responses
+    /// use `query()` to drain the RX buffer and prevent stale data from
+    /// corrupting subsequent command-response cycles. Errors are fatal.
+    pub async fn run_init_sequence(&self) -> Result<()> {
+        let timeout = self.manifest.connection.timeout().as_duration();
+        for (i, init_cmd) in self.manifest.init_sequence.iter().enumerate() {
+            // Render the command template (substitute address if present)
+            let mut params: HashMap<String, serde_json::Value> = HashMap::new();
+            params.insert(
+                "address".to_string(),
+                serde_json::Value::String(self.address.clone()),
+            );
+            let command_str = template::render_command(
+                &crate::config::validated::ValidatedTemplate {
+                    source: init_cmd.command.clone(),
+                },
+                &params,
+            )?;
+
+            let transport = self.transport.lock().await;
+            if init_cmd.expects_response {
+                // Use query() to drain the response and prevent RX buffer desync
+                let _ = transport
+                    .query(command_str.as_bytes(), timeout)
+                    .await
+                    .map_err(|e| {
+                        anyhow!(
+                            "init_sequence[{i}] failed to query '{}': {e}",
+                            init_cmd.command
+                        )
+                    })?;
+            } else {
+                transport.send(command_str.as_bytes()).await.map_err(|e| {
+                    anyhow!(
+                        "init_sequence[{i}] failed to send '{}': {e}",
+                        init_cmd.command
+                    )
+                })?;
+            }
+            drop(transport);
+
+            if let Some(delay) = init_cmd.delay_ms {
+                tokio::time::sleep(std::time::Duration::from_millis(u64::from(delay))).await;
+            }
+        }
+        Ok(())
+    }
+
     /// Execute a method mapping -- the core dispatch engine.
     ///
     /// 1. Looks up the command by reference
@@ -924,5 +975,78 @@ set = { command = "set_voltage", from_param = "value" }
             (result - 103.95).abs() < 0.01,
             "result was {result}, expected ~103.95"
         );
+    }
+
+    #[tokio::test]
+    async fn test_run_init_sequence() {
+        use crate::config::validated::InitCommand;
+
+        let mut manifest = parse_ell14();
+        manifest.init_sequence = vec![
+            InitCommand {
+                command: "*RST".to_string(),
+                delay_ms: None,
+                expects_response: false,
+            },
+            InitCommand {
+                command: "*CLS".to_string(),
+                delay_ms: Some(10),
+                expects_response: false,
+            },
+        ];
+        let manifest = Arc::new(manifest);
+        let mock = MockTransport::new(vec![]);
+
+        let driver = UniversalDriver::new(manifest, Box::new(mock.clone()), "2");
+        driver
+            .run_init_sequence()
+            .await
+            .expect("init sequence should succeed");
+
+        let sent = mock.sent_strings();
+        assert_eq!(sent.len(), 2);
+        assert_eq!(sent[0], "*RST");
+        assert_eq!(sent[1], "*CLS");
+    }
+
+    #[tokio::test]
+    async fn test_init_sequence_drains_response() {
+        use crate::config::validated::InitCommand;
+
+        let mut manifest = parse_ell14();
+        manifest.init_sequence = vec![InitCommand {
+            command: "*IDN?".to_string(),
+            delay_ms: None,
+            expects_response: true,
+        }];
+        let manifest = Arc::new(manifest);
+        // Queue a response that the init command will drain
+        let mock = MockTransport::new(vec!["Device XYZ".to_string()]);
+
+        let driver = UniversalDriver::new(manifest, Box::new(mock.clone()), "2");
+        driver
+            .run_init_sequence()
+            .await
+            .expect("init sequence with response should succeed");
+
+        let sent = mock.sent_strings();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0], "*IDN?");
+        // The response queue should be drained (empty)
+        assert!(mock.sent_data().len() == 1); // only the query was sent
+    }
+
+    #[tokio::test]
+    async fn test_empty_init_sequence() {
+        let manifest = Arc::new(parse_ell14());
+        let mock = MockTransport::new(vec![]);
+
+        let driver = UniversalDriver::new(manifest, Box::new(mock.clone()), "2");
+        driver
+            .run_init_sequence()
+            .await
+            .expect("empty init sequence should succeed");
+
+        assert!(mock.sent_strings().is_empty());
     }
 }

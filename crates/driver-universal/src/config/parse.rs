@@ -9,10 +9,10 @@ use crate::config::raw::{
 };
 use crate::config::validated::{
     BaudRate, CapabilitySet, CommandConfig, CommandRef, ConnectionConfig, ConversionRef,
-    DeviceInfo, DeviceManifest, EmissionControlConfig, MethodConfig, MovableConfig, ReadableConfig,
-    ResponseParser, ResponseRef, ScpiResponseType, SettableConfig, ShutterControlConfig, Timeout,
-    ValidatedFormat, ValidatedFormula, ValidatedRegex, ValidatedTemplate, WaitSettledConfig,
-    WavelengthTunableConfig,
+    DeviceInfo, DeviceManifest, EmissionControlConfig, InitCommand, MethodConfig, MovableConfig,
+    ReadableConfig, ResponseParser, ResponseRef, ScpiResponseType, SerialConfig, SerialFlowControl,
+    SerialParity, SettableConfig, ShutterControlConfig, Timeout, ValidatedFormat, ValidatedFormula,
+    ValidatedRegex, ValidatedTemplate, WaitSettledConfig, WavelengthTunableConfig,
 };
 use crate::format_parser;
 use crate::template;
@@ -94,6 +94,88 @@ pub fn parse_manifest(raw: RawManifest) -> Result<DeviceManifest, Vec<ConfigErro
         }
     }
 
+    // 9. Validate init_sequence entries
+    let mut init_sequence = Vec::new();
+    for (i, entry) in raw.init_sequence.iter().enumerate() {
+        match entry {
+            toml::Value::String(cmd_name) => {
+                // String entry: look up command template
+                if let Some(cmd) = raw.commands.get(cmd_name) {
+                    if !cmd.parameters.is_empty() {
+                        errors.push(ConfigError::Other(format!(
+                            "init_sequence[{i}]: command '{cmd_name}' requires parameters"
+                        )));
+                    } else {
+                        init_sequence.push(InitCommand {
+                            command: cmd.template.clone(),
+                            delay_ms: None,
+                            expects_response: cmd.expects_response,
+                        });
+                    }
+                } else {
+                    errors.push(ConfigError::Other(format!(
+                        "init_sequence[{i}]: unknown command '{cmd_name}'"
+                    )));
+                }
+            }
+            toml::Value::Table(tbl) => {
+                // Table entry: { command = "...", delay_ms = ... }
+                if let Some(cmd_val) = tbl.get("command") {
+                    if let Some(cmd_name) = cmd_val.as_str() {
+                        if let Some(cmd) = raw.commands.get(cmd_name) {
+                            if !cmd.parameters.is_empty() {
+                                errors.push(ConfigError::Other(format!(
+                                    "init_sequence[{i}]: command '{cmd_name}' requires parameters"
+                                )));
+                            } else {
+                                let delay_ms = match tbl.get("delay_ms") {
+                                    Some(v) => match v.as_integer() {
+                                        Some(d) if (0..=60_000).contains(&d) => Some(d as u32),
+                                        Some(d) => {
+                                            errors.push(ConfigError::Other(format!(
+                                                "init_sequence[{i}]: delay_ms must be 0..=60000 (got {d})"
+                                            )));
+                                            None
+                                        }
+                                        None => {
+                                            errors.push(ConfigError::Other(format!(
+                                                "init_sequence[{i}]: delay_ms must be an integer (got {v})"
+                                            )));
+                                            None
+                                        }
+                                    },
+                                    None => None,
+                                };
+                                init_sequence.push(InitCommand {
+                                    command: cmd.template.clone(),
+                                    delay_ms,
+                                    expects_response: cmd.expects_response,
+                                });
+                            }
+                        } else {
+                            errors.push(ConfigError::Other(format!(
+                                "init_sequence[{i}]: unknown command '{cmd_name}'"
+                            )));
+                        }
+                    } else {
+                        errors.push(ConfigError::Other(format!(
+                            "init_sequence[{i}]: 'command' must be a string"
+                        )));
+                    }
+                } else {
+                    errors.push(ConfigError::Other(format!(
+                        "init_sequence[{i}]: table entry requires 'command' field"
+                    )));
+                }
+            }
+            _ => {
+                errors.push(ConfigError::Other(format!(
+                    "init_sequence[{i}]: must be a string or table"
+                )));
+            }
+        }
+    }
+
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -109,6 +191,7 @@ pub fn parse_manifest(raw: RawManifest) -> Result<DeviceManifest, Vec<ConfigErro
         conversions,
         capabilities,
         parameters,
+        init_sequence,
     })
 }
 
@@ -121,13 +204,17 @@ fn validate_connection(
             baud_rate,
             timeout_ms,
             terminator,
+            terminator_tx,
+            data_bits,
+            parity,
+            stop_bits,
+            flow_control,
             ..
         } => {
             let br = match BaudRate::new(*baud_rate) {
                 Ok(br) => br,
                 Err(_) => {
                     errors.push(ConfigError::InvalidBaudRate(*baud_rate));
-                    // Use a fallback to continue validation
                     BaudRate::new(9600).unwrap()
                 }
             };
@@ -138,10 +225,64 @@ fn validate_connection(
                     Timeout::new(1000).unwrap()
                 }
             };
+
+            // Validate serial config fields
+            if let Some(db) = data_bits {
+                if !(5..=8).contains(db) {
+                    errors.push(ConfigError::Other(format!(
+                        "data_bits must be 5, 6, 7, or 8 (got {db})"
+                    )));
+                }
+            }
+            let validated_parity = parity
+                .as_ref()
+                .map(|p| match p.as_str() {
+                    "odd" => Ok(SerialParity::Odd),
+                    "even" => Ok(SerialParity::Even),
+                    "none" => Ok(SerialParity::None),
+                    _ => {
+                        errors.push(ConfigError::Other(format!(
+                            "parity must be 'none', 'odd', or 'even' (got '{p}')"
+                        )));
+                        Err(())
+                    }
+                })
+                .and_then(|r| r.ok());
+            if let Some(sb) = stop_bits {
+                if !matches!(sb, 1 | 2) {
+                    errors.push(ConfigError::Other(format!(
+                        "stop_bits must be 1 or 2 (got {sb})"
+                    )));
+                }
+            }
+            let validated_flow_control = flow_control
+                .as_ref()
+                .map(|fc| match fc.as_str() {
+                    "none" => Ok(SerialFlowControl::None),
+                    "software" => Ok(SerialFlowControl::Software),
+                    "hardware" => Ok(SerialFlowControl::Hardware),
+                    _ => {
+                        errors.push(ConfigError::Other(format!(
+                            "flow_control must be 'none', 'software', or 'hardware' (got '{fc}')"
+                        )));
+                        Err(())
+                    }
+                })
+                .and_then(|r| r.ok());
+
+            // Resolve terminator: terminator_tx takes precedence over terminator
+            let resolved_terminator = terminator_tx.clone().or_else(|| terminator.clone());
+
             ConnectionConfig::Serial {
                 baud_rate: br,
                 timeout,
-                terminator: terminator.clone(),
+                terminator: resolved_terminator,
+                serial_config: SerialConfig {
+                    data_bits: *data_bits,
+                    parity: validated_parity,
+                    stop_bits: *stop_bits,
+                    flow_control: validated_flow_control,
+                },
             }
         }
         RawConnectionConfig::Tcp {
@@ -1128,5 +1269,306 @@ read = {{ command = "read" }}
         let errors = parse_manifest(raw).unwrap_err();
         let msg = errors.iter().map(|e| e.to_string()).collect::<String>();
         assert!(msg.contains("too long"), "expected 'too long' in: {msg}");
+    }
+
+    #[test]
+    fn serial_config_fields_preserved() {
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Test"
+capabilities = []
+
+[connection]
+type = "serial"
+baud_rate = 9600
+data_bits = 7
+parity = "even"
+stop_bits = 2
+flow_control = "hardware"
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let manifest = parse_manifest(raw).expect("should parse serial config");
+        match &manifest.connection {
+            ConnectionConfig::Serial { serial_config, .. } => {
+                assert_eq!(serial_config.data_bits, Some(7));
+                assert_eq!(serial_config.parity, Some(SerialParity::Even));
+                assert_eq!(serial_config.stop_bits, Some(2));
+                assert_eq!(
+                    serial_config.flow_control,
+                    Some(SerialFlowControl::Hardware)
+                );
+            }
+            _ => panic!("expected serial connection"),
+        }
+    }
+
+    #[test]
+    fn serial_config_defaults_to_none() {
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Test"
+capabilities = []
+
+[connection]
+type = "serial"
+baud_rate = 9600
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let manifest = parse_manifest(raw).expect("should parse minimal serial config");
+        match &manifest.connection {
+            ConnectionConfig::Serial { serial_config, .. } => {
+                assert!(serial_config.data_bits.is_none());
+                assert!(serial_config.parity.is_none());
+                assert!(serial_config.stop_bits.is_none());
+                assert!(serial_config.flow_control.is_none());
+            }
+            _ => panic!("expected serial connection"),
+        }
+    }
+
+    #[test]
+    fn reject_invalid_serial_config() {
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Test"
+capabilities = []
+
+[connection]
+type = "serial"
+baud_rate = 9600
+data_bits = 4
+parity = "invalid"
+stop_bits = 3
+flow_control = "xon"
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let errs = parse_manifest(raw).unwrap_err();
+        assert!(
+            errs.len() >= 4,
+            "expected at least 4 errors, got {}: {:?}",
+            errs.len(),
+            errs
+        );
+    }
+
+    #[test]
+    fn init_sequence_string_entries() {
+        let toml_str = r#"
+schema_version = 3
+init_sequence = ["reset", "clear"]
+
+[device]
+name = "Test"
+capabilities = []
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.reset]
+template = "*RST"
+expects_response = false
+
+[commands.clear]
+template = "*CLS"
+expects_response = false
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let manifest = parse_manifest(raw).expect("should parse init sequence");
+        assert_eq!(manifest.init_sequence.len(), 2);
+        assert_eq!(manifest.init_sequence[0].command, "*RST");
+        assert_eq!(manifest.init_sequence[1].command, "*CLS");
+        assert!(manifest.init_sequence[0].delay_ms.is_none());
+        assert!(!manifest.init_sequence[0].expects_response);
+        assert!(!manifest.init_sequence[1].expects_response);
+    }
+
+    #[test]
+    fn init_sequence_table_entries() {
+        let toml_str = r#"
+schema_version = 3
+init_sequence = [{ command = "reset", delay_ms = 500 }]
+
+[device]
+name = "Test"
+capabilities = []
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.reset]
+template = "*RST"
+expects_response = false
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let manifest = parse_manifest(raw).expect("should parse init sequence with delay");
+        assert_eq!(manifest.init_sequence.len(), 1);
+        assert_eq!(manifest.init_sequence[0].command, "*RST");
+        assert_eq!(manifest.init_sequence[0].delay_ms, Some(500));
+        assert!(!manifest.init_sequence[0].expects_response);
+    }
+
+    #[test]
+    fn init_sequence_rejects_negative_delay() {
+        let toml_str = r#"
+schema_version = 3
+init_sequence = [{ command = "reset", delay_ms = -100 }]
+
+[device]
+name = "Test"
+capabilities = []
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.reset]
+template = "*RST"
+expects_response = false
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let errs = parse_manifest(raw).unwrap_err();
+        let msg = errs.iter().map(|e| e.to_string()).collect::<String>();
+        assert!(
+            msg.contains("delay_ms must be 0..=60000"),
+            "expected delay_ms range error in: {msg}"
+        );
+    }
+
+    #[test]
+    fn init_sequence_expects_response_from_command() {
+        let toml_str = r#"
+schema_version = 3
+init_sequence = ["identify"]
+
+[device]
+name = "Test"
+capabilities = []
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.identify]
+template = "*IDN?"
+response_type = "string"
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let manifest = parse_manifest(raw).expect("should parse");
+        assert_eq!(manifest.init_sequence.len(), 1);
+        assert!(manifest.init_sequence[0].expects_response);
+    }
+
+    #[test]
+    fn init_sequence_rejects_unknown_command() {
+        let toml_str = r#"
+schema_version = 3
+init_sequence = ["nonexistent"]
+
+[device]
+name = "Test"
+capabilities = []
+
+[connection]
+type = "serial"
+baud_rate = 9600
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let errs = parse_manifest(raw).unwrap_err();
+        let msg = errs.iter().map(|e| e.to_string()).collect::<String>();
+        assert!(
+            msg.contains("unknown command"),
+            "expected 'unknown command' in: {msg}"
+        );
+    }
+
+    #[test]
+    fn init_sequence_rejects_parameterized_command() {
+        let toml_str = r#"
+schema_version = 3
+init_sequence = ["move"]
+
+[device]
+name = "Test"
+capabilities = []
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.move]
+template = "MA{{ position }}"
+parameters = { position = "int32" }
+expects_response = false
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let errs = parse_manifest(raw).unwrap_err();
+        let msg = errs.iter().map(|e| e.to_string()).collect::<String>();
+        assert!(
+            msg.contains("requires parameters"),
+            "expected 'requires parameters' in: {msg}"
+        );
+    }
+
+    #[test]
+    fn init_sequence_rejects_parameterized_command_table_entry() {
+        let toml_str = r#"
+schema_version = 3
+init_sequence = [{ command = "move", delay_ms = 100 }]
+
+[device]
+name = "Test"
+capabilities = []
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.move]
+template = "MA{{ position }}"
+parameters = { position = "int32" }
+expects_response = false
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let errs = parse_manifest(raw).unwrap_err();
+        let msg = errs.iter().map(|e| e.to_string()).collect::<String>();
+        assert!(
+            msg.contains("requires parameters"),
+            "expected 'requires parameters' in: {msg}"
+        );
+    }
+
+    #[test]
+    fn init_sequence_rejects_non_integer_delay() {
+        let toml_str = r#"
+schema_version = 3
+init_sequence = [{ command = "reset", delay_ms = "fast" }]
+
+[device]
+name = "Test"
+capabilities = []
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.reset]
+template = "*RST"
+expects_response = false
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let errs = parse_manifest(raw).unwrap_err();
+        let msg = errs.iter().map(|e| e.to_string()).collect::<String>();
+        assert!(
+            msg.contains("must be an integer"),
+            "expected 'must be an integer' in: {msg}"
+        );
     }
 }

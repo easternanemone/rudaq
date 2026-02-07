@@ -37,6 +37,9 @@ pub struct DeviceManifest {
     /// Device parameters with their default numeric values.
     /// Extracted from `[parameters]` section for use in formula evaluation.
     pub parameters: HashMap<String, f64>,
+
+    /// Initialization sequence to run when the driver connects.
+    pub init_sequence: Vec<InitCommand>,
 }
 
 /// Device metadata.
@@ -46,6 +49,48 @@ pub struct DeviceInfo {
     pub capability_names: Vec<String>,
 }
 
+/// Validated parity mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SerialParity {
+    None,
+    Odd,
+    Even,
+}
+
+/// Validated flow control mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SerialFlowControl {
+    None,
+    Software,
+    Hardware,
+}
+
+/// Optional serial port configuration beyond baud rate.
+///
+/// When all fields are `None`, defaults to 8N1 with no flow control.
+#[derive(Debug, Clone, Default)]
+pub struct SerialConfig {
+    /// Data bits per character (5, 6, 7, or 8). Default: 8.
+    pub data_bits: Option<u8>,
+    /// Parity mode. Default: None.
+    pub parity: Option<SerialParity>,
+    /// Stop bits: 1 or 2. Default: 1.
+    pub stop_bits: Option<u8>,
+    /// Flow control mode. Default: None.
+    pub flow_control: Option<SerialFlowControl>,
+}
+
+/// A single command in the device initialization sequence.
+#[derive(Debug, Clone)]
+pub struct InitCommand {
+    /// The command string to send (a raw template source).
+    pub command: String,
+    /// Optional delay in milliseconds after sending this command.
+    pub delay_ms: Option<u32>,
+    /// Whether the device sends a response that must be drained.
+    pub expects_response: bool,
+}
+
 /// Validated connection configuration.
 #[derive(Debug, Clone)]
 pub enum ConnectionConfig {
@@ -53,6 +98,7 @@ pub enum ConnectionConfig {
         baud_rate: BaudRate,
         timeout: Timeout,
         terminator: Option<String>,
+        serial_config: SerialConfig,
     },
     Tcp {
         host: String,

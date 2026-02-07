@@ -126,10 +126,20 @@ Require physical hardware (run on maitai machine):
 | `hardware_esp300_validation.rs` | Newport ESP300 controller |
 | `hardware_maitai_validation.rs` | MaiTai laser |
 | `hardware_pvcam_validation.rs` | Prime BSI camera |
+| `hardware_universal_driver_validation.rs` | TOML-driven drivers (Newport 1830-C, ESP300) |
+
+The universal driver validation tests also include **mock tests** (15 tests) that run in CI without hardware, validating TOML config loading, capability wiring, and response parsing for all four device configs.
 
 ```bash
 # Run hardware tests (requires hardware)
 cargo nextest run --profile hardware --features hardware_tests
+
+# Run universal driver mock tests only (no hardware needed)
+cargo nextest run -p integration-tests --features universal -- mock_tests
+
+# Run universal driver hardware tests (on maitai, sequential)
+cargo nextest run -p integration-tests --features "universal,hardware_tests" \
+  --run-ignored all -- hardware_universal --test-threads=1
 ```
 
 ### Documentation Tests
@@ -614,4 +624,6 @@ Some legitimate uses of `expect()`:
 - [cargo-nextest documentation](https://nexte.st/)
 - [Tokio testing guide](https://tokio.rs/tokio/topics/testing)
 - [Hardware Validation README](../../crates/rust-daq/tests/HARDWARE_VALIDATION_README.md)
+- [Integration Tests Guide](../testing/INTEGRATION_TESTS.md) - Including universal driver tests
+- [Device Config Guide](./device-config-guide.md) - Creating TOML device configs (schema v3)
 - [Hardware Testing Resources](../../CLAUDE.md#hardware-testing): See CLAUDE.md for hardware inventory and testing setup
