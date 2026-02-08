@@ -1,50 +1,27 @@
 {
+  "enabledPlugins": {
+    "rust-analyzer-lsp@claude-plugins-official": false,
+    "pyright-lsp@claude-plugins-official": false
+  },
+  "env": {
+    "ENABLE_LSP_TOOL": "0"
+  },
   "hooks": {
     "PreToolUse": [
       {
-        "hooks": [
-          {"type": "command", "command": ".claude/hooks/block-orchestrator-tools.sh"}
-        ]
-      },
-      {
-        "matcher": "Task",
-        "hooks": [
-          {"type": "command", "command": ".claude/hooks/enforce-bead-for-supervisor.sh"},
-          {"type": "command", "command": ".claude/hooks/remind-inprogress.sh"},
-          {"type": "command", "command": ".claude/hooks/inject-discipline-reminder.sh"}
-        ]
-      },
-      {
-        "matcher": "Edit",
-        "hooks": [
-          {"type": "command", "command": ".claude/hooks/enforce-branch-before-edit.sh"}
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          {"type": "command", "command": ".claude/hooks/enforce-branch-before-edit.sh"}
-        ]
-      },
-      {
         "matcher": "Bash",
         "hooks": [
-          {"type": "command", "command": ".claude/hooks/validate-epic-close.sh"}
+          {"type": "command", "command": ".claude/hooks/validate-epic-close.sh"},
+          {"type": "command", "command": ".claude/hooks/pre-commit-checks.sh"},
+          {"type": "command", "command": ".claude/hooks/pre-push-checks.sh"}
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Task",
+        "matcher": "Edit|Write",
         "hooks": [
-          {"type": "command", "command": ".claude/hooks/enforce-concise-response.sh"}
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {"type": "command", "command": ".claude/hooks/validate-completion.sh"}
+          {"type": "command", "command": ".claude/hooks/rustfmt-on-save.sh"}
         ]
       }
     ],
@@ -52,13 +29,6 @@
       {
         "hooks": [
           {"type": "command", "command": ".claude/hooks/session-start.sh"}
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {"type": "command", "command": ".claude/hooks/clarify-vague-request.sh"}
         ]
       }
     ]

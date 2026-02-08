@@ -1,38 +1,6 @@
 # rust-daq
 
-## Orchestrator Rules
-
-**YOU ARE AN ORCHESTRATOR. You investigate, then delegate implementation.**
-
-- Use Glob, Grep, Read to investigate issues
-- Delegate implementation to supervisors via Task()
-- Don't Edit/Write code yourself - supervisors implement
-
-## Investigation-First Workflow
-
-1. **Investigate** - Use Grep, Read, Glob to understand the issue
-2. **Identify root cause** - Find the specific file, function, line
-3. **Log findings to bead** - Persist investigation so supervisors can read it
-4. **Delegate with confidence** - Tell the supervisor the bead ID and brief fix
-
-### Log Investigation Before Delegating
-
-**Always log your investigation to the bead:**
-
-```bash
-bd comment {BEAD_ID} "INVESTIGATION:
-Root cause: {file}:{line} - {what's wrong}
-Related files: {list of files that may need changes}
-Fix: {specific change to make}
-Gotchas: {anything tricky}"
-```
-
-This ensures:
-- Supervisors read full context from the bead
-- No re-investigation if session ends
-- Audit trail if fix was wrong
-
-### Environment Setup (PVCAM machines only)
+## Environment Setup (PVCAM machines only)
 
 ```bash
 source scripts/env-check.sh              # Validate & configure environment
@@ -109,15 +77,7 @@ This script:
 3. Builds with `--features maitai` which enables ALL real hardware drivers
 4. Only builds the daemon (GUI is separate and doesn't need hardware features)
 
-**Verification - daemon log MUST show:**
-```
-Task(
-  subagent_type="{agent-name}",
-  prompt="BEAD_ID: {id}
-
-Fix: [brief summary - supervisor will read details from bead comments]"
-)
-```
+**Verification:** Check that daemon log shows `pvcam_sdk feature enabled: true` and does NOT show `using mock mode`.
 
 **If you see mock mode, the build is WRONG and must be rebuilt with the script.**
 
@@ -166,10 +126,6 @@ After connecting GUI to daemon:
 - Camera should stream real images (not synthetic gradients)
 - Comedi channels should show real voltage readings
 
-### Supervisor Dispatch Guidelines
-
-Supervisors read the bead comments for full investigation context, then execute confidently.
-
 ## Beads Commands
 
 ### Human-Readable Commands (Interactive Use)
@@ -210,253 +166,6 @@ bd epic status ID --json                              # Epic status as JSON
 - One-off interactive commands
 - Checking quick status in terminal
 - Reading investigation notes or comments
-
-## When to Use Epic vs Standalone
-
-| Signals | Workflow |
-|---------|----------|
-| Single tech domain (just frontend, just DB, just backend) | Standalone |
-| Multiple supervisors needed | **Epic** |
-| "First X, then Y" in your thinking | **Epic** |
-| Any infrastructure + code change | **Epic** |
-| Any DB + API + frontend change | **Epic** |
-
-**Anti-pattern to avoid:**
-```
-"This is cross-domain but simple, so I'll just dispatch sequentially"
-```
-→ WRONG. Cross-domain = Epic. No exceptions.
-
-## Worktree Workflow
-
-Supervisors work in isolated worktrees (`.worktrees/bd-{BEAD_ID}/`), not branches on main.
-
-### Standalone Workflow (Single Supervisor)
-
-For simple tasks handled by one supervisor:
-
-1. Investigate the issue (Grep, Read)
-2. Create bead: `bd create "Task" -d "Details"`
-3. Dispatch with fix: `Task(subagent_type="<tech>-supervisor", prompt="BEAD_ID: {id}\n\n{problem + fix}")`
-4. Supervisor creates worktree, implements, pushes, marks `inreview` when done
-5. **User merges via UI** (Create PR → wait for CI → Merge PR → Clean Up)
-6. Close: `bd close {ID}` (or auto-close on cleanup)
-
-### Epic Workflow (Cross-Domain Features)
-
-For features requiring multiple supervisors (e.g., DB + API + Frontend):
-
-**Note:** Epics are organizational only - no git branch/worktree for epics. Each child gets its own worktree.
-
-#### 1. Create Epic
-
-```bash
-bd create "Feature name" -d "Description" --type epic
-# Returns: {EPIC_ID}
-```
-
-#### 2. Create Design Doc (if needed)
-
-If the epic involves cross-domain work, dispatch architect FIRST:
-
-```
-Task(
-  subagent_type="architect",
-  prompt="Create design doc for EPIC_ID: {EPIC_ID}
-         Feature: [description]
-         Output: .designs/{EPIC_ID}.md
-
-         Include:
-         - Schema definitions (exact column names, types)
-         - API contracts (endpoints, request/response shapes)
-         - Shared constants/enums
-         - Data flow between layers"
-)
-```
-
-Then link it to the epic:
-```bash
-bd update {EPIC_ID} --design ".designs/{EPIC_ID}.md"
-```
-
-#### 3. Create Children with Dependencies
-
-```bash
-# First task (no dependencies)
-bd create "Create DB schema" -d "..." --parent {EPIC_ID}
-# Returns: {EPIC_ID}.1
-
-# Second task (depends on first)
-bd create "Create API endpoints" -d "..." --parent {EPIC_ID} --deps "{EPIC_ID}.1"
-# Returns: {EPIC_ID}.2
-
-# Third task (depends on second)
-bd create "Create frontend" -d "..." --parent {EPIC_ID} --deps "{EPIC_ID}.2"
-# Returns: {EPIC_ID}.3
-```
-
-#### 4. Dispatch Sequentially
-
-Use `bd ready` to find unblocked tasks:
-
-```bash
-bd ready --json | jq -r '.[] | select(.id | startswith("{EPIC_ID}.")) | .id' | head -1
-```
-
-Dispatch format for epic children:
-```
-Task(
-  subagent_type="{appropriate}-supervisor",
-  prompt="BEAD_ID: {CHILD_ID}
-EPIC_ID: {EPIC_ID}
-
-{task description with fix}"
-)
-```
-
-**WAIT for each child to complete AND be merged before dispatching next.**
-
-Each child:
-1. Creates its own worktree: `.worktrees/bd-{CHILD_ID}/`
-2. Implements the fix
-3. Pushes to remote
-4. Marks `inreview`
-
-User merges each child's PR before the next can start (dependencies enforce this).
-
-#### 5. Close Epic
-
-After all children are merged:
-```bash
-bd close {EPIC_ID}  # Closes epic and all children
-```
-
-## Supervisor Phase 0 (Worktree Setup)
-
-Supervisors start by creating a worktree using git directly:
-
-```bash
-# Create worktree for this bead (idempotent - skip if exists)
-REPO_ROOT=$(git rev-parse --show-toplevel)
-WORKTREE_PATH="$REPO_ROOT/.worktrees/bd-{BEAD_ID}"
-
-if [ ! -d "$WORKTREE_PATH" ]; then
-  git worktree add "$WORKTREE_PATH" -b bd-{BEAD_ID} main
-fi
-
-# Change to worktree
-cd "$WORKTREE_PATH"
-
-# Mark in progress
-bd update {BEAD_ID} --status in_progress
-```
-
-**Alternative:** If an external worktree service is available at `http://localhost:3008/api/git/worktree`, it can be used instead, but direct git commands are always available as a fallback.
-
-## Supervisor Completion Format
-
-```
-BEAD {BEAD_ID} COMPLETE
-Worktree: .worktrees/bd-{BEAD_ID}
-Files: [names only]
-Tests: pass
-Summary: [1 sentence]
-```
-
-Then:
-```bash
-git add -A && git commit -m "..."
-git push origin bd-{BEAD_ID}
-bd update {BEAD_ID} --status inreview
-```
-
-## Design Doc Guidelines
-
-When the architect creates a design doc, it should include:
-
-```markdown
-# Feature: {name}
-
-## Schema
-- Exact column names and types
-
-## API Contract
-- Endpoints, request/response shapes
-
-## Shared Constants
-- Enums, status codes
-
-## Data Flow
-- Step-by-step data movement
-```
-
----
-
-## Supervisors (Implementers)
-
-Supervisors write code in worktrees. Use `Task(subagent_type="...", prompt="BEAD_ID: {id}\n\n...")`.
-
-| Supervisor | Scope (Crates) |
-|------------|----------------|
-| **egui-supervisor** (Eve) | `ui` - GUI, visualization, UX |
-| **driver-supervisor** (Diana) | `driver-*`, `drivers`, `*-sys`, `hardware` - FFI, hardware |
-| **scripting-supervisor** (Sage) | `scripting`, `experiment` - DSL, automation |
-| **core-supervisor** (Corey) | `common`, `server`, `client`, `storage`, `plugin-*`, `protocol`, `pool`, `daq-modules` |
-| **python-supervisor** (Tessa) | `python/` - Python client library |
-| **infra-supervisor** (Olive) | `.github/`, CI/CD pipelines |
-
-## Support Agents (Read-Only)
-
-Support agents investigate but don't write code. Use `Task(subagent_type="...", prompt="...")`.
-
-| Agent | Purpose |
-|-------|---------|
-| **scout** | Quick file/pattern discovery |
-| **detective** | Deep root cause analysis |
-| **architect** | Design docs for epics |
-| **scribe** | Documentation updates |
-| **code-reviewer** | Pre-merge code review |
-| **merge-supervisor** | Git conflict resolution |
-
-## External AI Agents (Read-Only)
-
-> **Note:** These agents are available when the corresponding MCP servers (PAL, external model providers) are configured. They extend capabilities beyond the built-in Claude Code tools.
-
-Use external models for validation and research.
-
-| Agent | Purpose | When to Use |
-|-------|---------|-------------|
-| **validation-agent** (Victor) | Multi-model validation | Before merging complex PRs |
-| **research-agent** (Rita) | Docs, best practices | Unfamiliar APIs, library research |
-
-### Validation Workflow
-
-Before merging a supervisor's PR:
-
-```
-Task(
-  subagent_type="validation-agent",
-  prompt="Validate changes in worktree bd-{BEAD_ID}
-
-Focus: [security | performance | correctness]
-Files: [key files to review]"
-)
-```
-
-### Research Workflow
-
-When investigating unfamiliar domain:
-
-```
-Task(
-  subagent_type="research-agent",
-  prompt="Research: [topic]
-
-Questions:
-1. [specific question]
-2. [specific question]"
-)
-```
 
 ### PAL Model Selection (IMPORTANT)
 
@@ -990,6 +699,27 @@ rust-analyzer diagnostics . 2>&1 | grep Error
 cargo modules structure --package hardware --max-depth 3
 ```
 
+## ast-grep Quick Reference (Rust)
+
+**When to use ast-grep vs Grep:**
+- **ast-grep**: structural patterns (unwrap calls, unsafe blocks, async patterns, trait impls)
+- **Grep**: exact text matches (imports, string literals, variable names)
+
+**Common Rust patterns:**
+
+```bash
+sg -p '$EXPR.unwrap()' --lang rust .                    # Find all .unwrap() calls
+sg -p 'unsafe { $$$ }' --lang rust .                    # Find unsafe blocks
+sg -p '$EXPR.expect($MSG)' --lang rust .                # Find .expect() calls
+sg -p 'panic!($$$)' --lang rust .                       # Find panic! macros
+sg -p 'todo!($$$)' --lang rust .                        # Find todo! macros
+sg -p 'std::thread::sleep($EXPR)' --lang rust .         # Find blocking sleep in async code
+sg -p 'impl $TRAIT for $TYPE { $$$ }' --lang rust .     # Find trait implementations
+sg -p '#[test] fn $NAME() { $$$ }' --lang rust .        # Find test functions
+```
+
+**For complex structural rules (inside/has/not):** Load the full skill with `/ast-grep` first.
+
 ## Documentation
 
 - [DEMO.md](DEMO.md) - Quick start with mock devices
@@ -1008,70 +738,44 @@ use storage::ring_buffer::RingBuffer;
 ```
 
 
-## grepai - Semantic Code Search
+## CocoIndex - Semantic Code Search
 
-**RECOMMENDED: Use grepai as your primary tool for code exploration and search when available.**
+Local pgvector-backed semantic index of the entire rust-daq codebase (~12,300 chunks with `nomic-embed-code` embeddings). Kept current by a launchd live updater.
 
-### When to Use grepai (Recommended)
+**When to use CocoIndex vs Grep/Glob:**
+- **CocoIndex**: you know *what* you want but not the exact keywords, finding similar implementations, exploring by concept
+- **Grep/Glob**: exact symbol names, string literals, file path patterns
 
-Use `grepai search` instead of Grep/Glob/find for semantic code understanding when available:
-- Understanding what code does or where functionality lives
-- Finding implementations by intent (e.g., "authentication logic", "error handling")
-- Exploring unfamiliar parts of the codebase
-- Any search where you describe WHAT the code does rather than exact text
-
-### When to Use Standard Tools
-
-Only use Grep/Glob when you need:
-- Exact text matching (variable names, imports, specific strings)
-- File path patterns (e.g., `**/*.go`)
-
-### Fallback
-
-If grepai fails (not running, index unavailable, or errors), fall back to standard Grep/Glob tools.
-
-### Usage
+### Semantic Search (requires embedding server on vasp-03)
 
 ```bash
-# ALWAYS use English queries for best results (--compact saves ~80% tokens)
-grepai search "user authentication flow" --json --compact
-grepai search "error handling middleware" --json --compact
-grepai search "database connection pool" --json --compact
-grepai search "API request validation" --json --compact
+COCOINDEX_DATABASE_URL="postgresql://briansquires@localhost/cocoindex" \
+  ~/beefcake2/.venv/bin/python -c "
+import sys; sys.path.insert(0, '$HOME/beefcake2')
+import index_flow_v2
+result = index_flow_v2.semantic_search('YOUR QUERY HERE', top_k=10)
+for r in result.results:
+    print(f\"[{r['score']:.3f}] {r['filename']}\")
+    print(f\"  {r['chunk_content'][:120]}\")
+"
 ```
 
-### Query Tips
-
-- **Use English** for queries (better semantic matching)
-- **Describe intent**, not implementation: "handles user login" not "func Login"
-- **Be specific**: "JWT token validation" better than "token"
-- Results include: file path, line numbers, relevance score, code preview
-
-### Call Graph Tracing
-
-Use `grepai trace` to understand function relationships:
-- Finding all callers of a function before modifying it
-- Understanding what functions are called by a given function
-- Visualizing the complete call graph around a symbol
-
-#### Trace Commands
-
-**Recommended: Use `--json` flag for optimal AI agent integration.**
+### Text Search (no embedding server needed)
 
 ```bash
-# Find all functions that call a symbol
-grepai trace callers "HandleRequest" --json
+psql -d cocoindex -c "SELECT filename, chunk_content FROM code_chunks WHERE chunk_content ILIKE '%DriverFactory%' LIMIT 10;"
+```
 
-# Find all functions called by a symbol
-grepai trace callees "ProcessOrder" --json
+### Crate-Scoped Search
 
-# Build complete call graph (callers + callees)
-grepai trace graph "ValidateToken" --depth 3 --json
+```bash
+psql -d cocoindex -c "SELECT filename, chunk_content FROM code_chunks WHERE filename LIKE 'crates/common/%' AND chunk_content ILIKE '%Parameter%' LIMIT 20;"
 ```
 
 ### Workflow
 
-1. Start with `grepai search` to find relevant code
-2. Use `grepai trace` to understand function relationships
-3. Use `Read` tool to examine files from results
-4. Only use Grep for exact string searches if needed
+1. Use CocoIndex semantic search to discover relevant files and chunks
+2. Use `Read` tool with actual file paths for full context and line numbers
+3. Use Grep only for precise exact-text lookups
+
+**For full reference (embedding server status, index coverage, live updater):** Load `/cocoindex-search`

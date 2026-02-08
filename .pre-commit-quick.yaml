@@ -29,6 +29,15 @@ repos:
         types: [rust]
         pass_filenames: false
 
+      # ast-grep structural lint (errors block, warnings inform)
+      # Runs full project scan; .ignore handles exclusions
+      - id: ast-grep
+        name: ast-grep lint
+        entry: sg scan --report-style short
+        language: system
+        types: [rust]
+        pass_filenames: false
+
 default_language_version:
   python: python3
 

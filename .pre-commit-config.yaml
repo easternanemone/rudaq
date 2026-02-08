@@ -65,6 +65,16 @@ repos:
         pass_filenames: false
         description: "Deny .unwrap() in library code"
 
+      # ast-grep structural lint (blocks on error-severity rules only)
+      - id: ast-grep
+        name: ast-grep lint
+        entry: sg scan
+        language: system
+        types: [rust]
+        pass_filenames: true
+        exclude: '(/tests/|/examples/|/benches/|-sys/)'
+        description: "Structural code analysis (panic, todo, blocking sleep, unsafe audit)"
+
   # Rust tests (fast unit tests only, not integration tests)
   - repo: local
     hooks:

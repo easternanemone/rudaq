@@ -1,0 +1,20 @@
+id: unimplemented-macro
+language: rust
+severity: error
+message: "unimplemented!() will panic at runtime. Implement or return an error."
+rule:
+  pattern: unimplemented!($$$)
+  not:
+    any:
+      - inside:
+          kind: function_item
+          follows:
+            kind: attribute_item
+            regex: "test"
+          stopBy: end
+      - inside:
+          kind: mod_item
+          follows:
+            kind: attribute_item
+            regex: "cfg.*test"
+          stopBy: end

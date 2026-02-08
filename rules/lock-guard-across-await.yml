@@ -1,0 +1,14 @@
+id: lock-guard-across-await
+language: rust
+severity: warning
+message: "Mutex guard may be held across .await point - potential deadlock risk."
+note: "Per CLAUDE.md: NEVER hold tokio::sync::Mutex guards across .await points. Drop the guard before awaiting."
+url: https://docs.rs/tokio/latest/tokio/sync/struct.Mutex.html
+rule:
+  kind: let_declaration
+  pattern: let $GUARD = $MUTEX.lock().await
+  precedes:
+    has:
+      pattern: $EXPR.await
+      stopBy: end
+    stopBy: end

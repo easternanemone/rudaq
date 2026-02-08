@@ -168,6 +168,10 @@ pub struct InstrumentManagerPanel {
     /// Checked by DaqApp after each ui() call
     pending_pop_out: Option<DeviceInfo>,
 
+    /// Pending request to navigate to the Image Viewer for a specific device
+    /// Checked by DaqApp after each ui() call to switch tabs and start streaming
+    pending_image_viewer_device: Option<String>,
+
     /// Device configuration cache for UI config loading
     device_config_cache: DeviceConfigCache,
 }
@@ -229,12 +233,20 @@ impl Default for InstrumentManagerPanel {
             comedi_panels: HashMap::new(),
             smart_stream_editors: HashMap::new(),
             pending_pop_out: None,
+            pending_image_viewer_device: None,
             device_config_cache: DeviceConfigCache::new(),
         }
     }
 }
 
 impl InstrumentManagerPanel {
+    /// Take a pending image viewer request (if any).
+    /// Called by DaqApp after each ui() call to navigate to the Image Viewer
+    /// and start streaming the requested camera device.
+    pub fn take_image_viewer_request(&mut self) -> Option<String> {
+        self.pending_image_viewer_device.take()
+    }
+
     /// Take a pending pop-out request (if any).
     /// Called by DaqApp after each ui() call to handle pop-out actions.
     pub fn take_pop_out_request(&mut self) -> Option<PopOutRequest> {
@@ -1634,6 +1646,18 @@ impl InstrumentManagerPanel {
         });
 
         ui.separator();
+
+        // "View Live Stream" button — navigates to Image Viewer tab
+        if device.is_frame_producer() {
+            if ui
+                .button("📺 View Live Stream")
+                .on_hover_text("Open in Image Viewer with live streaming")
+                .clicked()
+            {
+                self.pending_image_viewer_device = Some(device_id.clone());
+            }
+            ui.add_space(4.0);
+        }
 
         // Camera controls (exposure, streaming)
         let mut actions = Vec::new();

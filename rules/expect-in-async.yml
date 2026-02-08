@@ -1,0 +1,29 @@
+id: expect-in-async
+language: rust
+severity: warning
+message: ".expect() in async function will panic and crash the task. Propagate errors with ? instead."
+note: "In async code, panics kill the spawned task and may leave hardware in inconsistent state."
+rule:
+  pattern: $EXPR.expect($MSG)
+  inside:
+    kind: function_item
+    has:
+      kind: function_modifiers
+      has:
+        pattern: async
+      stopBy: end
+    stopBy: end
+  not:
+    any:
+      - inside:
+          kind: function_item
+          follows:
+            kind: attribute_item
+            regex: "test"
+          stopBy: end
+      - inside:
+          kind: mod_item
+          follows:
+            kind: attribute_item
+            regex: "cfg.*test"
+          stopBy: end

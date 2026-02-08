@@ -1,0 +1,21 @@
+id: panic-in-production
+language: rust
+severity: error
+message: "panic!() will crash the daemon. Return a Result<T, Error> instead."
+note: "Use anyhow::bail!() or return Err() for recoverable errors."
+rule:
+  pattern: panic!($$$)
+  not:
+    any:
+      - inside:
+          kind: function_item
+          has:
+            kind: attribute_item
+            regex: "test"
+          stopBy: end
+      - inside:
+          kind: mod_item
+          has:
+            kind: attribute_item
+            regex: "cfg.*test"
+          stopBy: end

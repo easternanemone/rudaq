@@ -1,0 +1,22 @@
+id: unsafe-block-audit
+language: rust
+severity: hint
+message: "Unsafe block detected. Ensure it is documented with a SAFETY comment."
+note: "Unsafe blocks in this codebase are typically for FFI (PVCAM, Comedi, Andor). Each should have a // SAFETY: comment."
+rule:
+  kind: unsafe_block
+  pattern: unsafe { $$$ }
+  not:
+    any:
+      - inside:
+          kind: function_item
+          follows:
+            kind: attribute_item
+            regex: "test"
+          stopBy: end
+      - inside:
+          kind: mod_item
+          follows:
+            kind: attribute_item
+            regex: "cfg.*test"
+          stopBy: end

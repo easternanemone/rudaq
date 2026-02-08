@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# SessionStart: Show full task context for orchestrator
+# SessionStart: Show task context and project status
 #
 
 # Read JSON input and detect subagent context early
@@ -35,18 +35,7 @@ if ! command -v bd &>/dev/null; then
   exit 0
 fi
 
-# ============================================================
-# Dirty Parent Check - Warn if main directory has uncommitted changes
-# ============================================================
 REPO_ROOT=$(git -C "$CLAUDE_PROJECT_DIR" rev-parse --show-toplevel 2>/dev/null)
-if [[ -n "$REPO_ROOT" ]]; then
-  DIRTY=$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)
-  if [[ -n "$DIRTY" ]]; then
-    echo "⚠️  WARNING: Main directory has uncommitted changes."
-    echo "   Agents should only work in .worktrees/"
-    echo ""
-  fi
-fi
 
 # ============================================================
 # Auto-cleanup: Detect merged PRs and cleanup worktrees

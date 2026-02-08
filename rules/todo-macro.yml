@@ -1,0 +1,20 @@
+id: todo-macro
+language: rust
+severity: error
+message: "todo!() will panic at runtime if reached. Implement or return an error before merging."
+rule:
+  pattern: todo!($$$)
+  not:
+    any:
+      - inside:
+          kind: function_item
+          follows:
+            kind: attribute_item
+            regex: "test"
+          stopBy: end
+      - inside:
+          kind: mod_item
+          follows:
+            kind: attribute_item
+            regex: "cfg.*test"
+          stopBy: end

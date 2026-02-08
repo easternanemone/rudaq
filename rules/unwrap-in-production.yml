@@ -1,0 +1,23 @@
+id: unwrap-in-production
+language: rust
+severity: warning
+message: "Avoid .unwrap() in production code - use ? operator or .context() instead."
+note: "unwrap() panics on None/Err, crashing the daemon. Use anyhow .context() for error propagation."
+rule:
+  pattern: $EXPR.unwrap()
+  not:
+    any:
+      # Exclude #[test] functions (attribute precedes the function item)
+      - inside:
+          kind: function_item
+          follows:
+            kind: attribute_item
+            regex: "test"
+          stopBy: end
+      # Exclude #[cfg(test)] modules
+      - inside:
+          kind: mod_item
+          follows:
+            kind: attribute_item
+            regex: "cfg.*test"
+          stopBy: end

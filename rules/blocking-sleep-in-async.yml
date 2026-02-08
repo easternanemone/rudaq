@@ -1,0 +1,16 @@
+id: blocking-sleep-in-async
+language: rust
+severity: error
+message: "std::thread::sleep blocks the Tokio runtime. Use tokio::time::sleep instead."
+note: "Per CLAUDE.md: Use tokio::time::sleep, NOT std::thread::sleep in async code."
+url: https://docs.rs/tokio/latest/tokio/time/fn.sleep.html
+rule:
+  pattern: std::thread::sleep($EXPR)
+  inside:
+    kind: function_item
+    has:
+      kind: function_modifiers
+      has:
+        pattern: async
+      stopBy: end
+    stopBy: end

@@ -2030,6 +2030,19 @@ impl eframe::App for DaqApp {
             });
         }
 
+        // Check for image viewer navigation requests from InstrumentManagerPanel
+        if let Some(device_id) = self.instrument_manager_panel.take_image_viewer_request() {
+            tracing::info!(
+                device_id = %device_id,
+                "Navigating to Image Viewer for live stream"
+            );
+            self.ui_actions.push(UiAction::FocusTab(Panel::ImageViewer));
+            if let Some(client) = self.client.as_mut() {
+                self.image_viewer_panel
+                    .set_device(&device_id, client, &self.runtime);
+            }
+        }
+
         // Collect panels to close to avoid borrow conflicts
         let mut panels_to_close = Vec::new();
 
@@ -2228,5 +2241,233 @@ mod tests {
             found_instruments,
             "Instruments panel missing from default layout"
         );
+    }
+
+    #[test]
+    fn test_panel_kind_for_maitai_device() {
+        let device = DeviceInfo {
+            id: "laser".to_string(),
+            name: "MaiTai Laser".to_string(),
+            driver_type: "maitai".to_string(),
+            category: 0,
+            capabilities: vec![
+                "emission_controllable".to_string(),
+                "shutter_controllable".to_string(),
+            ],
+            metadata: None,
+            is_movable: false,
+            is_readable: false,
+            is_triggerable: false,
+            is_frame_producer: false,
+            is_exposure_controllable: false,
+            is_shutter_controllable: false,
+            is_wavelength_tunable: false,
+            is_emission_controllable: false,
+            is_parameterized: false,
+        };
+
+        assert_eq!(panel_kind_for_device(&device), DevicePanelKind::MaiTai);
+    }
+
+    #[test]
+    fn test_panel_kind_for_power_meter() {
+        let device = DeviceInfo {
+            id: "pm1".to_string(),
+            name: "Power Meter".to_string(),
+            driver_type: "newport_1830c".to_string(),
+            category: 0,
+            capabilities: vec!["readable".to_string()],
+            metadata: None,
+            is_movable: false,
+            is_readable: false,
+            is_triggerable: false,
+            is_frame_producer: false,
+            is_exposure_controllable: false,
+            is_shutter_controllable: false,
+            is_wavelength_tunable: false,
+            is_emission_controllable: false,
+            is_parameterized: false,
+        };
+
+        assert_eq!(panel_kind_for_device(&device), DevicePanelKind::PowerMeter);
+    }
+
+    #[test]
+    fn test_panel_kind_for_rotator() {
+        let device = DeviceInfo {
+            id: "rot1".to_string(),
+            name: "Rotator".to_string(),
+            driver_type: "ell14".to_string(),
+            category: 0,
+            capabilities: vec!["movable".to_string()],
+            metadata: None,
+            is_movable: false,
+            is_readable: false,
+            is_triggerable: false,
+            is_frame_producer: false,
+            is_exposure_controllable: false,
+            is_shutter_controllable: false,
+            is_wavelength_tunable: false,
+            is_emission_controllable: false,
+            is_parameterized: false,
+        };
+
+        assert_eq!(panel_kind_for_device(&device), DevicePanelKind::Rotator);
+    }
+
+    #[test]
+    fn test_panel_kind_for_stage() {
+        let device = DeviceInfo {
+            id: "stage1".to_string(),
+            name: "Linear Stage".to_string(),
+            driver_type: "esp300".to_string(),
+            category: 0,
+            capabilities: vec!["movable".to_string()],
+            metadata: None,
+            is_movable: false,
+            is_readable: false,
+            is_triggerable: false,
+            is_frame_producer: false,
+            is_exposure_controllable: false,
+            is_shutter_controllable: false,
+            is_wavelength_tunable: false,
+            is_emission_controllable: false,
+            is_parameterized: false,
+        };
+
+        assert_eq!(panel_kind_for_device(&device), DevicePanelKind::Stage);
+    }
+
+    #[test]
+    fn test_panel_kind_for_analog_output() {
+        let device = DeviceInfo {
+            id: "ao1".to_string(),
+            name: "Analog Output".to_string(),
+            driver_type: "comedi_analog_output".to_string(),
+            category: 0,
+            capabilities: vec!["settable".to_string()],
+            metadata: None,
+            is_movable: false,
+            is_readable: false,
+            is_triggerable: false,
+            is_frame_producer: false,
+            is_exposure_controllable: false,
+            is_shutter_controllable: false,
+            is_wavelength_tunable: false,
+            is_emission_controllable: false,
+            is_parameterized: false,
+        };
+
+        assert_eq!(
+            panel_kind_for_device(&device),
+            DevicePanelKind::AnalogOutput
+        );
+    }
+
+    #[test]
+    fn test_persisted_panel_info_to_device_info() {
+        let persisted = PersistedPanelInfo {
+            device_id: "test_device".to_string(),
+            device_name: "Test Device".to_string(),
+            driver_type: "mock".to_string(),
+            capabilities: vec!["movable".to_string(), "readable".to_string()],
+            is_emission_controllable: false,
+            is_shutter_controllable: false,
+            is_wavelength_tunable: false,
+            is_readable: false,
+            is_movable: false,
+        };
+
+        let device_info: DeviceInfo = persisted.into();
+
+        assert_eq!(device_info.id, "test_device");
+        assert_eq!(device_info.name, "Test Device");
+        assert_eq!(device_info.driver_type, "mock");
+        assert_eq!(device_info.capabilities.len(), 2);
+        assert!(device_info.capabilities.contains(&"movable".to_string()));
+        assert!(device_info.capabilities.contains(&"readable".to_string()));
+    }
+
+    #[test]
+    fn test_persisted_panel_info_legacy_migration() {
+        // Test migration from legacy boolean fields
+        let persisted = PersistedPanelInfo {
+            device_id: "legacy_device".to_string(),
+            device_name: "Legacy Device".to_string(),
+            driver_type: "old_driver".to_string(),
+            capabilities: vec![], // Empty, should migrate from booleans
+            is_emission_controllable: true,
+            is_shutter_controllable: true,
+            is_wavelength_tunable: false,
+            is_readable: true,
+            is_movable: false,
+        };
+
+        let device_info: DeviceInfo = persisted.into();
+
+        assert_eq!(device_info.capabilities.len(), 3);
+        assert!(device_info.capabilities.contains(&"readable".to_string()));
+        assert!(device_info
+            .capabilities
+            .contains(&"shutter_controllable".to_string()));
+        assert!(device_info
+            .capabilities
+            .contains(&"emission_controllable".to_string()));
+    }
+
+    #[test]
+    fn test_device_info_to_persisted_panel_info() {
+        let device_info = DeviceInfo {
+            id: "device1".to_string(),
+            name: "Device 1".to_string(),
+            driver_type: "test_driver".to_string(),
+            category: 0,
+            capabilities: vec!["movable".to_string(), "readable".to_string()],
+            metadata: None,
+            is_movable: false,
+            is_readable: false,
+            is_triggerable: false,
+            is_frame_producer: false,
+            is_exposure_controllable: false,
+            is_shutter_controllable: false,
+            is_wavelength_tunable: false,
+            is_emission_controllable: false,
+            is_parameterized: false,
+        };
+
+        let persisted = PersistedPanelInfo::from(&device_info);
+
+        assert_eq!(persisted.device_id, "device1");
+        assert_eq!(persisted.device_name, "Device 1");
+        assert_eq!(persisted.driver_type, "test_driver");
+        assert_eq!(persisted.capabilities.len(), 2);
+        // Legacy fields should be false
+        assert!(!persisted.is_movable);
+        assert!(!persisted.is_readable);
+    }
+
+    #[test]
+    fn test_device_availability_default() {
+        let availability = DeviceAvailability::default();
+        assert_eq!(availability, DeviceAvailability::Pending);
+    }
+
+    #[test]
+    fn test_panel_equality() {
+        assert_eq!(Panel::Nav, Panel::Nav);
+        assert_ne!(Panel::Nav, Panel::Instruments);
+
+        let device_panel1 = Panel::DeviceControl { id: 1 };
+        let device_panel2 = Panel::DeviceControl { id: 2 };
+        assert_ne!(device_panel1, device_panel2);
+
+        let device_panel3 = Panel::DeviceControl { id: 1 };
+        assert_eq!(device_panel1, device_panel3);
+    }
+
+    #[test]
+    fn test_device_panel_kind_equality() {
+        assert_eq!(DevicePanelKind::MaiTai, DevicePanelKind::MaiTai);
+        assert_ne!(DevicePanelKind::MaiTai, DevicePanelKind::PowerMeter);
     }
 }

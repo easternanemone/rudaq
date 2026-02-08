@@ -14,7 +14,9 @@
 //! - Panel drains channel each frame and updates texture
 
 use eframe::egui;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 
@@ -51,13 +53,13 @@ pub struct StreamMetrics {
 }
 
 /// Frame update message for async integration
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FrameUpdate {
     pub device_id: String,
     pub width: u32,
     pub height: u32,
     pub bit_depth: u32,
-    pub data: Vec<u8>,
+    pub data: Arc<[u8]>,
     pub frame_number: u64,
     /// Timestamp in nanoseconds (for frame timing analysis)
     #[allow(dead_code)]
@@ -80,7 +82,7 @@ impl From<FrameData> for FrameUpdate {
             width: frame.width,
             height: frame.height,
             bit_depth: frame.bit_depth,
-            data: frame.data,
+            data: frame.data.into(),
             frame_number: frame.frame_number,
             timestamp_ns: frame.timestamp_ns,
             metrics,
@@ -106,8 +108,8 @@ pub struct ParamSetResult {
 
 /// Request for background RGBA conversion (bd-xifj, bd-j6xm)
 struct RgbaConversionRequest {
-    /// Raw frame data
-    data: Vec<u8>,
+    /// Raw frame data (Arc for zero-copy sharing)
+    data: Arc<[u8]>,
     width: u32,
     height: u32,
     bit_depth: u32,
@@ -200,21 +202,32 @@ fn convert_frame_to_rgba_into(req: &RgbaConversionRequest, buffer: &mut Vec<u8>)
         return (0.0, 1.0);
     }
 
-    // Use checked arithmetic to prevent overflow on large dimensions
-    let Some(pixel_count) = (width as u64).checked_mul(height as u64) else {
-        buffer.clear();
-        return (0.0, 1.0);
-    };
-
-    // Cap allocation to reasonable size (256 MB max for RGBA)
-    const MAX_PIXELS: u64 = 64 * 1024 * 1024; // 64M pixels = 256MB RGBA
-    if pixel_count > MAX_PIXELS {
-        tracing::warn!(width, height, "Frame too large, capping allocation");
+    // Enforce frame size limits (DoS protection).
+    // Mirror common::limits constants (common is optional, only with pvcam feature).
+    const MAX_FRAME_DIMENSION: u32 = 65_536;
+    const MAX_FRAME_BYTES: usize = 100 * 1024 * 1024; // 100 MB
+    if width > MAX_FRAME_DIMENSION || height > MAX_FRAME_DIMENSION {
+        tracing::warn!(width, height, "Frame dimensions exceed limit");
         buffer.clear();
         return (0.0, 1.0);
     }
 
-    let pixel_count = pixel_count as usize;
+    let pixel_count = (width as usize)
+        .checked_mul(height as usize)
+        .unwrap_or(usize::MAX);
+    let bytes_per_pixel = if bit_depth > 8 { 2usize } else { 1 };
+    let frame_bytes = pixel_count.saturating_mul(bytes_per_pixel);
+    if frame_bytes > MAX_FRAME_BYTES {
+        tracing::warn!(
+            width,
+            height,
+            bit_depth,
+            frame_bytes,
+            "Frame exceeds byte size limit"
+        );
+        buffer.clear();
+        return (0.0, 1.0);
+    }
     let required_size = pixel_count * 4;
 
     // bd-wdx3: Resize buffer only when needed (grows but never shrinks during session)
@@ -231,11 +244,10 @@ fn convert_frame_to_rgba_into(req: &RgbaConversionRequest, buffer: &mut Vec<u8>)
     // Compute min/max and optional histogram equalization LUT (bd-j6xm)
     let (effective_min, effective_max, hist_lut) = match req.contrast_mode {
         ContrastMode::Manual => (display_min, display_max, None),
-        ContrastMode::AutoSimple => (
-            compute_minmax_from_data(data, bit_depth, bit_max).0,
-            compute_minmax_from_data(data, bit_depth, bit_max).1,
-            None,
-        ),
+        ContrastMode::AutoSimple => {
+            let (min, max) = compute_minmax_from_data(data, bit_depth, bit_max);
+            (min, max, None)
+        }
         ContrastMode::AutoPercentile => {
             let (min, max) = compute_percentile_minmax(
                 data,
@@ -934,7 +946,7 @@ pub struct ImageViewerPanel {
     /// ROI selector state
     roi_selector: RoiSelector,
     /// Last frame raw data (for ROI statistics computation)
-    last_frame_data: Option<Vec<u8>>,
+    last_frame_data: Option<Arc<[u8]>>,
     /// Show ROI statistics panel
     show_roi_panel: bool,
     /// Histogram for intensity distribution
@@ -961,6 +973,10 @@ pub struct ImageViewerPanel {
     action_tx: std::sync::mpsc::Sender<ImageViewerAction>,
     /// Last refresh time
     last_refresh: Option<Instant>,
+    /// Stream generation counter — incremented on each start_stream() call.
+    /// Used by streaming tasks to detect if they've been superseded, preventing
+    /// stale tasks from calling stop_stream() and killing a newer stream.
+    stream_generation: Arc<AtomicU64>,
 
     // -- Camera Control Fields --
     /// Camera parameters (cached)
@@ -1089,6 +1105,7 @@ impl Default for ImageViewerPanel {
             action_rx,
             action_tx,
             last_refresh: None,
+            stream_generation: Arc::new(AtomicU64::new(0)),
 
             camera_params: Vec::new(),
             param_edit_buffers: std::collections::HashMap::new(),
@@ -1815,8 +1832,8 @@ impl ImageViewerPanel {
 
     /// Start streaming frames from a device (public API for external control)
     pub fn start_stream(&mut self, device_id: &str, client: &mut DaqClient, runtime: &Runtime) {
-        // Cancel existing subscription and ensure server-side stream is stopped
-        // CRITICAL: Wait for this to complete to avoid duplicate stream subscriptions (bd-streaming-fix)
+        // Cancel existing subscription and stop server-side stream (non-blocking).
+        // The streaming task's cleanup checks stream_generation to avoid killing the new stream.
         if let Some(sub) = self.subscription.take() {
             let cancel_tx = sub.cancel_tx.clone();
             let mut client = client.clone();
@@ -1826,21 +1843,24 @@ impl ImageViewerPanel {
                 new_device = %device_id,
                 "Cancelling existing stream before starting new one"
             );
-            // Block on cancellation to prevent race condition where both old and new
-            // streams coexist, causing the stale stream to trigger stop_stream on disconnect
-            runtime.block_on(async move {
+            // Non-blocking cancellation: fire-and-forget the cancel signal and
+            // stop_stream. The streaming task's cleanup checks stream_generation
+            // to avoid killing the new stream.
+            let new_device_id = device_id.to_string();
+            runtime.spawn(async move {
                 let _ = cancel_tx.send(()).await;
-                // Give the streaming task a moment to process the cancel
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                if let Err(e) = client.stop_stream(&old_device_id).await {
-                    tracing::debug!(
-                        device = %old_device_id,
-                        error = %e,
-                        "Error stopping old stream (may already be stopped)"
-                    );
+                // Skip server-side stop when reconnecting to the same device —
+                // otherwise this background stop could kill the newly started stream.
+                if old_device_id != new_device_id {
+                    if let Err(e) = client.stop_stream(&old_device_id).await {
+                        tracing::debug!(
+                            device = %old_device_id,
+                            error = %e,
+                            "Error stopping old stream (may already be stopped)"
+                        );
+                    }
                 }
             });
-            tracing::info!("Old stream cancelled, proceeding with new stream");
         }
 
         self.device_id = Some(device_id.to_string());
@@ -1860,6 +1880,8 @@ impl ImageViewerPanel {
         let device_id_clone = device_id.to_string();
         let max_fps = self.max_fps;
         let stream_quality = self.stream_quality;
+        let generation = self.stream_generation.fetch_add(1, Ordering::Relaxed) + 1;
+        let stream_gen = self.stream_generation.clone();
 
         runtime.spawn(async move {
             use futures::StreamExt;
@@ -2062,16 +2084,18 @@ impl ImageViewerPanel {
                 "Frame stream loop exited"
             );
 
-            // Log stream statistics
-            tracing::info!(
-                device_id = %device_id_clone,
-                frames_received = frames_received,
-                frames_dropped = frames_dropped,
-                "Frame streaming stopped"
-            );
-
-            // Cleanup: Ensure server-side stream is stopped when subscriber task exits
-            let _ = client.stop_stream(&device_id_clone).await;
+            // Cleanup: Only stop the server-side stream if this task is still the current generation.
+            // If a newer stream has started (generation changed), the new stream's cancellation or
+            // its own cleanup will handle stopping.
+            if stream_gen.load(Ordering::Relaxed) == generation {
+                let _ = client.stop_stream(&device_id_clone).await;
+            } else {
+                tracing::debug!(
+                    device_id = %device_id_clone,
+                    task_generation = generation,
+                    "Skipping stop_stream - superseded by newer stream"
+                );
+            }
         });
 
         self.subscription = Some(FrameStreamSubscription {
@@ -2082,6 +2106,11 @@ impl ImageViewerPanel {
 
     /// Stop streaming and notify server to stop hardware capture
     pub fn stop_stream(&mut self, client: Option<&mut DaqClient>, runtime: &Runtime) {
+        // Only bump generation when we can issue stop_stream ourselves.
+        // When client is None, let the streaming task's cleanup handle stopping.
+        if client.is_some() {
+            self.stream_generation.fetch_add(1, Ordering::Relaxed);
+        }
         if let Some(sub) = self.subscription.take() {
             let cancel_tx = sub.cancel_tx.clone();
             let device_id = sub.device_id.clone();
@@ -2232,7 +2261,7 @@ impl ImageViewerPanel {
     }
 
     /// Process a single frame update
-    fn process_frame(&mut self, _ctx: &egui::Context, frame: FrameUpdate) {
+    fn process_frame(&mut self, _ctx: &egui::Context, mut frame: FrameUpdate) {
         // Validate frame belongs to currently selected device (bd-tjwm.3)
         if let Some(expected_device) = &self.device_id {
             if &frame.device_id != expected_device {
@@ -2264,7 +2293,7 @@ impl ImageViewerPanel {
 
         // bd-7rk0: Update stream metrics from server
         if frame.metrics.is_some() {
-            self.stream_metrics = frame.metrics.clone();
+            self.stream_metrics = frame.metrics.take();
         }
 
         // bd-12qt: Update connection state when receiving frames
@@ -2272,8 +2301,11 @@ impl ImageViewerPanel {
             self.connection_state = ConnectionState::Connected;
             self.retry_count = 0;
             self.status = Some("Connected".to_string());
+        } else if self.status.as_deref() == Some("Connected") {
+            // Only clear the "Connected" status once steady-state is reached;
+            // preserve other status messages (e.g., recording, saved).
+            self.status = None;
         }
-        self.status = None;
 
         // Store frame data for ROI statistics
         self.last_frame_data = Some(frame.data.clone());
@@ -3447,5 +3479,658 @@ impl ImageViewerPanel {
     #[allow(dead_code)]
     pub fn device_id(&self) -> Option<&str> {
         self.device_id.as_deref()
+    }
+}
+
+// Unit tests for image_viewer.rs functions
+//
+// Tests cover:
+// - Pixel value extraction (get_pixel_value_inline)
+// - Frame conversion (convert_frame_to_rgba_into)
+// - Min/max computation for auto-contrast
+// - Percentile-based contrast
+// - Histogram operations
+// - Colormap and scale mode application
+// - Edge cases and boundary conditions
+
+#[cfg(test)]
+mod pixel_value_tests {
+    use super::*;
+    use super::*;
+
+    #[test]
+    fn test_get_pixel_value_8bit() {
+        let data = vec![10u8, 20, 30, 40, 50, 60, 70, 80, 90];
+        let width = 3;
+        let height = 3;
+
+        // Test valid positions
+        assert_eq!(
+            get_pixel_value_inline(&data, 0, 0, width, height, 8),
+            Some(10)
+        );
+        assert_eq!(
+            get_pixel_value_inline(&data, 1, 0, width, height, 8),
+            Some(20)
+        );
+        assert_eq!(
+            get_pixel_value_inline(&data, 2, 2, width, height, 8),
+            Some(90)
+        );
+
+        // Test out of bounds
+        assert_eq!(get_pixel_value_inline(&data, 3, 0, width, height, 8), None);
+        assert_eq!(get_pixel_value_inline(&data, 0, 3, width, height, 8), None);
+    }
+
+    #[test]
+    fn test_get_pixel_value_16bit() {
+        // Little-endian 16-bit data: [0x0100, 0x0200, 0x0300, 0x0400]
+        let data = vec![0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04];
+        let width = 2;
+        let height = 2;
+
+        assert_eq!(
+            get_pixel_value_inline(&data, 0, 0, width, height, 16),
+            Some(0x0100)
+        );
+        assert_eq!(
+            get_pixel_value_inline(&data, 1, 0, width, height, 16),
+            Some(0x0200)
+        );
+        assert_eq!(
+            get_pixel_value_inline(&data, 0, 1, width, height, 16),
+            Some(0x0300)
+        );
+        assert_eq!(
+            get_pixel_value_inline(&data, 1, 1, width, height, 16),
+            Some(0x0400)
+        );
+
+        // Out of bounds
+        assert_eq!(get_pixel_value_inline(&data, 2, 0, width, height, 16), None);
+    }
+
+    #[test]
+    fn test_get_pixel_value_edge_cases() {
+        let data = vec![42u8];
+        // Single pixel
+        assert_eq!(get_pixel_value_inline(&data, 0, 0, 1, 1, 8), Some(42));
+        assert_eq!(get_pixel_value_inline(&data, 1, 0, 1, 1, 8), None);
+
+        // Empty data
+        let empty: Vec<u8> = vec![];
+        assert_eq!(get_pixel_value_inline(&empty, 0, 0, 0, 0, 8), None);
+
+        // Invalid bit depth
+        assert_eq!(get_pixel_value_inline(&data, 0, 0, 1, 1, 32), None);
+    }
+}
+
+#[cfg(test)]
+mod minmax_tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_minmax_8bit() {
+        let data = vec![10u8, 50, 100, 200, 255];
+        let (min, max) = compute_minmax_from_data(&data, 8, 255.0);
+
+        assert!((min - 10.0 / 255.0).abs() < 0.001);
+        assert!((max - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_compute_minmax_16bit() {
+        // Create 16-bit data: 100, 1000, 10000, 65535
+        let data = vec![
+            100u8, 0, // 100
+            0xe8, 0x03, // 1000
+            0x10, 0x27, // 10000
+            0xff, 0xff, // 65535
+        ];
+
+        let (min, max) = compute_minmax_from_data(&data, 16, 65535.0);
+
+        assert!((min - 100.0 / 65535.0).abs() < 0.001);
+        assert!((max - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_compute_minmax_single_value() {
+        let data = vec![128u8; 10];
+        let (min, max) = compute_minmax_from_data(&data, 8, 255.0);
+
+        // All same value: min == max, so function returns default (0.0, 1.0)
+        assert_eq!(min, 0.0);
+        assert_eq!(max, 1.0);
+    }
+
+    #[test]
+    fn test_compute_minmax_empty() {
+        let data: Vec<u8> = vec![];
+        let (min, max) = compute_minmax_from_data(&data, 8, 255.0);
+
+        // Empty data should return default range
+        assert_eq!(min, 0.0);
+        assert_eq!(max, 1.0);
+    }
+
+    #[test]
+    fn test_compute_percentile_minmax() {
+        // Create data with outliers: [0, 1, 2, ..., 98, 99, 255]
+        let mut data: Vec<u8> = (0..100).collect();
+        data.push(255); // Outlier
+
+        // Use 1st and 99th percentile (should exclude the 255)
+        let (min, max) = compute_percentile_minmax(&data, 8, 255.0, 1.0, 99.0);
+
+        // Should approximately exclude 0 and 255
+        assert!(min > 0.0 / 255.0);
+        assert!(max < 255.0 / 255.0);
+        assert!(max > 98.0 / 255.0); // Should be around 99
+    }
+
+    #[test]
+    fn test_compute_percentile_minmax_16bit() {
+        // Create 16-bit data
+        let mut data = Vec::new();
+        for i in 0..100u16 {
+            data.extend_from_slice(&i.to_le_bytes());
+        }
+
+        let (min, max) = compute_percentile_minmax(&data, 16, 65535.0, 5.0, 95.0);
+
+        // Should exclude lowest and highest 5%
+        assert!(min > 0.0);
+        assert!(max < 1.0);
+    }
+}
+
+#[cfg(test)]
+mod histogram_tests {
+    use super::*;
+
+    #[test]
+    fn test_build_histogram_8bit() {
+        // Create data with known distribution
+        let data = vec![0u8, 0, 128, 128, 128, 255, 255];
+        let hist = build_histogram(&data, 8, 256);
+
+        assert_eq!(hist.len(), 256);
+        assert_eq!(hist[0], 2); // Two zeros
+        assert_eq!(hist[128], 3); // Three 128s
+        assert_eq!(hist[255], 2); // Two 255s
+    }
+
+    #[test]
+    fn test_build_histogram_16bit() {
+        // Create 16-bit data
+        let mut data = Vec::new();
+        data.extend_from_slice(&0u16.to_le_bytes()); // 0
+        data.extend_from_slice(&32768u16.to_le_bytes()); // Mid value
+        data.extend_from_slice(&65535u16.to_le_bytes()); // Max value
+
+        let hist = build_histogram(&data, 16, 256);
+
+        assert_eq!(hist.len(), 256);
+        assert!(hist[0] > 0); // Should have bin for 0
+        assert!(hist[255] > 0); // Should have bin for 65535
+                                // 32768 * (255/65535) = 127.5, truncates to bin 127
+        assert!(hist[127] > 0); // Should have bin for 32768
+    }
+
+    #[test]
+    fn test_histogram_equalization_lut() {
+        // Create a simple histogram with uneven distribution
+        let histogram = vec![100u32, 0, 0, 0, 200, 0, 0, 0]; // 300 pixels total
+        let lut = compute_histogram_equalization_lut(&histogram, 300);
+
+        assert_eq!(lut.len(), 8);
+        // First bin (100 pixels) should map to ~1/3
+        assert!(lut[0] < 0.5);
+        // Fifth bin (200 pixels) should map to near 1.0
+        assert!(lut[4] > 0.5);
+    }
+
+    #[test]
+    fn test_clahe_lut() {
+        let histogram = vec![100u32, 200, 300, 400, 100]; // 1100 pixels
+        let lut = compute_clahe_lut(&histogram, 1100, 2.0);
+
+        assert_eq!(lut.len(), 5);
+        // CLAHE should produce monotonically increasing LUT
+        for i in 1..lut.len() {
+            assert!(lut[i] >= lut[i - 1]);
+        }
+    }
+}
+
+#[cfg(test)]
+mod colormap_tests {
+    use super::*;
+
+    #[test]
+    fn test_colormap_grayscale() {
+        let colormap = Colormap::Grayscale;
+
+        // Test boundary values
+        assert_eq!(colormap.apply(0.0), [0, 0, 0]);
+        assert_eq!(colormap.apply(1.0), [255, 255, 255]);
+
+        // Test mid value
+        let mid = colormap.apply(0.5);
+        assert!((mid[0] as f32 - 127.5).abs() < 2.0); // Allow some rounding
+        assert_eq!(mid[0], mid[1]);
+        assert_eq!(mid[1], mid[2]);
+    }
+
+    #[test]
+    fn test_colormap_viridis() {
+        let colormap = Colormap::Viridis;
+
+        // Viridis should start dark and end yellowish
+        let low = colormap.apply(0.0);
+        let high = colormap.apply(1.0);
+
+        // Low should be darker (cast to u32 to avoid u8 overflow)
+        let low_sum = low[0] as u32 + low[1] as u32 + low[2] as u32;
+        let high_sum = high[0] as u32 + high[1] as u32 + high[2] as u32;
+        assert!(low_sum < high_sum);
+    }
+
+    #[test]
+    fn test_colormap_clamping() {
+        let colormap = Colormap::Grayscale;
+
+        // Test that values outside 0-1 are clamped
+        assert_eq!(colormap.apply(-1.0), [0, 0, 0]);
+        assert_eq!(colormap.apply(2.0), [255, 255, 255]);
+    }
+
+    #[test]
+    fn test_colormap_labels() {
+        assert_eq!(Colormap::Grayscale.label(), "Grayscale");
+        assert_eq!(Colormap::Viridis.label(), "Viridis");
+        assert_eq!(Colormap::Inferno.label(), "Inferno");
+        assert_eq!(Colormap::Plasma.label(), "Plasma");
+        assert_eq!(Colormap::Magma.label(), "Magma");
+    }
+}
+
+#[cfg(test)]
+mod scale_mode_tests {
+    use super::*;
+
+    #[test]
+    fn test_scale_mode_linear() {
+        let mode = ScaleMode::Linear;
+
+        assert_eq!(mode.apply(0.0), 0.0);
+        assert_eq!(mode.apply(0.5), 0.5);
+        assert_eq!(mode.apply(1.0), 1.0);
+    }
+
+    #[test]
+    fn test_scale_mode_sqrt() {
+        let mode = ScaleMode::Sqrt;
+
+        assert_eq!(mode.apply(0.0), 0.0);
+        assert!((mode.apply(0.25) - 0.5).abs() < 0.01);
+        assert_eq!(mode.apply(1.0), 1.0);
+    }
+
+    #[test]
+    fn test_scale_mode_log() {
+        let mode = ScaleMode::Log;
+
+        assert_eq!(mode.apply(0.0), 0.0);
+        assert!(mode.apply(0.5) > 0.0);
+        assert!(mode.apply(1.0) > mode.apply(0.5));
+    }
+
+    #[test]
+    fn test_scale_mode_labels() {
+        assert_eq!(ScaleMode::Linear.label(), "Linear");
+        assert_eq!(ScaleMode::Log.label(), "Log");
+        assert_eq!(ScaleMode::Sqrt.label(), "Sqrt");
+    }
+}
+
+#[cfg(test)]
+mod contrast_mode_tests {
+    use super::*;
+
+    #[test]
+    fn test_contrast_mode_labels() {
+        assert_eq!(ContrastMode::Manual.label(), "Manual");
+        assert_eq!(ContrastMode::AutoSimple.label(), "Auto (Simple)");
+        assert_eq!(ContrastMode::AutoPercentile.label(), "Auto (Percentile)");
+        assert_eq!(ContrastMode::HistogramEq.label(), "Histogram Eq");
+        assert_eq!(ContrastMode::Clahe.label(), "CLAHE");
+    }
+
+    #[test]
+    fn test_contrast_mode_all() {
+        let modes = ContrastMode::all();
+        assert_eq!(modes.len(), 5);
+        assert!(modes.contains(&ContrastMode::Manual));
+        assert!(modes.contains(&ContrastMode::Clahe));
+    }
+}
+
+#[cfg(test)]
+mod frame_conversion_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_convert_frame_8bit_grayscale() {
+        let data = vec![0u8, 127, 255];
+        let req = RgbaConversionRequest {
+            data: Arc::from(data.as_slice()),
+            width: 3,
+            height: 1,
+            bit_depth: 8,
+            frame_number: 0,
+            colormap: Colormap::Grayscale,
+            scale_mode: ScaleMode::Linear,
+            display_min: 0.0,
+            display_max: 1.0,
+            auto_contrast: false,
+            contrast_mode: ContrastMode::Manual,
+            percentile_low: 0.1,
+            percentile_high: 99.9,
+            colorbar_midpoint: 0.5,
+        };
+
+        let mut buffer = Vec::new();
+        let (min, max) = convert_frame_to_rgba_into(&req, &mut buffer);
+
+        // Should return requested min/max for manual mode
+        assert_eq!(min, 0.0);
+        assert_eq!(max, 1.0);
+
+        // Buffer should be 3 pixels * 4 channels = 12 bytes
+        assert_eq!(buffer.len(), 12);
+
+        // Check pixel values (RGBA)
+        assert_eq!(buffer[0], 0); // R of first pixel
+        assert_eq!(buffer[1], 0); // G
+        assert_eq!(buffer[2], 0); // B
+        assert_eq!(buffer[3], 255); // A (always 255)
+
+        // Middle pixel should be ~127
+        assert!((buffer[4] as i32 - 127).abs() <= 1);
+
+        // Last pixel should be 255
+        assert_eq!(buffer[8], 255);
+    }
+
+    #[test]
+    fn test_convert_frame_16bit() {
+        let data = vec![
+            0x00, 0x00, // 0
+            0xff, 0x7f, // 32767
+            0xff, 0xff, // 65535
+        ];
+        let req = RgbaConversionRequest {
+            data: Arc::from(data.as_slice()),
+            width: 3,
+            height: 1,
+            bit_depth: 16,
+            frame_number: 0,
+            colormap: Colormap::Grayscale,
+            scale_mode: ScaleMode::Linear,
+            display_min: 0.0,
+            display_max: 1.0,
+            auto_contrast: false,
+            contrast_mode: ContrastMode::Manual,
+            percentile_low: 0.1,
+            percentile_high: 99.9,
+            colorbar_midpoint: 0.5,
+        };
+
+        let mut buffer = Vec::new();
+        convert_frame_to_rgba_into(&req, &mut buffer);
+
+        assert_eq!(buffer.len(), 12);
+        assert_eq!(buffer[0], 0); // First pixel black
+        assert_eq!(buffer[8], 255); // Last pixel white
+    }
+
+    #[test]
+    fn test_convert_frame_auto_contrast() {
+        // Create data with limited range
+        let data = vec![100u8, 150, 200];
+        let req = RgbaConversionRequest {
+            data: Arc::from(data.as_slice()),
+            width: 3,
+            height: 1,
+            bit_depth: 8,
+            frame_number: 0,
+            colormap: Colormap::Grayscale,
+            scale_mode: ScaleMode::Linear,
+            display_min: 0.0,
+            display_max: 1.0,
+            auto_contrast: true,
+            contrast_mode: ContrastMode::AutoSimple,
+            percentile_low: 0.1,
+            percentile_high: 99.9,
+            colorbar_midpoint: 0.5,
+        };
+
+        let mut buffer = Vec::new();
+        let (min, max) = convert_frame_to_rgba_into(&req, &mut buffer);
+
+        // Should compute actual min/max
+        assert!(min > 0.0);
+        assert!(max < 1.0);
+    }
+
+    #[test]
+    fn test_convert_frame_zero_dimensions() {
+        let data = vec![];
+        let req = RgbaConversionRequest {
+            data: Arc::from(data.as_slice()),
+            width: 0,
+            height: 0,
+            bit_depth: 8,
+            frame_number: 0,
+            colormap: Colormap::Grayscale,
+            scale_mode: ScaleMode::Linear,
+            display_min: 0.0,
+            display_max: 1.0,
+            auto_contrast: false,
+            contrast_mode: ContrastMode::Manual,
+            percentile_low: 0.1,
+            percentile_high: 99.9,
+            colorbar_midpoint: 0.5,
+        };
+
+        let mut buffer = Vec::new();
+        let (min, max) = convert_frame_to_rgba_into(&req, &mut buffer);
+
+        // Should handle gracefully
+        assert_eq!(buffer.len(), 0);
+        assert_eq!(min, 0.0);
+        assert_eq!(max, 1.0);
+    }
+
+    #[test]
+    fn test_convert_frame_with_colormap() {
+        let data = vec![0u8, 127, 255];
+        let req = RgbaConversionRequest {
+            data: Arc::from(data.as_slice()),
+            width: 3,
+            height: 1,
+            bit_depth: 8,
+            frame_number: 0,
+            colormap: Colormap::Viridis,
+            scale_mode: ScaleMode::Linear,
+            display_min: 0.0,
+            display_max: 1.0,
+            auto_contrast: false,
+            contrast_mode: ContrastMode::Manual,
+            percentile_low: 0.1,
+            percentile_high: 99.9,
+            colorbar_midpoint: 0.5,
+        };
+
+        let mut buffer = Vec::new();
+        convert_frame_to_rgba_into(&req, &mut buffer);
+
+        // Viridis should have different R, G, B values (not grayscale)
+        assert!(buffer[0] != buffer[1] || buffer[1] != buffer[2]);
+    }
+
+    #[test]
+    fn test_convert_frame_buffer_reuse() {
+        let data = vec![128u8; 100];
+        let req = RgbaConversionRequest {
+            data: Arc::from(data.as_slice()),
+            width: 10,
+            height: 10,
+            bit_depth: 8,
+            frame_number: 0,
+            colormap: Colormap::Grayscale,
+            scale_mode: ScaleMode::Linear,
+            display_min: 0.0,
+            display_max: 1.0,
+            auto_contrast: false,
+            contrast_mode: ContrastMode::Manual,
+            percentile_low: 0.1,
+            percentile_high: 99.9,
+            colorbar_midpoint: 0.5,
+        };
+
+        let mut buffer = Vec::with_capacity(400);
+        convert_frame_to_rgba_into(&req, &mut buffer);
+
+        let capacity1 = buffer.capacity();
+        assert_eq!(buffer.len(), 400); // 100 pixels * 4 channels
+
+        // Convert again with same size - capacity should not change
+        convert_frame_to_rgba_into(&req, &mut buffer);
+        assert_eq!(buffer.capacity(), capacity1);
+    }
+}
+
+#[cfg(test)]
+mod helper_function_tests {
+    use super::*;
+
+    #[test]
+    fn test_clamp_u8() {
+        assert_eq!(clamp_u8(-10.0), 0);
+        assert_eq!(clamp_u8(0.0), 0);
+        assert_eq!(clamp_u8(127.5), 127);
+        assert_eq!(clamp_u8(255.0), 255);
+        assert_eq!(clamp_u8(300.0), 255);
+    }
+
+    #[test]
+    fn test_const_sqrt() {
+        assert_eq!(const_sqrt(0.0), 0.0);
+        assert!((const_sqrt(1.0) - 1.0).abs() < 0.01);
+        assert!((const_sqrt(4.0) - 2.0).abs() < 0.01);
+        assert!((const_sqrt(0.25) - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_stream_quality_label() {
+        assert_eq!(stream_quality_label(StreamQuality::Full), "Full");
+        assert_eq!(stream_quality_label(StreamQuality::Preview), "Preview (2x)");
+        assert_eq!(stream_quality_label(StreamQuality::Fast), "Fast (4x)");
+    }
+}
+
+#[cfg(test)]
+mod edge_case_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_oversized_frame_protection() {
+        // Test that the conversion protects against integer overflow
+        let data = vec![0u8; 1000];
+        let req = RgbaConversionRequest {
+            data: Arc::from(data.as_slice()),
+            width: u32::MAX / 2,
+            height: u32::MAX / 2,
+            bit_depth: 8,
+            frame_number: 0,
+            colormap: Colormap::Grayscale,
+            scale_mode: ScaleMode::Linear,
+            display_min: 0.0,
+            display_max: 1.0,
+            auto_contrast: false,
+            contrast_mode: ContrastMode::Manual,
+            percentile_low: 0.1,
+            percentile_high: 99.9,
+            colorbar_midpoint: 0.5,
+        };
+
+        let mut buffer = Vec::new();
+        let (min, max) = convert_frame_to_rgba_into(&req, &mut buffer);
+
+        // Should handle gracefully without panic
+        assert_eq!(buffer.len(), 0);
+        assert_eq!(min, 0.0);
+        assert_eq!(max, 1.0);
+    }
+
+    #[test]
+    fn test_single_pixel_frame() {
+        let data = vec![200u8];
+        let req = RgbaConversionRequest {
+            data: Arc::from(data.as_slice()),
+            width: 1,
+            height: 1,
+            bit_depth: 8,
+            frame_number: 0,
+            colormap: Colormap::Grayscale,
+            scale_mode: ScaleMode::Linear,
+            display_min: 0.0,
+            display_max: 1.0,
+            auto_contrast: false,
+            contrast_mode: ContrastMode::Manual,
+            percentile_low: 0.1,
+            percentile_high: 99.9,
+            colorbar_midpoint: 0.5,
+        };
+
+        let mut buffer = Vec::new();
+        convert_frame_to_rgba_into(&req, &mut buffer);
+
+        assert_eq!(buffer.len(), 4); // 1 pixel * 4 channels
+        assert_eq!(buffer[3], 255); // Alpha should be 255
+    }
+
+    #[test]
+    fn test_invalid_bit_depth() {
+        let data = vec![100u8; 16];
+        let req = RgbaConversionRequest {
+            data: Arc::from(data.as_slice()),
+            width: 4,
+            height: 4,
+            bit_depth: 32, // Invalid
+            frame_number: 0,
+            colormap: Colormap::Grayscale,
+            scale_mode: ScaleMode::Linear,
+            display_min: 0.0,
+            display_max: 1.0,
+            auto_contrast: false,
+            contrast_mode: ContrastMode::Manual,
+            percentile_low: 0.1,
+            percentile_high: 99.9,
+            colorbar_midpoint: 0.5,
+        };
+
+        let mut buffer = Vec::new();
+        convert_frame_to_rgba_into(&req, &mut buffer);
+
+        // Should produce checkerboard error pattern
+        assert_eq!(buffer.len(), 64); // 16 pixels * 4 channels
     }
 }
