@@ -11,7 +11,7 @@
 //!     TransformOp::Trim,
 //!     TransformOp::RemoveSuffix { suffix: "C".to_string() },
 //!     TransformOp::ToFloat,
-//! ]);
+//! ]).unwrap();
 //!
 //! let result = pipeline.execute(" 25.5C ").unwrap();
 //! assert_eq!(result.as_f64().unwrap(), 25.5);
@@ -31,8 +31,14 @@ pub enum TransformOp {
     RemovePrefix { prefix: String },
     /// Remove a suffix if present.
     RemoveSuffix { suffix: String },
-    /// Extract a regex capture group.
-    RegexExtract { pattern: String, group: usize },
+    /// Extract a regex capture group (pre-compiled).
+    RegexExtract {
+        pattern: String,
+        group: usize,
+        /// Pre-compiled regex (populated by `compile()` or `from_shorthand()`).
+        #[serde(skip)]
+        compiled: Option<Regex>,
+    },
     /// Parse as floating point number.
     ToFloat,
     /// Parse as integer.
@@ -43,6 +49,24 @@ pub enum TransformOp {
     Offset { value: f64 },
     /// Split by comma and take element at index.
     SplitComma { index: usize },
+}
+
+impl TransformOp {
+    /// Pre-compile any regex patterns in this operation.
+    ///
+    /// Returns an error if the pattern is invalid, so callers can surface
+    /// compilation failures rather than silently falling back to runtime compilation.
+    pub fn compile(&mut self) -> Result<()> {
+        if let TransformOp::RegexExtract {
+            pattern, compiled, ..
+        } = self
+        {
+            if compiled.is_none() {
+                *compiled = Some(Regex::new(pattern).context("Failed to compile regex pattern")?);
+            }
+        }
+        Ok(())
+    }
 }
 
 impl TransformOp {
@@ -65,9 +89,22 @@ impl TransformOp {
                 )),
                 other => Ok(other),
             },
-            TransformOp::RegexExtract { pattern, group } => match input {
+            TransformOp::RegexExtract {
+                pattern,
+                group,
+                compiled,
+            } => match input {
                 TransformValue::String(s) => {
-                    let regex = Regex::new(pattern).context("Failed to compile regex pattern")?;
+                    // Use pre-compiled regex if available, otherwise compile on the fly
+                    let owned;
+                    let regex = match compiled {
+                        Some(r) => r,
+                        None => {
+                            owned =
+                                Regex::new(pattern).context("Failed to compile regex pattern")?;
+                            &owned
+                        }
+                    };
                     let captures = regex
                         .captures(&s)
                         .ok_or_else(|| anyhow!("Regex pattern did not match input"))?;
@@ -163,7 +200,12 @@ impl TransformOp {
                 .strip_suffix(')')
                 .ok_or_else(|| anyhow!("Missing closing parenthesis"))?;
             let (pattern, group) = parse_regex_extract_args(arg)?;
-            return Ok(TransformOp::RegexExtract { pattern, group });
+            let compiled = Regex::new(&pattern).context("Failed to compile regex pattern")?;
+            return Ok(TransformOp::RegexExtract {
+                pattern,
+                group,
+                compiled: Some(compiled),
+            });
         }
 
         if let Some(rest) = s.strip_prefix("scale(") {
@@ -317,8 +359,15 @@ pub struct TransformPipeline {
 
 impl TransformPipeline {
     /// Create a new pipeline from a sequence of operations.
-    pub fn new(ops: Vec<TransformOp>) -> Self {
-        Self { ops }
+    ///
+    /// Pre-compiles any regex patterns in the operations.
+    /// Returns an error if any regex pattern is invalid.
+    pub fn new(ops: Vec<TransformOp>) -> Result<Self> {
+        let mut ops = ops;
+        for op in &mut ops {
+            op.compile()?;
+        }
+        Ok(Self { ops })
     }
 
     /// Create a pipeline from shorthand string syntax.
@@ -327,7 +376,7 @@ impl TransformPipeline {
             .iter()
             .map(|s| TransformOp::from_shorthand(s))
             .collect::<Result<Vec<_>>>()?;
-        Ok(Self::new(ops))
+        Self::new(ops)
     }
 
     /// Execute the pipeline on an input string.
@@ -421,6 +470,7 @@ mod tests {
         let op = TransformOp::RegexExtract {
             pattern: r"VOLT\s+(\d+\.\d+)".to_string(),
             group: 1,
+            compiled: None,
         };
         let result = op
             .apply(TransformValue::String("VOLT 12.34".to_string()))
@@ -452,7 +502,8 @@ mod tests {
                 suffix: "C".to_string(),
             },
             TransformOp::ToFloat,
-        ]);
+        ])
+        .unwrap();
         let result = pipeline.execute(" 25.5C ").unwrap();
         assert_eq!(result.as_f64().unwrap(), 25.5);
     }
@@ -463,11 +514,13 @@ mod tests {
             TransformOp::RegexExtract {
                 pattern: r"VOLT\s+([+-]?\d+\.\d+)".to_string(),
                 group: 1,
+                compiled: None,
             },
             TransformOp::ToFloat,
             TransformOp::Scale { factor: 1000.0 },
             TransformOp::Offset { value: 100.0 },
-        ]);
+        ])
+        .unwrap();
         let result = pipeline.execute("VOLT 2.5").unwrap();
         assert_eq!(result.as_f64().unwrap(), 2600.0);
     }
@@ -509,9 +562,14 @@ mod tests {
     fn test_shorthand_regex_extract() {
         let op = TransformOp::from_shorthand("regex_extract('VOLT\\s+(\\d+)', 1)").unwrap();
         match op {
-            TransformOp::RegexExtract { pattern, group } => {
+            TransformOp::RegexExtract {
+                pattern,
+                group,
+                compiled,
+            } => {
                 assert_eq!(pattern, r"VOLT\s+(\d+)");
                 assert_eq!(group, 1);
+                assert!(compiled.is_some(), "regex should be pre-compiled");
             }
             _ => panic!("Wrong variant"),
         }
@@ -552,7 +610,7 @@ mod tests {
 
     #[test]
     fn test_empty_pipeline() {
-        let pipeline = TransformPipeline::new(vec![]);
+        let pipeline = TransformPipeline::new(vec![]).unwrap();
         let result = pipeline.execute("hello").unwrap();
         assert_eq!(result.as_string(), "hello");
     }
@@ -569,6 +627,7 @@ mod tests {
         let op = TransformOp::RegexExtract {
             pattern: r"VOLT\s+(\d+)".to_string(),
             group: 1,
+            compiled: None,
         };
         let result = op.apply(TransformValue::String("CURRENT 5".to_string()));
         assert!(result.is_err());

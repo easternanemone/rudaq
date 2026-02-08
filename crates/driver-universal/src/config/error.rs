@@ -5,14 +5,8 @@ use thiserror::Error;
 /// Errors that can occur during configuration parsing and validation.
 #[derive(Debug, Error)]
 pub enum ConfigError {
-    #[error("unknown command reference: '{0}'")]
-    UnknownCommand(String),
-
     #[error("unknown response reference: '{0}'")]
     UnknownResponse(String),
-
-    #[error("unknown conversion reference: '{0}'")]
-    UnknownConversion(String),
 
     #[error("invalid regex pattern '{pattern}': {source}")]
     InvalidRegex {
@@ -42,9 +36,6 @@ pub enum ConfigError {
         ref_name: String,
     },
 
-    #[error("TOML parse error: {0}")]
-    TomlParse(String),
-
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -71,8 +62,8 @@ mod tests {
 
     #[test]
     fn error_display_messages() {
-        let err = ConfigError::UnknownCommand("move_fast".into());
-        assert!(err.to_string().contains("move_fast"));
+        let err = ConfigError::UnknownResponse("position_data".into());
+        assert!(err.to_string().contains("position_data"));
 
         let err = ConfigError::InvalidBaudRate(0);
         assert!(err.to_string().contains('0'));

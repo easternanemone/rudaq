@@ -1,11 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 #![cfg(feature = "universal")]
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    missing_docs
-)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 //! Universal Driver (TOML-based) Hardware Validation Test Suite
 //!
 //! Tests the declarative driver-universal system against real hardware,
@@ -71,8 +66,8 @@ mod mock_tests {
     #[test]
     fn test_newport_1830c_factory_loads() {
         let path = config_path("newport_1830c.toml");
-        let factory = UniversalDriverFactory::from_file(&path)
-            .expect("Failed to load newport_1830c.toml");
+        let factory =
+            UniversalDriverFactory::from_file(&path).expect("Failed to load newport_1830c.toml");
 
         assert!(
             factory.driver_type().contains("newport"),
@@ -190,8 +185,7 @@ mod mock_tests {
     #[test]
     fn test_esp300_factory_loads() {
         let path = config_path("esp300.toml");
-        let factory =
-            UniversalDriverFactory::from_file(&path).expect("Failed to load esp300.toml");
+        let factory = UniversalDriverFactory::from_file(&path).expect("Failed to load esp300.toml");
 
         assert!(
             factory.driver_type().contains("esp300"),
@@ -289,10 +283,7 @@ mod mock_tests {
         };
 
         let components = factory.build(config.into()).await.unwrap();
-        assert!(
-            components.movable.is_some(),
-            "ESP300 should wire Movable"
-        );
+        assert!(components.movable.is_some(), "ESP300 should wire Movable");
         assert!(
             components.readable.is_none(),
             "ESP300 should NOT wire Readable"
@@ -304,8 +295,7 @@ mod mock_tests {
     #[test]
     fn test_maitai_factory_loads() {
         let path = config_path("maitai.toml");
-        let factory =
-            UniversalDriverFactory::from_file(&path).expect("Failed to load maitai.toml");
+        let factory = UniversalDriverFactory::from_file(&path).expect("Failed to load maitai.toml");
 
         assert!(
             factory.driver_type().contains("maitai"),
@@ -361,8 +351,7 @@ mod mock_tests {
     #[test]
     fn test_ell14_factory_loads() {
         let path = config_path("ell14.toml");
-        let factory =
-            UniversalDriverFactory::from_file(&path).expect("Failed to load ell14.toml");
+        let factory = UniversalDriverFactory::from_file(&path).expect("Failed to load ell14.toml");
 
         assert!(
             factory.driver_type().contains("ell14"),
@@ -442,8 +431,7 @@ mod hardware_tests {
             env::var("NEWPORT_1830C_PORT").unwrap_or_else(|_| "/dev/ttyS0".to_string())
         }
 
-        async fn build_newport_driver(
-        ) -> (
+        async fn build_newport_driver() -> (
             std::sync::Arc<dyn Readable>,
             std::sync::Arc<dyn WavelengthTunable>,
         ) {
@@ -457,14 +445,15 @@ mod hardware_tests {
             table.insert("address".into(), toml::Value::String("0".into()));
             let config = toml::Value::Table(table);
 
-            let components = factory.build(config).await.expect("Failed to build Newport universal driver");
+            let components = factory
+                .build(config)
+                .await
+                .expect("Failed to build Newport universal driver");
 
             // Allow serial port to settle after init_sequence
             tokio::time::sleep(Duration::from_millis(100)).await;
 
-            let readable = components
-                .readable
-                .expect("Newport should have Readable");
+            let readable = components.readable.expect("Newport should have Readable");
             let wavelength = components
                 .wavelength_tunable
                 .expect("Newport should have WavelengthTunable");
@@ -611,11 +600,12 @@ mod hardware_tests {
             table.insert("address".into(), toml::Value::String("1".into()));
             let config = toml::Value::Table(table);
 
-            let components = factory.build(config).await.expect("Failed to build ESP300 universal driver");
+            let components = factory
+                .build(config)
+                .await
+                .expect("Failed to build ESP300 universal driver");
 
-            components
-                .movable
-                .expect("ESP300 should have Movable")
+            components.movable.expect("ESP300 should have Movable")
         }
 
         /// Test: Universal driver can query position from real ESP300
@@ -650,15 +640,15 @@ mod hardware_tests {
             let movable = build_esp300_driver().await;
 
             // Read current position
-            let initial = movable.position().await.expect("Failed to get initial position");
+            let initial = movable
+                .position()
+                .await
+                .expect("Failed to get initial position");
             println!("Initial position: {initial} mm");
 
             // Move a small distance (0.1mm from current position)
             let target = initial + 0.1;
-            movable
-                .move_abs(target)
-                .await
-                .expect("Failed to move_abs");
+            movable.move_abs(target).await.expect("Failed to move_abs");
 
             // Wait for motion to complete
             movable
@@ -667,7 +657,10 @@ mod hardware_tests {
                 .expect("Failed to wait_settled");
 
             // Verify position
-            let actual = movable.position().await.expect("Failed to get final position");
+            let actual = movable
+                .position()
+                .await
+                .expect("Failed to get final position");
             println!("Moved to {target}mm -> Read {actual}mm");
             assert!(
                 (actual - target).abs() < 0.01,

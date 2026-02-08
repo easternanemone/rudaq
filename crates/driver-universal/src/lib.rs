@@ -29,3 +29,6 @@ pub mod response;
 pub mod template;
 pub mod transform;
 pub mod transport;
+
+#[cfg(test)]
+pub(crate) mod test_fixtures;

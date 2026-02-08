@@ -24,17 +24,22 @@ fn default_address() -> String {
 
 pub struct GenericSerialDriverFactory {
     config: InstrumentConfig,
-    capabilities: Vec<CoreCapability>,
-    driver_type: String,
-    name: String,
+    /// Pre-leaked at construction time (not per-call).
+    capabilities: &'static [CoreCapability],
+    driver_type: &'static str,
+    name: &'static str,
     port_cache: Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<OnceCell<SharedPort>>>>>,
 }
 
 impl GenericSerialDriverFactory {
     pub fn new(config: InstrumentConfig) -> Self {
-        let driver_type = config.device.protocol.to_lowercase();
-        let name = config.device.name.clone();
-        let capabilities = config
+        // Leak once during construction to satisfy the &'static lifetime
+        // required by the DriverFactory trait. Factory instances are long-lived
+        // singletons created once at startup, so this is bounded.
+        let driver_type: &'static str =
+            Box::leak(config.device.protocol.to_lowercase().into_boxed_str());
+        let name: &'static str = Box::leak(config.device.name.clone().into_boxed_str());
+        let caps_vec: Vec<CoreCapability> = config
             .device
             .capabilities
             .iter()
@@ -46,6 +51,7 @@ impl GenericSerialDriverFactory {
                 _ => None,
             })
             .collect();
+        let capabilities: &'static [CoreCapability] = Box::leak(caps_vec.into_boxed_slice());
 
         Self {
             config,
@@ -232,13 +238,13 @@ impl GenericSerialDriverFactory {
 
 impl DriverFactoryTrait for GenericSerialDriverFactory {
     fn driver_type(&self) -> &'static str {
-        Box::leak(self.driver_type.clone().into_boxed_str())
+        self.driver_type
     }
     fn name(&self) -> &'static str {
-        Box::leak(self.name.clone().into_boxed_str())
+        self.name
     }
     fn capabilities(&self) -> &'static [CoreCapability] {
-        Box::leak(self.capabilities.clone().into_boxed_slice())
+        self.capabilities
     }
 
     fn validate(&self, config: &toml::Value) -> Result<()> {

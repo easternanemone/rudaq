@@ -278,61 +278,8 @@ mod tests {
 
     #[test]
     fn factory_from_ell14_toml() {
-        let factory = UniversalDriverFactory::from_toml_str(
-            r#"
-schema_version = 3
-
-[device]
-name = "Thorlabs ELL14"
-capabilities = ["Movable", "Parameterized"]
-
-[connection]
-type = "serial"
-baud_rate = 9600
-timeout_ms = 1000
-
-[commands.move_absolute]
-template = "{{ address }}ma{{ position_pulses | hex(8) }}"
-parameters = { position_pulses = "int32" }
-response = "position"
-
-[commands.get_position]
-template = "{{ address }}gp"
-response = "position"
-
-[commands.get_status]
-template = "{{ address }}gs"
-response = "status"
-
-[commands.stop]
-template = "{{ address }}st"
-expects_response = false
-
-[responses.position]
-format = "{addr:1}PO{pulses:hex8}"
-
-[responses.status]
-format = "{addr:1}GS{code:hex2}"
-
-[conversions.degrees_to_pulses]
-formula = "round(degrees * 398.2222)"
-
-[conversions.pulses_to_degrees]
-formula = "pulses / 398.2222"
-
-[capabilities.movable]
-move_abs = { command = "move_absolute", input_conversion = "degrees_to_pulses", input_param = "position_pulses", from_param = "degrees" }
-position = { command = "get_position", output_conversion = "pulses_to_degrees", output_field = "pulses" }
-stop = { command = "stop" }
-
-[capabilities.movable.wait_settled]
-poll_command = "get_status"
-success_condition = "code == 0"
-poll_interval_ms = 50
-timeout_ms = 10000
-"#,
-        )
-        .expect("should parse ELL14 config");
+        let factory = UniversalDriverFactory::from_toml_str(crate::test_fixtures::ELL14_TOML)
+            .expect("should parse ELL14 config");
 
         assert!(factory.driver_type().contains("ell14"));
         assert_eq!(factory.name(), "Thorlabs ELL14");

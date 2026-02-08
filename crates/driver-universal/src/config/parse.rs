@@ -95,11 +95,32 @@ pub fn parse_manifest(raw: RawManifest) -> Result<DeviceManifest, Vec<ConfigErro
     }
 
     // 9. Validate init_sequence entries
+    let init_sequence = validate_init_sequence(&raw, &mut errors);
+
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
+    Ok(DeviceManifest {
+        device: DeviceInfo {
+            name: raw.device.name,
+            capability_names: raw.device.capabilities,
+        },
+        connection,
+        commands,
+        responses,
+        conversions,
+        capabilities,
+        parameters,
+        init_sequence,
+    })
+}
+
+fn validate_init_sequence(raw: &RawManifest, errors: &mut Vec<ConfigError>) -> Vec<InitCommand> {
     let mut init_sequence = Vec::new();
     for (i, entry) in raw.init_sequence.iter().enumerate() {
         match entry {
             toml::Value::String(cmd_name) => {
-                // String entry: look up command template
                 if let Some(cmd) = raw.commands.get(cmd_name) {
                     if !cmd.parameters.is_empty() {
                         errors.push(ConfigError::Other(format!(
@@ -119,53 +140,8 @@ pub fn parse_manifest(raw: RawManifest) -> Result<DeviceManifest, Vec<ConfigErro
                 }
             }
             toml::Value::Table(tbl) => {
-                // Table entry: { command = "...", delay_ms = ... }
-                if let Some(cmd_val) = tbl.get("command") {
-                    if let Some(cmd_name) = cmd_val.as_str() {
-                        if let Some(cmd) = raw.commands.get(cmd_name) {
-                            if !cmd.parameters.is_empty() {
-                                errors.push(ConfigError::Other(format!(
-                                    "init_sequence[{i}]: command '{cmd_name}' requires parameters"
-                                )));
-                            } else {
-                                let delay_ms = match tbl.get("delay_ms") {
-                                    Some(v) => match v.as_integer() {
-                                        Some(d) if (0..=60_000).contains(&d) => Some(d as u32),
-                                        Some(d) => {
-                                            errors.push(ConfigError::Other(format!(
-                                                "init_sequence[{i}]: delay_ms must be 0..=60000 (got {d})"
-                                            )));
-                                            None
-                                        }
-                                        None => {
-                                            errors.push(ConfigError::Other(format!(
-                                                "init_sequence[{i}]: delay_ms must be an integer (got {v})"
-                                            )));
-                                            None
-                                        }
-                                    },
-                                    None => None,
-                                };
-                                init_sequence.push(InitCommand {
-                                    command: cmd.template.clone(),
-                                    delay_ms,
-                                    expects_response: cmd.expects_response,
-                                });
-                            }
-                        } else {
-                            errors.push(ConfigError::Other(format!(
-                                "init_sequence[{i}]: unknown command '{cmd_name}'"
-                            )));
-                        }
-                    } else {
-                        errors.push(ConfigError::Other(format!(
-                            "init_sequence[{i}]: 'command' must be a string"
-                        )));
-                    }
-                } else {
-                    errors.push(ConfigError::Other(format!(
-                        "init_sequence[{i}]: table entry requires 'command' field"
-                    )));
+                if let Some(init_cmd) = validate_init_table_entry(i, tbl, raw, errors) {
+                    init_sequence.push(init_cmd);
                 }
             }
             _ => {
@@ -175,23 +151,61 @@ pub fn parse_manifest(raw: RawManifest) -> Result<DeviceManifest, Vec<ConfigErro
             }
         }
     }
+    init_sequence
+}
 
-    if !errors.is_empty() {
-        return Err(errors);
+fn validate_init_table_entry(
+    i: usize,
+    tbl: &toml::map::Map<String, toml::Value>,
+    raw: &RawManifest,
+    errors: &mut Vec<ConfigError>,
+) -> Option<InitCommand> {
+    let cmd_val = tbl.get("command").or_else(|| {
+        errors.push(ConfigError::Other(format!(
+            "init_sequence[{i}]: table entry requires 'command' field"
+        )));
+        None
+    })?;
+    let cmd_name = cmd_val.as_str().or_else(|| {
+        errors.push(ConfigError::Other(format!(
+            "init_sequence[{i}]: 'command' must be a string"
+        )));
+        None
+    })?;
+    let cmd = raw.commands.get(cmd_name).or_else(|| {
+        errors.push(ConfigError::Other(format!(
+            "init_sequence[{i}]: unknown command '{cmd_name}'"
+        )));
+        None
+    })?;
+    if !cmd.parameters.is_empty() {
+        errors.push(ConfigError::Other(format!(
+            "init_sequence[{i}]: command '{cmd_name}' requires parameters"
+        )));
+        return None;
     }
-
-    Ok(DeviceManifest {
-        device: DeviceInfo {
-            name: raw.device.name,
-            capability_names: raw.device.capabilities,
+    let delay_ms = match tbl.get("delay_ms") {
+        Some(v) => match v.as_integer() {
+            Some(d) if (0..=60_000).contains(&d) => Some(d as u32),
+            Some(d) => {
+                errors.push(ConfigError::Other(format!(
+                    "init_sequence[{i}]: delay_ms must be 0..=60000 (got {d})"
+                )));
+                None
+            }
+            None => {
+                errors.push(ConfigError::Other(format!(
+                    "init_sequence[{i}]: delay_ms must be an integer (got {v})"
+                )));
+                None
+            }
         },
-        connection,
-        commands,
-        responses,
-        conversions,
-        capabilities,
-        parameters,
-        init_sequence,
+        None => None,
+    };
+    Some(InitCommand {
+        command: cmd.template.clone(),
+        delay_ms,
+        expects_response: cmd.expects_response,
     })
 }
 

@@ -80,59 +80,41 @@ pub enum ConfiguredDriver {
 }
 
 impl ConfiguredDriver {
-    /// Get the device protocol name
-    pub fn protocol(&self) -> &str {
-        match self {
-            ConfiguredDriver::Ell14(d) => d.config().device.protocol.as_str(),
-            ConfiguredDriver::Esp300(d) => d.config().device.protocol.as_str(),
-            ConfiguredDriver::Newport1830C(d) => d.config().device.protocol.as_str(),
-            ConfiguredDriver::MaiTai(d) => d.config().device.protocol.as_str(),
-            ConfiguredDriver::Generic(d) => d.config().device.protocol.as_str(),
-        }
-    }
-
-    /// Get the device name
-    pub fn name(&self) -> &str {
-        match self {
-            ConfiguredDriver::Ell14(d) => d.config().device.name.as_str(),
-            ConfiguredDriver::Esp300(d) => d.config().device.name.as_str(),
-            ConfiguredDriver::Newport1830C(d) => d.config().device.name.as_str(),
-            ConfiguredDriver::MaiTai(d) => d.config().device.name.as_str(),
-            ConfiguredDriver::Generic(d) => d.config().device.name.as_str(),
-        }
-    }
-
-    /// Get the device address
-    pub fn address(&self) -> &str {
-        match self {
-            ConfiguredDriver::Ell14(d) => d.address(),
-            ConfiguredDriver::Esp300(d) => d.address(),
-            ConfiguredDriver::Newport1830C(d) => d.address(),
-            ConfiguredDriver::MaiTai(d) => d.address(),
-            ConfiguredDriver::Generic(d) => d.address(),
-        }
-    }
-
-    /// Get the underlying GenericSerialDriver
+    /// Get the underlying GenericSerialDriver.
     pub fn inner(&self) -> &GenericSerialDriver {
         match self {
-            ConfiguredDriver::Ell14(d) => d,
-            ConfiguredDriver::Esp300(d) => d,
-            ConfiguredDriver::Newport1830C(d) => d,
-            ConfiguredDriver::MaiTai(d) => d,
-            ConfiguredDriver::Generic(d) => d,
+            ConfiguredDriver::Ell14(d)
+            | ConfiguredDriver::Esp300(d)
+            | ConfiguredDriver::Newport1830C(d)
+            | ConfiguredDriver::MaiTai(d)
+            | ConfiguredDriver::Generic(d) => d,
         }
     }
 
-    /// Get the underlying GenericSerialDriver (mutable)
+    /// Get the underlying GenericSerialDriver (mutable).
     pub fn inner_mut(&mut self) -> &mut GenericSerialDriver {
         match self {
-            ConfiguredDriver::Ell14(d) => d,
-            ConfiguredDriver::Esp300(d) => d,
-            ConfiguredDriver::Newport1830C(d) => d,
-            ConfiguredDriver::MaiTai(d) => d,
-            ConfiguredDriver::Generic(d) => d,
+            ConfiguredDriver::Ell14(d)
+            | ConfiguredDriver::Esp300(d)
+            | ConfiguredDriver::Newport1830C(d)
+            | ConfiguredDriver::MaiTai(d)
+            | ConfiguredDriver::Generic(d) => d,
         }
+    }
+
+    /// Get the device protocol name.
+    pub fn protocol(&self) -> &str {
+        self.inner().config().device.protocol.as_str()
+    }
+
+    /// Get the device name.
+    pub fn name(&self) -> &str {
+        self.inner().config().device.name.as_str()
+    }
+
+    /// Get the device address.
+    pub fn address(&self) -> &str {
+        self.inner().address()
     }
 }
 
@@ -145,6 +127,17 @@ impl ConfiguredDriver {
 /// The factory loads device configurations from TOML files and creates
 /// appropriate driver instances wrapped in [`ConfiguredDriver`].
 pub struct DriverFactory;
+
+/// Map a protocol string to the appropriate ConfiguredDriver variant.
+fn wrap_by_protocol(protocol: &str, driver: GenericSerialDriver) -> ConfiguredDriver {
+    match protocol {
+        "elliptec" | "ell14" => ConfiguredDriver::Ell14(driver),
+        "esp300" | "newport_esp300" => ConfiguredDriver::Esp300(driver),
+        "newport_1830c" | "newport1830c" => ConfiguredDriver::Newport1830C(driver),
+        "maitai" | "mai_tai" => ConfiguredDriver::MaiTai(driver),
+        _ => ConfiguredDriver::Generic(driver),
+    }
+}
 
 impl DriverFactory {
     /// Create a driver from a device configuration.
@@ -166,17 +159,7 @@ impl DriverFactory {
     ) -> Result<ConfiguredDriver> {
         let protocol = config.device.protocol.to_lowercase();
         let driver = GenericSerialDriver::new(config, port, address)?;
-
-        // Map protocol to enum variant
-        let configured = match protocol.as_str() {
-            "elliptec" | "ell14" => ConfiguredDriver::Ell14(driver),
-            "esp300" | "newport_esp300" => ConfiguredDriver::Esp300(driver),
-            "newport_1830c" | "newport1830c" => ConfiguredDriver::Newport1830C(driver),
-            "maitai" | "mai_tai" => ConfiguredDriver::MaiTai(driver),
-            _ => ConfiguredDriver::Generic(driver),
-        };
-
-        Ok(configured)
+        Ok(wrap_by_protocol(&protocol, driver))
     }
 
     /// Create a driver from a TOML configuration file.
@@ -233,16 +216,7 @@ impl DriverFactory {
             )
         })?;
 
-        // Map protocol to enum variant
-        let configured = match protocol.as_str() {
-            "elliptec" | "ell14" => ConfiguredDriver::Ell14(driver),
-            "esp300" | "newport_esp300" => ConfiguredDriver::Esp300(driver),
-            "newport_1830c" | "newport1830c" => ConfiguredDriver::Newport1830C(driver),
-            "maitai" | "mai_tai" => ConfiguredDriver::MaiTai(driver),
-            _ => ConfiguredDriver::Generic(driver),
-        };
-
-        Ok(configured)
+        Ok(wrap_by_protocol(&protocol, driver))
     }
 
     /// Create a driver from a TOML file with device validation.
@@ -315,15 +289,7 @@ impl DriverFactory {
             .set_parameter("pulses_per_degree", pulses_per_degree)
             .await;
 
-        let configured = match protocol.as_str() {
-            "elliptec" | "ell14" => ConfiguredDriver::Ell14(driver),
-            "esp300" | "newport_esp300" => ConfiguredDriver::Esp300(driver),
-            "newport_1830c" | "newport1830c" => ConfiguredDriver::Newport1830C(driver),
-            "maitai" | "mai_tai" => ConfiguredDriver::MaiTai(driver),
-            _ => ConfiguredDriver::Generic(driver),
-        };
-
-        Ok(configured)
+        Ok(wrap_by_protocol(&protocol, driver))
     }
 }
 
@@ -469,8 +435,8 @@ pub struct GenericSerialDriverFactory {
     /// The device configuration (commands, responses, conversions, etc.)
     device_config: DeviceConfig,
 
-    /// Cached capabilities derived from device config
-    capabilities: Vec<CoreCapability>,
+    /// Pre-leaked capabilities slice (created once in `new()`, not per-call).
+    capabilities: &'static [CoreCapability],
 
     /// Driver type string (from device protocol)
     driver_type: &'static str,
@@ -500,9 +466,9 @@ impl GenericSerialDriverFactory {
         );
         let name = Box::leak(device_config.device.name.clone().into_boxed_str());
 
-        // Convert device config capabilities to CoreCapability
+        // Convert device config capabilities to CoreCapability and leak once
         use crate::config::schema::CapabilityType;
-        let capabilities = device_config
+        let caps_vec: Vec<CoreCapability> = device_config
             .device
             .capabilities
             .iter()
@@ -521,6 +487,7 @@ impl GenericSerialDriverFactory {
                 _ => None,
             })
             .collect();
+        let capabilities: &'static [CoreCapability] = Box::leak(caps_vec.into_boxed_slice());
 
         Self {
             device_config,
@@ -555,8 +522,7 @@ impl DriverFactoryTrait for GenericSerialDriverFactory {
     }
 
     fn capabilities(&self) -> &'static [CoreCapability] {
-        // Leak the slice to get 'static lifetime
-        Box::leak(self.capabilities.clone().into_boxed_slice())
+        self.capabilities
     }
 
     fn validate(&self, config: &toml::Value) -> Result<()> {

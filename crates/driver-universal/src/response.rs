@@ -251,7 +251,8 @@ mod tests {
                 suffix: "C".to_string(),
             },
             TransformOp::ToFloat,
-        ]);
+        ])
+        .unwrap();
         let result = parse_with_transform(" 25.5C ", &pipeline).unwrap();
         assert_eq!(result.as_f64().unwrap(), 25.5);
     }
@@ -295,7 +296,8 @@ mod tests {
 
     #[test]
     fn dispatch_transform_parser() {
-        let pipeline = TransformPipeline::new(vec![TransformOp::Trim, TransformOp::ToFloat]);
+        let pipeline =
+            TransformPipeline::new(vec![TransformOp::Trim, TransformOp::ToFloat]).unwrap();
         let parser = ResponseParser::Transform(pipeline);
         let result = parse_with_parser("  7.25  ", &parser).unwrap();
         assert_eq!(result.as_f64().unwrap(), 7.25);

@@ -48,6 +48,16 @@ impl UniversalDriver {
         }
     }
 
+    /// Build a base parameter map containing only the device address.
+    fn address_params(&self) -> HashMap<String, serde_json::Value> {
+        let mut params = HashMap::with_capacity(4);
+        params.insert(
+            "address".to_string(),
+            serde_json::Value::String(self.address.clone()),
+        );
+        params
+    }
+
     /// Run the device initialization sequence.
     ///
     /// Sends each command in `manifest.init_sequence` via the transport,
@@ -58,11 +68,7 @@ impl UniversalDriver {
         let timeout = self.manifest.connection.timeout().as_duration();
         for (i, init_cmd) in self.manifest.init_sequence.iter().enumerate() {
             // Render the command template (substitute address if present)
-            let mut params: HashMap<String, serde_json::Value> = HashMap::new();
-            params.insert(
-                "address".to_string(),
-                serde_json::Value::String(self.address.clone()),
-            );
+            let params = self.address_params();
             let command_str = template::render_command(
                 &crate::config::validated::ValidatedTemplate {
                     source: init_cmd.command.clone(),
@@ -119,11 +125,7 @@ impl UniversalDriver {
             .ok_or_else(|| anyhow!("Command '{}' not found", cmd_name))?;
 
         // Build template parameters
-        let mut params: HashMap<String, serde_json::Value> = HashMap::new();
-        params.insert(
-            "address".to_string(),
-            serde_json::Value::String(self.address.clone()),
-        );
+        let mut params = self.address_params();
 
         // Apply input conversion if configured
         if let Some(input_val) = input_value {
@@ -208,26 +210,36 @@ impl UniversalDriver {
         Ok(result)
     }
 
-    /// Execute a method and extract a single f64 value (with optional output conversion).
-    async fn execute_read(&self, mapping: &MethodConfig) -> Result<f64> {
-        let fields = self.execute_method(mapping, None).await?;
-
-        let raw_value = if let Some(output_field) = &mapping.output_field {
+    /// Extract the output value from a parsed response field map.
+    ///
+    /// Uses `output_field` if specified, otherwise falls back to "value",
+    /// then to the single field if the map has exactly one entry.
+    fn extract_response_value(
+        fields: &HashMap<String, serde_json::Value>,
+        output_field: Option<&String>,
+    ) -> Result<serde_json::Value> {
+        if let Some(output_field) = output_field {
             fields
                 .get(output_field)
-                .ok_or_else(|| anyhow!("Output field '{}' not found in response", output_field))?
-                .clone()
+                .cloned()
+                .ok_or_else(|| anyhow!("Output field '{}' not found in response", output_field))
         } else if let Some(value) = fields.get("value") {
-            value.clone()
+            Ok(value.clone())
         } else if fields.len() == 1 {
-            fields
+            Ok(fields
                 .values()
                 .next()
                 .cloned()
-                .unwrap_or(serde_json::Value::Null)
+                .unwrap_or(serde_json::Value::Null))
         } else {
-            anyhow::bail!("output_field must be set when response contains multiple fields");
-        };
+            anyhow::bail!("output_field must be set when response contains multiple fields")
+        }
+    }
+
+    /// Execute a method and extract a single f64 value (with optional output conversion).
+    async fn execute_read(&self, mapping: &MethodConfig) -> Result<f64> {
+        let fields = self.execute_method(mapping, None).await?;
+        let raw_value = Self::extract_response_value(&fields, mapping.output_field.as_ref())?;
 
         let raw_f64 = raw_value
             .as_f64()
@@ -250,23 +262,7 @@ impl UniversalDriver {
     /// Execute a method and extract a boolean value from the response.
     async fn execute_read_bool(&self, mapping: &MethodConfig) -> Result<bool> {
         let fields = self.execute_method(mapping, None).await?;
-
-        let value = if let Some(output_field) = &mapping.output_field {
-            fields
-                .get(output_field)
-                .ok_or_else(|| anyhow!("Output field '{}' not found in response", output_field))?
-                .clone()
-        } else if let Some(value) = fields.get("value") {
-            value.clone()
-        } else if fields.len() == 1 {
-            fields
-                .values()
-                .next()
-                .cloned()
-                .unwrap_or(serde_json::Value::Null)
-        } else {
-            anyhow::bail!("output_field must be set when response contains multiple fields");
-        };
+        let value = Self::extract_response_value(&fields, mapping.output_field.as_ref())?;
 
         match &value {
             serde_json::Value::Bool(b) => Ok(*b),
@@ -338,11 +334,7 @@ impl UniversalDriver {
             }
 
             // Build params for the poll command
-            let mut params = HashMap::new();
-            params.insert(
-                "address".to_string(),
-                serde_json::Value::String(self.address.clone()),
-            );
+            let params = self.address_params();
             let command_str = template::render_command(&cmd_config.template, &params)?;
 
             let timeout = self.manifest.connection.timeout().as_duration();
@@ -408,52 +400,48 @@ impl UniversalDriver {
 }
 
 // =============================================================================
+// Capability Method Lookup Helpers
+// =============================================================================
+
+/// Helper macro to look up a capability's method config from the manifest.
+///
+/// Reduces the repetitive pattern of:
+///   manifest.capabilities.$cap.as_ref().ok_or(...)? .$method.as_ref().ok_or(...)?
+macro_rules! capability_method {
+    ($self:expr, $cap:ident, $method:ident, $cap_name:expr, $method_name:expr) => {{
+        let config = $self
+            .manifest
+            .capabilities
+            .$cap
+            .as_ref()
+            .ok_or_else(|| anyhow!(concat!("{}", " not configured"), $cap_name))?;
+        config
+            .$method
+            .as_ref()
+            .ok_or_else(|| anyhow!(concat!("{}", " not configured"), $method_name))?
+    }};
+}
+
+// =============================================================================
 // Capability Trait Implementations
 // =============================================================================
 
 #[async_trait]
 impl common::capabilities::Movable for UniversalDriver {
     async fn move_abs(&self, position: f64) -> Result<()> {
-        let config = self
-            .manifest
-            .capabilities
-            .movable
-            .as_ref()
-            .ok_or_else(|| anyhow!("Movable not configured"))?;
-        let mapping = config
-            .move_abs
-            .as_ref()
-            .ok_or_else(|| anyhow!("move_abs not configured"))?;
+        let mapping = capability_method!(self, movable, move_abs, "Movable", "move_abs");
         self.execute_method(mapping, Some(position)).await?;
         Ok(())
     }
 
     async fn move_rel(&self, distance: f64) -> Result<()> {
-        let config = self
-            .manifest
-            .capabilities
-            .movable
-            .as_ref()
-            .ok_or_else(|| anyhow!("Movable not configured"))?;
-        let mapping = config
-            .move_rel
-            .as_ref()
-            .ok_or_else(|| anyhow!("move_rel not configured in manifest"))?;
+        let mapping = capability_method!(self, movable, move_rel, "Movable", "move_rel");
         self.execute_method(mapping, Some(distance)).await?;
         Ok(())
     }
 
     async fn position(&self) -> Result<f64> {
-        let config = self
-            .manifest
-            .capabilities
-            .movable
-            .as_ref()
-            .ok_or_else(|| anyhow!("Movable not configured"))?;
-        let mapping = config
-            .position
-            .as_ref()
-            .ok_or_else(|| anyhow!("position not configured"))?;
+        let mapping = capability_method!(self, movable, position, "Movable", "position");
         self.execute_read(mapping).await
     }
 
@@ -467,7 +455,6 @@ impl common::capabilities::Movable for UniversalDriver {
         if let Some(ws_config) = &config.wait_settled {
             self.poll_until_settled(ws_config).await
         } else {
-            // No wait_settled config; return immediately
             Ok(())
         }
     }
@@ -491,16 +478,7 @@ impl common::capabilities::Movable for UniversalDriver {
 #[async_trait]
 impl common::capabilities::Readable for UniversalDriver {
     async fn read(&self) -> Result<f64> {
-        let config = self
-            .manifest
-            .capabilities
-            .readable
-            .as_ref()
-            .ok_or_else(|| anyhow!("Readable not configured"))?;
-        let mapping = config
-            .read
-            .as_ref()
-            .ok_or_else(|| anyhow!("read not configured"))?;
+        let mapping = capability_method!(self, readable, read, "Readable", "read");
         self.execute_read(mapping).await
     }
 }
@@ -508,16 +486,7 @@ impl common::capabilities::Readable for UniversalDriver {
 #[async_trait]
 impl common::capabilities::Settable for UniversalDriver {
     async fn set_value(&self, name: &str, value: serde_json::Value) -> Result<()> {
-        let config = self
-            .manifest
-            .capabilities
-            .settable
-            .as_ref()
-            .ok_or_else(|| anyhow!("Settable not configured"))?;
-        let mapping = config
-            .set
-            .as_ref()
-            .ok_or_else(|| anyhow!("set not configured"))?;
+        let mapping = capability_method!(self, settable, set, "Settable", "set");
 
         // Extract f64 from the JSON value for the template
         let f_val = value.as_f64().or_else(|| value.as_i64().map(|i| i as f64));
@@ -530,11 +499,7 @@ impl common::capabilities::Settable for UniversalDriver {
             .get(cmd_name)
             .ok_or_else(|| anyhow!("Command '{}' not found", cmd_name))?;
 
-        let mut params: HashMap<String, serde_json::Value> = HashMap::new();
-        params.insert(
-            "address".to_string(),
-            serde_json::Value::String(self.address.clone()),
-        );
+        let mut params = self.address_params();
         params.insert(
             "name".to_string(),
             serde_json::Value::String(name.to_string()),
@@ -583,46 +548,37 @@ impl common::capabilities::Settable for UniversalDriver {
 #[async_trait]
 impl common::capabilities::ShutterControl for UniversalDriver {
     async fn open_shutter(&self) -> Result<()> {
-        let config = self
-            .manifest
-            .capabilities
-            .shutter_control
-            .as_ref()
-            .ok_or_else(|| anyhow!("ShutterControl not configured"))?;
-        let mapping = config
-            .open
-            .as_ref()
-            .ok_or_else(|| anyhow!("shutter open not configured"))?;
+        let mapping = capability_method!(
+            self,
+            shutter_control,
+            open,
+            "ShutterControl",
+            "shutter open"
+        );
         self.execute_method(mapping, None).await?;
         Ok(())
     }
 
     async fn close_shutter(&self) -> Result<()> {
-        let config = self
-            .manifest
-            .capabilities
-            .shutter_control
-            .as_ref()
-            .ok_or_else(|| anyhow!("ShutterControl not configured"))?;
-        let mapping = config
-            .close
-            .as_ref()
-            .ok_or_else(|| anyhow!("shutter close not configured"))?;
+        let mapping = capability_method!(
+            self,
+            shutter_control,
+            close,
+            "ShutterControl",
+            "shutter close"
+        );
         self.execute_method(mapping, None).await?;
         Ok(())
     }
 
     async fn is_shutter_open(&self) -> Result<bool> {
-        let config = self
-            .manifest
-            .capabilities
-            .shutter_control
-            .as_ref()
-            .ok_or_else(|| anyhow!("ShutterControl not configured"))?;
-        let mapping = config
-            .is_open
-            .as_ref()
-            .ok_or_else(|| anyhow!("shutter is_open not configured"))?;
+        let mapping = capability_method!(
+            self,
+            shutter_control,
+            is_open,
+            "ShutterControl",
+            "shutter is_open"
+        );
         self.execute_read_bool(mapping).await
     }
 }
@@ -630,31 +586,25 @@ impl common::capabilities::ShutterControl for UniversalDriver {
 #[async_trait]
 impl common::capabilities::WavelengthTunable for UniversalDriver {
     async fn set_wavelength(&self, wavelength_nm: f64) -> Result<()> {
-        let config = self
-            .manifest
-            .capabilities
-            .wavelength_tunable
-            .as_ref()
-            .ok_or_else(|| anyhow!("WavelengthTunable not configured"))?;
-        let mapping = config
-            .set_wavelength
-            .as_ref()
-            .ok_or_else(|| anyhow!("set_wavelength not configured"))?;
+        let mapping = capability_method!(
+            self,
+            wavelength_tunable,
+            set_wavelength,
+            "WavelengthTunable",
+            "set_wavelength"
+        );
         self.execute_method(mapping, Some(wavelength_nm)).await?;
         Ok(())
     }
 
     async fn get_wavelength(&self) -> Result<f64> {
-        let config = self
-            .manifest
-            .capabilities
-            .wavelength_tunable
-            .as_ref()
-            .ok_or_else(|| anyhow!("WavelengthTunable not configured"))?;
-        let mapping = config
-            .get_wavelength
-            .as_ref()
-            .ok_or_else(|| anyhow!("get_wavelength not configured"))?;
+        let mapping = capability_method!(
+            self,
+            wavelength_tunable,
+            get_wavelength,
+            "WavelengthTunable",
+            "get_wavelength"
+        );
         self.execute_read(mapping).await
     }
 }
@@ -662,46 +612,37 @@ impl common::capabilities::WavelengthTunable for UniversalDriver {
 #[async_trait]
 impl common::capabilities::EmissionControl for UniversalDriver {
     async fn enable_emission(&self) -> Result<()> {
-        let config = self
-            .manifest
-            .capabilities
-            .emission_control
-            .as_ref()
-            .ok_or_else(|| anyhow!("EmissionControl not configured"))?;
-        let mapping = config
-            .enable
-            .as_ref()
-            .ok_or_else(|| anyhow!("emission enable not configured"))?;
+        let mapping = capability_method!(
+            self,
+            emission_control,
+            enable,
+            "EmissionControl",
+            "emission enable"
+        );
         self.execute_method(mapping, None).await?;
         Ok(())
     }
 
     async fn disable_emission(&self) -> Result<()> {
-        let config = self
-            .manifest
-            .capabilities
-            .emission_control
-            .as_ref()
-            .ok_or_else(|| anyhow!("EmissionControl not configured"))?;
-        let mapping = config
-            .disable
-            .as_ref()
-            .ok_or_else(|| anyhow!("emission disable not configured"))?;
+        let mapping = capability_method!(
+            self,
+            emission_control,
+            disable,
+            "EmissionControl",
+            "emission disable"
+        );
         self.execute_method(mapping, None).await?;
         Ok(())
     }
 
     async fn is_emission_enabled(&self) -> Result<bool> {
-        let config = self
-            .manifest
-            .capabilities
-            .emission_control
-            .as_ref()
-            .ok_or_else(|| anyhow!("EmissionControl not configured"))?;
-        let mapping = config
-            .is_enabled
-            .as_ref()
-            .ok_or_else(|| anyhow!("emission is_enabled not configured"))?;
+        let mapping = capability_method!(
+            self,
+            emission_control,
+            is_enabled,
+            "EmissionControl",
+            "emission is_enabled"
+        );
         self.execute_read_bool(mapping).await
     }
 }
@@ -716,101 +657,17 @@ mod tests {
     use super::*;
     use crate::config::parse::parse_manifest;
     use crate::config::raw::RawManifest;
+    use crate::test_fixtures;
     use crate::transport::MockTransport;
     use common::capabilities::Movable;
 
-    fn ell14_toml() -> &'static str {
-        r#"
-schema_version = 3
-
-[device]
-name = "Thorlabs ELL14"
-capabilities = ["Movable", "Parameterized"]
-
-[connection]
-type = "serial"
-baud_rate = 9600
-timeout_ms = 1000
-
-[commands.move_absolute]
-template = "{{ address }}ma{{ position_pulses | hex(8) }}"
-parameters = { position_pulses = "int32" }
-response = "position"
-
-[commands.get_position]
-template = "{{ address }}gp"
-response = "position"
-
-[commands.get_status]
-template = "{{ address }}gs"
-response = "status"
-
-[commands.stop]
-template = "{{ address }}st"
-expects_response = false
-
-[responses.position]
-format = "{addr:1}PO{pulses:hex8}"
-
-[responses.status]
-format = "{addr:1}GS{code:hex2}"
-
-[conversions.degrees_to_pulses]
-formula = "round(degrees * 398.2222)"
-
-[conversions.pulses_to_degrees]
-formula = "pulses / 398.2222"
-
-[capabilities.movable]
-move_abs = { command = "move_absolute", input_conversion = "degrees_to_pulses", input_param = "position_pulses", from_param = "degrees" }
-position = { command = "get_position", output_conversion = "pulses_to_degrees", output_field = "pulses" }
-stop = { command = "stop" }
-
-[capabilities.movable.wait_settled]
-poll_command = "get_status"
-success_condition = "code == 0"
-poll_interval_ms = 50
-timeout_ms = 10000
-"#
-    }
-
-    fn scpi_tcp_toml() -> &'static str {
-        r#"
-schema_version = 3
-
-[device]
-name = "Keithley 2400"
-capabilities = ["Readable", "Settable"]
-
-[connection]
-type = "tcp"
-host = "192.168.1.50"
-port = 5025
-timeout_ms = 2000
-
-[commands.measure_voltage]
-template = ":MEAS:VOLT?"
-response_type = "float"
-
-[commands.set_voltage]
-template = ":SOUR:VOLT {{ value }}"
-expects_response = false
-
-[capabilities.readable]
-read = { command = "measure_voltage" }
-
-[capabilities.settable]
-set = { command = "set_voltage", from_param = "value" }
-"#
-    }
-
     fn parse_ell14() -> DeviceManifest {
-        let raw: RawManifest = toml::from_str(ell14_toml()).unwrap();
+        let raw: RawManifest = toml::from_str(test_fixtures::ELL14_TOML).unwrap();
         parse_manifest(raw).unwrap()
     }
 
     fn parse_scpi_tcp() -> DeviceManifest {
-        let raw: RawManifest = toml::from_str(scpi_tcp_toml()).unwrap();
+        let raw: RawManifest = toml::from_str(test_fixtures::SCPI_TCP_TOML).unwrap();
         parse_manifest(raw).unwrap()
     }
 
