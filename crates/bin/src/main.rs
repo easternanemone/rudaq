@@ -302,8 +302,7 @@ async fn start_daemon(
     {
         // use server::grpc::start_server_with_hardware; // Imported at top level
         use hardware::registry::{
-            create_lab_registry, create_mock_registry, create_registry_from_file,
-            register_all_factories,
+            create_mock_registry, create_registry_from_file, register_all_factories,
         };
         use std::sync::Arc;
 
@@ -316,7 +315,8 @@ async fn start_daemon(
             create_registry_from_file(&config_path).await?
         } else if lab_hardware {
             println!("   Using lab hardware configuration (maitai@100.117.5.12)");
-            create_lab_registry().await?
+            let default_config = std::path::Path::new("config/maitai_hardware.toml");
+            create_registry_from_file(default_config).await?
         } else {
             println!("   Using mock devices (no hardware config specified)");
             create_mock_registry().await?

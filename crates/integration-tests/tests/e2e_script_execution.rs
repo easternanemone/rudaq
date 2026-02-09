@@ -26,33 +26,40 @@ use std::time::Duration;
 
 use experiment::Document;
 use experiment::{EngineState, RunEngine};
-use hardware::registry::{DeviceConfig, DeviceRegistry, DriverType};
+use hardware::registry::{register_mock_factories, DeviceRegistry};
 use scripting::script_runner::ScriptPlanRunner;
 use tokio::time::timeout;
 
 /// Create a registry with mock devices
 async fn create_test_registry() -> DeviceRegistry {
     let registry = DeviceRegistry::new();
+    register_mock_factories(&registry);
 
     // Register a mock stage
     registry
-        .register(DeviceConfig {
-            id: "stage_x".into(),
-            name: "X Stage".into(),
-            driver: DriverType::MockStage {
-                initial_position: 0.0,
-            },
-        })
+        .register_from_toml(
+            "stage_x",
+            "X Stage",
+            "mock_stage",
+            toml::toml! {
+                initial_position = 0.0
+            }
+            .into(),
+        )
         .await
         .expect("Failed to register mock stage");
 
     // Register mock power meter
     registry
-        .register(DeviceConfig {
-            id: "power_meter".into(),
-            name: "Test Power Meter".into(),
-            driver: DriverType::MockPowerMeter { reading: 1e-3 },
-        })
+        .register_from_toml(
+            "power_meter",
+            "Test Power Meter",
+            "mock_power_meter",
+            toml::toml! {
+                base_power = 1e-3
+            }
+            .into(),
+        )
         .await
         .expect("Failed to register power_meter");
 

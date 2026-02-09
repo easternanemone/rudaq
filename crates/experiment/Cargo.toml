@@ -13,5 +13,8 @@ serde_json.workspace = true
 # async-recursion might be needed for nested plans if we implement them
 # futures = "0.3"
 
+[dev-dependencies]
+toml.workspace = true
+
 [lints]
 workspace = true

@@ -4,12 +4,14 @@
 //! including lasers, power meters, rotators, stages, and analog outputs.
 
 mod analog_output_panel;
+mod generic_panel;
 mod maitai_panel;
 mod power_meter_panel;
 mod rotator_panel;
 mod stage_panel;
 
 pub use analog_output_panel::AnalogOutputControlPanel;
+pub use generic_panel::GenericDevicePanel;
 pub use maitai_panel::MaiTaiControlPanel;
 pub use power_meter_panel::PowerMeterControlPanel;
 pub use rotator_panel::RotatorControlPanel;
@@ -186,5 +188,187 @@ impl<R> DevicePanelState<R> {
 impl<R> Default for DevicePanelState<R> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[derive(Debug)]
+    enum TestAction {
+        Read(Result<f64, String>),
+        Write(Result<(), String>),
+    }
+
+    #[test]
+    fn test_device_panel_state_new() {
+        let state: DevicePanelState<TestAction> = DevicePanelState::new();
+        assert_eq!(state.actions_in_flight, 0);
+        assert_eq!(state.error, None);
+        assert_eq!(state.status, None);
+        assert_eq!(state.device_id, None);
+        assert_eq!(state.initial_fetch_done, false);
+        assert_eq!(state.auto_refresh, true);
+        assert_eq!(state.last_refresh, None);
+    }
+
+    #[test]
+    fn test_device_panel_state_default() {
+        let state: DevicePanelState<TestAction> = DevicePanelState::default();
+        assert_eq!(state.actions_in_flight, 0);
+        assert_eq!(state.auto_refresh, true);
+    }
+
+    #[test]
+    fn test_action_started_increments_counter() {
+        let mut state: DevicePanelState<TestAction> = DevicePanelState::new();
+        assert_eq!(state.actions_in_flight, 0);
+
+        state.action_started();
+        assert_eq!(state.actions_in_flight, 1);
+
+        state.action_started();
+        assert_eq!(state.actions_in_flight, 2);
+    }
+
+    #[test]
+    fn test_action_completed_decrements_counter() {
+        let mut state: DevicePanelState<TestAction> = DevicePanelState::new();
+        state.action_started();
+        state.action_started();
+        assert_eq!(state.actions_in_flight, 2);
+
+        state.action_completed();
+        assert_eq!(state.actions_in_flight, 1);
+
+        state.action_completed();
+        assert_eq!(state.actions_in_flight, 0);
+    }
+
+    #[test]
+    fn test_action_completed_saturates_at_zero() {
+        let mut state: DevicePanelState<TestAction> = DevicePanelState::new();
+        assert_eq!(state.actions_in_flight, 0);
+
+        state.action_completed();
+        assert_eq!(state.actions_in_flight, 0);
+
+        state.action_completed();
+        assert_eq!(state.actions_in_flight, 0);
+    }
+
+    #[test]
+    fn test_is_busy() {
+        let mut state: DevicePanelState<TestAction> = DevicePanelState::new();
+        assert!(!state.is_busy());
+
+        state.action_started();
+        assert!(state.is_busy());
+
+        state.action_completed();
+        assert!(!state.is_busy());
+    }
+
+    #[test]
+    fn test_set_error_clears_status() {
+        let mut state: DevicePanelState<TestAction> = DevicePanelState::new();
+        state.set_status("All good");
+        assert_eq!(state.status, Some("All good".to_string()));
+        assert_eq!(state.error, None);
+
+        state.set_error("Something went wrong");
+        assert_eq!(state.error, Some("Something went wrong".to_string()));
+        assert_eq!(state.status, None);
+    }
+
+    #[test]
+    fn test_set_status_clears_error() {
+        let mut state: DevicePanelState<TestAction> = DevicePanelState::new();
+        state.set_error("Error occurred");
+        assert_eq!(state.error, Some("Error occurred".to_string()));
+        assert_eq!(state.status, None);
+
+        state.set_status("Success");
+        assert_eq!(state.status, Some("Success".to_string()));
+        assert_eq!(state.error, None);
+    }
+
+    #[test]
+    fn test_should_refresh_when_never_refreshed() {
+        let state: DevicePanelState<TestAction> = DevicePanelState::new();
+        assert!(state.should_refresh(Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn test_should_refresh_respects_auto_refresh_flag() {
+        let mut state: DevicePanelState<TestAction> = DevicePanelState::new();
+        state.auto_refresh = false;
+        assert!(!state.should_refresh(Duration::from_secs(1)));
+
+        state.auto_refresh = true;
+        assert!(state.should_refresh(Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn test_should_refresh_blocks_when_busy() {
+        let mut state: DevicePanelState<TestAction> = DevicePanelState::new();
+        state.action_started();
+        assert!(!state.should_refresh(Duration::from_secs(1)));
+
+        state.action_completed();
+        assert!(state.should_refresh(Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn test_should_refresh_respects_interval() {
+        let mut state: DevicePanelState<TestAction> = DevicePanelState::new();
+        state.mark_refreshed();
+
+        // Immediately after refresh, should not refresh again
+        assert!(!state.should_refresh(Duration::from_secs(10)));
+
+        // After sleeping past the interval, should refresh
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(state.should_refresh(Duration::from_millis(10)));
+    }
+
+    #[test]
+    fn test_mark_refreshed_updates_timestamp() {
+        let mut state: DevicePanelState<TestAction> = DevicePanelState::new();
+        assert_eq!(state.last_refresh, None);
+
+        state.mark_refreshed();
+        assert!(state.last_refresh.is_some());
+
+        let first_refresh = state.last_refresh.unwrap();
+        std::thread::sleep(Duration::from_millis(10));
+
+        state.mark_refreshed();
+        let second_refresh = state.last_refresh.unwrap();
+
+        assert!(second_refresh > first_refresh);
+    }
+
+    #[test]
+    fn test_multiple_actions_in_flight() {
+        let mut state: DevicePanelState<TestAction> = DevicePanelState::new();
+
+        state.action_started();
+        state.action_started();
+        state.action_started();
+        assert_eq!(state.actions_in_flight, 3);
+        assert!(state.is_busy());
+        assert!(!state.should_refresh(Duration::from_secs(1)));
+
+        state.action_completed();
+        assert_eq!(state.actions_in_flight, 2);
+        assert!(state.is_busy());
+
+        state.action_completed();
+        state.action_completed();
+        assert_eq!(state.actions_in_flight, 0);
+        assert!(!state.is_busy());
     }
 }

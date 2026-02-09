@@ -14,23 +14,39 @@
 use common::experiment::document::Document;
 use experiment::plans::Count;
 use experiment::run_engine::RunEngine;
-use hardware::registry::{DeviceConfig, DeviceRegistry, DriverType};
+use hardware::registry::DeviceRegistry;
 use std::sync::Arc;
 use tokio::time::Duration;
 
 #[tokio::test]
 async fn test_end_to_end_frames() -> anyhow::Result<()> {
     // 1. Setup DeviceRegistry with Mock Pvcam
-    let mut registry = DeviceRegistry::new();
-    registry
-        .register(DeviceConfig {
-            id: "camera".into(),
-            name: "Mock Camera".into(),
-            driver: DriverType::Pvcam {
-                camera_name: "MockCam".into(),
-            },
-        })
-        .await?;
+    let registry = DeviceRegistry::new();
+
+    #[cfg(feature = "pvcam")]
+    {
+        use driver_pvcam::PvcamFactory;
+        registry.register_factory(Box::new(PvcamFactory));
+
+        registry
+            .register_from_toml(
+                "camera",
+                "Mock Camera",
+                "pvcam",
+                toml::toml! {
+                    camera_name = "MockCam"
+                }
+                .into(),
+            )
+            .await?;
+    }
+
+    #[cfg(not(feature = "pvcam"))]
+    {
+        println!("Skipping test: pvcam feature not enabled");
+        return Ok(());
+    }
+
     let registry_arc = Arc::new(registry);
 
     // 2. Setup RunEngine

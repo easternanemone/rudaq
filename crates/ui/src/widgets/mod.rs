@@ -27,8 +27,8 @@ pub mod toggle;
 pub use auto_scale_plot::{AutoScalePlot, AxisLockState};
 pub use colorbar::{Colorbar, ColorbarOrientation, ColormapTrait};
 pub use device_controls::{
-    AnalogOutputControlPanel, DeviceControlWidget, MaiTaiControlPanel, PowerMeterControlPanel,
-    RotatorControlPanel, StageControlPanel,
+    AnalogOutputControlPanel, DeviceControlWidget, GenericDevicePanel, MaiTaiControlPanel,
+    PowerMeterControlPanel, RotatorControlPanel, StageControlPanel,
 };
 #[allow(unused_imports)]
 pub use device_selector::DeviceSelector;

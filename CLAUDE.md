@@ -117,12 +117,14 @@ Registered 9 device(s)
 After connecting GUI to daemon:
 - Open "Instruments" panel
 - Should show ALL 9+ devices listed (PVCAM camera, laser, power meter, 3x rotators, ESP300, 2x Comedi DAQ)
-- Each device should have its control panel available:
-  - **Camera:** ImageViewerPanel with streaming controls
-  - **MaiTai Laser:** MaiTaiControlPanel with wavelength/shutter/emission controls
-  - **Power Meter:** PowerMeterControlPanel with live power reading
-  - **Rotators:** RotatorControlPanel with angle control
-  - **Comedi AI:** ComediAnalogInputPanel with voltage display and auto-refresh
+- Each device should have its control panel via `GenericDevicePanel`,
+  which auto-composes compact widgets from `DeviceInfo.capabilities`:
+  - **Readable** devices (power meters, Comedi AI): gauge + value + auto-refresh
+  - **Movable** devices (rotators, stages): position + jog + go-to + home
+  - **Emission/Shutter** (lasers): toggle buttons on a single row
+  - **WavelengthTunable** (lasers, power meters): slider + text input
+  - **Settable** (Comedi AO): voltage slider + quick-set presets
+  - **Camera:** ImageViewerPanel with streaming controls (separate panel)
 - Camera should stream real images (not synthetic gradients)
 - Comedi channels should show real voltage readings
 

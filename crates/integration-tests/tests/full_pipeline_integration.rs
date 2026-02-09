@@ -447,6 +447,9 @@ async fn test_pipeline_graceful_shutdown() {
                 break;
             }
 
+            // Sleep briefly so the main task's shutdown signal can take effect
+            tokio::time::sleep(Duration::from_millis(2)).await;
+
             // Move stage and acquire
             let pos = i as f64;
             stage_clone.move_abs(pos).await.unwrap();

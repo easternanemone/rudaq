@@ -27,7 +27,7 @@
 #![cfg(feature = "server")]
 
 use anyhow::Result;
-use hardware::registry::{DeviceConfig, DeviceRegistry, DriverType};
+use hardware::registry::{register_mock_factories, DeviceRegistry};
 use protocol::daq::hardware_service_server::HardwareService;
 use protocol::daq::{GetParameterRequest, SetParameterRequest, StreamParameterChangesRequest};
 use server::grpc::hardware_service::HardwareServiceImpl;
@@ -42,16 +42,19 @@ use tonic::Request;
 #[tokio::test]
 async fn test_basic_parameter_integration() -> Result<()> {
     // Setup: Create registry with MockCamera
-    let mut registry = DeviceRegistry::new();
+    let registry = DeviceRegistry::new();
+    register_mock_factories(&registry);
     registry
-        .register(DeviceConfig {
-            id: "mock_camera".to_string(),
-            name: "Mock Camera".to_string(),
-            driver: DriverType::MockCamera {
-                width: 640,
-                height: 480,
-            },
-        })
+        .register_from_toml(
+            "mock_camera",
+            "Mock Camera",
+            "mock_camera",
+            toml::toml! {
+                width = 640
+                height = 480
+            }
+            .into(),
+        )
         .await?;
 
     // Wrap in Arc<RwLock> for HardwareService
@@ -102,16 +105,19 @@ async fn test_basic_parameter_integration() -> Result<()> {
 #[tokio::test]
 async fn test_parameter_change_notifications() -> Result<()> {
     // Setup: Create registry with MockCamera
-    let mut registry = DeviceRegistry::new();
+    let registry = DeviceRegistry::new();
+    register_mock_factories(&registry);
     registry
-        .register(DeviceConfig {
-            id: "mock_camera".to_string(),
-            name: "Mock Camera".to_string(),
-            driver: DriverType::MockCamera {
-                width: 640,
-                height: 480,
-            },
-        })
+        .register_from_toml(
+            "mock_camera",
+            "Mock Camera",
+            "mock_camera",
+            toml::toml! {
+                width = 640
+                height = 480
+            }
+            .into(),
+        )
         .await?;
 
     let registry = Arc::new(registry);
@@ -271,16 +277,19 @@ async fn test_maitai_parameter_integration() -> Result<()> {
 
 #[tokio::test]
 async fn test_invalid_parameter_name() -> Result<()> {
-    let mut registry = DeviceRegistry::new();
+    let registry = DeviceRegistry::new();
+    register_mock_factories(&registry);
     registry
-        .register(DeviceConfig {
-            id: "mock_camera".to_string(),
-            name: "Mock Camera".to_string(),
-            driver: DriverType::MockCamera {
-                width: 640,
-                height: 480,
-            },
-        })
+        .register_from_toml(
+            "mock_camera",
+            "Mock Camera",
+            "mock_camera",
+            toml::toml! {
+                width = 640
+                height = 480
+            }
+            .into(),
+        )
         .await?;
 
     let registry = Arc::new(registry);
@@ -302,16 +311,19 @@ async fn test_invalid_parameter_name() -> Result<()> {
 
 #[tokio::test]
 async fn test_out_of_range_value() -> Result<()> {
-    let mut registry = DeviceRegistry::new();
+    let registry = DeviceRegistry::new();
+    register_mock_factories(&registry);
     registry
-        .register(DeviceConfig {
-            id: "mock_camera".to_string(),
-            name: "Mock Camera".to_string(),
-            driver: DriverType::MockCamera {
-                width: 640,
-                height: 480,
-            },
-        })
+        .register_from_toml(
+            "mock_camera",
+            "Mock Camera",
+            "mock_camera",
+            toml::toml! {
+                width = 640
+                height = 480
+            }
+            .into(),
+        )
         .await?;
 
     let registry = Arc::new(registry);
@@ -333,16 +345,19 @@ async fn test_out_of_range_value() -> Result<()> {
 
 #[tokio::test]
 async fn test_type_mismatch() -> Result<()> {
-    let mut registry = DeviceRegistry::new();
+    let registry = DeviceRegistry::new();
+    register_mock_factories(&registry);
     registry
-        .register(DeviceConfig {
-            id: "mock_camera".to_string(),
-            name: "Mock Camera".to_string(),
-            driver: DriverType::MockCamera {
-                width: 640,
-                height: 480,
-            },
-        })
+        .register_from_toml(
+            "mock_camera",
+            "Mock Camera",
+            "mock_camera",
+            toml::toml! {
+                width = 640
+                height = 480
+            }
+            .into(),
+        )
         .await?;
 
     let registry = Arc::new(registry);
@@ -389,16 +404,19 @@ async fn test_device_not_found() -> Result<()> {
 #[tokio::test]
 async fn test_concurrent_parameter_access_no_deadlock() -> Result<()> {
     // Setup: Create registry with MockCamera
-    let mut registry = DeviceRegistry::new();
+    let registry = DeviceRegistry::new();
+    register_mock_factories(&registry);
     registry
-        .register(DeviceConfig {
-            id: "mock_camera".to_string(),
-            name: "Mock Camera".to_string(),
-            driver: DriverType::MockCamera {
-                width: 640,
-                height: 480,
-            },
-        })
+        .register_from_toml(
+            "mock_camera",
+            "Mock Camera",
+            "mock_camera",
+            toml::toml! {
+                width = 640
+                height = 480
+            }
+            .into(),
+        )
         .await?;
 
     let registry = Arc::new(registry);
@@ -469,26 +487,31 @@ async fn test_concurrent_parameter_access_no_deadlock() -> Result<()> {
 #[tokio::test]
 async fn test_multiple_devices_parameter_isolation() -> Result<()> {
     // Setup: Create registry with two MockCameras
-    let mut registry = DeviceRegistry::new();
+    let registry = DeviceRegistry::new();
+    register_mock_factories(&registry);
     registry
-        .register(DeviceConfig {
-            id: "camera1".to_string(),
-            name: "Camera 1".to_string(),
-            driver: DriverType::MockCamera {
-                width: 640,
-                height: 480,
-            },
-        })
+        .register_from_toml(
+            "camera1",
+            "Camera 1",
+            "mock_camera",
+            toml::toml! {
+                width = 640
+                height = 480
+            }
+            .into(),
+        )
         .await?;
     registry
-        .register(DeviceConfig {
-            id: "camera2".to_string(),
-            name: "Camera 2".to_string(),
-            driver: DriverType::MockCamera {
-                width: 640,
-                height: 480,
-            },
-        })
+        .register_from_toml(
+            "camera2",
+            "Camera 2",
+            "mock_camera",
+            toml::toml! {
+                width = 640
+                height = 480
+            }
+            .into(),
+        )
         .await?;
 
     let registry = Arc::new(registry);
@@ -534,26 +557,31 @@ async fn test_multiple_devices_parameter_isolation() -> Result<()> {
 
 #[tokio::test]
 async fn test_filtered_parameter_notifications() -> Result<()> {
-    let mut registry = DeviceRegistry::new();
+    let registry = DeviceRegistry::new();
+    register_mock_factories(&registry);
     registry
-        .register(DeviceConfig {
-            id: "camera1".to_string(),
-            name: "Camera 1".to_string(),
-            driver: DriverType::MockCamera {
-                width: 640,
-                height: 480,
-            },
-        })
+        .register_from_toml(
+            "camera1",
+            "Camera 1",
+            "mock_camera",
+            toml::toml! {
+                width = 640
+                height = 480
+            }
+            .into(),
+        )
         .await?;
     registry
-        .register(DeviceConfig {
-            id: "camera2".to_string(),
-            name: "Camera 2".to_string(),
-            driver: DriverType::MockCamera {
-                width: 640,
-                height: 480,
-            },
-        })
+        .register_from_toml(
+            "camera2",
+            "Camera 2",
+            "mock_camera",
+            toml::toml! {
+                width = 640
+                height = 480
+            }
+            .into(),
+        )
         .await?;
 
     let registry = Arc::new(registry);

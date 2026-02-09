@@ -30,7 +30,7 @@ use crate::common::{ErrorConfig, MockMode, MockRng};
 use anyhow::Result;
 use async_trait::async_trait;
 use common::capabilities::{Parameterized, Readable};
-use common::driver::{Capability, DeviceComponents, DriverFactory};
+use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
 use futures::future::BoxFuture;
@@ -93,6 +93,10 @@ impl DriverFactory for MockPowerMeterFactory {
             Ok(DeviceComponents {
                 readable: Some(meter.clone()),
                 parameterized: Some(meter),
+                metadata: DeviceMetadata {
+                    measurement_units: Some("W".into()),
+                    ..Default::default()
+                },
                 ..Default::default()
             })
         })
@@ -892,5 +896,154 @@ mod tests {
                 .error_config(self.error_config.clone())
                 .build()
         }
+    }
+
+    #[tokio::test]
+    async fn test_zero_power_reading() {
+        let meter = MockPowerMeter::builder()
+            .base_power(0.0)
+            .noise_model(NoiseModel::none())
+            .build();
+
+        let reading = meter.read().await.unwrap();
+        assert_eq!(reading, 0.0, "Zero power should read exactly 0.0");
+    }
+
+    #[tokio::test]
+    async fn test_dbm_floor_for_zero_power() {
+        let meter = MockPowerMeter::builder()
+            .base_power(0.0)
+            .unit(PowerUnit::Dbm)
+            .noise_model(NoiseModel::none())
+            .build();
+
+        let reading = meter.read().await.unwrap();
+        assert_eq!(
+            reading, -120.0,
+            "Zero power in dBm should return floor value"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_relative_unit_normalization() {
+        let meter = MockPowerMeter::builder()
+            .base_power(2.0)
+            .unit(PowerUnit::Relative)
+            .noise_model(NoiseModel::none())
+            .build();
+
+        let reading = meter.read().await.unwrap();
+        assert!(
+            (reading - 1.0).abs() < 1e-6,
+            "Relative unit should normalize to 1.0, got {}",
+            reading
+        );
+    }
+
+    #[tokio::test]
+    async fn test_set_base_power_updates_reading() {
+        let meter = MockPowerMeter::builder()
+            .base_power(1.0)
+            .noise_model(NoiseModel::none())
+            .build();
+
+        let initial = meter.read().await.unwrap();
+        assert!((initial - 1.0).abs() < 1e-6);
+
+        meter.set_base_power(3.0).await.unwrap();
+        let updated = meter.read().await.unwrap();
+        assert!((updated - 3.0).abs() < 1e-6, "Power should update to 3.0");
+    }
+
+    #[tokio::test]
+    async fn test_parameterized_trait() {
+        let meter = MockPowerMeter::new(2.5);
+        let params = meter.parameters();
+
+        let power_param = params.get("base_power");
+        assert!(power_param.is_some(), "Should expose base_power parameter");
+        let json_val = power_param.unwrap().get_json().unwrap();
+        assert_eq!(json_val.as_f64().unwrap(), 2.5);
+    }
+
+    #[tokio::test]
+    async fn test_factory_validation() {
+        let factory = MockPowerMeterFactory;
+
+        // Valid config
+        let valid_config = toml::toml! { base_power = 5.0 }.into();
+        assert!(factory.validate(&valid_config).is_ok());
+
+        // Empty config should also be valid (uses defaults)
+        let empty_config = toml::Value::Table(toml::map::Map::new());
+        assert!(factory.validate(&empty_config).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_spectral_response_interpolation() {
+        let response = SpectralResponse::silicon_photodiode();
+
+        // Test at exact point (900nm should be 0.70)
+        let factor_900 = response.correction_factor(900.0);
+        assert!((factor_900 - 0.70).abs() < 1e-6);
+
+        // Test interpolation between points (850nm between 800 and 900)
+        let factor_850 = response.correction_factor(850.0);
+        assert!(factor_850 > 0.65 && factor_850 < 0.70);
+    }
+
+    #[tokio::test]
+    async fn test_spectral_response_clamping() {
+        let response = SpectralResponse::silicon_photodiode();
+
+        // Below range should clamp to first value
+        let factor_low = response.correction_factor(100.0);
+        assert!((factor_low - 0.15).abs() < 1e-6);
+
+        // Above range should clamp to last value
+        let factor_high = response.correction_factor(2000.0);
+        assert!((factor_high - 0.50).abs() < 1e-6);
+    }
+
+    #[tokio::test]
+    async fn test_combined_attenuator_and_unit_conversion() {
+        let meter = MockPowerMeter::builder()
+            .base_power(1.0) // 1W
+            .attenuator(Attenuator::Db20) // 0.01x -> 0.01W
+            .unit(PowerUnit::Milliwatts) // 10 mW
+            .noise_model(NoiseModel::none())
+            .build();
+
+        let reading = meter.read().await.unwrap();
+        assert!(
+            (reading - 10.0).abs() < 1e-3,
+            "Expected 10 mW (1W * 0.01 * 1000), got {}",
+            reading
+        );
+    }
+
+    #[tokio::test]
+    async fn test_filter_integration_time_values() {
+        assert_eq!(FilterSetting::None.integration_time_ms(), 0);
+        assert_eq!(FilterSetting::Fast.integration_time_ms(), 10);
+        assert_eq!(FilterSetting::Medium.integration_time_ms(), 100);
+        assert_eq!(FilterSetting::Slow.integration_time_ms(), 1000);
+    }
+
+    #[tokio::test]
+    async fn test_noise_model_with_zero_power() {
+        let noise = NoiseModel::default_noise();
+        let rng = MockRng::new(Some(42));
+
+        let result = noise.apply_noise(0.0, &rng);
+        assert_eq!(result, 0.0, "Noise on zero power should return 0.0");
+    }
+
+    #[test]
+    fn test_attenuator_factor_values() {
+        assert_eq!(Attenuator::None.factor(), 1.0);
+        assert_eq!(Attenuator::Db10.factor(), 0.1);
+        assert_eq!(Attenuator::Db20.factor(), 0.01);
+        assert_eq!(Attenuator::Db30.factor(), 0.001);
     }
 }

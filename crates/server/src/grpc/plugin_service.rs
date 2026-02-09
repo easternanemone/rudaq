@@ -12,7 +12,7 @@ use hardware::plugin::registry::PluginFactory;
 #[cfg(feature = "serial")]
 use hardware::plugin::schema::{DriverType, UiElement};
 #[cfg(feature = "serial")]
-use hardware::registry::{DeviceConfig, DeviceRegistry, DriverType as RegistryDriverType};
+use hardware::registry::{DeviceConfig, DeviceRegistry, DriverConfig};
 
 use crate::grpc::proto::{
     DestroyPluginInstanceRequest, DestroyPluginInstanceResponse, GetPluginInfoRequest,
@@ -412,13 +412,20 @@ impl PluginService for PluginServiceImpl {
                     let driver_arc = Arc::new(driver);
 
                     // 1. Create DeviceConfig for registration
+                    let mut config_table = toml::map::Map::new();
+                    config_table.insert(
+                        "plugin_id".into(),
+                        toml::Value::String(req.plugin_id.clone()),
+                    );
+                    config_table.insert("address".into(), toml::Value::String(req.address.clone()));
                     let device_config = DeviceConfig {
                         id: device_id.clone(),
                         name: plugin_name.clone(),
-                        driver: RegistryDriverType::Plugin {
-                            plugin_id: req.plugin_id.clone(),
-                            address: req.address.clone(),
-                        },
+                        driver: DriverConfig::new(
+                            "plugin".to_string(),
+                            toml::Value::Table(config_table),
+                        ),
+                        enabled: true,
                     };
 
                     // 2. Register with DeviceRegistry
@@ -679,5 +686,208 @@ impl PluginService for PluginServiceImpl {
                 req.instance_id
             )))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(not(feature = "serial"))]
+    #[test]
+    fn test_plugin_service_stub_creation() {
+        let service = PluginServiceImpl::new_stub();
+        // Stub service should be created successfully
+        assert_eq!(
+            format!("{:?}", service),
+            "PluginServiceImpl { instances: \"<Arc<RwLock<HashMap>>>\" }"
+        );
+    }
+
+    #[test]
+    fn test_plugin_instance_debug_format() {
+        let instance = PluginInstance {
+            instance_id: "test-instance".to_string(),
+            plugin_id: "test-plugin".to_string(),
+            plugin_name: "Test Plugin".to_string(),
+            address: "/dev/ttyUSB0".to_string(),
+            device_id: "plugin-test-1".to_string(),
+            connected: true,
+            mock_mode: false,
+            commands_sent: 42,
+            commands_failed: 2,
+            start_time_ns: 1234567890,
+            last_error: Some("Test error".to_string()),
+            last_error_time_ns: Some(9876543210),
+            #[cfg(feature = "serial")]
+            driver: None,
+        };
+
+        let debug_str = format!("{:?}", instance);
+        assert!(debug_str.contains("instance_id"));
+        assert!(debug_str.contains("test-instance"));
+        assert!(debug_str.contains("plugin_id"));
+        assert!(debug_str.contains("connected"));
+    }
+
+    #[test]
+    fn test_plugin_instance_clone() {
+        let instance = PluginInstance {
+            instance_id: "test-instance".to_string(),
+            plugin_id: "test-plugin".to_string(),
+            plugin_name: "Test Plugin".to_string(),
+            address: "/dev/ttyUSB0".to_string(),
+            device_id: "plugin-test-1".to_string(),
+            connected: true,
+            mock_mode: false,
+            commands_sent: 42,
+            commands_failed: 2,
+            start_time_ns: 1234567890,
+            last_error: Some("Test error".to_string()),
+            last_error_time_ns: Some(9876543210),
+            #[cfg(feature = "serial")]
+            driver: None,
+        };
+
+        let cloned = instance.clone();
+        assert_eq!(cloned.instance_id, instance.instance_id);
+        assert_eq!(cloned.plugin_id, instance.plugin_id);
+        assert_eq!(cloned.plugin_name, instance.plugin_name);
+        assert_eq!(cloned.connected, instance.connected);
+        assert_eq!(cloned.commands_sent, instance.commands_sent);
+        assert_eq!(cloned.last_error, instance.last_error);
+    }
+
+    #[cfg(feature = "serial")]
+    #[tokio::test]
+    async fn test_plugin_service_creation() {
+        use hardware::plugin::registry::PluginFactory;
+        use hardware::registry::DeviceRegistry;
+
+        let factory = Arc::new(RwLock::new(PluginFactory::new()));
+        let registry = Arc::new(DeviceRegistry::new());
+        let service = PluginServiceImpl::new(factory, registry);
+
+        // Service should be created successfully
+        let instances = service.instances.read().await;
+        assert_eq!(instances.len(), 0);
+    }
+
+    #[cfg(feature = "serial")]
+    #[tokio::test]
+    async fn test_next_instance_id_increments() {
+        use hardware::plugin::registry::PluginFactory;
+        use hardware::registry::DeviceRegistry;
+
+        let factory = Arc::new(RwLock::new(PluginFactory::new()));
+        let registry = Arc::new(DeviceRegistry::new());
+        let service = PluginServiceImpl::new(factory, registry);
+
+        let id1 = service.next_instance_id().await;
+        let id2 = service.next_instance_id().await;
+        let id3 = service.next_instance_id().await;
+
+        assert_eq!(id1, "plugin-instance-1");
+        assert_eq!(id2, "plugin-instance-2");
+        assert_eq!(id3, "plugin-instance-3");
+    }
+
+    #[cfg(feature = "serial")]
+    #[test]
+    fn test_driver_type_to_string() {
+        use hardware::plugin::schema::DriverType;
+
+        assert_eq!(
+            driver_type_to_string(&DriverType::SerialScpi),
+            "serial_scpi"
+        );
+        assert_eq!(driver_type_to_string(&DriverType::TcpScpi), "tcp_scpi");
+        assert_eq!(driver_type_to_string(&DriverType::SerialRaw), "serial_raw");
+        assert_eq!(driver_type_to_string(&DriverType::TcpRaw), "tcp_raw");
+    }
+
+    #[cfg(not(feature = "serial"))]
+    #[tokio::test]
+    async fn test_list_plugins_empty_without_serial() {
+        let service = PluginServiceImpl::new_stub();
+        let request = Request::new(ListPluginsRequest {
+            driver_type_filter: None,
+        });
+
+        let result = service.list_plugins(request).await;
+        assert!(result.is_ok());
+        let response = result.unwrap().into_inner();
+        assert!(response.plugins.is_empty());
+    }
+
+    #[cfg(not(feature = "serial"))]
+    #[tokio::test]
+    async fn test_get_plugin_info_unimplemented_without_serial() {
+        let service = PluginServiceImpl::new_stub();
+        let request = Request::new(GetPluginInfoRequest {
+            plugin_id: "test".to_string(),
+        });
+
+        let result = service.get_plugin_info(request).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code(), tonic::Code::Unimplemented);
+    }
+
+    #[cfg(not(feature = "serial"))]
+    #[tokio::test]
+    async fn test_spawn_plugin_unimplemented_without_serial() {
+        let service = PluginServiceImpl::new_stub();
+        let request = Request::new(SpawnPluginRequest {
+            plugin_id: "test".to_string(),
+            address: "/dev/ttyUSB0".to_string(),
+            instance_name: None,
+            mock_mode: false,
+        });
+
+        let result = service.spawn_plugin(request).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code(), tonic::Code::Unimplemented);
+    }
+
+    #[cfg(feature = "serial")]
+    #[tokio::test]
+    async fn test_list_plugins_empty() {
+        use hardware::plugin::registry::PluginFactory;
+        use hardware::registry::DeviceRegistry;
+
+        let factory = Arc::new(RwLock::new(PluginFactory::new()));
+        let registry = Arc::new(DeviceRegistry::new());
+        let service = PluginServiceImpl::new(factory, registry);
+
+        let request = Request::new(ListPluginsRequest {
+            driver_type_filter: None,
+        });
+
+        let result = service.list_plugins(request).await;
+        assert!(result.is_ok());
+        let response = result.unwrap().into_inner();
+        assert_eq!(response.plugins.len(), 0);
+    }
+
+    #[cfg(feature = "serial")]
+    #[tokio::test]
+    async fn test_get_plugin_info_not_found() {
+        use hardware::plugin::registry::PluginFactory;
+        use hardware::registry::DeviceRegistry;
+
+        let factory = Arc::new(RwLock::new(PluginFactory::new()));
+        let registry = Arc::new(DeviceRegistry::new());
+        let service = PluginServiceImpl::new(factory, registry);
+
+        let request = Request::new(GetPluginInfoRequest {
+            plugin_id: "nonexistent".to_string(),
+        });
+
+        let result = service.get_plugin_info(request).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code(), tonic::Code::NotFound);
     }
 }

@@ -29,7 +29,7 @@ use std::time::Duration;
 
 use experiment::plans::{Count, GridScan, LineScan, Plan};
 use experiment::{Document, EngineState, RunEngine};
-use hardware::registry::{DeviceConfig, DeviceRegistry, DriverType};
+use hardware::registry::{register_mock_factories, DeviceRegistry};
 use tokio::sync::broadcast;
 use tokio::time::timeout;
 
@@ -40,51 +40,62 @@ use tokio::time::timeout;
 /// Create a registry with mock devices for multi-device testing
 async fn create_multi_device_registry() -> DeviceRegistry {
     let registry = DeviceRegistry::new();
+    register_mock_factories(&registry);
 
     // Register X stage
     registry
-        .register(DeviceConfig {
-            id: "stage_x".into(),
-            name: "X Stage".into(),
-            driver: DriverType::MockStage {
-                initial_position: 0.0,
-            },
-        })
+        .register_from_toml(
+            "stage_x",
+            "X Stage",
+            "mock_stage",
+            toml::toml! {
+                initial_position = 0.0
+            }
+            .into(),
+        )
         .await
         .expect("Failed to register stage_x");
 
     // Register Y stage
     registry
-        .register(DeviceConfig {
-            id: "stage_y".into(),
-            name: "Y Stage".into(),
-            driver: DriverType::MockStage {
-                initial_position: 0.0,
-            },
-        })
+        .register_from_toml(
+            "stage_y",
+            "Y Stage",
+            "mock_stage",
+            toml::toml! {
+                initial_position = 0.0
+            }
+            .into(),
+        )
         .await
         .expect("Failed to register stage_y");
 
     // Register mock camera
     registry
-        .register(DeviceConfig {
-            id: "camera".into(),
-            name: "Test Camera".into(),
-            driver: DriverType::MockCamera {
-                width: 64,
-                height: 64,
-            },
-        })
+        .register_from_toml(
+            "camera",
+            "Test Camera",
+            "mock_camera",
+            toml::toml! {
+                width = 64
+                height = 64
+            }
+            .into(),
+        )
         .await
         .expect("Failed to register camera");
 
     // Register mock power meter
     registry
-        .register(DeviceConfig {
-            id: "power_meter".into(),
-            name: "Test Power Meter".into(),
-            driver: DriverType::MockPowerMeter { reading: 1e-3 },
-        })
+        .register_from_toml(
+            "power_meter",
+            "Test Power Meter",
+            "mock_power_meter",
+            toml::toml! {
+                base_power = 1e-3
+            }
+            .into(),
+        )
         .await
         .expect("Failed to register power_meter");
 

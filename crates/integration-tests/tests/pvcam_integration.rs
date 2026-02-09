@@ -11,25 +11,38 @@
     missing_docs
 )]
 use experiment::run_engine::RunEngine;
-use hardware::registry::{DeviceConfig, DeviceRegistry, DriverType};
+use hardware::registry::DeviceRegistry;
 use std::sync::Arc;
 
 #[tokio::test]
 async fn test_pvcam_with_run_engine() -> anyhow::Result<()> {
     // 1. Initialize Registry
-    let mut registry = DeviceRegistry::new();
+    let registry = DeviceRegistry::new();
 
     // 2. Register Mock PVCAM
-    registry
-        .register(DeviceConfig {
-            id: "camera".into(),
-            name: "Prime BSI Mock".into(),
-            driver: DriverType::Pvcam {
-                camera_name: "MockCamera".into(), // Mock mode uses any name or specific mock flag?
-                                                  // Feature "mock" is enabled in dev-dependencies
-            },
-        })
-        .await?;
+    #[cfg(feature = "pvcam")]
+    {
+        use driver_pvcam::PvcamFactory;
+        registry.register_factory(Box::new(PvcamFactory));
+
+        registry
+            .register_from_toml(
+                "camera",
+                "Prime BSI Mock",
+                "pvcam",
+                toml::toml! {
+                    camera_name = "MockCamera"
+                }
+                .into(),
+            )
+            .await?;
+    }
+
+    #[cfg(not(feature = "pvcam"))]
+    {
+        println!("Skipping test: pvcam feature not enabled");
+        return Ok(());
+    }
 
     // 3. Initialize RunEngine
     let registry_arc = Arc::new(registry);

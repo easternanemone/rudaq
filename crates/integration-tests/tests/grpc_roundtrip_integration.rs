@@ -35,7 +35,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use hardware::registry::{DeviceConfig, DeviceRegistry, DriverType};
+use hardware::registry::{register_mock_factories, DeviceRegistry};
 use protocol::daq::hardware_service_server::HardwareService;
 use protocol::daq::{ListDevicesRequest, MoveRequest, ReadValueRequest};
 use server::grpc::hardware_service::HardwareServiceImpl;
@@ -45,41 +45,48 @@ use tonic::Request;
 /// Create a registry with mock devices for testing
 async fn create_test_registry() -> DeviceRegistry {
     let registry = DeviceRegistry::new();
+    register_mock_factories(&registry);
 
     // Register a mock stage
     registry
-        .register(DeviceConfig {
-            id: "test_stage".into(),
-            name: "Test Stage".into(),
-            driver: DriverType::MockStage {
-                initial_position: 0.0,
-            },
-        })
+        .register_from_toml(
+            "test_stage",
+            "Test Stage",
+            "mock_stage",
+            toml::toml! {
+                initial_position = 0.0
+            }
+            .into(),
+        )
         .await
         .expect("Failed to register mock stage");
 
     // Register a mock camera
     registry
-        .register(DeviceConfig {
-            id: "test_camera".into(),
-            name: "Test Camera".into(),
-            driver: DriverType::MockCamera {
-                width: 640,
-                height: 480,
-            },
-        })
+        .register_from_toml(
+            "test_camera",
+            "Test Camera",
+            "mock_camera",
+            toml::toml! {
+                width = 640
+                height = 480
+            }
+            .into(),
+        )
         .await
         .expect("Failed to register mock camera");
 
     // Register a mock power meter
     registry
-        .register(DeviceConfig {
-            id: "test_power".into(),
-            name: "Test Power Meter".into(),
-            driver: DriverType::MockPowerMeter {
-                reading: 1e-3, // 1 mW
-            },
-        })
+        .register_from_toml(
+            "test_power",
+            "Test Power Meter",
+            "mock_power_meter",
+            toml::toml! {
+                base_power = 1e-3
+            }
+            .into(),
+        )
         .await
         .expect("Failed to register mock power meter");
 

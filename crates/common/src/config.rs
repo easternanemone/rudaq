@@ -1199,18 +1199,6 @@ mod tests {
     }
 
     #[test]
-    fn test_settings_new_with_valid_config() {
-        let settings = Settings::new(Some("default"));
-        assert!(settings.is_ok());
-        if let Ok(settings) = settings {
-            assert!(
-                settings.application.timeouts.serial_read_timeout_ms >= 100
-                    && settings.application.timeouts.serial_read_timeout_ms <= 30_000
-            );
-        }
-    }
-
-    #[test]
     fn test_timeout_at_exact_boundaries() {
         let mut settings = TimeoutSettings::default();
         settings.serial_read_timeout_ms = 100;

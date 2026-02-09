@@ -13,16 +13,16 @@
 //! ## Quick Example
 //!
 //! ```rust,ignore
-//! use daq_hardware::{DeviceRegistry, DeviceConfig, DriverType};
+//! use daq_hardware::{DeviceRegistry, register_all_factories};
 //!
 //! let registry = DeviceRegistry::new();
+//! register_all_factories(&registry, None).await?;
 //!
-//! // Register a device
-//! registry.register(DeviceConfig {
-//!     id: "rotator".into(),
-//!     name: "ELL14 Rotator".into(),
-//!     driver: DriverType::Ell14 { port: "/dev/ttyUSB0".into(), address: "2".into() },
-//! }).await?;
+//! // Register a device via factory
+//! registry.register_from_toml(
+//!     "rotator", "ELL14 Rotator", "ell14",
+//!     toml::toml! { port = "/dev/ttyUSB0"; address = "2" }.into(),
+//! ).await?;
 //!
 //! // Access by capability
 //! if let Some(device) = registry.get_movable("rotator") {
@@ -59,7 +59,7 @@ pub mod resource_pool;
 pub use capabilities::*;
 pub use registry::{
     register_all_factories, register_mock_factories, DeviceConfig, DeviceInfo, DeviceRegistry,
-    DriverType,
+    DriverConfig,
 };
 
 // Re-export declarative config types under a distinct name to avoid confusion

@@ -34,14 +34,16 @@ pub fn link() {
 use anyhow::Result;
 use async_trait::async_trait;
 use common::capabilities::{
-    Commandable, ExposureControl, Frame, FrameObserver, FrameProducer, LoanedFrame, ObserverHandle,
-    Parameterized, Triggerable,
+    Commandable, DeviceCategory, ExposureControl, Frame, FrameObserver, FrameProducer, LoanedFrame,
+    ObserverHandle, Parameterized, Triggerable,
 };
 use common::core::Roi;
+use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
 use common::error::DaqError;
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
 use common::pipeline::MeasurementSource;
+use futures::future::BoxFuture;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -62,6 +64,77 @@ use crate::components::speed_table::SpeedTable;
 use crate::components::taps::ObserverAdapter;
 #[cfg(feature = "pvcam_sdk")]
 use pvcam_sys::*;
+
+// =============================================================================
+// PVCAM Factory (DriverFactory implementation)
+// =============================================================================
+
+#[derive(Debug, serde::Deserialize)]
+struct PvcamConfig {
+    camera_name: String,
+}
+
+/// Factory for creating PVCAM camera instances from TOML configuration.
+///
+/// Registers as driver_type `"pvcam"` and builds `PvcamDriver` instances.
+pub struct PvcamFactory;
+
+impl DriverFactory for PvcamFactory {
+    fn driver_type(&self) -> &'static str {
+        "pvcam"
+    }
+
+    fn name(&self) -> &'static str {
+        "Photometrics PVCAM Camera"
+    }
+
+    fn capabilities(&self) -> &'static [Capability] {
+        &[
+            Capability::FrameProducer,
+            Capability::Triggerable,
+            Capability::ExposureControl,
+            Capability::Commandable,
+            Capability::Parameterized,
+        ]
+    }
+
+    fn validate(&self, config: &toml::Value) -> Result<()> {
+        let _: PvcamConfig = config.clone().try_into()?;
+        if cfg!(feature = "pvcam_sdk") && std::env::var("PVCAM_VERSION").is_err() {
+            anyhow::bail!(
+                "PVCAM_VERSION environment variable must be set when pvcam_sdk is enabled"
+            );
+        }
+        Ok(())
+    }
+
+    fn build(&self, config: toml::Value) -> BoxFuture<'static, Result<DeviceComponents>> {
+        Box::pin(async move {
+            let cfg: PvcamConfig = config.try_into()?;
+            let driver = Arc::new(PvcamDriver::new_async(cfg.camera_name).await?);
+            let (w, h) = driver.resolution();
+            Ok(DeviceComponents {
+                triggerable: Some(driver.clone()),
+                frame_producer: Some(driver.clone()),
+                source_frame: Some(driver.clone()),
+                exposure_control: Some(driver.clone()),
+                commandable: Some(driver.clone()),
+                parameterized: Some(driver),
+                metadata: DeviceMetadata {
+                    category: Some(DeviceCategory::Camera),
+                    frame_width: Some(w),
+                    frame_height: Some(h),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+        })
+    }
+}
+
+// =============================================================================
+// PVCAM Driver
+// =============================================================================
 
 /// Driver for Photometrics PVCAM cameras
 ///

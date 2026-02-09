@@ -15,7 +15,7 @@
 
 use anyhow::Result;
 use driver_pvcam::PvcamDriver;
-use hardware::registry::{DeviceConfig, DeviceRegistry, DriverType};
+use hardware::registry::DeviceRegistry;
 use protocol::daq::hardware_service_server::HardwareService;
 use protocol::daq::{
     GetParameterRequest, SetParameterRequest, StartStreamRequest, StopStreamRequest,
@@ -30,30 +30,32 @@ use tonic::Request;
 #[tokio::test]
 async fn test_grpc_camera_control_stream() -> Result<()> {
     // 1. Setup: Register PvcamDriver (Mock Mode)
-    let mut registry = DeviceRegistry::new();
+    let registry = DeviceRegistry::new();
 
-    // Register directly using DriverType::Pvcam (assuming new_async supports mock internally)
-    // Note: We need to use DriverType enum which might require feature flags in daq-hardware.
-    // However, integrations usually instantiate driver directly or rely on registry logic.
-    // Let's use direct registry insertion if possible or standard config registration.
+    #[cfg(feature = "pvcam")]
+    {
+        use driver_pvcam::PvcamFactory;
+        registry.register_factory(Box::new(PvcamFactory));
 
-    // Since we are in integration test context, we use the standard registry flow.
-    // Need to ensure DriverType::Pvcam is available (requires feature 'pvcam' or 'all_hardware').
-    // The registry instantiation logic will create PvcamDriver.
+        registry
+            .register_from_toml(
+                "prime_bsi",
+                "Prime BSI Express",
+                "pvcam",
+                toml::toml! {
+                    camera_name = "MockCamera"
+                }
+                .into(),
+            )
+            .await?;
+    }
 
-    // DriverType::Pvcam is gated by #[cfg(feature = "pvcam")].
-    // all_hardware includes pvcam (mock driver).
-    // So ensuring 'rust-daq' compiles with 'server' (and defaults 'all_hardware') should be enough.
-
-    registry
-        .register(DeviceConfig {
-            id: "prime_bsi".to_string(),
-            name: "Prime BSI Express".to_string(),
-            driver: DriverType::Pvcam {
-                camera_name: "MockCamera".to_string(),
-            },
-        })
-        .await?;
+    #[cfg(not(feature = "pvcam"))]
+    {
+        // Skip test if pvcam feature not enabled
+        println!("Skipping test: pvcam feature not enabled");
+        return Ok(());
+    }
 
     let registry = Arc::new(registry);
     let service = HardwareServiceImpl::new(registry.clone());

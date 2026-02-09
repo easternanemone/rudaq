@@ -6,19 +6,24 @@
 //!
 //! ## Features
 //! - Hierarchical tree view with device grouping by category
-//! - Device-specific control panels (MaiTai, PowerMeter, Rotators, Stages, PVCAM)
+//! - Generic capability-based control panels via [`GenericDevicePanel`]
 //! - Real-time state updates (position, readings, streaming status)
 //! - Pop-out support for device panels
 //! - PVCAM-specific features: PP Features reset, Smart Streaming configuration
 //!
 //! ## Device Panel Routing
-//! Devices are routed to specialized panels based on driver type:
-//! - `maitai` → MaiTaiControlPanel
-//! - `newport_1830c` → PowerMeterControlPanel
-//! - `ell14` → RotatorControlPanel
-//! - `pvcam`/`prime` → PVCAM panel with PP Features and Smart Streaming
-//! - Movable devices → StageControlPanel
-//! - Others → Generic control panel
+//! Devices are routed to panels in this priority order:
+//! 1. Config-driven rendering (from device TOML `ui.control_panel` section)
+//! 2. [`GenericDevicePanel`] — auto-composes compact widgets from capabilities:
+//!    - `readable` → gauge + value display with auto-refresh
+//!    - `movable` → position + jog buttons + go-to + home
+//!    - `emission_controllable` → toggle button
+//!    - `shutter_controllable` → toggle button
+//!    - `wavelength_tunable` → slider + text input
+//!    - `settable` → voltage slider + quick-set presets
+//!
+//! Legacy per-device panels (MaiTai, PowerMeter, Rotator, Stage, AnalogOutput)
+//! remain in the codebase but are no longer dispatched to.
 
 mod config_loader;
 mod config_renderer;
@@ -42,7 +47,7 @@ use tokio::sync::mpsc;
 use crate::device_ext::DeviceInfoExt;
 use crate::panels::ComediPanel;
 use crate::widgets::{
-    offline_notice, DeviceControlWidget, MaiTaiControlPanel, OfflineContext,
+    offline_notice, DeviceControlWidget, GenericDevicePanel, MaiTaiControlPanel, OfflineContext,
     PowerMeterControlPanel, RotatorControlPanel, SmartStreamEditor, StageControlPanel,
 };
 use client::DaqClient;
@@ -161,6 +166,8 @@ pub struct InstrumentManagerPanel {
     stage_panels: HashMap<String, StageControlPanel>,
     /// Comedi DAQ control panels
     comedi_panels: HashMap<String, ComediPanel>,
+    /// Generic capability-based control panels (keyed by device_id)
+    generic_panels: HashMap<String, GenericDevicePanel>,
     /// PVCAM Smart Stream editors (keyed by device_id)
     smart_stream_editors: HashMap<String, SmartStreamEditor>,
 
@@ -231,6 +238,7 @@ impl Default for InstrumentManagerPanel {
             rotator_panels: HashMap::new(),
             stage_panels: HashMap::new(),
             comedi_panels: HashMap::new(),
+            generic_panels: HashMap::new(),
             smart_stream_editors: HashMap::new(),
             pending_pop_out: None,
             pending_image_viewer_device: None,
@@ -263,6 +271,7 @@ impl InstrumentManagerPanel {
         self.groups.clear();
         self.device_states.clear();
         self.smart_stream_editors.clear();
+        self.generic_panels.clear();
         self.error = None;
         self.status = None;
     }
@@ -1464,7 +1473,18 @@ impl InstrumentManagerPanel {
             }
         }
 
-        // Fallback: Determine which device-specific panel to use based on driver type and capabilities
+        // Generic capability-based panel (replaces per-device panels)
+        let panel = self
+            .generic_panels
+            .entry(device_id.clone())
+            .or_insert_with(|| GenericDevicePanel::from_capabilities(&device.capabilities));
+        ui.push_id(("instr_mgr", &device_id), |ui| {
+            panel.ui(ui, &device, client.as_deref_mut(), runtime);
+        });
+        return;
+
+        // TODO(bd-rgnx.7): remove legacy per-device panels once GenericDevicePanel is validated
+        #[allow(unreachable_code)]
         let driver_lower = device.driver_type.to_lowercase();
 
         // Check for MaiTai laser

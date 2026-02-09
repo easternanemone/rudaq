@@ -3519,13 +3519,16 @@ dependencies = [
  "bytes",
  "common",
  "criterion",
+ "futures",
  "lazy_static",
  "once_cell",
  "parking_lot 0.12.5",
  "pool",
  "pvcam-sys",
+ "serde",
  "serde_json",
  "tokio",
+ "toml 0.9.11+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
 ]
@@ -4254,6 +4257,7 @@ dependencies = [
  "hardware",
  "serde_json",
  "tokio",
+ "toml 0.9.11+spec-1.1.0",
  "tracing",
 ]
 
