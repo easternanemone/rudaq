@@ -1,14 +1,21 @@
 //! Scripts panel - manage and execute Rhai scripts.
 //!
 //! Phase 6 (bd-r8uq): Enhanced with Run/Stop controls, progress bars, and execution status.
+//! File upload and inline editor for writing/uploading scripts from the GUI.
 
 use eframe::egui;
+use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
+use rfd::FileDialog;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};
 use client::DaqClient;
+
+/// Maximum script size for upload (matches `common::limits::MAX_SCRIPT_SIZE`).
+const MAX_SCRIPT_SIZE: usize = 1024 * 1024;
 
 /// Result types for different async actions
 #[derive(Debug)]
@@ -27,6 +34,8 @@ enum ActionResult {
     Started(Result<String, String>),
     /// Script stopped
     Stopped(Result<String, String>),
+    /// Script uploaded — returns (script_id, name) on success
+    Uploaded(Result<(String, String), String>),
 }
 
 /// Scripts panel state
@@ -55,6 +64,26 @@ pub struct ScriptsPanel {
     auto_refresh_enabled: bool,
     /// Last auto-refresh time
     last_auto_refresh: Option<std::time::Instant>,
+    /// Whether the inline editor is visible
+    editor_visible: bool,
+    /// Editor code content
+    editor_code: String,
+    /// Script name for upload
+    editor_name: String,
+    /// Editor color theme
+    editor_theme: ColorTheme,
+    /// Whether editor has unsaved changes
+    editor_dirty: bool,
+    /// Local file path if opened from disk
+    editor_file_path: Option<PathBuf>,
+    /// Editor status message
+    editor_status: Option<String>,
+    /// Chain upload → start execution
+    run_after_upload: bool,
+    /// Script ID to auto-run after upload completes
+    auto_start_after_upload: Option<String>,
+    /// Trigger refresh after upload
+    needs_refresh: bool,
 }
 
 impl ScriptsPanel {
@@ -87,6 +116,8 @@ impl ScriptsPanel {
                             self.error = None;
                             // Auto-enable refresh to track progress
                             self.auto_refresh_enabled = true;
+                            // Immediately refresh so has_running_executions() sees the new state
+                            self.needs_refresh = true;
                         }
                         ActionResult::Started(Err(e)) => {
                             self.error = Some(format!("Failed to start: {}", e));
@@ -97,6 +128,26 @@ impl ScriptsPanel {
                         }
                         ActionResult::Stopped(Err(e)) => {
                             self.error = Some(format!("Failed to stop: {}", e));
+                        }
+                        ActionResult::Uploaded(Ok((script_id, name))) => {
+                            self.status = Some(format!(
+                                "Uploaded '{}' ({})",
+                                name,
+                                &script_id[..8.min(script_id.len())]
+                            ));
+                            self.error = None;
+                            self.editor_dirty = false;
+                            self.editor_status = Some("Uploaded successfully".to_string());
+                            self.needs_refresh = true;
+                            if self.run_after_upload {
+                                self.run_after_upload = false;
+                                self.auto_start_after_upload = Some(script_id);
+                            }
+                        }
+                        ActionResult::Uploaded(Err(e)) => {
+                            self.run_after_upload = false;
+                            self.error = Some(format!("Upload failed: {}", e));
+                            self.editor_status = Some(format!("Upload failed: {}", e));
                         }
                     }
                     updated = true;
@@ -123,6 +174,18 @@ impl ScriptsPanel {
         // Track pending actions
         let mut pending_refresh = false;
         let mut pending_start: Option<String> = None;
+        let mut pending_upload: Option<(String, String)> = None; // (name, content)
+
+        // Post-upload refresh
+        if self.needs_refresh {
+            self.needs_refresh = false;
+            pending_refresh = true;
+        }
+
+        // Auto-start after upload
+        if let Some(script_id) = self.auto_start_after_upload.take() {
+            pending_start = Some(script_id);
+        }
 
         // Auto-refresh when executions are running
         if self.auto_refresh_enabled && self.has_running_executions() {
@@ -137,8 +200,9 @@ impl ScriptsPanel {
             }
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_secs(1));
-        } else if self.auto_refresh_enabled && !self.has_running_executions() {
-            // Disable auto-refresh when no executions running
+        } else if self.auto_refresh_enabled && !self.has_running_executions() && !pending_refresh {
+            // Disable auto-refresh when no executions running and no refresh pending
+            // (a pending refresh may bring in fresh execution data showing RUNNING state)
             self.auto_refresh_enabled = false;
         }
 
@@ -151,6 +215,7 @@ impl ScriptsPanel {
 
         // Toolbar
         let has_client = client.is_some();
+        let mut file_upload_requested = false;
         ui.horizontal(|ui| {
             if ui.button("🔄 Refresh").clicked() {
                 pending_refresh = true;
@@ -172,6 +237,30 @@ impl ScriptsPanel {
 
             ui.separator();
 
+            // Upload File button — pick .rhai from disk, upload to daemon
+            if ui
+                .add_enabled(has_client, egui::Button::new("📤 Upload File"))
+                .on_hover_text("Upload a .rhai file from disk")
+                .clicked()
+            {
+                file_upload_requested = true;
+            }
+
+            // New Script button — toggle inline editor
+            let new_label = if self.editor_visible {
+                "✏ Hide Editor"
+            } else {
+                "✏ New Script"
+            };
+            if ui.button(new_label).clicked() {
+                self.editor_visible = !self.editor_visible;
+                if self.editor_visible && self.editor_code.is_empty() {
+                    self.editor_name = "new_script.rhai".to_string();
+                }
+            }
+
+            ui.separator();
+
             if let Some(last) = self.last_refresh {
                 let elapsed = last.elapsed();
                 ui.label(format!("Updated {}s ago", elapsed.as_secs()));
@@ -181,6 +270,41 @@ impl ScriptsPanel {
                 ui.spinner();
             }
         });
+
+        // Handle file upload from dialog (outside toolbar closure to satisfy borrow checker)
+        if file_upload_requested {
+            if let Some(path) = FileDialog::new()
+                .add_filter("Rhai Script", &["rhai"])
+                .pick_file()
+            {
+                match std::fs::read_to_string(&path) {
+                    Ok(content) => {
+                        let name = path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                        if name.trim().is_empty() {
+                            self.error =
+                                Some("Selected file has an empty or invalid name".to_string());
+                        } else if content.trim().is_empty() {
+                            self.error = Some(format!("File '{}' is empty", name));
+                        } else if content.len() > MAX_SCRIPT_SIZE {
+                            self.error = Some(format!(
+                                "Script too large ({} bytes, max {})",
+                                content.len(),
+                                MAX_SCRIPT_SIZE
+                            ));
+                        } else {
+                            pending_upload = Some((name, content));
+                        }
+                    }
+                    Err(e) => {
+                        self.error = Some(format!("Failed to read file: {}", e));
+                    }
+                }
+            }
+        }
 
         ui.separator();
 
@@ -201,16 +325,33 @@ impl ScriptsPanel {
         // Two-column layout - render without client reference
         let pending_stop = self.render_panels(ui);
 
+        // Inline editor section
+        if self.editor_visible {
+            ui.separator();
+            if let Some((name, code)) = self.render_editor(ui) {
+                pending_upload = Some((name, code));
+            }
+        }
+
         // Execute pending actions with client
         if let Some(client) = client {
             if pending_refresh {
                 self.refresh_internal(Some(client), runtime);
-            } else if let Some(script_id) = pending_start {
+            }
+            if let Some(script_id) = pending_start {
                 self.start_script(script_id, Some(client), runtime);
-            } else if let Some(exec_id) = pending_stop {
+            }
+            if let Some(exec_id) = pending_stop {
                 self.stop_script(exec_id, false, Some(client), runtime);
             }
-        } else if pending_refresh || pending_start.is_some() || pending_stop.is_some() {
+            if let Some((name, content)) = pending_upload {
+                self.upload_script_async(name, content, client, runtime);
+            }
+        } else if pending_refresh
+            || pending_start.is_some()
+            || pending_stop.is_some()
+            || pending_upload.is_some()
+        {
             self.error = Some("Not connected to daemon".to_string());
         }
     }
@@ -237,7 +378,7 @@ impl ScriptsPanel {
         if self.scripts.is_empty() {
             ui.label("No scripts found.");
             ui.label(
-                egui::RichText::new("Upload via CLI: rust-daq-daemon upload <file.rhai>")
+                egui::RichText::new("Use 'Upload File' or 'New Script' above to get started")
                     .small()
                     .weak(),
             );
@@ -473,6 +614,238 @@ impl ScriptsPanel {
             let _ = tx.send(ActionResult::Refresh(result)).await;
         });
     }
+
+    /// Render the inline editor. Returns `(name, code)` if an upload action is requested.
+    fn render_editor(&mut self, ui: &mut egui::Ui) -> Option<(String, String)> {
+        let mut upload_action: Option<(String, String)> = None;
+
+        // Editor toolbar
+        ui.horizontal(|ui| {
+            ui.label("Name:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.editor_name)
+                    .desired_width(200.0)
+                    .hint_text("script_name.rhai"),
+            );
+
+            ui.separator();
+
+            if ui
+                .button("Open...")
+                .on_hover_text("Load a .rhai file into editor")
+                .clicked()
+            {
+                self.open_file_into_editor();
+            }
+
+            if ui
+                .button("Save Local")
+                .on_hover_text("Save editor content to disk")
+                .clicked()
+            {
+                self.save_editor_to_file();
+            }
+
+            ui.separator();
+
+            if ui
+                .button("📤 Upload to Daemon")
+                .on_hover_text("Upload current editor content")
+                .clicked()
+            {
+                if self.editor_name.trim().is_empty() {
+                    self.editor_status = Some("Script name cannot be empty".to_string());
+                } else if self.editor_code.trim().is_empty() {
+                    self.editor_status = Some("Editor is empty".to_string());
+                } else if self.editor_code.len() > MAX_SCRIPT_SIZE {
+                    self.editor_status = Some(format!(
+                        "Script too large ({} bytes, max {})",
+                        self.editor_code.len(),
+                        MAX_SCRIPT_SIZE
+                    ));
+                } else {
+                    self.run_after_upload = false;
+                    upload_action = Some((self.editor_name.clone(), self.editor_code.clone()));
+                }
+            }
+
+            if ui
+                .button("▶ Upload & Run")
+                .on_hover_text("Upload and immediately execute")
+                .clicked()
+            {
+                if self.editor_name.trim().is_empty() {
+                    self.editor_status = Some("Script name cannot be empty".to_string());
+                } else if self.editor_code.trim().is_empty() {
+                    self.editor_status = Some("Editor is empty".to_string());
+                } else if self.editor_code.len() > MAX_SCRIPT_SIZE {
+                    self.editor_status = Some(format!(
+                        "Script too large ({} bytes, max {})",
+                        self.editor_code.len(),
+                        MAX_SCRIPT_SIZE
+                    ));
+                } else {
+                    self.run_after_upload = true;
+                    upload_action = Some((self.editor_name.clone(), self.editor_code.clone()));
+                }
+            }
+
+            ui.separator();
+
+            // Theme selector
+            egui::ComboBox::from_id_salt("editor_theme")
+                .selected_text(self.editor_theme.name)
+                .width(100.0)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.editor_theme,
+                        ColorTheme::GRUVBOX_DARK,
+                        "Gruvbox Dark",
+                    );
+                    ui.selectable_value(
+                        &mut self.editor_theme,
+                        ColorTheme::GRUVBOX,
+                        "Gruvbox Light",
+                    );
+                    ui.selectable_value(&mut self.editor_theme, ColorTheme::AYU_DARK, "Ayu Dark");
+                });
+
+            // File info
+            if let Some(path) = &self.editor_file_path {
+                let dirty_marker = if self.editor_dirty { " *" } else { "" };
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{}{}",
+                        path.file_name().unwrap_or_default().to_string_lossy(),
+                        dirty_marker
+                    ))
+                    .weak(),
+                );
+            } else if self.editor_dirty {
+                ui.label(egui::RichText::new("unsaved *").weak());
+            }
+        });
+
+        // Editor status
+        if let Some(status) = &self.editor_status {
+            ui.label(egui::RichText::new(status).small().weak());
+        }
+
+        // Code editor widget
+        let available = ui.available_height().max(200.0);
+        let rows = ((available / 16.0) as usize).max(10);
+        let response = CodeEditor::default()
+            .id_source("scripts_inline_editor")
+            .with_rows(rows)
+            .with_fontsize(13.0)
+            .with_theme(self.editor_theme)
+            .with_syntax(Syntax::rust())
+            .with_numlines(true)
+            .show(ui, &mut self.editor_code);
+
+        if response.response.changed() {
+            self.editor_dirty = true;
+        }
+
+        upload_action
+    }
+
+    /// Open a .rhai file into the editor
+    fn open_file_into_editor(&mut self) {
+        if let Some(path) = FileDialog::new()
+            .add_filter("Rhai Script", &["rhai"])
+            .pick_file()
+        {
+            match std::fs::read_to_string(&path) {
+                Ok(content) => {
+                    if content.len() > MAX_SCRIPT_SIZE {
+                        self.editor_status = Some(format!(
+                            "File too large ({} bytes, max {})",
+                            content.len(),
+                            MAX_SCRIPT_SIZE
+                        ));
+                    } else {
+                        self.editor_name = path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                        self.editor_code = content;
+                        self.editor_file_path = Some(path);
+                        self.editor_dirty = false;
+                        self.editor_status = Some("File loaded".to_string());
+                        self.editor_visible = true;
+                    }
+                }
+                Err(e) => {
+                    self.editor_status = Some(format!("Failed to read: {}", e));
+                }
+            }
+        }
+    }
+
+    /// Save editor content to a local file
+    fn save_editor_to_file(&mut self) {
+        let dialog = FileDialog::new()
+            .add_filter("Rhai Script", &["rhai"])
+            .set_file_name(&self.editor_name);
+
+        // If we have an existing path, start there
+        let dialog = if let Some(path) = &self.editor_file_path {
+            if let Some(parent) = path.parent() {
+                dialog.set_directory(parent)
+            } else {
+                dialog
+            }
+        } else {
+            dialog
+        };
+
+        if let Some(path) = dialog.save_file() {
+            match std::fs::write(&path, &self.editor_code) {
+                Ok(()) => {
+                    self.editor_file_path = Some(path.clone());
+                    self.editor_dirty = false;
+                    self.editor_status = Some(format!("Saved to {}", path.display()));
+                }
+                Err(e) => {
+                    self.editor_status = Some(format!("Save failed: {}", e));
+                }
+            }
+        }
+    }
+
+    /// Upload script content to the daemon asynchronously
+    fn upload_script_async(
+        &mut self,
+        name: String,
+        content: String,
+        client: &mut DaqClient,
+        runtime: &Runtime,
+    ) {
+        self.error = None;
+        self.status = Some(format!("Uploading '{}'...", name));
+
+        let mut client = client.clone();
+        let tx = self.action_tx.clone();
+        self.action_in_flight = self.action_in_flight.saturating_add(1);
+
+        runtime.spawn(async move {
+            let result = client
+                .upload_script(&name, &content, HashMap::new())
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|resp| {
+                    if resp.success {
+                        Ok((resp.script_id, name))
+                    } else {
+                        Err(resp.error_message)
+                    }
+                });
+
+            let _ = tx.send(ActionResult::Uploaded(result)).await;
+        });
+    }
 }
 
 impl Default for ScriptsPanel {
@@ -491,6 +864,16 @@ impl Default for ScriptsPanel {
             action_in_flight: 0,
             auto_refresh_enabled: false,
             last_auto_refresh: None,
+            editor_visible: false,
+            editor_code: String::new(),
+            editor_name: "new_script.rhai".to_string(),
+            editor_theme: ColorTheme::GRUVBOX_DARK,
+            editor_dirty: false,
+            editor_file_path: None,
+            editor_status: None,
+            run_after_upload: false,
+            auto_start_after_upload: None,
+            needs_refresh: false,
         }
     }
 }

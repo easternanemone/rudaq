@@ -358,7 +358,6 @@ impl DaqClient {
     }
 
     /// Upload a script to the daemon (Phase 6: bd-uu9t)
-    #[allow(dead_code)]
     pub async fn upload_script(
         &mut self,
         name: &str,

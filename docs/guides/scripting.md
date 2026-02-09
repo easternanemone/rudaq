@@ -313,7 +313,38 @@ Always use stable `/dev/serial/by-id/` paths that don't change on reboot:
 | ELL14 Rotators | `/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0` |
 | Newport 1830-C | `/dev/ttyS0` (built-in RS-232, always stable) |
 
-## Running Custom Scripts
+## GUI Script Management
+
+The Scripts panel in the GUI provides upload and editing capabilities for managing
+Rhai scripts on the daemon without using the CLI.
+
+### Uploading Scripts
+
+There are two ways to upload scripts from the GUI:
+
+1. **Upload File** — Click "Upload File" in the Scripts panel toolbar, select a `.rhai`
+   file from disk, and it is uploaded to the daemon immediately.
+
+2. **Inline Editor** — Click "New Script" to open the built-in code editor. Write or
+   paste script content, set a name, then click "Upload to Daemon" or "Upload & Run"
+   to upload (and optionally execute immediately).
+
+### Inline Editor Features
+
+- Syntax highlighting (Rust mode, compatible with Rhai)
+- Open/Save local `.rhai` files from disk
+- Upload to daemon with one click
+- Upload & Run chains upload with immediate execution
+- Theme selector (Gruvbox Dark, Gruvbox Light, Ayu Dark)
+
+### Running and Monitoring
+
+- Select a script in the list and click "Run" to start execution
+- Running executions show progress bars and current line
+- Click "Stop" on a running execution to cancel it
+- Auto-refresh keeps the execution list updated while scripts run
+
+## Running Custom Scripts (CLI)
 
 Place your `.rhai` scripts anywhere and run them with `rhai-runner`:
 
