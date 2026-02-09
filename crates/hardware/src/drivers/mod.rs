@@ -39,6 +39,7 @@ pub mod binary_protocol;
 
 // Re-export key types from generic_serial
 #[cfg(feature = "serial")]
+#[allow(deprecated)]
 pub use generic_serial::{DynSerial, GenericSerialDriver, SharedPort};
 
 // Re-export scripting types when enabled

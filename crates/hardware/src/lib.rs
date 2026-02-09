@@ -64,6 +64,7 @@ pub use registry::{
 
 // Re-export declarative config types under a distinct name to avoid confusion
 // with registry::DeviceConfig (which is for device registration)
+#[allow(deprecated)]
 pub use config::DeviceConfig as DeclarativeDeviceConfig;
 
 // Re-export factory types for config-driven driver creation

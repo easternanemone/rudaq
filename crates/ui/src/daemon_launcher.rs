@@ -225,7 +225,7 @@ impl DaemonLauncher {
             #[cfg(unix)]
             {
                 if let Some(pid) = child.id().try_into().ok() {
-                    // Send SIGTERM (signal 15)
+                    // SAFETY: sending SIGTERM to child process we spawned
                     unsafe {
                         libc::kill(pid, libc::SIGTERM);
                     }

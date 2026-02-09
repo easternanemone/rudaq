@@ -1,3 +1,5 @@
+// Internal consumer of the deprecated DeviceConfig schema.
+#![allow(deprecated)]
 //! Custom validation functions for device configuration.
 //!
 //! This module provides validators for:

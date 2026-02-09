@@ -1,3 +1,5 @@
+// This module defines the deprecated DeviceConfig types; suppress self-referential warnings.
+#![allow(deprecated)]
 //! Schema definitions for declarative device configuration.
 //!
 //! This module defines the Rust types for TOML-based device protocol definitions.

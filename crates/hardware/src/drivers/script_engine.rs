@@ -1,3 +1,5 @@
+// Internal consumer of the deprecated DeviceConfig schema.
+#![allow(deprecated)]
 //! Rhai scripting engine for config-driven drivers.
 //!
 //! This module provides Rhai script execution for [`GenericSerialDriver`],

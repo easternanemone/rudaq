@@ -1,3 +1,5 @@
+// Internal consumer of the deprecated DeviceConfig schema for UI rendering.
+#![allow(deprecated)]
 //! Device configuration loader for UI rendering
 //!
 //! Loads device TOML configurations and provides access to UiConfig

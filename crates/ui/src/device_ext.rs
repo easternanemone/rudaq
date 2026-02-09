@@ -31,9 +31,6 @@ pub(crate) trait DeviceInfoExt {
     fn is_emission_controllable(&self) -> bool {
         self.has_capability("emission_controllable")
     }
-    fn is_parameterized(&self) -> bool {
-        self.has_capability("parameterized")
-    }
 }
 
 impl DeviceInfoExt for DeviceInfo {

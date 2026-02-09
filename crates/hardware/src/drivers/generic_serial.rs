@@ -1,3 +1,5 @@
+// Internal consumer of deprecated DeviceConfig and GenericSerialDriver types.
+#![allow(deprecated)]
 //! Generic Serial Driver - Config-driven hardware driver implementation.
 //!
 //! This module provides a [`GenericSerialDriver`] that interprets TOML device

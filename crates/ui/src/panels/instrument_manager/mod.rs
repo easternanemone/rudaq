@@ -1460,6 +1460,7 @@ impl InstrumentManagerPanel {
         ui.separator();
 
         // Try config-driven rendering first
+        #[allow(deprecated)]
         if let Some(device_config) = self
             .device_config_cache
             .get_by_driver_type(&device.driver_type)
@@ -1477,7 +1478,7 @@ impl InstrumentManagerPanel {
         let panel = self
             .generic_panels
             .entry(device_id.clone())
-            .or_insert_with(|| GenericDevicePanel::from_capabilities(&device.capabilities));
+            .or_insert_with(|| GenericDevicePanel::from_device_info(&device));
         ui.push_id(("instr_mgr", &device_id), |ui| {
             panel.ui(ui, &device, client.as_deref_mut(), runtime);
         });

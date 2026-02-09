@@ -13,6 +13,7 @@ use serde_json::json;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
+use crate::device_ext::DeviceInfoExt;
 use crate::widgets::Gauge;
 use client::DaqClient;
 use protocol::daq::DeviceInfo;
@@ -73,13 +74,29 @@ impl Default for ReadingState {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct MotionState {
     position: Option<f64>,
     moving: bool,
     position_input: String,
     jog_step: String,
+    position_units: String,
     last_command_time: Option<Instant>,
+    last_position_refresh: Option<Instant>,
+}
+
+impl Default for MotionState {
+    fn default() -> Self {
+        Self {
+            position: None,
+            moving: false,
+            position_input: String::new(),
+            jog_step: String::new(),
+            position_units: String::new(),
+            last_command_time: None,
+            last_position_refresh: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -93,6 +110,8 @@ struct WavelengthState {
     slider_value: f64,
     input: String,
     dragging: bool,
+    min_nm: f64,
+    max_nm: f64,
 }
 
 impl Default for WavelengthState {
@@ -102,6 +121,8 @@ impl Default for WavelengthState {
             slider_value: 800.0,
             input: "800".to_string(),
             dragging: false,
+            min_nm: 690.0,
+            max_nm: 1040.0,
         }
     }
 }
@@ -195,6 +216,87 @@ impl GenericDevicePanel {
                 None
             },
             settable: if has("settable") {
+                Some(SettableState::default())
+            } else {
+                None
+            },
+        }
+    }
+
+    /// Create a panel from `DeviceInfo`, using `DeviceInfoExt` helpers and metadata.
+    pub fn from_device_info(device: &DeviceInfo) -> Self {
+        let (action_tx, action_rx) = mpsc::channel(16);
+
+        // Get wavelength range from metadata with fallback; sanitize to prevent
+        // panics from invalid metadata (min > max or NaN).
+        let (min_wl, max_wl) = device
+            .metadata
+            .as_ref()
+            .and_then(|m| m.min_wavelength_nm.zip(m.max_wavelength_nm))
+            .and_then(|(lo, hi)| {
+                if lo.is_finite() && hi.is_finite() && lo <= hi {
+                    Some((lo, hi))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or((690.0, 1040.0));
+
+        let default_wl = 800.0_f64.clamp(min_wl, max_wl);
+
+        // Get position units from metadata (default: no units, since movable
+        // devices can be rotary or linear and we shouldn't guess).
+        let position_units = device
+            .metadata
+            .as_ref()
+            .and_then(|m| m.position_units.clone())
+            .unwrap_or_default();
+
+        Self {
+            action_tx,
+            action_rx,
+            actions_in_flight: 0,
+            error: None,
+            status: None,
+            device_id: None,
+            initial_fetch_done: false,
+            reading: if device.is_readable() {
+                Some(ReadingState::default())
+            } else {
+                None
+            },
+            motion: if device.is_movable() {
+                Some(MotionState {
+                    jog_step: "1.0".to_string(),
+                    position_units,
+                    ..Default::default()
+                })
+            } else {
+                None
+            },
+            emission: if device.is_emission_controllable() {
+                Some(ToggleState::default())
+            } else {
+                None
+            },
+            shutter: if device.is_shutter_controllable() {
+                Some(ToggleState::default())
+            } else {
+                None
+            },
+            wavelength: if device.is_wavelength_tunable() {
+                Some(WavelengthState {
+                    current_nm: None,
+                    slider_value: default_wl,
+                    input: format!("{:.0}", default_wl),
+                    dragging: false,
+                    min_nm: min_wl,
+                    max_nm: max_wl,
+                })
+            } else {
+                None
+            },
+            settable: if device.has_capability("settable") {
                 Some(SettableState::default())
             } else {
                 None
@@ -349,6 +451,9 @@ impl GenericDevicePanel {
                 .map_err(|e| e.to_string());
             let _ = tx.send(GenericAction::DeviceState(result)).await;
         });
+        if let Some(ref mut m) = self.motion {
+            m.last_position_refresh = Some(Instant::now());
+        }
     }
 
     fn fetch_full_state(
@@ -573,12 +678,12 @@ impl GenericDevicePanel {
             }
         }
 
-        // Auto-refresh for motion devices (position polling)
+        // Auto-refresh for motion devices (position polling, independent timer)
         if self.motion.is_some() && self.actions_in_flight == 0 {
             let should_refresh_position = self
                 .motion
                 .as_ref()
-                .and_then(|m| m.last_command_time)
+                .and_then(|m| m.last_position_refresh)
                 .map(|t| t.elapsed() >= Self::REFRESH_INTERVAL)
                 .unwrap_or(true);
             if should_refresh_position && client.is_some() {
@@ -642,9 +747,8 @@ impl GenericDevicePanel {
         if self.wavelength.is_some() {
             // Take ownership temporarily to avoid double borrow
             let mut wl = self.wavelength.take().unwrap();
-            let meta = device.metadata.as_ref();
-            let wl_min = meta.and_then(|m| m.min_wavelength_nm).unwrap_or(690.0);
-            let wl_max = meta.and_then(|m| m.max_wavelength_nm).unwrap_or(1040.0);
+            let wl_min = wl.min_nm;
+            let wl_max = wl.max_nm;
             ui.horizontal(|ui| {
                 ui.label("λ:");
                 let slider_resp = ui.add(
@@ -702,11 +806,7 @@ impl GenericDevicePanel {
         if self.motion.is_some() {
             let mut motion = self.motion.take().unwrap();
             let motion_busy = motion.moving || is_busy;
-            let pos_units = device
-                .metadata
-                .as_ref()
-                .and_then(|m| m.position_units.as_deref())
-                .unwrap_or("");
+            let pos_units = motion.position_units.as_str();
 
             // Position display + jog buttons
             ui.horizontal(|ui| {
@@ -1086,7 +1186,9 @@ mod tests {
         assert!(!state.moving);
         assert_eq!(state.position_input, "");
         assert_eq!(state.jog_step, "");
+        assert_eq!(state.position_units, "");
         assert_eq!(state.last_command_time, None);
+        assert_eq!(state.last_position_refresh, None);
     }
 
     #[test]
@@ -1096,6 +1198,8 @@ mod tests {
         assert_eq!(state.slider_value, 800.0);
         assert_eq!(state.input, "800");
         assert!(!state.dragging);
+        assert_eq!(state.min_nm, 690.0);
+        assert_eq!(state.max_nm, 1040.0);
     }
 
     #[test]

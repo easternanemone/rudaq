@@ -1,3 +1,5 @@
+// Internal consumer of deprecated DeviceConfig and GenericSerialDriver types.
+#![allow(deprecated)]
 //! Driver Factory - Creates config-driven drivers from TOML files.
 //!
 //! This module provides the [`DriverFactory`] which creates drivers from

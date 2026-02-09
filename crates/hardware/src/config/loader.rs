@@ -15,6 +15,9 @@
 //! let devices = load_all_devices(Path::new("config/devices/"))?;
 //! ```
 
+// This module is the internal consumer of the deprecated DeviceConfig schema.
+#![allow(deprecated)]
+
 use super::schema::DeviceConfig;
 use super::validation::validate_device_config;
 use anyhow::{Context, Result};

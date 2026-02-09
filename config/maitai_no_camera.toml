@@ -15,7 +15,7 @@ id = "rotator_2"
 name = "ELL14 Rotator (Address 2)"
 [devices.driver]
 type = "ell14"
-port = "/dev/ttyUSB1"
+port = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0"
 address = "2"
 
 [[devices]]
@@ -23,7 +23,7 @@ id = "rotator_3"
 name = "ELL14 Rotator (Address 3)"
 [devices.driver]
 type = "ell14"
-port = "/dev/ttyUSB1"
+port = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0"
 address = "3"
 
 [[devices]]
@@ -31,7 +31,7 @@ id = "rotator_8"
 name = "ELL14 Rotator (Address 8)"
 [devices.driver]
 type = "ell14"
-port = "/dev/ttyUSB1"
+port = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0"
 address = "8"
 
 # ============================================================================
@@ -42,8 +42,8 @@ address = "8"
 id = "maitai"
 name = "MaiTai Ti:Sapphire Laser"
 [devices.driver]
-type = "mai_tai"
-port = "/dev/ttyUSB5"
+type = "maitai"
+port = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0"
 
 # ============================================================================
 # Newport 1830-C Optical Power Meter
@@ -65,5 +65,5 @@ id = "esp300_axis1"
 name = "ESP300 Axis 1"
 [devices.driver]
 type = "esp300"
-port = "/dev/ttyUSB0"
+port = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Cable_FT1RALWL-if00-port0"
 axis = 1
