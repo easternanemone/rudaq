@@ -152,6 +152,31 @@ crate = "comedi-sys"
 expression = "MIT"
 license-files = []
 
+[[licenses.clarify]]
+crate = "client"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+crate = "daq-modules"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+crate = "driver-generic"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+crate = "driver-universal"
+expression = "MIT"
+license-files = []
+
+[[licenses.clarify]]
+crate = "drivers"
+expression = "MIT"
+license-files = []
+
 # External crates with deprecated/non-standard license expressions
 [[licenses.clarify]]
 crate = "unescaper"
