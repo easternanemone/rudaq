@@ -3,7 +3,7 @@
 use crate::pattern::generate_test_pattern;
 // Import common infrastructure (bd-1gdn.2)
 use crate::common::{ErrorConfig, MockMode, MockRng, TimingConfig};
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use common::capabilities::{
     ExposureControl, FrameObserver, FrameProducer, LoanedFrame, ObserverHandle, Parameterized,
@@ -16,10 +16,10 @@ use common::parameter::Parameter;
 use futures::future::BoxFuture;
 use pool::{FrameData, Pool};
 use serde::Deserialize;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
-use tokio::time::{Duration, sleep};
+use tokio::time::{sleep, Duration};
 
 /// Pool size for MockCamera frame delivery
 const MOCK_FRAME_POOL_SIZE: usize = 16;

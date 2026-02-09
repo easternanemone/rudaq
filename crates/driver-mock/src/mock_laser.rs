@@ -1,6 +1,6 @@
 //! Mock tunable laser implementation (MaiTai-like).
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use common::capabilities::{
     EmissionControl, Parameterized, Readable, ShutterControl, WavelengthTunable,
@@ -10,8 +10,8 @@ use common::observable::ParameterSet;
 use common::parameter::Parameter;
 use futures::future::BoxFuture;
 use serde::Deserialize;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tokio::time::sleep;

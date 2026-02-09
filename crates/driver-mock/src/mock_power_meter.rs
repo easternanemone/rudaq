@@ -460,7 +460,11 @@ impl MockPowerMeter {
             PowerUnit::Relative => {
                 // Normalized to base power
                 let base = self.base_power.get();
-                if base == 0.0 { 0.0 } else { watts / base }
+                if base == 0.0 {
+                    0.0
+                } else {
+                    watts / base
+                }
             }
         }
     }

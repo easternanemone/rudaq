@@ -1,6 +1,6 @@
 //! Mock rotary stage implementation (ELL14-like).
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use common::capabilities::{Movable, Parameterized};
 use common::driver::{Capability, DeviceComponents, DriverFactory};
@@ -8,8 +8,8 @@ use common::observable::ParameterSet;
 use common::parameter::Parameter;
 use futures::future::BoxFuture;
 use serde::Deserialize;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
@@ -449,22 +449,18 @@ mod tests {
         let invalid_velocity = toml::toml! {
             velocity_percent = 150
         };
-        assert!(
-            factory
-                .validate(&toml::Value::Table(invalid_velocity))
-                .is_err()
-        );
+        assert!(factory
+            .validate(&toml::Value::Table(invalid_velocity))
+            .is_err());
 
         // Invalid position (out of range)
         let invalid_position = toml::toml! {
             initial_position = 400.0
             max_position = 360.0
         };
-        assert!(
-            factory
-                .validate(&toml::Value::Table(invalid_position))
-                .is_err()
-        );
+        assert!(factory
+            .validate(&toml::Value::Table(invalid_position))
+            .is_err());
     }
 
     #[tokio::test]

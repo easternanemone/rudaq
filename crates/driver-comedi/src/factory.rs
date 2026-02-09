@@ -41,7 +41,7 @@
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use common::capabilities::{Parameterized, Readable};
+use common::capabilities::{Parameterized, Readable, Settable};
 use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
@@ -552,30 +552,33 @@ impl ComediAnalogOutputDriver {
     /// Write voltage to the output channel.
     pub async fn write_voltage(&self, voltage: f64) -> Result<()> {
         if let Some(mock) = &self.mock {
-            return mock.write_voltage(voltage).await;
+            mock.write_voltage(voltage).await?;
+        } else {
+            let ao = self
+                .analog_output
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No analog output subsystem"))?;
+
+            let channel = self.channel;
+            let range = Range {
+                index: self.range_index,
+                ..Range::default()
+            };
+
+            let ao_clone = ao.clone();
+            tokio::task::spawn_blocking(move || ao_clone.write_voltage(channel, voltage, range))
+                .await
+                .context("Task join error")?
+                .context("Failed to write voltage")?;
+
+            debug!(
+                "Wrote voltage: channel={}, value={:.4}V",
+                self.channel, voltage
+            );
         }
 
-        let ao = self
-            .analog_output
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No analog output subsystem"))?;
-
-        let channel = self.channel;
-        let range = Range {
-            index: self.range_index,
-            ..Range::default()
-        };
-
-        let ao_clone = ao.clone();
-        tokio::task::spawn_blocking(move || ao_clone.write_voltage(channel, voltage, range))
-            .await
-            .context("Task join error")?
-            .context("Failed to write voltage")?;
-
-        debug!(
-            "Wrote voltage: channel={}, value={:.4}V",
-            self.channel, voltage
-        );
+        // Keep cached output in sync for read_output/get_value
+        self.output.set(voltage).await?;
         Ok(())
     }
 
@@ -601,6 +604,29 @@ impl ComediAnalogOutputDriver {
 impl Parameterized for ComediAnalogOutputDriver {
     fn parameters(&self) -> &ParameterSet {
         &self.params
+    }
+}
+
+#[async_trait]
+impl Settable for ComediAnalogOutputDriver {
+    async fn set_value(&self, name: &str, value: serde_json::Value) -> Result<()> {
+        match name {
+            "voltage" => {
+                let voltage = value
+                    .as_f64()
+                    .ok_or_else(|| anyhow::anyhow!("voltage must be a number"))?;
+                self.write_voltage(voltage).await
+            }
+            "zero" => self.write_voltage(0.0).await,
+            _ => Err(anyhow::anyhow!("Unknown parameter '{}'", name)),
+        }
+    }
+
+    async fn get_value(&self, name: &str) -> Result<serde_json::Value> {
+        match name {
+            "voltage" => Ok(serde_json::json!(self.read_output().await?)),
+            _ => Err(anyhow::anyhow!("Unknown parameter '{}'", name)),
+        }
     }
 }
 
@@ -680,7 +706,7 @@ impl DriverFactory for ComediAnalogInputFactory {
 /// Factory for Comedi analog output drivers.
 pub struct ComediAnalogOutputFactory;
 
-static AO_CAPABILITIES: &[Capability] = &[Capability::Parameterized];
+static AO_CAPABILITIES: &[Capability] = &[Capability::Settable, Capability::Parameterized];
 
 impl DriverFactory for ComediAnalogOutputFactory {
     fn driver_type(&self) -> &'static str {
@@ -723,6 +749,7 @@ impl DriverFactory for ComediAnalogOutputFactory {
             .await?;
 
             Ok(DeviceComponents {
+                settable: Some(driver.clone()),
                 parameterized: Some(driver),
                 metadata: DeviceMetadata {
                     measurement_units: Some(cfg.units),
@@ -761,6 +788,14 @@ mod tests {
         let factory = ComediAnalogInputFactory;
         let caps = factory.capabilities();
         assert!(caps.contains(&Capability::Readable));
+        assert!(caps.contains(&Capability::Parameterized));
+    }
+
+    #[test]
+    fn test_ao_capabilities() {
+        let factory = ComediAnalogOutputFactory;
+        let caps = factory.capabilities();
+        assert!(caps.contains(&Capability::Settable));
         assert!(caps.contains(&Capability::Parameterized));
     }
 

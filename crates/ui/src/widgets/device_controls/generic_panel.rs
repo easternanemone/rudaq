@@ -9,7 +9,6 @@
 use std::time::{Duration, Instant};
 
 use egui::Ui;
-use serde_json::json;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
@@ -172,56 +171,6 @@ pub struct GenericDevicePanel {
 impl GenericDevicePanel {
     const REFRESH_INTERVAL: Duration = Duration::from_millis(500);
     const COMMAND_DEBOUNCE: Duration = Duration::from_millis(250);
-
-    /// Create a panel auto-composed from device capabilities.
-    pub fn from_capabilities(caps: &[String]) -> Self {
-        let (action_tx, action_rx) = mpsc::channel(16);
-
-        let has = |name: &str| caps.iter().any(|c| c == name);
-
-        Self {
-            action_tx,
-            action_rx,
-            actions_in_flight: 0,
-            error: None,
-            status: None,
-            device_id: None,
-            initial_fetch_done: false,
-            reading: if has("readable") {
-                Some(ReadingState::default())
-            } else {
-                None
-            },
-            motion: if has("movable") {
-                Some(MotionState {
-                    jog_step: "1.0".to_string(),
-                    ..Default::default()
-                })
-            } else {
-                None
-            },
-            emission: if has("emission_controllable") {
-                Some(ToggleState::default())
-            } else {
-                None
-            },
-            shutter: if has("shutter_controllable") {
-                Some(ToggleState::default())
-            } else {
-                None
-            },
-            wavelength: if has("wavelength_tunable") {
-                Some(WavelengthState::default())
-            } else {
-                None
-            },
-            settable: if has("settable") {
-                Some(SettableState::default())
-            } else {
-                None
-            },
-        }
-    }
 
     /// Create a panel from `DeviceInfo`, using `DeviceInfoExt` helpers and metadata.
     pub fn from_device_info(device: &DeviceInfo) -> Self {
@@ -629,9 +578,8 @@ impl GenericDevicePanel {
         let tx = self.action_tx.clone();
         let id = device_id.to_string();
         runtime.spawn(async move {
-            let args = json!({ "voltage": voltage }).to_string();
             let result = c
-                .execute_device_command(&id, "write_voltage", &args)
+                .set_parameter(&id, "voltage", &voltage.to_string())
                 .await
                 .map(|_| voltage)
                 .map_err(|e| e.to_string());
@@ -1051,10 +999,20 @@ fn can_send_command(last: Option<Instant>, debounce: Duration) -> bool {
 mod tests {
     use super::*;
 
+    /// Helper: build a minimal `DeviceInfo` with the given capability strings.
+    fn device_with_caps(caps: &[&str]) -> DeviceInfo {
+        DeviceInfo {
+            id: "test".into(),
+            name: "Test Device".into(),
+            capabilities: caps.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
     #[test]
-    fn test_from_capabilities_readable_movable() {
-        let caps = vec!["readable".to_string(), "movable".to_string()];
-        let panel = GenericDevicePanel::from_capabilities(&caps);
+    fn test_from_device_info_readable_movable() {
+        let device = device_with_caps(&["readable", "movable"]);
+        let panel = GenericDevicePanel::from_device_info(&device);
         assert!(panel.reading.is_some());
         assert!(panel.motion.is_some());
         assert!(panel.emission.is_none());
@@ -1064,14 +1022,14 @@ mod tests {
     }
 
     #[test]
-    fn test_from_capabilities_laser() {
-        let caps = vec![
-            "readable".to_string(),
-            "emission_controllable".to_string(),
-            "shutter_controllable".to_string(),
-            "wavelength_tunable".to_string(),
-        ];
-        let panel = GenericDevicePanel::from_capabilities(&caps);
+    fn test_from_device_info_laser() {
+        let device = device_with_caps(&[
+            "readable",
+            "emission_controllable",
+            "shutter_controllable",
+            "wavelength_tunable",
+        ]);
+        let panel = GenericDevicePanel::from_device_info(&device);
         assert!(panel.reading.is_some());
         assert!(panel.emission.is_some());
         assert!(panel.shutter.is_some());
@@ -1081,9 +1039,9 @@ mod tests {
     }
 
     #[test]
-    fn test_from_capabilities_settable() {
-        let caps = vec!["settable".to_string()];
-        let panel = GenericDevicePanel::from_capabilities(&caps);
+    fn test_from_device_info_settable() {
+        let device = device_with_caps(&["settable"]);
+        let panel = GenericDevicePanel::from_device_info(&device);
         assert!(panel.settable.is_some());
         assert!(panel.reading.is_none());
     }
@@ -1116,9 +1074,9 @@ mod tests {
     }
 
     #[test]
-    fn test_from_capabilities_empty() {
-        let caps: Vec<String> = vec![];
-        let panel = GenericDevicePanel::from_capabilities(&caps);
+    fn test_from_device_info_empty() {
+        let device = device_with_caps(&[]);
+        let panel = GenericDevicePanel::from_device_info(&device);
         assert!(panel.reading.is_none());
         assert!(panel.motion.is_none());
         assert!(panel.emission.is_none());
@@ -1128,16 +1086,16 @@ mod tests {
     }
 
     #[test]
-    fn test_from_capabilities_all() {
-        let caps = vec![
-            "readable".to_string(),
-            "movable".to_string(),
-            "emission_controllable".to_string(),
-            "shutter_controllable".to_string(),
-            "wavelength_tunable".to_string(),
-            "settable".to_string(),
-        ];
-        let panel = GenericDevicePanel::from_capabilities(&caps);
+    fn test_from_device_info_all() {
+        let device = device_with_caps(&[
+            "readable",
+            "movable",
+            "emission_controllable",
+            "shutter_controllable",
+            "wavelength_tunable",
+            "settable",
+        ]);
+        let panel = GenericDevicePanel::from_device_info(&device);
         assert!(panel.reading.is_some());
         assert!(panel.motion.is_some());
         assert!(panel.emission.is_some());

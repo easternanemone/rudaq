@@ -36,7 +36,8 @@ use protocol::daq::DeviceInfo;
 /// to force users with stale saved layouts to get the new default.
 /// v1: Initial version (had Devices panel as default in some builds)
 /// v2: Instruments panel as default (bd-kj7i fix)
-const LAYOUT_VERSION: u32 = 2;
+/// v3: Add ImageViewer tab alongside Instruments in default layout
+const LAYOUT_VERSION: u32 = 3;
 
 /// Storage key for layout version
 const LAYOUT_VERSION_KEY: &str = "layout_version";
@@ -648,8 +649,8 @@ impl DaqApp {
 
     /// Create the default dock layout
     fn default_dock_state() -> DockState<Panel> {
-        // Start with Instruments as the main panel (primary hardware control view)
-        let mut dock_state = DockState::new(vec![Panel::Instruments]);
+        // Start with Instruments + ImageViewer as tabbed panels in the main content area
+        let mut dock_state = DockState::new(vec![Panel::Instruments, Panel::ImageViewer]);
         let surface = dock_state.main_surface_mut();
 
         // Split left for Nav
@@ -2225,12 +2226,14 @@ mod tests {
         let mut found_nav = false;
         let mut found_logs = false;
         let mut found_instruments = false;
+        let mut found_image_viewer = false;
 
         for ((_surface, _node), tab) in dock_state.iter_all_tabs() {
             match tab {
                 Panel::Nav => found_nav = true,
                 Panel::Logs => found_logs = true,
                 Panel::Instruments => found_instruments = true,
+                Panel::ImageViewer => found_image_viewer = true,
                 _ => {}
             }
         }
@@ -2240,6 +2243,10 @@ mod tests {
         assert!(
             found_instruments,
             "Instruments panel missing from default layout"
+        );
+        assert!(
+            found_image_viewer,
+            "Image Viewer panel missing from default layout"
         );
     }
 
