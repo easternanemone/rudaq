@@ -147,11 +147,11 @@ initial_position = 100.0
 ### 1. Try Other Example Scripts
 
 ```bash
-# Explore more complex scenarios
-ls crates/examples/examples/*.rhai
+# Explore available scripts
+ls examples/*.rhai
 
 # Run any example (daemon must be running)
-cargo run --bin rust-daq-daemon -- run crates/examples/examples/polarization_test.rhai
+cargo run --bin rust-daq-daemon -- run examples/demo_scan.rhai
 ```
 
 ### 2. Write Your Own Script
@@ -186,7 +186,7 @@ cargo run --bin rust-daq-daemon -- run my_experiment.rhai
    ```
 4. **Your scripts work without modification!** Mock→Real is just a config change.
 
-See [Hardware Drivers](./crates/rust-daq/README.md#hardware-drivers) for supported devices.
+See [Hardware Drivers Guide](docs/guides/hardware-drivers.md) for supported devices.
 
 ### 4. Enable Data Storage
 
@@ -200,7 +200,7 @@ storage.start_recording("my_experiment_001");
 storage.stop_recording();
 ```
 
-See [guides/](./crates/rust-daq/docs/guides/) for storage backends (CSV, HDF5, Arrow).
+See [Storage Formats Guide](docs/guides/storage-formats.md) for storage backends (CSV, HDF5, Arrow).
 
 ---
 
@@ -228,10 +228,9 @@ See [guides/](./crates/rust-daq/docs/guides/) for storage backends (CSV, HDF5, A
 
 Explore the full capabilities:
 
-- **[Architecture Guide](./crates/rust-daq/docs/architecture/)** - System design
-- **[CLI Guide](./crates/rust-daq/docs/guides/cli_guide.md)** - Command-line usage
-- **[Scripting Guide](./crates/rust-daq/docs/guides/scripting/README.md)** - Rhai scripting
-- **[Driver Development](./crates/rust-daq/docs/guides/driver_development.md)** - Add new hardware
+- **[Architecture Guide](docs/architecture/ARCHITECTURE.md)** - System design
+- **[Scripting Guide](docs/guides/scripting.md)** - Rhai scripting
+- **[Hardware Drivers Guide](docs/guides/hardware-drivers.md)** - Add new hardware
 
 **Ready for production?** See [V6_USABILITY_ROADMAP](./docs/project_management/V6_USABILITY_ROADMAP.md) for upcoming features.
 

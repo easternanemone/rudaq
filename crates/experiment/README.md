@@ -18,7 +18,7 @@ This crate provides the experiment execution layer, implementing patterns from
 Plans are declarative sequences that describe *what* to do, not *how*:
 
 ```rust,ignore
-use daq_experiment::plans::{GridScan, LineScan, Count};
+use experiment::plans::{GridScan, LineScan, Count};
 
 // Simple count: take 10 readings
 let plan = Count::new(detector.clone(), 10);
@@ -44,7 +44,7 @@ let plan = GridScan::new(
 The RunEngine executes plans and manages state:
 
 ```rust,ignore
-use daq_experiment::run_engine::RunEngine;
+use experiment::run_engine::RunEngine;
 
 let engine = RunEngine::new(registry);
 
@@ -139,7 +139,7 @@ Plans yield these commands to the RunEngine:
 Implement the `Plan` trait for custom sequences:
 
 ```rust,ignore
-use daq_experiment::plans::{Plan, PlanCommand, PlanContext};
+use experiment::plans::{Plan, PlanCommand, PlanContext};
 
 struct MyCustomPlan {
     // plan state
@@ -194,9 +194,9 @@ queue_plan(plan);
 Complete acquisition workflow:
 
 ```rust,ignore
-use daq_experiment::run_engine::RunEngine;
-use daq_experiment::plans::GridScan;
-use daq_hardware::DeviceRegistry;
+use experiment::run_engine::RunEngine;
+use experiment::plans::GridScan;
+use hardware::registry::DeviceRegistry;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

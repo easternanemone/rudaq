@@ -148,7 +148,7 @@ All mock devices implement `DriverFactory` for automatic registration:
 
 ```rust
 use driver_mock::{MockCameraFactory, MockLaserFactory};
-use daq_hardware::DeviceRegistry;
+use hardware::registry::DeviceRegistry;
 
 let registry = DeviceRegistry::new();
 registry.register_factory(Box::new(MockCameraFactory));

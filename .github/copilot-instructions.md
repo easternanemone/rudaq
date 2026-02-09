@@ -84,8 +84,9 @@ cargo clippy --all-targets --all-features
 
 ## Feature Flags
 
-- **Storage**: `storage_csv` (default), `storage_hdf5`, `storage_arrow`
-- **Hardware**: `instrument_serial` (default), `instrument_thorlabs`, `instrument_newport`, `instrument_photometrics`
+- **Storage**: `storage_hdf5`, `storage_arrow`
+- **Hardware**: `thorlabs`, `newport`, `spectra_physics`, `pvcam_hardware`, `comedi_hardware`, `all_hardware`
+- **Profiles**: `maitai` (all real hardware), `full` (all mock drivers + storage)
 - **System**: `networking` (gRPC), `hardware_tests`
 
 ## Important Rules

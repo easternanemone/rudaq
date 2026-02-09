@@ -91,11 +91,12 @@ When the application starts, it reads a TOML config file. The `DriverFactory` us
 # config.toml
 [[devices]]
 id = "cam_1"
-driver = "Pvcam"
 name = "Prime BSI"
+[devices.driver]
+type = "pvcam"
 ```
 
-If you add a new hardware driver, you must register it in the `DriverFactory` enum so it can be instantiated from config. The `DriverType` enum includes both hand-coded drivers (e.g., `Pvcam`, `Thorlabs`) and generic config-driven types.
+Each driver crate implements the `DriverFactory` trait from `common::driver`. Factories are registered at daemon startup and instantiate drivers from TOML config. There is no central enum — each driver crate is self-contained.
 
 ### Declarative Drivers (driver-universal)
 
@@ -212,15 +213,38 @@ This structured stream makes data analysis consistent regardless of the experime
 
 ---
 
-## 7. Extension Points
+## 7. GUI: GenericDevicePanel
+
+The GUI uses a **capability-based** approach to device control panels. Rather than hand-coding a panel for each device type, the `GenericDevicePanel` (`ui/src/widgets/device_controls/generic_panel.rs`) auto-composes compact UI widgets based on `DeviceInfo.capabilities`.
+
+### How It Works
+
+When a device is registered, the daemon reports its capabilities via gRPC. The GUI reads this list and renders the appropriate widgets:
+
+| Capability | Widget | Example |
+|------------|--------|---------|
+| `Readable` | Gauge + value display + auto-refresh | Power meters, Comedi analog inputs |
+| `Movable` | Position readout + jog buttons + go-to + home | Rotators, stages |
+| `EmissionControl` | Toggle button | Lasers |
+| `ShutterControl` | Toggle button | Lasers |
+| `WavelengthTunable` | Slider + text input | Lasers, power meters |
+| `Settable` | Voltage slider + quick-set presets | Comedi analog outputs |
+
+This means adding a new driver automatically gets a working GUI panel — no UI code needed. The camera (`FrameProducer`) is the exception: it uses a dedicated `ImageViewerPanel` for frame streaming.
+
+---
+
+## 8. Extension Points
 
 How do you add new functionality?
 
 ### Adding a New Driver
 1. Create a struct in `crates/driver-<name>`.
 2. Implement capability traits (`Movable`, `Readable`, etc.).
-3. Add a variant to `DriverType` in `hardware`.
-4. Add instantiation logic in `DriverFactory`.
+3. Implement the `DriverFactory` trait (see `common::driver`).
+4. Register the factory in `crates/bin/src/main.rs`.
+
+Alternatively, for serial/TCP/SCPI instruments, use the **declarative driver** system (`driver-universal`) — define the device in a TOML file under `config/devices/` and skip writing Rust entirely. See Section 3 above.
 
 ### Adding a New Storage Backend
 1. Create a struct implementing `DocumentConsumer`.

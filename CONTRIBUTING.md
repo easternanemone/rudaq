@@ -36,6 +36,10 @@ cargo build
 
 # Build with all features (requires SDK installations)
 cargo build --all-features
+
+# IMPORTANT: For real hardware on maitai, use the build script:
+# bash scripts/build-maitai.sh
+# See CLAUDE.md for details — plain `cargo build` produces mock-mode binaries.
 ```
 
 ## Development Environment
@@ -285,7 +289,7 @@ Quick summary:
 ## Getting Help
 
 - **Documentation**: `docs/` directory
-- **Examples**: `crates/examples/examples/`
+- **Examples**: `examples/`
 - **Issues**: Use `bd` to check and create issues
 
 ## License

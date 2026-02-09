@@ -15,18 +15,12 @@ language for Rust that provides:
 
 ## Quick Start
 
-### Building Script Runners
+### Building the Script Runner
 
-Scripts are executed via binary runners. Build with the `scripting_full` feature:
+Scripts are executed via the `rhai-runner` binary. Build with the `scripting_full` feature:
 
 ```bash
-# Build all script runners
 cargo build --release -p scripting --features scripting_full
-
-# Available binaries:
-# - run_polarization      - Polarization element characterization
-# - run_waveplate_cal     - Full 4D waveplate calibration (2-3 hours)
-# - run_waveplate_cal_test - Quick test version (24 points)
 ```
 
 **IMPORTANT**: You must use `--features scripting_full` to enable the
@@ -37,8 +31,11 @@ serial drivers, HDF5 support, and the generic driver.
 ### Running a Script
 
 ```bash
-cd ~/rust-daq
-./target/release/run_waveplate_cal_test
+# Run any .rhai script
+./target/release/rhai-runner my_experiment.rhai
+
+# Or via cargo
+cargo run --release -p scripting --features scripting_full --bin rhai-runner -- my_experiment.rhai
 ```
 
 ## Available Functions
@@ -316,53 +313,20 @@ Always use stable `/dev/serial/by-id/` paths that don't change on reboot:
 | ELL14 Rotators | `/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0` |
 | Newport 1830-C | `/dev/ttyS0` (built-in RS-232, always stable) |
 
-## Creating New Script Runners
+## Running Custom Scripts
 
-To create a runner for a new script:
-
-1. Create the Rhai script in `crates/examples/examples/`:
-
-```rhai
-// my_experiment.rhai
-print("Starting experiment...");
-// ... script content
-```
-
-2. Create a binary in `crates/scripting/src/bin/`:
-
-```rust
-// run_my_experiment.rs
-use scripting::traits::ScriptEngine;
-use scripting::RhaiEngine;
-use tracing_subscriber::EnvFilter;
-
-const SCRIPT: &str = include_str!("../../../examples/examples/my_experiment.rhai");
-const MAX_OPERATIONS: u64 = 1_000_000;
-
-#[tokio::main]
-async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .init();
-
-    let mut engine = RhaiEngine::with_hardware_and_limit(MAX_OPERATIONS)
-        .expect("Failed to create RhaiEngine");
-
-    match engine.execute_script(SCRIPT).await {
-        Ok(result) => println!("Success: {:?}", result),
-        Err(e) => {
-            eprintln!("Error: {:?}", e);
-            std::process::exit(1);
-        }
-    }
-}
-```
-
-3. Build with hardware features:
+Place your `.rhai` scripts anywhere and run them with `rhai-runner`:
 
 ```bash
-cargo build --release -p scripting --features scripting_full --bin run_my_experiment
+# Run a script from the examples directory
+./target/release/rhai-runner examples/demo_scan.rhai
+
+# Run a script from anywhere
+./target/release/rhai-runner /path/to/my_experiment.rhai
 ```
+
+The `rhai-runner` binary accepts a path argument and handles engine setup,
+hardware initialization, and error reporting automatically.
 
 ## Tips and Best Practices
 
@@ -431,9 +395,9 @@ cargo build --release -p scripting --features hardware_factories  # WRONG - inco
 
 ### Script hits operation limit
 
-Increase `MAX_OPERATIONS` in the binary runner:
-```rust
-const MAX_OPERATIONS: u64 = 10_000_000;  // For long experiments
+Increase the operation limit with `--max-ops`:
+```bash
+./target/release/rhai-runner long_experiment.rhai --max-ops 10000000
 ```
 
 ### Shutter not closing on error

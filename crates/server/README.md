@@ -29,8 +29,8 @@ gRPC server for rust-daq providing remote hardware control and data streaming.
 ### Starting the Server
 
 ```rust
-use daq_server::DaqServer;
-use daq_hardware::DeviceRegistry;
+use server::DaqServer;
+use hardware::registry::DeviceRegistry;
 
 let registry = Arc::new(DeviceRegistry::new());
 // ... register devices ...

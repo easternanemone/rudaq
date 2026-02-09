@@ -14,7 +14,7 @@ This crate provides two complementary pool implementations optimized for the PVC
 Unlike naive pool implementations that take a lock on every `get()` call, this pool caches the slot pointer at `Loaned` creation time. This eliminates per-access locking overhead, critical for high-throughput frame processing where frames may be accessed multiple times.
 
 ```rust
-use daq_pool::Pool;
+use pool::Pool;
 
 // Create pool with 30 frame buffers (~240MB for 8MB frames)
 let pool = Pool::new_with_reset(
@@ -36,7 +36,7 @@ drop(frame);
 The `BufferPool` integrates with `bytes::Bytes` for true zero-copy frame handling:
 
 ```rust
-use daq_pool::{BufferPool, PooledBuffer};
+use pool::{BufferPool, PooledBuffer};
 use bytes::Bytes;
 
 // Create pool with 30 8MB buffers (~240MB total)

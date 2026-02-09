@@ -70,7 +70,7 @@ Interface documentation for using rust-daq.
 |----------|------|---------|
 | [gRPC API](../docs/) | Network Protocol | Remote control, streaming, device management |
 | Rust Crates | Embedded | See per-crate documentation below |
-| [Python Client](../python/) | Python Bindings | PyO3-based Python integration |
+| gRPC Clients | Network Protocol | Control from Python, Go, or any gRPC-capable language |
 
 ### Hardware Reference
 
@@ -105,8 +105,8 @@ Historical and operational documentation for releases and phases.
 | [Phase 1-2 Test Results](PHASE1_PHASE2_TEST_RESULTS.md) | Baseline functionality testing | Complete |
 | [Phase 3 Test Results](PHASE3_TEST_RESULTS.md) | Advanced features validation | Complete |
 | [Phase 4 Test Results](PHASE4_TEST_RESULTS.md) | Final integration testing | Complete |
-| [v0.6.0 Completion Summary](project_management/v0.6.0_completion_summary.md) | Release notes and features | Archive |
-| [v0.6.0 Validation](project_management/v0.6.0_final_validation.md) | Pre-release verification | Archive |
+| [v0.6.0 Completion Summary](archive/v0.6.0_completion_summary.md) | Release notes and features | Archive |
+| [v0.6.0 Validation](archive/v0.6.0_final_validation.md) | Pre-release verification | Archive |
 
 ---
 
@@ -128,7 +128,7 @@ The workspace is organized into specialized crates. Each has its own detailed RE
 | **common** | Foundation types, parameters, error handling | [common README](../crates/common/README.md) |
 | **hardware** | Hardware abstraction layer and device registry | [hardware README](../crates/hardware/README.md) |
 | **drivers** | Metacrate aggregating all drivers with unified feature flags | [drivers Cargo.toml](../crates/drivers/Cargo.toml) |
-| **driver-universal** | Universal config-driven driver, schema v3 (serial, TCP, SCPI via TOML) | [driver-universal Cargo.toml](../crates/driver-universal/Cargo.toml) |
+| **driver-universal** | Universal config-driven driver, schema v3 (serial, TCP, SCPI via TOML) | [driver-universal README](../crates/driver-universal/README.md) |
 | **driver-generic** | Original config-driven serial driver, schema v2 (superseded by driver-universal) | [driver-generic Cargo.toml](../crates/driver-generic/Cargo.toml) |
 | **driver-pvcam** | Photometrics PVCAM camera driver | [driver-pvcam README](../crates/driver-pvcam/README.md) |
 | **driver-andor-sdk3** | Andor iStar camera and Shamrock spectrograph (SDK3) | [driver-andor-sdk3 Cargo.toml](../crates/driver-andor-sdk3/Cargo.toml) |
@@ -163,7 +163,7 @@ The workspace is organized into specialized crates. Each has its own detailed RE
 
 | Crate | Purpose | README |
 |-------|---------|--------|
-| **daq-modules** | Experiment modules and plugin system | [daq-modules Cargo.toml](../crates/daq-modules/Cargo.toml) |
+| **daq-modules** | Experiment modules and plugin system | [daq-modules README](../crates/daq-modules/README.md) |
 
 ### FFI Bindings
 
@@ -321,6 +321,6 @@ For more commands, see [README.md](../README.md).
 
 ---
 
-**Last Updated:** 2026-02-06
+**Last Updated:** 2026-02-08
 **Coverage:** All major documentation categories
 **Status:** Current

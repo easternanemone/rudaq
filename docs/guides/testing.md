@@ -99,7 +99,7 @@ cargo nextest run -p storage
 
 ### Integration Tests
 
-Located in `crates/rust-daq/tests/`:
+Located in `crates/integration-tests/`:
 
 | Test File | Description |
 |-----------|-------------|
@@ -202,8 +202,8 @@ cargo nextest run --features storage_hdf5
 cargo nextest run --features storage_arrow
 
 # Hardware drivers
-cargo nextest run --features instrument_thorlabs
-cargo nextest run --features instrument_newport
+cargo nextest run --features thorlabs
+cargo nextest run --features newport
 
 # Full feature set (excludes native SDK dependencies)
 cargo nextest run --features full
@@ -363,23 +363,23 @@ ssh maitai@100.117.5.12 'cd ~/rust-daq && \
 
 | Device | Port | Feature Flag |
 |--------|------|--------------|
-| ELL14 Rotators | `/dev/ttyUSB1` | `instrument_thorlabs` |
-| ESP300 Controller | `/dev/ttyUSB0` | `instrument_newport` |
-| MaiTai Laser | `/dev/ttyUSB5` | `instrument_spectra_physics` |
-| Newport 1830-C | `/dev/ttyS0` | `instrument_newport_power_meter` |
+| ELL14 Rotators | `/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0` | `thorlabs` |
+| ESP300 Controller | `/dev/ttyUSB0` | `newport` |
+| MaiTai Laser | `/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0` | `spectra_physics` |
+| Newport 1830-C | `/dev/ttyS0` | `newport` |
+| NI PCI-MIO-16XE-10 | `/dev/comedi0` | `comedi` |
 
 ### PVCAM Tests
 
 Require SDK and environment setup:
 
 ```bash
-source /etc/profile.d/pvcam.sh
-export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH
+source scripts/env-check.sh
 export PVCAM_SMOKE_TEST=1
 
 cargo nextest run --profile hardware \
-  --features "instrument_photometrics,pvcam_sdk" \
-  --test pvcam_sdk_smoke
+  --features "pvcam_hardware" \
+  --test pvcam_hardware_smoke
 ```
 
 ### Test Serialization
@@ -623,7 +623,7 @@ Some legitimate uses of `expect()`:
 
 - [cargo-nextest documentation](https://nexte.st/)
 - [Tokio testing guide](https://tokio.rs/tokio/topics/testing)
-- [Hardware Validation README](../../crates/rust-daq/tests/HARDWARE_VALIDATION_README.md)
+- [Hardware Testing Resources](../../CLAUDE.md#hardware-testing)
 - [Integration Tests Guide](../testing/INTEGRATION_TESTS.md) - Including universal driver tests
 - [Device Config Guide](./device-config-guide.md) - Creating TOML device configs (schema v3)
 - [Hardware Testing Resources](../../CLAUDE.md#hardware-testing): See CLAUDE.md for hardware inventory and testing setup

@@ -1,7 +1,7 @@
 # Feature Matrix
 
 **Status:** Active
-**Last Updated:** January 2026
+**Last Updated:** February 2026
 **Purpose:** Single source of truth for build profiles, feature groups, and CI matrix.
 
 ## Quick Reference
@@ -24,14 +24,14 @@ cargo build --features "server,all_hardware"
 
 ## Default Features
 
-The default build provides a minimal headless setup:
+The default `bin` crate build provides a headless daemon:
 
 ```toml
-default = ["storage_csv", "instrument_serial"]
+default = ["networking", "server"]
 ```
 
-- **storage_csv**: CSV data export
-- **instrument_serial**: Basic serial port support
+- **networking**: gRPC networking layer
+- **server**: Full gRPC server
 
 ---
 
@@ -44,7 +44,7 @@ Use these for common build configurations:
 | `backend` | server, modules, all_hardware, storage_csv | Headless daemon with full hardware |
 | `frontend` | gui_egui, networking | Desktop GUI client |
 | `cli` | all_hardware, storage_csv, scripting, scripting_python | Command-line automation |
-| `full` | storage_csv, storage_arrow, storage_matlab, instrument_serial, modules, server, all_hardware | Most features (excludes HDF5) |
+| `full` | storage_arrow, serial, modules, all_hardware | Most features (excludes HDF5) |
 
 **Note:** `storage_hdf5` is intentionally excluded from `full` because it requires native HDF5 libraries. Enable explicitly when available.
 
@@ -69,22 +69,22 @@ Use these for common build configurations:
 
 ### Serial Communication
 
-| Feature | Description | Dependencies |
-|---------|-------------|--------------|
-| `instrument_serial` | Synchronous serial port (default) | `serialport` |
-| `tokio_serial` | Async serial port (recommended) | `tokio-serial`, includes `instrument_serial` |
-| `instrument_visa` | VISA instrument control | `visa-rs` |
+Serial port access uses `serial2_tokio` throughout the codebase.
 
-### Device Drivers
+| Feature | Description |
+|---------|-------------|
+| `serial` | Enable serial port support (via `hardware/serial`) |
 
-| Feature | Description | Propagates To |
-|---------|-------------|---------------|
-| `instrument_thorlabs` | Thorlabs ELL14 rotators | `hardware/driver-thorlabs` |
-| `instrument_newport` | Newport ESP300 controller | `hardware/driver-newport` |
-| `instrument_photometrics` | PVCAM camera support | `hardware/instrument_photometrics` |
-| `instrument_spectra_physics` | MaiTai laser | `hardware/driver-spectra-physics` |
-| `instrument_newport_power_meter` | Newport 1830-C | tokio_serial only |
-| `all_hardware` | All above drivers | All driver features |
+### Device Drivers (bin crate)
+
+Top-level feature flags on the `bin` crate:
+
+| Feature | Description |
+|---------|-------------|
+| `all_hardware` | All mock-mode drivers |
+| `pvcam_hardware` | Real PVCAM SDK (requires PVCAM installed) |
+| `comedi_hardware` | Real Comedi DAQ (requires libcomedi) |
+| `maitai` | Complete maitai lab profile (all real hardware) |
 
 #### Drivers Metacrate Features (`crates/drivers`)
 
@@ -173,10 +173,11 @@ cargo build --release --features "full,storage_hdf5"
 cargo test
 
 # Real hardware on maitai
-cargo test --features "hardware_tests,pvcam_sdk" -- --nocapture
+source scripts/env-check.sh
+cargo nextest run --profile hardware --features hardware_tests
 
 # Specific driver tests
-cargo test --features "instrument_thorlabs,hardware_tests"
+cargo nextest run -p driver-thorlabs --features hardware
 ```
 
 ---
@@ -201,47 +202,25 @@ The CI system tests these combinations:
 ## Feature Dependencies
 
 ```
-server
-  └── networking
-  └── server (optional dep)
-  └── tokio/full
+bin crate features:
+  maitai → pvcam_hardware + hardware/maitai
+  pvcam_hardware → pvcam_sdk → hardware/pvcam_sdk
+  comedi_hardware → hardware/comedi_hardware
+  all_hardware → hardware/all_hardware
+  full → storage_arrow + serial + modules + all_hardware
+  backend → modules + all_hardware
+  modules → dep:daq-modules
 
-modules
-  └── scripting
-
-scripting
-  └── scripting (optional dep)
-  └── rust-daq/plugins (script_module, loader)
-
-native_plugins
-  └── plugin-api (optional dep)
-  └── rust-daq/plugins (native_plugins module)
-
-scripting_python
-  └── scripting/python
-
-pvcam_sdk
-  └── hardware/pvcam_sdk
-  └── instrument_photometrics
-
-instrument_thorlabs
-  └── tokio_serial
-  └── hardware/driver-thorlabs
-
-instrument_spectra_physics
-  └── tokio_serial
-  └── hardware/driver-spectra-physics
-
-instrument_newport
-  └── tokio_serial
-  └── hardware/driver-newport
-
-instrument_newport_power_meter
-  └── tokio_serial
-
-tokio_serial
-  └── instrument_serial
-  └── hardware/tokio_serial
+drivers metacrate features:
+  maitai → thorlabs + newport + spectra_physics + pvcam_sdk + serial + comedi
+  all → mock + thorlabs + newport + spectra_physics + pvcam + comedi + generic
+  thorlabs → dep:driver-thorlabs
+  newport → dep:driver-newport
+  spectra_physics → dep:driver-spectra-physics
+  pvcam → dep:driver-pvcam
+  pvcam_sdk → pvcam + driver-pvcam/pvcam_sdk
+  comedi → dep:driver-comedi
+  comedi_hardware → comedi + driver-comedi/hardware
 ```
 
 ---

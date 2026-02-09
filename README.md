@@ -2,7 +2,7 @@
 
 **A modular, high-performance Data Acquisition system for scientific research.**
 
-[![Architecture Status](https://img.shields.io/badge/Architecture-V5_Complete-green)](docs/architecture/ARCHITECTURE.md)
+[![Architecture Status](https://img.shields.io/badge/Architecture-V6_In_Progress-blue)](docs/architecture/ARCHITECTURE.md)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#building)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](#license)
 [![Rust 1.75+](https://img.shields.io/badge/Rust-1.75%2B-orange)](#prerequisites)
@@ -47,7 +47,7 @@ cargo run --bin rust-daq-daemon -- run examples/demo_scan.rhai
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                 User Interfaces                         │
-│  Desktop GUI (egui)  │  CLI Tools  │  Python Bindings   │
+│  Desktop GUI (egui)  │  CLI Tools  │  gRPC Clients      │
 └───────────────┬───────────────────┬─────────────────────┘
                 │                   │
 ┌───────────────▼───────────────────▼─────────────────────┐
@@ -104,7 +104,7 @@ Full architecture docs: [System Architecture](docs/architecture/ARCHITECTURE.md)
 | **DAQ** | NI PCI-MIO-16XE-10 | Readable, Settable (Comedi) | Production | `comedi_hardware` |
 | **Simulation** | Mock Stage, Mock Camera, Mock Sensors | All traits | Production | Built-in |
 
-**Maitai Lab Configuration:** All 7+ devices integrated and tested. See [Maitai Setup Guide](docs/MAITAI_SETUP.md).
+**Maitai Lab Configuration:** All 9+ devices integrated and tested. See [Maitai Setup Guide](docs/MAITAI_SETUP.md).
 
 ---
 
@@ -126,7 +126,7 @@ Full architecture docs: [System Architecture](docs/architecture/ARCHITECTURE.md)
 
 ### Automation
 - **Rhai Scripting**: Dynamic experiment scripts without recompilation
-- **Python Bindings**: Integrate with analysis pipelines via PyO3
+- **gRPC Clients**: Control from Python, Go, or any gRPC-capable language
 - **Pause/Resume**: Control experiment flow and state
 - **Adaptive Scanning**: Respond to live data during acquisition
 - **Batch Operations**: Queue and execute multiple scans
@@ -228,49 +228,46 @@ Output shows mock stage moving, power meter readings, and camera frames acquired
 Create `my_experiment.rhai`:
 
 ```rhai
-// Define scan range
-let scan_range = range(0, 10);
+// Initialize hardware
+let stage = create_elliptec("/dev/serial/by-id/...", "2");
+let pm = create_newport_1830c("/dev/ttyS0");
 
 // Move stage and measure
-for position in scan_range {
-    // Move motor to position
-    let stage = device("mock_stage");
-    stage.move_absolute(position as float);
+for angle in [0.0, 45.0, 90.0, 135.0, 180.0] {
+    stage.move_abs(angle);
+    stage.wait_settled();
 
-    // Wait for position to settle
-    sleep(100);
-
-    // Read power meter
-    let sensor = device("mock_power_meter");
-    let power = sensor.read_value();
-
-    print(`Position: ${position} mm, Power: ${power} mW`);
+    let power = pm.read();
+    print(`Angle: ${angle} deg, Power: ${power} W`);
 }
 ```
 
 Run it:
 ```bash
-cargo run -p bin -- run my_experiment.rhai
+./target/release/rhai-runner my_experiment.rhai
 ```
 
-### 3. Use Python Bindings
+### 3. Use the gRPC API (Python)
 
 ```python
-from rust_daq import DaqClient, create_mock_hardware
+# Python client example (requires grpcio + generated stubs)
+import grpc
+from daq_proto import hardware_service_pb2, hardware_service_pb2_grpc
 
-# Connect to daemon
-client = DaqClient("http://localhost:50051")
+channel = grpc.insecure_channel('localhost:50051')
+hw = hardware_service_pb2_grpc.HardwareServiceStub(channel)
 
 # List devices
-devices = client.list_devices()
-for device in devices:
-    print(f"{device.id}: {device.capabilities}")
+devices = hw.ListDevices(hardware_service_pb2.ListDevicesRequest())
+for device in devices.devices:
+    print(f"{device.id}: {device.name}")
 
 # Move stage
-stage = client.get_movable("mock_stage")
-stage.move_absolute(5.0)
-position = stage.read_position()
-print(f"Current position: {position}")
+hw.MoveAbsolute(hardware_service_pb2.MoveRequest(
+    device_id="mock_stage",
+    value=5.0,
+    wait_for_completion=True
+))
 ```
 
 ### 4. Connect GUI to Daemon
@@ -509,9 +506,9 @@ Both are compatible with most commercial and open-source projects.
 
 ## Project Status
 
-- **V5 Architecture**: Complete and stable (See [ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md))
+- **V6 Architecture**: In progress — V5 stable, V6 usability improvements underway (See [ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md))
 - **Core Features**: Production-ready (scripting, drivers, storage, gRPC)
-- **Hardware Support**: 7+ devices tested and verified on maitai machine
+- **Hardware Support**: 9+ devices tested and verified on maitai machine (camera, laser, power meter, 3 rotators, motion controller, 2 Comedi channels)
 - **Documentation**: Comprehensive with ADRs for all major design decisions
 - **Testing**: Full test coverage with CI/CD pipeline
 
@@ -519,4 +516,4 @@ Both are compatible with most commercial and open-source projects.
 
 **Built with ❤️ for scientific research.**
 
-For the latest updates, see [Recent Commits](#) and [Architecture Status](docs/architecture/FEATURE_MATRIX.md).
+For the latest updates, see the [Architecture Status](docs/architecture/FEATURE_MATRIX.md).

@@ -83,7 +83,7 @@ This script:
 
 ### Post-Build Verification - ALL Hardware Check
 
-After building and starting the daemon, verify ALL 7 devices are registered:
+After building and starting the daemon, verify ALL 9 devices are registered:
 
 ```bash
 # Start daemon and check log output
@@ -216,8 +216,7 @@ All serial hardware drivers MUST follow these patterns:
 **2. Wrap serial port opening in `spawn_blocking`:**
 ```rust
 let port = spawn_blocking(move || {
-    tokio_serial::new(&port_path, 9600)
-        .open_native_async()
+    serial2_tokio::SerialPort::open(&port_path, baud_rate)
         .context("Failed to open port")
 }).await??;
 ```
@@ -579,10 +578,8 @@ cargo build --release -p scripting --features scripting_full
 # With Comedi DAQ support (requires comedilib on Linux)
 cargo build --release -p scripting --features scripting_full_comedi
 
-# Available script runners:
-./target/release/rhai-runner script.rhai        # Generic runner
-./target/release/run_waveplate_cal_test         # Quick 4D test (24 points)
-./target/release/run_waveplate_cal              # Full calibration (~3 hours)
+# Run scripts:
+./target/release/rhai-runner script.rhai        # Run any .rhai script
 ```
 
 **Key Rhai Functions:**

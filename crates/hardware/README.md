@@ -17,19 +17,15 @@ Hardware abstraction layer for rust-daq with device registry and driver manageme
 Central hub for device management:
 
 ```rust
-use daq_hardware::{DeviceRegistry, DeviceConfig, DriverType};
+use hardware::registry::DeviceRegistry;
 
 let registry = DeviceRegistry::new();
 
-// Register a device
-registry.register(DeviceConfig {
-    id: "rotator".into(),
-    name: "ELL14 Rotator".into(),
-    driver: DriverType::Ell14 {
-        port: "/dev/serial/by-id/usb-FTDI_FT230X...".into(),
-        address: "2".into(),
-    },
-}).await?;
+// Register a driver factory
+registry.register_factory(Box::new(MyDriverFactory));
+
+// Load devices from TOML config at startup
+// (handled by crates/bin/src/main.rs)
 
 // Access by capability
 if let Some(device) = registry.get_movable("rotator") {
@@ -115,9 +111,9 @@ pattern = "^POS:(?P<value>[0-9.]+)$"
 Share a serial port across multiple devices (RS-485):
 
 ```rust
-use daq_hardware::drivers::ell14::Ell14Bus;
+use hardware::drivers::ell14::Ell14Bus;
 
-let bus = Ell14Bus::open("/dev/ttyUSB0").await?;
+let bus = Ell14Bus::open("/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0").await?;
 let rotator_2 = bus.device("2").await?;  // Address 2
 let rotator_3 = bus.device("3").await?;  // Address 3
 
@@ -131,7 +127,7 @@ rotator_3.move_abs(90.0).await?;
 Use stable `/dev/serial/by-id/` paths:
 
 ```rust
-use daq_hardware::port_resolver::resolve_port;
+use hardware::port_resolver::resolve_port;
 
 // Stable across reboots (NOT /dev/ttyUSB0)
 let port = resolve_port(
@@ -144,7 +140,7 @@ let port = resolve_port(
 ```toml
 [features]
 # Serial communication
-serial = ["tokio-serial"]
+serial = ["common/serial"]
 
 # Hardware drivers
 thorlabs = ["driver-thorlabs"]

@@ -413,7 +413,7 @@ let iso = timestamp_iso();         // "2025-01-25T14:30:27.123456Z"
 For simple experiments with direct hardware commands:
 
 ```rust
-use daq_scripting::{RhaiEngine, ScriptEngine};
+use scripting::{RhaiEngine, ScriptEngine};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -436,7 +436,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 For complex experiments with proper Document emission and data collection:
 
 ```rust
-use daq_scripting::{RhaiEngine, YieldChannelBuilder};
+use scripting::{RhaiEngine, YieldChannelBuilder};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -468,7 +468,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 For plans that need to queue operations on a shared device registry:
 
 ```rust
-use daq_scripting::{RhaiEngine, plan_bindings::RunEngineHandle};
+use scripting::{RhaiEngine, plan_bindings::RunEngineHandle};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -504,7 +504,7 @@ Scripts are limited to prevent infinite loops from hanging the application:
 - **Custom limit:** Use `with_hardware_and_limit()`
 
 ```rust
-use daq_scripting::RhaiEngine;
+use scripting::RhaiEngine;
 
 // For long experiments, increase the limit
 let mut engine = RhaiEngine::with_hardware_and_limit(1_000_000)?;
@@ -653,7 +653,7 @@ with_shutter_open(laser, || {
 Pass data from Rust into scripts:
 
 ```rust
-use daq_scripting::{RhaiEngine, ScriptValue, ScriptEngine};
+use scripting::{RhaiEngine, ScriptValue, ScriptEngine};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -680,7 +680,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 Return values from scripts:
 
 ```rust
-use daq_scripting::{RhaiEngine, ScriptEngine};
+use scripting::{RhaiEngine, ScriptEngine};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -706,7 +706,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 For complex experiments that need more operations:
 
 ```rust
-use daq_scripting::RhaiEngine;
+use scripting::RhaiEngine;
 
 // Polarization scan: ~1M operations for 360 angles
 let mut engine = RhaiEngine::with_hardware_and_limit(1_000_000)?;
