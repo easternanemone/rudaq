@@ -39,6 +39,137 @@ const LAYOUT_VERSION: u32 = 3;
 /// Storage key for layout version
 const LAYOUT_VERSION_KEY: &str = "layout_version";
 
+/// Directory for session state files (bd-izdj.30)
+fn session_dir() -> std::path::PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("rust-daq")
+}
+
+/// Per-process session file path to avoid cross-process races (bd-izdj.30)
+fn session_file_path() -> std::path::PathBuf {
+    session_dir().join(format!("gui_session_{}.json", std::process::id()))
+}
+
+/// Check if a PID is still alive
+fn is_pid_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        // Signal 0 checks process existence without sending a signal
+        // SAFETY: kill(pid, 0) is a standard POSIX existence check with no side effects
+        #[allow(unsafe_code)]
+        let alive = unsafe { libc::kill(pid as libc::pid_t, 0) == 0 };
+        alive
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        // Conservative: assume alive on non-Unix platforms
+        true
+    }
+}
+
+/// Write session state to disk atomically (marks GUI as running)
+fn write_session_file(daemon_url: &str) {
+    let path = session_file_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let session = serde_json::json!({
+        "running": true,
+        "daemon_url": daemon_url,
+        "pid": std::process::id(),
+        "started_at": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+    });
+    // Atomic write: temp file + rename to prevent partial/corrupt reads
+    let tmp_path = path.with_extension("json.tmp");
+    if std::fs::write(&tmp_path, session.to_string()).is_err() {
+        tracing::warn!("Failed to write session temp file: {}", tmp_path.display());
+        return;
+    }
+    if let Err(e) = std::fs::rename(&tmp_path, &path) {
+        tracing::warn!("Failed to rename session file: {}", e);
+    }
+}
+
+/// Check if a previous session crashed by scanning for session files
+/// with running=true whose PID is no longer alive.
+fn check_crashed_session() -> Option<String> {
+    let dir = session_dir();
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::debug!("Cannot read session dir: {}", e);
+            return None;
+        }
+    };
+
+    let my_pid = std::process::id();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if !name.starts_with("gui_session_") || !name.ends_with(".json") {
+            continue;
+        }
+
+        let data = match std::fs::read_to_string(&path) {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!("Failed to read session file {}: {}", path.display(), e);
+                continue;
+            }
+        };
+        let session: serde_json::Value = match serde_json::from_str(&data) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("Failed to parse session file {}: {}", path.display(), e);
+                continue;
+            }
+        };
+
+        let was_running = session
+            .get("running")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if !was_running {
+            continue;
+        }
+
+        let pid = session.get("pid").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        // Skip our own session file
+        if pid == my_pid {
+            continue;
+        }
+
+        // If the PID is no longer alive, this was a crashed session
+        if !is_pid_alive(pid) {
+            // Clean up the stale session file
+            let _ = std::fs::remove_file(&path);
+            return session
+                .get("daemon_url")
+                .and_then(|u| u.as_str())
+                .map(|s| s.to_string());
+        }
+    }
+
+    None
+}
+
+/// Remove only our own session file (marks clean shutdown)
+fn clear_session_file() {
+    let path = session_file_path();
+    if let Err(e) = std::fs::remove_file(&path) {
+        // ENOENT is fine — file may not exist if write_session_file was never called
+        if e.kind() != std::io::ErrorKind::NotFound {
+            tracing::warn!("Failed to remove session file: {}", e);
+        }
+    }
+}
+
 /// Result of a health check sent through the channel (bd-j3xz.3.3: includes RTT).
 enum HealthCheckResult {
     /// Health check succeeded with round-trip time in milliseconds.
@@ -173,6 +304,9 @@ pub struct DaqApp {
 
     /// Cheat sheet visibility state
     show_cheat_sheet: bool,
+
+    /// Whether this session recovered from a crash (bd-izdj.30)
+    recovered_from_crash: bool,
 }
 
 /// Action to perform on the UI state
@@ -525,6 +659,20 @@ impl DaqApp {
             );
         }
 
+        // Crash recovery detection (bd-izdj.30)
+        let recovered_from_crash = if let Some(crashed_url) = check_crashed_session() {
+            tracing::warn!(
+                daemon_url = %crashed_url,
+                "Previous GUI session crashed — recovering session state"
+            );
+            true
+        } else {
+            false
+        };
+
+        // Mark session as running for crash detection on next launch
+        write_session_file(daemon_address.as_str());
+
         Self {
             client: None,
             connection: ConnectionManager::new(),
@@ -576,6 +724,7 @@ impl DaqApp {
             shortcut_manager,
             cheat_sheet_panel: CheatSheetPanel::new(),
             show_cheat_sheet: false,
+            recovered_from_crash,
         }
     }
 
@@ -818,6 +967,28 @@ impl DaqApp {
     }
 
     /// Render version mismatch warning (if applicable)
+    /// Show a transient banner when recovering from a crash (bd-izdj.30)
+    fn render_crash_recovery_banner(&mut self, ctx: &egui::Context) {
+        if !self.recovered_from_crash {
+            return;
+        }
+
+        egui::TopBottomPanel::top("crash_recovery_banner")
+            .show_separator_line(false)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.visuals_mut().override_text_color =
+                        Some(egui::Color32::from_rgb(100, 200, 255));
+                    ui.label(icons::status::INFO);
+                    ui.label("Session restored after unexpected shutdown. Panel layout and connection settings have been recovered.");
+                    if ui.small_button("Dismiss").clicked() {
+                        self.recovered_from_crash = false;
+                    }
+                });
+                ui.add_space(2.0);
+            });
+    }
+
     fn render_version_warning(&self, ctx: &egui::Context) {
         // Only show warning if connected and versions don't match
         if self.connection.state().is_connected() {
@@ -1862,6 +2033,7 @@ impl eframe::App for DaqApp {
 
         self.render_menu_bar(ctx);
         self.render_version_warning(ctx);
+        self.render_crash_recovery_banner(ctx);
         self.render_status_bar(ctx);
 
         // Render settings window
@@ -1994,10 +2166,18 @@ impl eframe::App for DaqApp {
         }
     }
 
+    fn auto_save_interval(&self) -> std::time::Duration {
+        // Persist state every 5 seconds for crash recovery (bd-izdj.30)
+        std::time::Duration::from_secs(5)
+    }
+
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         if self.connection.state().is_connected() {
             save_daemon_address(storage, &self.daemon_address);
         }
+
+        // Update session file with current daemon URL (bd-izdj.30)
+        write_session_file(self.daemon_address.as_str());
 
         if let Some(dock_state) = &self.dock_state {
             eframe::set_value(storage, eframe::APP_KEY, dock_state);
@@ -2027,6 +2207,9 @@ impl eframe::App for DaqApp {
 
 impl Drop for DaqApp {
     fn drop(&mut self) {
+        // Mark clean shutdown — remove session file (bd-izdj.30)
+        clear_session_file();
+
         tracing::debug!("DaqApp shutting down, cleaning up device panel state");
 
         // Collect panel IDs to avoid borrow conflicts during cleanup

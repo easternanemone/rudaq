@@ -59,6 +59,8 @@ pub mod health;
 pub mod modules;
 #[cfg(feature = "rerun_sink")]
 pub mod rerun_sink;
+#[cfg(feature = "scripting")]
+pub mod script_journal;
 
 #[cfg(feature = "server")]
 pub use grpc::server::DaqServer;

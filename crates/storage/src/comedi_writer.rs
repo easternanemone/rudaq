@@ -408,7 +408,7 @@ impl ComediStreamWriter {
                     &metadata
                         .hardware_id
                         .parse::<VarLenUnicode>()
-                        .expect("VarLenUnicode"),
+                        .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
                 )?;
             meta_group
                 .new_attr::<VarLenUnicode>()
@@ -417,7 +417,7 @@ impl ComediStreamWriter {
                     &metadata
                         .device_path
                         .parse::<VarLenUnicode>()
-                        .expect("VarLenUnicode"),
+                        .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
                 )?;
             meta_group
                 .new_attr::<u32>()
@@ -431,7 +431,11 @@ impl ComediStreamWriter {
                     user_group
                         .new_attr::<VarLenUnicode>()
                         .create(&key[..])?
-                        .write_scalar(&value.parse::<VarLenUnicode>().expect("VarLenUnicode"))?;
+                        .write_scalar(
+                            &value
+                                .parse::<VarLenUnicode>()
+                                .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
+                        )?;
                 }
             }
 
@@ -478,13 +482,21 @@ impl ComediStreamWriter {
                 ch_group
                     .new_attr::<VarLenUnicode>()
                     .create("units")?
-                    .write_scalar(&ch.units.parse::<VarLenUnicode>().expect("VarLenUnicode"))?;
+                    .write_scalar(
+                        &ch.units
+                            .parse::<VarLenUnicode>()
+                            .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
+                    )?;
 
                 if let Some(ref desc) = ch.description {
                     ch_group
                         .new_attr::<VarLenUnicode>()
                         .create("description")?
-                        .write_scalar(&desc.parse::<VarLenUnicode>().expect("VarLenUnicode"))?;
+                        .write_scalar(
+                            &desc
+                                .parse::<VarLenUnicode>()
+                                .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
+                        )?;
                 }
 
                 // Create data dataset for this channel

@@ -234,7 +234,7 @@ async fn handle_metrics_request(
                     .status(200)
                     .header("Content-Type", encoder.format_type())
                     .body(hyper::Body::from(buffer))
-                    .unwrap()),
+                    .expect("static HTTP response with valid headers")),
                 Err(e) => {
                     tracing::error!("Failed to encode metrics: {}", e);
                     Ok(hyper::Response::builder()
@@ -243,18 +243,18 @@ async fn handle_metrics_request(
                             "Failed to encode metrics: {}",
                             e
                         )))
-                        .unwrap())
+                        .expect("static HTTP 500 response"))
                 }
             }
         }
         (&hyper::Method::GET, "/health") => Ok(hyper::Response::builder()
             .status(200)
             .body(hyper::Body::from("OK"))
-            .unwrap()),
+            .expect("static HTTP 200 response")),
         _ => Ok(hyper::Response::builder()
             .status(404)
             .body(hyper::Body::from("Not Found"))
-            .unwrap()),
+            .expect("static HTTP 404 response")),
     }
 }
 

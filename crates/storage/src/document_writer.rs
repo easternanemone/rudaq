@@ -297,7 +297,11 @@ fn write_group_attr(container: &hdf5::Group, name: &str, value: &str) -> Result<
     container
         .new_attr::<VarLenUnicode>()
         .create(name)?
-        .write_scalar(&value.parse::<VarLenUnicode>().expect("Parse VarLenUnicode"))?;
+        .write_scalar(
+            &value
+                .parse::<VarLenUnicode>()
+                .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
+        )?;
     Ok(())
 }
 
@@ -307,7 +311,11 @@ fn write_dataset_attr(container: &hdf5::Dataset, name: &str, value: &str) -> Res
     container
         .new_attr::<VarLenUnicode>()
         .create(name)?
-        .write_scalar(&value.parse::<VarLenUnicode>().expect("Parse VarLenUnicode"))?;
+        .write_scalar(
+            &value
+                .parse::<VarLenUnicode>()
+                .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
+        )?;
     Ok(())
 }
 

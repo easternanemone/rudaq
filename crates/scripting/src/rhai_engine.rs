@@ -576,7 +576,7 @@ impl ScriptEngine for RhaiEngine {
 // Implement Default for convenience
 impl Default for RhaiEngine {
     fn default() -> Self {
-        Self::new().unwrap()
+        Self::new().expect("RhaiEngine::new with default config should not fail")
     }
 }
 

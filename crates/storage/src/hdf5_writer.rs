@@ -170,7 +170,7 @@ impl HDF5Writer {
                     params_group.attr(name)?.write_scalar(
                         &json_str
                             .parse::<VarLenUnicode>()
-                            .expect("Parse VarLenUnicode"),
+                            .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
                     )?;
                 } else {
                     params_group
@@ -179,7 +179,7 @@ impl HDF5Writer {
                         .write_scalar(
                             &json_str
                                 .parse::<VarLenUnicode>()
-                                .expect("Parse VarLenUnicode"),
+                                .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
                         )?;
                 }
             }
@@ -281,7 +281,7 @@ impl HDF5Writer {
                 .write_scalar(
                     &(std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
+                        .unwrap_or_default()
                         .as_nanos() as u64),
                 )?;
 
@@ -383,7 +383,7 @@ impl HDF5Writer {
                 .create("scan_id")?
                 .write_scalar(
                     &id.parse::<hdf5::types::VarLenUnicode>()
-                        .expect("Parse VarLenUnicode"),
+                        .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
                 )?;
         }
 
@@ -544,7 +544,7 @@ impl HDF5Writer {
                     &manifest
                         .run_uid
                         .parse::<hdf5::types::VarLenUnicode>()
-                        .expect("Parse VarLenUnicode"),
+                        .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
                 )?;
 
             manifest_group
@@ -555,7 +555,7 @@ impl HDF5Writer {
                         .plan_type
                         .as_str()
                         .parse::<hdf5::types::VarLenUnicode>()
-                        .expect("Parse VarLenUnicode"),
+                        .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
                 )?;
 
             manifest_group
@@ -566,7 +566,7 @@ impl HDF5Writer {
                         .plan_name
                         .as_str()
                         .parse::<hdf5::types::VarLenUnicode>()
-                        .expect("Parse VarLenUnicode"),
+                        .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
                 )?;
 
             // Create parameters subgroup
@@ -593,7 +593,7 @@ impl HDF5Writer {
                         .write_scalar(
                             &json_str
                                 .parse::<hdf5::types::VarLenUnicode>()
-                                .expect("Parse VarLenUnicode"),
+                                .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
                         )?;
                 }
             }
@@ -612,7 +612,7 @@ impl HDF5Writer {
                     .write_scalar(
                         &value
                             .parse::<hdf5::types::VarLenUnicode>()
-                            .expect("Parse VarLenUnicode"),
+                            .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
                     )?;
             }
 
@@ -630,7 +630,7 @@ impl HDF5Writer {
                     .write_scalar(
                         &value
                             .parse::<hdf5::types::VarLenUnicode>()
-                            .expect("Parse VarLenUnicode"),
+                            .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
                     )?;
             }
 
@@ -658,7 +658,11 @@ impl HDF5Writer {
         container
             .new_attr::<VarLenUnicode>()
             .create(name)?
-            .write_scalar(&value.parse::<VarLenUnicode>().expect("Parse VarLenUnicode"))?;
+            .write_scalar(
+                &value
+                    .parse::<VarLenUnicode>()
+                    .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
+            )?;
         Ok(())
     }
 

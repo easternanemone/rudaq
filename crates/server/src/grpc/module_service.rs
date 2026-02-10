@@ -83,7 +83,7 @@ impl StubModuleInstance {
         let uptime_ns = self.start_time_ns.map(|start| {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_nanos() as u64;
             now.saturating_sub(start)
         });
@@ -541,7 +541,7 @@ impl ModuleService for ModuleServiceImpl {
                 let uptime_ns = instance.start_time_ns.map(|start| {
                     let now = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
-                        .unwrap()
+                        .unwrap_or_default()
                         .as_nanos() as u64;
                     now.saturating_sub(start)
                 });
@@ -602,7 +602,7 @@ impl ModuleService for ModuleServiceImpl {
         let uptime_ns = instance.start_time_ns.map(|start| {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_nanos() as u64;
             now.saturating_sub(start)
         });
@@ -1377,7 +1377,7 @@ impl ModuleService for ModuleServiceImpl {
 
             let start_time = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_nanos() as u64;
 
             module.state = ModuleState::ModuleRunning;
@@ -1479,7 +1479,7 @@ impl ModuleService for ModuleServiceImpl {
             let uptime = module.start_time_ns.map(|start| {
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_nanos() as u64;
                 now.saturating_sub(start)
             });
