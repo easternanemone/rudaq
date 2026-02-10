@@ -1,6 +1,6 @@
 #!/bin/bash
-# Safety net: fmt + clippy + tests before push
-# PreToolUse hook for Bash — blocks push if any check fails
+# Quality gate: runs fmt + clippy + tests before bd close
+# PreToolUse hook for Bash — blocks bd close if any check fails
 
 set +e
 
@@ -8,15 +8,15 @@ input=$(cat)
 
 command=$(echo "$input" | jq -r '.tool_input.command // empty')
 
-# Only intercept git push commands
-if ! echo "$command" | grep -qE '(^|\s|&&|\|)git\s+push(\s|$)'; then
+# Only intercept bd close commands
+if ! echo "$command" | grep -qE '(^|\s|&&|\|)bd\s+close(\s|$)'; then
   exit 0
 fi
 
-echo "Pre-push: Running cargo fmt --all..." >&2
+echo "Quality gate: Running cargo fmt --all..." >&2
 cargo fmt --all 2>/dev/null
 
-echo "Pre-push: Checking formatting..." >&2
+echo "Quality gate: Checking formatting..." >&2
 fmt_output=$(cargo fmt --all --check 2>&1)
 fmt_exit=$?
 
@@ -28,7 +28,7 @@ EOF
   exit 0
 fi
 
-echo "Pre-push: Running cargo clippy..." >&2
+echo "Quality gate: Running cargo clippy..." >&2
 clippy_output=$(cargo clippy --workspace --all-targets -- -D warnings 2>&1)
 clippy_exit=$?
 
@@ -38,12 +38,12 @@ if [[ $clippy_exit -ne 0 ]]; then
   fi
   escaped_clippy=$(echo "$clippy_output" | jq -R -s .)
   cat <<EOF
-{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"cargo clippy failed. Fix warnings before pushing:\n${escaped_clippy}"}}
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"cargo clippy failed. Fix warnings before closing:\n${escaped_clippy}"}}
 EOF
   exit 0
 fi
 
-echo "Pre-push: Running tests..." >&2
+echo "Quality gate: Running tests..." >&2
 if command -v cargo-nextest &>/dev/null; then
   test_output=$(cargo nextest run --workspace --exclude ui 2>&1)
   test_exit=$?
@@ -58,10 +58,10 @@ if [[ $test_exit -ne 0 ]]; then
   fi
   escaped_test=$(echo "$test_output" | jq -R -s .)
   cat <<EOF
-{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Tests failed. Fix before pushing:\n${escaped_test}"}}
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Tests failed. Fix before closing:\n${escaped_test}"}}
 EOF
   exit 0
 fi
 
-echo "Pre-push: All checks passed." >&2
+echo "Quality gate: All checks passed." >&2
 exit 0

@@ -12,16 +12,8 @@
         "matcher": "Bash",
         "hooks": [
           {"type": "command", "command": ".claude/hooks/validate-epic-close.sh"},
-          {"type": "command", "command": ".claude/hooks/pre-commit-checks.sh"},
+          {"type": "command", "command": ".claude/hooks/quality-gate-on-close.sh"},
           {"type": "command", "command": ".claude/hooks/pre-push-checks.sh"}
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {"type": "command", "command": ".claude/hooks/rustfmt-on-save.sh"}
         ]
       }
     ],
