@@ -135,6 +135,7 @@ docs/MORPH_*.md
 .claude/*
 !.claude/settings.json
 !.claude/hooks/
+!.claude/hooks/*.sh
 .node_modules
 .jules
 .tmp

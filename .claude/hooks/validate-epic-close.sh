@@ -1,55 +1,54 @@
 #!/bin/bash
-# Hook: Validate all epic children are complete before closing
-# Prevents closing an epic when children are still open
+# Validate that an epic has no incomplete children before allowing `bd close`.
 
-# Fail gracefully - hooks should never crash
 set +e
 
-TOOL_INPUT="${CLAUDE_TOOL_INPUT:-}"
+input=$(cat)
+if [[ -z "$input" ]]; then
+  input="${CLAUDE_TOOL_INPUT:-}"
+fi
 
-# Only check Bash commands containing "bd close"
-if ! echo "$TOOL_INPUT" | jq -e '.command' >/dev/null 2>&1; then
+command=$(echo "$input" | jq -r '.tool_input.command // .command // empty' 2>/dev/null)
+
+# Only check bd close commands.
+if ! echo "$command" | grep -qE '(^|\s|&&|\|)bd\s+close(\s|$)'; then
   exit 0
 fi
 
-COMMAND=$(echo "$TOOL_INPUT" | jq -r '.command // ""')
-
-# Check if this is a bd close command
-if ! echo "$COMMAND" | grep -qE 'bd\s+close'; then
+# Extract the first close target.
+close_id=$(echo "$command" | sed -nE 's/.*bd[[:space:]]+close[[:space:]]+([A-Za-z0-9._-]+).*/\1/p' | head -1)
+if [[ -z "$close_id" ]]; then
   exit 0
 fi
 
-# Extract the ID being closed (handles: bd close ID, bd close ID && ..., etc.)
-CLOSE_ID=$(echo "$COMMAND" | sed -E 's/.*bd\s+close\s+([A-Za-z0-9._-]+).*/\1/')
+project_dir="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+beads_db="$project_dir/.beads/beads.db"
+if [[ -f "$beads_db" ]]; then
+  BD_CMD=(bd --no-daemon --no-auto-import --db "$beads_db")
+else
+  BD_CMD=(bd)
+fi
 
-if [ -z "$CLOSE_ID" ]; then
+# Check if this item has children (epic-like).
+children=$("${BD_CMD[@]}" show "$close_id" --json 2>/dev/null | jq -r '.[0].children // empty' 2>/dev/null)
+if [[ -z "$children" || "$children" == "null" ]]; then
   exit 0
 fi
 
-# Check if this is an epic by looking for children
-CHILDREN=$(bd show "$CLOSE_ID" --json 2>/dev/null | jq -r '.[0].children // empty' 2>/dev/null || echo "")
+# Canonical status is `closed`; keep `done` as legacy compatibility.
+incomplete=$("${BD_CMD[@]}" list --json 2>/dev/null | jq -r --arg epic "$close_id" '
+  [.[] | select(.parent == $epic and .status != "closed" and .status != "done")] | length
+' 2>/dev/null)
 
-if [ -z "$CHILDREN" ] || [ "$CHILDREN" = "null" ]; then
-  # Not an epic or no children, allow close
-  exit 0
+if [[ -n "$incomplete" && "$incomplete" != "0" ]]; then
+  incomplete_list=$("${BD_CMD[@]}" list --json 2>/dev/null | jq -r --arg epic "$close_id" '
+    [.[] | select(.parent == $epic and .status != "closed" and .status != "done")]
+    | .[] | "\(.id) (\(.status))"
+  ' 2>/dev/null | tr '\n' ', ' | sed 's/, $//')
+
+  cat <<JSON
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Cannot close '$close_id' - $incomplete child issue(s) are not closed: $incomplete_list. Close all children first."}}
+JSON
 fi
 
-# This is an epic - check if all children are complete
-INCOMPLETE=$(bd list --json 2>/dev/null | jq -r --arg epic "$CLOSE_ID" '
-  [.[] | select(.parent == $epic and .status != "done" and .status != "closed")] | length
-' 2>/dev/null || echo "0")
-
-if [ "$INCOMPLETE" != "0" ] && [ "$INCOMPLETE" != "" ]; then
-  # Get list of incomplete children for the error message
-  INCOMPLETE_LIST=$(bd list --json 2>/dev/null | jq -r --arg epic "$CLOSE_ID" '
-    [.[] | select(.parent == $epic and .status != "done" and .status != "closed")] | .[] | "\(.id) (\(.status))"
-  ' 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
-
-  cat << EOF
-{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Cannot close epic '$CLOSE_ID' - has $INCOMPLETE incomplete children: $INCOMPLETE_LIST. Mark all children as done first."}}
-EOF
-  exit 0
-fi
-
-# All children complete, allow close
 exit 0

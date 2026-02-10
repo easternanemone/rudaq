@@ -1,19 +1,23 @@
 {
   "enabledPlugins": {
-    "rust-analyzer-lsp@claude-plugins-official": false,
+    "rust-analyzer-lsp@claude-plugins-official": true,
     "pyright-lsp@claude-plugins-official": false
   },
   "env": {
-    "ENABLE_LSP_TOOL": "0"
+    "ENABLE_LSP_TOOL": "1"
   },
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "Bash",
         "hooks": [
-          {"type": "command", "command": ".claude/hooks/validate-epic-close.sh"},
-          {"type": "command", "command": ".claude/hooks/quality-gate-on-close.sh"},
-          {"type": "command", "command": ".claude/hooks/pre-push-checks.sh"}
+          {"type": "command", "command": ".claude/hooks/pretool-dispatch.sh"}
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/check-file-size.sh"}
         ]
       }
     ],
