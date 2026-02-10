@@ -13,8 +13,9 @@
 //!
 //! This avoids capturing `&mut self` across async boundaries.
 
-// TODO(bd-yu38): Streaming integration not yet wired up to main UI
+// Streaming integration not yet wired up to main UI (bd-m5fh.4.2).
 #![allow(dead_code)]
+// TODO(bd-yu38): Streaming integration not yet wired up to main UI
 
 use crate::panels::signal_plotter::{ObservableUpdate, SignalPlotterPanel};
 use client::DaqClient;

@@ -89,7 +89,7 @@ impl TiffWriter {
     /// - TIFF encoding fails
     #[deprecated(
         since = "0.3.0",
-        note = "Use write_frame_data() for zero-copy pooled frames"
+        note = "Use write_frame_data() for zero-copy pooled frames. Sunset: v1.0"
     )]
     pub fn write_frame<P: AsRef<Path>>(frame: &Frame, path: P) -> Result<()> {
         let path = path.as_ref();

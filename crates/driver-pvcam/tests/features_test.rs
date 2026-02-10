@@ -295,6 +295,7 @@ mod mock_features {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn get_temperature_mock() {
         let conn = mock_connection();
         let temp = PvcamFeatures::get_temperature(&conn).unwrap();
@@ -316,6 +317,7 @@ mod mock_features {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn get_camera_info_mock() {
         let conn = mock_connection();
         let info = PvcamFeatures::get_camera_info(&conn).unwrap();

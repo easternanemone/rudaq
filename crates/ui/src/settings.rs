@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::theme::ThemePreference;
 
 /// Application settings that can be configured by the user.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppSettings {
     /// Connection settings
     pub connection: ConnectionSettings,
@@ -16,17 +16,6 @@ pub struct AppSettings {
     pub logging: LoggingSettings,
     /// Storage settings
     pub storage: StorageSettings,
-}
-
-impl Default for AppSettings {
-    fn default() -> Self {
-        Self {
-            connection: ConnectionSettings::default(),
-            appearance: AppearanceSettings::default(),
-            logging: LoggingSettings::default(),
-            storage: StorageSettings::default(),
-        }
-    }
 }
 
 /// Connection settings for daemon communication.

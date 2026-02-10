@@ -720,10 +720,10 @@ impl RoiSelector {
                     if let Some(idx) = self.polygon_editor.hovered_vertex {
                         self.polygon_editor.temp_vertices.remove(idx);
                     }
-                } else if response.ctx.input(|i| i.key_pressed(egui::Key::Backspace)) {
-                    if !self.polygon_editor.temp_vertices.is_empty() {
-                        self.polygon_editor.temp_vertices.pop();
-                    }
+                } else if response.ctx.input(|i| i.key_pressed(egui::Key::Backspace))
+                    && !self.polygon_editor.temp_vertices.is_empty()
+                {
+                    self.polygon_editor.temp_vertices.pop();
                 }
             }
         }

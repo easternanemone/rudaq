@@ -465,7 +465,7 @@ impl PluginService for PluginServiceImpl {
                         commands_failed: 0,
                         start_time_ns: std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
+                            .unwrap_or_default()
                             .as_nanos() as u64,
                         last_error: None,
                         last_error_time_ns: None,
@@ -509,7 +509,7 @@ impl PluginService for PluginServiceImpl {
                         commands_failed: 1,
                         start_time_ns: std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
+                            .unwrap_or_default()
                             .as_nanos() as u64,
                         last_error: Some(error_message.clone()),
                         last_error_time_ns: Some(
@@ -587,7 +587,7 @@ impl PluginService for PluginServiceImpl {
 
         let now_ns = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_nanos() as u64;
 
         Ok(Response::new(PluginInstanceStatus {

@@ -11,7 +11,6 @@
 #[cfg(test)]
 mod grpc_client_tests {
     use std::time::Duration;
-    use tokio::time::sleep;
 
     /// Test that the GUI can parse daemon URLs correctly
     #[test]
@@ -45,7 +44,6 @@ mod grpc_client_tests {
     /// Test gRPC connection error handling
     #[tokio::test]
     async fn test_grpc_connection_to_invalid_daemon() {
-        use protocol::daq::hardware_service_client::HardwareServiceClient;
         use tonic::transport::Channel;
 
         // Try to connect to non-existent daemon
@@ -65,7 +63,6 @@ mod grpc_client_tests {
     /// Test that gRPC client can be created with valid configuration
     #[tokio::test]
     async fn test_grpc_client_creation() {
-        use protocol::daq::hardware_service_client::HardwareServiceClient;
         use tonic::transport::Channel;
 
         // Create channel endpoint (doesn't connect yet)
@@ -203,7 +200,7 @@ mod crosshair_tests {
 
 #[cfg(test)]
 mod daemon_lifecycle_tests {
-    use std::process::Command;
+
     use std::time::Duration;
 
     /// Helper to find daemon binary

@@ -36,11 +36,11 @@ async fn test_stage_movement_from_script() {
         .set_global("stage", ScriptValue::new(stage_handle.clone()))
         .unwrap();
 
-    let script = r#"
+    let script = r"
         stage.move_abs(10.0);
         let pos = stage.position();
         pos
-    "#;
+    ";
 
     let result = engine.execute_script(script).await.unwrap();
     assert_eq!(result.downcast::<f64>().unwrap(), 10.0);
@@ -65,12 +65,12 @@ async fn test_stage_relative_movement() {
         )
         .unwrap();
 
-    let script = r#"
+    let script = r"
         stage.move_abs(5.0);
         stage.move_rel(3.0);
         stage.move_rel(-2.0);
         stage.position()
-    "#;
+    ";
 
     let result = engine.execute_script(script).await.unwrap();
     assert_eq!(result.downcast::<f64>().unwrap(), 6.0); // 5.0 + 3.0 - 2.0
@@ -116,12 +116,12 @@ async fn test_camera_trigger_from_script() {
         .set_global("camera", ScriptValue::new(camera_handle))
         .unwrap();
 
-    let script = r#"
+    let script = r"
         camera.arm();
         camera.trigger();
         let res = camera.resolution();
         res[0]
-    "#;
+    ";
 
     let result = engine.execute_script(script).await.unwrap();
     assert_eq!(result.downcast::<i64>().unwrap(), 1920);
@@ -145,12 +145,12 @@ async fn test_camera_resolution_access() {
         )
         .unwrap();
 
-    let script = r#"
+    let script = r"
         let res = camera.resolution();
         let width = res[0];
         let height = res[1];
         width * height
-    "#;
+    ";
 
     let result = engine.execute_script(script).await.unwrap();
     assert_eq!(result.downcast::<i64>().unwrap(), 640 * 480);
@@ -182,7 +182,7 @@ async fn test_multi_device_script() {
         )
         .unwrap();
 
-    let script = r#"
+    let script = r"
         // Simple scan experiment
         camera.arm();  // Must arm before triggering
         for i in 0..5 {
@@ -191,7 +191,7 @@ async fn test_multi_device_script() {
             camera.trigger();
         }
         stage.position()
-    "#;
+    ";
 
     let result = engine.execute_script(script).await.unwrap();
     assert_eq!(result.downcast::<f64>().unwrap(), 8.0); // Final position: 4 * 2.0
@@ -223,7 +223,7 @@ async fn test_scan_with_settle_and_trigger() {
         )
         .unwrap();
 
-    let script = r#"
+    let script = r"
         camera.arm();
 
         // Scan from 0 to 10mm in 1mm steps
@@ -234,7 +234,7 @@ async fn test_scan_with_settle_and_trigger() {
         }
 
         stage.position()
-    "#;
+    ";
 
     let result = engine.execute_script(script).await.unwrap();
     assert_eq!(result.downcast::<f64>().unwrap(), 10.0);
@@ -400,11 +400,11 @@ async fn test_safety_limit_respected() {
         .unwrap();
 
     // Script with too many operations (>10000)
-    let script = r#"
+    let script = r"
         for i in 0..20000 {
             let dummy = i * 2;
         }
-    "#;
+    ";
 
     let result = engine.execute_script(script).await;
     assert!(result.is_err());

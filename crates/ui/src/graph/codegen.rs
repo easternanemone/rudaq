@@ -11,6 +11,7 @@ use super::nodes::{
 use super::translation::{build_adjacency, topological_sort};
 use egui_snarl::{NodeId, Snarl};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt::Write as _;
 
 /// Generate a complete Rhai script from an experiment graph.
 ///
@@ -22,8 +23,8 @@ pub fn graph_to_rhai_script(snarl: &Snarl<ExperimentNode>, filename: Option<&str
     // Generate header comment
     let timestamp = chrono::Utc::now().to_rfc3339();
     script.push_str("// Generated Rhai script from visual experiment graph\n");
-    script.push_str(&format!("// Source: {}\n", filename.unwrap_or("unsaved")));
-    script.push_str(&format!("// Generated: {}\n", timestamp));
+    let _ = writeln!(script, "// Source: {}", filename.unwrap_or("unsaved"));
+    let _ = writeln!(script, "// Generated: {}", timestamp);
     script.push_str("// DO NOT EDIT - regenerate from visual editor to make changes\n\n");
 
     // Handle empty graph
@@ -36,10 +37,7 @@ pub fn graph_to_rhai_script(snarl: &Snarl<ExperimentNode>, filename: Option<&str
     let (adjacency, roots) = match build_adjacency(snarl) {
         Ok(result) => result,
         Err(e) => {
-            script.push_str(&format!(
-                "// ERROR: Failed to build graph structure: {}\n",
-                e
-            ));
+            let _ = writeln!(script, "// ERROR: Failed to build graph structure: {}", e);
             return script;
         }
     };
@@ -76,11 +74,12 @@ pub fn graph_to_rhai_script(snarl: &Snarl<ExperimentNode>, filename: Option<&str
         }
 
         if let Some(node) = snarl.get_node(*node_id) {
-            script.push_str(&format!(
-                "// === Node {}: {} ===\n",
+            let _ = writeln!(
+                script,
+                "// === Node {}: {} ===",
                 index + 1,
                 node.node_name()
-            ));
+            );
             script.push_str(&node_to_rhai(node, *node_id, snarl, &loop_body_set, 0));
             script.push('\n');
         }
@@ -129,51 +128,52 @@ fn scan_to_rhai(actuator: &str, start: f64, stop: f64, points: u32, indent: usiz
     let mut code = String::new();
 
     if actuator.is_empty() {
-        code.push_str(&format!(
-            "{}// WARNING: Scan node has no actuator specified\n",
+        let _ = writeln!(
+            code,
+            "{}// WARNING: Scan node has no actuator specified",
             ind
-        ));
+        );
         return code;
     }
 
     if points == 0 {
-        code.push_str(&format!(
-            "{}// WARNING: Scan has zero points - skipping\n",
-            ind
-        ));
+        let _ = writeln!(code, "{}// WARNING: Scan has zero points - skipping", ind);
         return code;
     }
 
-    code.push_str(&format!(
-        "{}// Scan {} from {:.1} to {:.1} in {} steps\n",
+    let _ = writeln!(
+        code,
+        "{}// Scan {} from {:.1} to {:.1} in {} steps",
         ind, actuator, start, stop, points
-    ));
+    );
 
-    code.push_str(&format!("{}for i in 0..{} {{\n", ind, points));
+    let _ = writeln!(code, "{}for i in 0..{} {{", ind, points);
 
     let body_ind = indent_str(indent + 1);
 
     // Position calculation
     if points > 1 {
-        code.push_str(&format!(
-            "{}let pos = {} + ({} - {}) * i / ({} - 1);\n",
+        let _ = writeln!(
+            code,
+            "{}let pos = {} + ({} - {}) * i / ({} - 1);",
             body_ind, start, stop, start, points
-        ));
+        );
     } else {
-        code.push_str(&format!("{}let pos = {};\n", body_ind, start));
+        let _ = writeln!(code, "{}let pos = {};", body_ind, start);
     }
 
     // Move and wait
-    code.push_str(&format!("{}{}.move_abs(pos);\n", body_ind, actuator));
-    code.push_str(&format!("{}{}.wait_settled();\n", body_ind, actuator));
+    let _ = writeln!(code, "{}{}.move_abs(pos);", body_ind, actuator);
+    let _ = writeln!(code, "{}{}.wait_settled();", body_ind, actuator);
 
     // Yield event
-    code.push_str(&format!(
-        "{}yield_event(#{{ \"{}\": pos }});\n",
+    let _ = writeln!(
+        code,
+        "{}yield_event(#{{ \"{}\": pos }});",
         body_ind, actuator
-    ));
+    );
 
-    code.push_str(&format!("{}}}\n", ind));
+    let _ = writeln!(code, "{}}}", ind);
 
     code
 }
@@ -184,10 +184,7 @@ fn move_to_rhai(config: &MoveConfig, indent: usize) -> String {
     let mut code = String::new();
 
     if config.device.is_empty() {
-        code.push_str(&format!(
-            "{}// WARNING: Move node has no device specified\n",
-            ind
-        ));
+        let _ = writeln!(code, "{}// WARNING: Move node has no device specified", ind);
         return code;
     }
 
@@ -201,20 +198,21 @@ fn move_to_rhai(config: &MoveConfig, indent: usize) -> String {
             config.device, config.position
         ),
     };
-    code.push_str(&format!("{}// {}\n", ind, action));
+    let _ = writeln!(code, "{}// {}", ind, action);
 
     let method = match config.mode {
         MoveMode::Absolute => "move_abs",
         MoveMode::Relative => "move_rel",
     };
 
-    code.push_str(&format!(
-        "{}{}.{}({});\n",
+    let _ = writeln!(
+        code,
+        "{}{}.{}({});",
         ind, config.device, method, config.position
-    ));
+    );
 
     if config.wait_settled {
-        code.push_str(&format!("{}{}.wait_settled();\n", ind, config.device));
+        let _ = writeln!(code, "{}{}.wait_settled();", ind, config.device);
     }
 
     code
@@ -228,8 +226,8 @@ fn wait_to_rhai(condition: &WaitCondition, indent: usize) -> String {
     match condition {
         WaitCondition::Duration { milliseconds } => {
             let seconds = milliseconds / 1000.0;
-            code.push_str(&format!("{}// Wait for {} seconds\n", ind, seconds));
-            code.push_str(&format!("{}sleep({});\n", ind, seconds));
+            let _ = writeln!(code, "{}// Wait for {} seconds", ind, seconds);
+            let _ = writeln!(code, "{}sleep({});", ind, seconds);
         }
         WaitCondition::Threshold {
             device_id,
@@ -242,15 +240,17 @@ fn wait_to_rhai(condition: &WaitCondition, indent: usize) -> String {
                 ThresholdOp::GreaterThan => ">",
                 ThresholdOp::EqualWithin { tolerance } => &format!("== (±{})", tolerance),
             };
-            code.push_str(&format!(
-                "{}// TODO: Wait until {} {} {} (timeout: {}ms)\n",
+            let _ = writeln!(
+                code,
+                "{}// TODO: Wait until {} {} {} (timeout: {}ms)",
                 ind, device_id, op_str, value, timeout_ms
-            ));
-            code.push_str(&format!(
-                "{}// Threshold-based waits not yet implemented in Rhai\n",
+            );
+            let _ = writeln!(
+                code,
+                "{}// Threshold-based waits not yet implemented in Rhai",
                 ind
-            ));
-            code.push_str(&format!("{}sleep({});\n", ind, timeout_ms / 1000.0));
+            );
+            let _ = writeln!(code, "{}sleep({});", ind, timeout_ms / 1000.0);
         }
         WaitCondition::Stability {
             device_id,
@@ -258,15 +258,17 @@ fn wait_to_rhai(condition: &WaitCondition, indent: usize) -> String {
             duration_ms,
             timeout_ms,
         } => {
-            code.push_str(&format!(
-                "{}// TODO: Wait until {} stabilizes within ±{} for {}ms (timeout: {}ms)\n",
+            let _ = writeln!(
+                code,
+                "{}// TODO: Wait until {} stabilizes within ±{} for {}ms (timeout: {}ms)",
                 ind, device_id, tolerance, duration_ms, timeout_ms
-            ));
-            code.push_str(&format!(
-                "{}// Stability-based waits not yet implemented in Rhai\n",
+            );
+            let _ = writeln!(
+                code,
+                "{}// Stability-based waits not yet implemented in Rhai",
                 ind
-            ));
-            code.push_str(&format!("{}sleep({});\n", ind, timeout_ms / 1000.0));
+            );
+            let _ = writeln!(code, "{}sleep({});", ind, timeout_ms / 1000.0);
         }
     }
 
@@ -279,38 +281,41 @@ fn acquire_to_rhai(config: &AcquireConfig, indent: usize) -> String {
     let mut code = String::new();
 
     if config.detector.is_empty() {
-        code.push_str(&format!(
-            "{}// WARNING: Acquire node has no detector specified\n",
+        let _ = writeln!(
+            code,
+            "{}// WARNING: Acquire node has no detector specified",
             ind
-        ));
+        );
         return code;
     }
 
-    code.push_str(&format!(
-        "{}// Acquire {} frame(s) from {}\n",
+    let _ = writeln!(
+        code,
+        "{}// Acquire {} frame(s) from {}",
         ind, config.frame_count, config.detector
-    ));
+    );
 
     // Set exposure if specified
     if let Some(exposure_ms) = config.exposure_ms {
         if exposure_ms > 0.0 {
-            code.push_str(&format!(
-                "{}{}.set_exposure({});\n",
+            let _ = writeln!(
+                code,
+                "{}{}.set_exposure({});",
                 ind, config.detector, exposure_ms
-            ));
+            );
         }
     }
 
     // Generate acquire loop if multiple frames
     if config.frame_count > 1 {
-        code.push_str(&format!("{}for i in 0..{} {{\n", ind, config.frame_count));
+        let _ = writeln!(code, "{}for i in 0..{} {{", ind, config.frame_count);
         let body_ind = indent_str(indent + 1);
-        code.push_str(&format!("{}{}.trigger();\n", body_ind, config.detector));
-        code.push_str(&format!("{}{}.read();\n", body_ind, config.detector));
-        code.push_str(&format!("{}}}\n", ind));
+        let _ = writeln!(code, "{}{}.trigger();", body_ind, config.detector);
+        let _ = writeln!(code, "{}{}.read();", body_ind, config.detector);
+        let _ = writeln!(code, "{}}}", ind);
     } else {
-        code.push_str(&format!("{}{}.trigger();\n", ind, config.detector));
-        code.push_str(&format!("{}{}.read();\n", ind, config.detector));
+        let _ = writeln!(code, "{}{}.trigger();", ind, config.detector);
+        let _ = writeln!(code, "{}{}.read();", ind, config.detector);
     }
 
     code
@@ -332,8 +337,8 @@ fn loop_to_rhai(
 
     match &config.termination {
         LoopTermination::Count { iterations } => {
-            code.push_str(&format!("{}// Loop {} times\n", ind, iterations));
-            code.push_str(&format!("{}for i in 0..{} {{\n", ind, iterations));
+            let _ = writeln!(code, "{}// Loop {} times", ind, iterations);
+            let _ = writeln!(code, "{}for i in 0..{} {{", ind, iterations);
         }
         LoopTermination::Condition {
             device_id,
@@ -346,33 +351,37 @@ fn loop_to_rhai(
                 ThresholdOp::GreaterThan => ">",
                 ThresholdOp::EqualWithin { tolerance } => &format!("== (±{})", tolerance),
             };
-            code.push_str(&format!(
-                "{}// TODO: Loop until {} {} {} (max {} iterations)\n",
+            let _ = writeln!(
+                code,
+                "{}// TODO: Loop until {} {} {} (max {} iterations)",
                 ind, device_id, op_str, value, max_iterations
-            ));
-            code.push_str(&format!(
-                "{}// Condition-based loops not yet implemented in Rhai\n",
+            );
+            let _ = writeln!(
+                code,
+                "{}// Condition-based loops not yet implemented in Rhai",
                 ind
-            ));
-            code.push_str(&format!("{}for i in 0..{} {{\n", ind, max_iterations));
+            );
+            let _ = writeln!(code, "{}for i in 0..{} {{", ind, max_iterations);
         }
         LoopTermination::Infinite { max_iterations } => {
-            code.push_str(&format!(
-                "{}// TODO: Infinite loop (safety limit: {} iterations)\n",
+            let _ = writeln!(
+                code,
+                "{}// TODO: Infinite loop (safety limit: {} iterations)",
                 ind, max_iterations
-            ));
-            code.push_str(&format!(
-                "{}// Infinite loops require manual abort - using safety limit\n",
+            );
+            let _ = writeln!(
+                code,
+                "{}// Infinite loops require manual abort - using safety limit",
                 ind
-            ));
-            code.push_str(&format!("{}for i in 0..{} {{\n", ind, max_iterations));
+            );
+            let _ = writeln!(code, "{}for i in 0..{} {{", ind, max_iterations);
         }
     }
 
     // Generate body nodes with increased indent
     if body_nodes.is_empty() {
         let body_ind = indent_str(indent + 1);
-        code.push_str(&format!("{}// Loop body is empty\n", body_ind));
+        let _ = writeln!(code, "{}// Loop body is empty", body_ind);
     } else {
         for &body_node_id in &body_nodes {
             if let Some(body_node) = snarl.get_node(body_node_id) {
@@ -387,7 +396,7 @@ fn loop_to_rhai(
         }
     }
 
-    code.push_str(&format!("{}}}\n", ind));
+    let _ = writeln!(code, "{}}}", ind);
 
     code
 }
@@ -398,100 +407,103 @@ fn nested_scan_to_rhai(config: &NestedScanConfig, indent: usize) -> String {
     let mut code = String::new();
 
     if config.outer.actuator.is_empty() || config.inner.actuator.is_empty() {
-        code.push_str(&format!(
-            "{}// WARNING: NestedScan node has empty actuator(s)\n",
+        let _ = writeln!(
+            code,
+            "{}// WARNING: NestedScan node has empty actuator(s)",
             ind
-        ));
+        );
         return code;
     }
 
-    code.push_str(&format!(
-        "{}// Nested scan: {} x {}\n",
+    let _ = writeln!(
+        code,
+        "{}// Nested scan: {} x {}",
         ind, config.outer.dimension_name, config.inner.dimension_name
-    ));
+    );
 
     // Outer loop
-    code.push_str(&format!(
-        "{}// Outer: {} from {:.1} to {:.1} ({} points)\n",
+    let _ = writeln!(
+        code,
+        "{}// Outer: {} from {:.1} to {:.1} ({} points)",
         ind, config.outer.actuator, config.outer.start, config.outer.stop, config.outer.points
-    ));
-    code.push_str(&format!(
-        "{}for outer_i in 0..{} {{\n",
-        ind, config.outer.points
-    ));
+    );
+    let _ = writeln!(code, "{}for outer_i in 0..{} {{", ind, config.outer.points);
 
     let body_ind = indent_str(indent + 1);
 
     // Outer position calculation
     if config.outer.points > 1 {
-        code.push_str(&format!(
-            "{}let outer_pos = {} + ({} - {}) * outer_i / ({} - 1);\n",
+        let _ = writeln!(
+            code,
+            "{}let outer_pos = {} + ({} - {}) * outer_i / ({} - 1);",
             body_ind,
             config.outer.start,
             config.outer.stop,
             config.outer.start,
             config.outer.points
-        ));
+        );
     } else {
-        code.push_str(&format!(
-            "{}let outer_pos = {};\n",
-            body_ind, config.outer.start
-        ));
+        let _ = writeln!(code, "{}let outer_pos = {};", body_ind, config.outer.start);
     }
-    code.push_str(&format!(
-        "{}{}.move_abs(outer_pos);\n",
+    let _ = writeln!(
+        code,
+        "{}{}.move_abs(outer_pos);",
         body_ind, config.outer.actuator
-    ));
-    code.push_str(&format!(
-        "{}{}.wait_settled();\n",
+    );
+    let _ = writeln!(
+        code,
+        "{}{}.wait_settled();",
         body_ind, config.outer.actuator
-    ));
+    );
 
     // Inner loop
-    code.push_str(&format!(
-        "{}// Inner: {} from {:.1} to {:.1} ({} points)\n",
+    let _ = writeln!(
+        code,
+        "{}// Inner: {} from {:.1} to {:.1} ({} points)",
         body_ind, config.inner.actuator, config.inner.start, config.inner.stop, config.inner.points
-    ));
-    code.push_str(&format!(
-        "{}for inner_i in 0..{} {{\n",
+    );
+    let _ = writeln!(
+        code,
+        "{}for inner_i in 0..{} {{",
         body_ind, config.inner.points
-    ));
+    );
 
     let inner_ind = indent_str(indent + 2);
 
     // Inner position calculation
     if config.inner.points > 1 {
-        code.push_str(&format!(
-            "{}let inner_pos = {} + ({} - {}) * inner_i / ({} - 1);\n",
+        let _ = writeln!(
+            code,
+            "{}let inner_pos = {} + ({} - {}) * inner_i / ({} - 1);",
             inner_ind,
             config.inner.start,
             config.inner.stop,
             config.inner.start,
             config.inner.points
-        ));
+        );
     } else {
-        code.push_str(&format!(
-            "{}let inner_pos = {};\n",
-            inner_ind, config.inner.start
-        ));
+        let _ = writeln!(code, "{}let inner_pos = {};", inner_ind, config.inner.start);
     }
-    code.push_str(&format!(
-        "{}{}.move_abs(inner_pos);\n",
+    let _ = writeln!(
+        code,
+        "{}{}.move_abs(inner_pos);",
         inner_ind, config.inner.actuator
-    ));
-    code.push_str(&format!(
-        "{}{}.wait_settled();\n",
+    );
+    let _ = writeln!(
+        code,
+        "{}{}.wait_settled();",
         inner_ind, config.inner.actuator
-    ));
+    );
 
     // Yield event
-    code.push_str(&format!(
-        "{}yield_event(#{{ \"{}\": outer_pos, \"{}\": inner_pos }});\n",
+    let _ = writeln!(
+        code,
+        "{}yield_event(#{{ \"{}\": outer_pos, \"{}\": inner_pos }});",
         inner_ind, config.outer.dimension_name, config.inner.dimension_name
-    ));
+    );
 
-    code.push_str(&format!("{}}}\n", body_ind));
-    code.push_str(&format!("{}}}\n", ind));
+    let _ = writeln!(code, "{}}}", body_ind);
+    let _ = writeln!(code, "{}}}", ind);
 
     code
 }
@@ -502,23 +514,26 @@ fn adaptive_scan_to_rhai(config: &AdaptiveScanConfig, indent: usize) -> String {
     let mut code = String::new();
 
     if config.scan.actuator.is_empty() {
-        code.push_str(&format!(
-            "{}// WARNING: AdaptiveScan node has no actuator specified\n",
+        let _ = writeln!(
+            code,
+            "{}// WARNING: AdaptiveScan node has no actuator specified",
             ind
-        ));
+        );
         return code;
     }
 
-    code.push_str(&format!(
-        "{}// Adaptive scan: {} from {:.1} to {:.1} ({} points)\n",
+    let _ = writeln!(
+        code,
+        "{}// Adaptive scan: {} from {:.1} to {:.1} ({} points)",
         ind, config.scan.actuator, config.scan.start, config.scan.stop, config.scan.points
-    ));
+    );
 
     // Document triggers
-    code.push_str(&format!(
-        "{}// Triggers ({:?} logic):\n",
+    let _ = writeln!(
+        code,
+        "{}// Triggers ({:?} logic):",
         ind, config.trigger_logic
-    ));
+    );
     for (i, trigger) in config.triggers.iter().enumerate() {
         match trigger {
             TriggerCondition::Threshold {
@@ -531,28 +546,30 @@ fn adaptive_scan_to_rhai(config: &AdaptiveScanConfig, indent: usize) -> String {
                     ThresholdOp::GreaterThan => ">",
                     ThresholdOp::EqualWithin { tolerance } => &format!("== (+/-{})", tolerance),
                 };
-                code.push_str(&format!(
-                    "{}//   {}: {} {} {}\n",
+                let _ = writeln!(
+                    code,
+                    "{}//   {}: {} {} {}",
                     ind,
                     i + 1,
                     device_id,
                     op_str,
                     value
-                ));
+                );
             }
             TriggerCondition::PeakDetection {
                 device_id,
                 min_prominence,
                 min_height,
             } => {
-                code.push_str(&format!(
-                    "{}//   {}: Peak detection on {} (prominence >= {}{})\n",
+                let _ = writeln!(
+                    code,
+                    "{}//   {}: Peak detection on {} (prominence >= {}{})",
                     ind,
                     i + 1,
                     device_id,
                     min_prominence,
                     min_height.map_or(String::new(), |h| format!(", height >= {}", h))
-                ));
+                );
             }
         }
     }
@@ -565,48 +582,42 @@ fn adaptive_scan_to_rhai(config: &AdaptiveScanConfig, indent: usize) -> String {
         AdaptiveAction::AcquireAtPeak => "Trigger acquisition at peak",
         AdaptiveAction::MarkAndContinue => "Mark peak location and continue",
     };
-    code.push_str(&format!("{}// Action: {}\n", ind, action_str));
+    let _ = writeln!(code, "{}// Action: {}", ind, action_str);
     if config.require_approval {
-        code.push_str(&format!(
-            "{}// (requires user approval before action)\n",
-            ind
-        ));
+        let _ = writeln!(code, "{}// (requires user approval before action)", ind);
     }
 
-    code.push_str(&format!(
-        "{}// TODO: AdaptiveScan requires runtime trigger evaluation\n",
+    let _ = writeln!(
+        code,
+        "{}// TODO: AdaptiveScan requires runtime trigger evaluation",
         ind
-    ));
-    code.push_str(&format!("{}// Falling back to regular scan for now\n", ind));
+    );
+    let _ = writeln!(code, "{}// Falling back to regular scan for now", ind);
 
     // Generate basic scan as fallback
-    code.push_str(&format!("{}for i in 0..{} {{\n", ind, config.scan.points));
+    let _ = writeln!(code, "{}for i in 0..{} {{", ind, config.scan.points);
 
     let body_ind = indent_str(indent + 1);
 
     if config.scan.points > 1 {
-        code.push_str(&format!(
-            "{}let pos = {} + ({} - {}) * i / ({} - 1);\n",
+        let _ = writeln!(
+            code,
+            "{}let pos = {} + ({} - {}) * i / ({} - 1);",
             body_ind, config.scan.start, config.scan.stop, config.scan.start, config.scan.points
-        ));
+        );
     } else {
-        code.push_str(&format!("{}let pos = {};\n", body_ind, config.scan.start));
+        let _ = writeln!(code, "{}let pos = {};", body_ind, config.scan.start);
     }
 
-    code.push_str(&format!(
-        "{}{}.move_abs(pos);\n",
+    let _ = writeln!(code, "{}{}.move_abs(pos);", body_ind, config.scan.actuator);
+    let _ = writeln!(code, "{}{}.wait_settled();", body_ind, config.scan.actuator);
+    let _ = writeln!(
+        code,
+        "{}yield_event(#{{ \"{}\": pos }});",
         body_ind, config.scan.actuator
-    ));
-    code.push_str(&format!(
-        "{}{}.wait_settled();\n",
-        body_ind, config.scan.actuator
-    ));
-    code.push_str(&format!(
-        "{}yield_event(#{{ \"{}\": pos }});\n",
-        body_ind, config.scan.actuator
-    ));
+    );
 
-    code.push_str(&format!("{}}}\n", ind));
+    let _ = writeln!(code, "{}}}", ind);
 
     code
 }
@@ -790,8 +801,8 @@ mod tests {
 
         assert!(code.contains("TODO"));
         assert!(code.contains("sensor"));
-        assert!(code.contains(">"));
-        assert!(code.contains("5"));
+        assert!(code.contains('>'));
+        assert!(code.contains('5'));
     }
 
     #[test]

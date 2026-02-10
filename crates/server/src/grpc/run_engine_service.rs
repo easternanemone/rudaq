@@ -275,7 +275,7 @@ impl RunEngineService for RunEngineServiceImpl {
         _request: Request<PauseEngineRequest>,
     ) -> Result<Response<PauseEngineResponse>, Status> {
         match self.engine.pause().await {
-            Ok(_) => Ok(Response::new(PauseEngineResponse {
+            Ok(()) => Ok(Response::new(PauseEngineResponse {
                 success: true,
                 paused_at: "checkpoint".to_string(),
             })),

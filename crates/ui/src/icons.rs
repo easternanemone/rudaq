@@ -1,7 +1,8 @@
+// Icon constants defined ahead of use across UI panels (bd-m5fh.4.2).
+#![allow(dead_code)]
 //! Icon library using egui-phosphor.
 //!
 //! Some icons are defined for future use and may not currently be referenced.
-#![allow(dead_code)]
 
 pub use egui_phosphor::regular::*;
 pub use egui_phosphor::Variant;

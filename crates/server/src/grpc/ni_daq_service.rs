@@ -1,3 +1,4 @@
+// Deliberate explicit control flow structure for readability in complex DAQ logic (bd-m5fh.4.2).
 #![allow(clippy::collapsible_if)]
 //! NI DAQ Service implementation for Comedi hardware control (bd-czem)
 //!

@@ -350,3 +350,141 @@ jobs:
           else
             echo "✅ No stale file references found"
           fi
+
+  # ============================================================================
+  # Lint Regression Gate (bd-m5fh.4.3)
+  # ============================================================================
+  # Blocks PRs that introduce new warnings in core crates.
+  # Core crates have achieved zero-warning baseline and must not regress.
+  lint-regression:
+    name: Lint Regression Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-daq
+        with:
+          components: clippy
+          cache-key: lint-regression
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy - core crates (zero-warning baseline)
+        run: |
+          echo "### Lint Regression Gate" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Core crates that must maintain zero warnings.
+          # Add crates here as they achieve zero-warning status.
+          CORE_CRATES=(
+            "driver-pvcam"
+            "common"
+            "pool"
+          )
+
+          FAILURES=0
+          for crate in "${CORE_CRATES[@]}"; do
+            echo "Checking $crate..." >&2
+            if cargo clippy -p "$crate" --all-targets -- -D warnings 2>&1; then
+              echo "✅ **$crate** - zero warnings" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ **$crate** - new warnings detected" >> $GITHUB_STEP_SUMMARY
+              FAILURES=$((FAILURES + 1))
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$FAILURES" -gt 0 ]; then
+            echo "❌ $FAILURES core crate(s) have lint regressions." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Fix:** Run \`cargo clippy -p <crate> --all-targets -- -D warnings\` locally." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "✅ All core crates maintain zero-warning baseline." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Clippy - workspace (non-blocking audit)
+        if: always()
+        run: |
+          # Run clippy on full workspace for visibility, but don't block.
+          # Excluded crates have known allows or are hardware-specific.
+          cargo clippy --workspace --all-targets \
+            --exclude ui \
+            --exclude driver-dover-motion \
+            --exclude driver-andor-sdk3 \
+            --exclude dover-motion-sys \
+            --exclude andor-sdk3-sys \
+            --exclude comedi-sys \
+            --exclude driver-comedi \
+            -- -D warnings 2>&1 | tee /tmp/clippy-workspace.log || true
+
+          WARNING_COUNT=$(grep -Ec '^warning(:|\\[)' /tmp/clippy-workspace.log || true)
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Workspace audit:** $WARNING_COUNT warning(s) in non-core crates (non-blocking)" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # Anti-Pattern Detection (bd-m5fh.8.3)
+  # ============================================================================
+  # Scans for debt anti-patterns introduced in PRs.
+  # Runs on all PRs but only reports on changed files.
+  anti-pattern:
+    name: Anti-Pattern Detection
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed Rust files
+        id: changed
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE" "$HEAD" -- '*.rs' | grep -v '/tests/' | grep -v '_test.rs' || true)
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          COUNT=$(printf '%s\n' "$CHANGED" | awk 'NF{c++} END{print c+0}')
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Scan for anti-patterns
+        if: steps.changed.outputs.count != '0'
+        run: |
+          echo "### Anti-Pattern Scan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          WARNINGS=0
+
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            [ ! -f "$file" ] && continue
+
+            # Check for std::thread::sleep in non-test code
+            if grep -n 'std::thread::sleep\|thread::sleep(' "$file" 2>/dev/null; then
+              echo "⚠️ \`$file\`: \`std::thread::sleep\` found — use \`tokio::time::sleep\` in async code" >> $GITHUB_STEP_SUMMARY
+              WARNINGS=$((WARNINGS + 1))
+            fi
+
+            # Check for #[allow(...)] without rationale
+            if grep -Pn '#\[allow\(' "$file" 2>/dev/null | grep -v '// Rationale:' | grep -v '// SAFETY:' | grep -v '#\[cfg_attr' | grep -v 'dead_code' > /tmp/allow_hits.txt 2>/dev/null; then
+              if [ -s /tmp/allow_hits.txt ]; then
+                echo "⚠️ \`$file\`: \`#[allow(...)]\` without rationale comment" >> $GITHUB_STEP_SUMMARY
+                WARNINGS=$((WARNINGS + 1))
+              fi
+            fi
+          done <<< "${{ steps.changed.outputs.files }}"
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "$WARNINGS" -gt 0 ]; then
+            echo "⚠️ Found $WARNINGS anti-pattern warning(s). See CONTRIBUTING.md for guidelines." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No anti-patterns detected in changed files." >> $GITHUB_STEP_SUMMARY
+          fi

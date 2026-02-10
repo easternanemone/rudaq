@@ -11,6 +11,12 @@
 //! - **Gain Control**: Gain index and multiplication factor (bd-doju)
 //! - **Temperature**: Sensor temperature monitoring and setpoint
 
+mod enums;
+mod types;
+
+pub use enums::*;
+pub use types::*;
+
 use crate::components::connection::PvcamConnection;
 #[cfg(any(feature = "pvcam_sdk", feature = "pvcam_hardware"))]
 use anyhow::anyhow;
@@ -22,721 +28,6 @@ use crate::components::connection::get_pvcam_error;
 use pvcam_sys::*;
 #[cfg(feature = "pvcam_sdk")]
 use std::ffi::CStr;
-
-// =============================================================================
-// Data Structures
-// =============================================================================
-
-/// Comprehensive camera information (bd-565x)
-#[derive(Debug, Clone)]
-pub struct CameraInfo {
-    /// Camera serial number (alphanumeric)
-    pub serial_number: String,
-    /// Firmware version string
-    pub firmware_version: String,
-    /// Sensor chip name (e.g., "GS2020" for Prime BSI)
-    pub chip_name: String,
-    /// Current sensor temperature in Celsius
-    pub temperature_c: f64,
-    /// Bit depth for current speed mode
-    pub bit_depth: u16,
-    /// Pixel readout time in nanoseconds
-    pub pixel_time_ns: u32,
-    /// Pixel size in nanometers (width, height)
-    pub pixel_size_nm: (u32, u32),
-    /// Sensor size in pixels (width, height)
-    pub sensor_size: (u32, u32),
-    /// Current gain mode name
-    pub gain_name: String,
-    /// Current speed mode name
-    pub speed_name: String,
-    /// Current readout port name
-    pub port_name: String,
-    /// Current gain index
-    pub gain_index: u16,
-    /// Current speed table index
-    pub speed_index: u16,
-}
-
-#[derive(Debug, Clone)]
-pub struct GainMode {
-    pub index: u16,
-    pub name: String,
-}
-
-/// Speed mode entry from the camera's speed table (bd-v54z)
-#[derive(Debug, Clone)]
-pub struct SpeedMode {
-    /// Speed table index
-    pub index: u16,
-    /// Display name (e.g., "100 MHz")
-    pub name: String,
-    /// Pixel readout time in nanoseconds
-    pub pixel_time_ns: u32,
-    /// Bit depth at this speed
-    pub bit_depth: u16,
-    /// Associated readout port index
-    pub port_index: u16,
-}
-
-/// Readout port entry (bd-v54z)
-#[derive(Debug, Clone)]
-pub struct ReadoutPort {
-    /// Port index
-    pub index: u16,
-    /// Port name (e.g., "Sensitivity", "Speed")
-    pub name: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FanSpeed {
-    High,
-    Medium,
-    Low,
-    Off,
-}
-
-impl FanSpeed {
-    pub fn from_pvcam(value: i32) -> Self {
-        match value {
-            0 => FanSpeed::High,
-            1 => FanSpeed::Medium,
-            2 => FanSpeed::Low,
-            3 => FanSpeed::Off,
-            _ => FanSpeed::High,
-        }
-    }
-
-    pub fn to_pvcam(self) -> i32 {
-        match self {
-            FanSpeed::High => 0,
-            FanSpeed::Medium => 1,
-            FanSpeed::Low => 2,
-            FanSpeed::Off => 3,
-        }
-    }
-
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "High" => FanSpeed::High,
-            "Medium" => FanSpeed::Medium,
-            "Low" => FanSpeed::Low,
-            "Off" => FanSpeed::Off,
-            _ => FanSpeed::High,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            FanSpeed::High => "High",
-            FanSpeed::Medium => "Medium",
-            FanSpeed::Low => "Low",
-            FanSpeed::Off => "Off",
-        }
-    }
-
-    pub fn all_choices() -> Vec<String> {
-        vec!["High".into(), "Medium".into(), "Low".into(), "Off".into()]
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct PPFeature {
-    pub index: u16,
-    pub id: u16,
-    pub name: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct PPParam {
-    pub index: u16,
-    pub id: u16,
-    pub name: String,
-    pub value: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CentroidsMode {
-    Locate,
-    Track,
-    Blob,
-}
-
-impl CentroidsMode {
-    pub fn from_pvcam(value: i32) -> Self {
-        match value {
-            0 => CentroidsMode::Locate,
-            1 => CentroidsMode::Track,
-            2 => CentroidsMode::Blob,
-            _ => CentroidsMode::Locate,
-        }
-    }
-
-    pub fn to_pvcam(self) -> i32 {
-        match self {
-            CentroidsMode::Locate => 0,
-            CentroidsMode::Track => 1,
-            CentroidsMode::Blob => 2,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct CentroidsConfig {
-    pub mode: CentroidsMode,
-    pub radius: u16,
-    pub max_count: u16,
-    pub threshold: u32,
-}
-
-// =============================================================================
-// Smart Streaming Types (bd-0zge)
-// =============================================================================
-
-/// A single entry in a hardware-timed Smart Streaming sequence (bd-0zge)
-///
-/// Smart Streaming allows loading a sequence of varying exposure times
-/// directly onto the camera FPGA, eliminating USB communication jitter
-/// between frames. Useful for HDR imaging and time-lapse with varying exposures.
-#[derive(Debug, Clone, Copy)]
-pub struct SmartStreamEntry {
-    /// Exposure time in milliseconds for this frame
-    pub exposure_ms: u32,
-}
-
-/// Smart Streaming mode options (bd-0zge)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SmartStreamMode {
-    /// Exposures only - varying exposure times per frame
-    Exposures,
-    /// Interleaved mode (if supported)
-    Interleaved,
-}
-
-impl SmartStreamMode {
-    pub fn from_pvcam(value: i32) -> Self {
-        match value {
-            0 => SmartStreamMode::Exposures,
-            1 => SmartStreamMode::Interleaved,
-            _ => SmartStreamMode::Exposures,
-        }
-    }
-
-    pub fn to_pvcam(self) -> i32 {
-        match self {
-            SmartStreamMode::Exposures => 0,
-            SmartStreamMode::Interleaved => 1,
-        }
-    }
-
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "Exposures" => SmartStreamMode::Exposures,
-            "Interleaved" => SmartStreamMode::Interleaved,
-            _ => SmartStreamMode::Exposures,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            SmartStreamMode::Exposures => "Exposures",
-            SmartStreamMode::Interleaved => "Interleaved",
-        }
-    }
-
-    pub fn all_choices() -> Vec<String> {
-        vec!["Exposures".into(), "Interleaved".into()]
-    }
-}
-
-// =============================================================================
-// Shutter Control Types (bd-e8ah)
-// =============================================================================
-
-/// Shutter open mode settings (bd-e8ah)
-///
-/// Controls the physical shutter behavior or TTL "Expose Out" signal
-/// for triggering external light sources.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShutterMode {
-    /// Normal operation - shutter opens during exposure
-    Normal,
-    /// Shutter always open (for external shutter control)
-    Open,
-    /// Shutter always closed (for dark frames)
-    Closed,
-    /// No shutter installed/disabled
-    None,
-    /// Open before trigger (pre-open mode)
-    PreOpen,
-}
-
-impl ShutterMode {
-    pub fn from_pvcam(value: i32) -> Self {
-        match value {
-            0 => ShutterMode::Normal,
-            1 => ShutterMode::Open,
-            2 => ShutterMode::Closed,
-            3 => ShutterMode::None,
-            4 => ShutterMode::PreOpen,
-            _ => ShutterMode::Normal,
-        }
-    }
-
-    pub fn to_pvcam(self) -> i32 {
-        match self {
-            ShutterMode::Normal => 0,
-            ShutterMode::Open => 1,
-            ShutterMode::Closed => 2,
-            ShutterMode::None => 3,
-            ShutterMode::PreOpen => 4,
-        }
-    }
-
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "Normal" => ShutterMode::Normal,
-            "Open" => ShutterMode::Open,
-            "Closed" => ShutterMode::Closed,
-            "None" => ShutterMode::None,
-            "PreOpen" => ShutterMode::PreOpen,
-            _ => ShutterMode::Normal,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ShutterMode::Normal => "Normal",
-            ShutterMode::Open => "Open",
-            ShutterMode::Closed => "Closed",
-            ShutterMode::None => "None",
-            ShutterMode::PreOpen => "PreOpen",
-        }
-    }
-
-    pub fn all_choices() -> Vec<String> {
-        vec![
-            "Normal".into(),
-            "Open".into(),
-            "Closed".into(),
-            "None".into(),
-            "PreOpen".into(),
-        ]
-    }
-}
-
-/// Shutter status reported by camera (bd-e8ah)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShutterStatus {
-    /// Shutter is closed
-    Closed,
-    /// Shutter is open
-    Open,
-    /// Shutter is opening
-    Opening,
-    /// Shutter is closing
-    Closing,
-    /// Shutter fault detected
-    Fault,
-    /// Status unknown
-    Unknown,
-}
-
-impl ShutterStatus {
-    pub fn from_pvcam(value: i32) -> Self {
-        match value {
-            0 => ShutterStatus::Closed,
-            1 => ShutterStatus::Open,
-            2 => ShutterStatus::Opening,
-            3 => ShutterStatus::Closing,
-            4 => ShutterStatus::Fault,
-            _ => ShutterStatus::Unknown,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ShutterStatus::Closed => "Closed",
-            ShutterStatus::Open => "Open",
-            ShutterStatus::Opening => "Opening",
-            ShutterStatus::Closing => "Closing",
-            ShutterStatus::Fault => "Fault",
-            ShutterStatus::Unknown => "Unknown",
-        }
-    }
-
-    pub fn all_choices() -> Vec<String> {
-        vec![
-            "Closed".into(),
-            "Open".into(),
-            "Opening".into(),
-            "Closing".into(),
-            "Fault".into(),
-            "Unknown".into(),
-        ]
-    }
-}
-
-// =============================================================================
-// Triggering & Exposure Mode Types (bd-iai9)
-// =============================================================================
-
-/// Exposure mode settings (bd-iai9)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExposureMode {
-    /// Internal timing - camera controls exposure
-    Timed,
-    /// Strobe mode - external strobe signal
-    Strobe,
-    /// Bulb mode - exposure controlled by external signal duration
-    Bulb,
-    /// Trigger first - wait for trigger, then start exposure
-    TriggerFirst,
-    /// External edge trigger
-    EdgeTrigger,
-}
-
-impl ExposureMode {
-    pub fn from_pvcam(value: i32) -> Self {
-        match value {
-            0 => ExposureMode::Timed,
-            1 => ExposureMode::Strobe,
-            2 => ExposureMode::Bulb,
-            3 => ExposureMode::TriggerFirst,
-            4 => ExposureMode::EdgeTrigger,
-            _ => ExposureMode::Timed,
-        }
-    }
-
-    pub fn to_pvcam(self) -> i32 {
-        match self {
-            ExposureMode::Timed => 0,
-            ExposureMode::Strobe => 1,
-            ExposureMode::Bulb => 2,
-            ExposureMode::TriggerFirst => 3,
-            ExposureMode::EdgeTrigger => 4,
-        }
-    }
-
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "Timed" => ExposureMode::Timed,
-            "Strobe" => ExposureMode::Strobe,
-            "Bulb" => ExposureMode::Bulb,
-            "TriggerFirst" => ExposureMode::TriggerFirst,
-            "EdgeTrigger" => ExposureMode::EdgeTrigger,
-            _ => ExposureMode::Timed,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ExposureMode::Timed => "Timed",
-            ExposureMode::Strobe => "Strobe",
-            ExposureMode::Bulb => "Bulb",
-            ExposureMode::TriggerFirst => "TriggerFirst",
-            ExposureMode::EdgeTrigger => "EdgeTrigger",
-        }
-    }
-
-    pub fn all_choices() -> Vec<String> {
-        vec![
-            "Timed".into(),
-            "Strobe".into(),
-            "Bulb".into(),
-            "TriggerFirst".into(),
-            "EdgeTrigger".into(),
-        ]
-    }
-}
-
-/// Clear mode settings for CCD clearing (bd-iai9)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ClearMode {
-    /// Never clear
-    Never,
-    /// Clear before each exposure
-    PreExposure,
-    /// Clear before sequence
-    PreSequence,
-    /// Clear after sequence
-    PostSequence,
-    /// Clear before and after exposure
-    PrePostSequence,
-    /// Clear before each frame in sequence
-    PreExposurePostSequence,
-}
-
-impl ClearMode {
-    pub fn from_pvcam(value: i32) -> Self {
-        match value {
-            0 => ClearMode::Never,
-            1 => ClearMode::PreExposure,
-            2 => ClearMode::PreSequence,
-            3 => ClearMode::PostSequence,
-            4 => ClearMode::PrePostSequence,
-            5 => ClearMode::PreExposurePostSequence,
-            _ => ClearMode::PreExposure,
-        }
-    }
-
-    pub fn to_pvcam(self) -> i32 {
-        match self {
-            ClearMode::Never => 0,
-            ClearMode::PreExposure => 1,
-            ClearMode::PreSequence => 2,
-            ClearMode::PostSequence => 3,
-            ClearMode::PrePostSequence => 4,
-            ClearMode::PreExposurePostSequence => 5,
-        }
-    }
-
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "Never" => ClearMode::Never,
-            "PreExposure" => ClearMode::PreExposure,
-            "PreSequence" => ClearMode::PreSequence,
-            "PostSequence" => ClearMode::PostSequence,
-            "PrePostSequence" => ClearMode::PrePostSequence,
-            "PreExposurePostSequence" => ClearMode::PreExposurePostSequence,
-            _ => ClearMode::PreExposure,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ClearMode::Never => "Never",
-            ClearMode::PreExposure => "PreExposure",
-            ClearMode::PreSequence => "PreSequence",
-            ClearMode::PostSequence => "PostSequence",
-            ClearMode::PrePostSequence => "PrePostSequence",
-            ClearMode::PreExposurePostSequence => "PreExposurePostSequence",
-        }
-    }
-
-    pub fn all_choices() -> Vec<String> {
-        vec![
-            "Never".into(),
-            "PreExposure".into(),
-            "PreSequence".into(),
-            "PostSequence".into(),
-            "PrePostSequence".into(),
-            "PreExposurePostSequence".into(),
-        ]
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExposureResolution {
-    Milliseconds,
-    Microseconds,
-    Seconds,
-}
-
-impl ExposureResolution {
-    pub fn from_pvcam(value: i32) -> Self {
-        match value {
-            0 => ExposureResolution::Milliseconds,
-            1 => ExposureResolution::Microseconds,
-            2 => ExposureResolution::Seconds,
-            _ => ExposureResolution::Milliseconds,
-        }
-    }
-
-    pub fn to_pvcam(self) -> i32 {
-        match self {
-            ExposureResolution::Milliseconds => 0,
-            ExposureResolution::Microseconds => 1,
-            ExposureResolution::Seconds => 2,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FrameRotate {
-    None,
-    Rotate90CW,
-    Rotate180CW,
-    Rotate270CW,
-}
-
-impl FrameRotate {
-    pub fn from_pvcam(value: i32) -> Self {
-        match value {
-            0 => FrameRotate::None,
-            1 => FrameRotate::Rotate90CW,
-            2 => FrameRotate::Rotate180CW,
-            3 => FrameRotate::Rotate270CW,
-            _ => FrameRotate::None,
-        }
-    }
-
-    pub fn to_pvcam(self) -> i32 {
-        match self {
-            FrameRotate::None => 0,
-            FrameRotate::Rotate90CW => 1,
-            FrameRotate::Rotate180CW => 2,
-            FrameRotate::Rotate270CW => 3,
-        }
-    }
-
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "None" => FrameRotate::None,
-            "90 CW" => FrameRotate::Rotate90CW,
-            "180 CW" => FrameRotate::Rotate180CW,
-            "270 CW" => FrameRotate::Rotate270CW,
-            _ => FrameRotate::None,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            FrameRotate::None => "None",
-            FrameRotate::Rotate90CW => "90 CW",
-            FrameRotate::Rotate180CW => "180 CW",
-            FrameRotate::Rotate270CW => "270 CW",
-        }
-    }
-
-    pub fn all_choices() -> Vec<String> {
-        vec![
-            "None".into(),
-            "90 CW".into(),
-            "180 CW".into(),
-            "270 CW".into(),
-        ]
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FrameFlip {
-    None,
-    FlipX,
-    FlipY,
-    FlipXY,
-}
-
-impl FrameFlip {
-    pub fn from_pvcam(value: i32) -> Self {
-        match value {
-            0 => FrameFlip::None,
-            1 => FrameFlip::FlipX,
-            2 => FrameFlip::FlipY,
-            3 => FrameFlip::FlipXY,
-            _ => FrameFlip::None,
-        }
-    }
-
-    pub fn to_pvcam(self) -> i32 {
-        match self {
-            FrameFlip::None => 0,
-            FrameFlip::FlipX => 1,
-            FrameFlip::FlipY => 2,
-            FrameFlip::FlipXY => 3,
-        }
-    }
-
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "None" => FrameFlip::None,
-            "X" => FrameFlip::FlipX,
-            "Y" => FrameFlip::FlipY,
-            "XY" => FrameFlip::FlipXY,
-            _ => FrameFlip::None,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            FrameFlip::None => "None",
-            FrameFlip::FlipX => "X",
-            FrameFlip::FlipY => "Y",
-            FrameFlip::FlipXY => "XY",
-        }
-    }
-
-    pub fn all_choices() -> Vec<String> {
-        vec!["None".into(), "X".into(), "Y".into(), "XY".into()]
-    }
-}
-
-/// Expose out mode - controls the expose_out signal (bd-iai9)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExposeOutMode {
-    /// First row exposure timing
-    FirstRow,
-    /// All rows exposure timing
-    AllRows,
-    /// Any row exposure timing
-    AnyRow,
-    /// Rolling shutter mode
-    RollingShutter,
-    /// Line output mode
-    LineOutput,
-}
-
-impl ExposeOutMode {
-    pub fn from_pvcam(value: i32) -> Self {
-        match value {
-            0 => ExposeOutMode::FirstRow,
-            1 => ExposeOutMode::AllRows,
-            2 => ExposeOutMode::AnyRow,
-            3 => ExposeOutMode::RollingShutter,
-            4 => ExposeOutMode::LineOutput,
-            _ => ExposeOutMode::FirstRow,
-        }
-    }
-
-    pub fn to_pvcam(self) -> i32 {
-        match self {
-            ExposeOutMode::FirstRow => 0,
-            ExposeOutMode::AllRows => 1,
-            ExposeOutMode::AnyRow => 2,
-            ExposeOutMode::RollingShutter => 3,
-            ExposeOutMode::LineOutput => 4,
-        }
-    }
-
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "FirstRow" => ExposeOutMode::FirstRow,
-            "AllRows" => ExposeOutMode::AllRows,
-            "AnyRow" => ExposeOutMode::AnyRow,
-            "RollingShutter" => ExposeOutMode::RollingShutter,
-            "LineOutput" => ExposeOutMode::LineOutput,
-            _ => ExposeOutMode::FirstRow,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ExposeOutMode::FirstRow => "FirstRow",
-            ExposeOutMode::AllRows => "AllRows",
-            ExposeOutMode::AnyRow => "AnyRow",
-            ExposeOutMode::RollingShutter => "RollingShutter",
-            ExposeOutMode::LineOutput => "LineOutput",
-        }
-    }
-
-    pub fn all_choices() -> Vec<String> {
-        vec![
-            "FirstRow".into(),
-            "AllRows".into(),
-            "AnyRow".into(),
-            "RollingShutter".into(),
-            "LineOutput".into(),
-        ]
-    }
-}
 
 // =============================================================================
 // Feature Logic
@@ -1922,6 +1213,75 @@ impl PvcamFeatures {
     }
 
     // =========================================================================
+    // Exposure Time (bd-aruo.1)
+    // =========================================================================
+
+    /// Set exposure time in milliseconds (bd-aruo.1)
+    ///
+    /// Writes PARAM_EXP_TIME to the PVCAM SDK. The value is converted to the
+    /// camera's current exposure resolution units before writing.
+    ///
+    /// Note: This parameter is used at acquisition setup time. Changes take
+    /// effect on the next `start_stream()` or `acquire_single_frame()` call.
+    /// Some cameras also support live updates during streaming.
+    ///
+    /// # SDK Pattern (bd-smn3)
+    /// Checks PARAM_EXP_TIME availability before access.
+    pub fn set_exposure_time_ms(_conn: &PvcamConnection, _ms: f64) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            // Check if PARAM_EXP_TIME is available and writable
+            if !Self::is_param_available(h, PARAM_EXP_TIME) {
+                // Not all cameras expose PARAM_EXP_TIME as writable.
+                // The exposure value is still used at acquisition setup.
+                tracing::debug!("PARAM_EXP_TIME not available — value stored for next acquisition");
+                return Ok(());
+            }
+
+            // Get current exposure resolution to convert ms to correct units
+            let exp_res = Self::get_exposure_resolution(_conn)?;
+            let value: uns32 = match exp_res {
+                ExposureResolution::Milliseconds => _ms as uns32,
+                ExposureResolution::Microseconds => (_ms * 1000.0) as uns32,
+                ExposureResolution::Seconds => {
+                    let secs = _ms / 1000.0;
+                    if secs < 1.0 {
+                        tracing::warn!(
+                            requested_ms = _ms,
+                            "Exposure {_ms}ms cannot be represented in seconds resolution (min 1s)"
+                        );
+                        return Err(anyhow!(
+                            "Exposure {_ms}ms below minimum 1s for camera seconds-resolution mode"
+                        ));
+                    }
+                    secs as uns32
+                }
+            };
+
+            unsafe {
+                // SAFETY: h is valid handle from successful pl_cam_open();
+                // value pointer is valid stack-allocated uns32 for duration of call.
+                if pl_set_param(h, PARAM_EXP_TIME, &value as *const _ as *mut _) == 0 {
+                    let err = get_pvcam_error();
+                    return Err(anyhow!("Failed to set PARAM_EXP_TIME: {}", err));
+                }
+            }
+            tracing::debug!(
+                exposure_ms = _ms,
+                sdk_value = value,
+                ?exp_res,
+                "PARAM_EXP_TIME set"
+            );
+        }
+        #[cfg(not(feature = "pvcam_sdk"))]
+        {
+            let mut state = _conn.mock_state.lock().unwrap();
+            state.exposure_time_ms = _ms;
+        }
+        Ok(())
+    }
+
+    // =========================================================================
     // ADC & Sensor Parameters (bd-i2k7.2, bd-i2k7.3)
     // =========================================================================
 
@@ -2604,6 +1964,35 @@ impl PvcamFeatures {
         }
         // Mock mode - common binning factors
         Ok(vec![1, 2, 4, 8])
+    }
+
+    /// Set hardware binning (serial, parallel) (bd-aruo.5)
+    ///
+    /// Writes PARAM_BINNING_SER and PARAM_BINNING_PAR. The new binning takes
+    /// effect at the next acquisition setup; cannot be changed while streaming.
+    pub fn set_binning(_conn: &PvcamConnection, _serial: u16, _parallel: u16) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            let ser_val = _serial as i32;
+            let par_val = _parallel as i32;
+            unsafe {
+                // SAFETY: h is valid handle; value pointers are valid stack-allocated i32.
+                if pl_set_param(h, PARAM_BINNING_SER, &ser_val as *const _ as *mut _) == 0 {
+                    return Err(anyhow!(
+                        "Failed to set serial binning: {}",
+                        get_pvcam_error()
+                    ));
+                }
+                if pl_set_param(h, PARAM_BINNING_PAR, &par_val as *const _ as *mut _) == 0 {
+                    return Err(anyhow!(
+                        "Failed to set parallel binning: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+            tracing::debug!(serial = _serial, parallel = _parallel, "PARAM_BINNING set");
+        }
+        Ok(())
     }
 
     /// Get current binning as (serial, parallel) (bd-fqi8)

@@ -6,6 +6,7 @@
 //! Note: Currently unused - panel selection is inline in `render_device_control_panel`.
 //! This module is retained for future refactoring to centralize panel dispatch logic.
 
+// Module retained for future panel dispatch refactoring (bd-m5fh.4.2).
 #![allow(dead_code)]
 
 use crate::device_ext::DeviceInfoExt;

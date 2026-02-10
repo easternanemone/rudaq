@@ -397,7 +397,7 @@ async fn start_daemon(
                     eprintln!("❌ gRPC server error: {}", e);
                 }
             }
-            _ = shutdown_signal => {
+            () = shutdown_signal => {
                 println!("   Initiating graceful shutdown...");
             }
         }

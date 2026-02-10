@@ -319,7 +319,7 @@ impl RunEngine {
 
             tokio::select! {
                 // Timeout branch
-                _ = async {
+                () = async {
                     if let Some(duration) = timeout_duration {
                         tokio::time::sleep(duration).await;
                     } else {
@@ -331,7 +331,7 @@ impl RunEngine {
                     stop_reason = StopReason::Abort;
                 }
                 // Document processing branch
-                _ = async {
+                () = async {
                     while let Some(doc) = doc_rx.recv().await {
                         if matches!(doc, Document::Event(_)) {
                             num_events += 1;

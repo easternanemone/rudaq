@@ -188,6 +188,9 @@ pub struct DaqServer {
     /// Scripts use ScriptPlanRunner which executes plans through this engine,
     /// ensuring all script operations emit Documents and coordinate with gRPC services.
     run_engine: Arc<RunEngine>,
+    #[cfg(feature = "scripting")]
+    /// Persistent journal for script crash recovery (bd-izdj.7)
+    script_journal: Arc<crate::script_journal::ScriptJournal>,
     start_time: SystemTime,
 
     /// Broadcast channel for distributing hardware measurements to multiple consumers.
@@ -247,24 +250,23 @@ impl DaqServer {
                     loop {
                         match data_rx.recv().await {
                             Ok(data_point) => {
-                                if let Err(err) = rb_tx.try_send(data_point) {
-                                    if matches!(err, mpsc::error::TrySendError::Full(_)) {
-                                        let dropped =
-                                            drop_counter.fetch_add(1, Ordering::Relaxed) + 1;
-                                        if dropped % 100 == 0 {
-                                            tracing::warn!(
-                                                dropped = dropped,
-                                                "Dropped {} measurements while ring buffer writer was saturated",
-                                                dropped
-                                            );
-                                        }
+                                if let Err(err) = rb_tx.try_send(data_point)
+                                    && matches!(err, mpsc::error::TrySendError::Full(_))
+                                {
+                                    let dropped = drop_counter.fetch_add(1, Ordering::Relaxed) + 1;
+                                    if dropped.is_multiple_of(100) {
+                                        tracing::warn!(
+                                            dropped = dropped,
+                                            "Dropped {} measurements while ring buffer writer was saturated",
+                                            dropped
+                                        );
                                     }
                                 }
                             }
                             Err(broadcast::error::RecvError::Lagged(skipped)) => {
                                 // Throttle lag warnings to every 100 events (bd-jnfu.15)
                                 total_lagged += skipped;
-                                if total_lagged % 100 == 0 || skipped > 50 {
+                                if total_lagged.is_multiple_of(100) || skipped > 50 {
                                     tracing::warn!(
                                         skipped = total_lagged,
                                         "Measurement stream lagged, total skipped {} messages",
@@ -295,6 +297,39 @@ impl DaqServer {
             });
         }
 
+        // Initialize script journal for crash recovery (bd-izdj.7)
+        #[cfg(feature = "scripting")]
+        let script_journal = Arc::new(
+            crate::script_journal::ScriptJournal::default_dir()
+                .map_err(|e| format!("failed to initialize script journal: {}", e))?,
+        );
+
+        // Check for interrupted scripts from previous daemon runs
+        #[cfg(feature = "scripting")]
+        {
+            match script_journal.find_interrupted() {
+                Ok(interrupted) if !interrupted.is_empty() => {
+                    tracing::warn!(
+                        count = interrupted.len(),
+                        "Found {} interrupted script(s) from previous daemon run",
+                        interrupted.len()
+                    );
+                    for entry in &interrupted {
+                        tracing::info!(
+                            execution_id = %entry.execution_id,
+                            script_id = %entry.script_id,
+                            checkpoint = ?entry.checkpoint_name,
+                            "Interrupted script marked for review"
+                        );
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::warn!("Failed to scan for interrupted scripts: {}", e);
+                }
+            }
+        }
+
         Ok(Self {
             #[cfg(feature = "scripting")]
             script_engine: Arc::new(RwLock::new(RhaiEngine::with_hardware().map_err(|e| {
@@ -313,6 +348,8 @@ impl DaqServer {
             running_tasks: Arc::new(RwLock::new(HashMap::new())),
             #[cfg(feature = "scripting")]
             run_engine,
+            #[cfg(feature = "scripting")]
+            script_journal,
             start_time: SystemTime::now(),
             data_tx,
             #[cfg(feature = "storage_hdf5")]
@@ -328,6 +365,22 @@ impl DaqServer {
         let (data_tx, _rx) = broadcast::channel(1000);
         let data_tx = Arc::new(data_tx);
 
+        let script_journal = Arc::new(
+            crate::script_journal::ScriptJournal::default_dir()
+                .map_err(|e| format!("failed to initialize script journal: {}", e))?,
+        );
+
+        // Check for interrupted scripts from previous daemon runs
+        if let Ok(interrupted) = script_journal.find_interrupted() {
+            if !interrupted.is_empty() {
+                tracing::warn!(
+                    count = interrupted.len(),
+                    "Found {} interrupted script(s) from previous daemon run",
+                    interrupted.len()
+                );
+            }
+        }
+
         Ok(Self {
             script_engine: Arc::new(RwLock::new(RhaiEngine::with_hardware().map_err(|e| {
                 format!(
@@ -340,6 +393,7 @@ impl DaqServer {
             executions: Arc::new(RwLock::new(HashMap::new())),
             running_tasks: Arc::new(RwLock::new(HashMap::new())),
             run_engine,
+            script_journal,
             start_time: SystemTime::now(),
             data_tx,
         })
@@ -550,6 +604,14 @@ impl ControlService for DaqServer {
             },
         );
 
+        // Persist to journal for crash recovery (bd-izdj.7)
+        if let Err(e) = self
+            .script_journal
+            .start_run(&execution_id, &req.script_id, script)
+        {
+            tracing::warn!(execution_id = %execution_id, "Failed to journal script start: {}", e);
+        }
+
         // Execute script via ScriptPlanRunner using shared RunEngine (bd-si2c)
         // This ensures all yielded plans emit Documents and coordinate with gRPC services
         let script_clone = script.clone();
@@ -558,6 +620,7 @@ impl ControlService for DaqServer {
         let exec_id_clone = execution_id.clone();
         let running_tasks_clone = self.running_tasks.clone();
         let exec_id_for_cleanup = execution_id.clone();
+        let journal_clone = self.script_journal.clone();
 
         let handle = tokio::spawn(async move {
             // Create a ScriptPlanRunner with the shared RunEngine
@@ -573,10 +636,24 @@ impl ControlService for DaqServer {
                         if let Some(ref error_msg) = report.error {
                             exec.error = Some(error_msg.clone());
                         }
+                        // Journal completion/failure (bd-izdj.7)
+                        if report.success {
+                            if let Err(e) = journal_clone.complete_run(&exec_id_clone) {
+                                tracing::warn!("Failed to journal script completion: {}", e);
+                            }
+                        } else if let Some(ref err_msg) = report.error {
+                            if let Err(e) = journal_clone.fail_run(&exec_id_clone, err_msg) {
+                                tracing::warn!("Failed to journal script failure: {}", e);
+                            }
+                        }
                     }
                     Err(e) => {
                         exec.state = "ERROR".to_string();
                         exec.error = Some(e.to_string());
+                        // Journal error (bd-izdj.7)
+                        if let Err(je) = journal_clone.fail_run(&exec_id_clone, &e.to_string()) {
+                            tracing::warn!("Failed to journal script error: {}", je);
+                        }
                     }
                 }
                 exec.end_time = Some(
@@ -657,6 +734,18 @@ impl ControlService for DaqServer {
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_nanos() as u64,
+            );
+        }
+
+        // Persist stop to journal so restart doesn't show "interrupted" (bd-izdj)
+        if let Err(e) = self
+            .script_journal
+            .fail_run(&req.execution_id, "stopped by user")
+        {
+            tracing::warn!(
+                execution_id = %req.execution_id,
+                "Failed to journal script stop: {}",
+                e
             );
         }
 

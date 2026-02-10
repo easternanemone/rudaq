@@ -2298,7 +2298,7 @@ mod tests {
                 rb.write(&data).unwrap();
                 let epoch = rb.write_epoch();
 
-                prop_assert!(epoch % 2 == 0, "epoch {} should be even after write", epoch);
+                prop_assert!(epoch.is_multiple_of(2), "epoch {} should be even after write", epoch);
             }
 
             /// Property: read_snapshot length never exceeds capacity.
@@ -2416,7 +2416,7 @@ mod tests {
                 let snapshot = rb_reader.read_snapshot();
                 assert!(snapshot.len() <= rb_reader.capacity() as usize);
                 reads += 1;
-                if reads % 100 == 0 {
+                if reads.is_multiple_of(100) {
                     thread::yield_now();
                 }
             }
@@ -2433,7 +2433,7 @@ mod tests {
         let expected_total_bytes = (num_writers * writes_per_writer * payload_size) as u64;
         assert_eq!(rb.write_head(), expected_total_bytes);
         assert!(
-            rb.write_epoch() % 2 == 0,
+            rb.write_epoch().is_multiple_of(2),
             "epoch should be even after all writes"
         );
         assert!(
@@ -2587,7 +2587,7 @@ mod tests {
         }
 
         assert!(async_rb.write_head() > 0);
-        assert!(async_rb.inner().write_epoch() % 2 == 0);
+        assert!(async_rb.inner().write_epoch().is_multiple_of(2));
     }
 
     /// Stress test: rapid create/write/read/drop cycles to check resource cleanup.

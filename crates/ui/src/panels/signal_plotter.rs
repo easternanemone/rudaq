@@ -395,7 +395,7 @@ impl SignalPlotterPanel {
         // Export with default options
         let options = SignalExportOptions::default();
         match crate::export::export_signal_traces(&path, &traces, &options) {
-            Ok(_) => {
+            Ok(()) => {
                 let filename = path.file_name().unwrap_or_default().to_string_lossy();
                 self.export_status = Some((
                     format!("✓ Exported {} traces to {}", traces.len(), filename),

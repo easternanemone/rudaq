@@ -83,7 +83,7 @@ impl StubModuleInstance {
         let uptime_ns = self.start_time_ns.map(|start| {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_nanos() as u64;
             now.saturating_sub(start)
         });
@@ -541,7 +541,7 @@ impl ModuleService for ModuleServiceImpl {
                 let uptime_ns = instance.start_time_ns.map(|start| {
                     let now = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
-                        .unwrap()
+                        .unwrap_or_default()
                         .as_nanos() as u64;
                     now.saturating_sub(start)
                 });
@@ -602,7 +602,7 @@ impl ModuleService for ModuleServiceImpl {
         let uptime_ns = instance.start_time_ns.map(|start| {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_nanos() as u64;
             now.saturating_sub(start)
         });
@@ -687,11 +687,11 @@ impl ModuleService for ModuleServiceImpl {
                 let device_info = self.device_registry.get_device_info(device_id);
                 DeviceAssignment {
                     role_id: role_id.clone(),
-                    device_id: device_id.to_string(),
+                    device_id: device_id.clone(),
                     device_name: device_info
                         .as_ref()
                         .map(|i| i.name.clone())
-                        .unwrap_or_else(|| device_id.to_string()),
+                        .unwrap_or_else(|| device_id.clone()),
                     device_online: device_info.is_some(),
                 }
             })
@@ -786,11 +786,11 @@ impl ModuleService for ModuleServiceImpl {
                 let device_info = self.device_registry.get_device_info(device_id);
                 DeviceAssignment {
                     role_id: role_id.clone(),
-                    device_id: device_id.to_string(),
+                    device_id: device_id.clone(),
                     device_name: device_info
                         .as_ref()
                         .map(|i| i.name.clone())
-                        .unwrap_or_else(|| device_id.to_string()),
+                        .unwrap_or_else(|| device_id.clone()),
                     device_online: device_info.is_some(),
                 }
             })
@@ -1377,7 +1377,7 @@ impl ModuleService for ModuleServiceImpl {
 
             let start_time = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_nanos() as u64;
 
             module.state = ModuleState::ModuleRunning;
@@ -1479,7 +1479,7 @@ impl ModuleService for ModuleServiceImpl {
             let uptime = module.start_time_ns.map(|start| {
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_nanos() as u64;
                 now.saturating_sub(start)
             });

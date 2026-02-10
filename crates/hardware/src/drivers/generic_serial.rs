@@ -170,7 +170,7 @@ pub struct CommandResult {
 /// **Deprecated:** New drivers should use `driver_universal::driver::UniversalDriver` instead.
 /// This type is retained for compatibility with the `scripting` and `ui` crates.
 #[deprecated(
-    note = "Use driver_universal::driver::UniversalDriver instead. Retained for scripting/UI compatibility."
+    note = "Use driver_universal::driver::UniversalDriver instead. Retained for scripting/UI compatibility. Sunset: v1.0"
 )]
 #[derive(Clone)]
 pub struct GenericSerialDriver {

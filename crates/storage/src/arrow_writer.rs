@@ -517,7 +517,7 @@ mod tests {
                 source: "det1".to_string(),
                 dtype: "number".to_string(),
                 shape: vec![],
-                units: "".to_string(),
+                units: String::new(),
                 precision: None,
                 lower_limit: None,
                 upper_limit: None,
@@ -563,7 +563,7 @@ mod tests {
             run_uid: "test_run".to_string(),
             time_ns: 2_000_000_000,
             exit_status: "success".to_string(),
-            reason: "".to_string(),
+            reason: String::new(),
             num_events: 10,
         };
         writer.write(Document::Stop(stop)).await.unwrap();

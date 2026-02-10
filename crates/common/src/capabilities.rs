@@ -493,7 +493,7 @@ pub trait FrameProducer: Send + Sync {
     /// - None if receiver was already taken or not supported by this device
     #[deprecated(
         since = "0.2.0",
-        note = "Use register_primary_output() for zero-allocation pooled frame delivery"
+        note = "Use register_primary_output() for zero-allocation pooled frame delivery. Sunset: v1.0"
     )]
     async fn take_frame_receiver(&self) -> Option<tokio::sync::mpsc::Receiver<crate::data::Frame>> {
         // Default: no frame receiver support
@@ -551,7 +551,7 @@ pub trait FrameProducer: Send + Sync {
     /// ```
     #[deprecated(
         since = "0.3.0",
-        note = "Use register_primary_output() for primary consumers or register_observer() for secondary access"
+        note = "Use register_primary_output() for primary consumers or register_observer() for secondary access. Sunset: v1.0"
     )]
     async fn subscribe_frames(
         &self,

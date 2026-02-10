@@ -207,8 +207,8 @@ mod tests {
         assert_eq!(state.error, None);
         assert_eq!(state.status, None);
         assert_eq!(state.device_id, None);
-        assert_eq!(state.initial_fetch_done, false);
-        assert_eq!(state.auto_refresh, true);
+        assert!(!state.initial_fetch_done);
+        assert!(state.auto_refresh);
         assert_eq!(state.last_refresh, None);
     }
 
@@ -216,7 +216,7 @@ mod tests {
     fn test_device_panel_state_default() {
         let state: DevicePanelState<TestAction> = DevicePanelState::default();
         assert_eq!(state.actions_in_flight, 0);
-        assert_eq!(state.auto_refresh, true);
+        assert!(state.auto_refresh);
     }
 
     #[test]

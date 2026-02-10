@@ -367,8 +367,8 @@ fn test_waveplate_calibration_4d() {
     let (min_power, max_power) = if all_powers.is_empty() {
         (0.0, 0.0)
     } else {
-        let min = all_powers.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max = all_powers.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = all_powers.iter().copied().fold(f64::INFINITY, f64::min);
+        let max = all_powers.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         (min, max)
     };
 
@@ -592,10 +592,10 @@ fn save_4d_hdf5(
         .copied()
         .collect();
     if !valid_powers.is_empty() {
-        let min_p = valid_powers.iter().cloned().fold(f64::INFINITY, f64::min);
+        let min_p = valid_powers.iter().copied().fold(f64::INFINITY, f64::min);
         let max_p = valid_powers
             .iter()
-            .cloned()
+            .copied()
             .fold(f64::NEG_INFINITY, f64::max);
         file.new_attr::<f64>()
             .create("min_power_W")?
@@ -803,7 +803,7 @@ struct RotatorHandle<'a> {
     pulses_per_degree: f64,
 }
 
-impl<'a> RotatorHandle<'a> {
+impl RotatorHandle<'_> {
     fn move_abs(&mut self, degrees: f64) -> Result<(), Box<dyn std::error::Error>> {
         self.bus
             .move_abs(&self.address, degrees, self.pulses_per_degree)

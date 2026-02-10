@@ -579,7 +579,7 @@ impl ExperimentViewer {
                     ui.label(format!("{}:", idx + 1));
                     // Trigger type selector
                     let is_threshold = matches!(trigger, TriggerCondition::Threshold { .. });
-                    let mut trigger_type = if is_threshold { 0 } else { 1 };
+                    let mut trigger_type = i32::from(!is_threshold);
                     egui::ComboBox::from_id_salt(format!("trigger_type_{}", idx))
                         .width(80.0)
                         .selected_text(if is_threshold { "Threshold" } else { "Peak" })

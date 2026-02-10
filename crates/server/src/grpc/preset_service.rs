@@ -414,7 +414,7 @@ impl PresetServiceImpl {
                 && let Some(movable) = self.registry.get_movable(device_id)
             {
                 match movable.move_abs(pos).await {
-                    Ok(_) => applied_count += 1,
+                    Ok(()) => applied_count += 1,
                     Err(e) => errors.push(format!("Failed to move '{}': {}", device_id, e)),
                 }
             }
@@ -424,7 +424,7 @@ impl PresetServiceImpl {
                 && let Some(exposure_ctrl) = self.registry.get_exposure_control(device_id)
             {
                 match exposure_ctrl.set_exposure(exp).await {
-                    Ok(_) => applied_count += 1,
+                    Ok(()) => applied_count += 1,
                     Err(e) => errors.push(format!("Failed to set exposure '{}': {}", device_id, e)),
                 }
             }
@@ -441,7 +441,7 @@ impl PresetServiceImpl {
 
                         if let Some(parameter) = param_set.get(param_name) {
                             match parameter.set_json(value.clone()) {
-                                Ok(_) => applied_count += 1,
+                                Ok(()) => applied_count += 1,
                                 Err(e) => errors.push(format!(
                                     "Failed to set parameter '{}.{}': {}",
                                     device_id, param_name, e

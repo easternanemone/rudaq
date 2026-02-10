@@ -1,7 +1,8 @@
+// Layout constants defined ahead of use across UI panels (bd-m5fh.4.2).
+#![allow(dead_code)]
 //! Layout constants and frame helpers for the DAQ GUI.
 //!
 //! Some constants are defined for future use and may not currently be referenced.
-#![allow(dead_code)]
 
 use egui::{Color32, CornerRadius, Stroke, Vec2};
 

@@ -16,13 +16,13 @@ async fn main() {
 
     // Try to set it to a valid value
     match obs.set(5.0) {
-        Ok(_) => println!("Set to 5.0 succeeded"),
+        Ok(()) => println!("Set to 5.0 succeeded"),
         Err(e) => println!("Set to 5.0 failed: {}", e),
     }
 
     // Try to set it back to NaN
     match obs.set(f64::NAN) {
-        Ok(_) => println!("Set to NaN succeeded"),
+        Ok(()) => println!("Set to NaN succeeded"),
         Err(e) => println!("Set to NaN failed: {}", e),
     }
 

@@ -155,7 +155,7 @@ mod tests {
         for y in 0..2048u16 {
             for x in 0..2048u16 {
                 // Create a gradient pattern (compressible but not trivially)
-                let value = ((x.wrapping_add(y)) % 256) as u16;
+                let value = ((x.wrapping_add(y)) % 256);
                 data.extend_from_slice(&value.to_le_bytes());
             }
         }

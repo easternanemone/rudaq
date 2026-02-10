@@ -135,6 +135,7 @@ impl DeviceConfigCache {
     }
 
     /// Get all loaded protocol names
+    #[allow(dead_code)]
     pub fn protocols(&self) -> impl Iterator<Item = &str> {
         self.configs.keys().map(|s| s.as_str())
     }

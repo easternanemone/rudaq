@@ -989,7 +989,7 @@ impl Stageable for MockCamera {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::ErrorScenario;
+
     use common::data::FrameView;
 
     /// Test observer that counts frames received.
@@ -1341,7 +1341,7 @@ mod tests {
         // Set long exposure (0.1s = 10 fps max)
         camera.set_exposure(0.1).await.unwrap();
 
-        let start = tokio::time::Instant::now();
+        let _start = tokio::time::Instant::now();
         camera.start_stream().await.unwrap();
         tokio::time::sleep(Duration::from_millis(500)).await;
         camera.stop_stream().await.unwrap();
@@ -1351,7 +1351,7 @@ mod tests {
         // With 0.1s exposure, should get ~5 frames in 500ms
         // Allow wide tolerance for async scheduling and timing jitter
         assert!(
-            frame_count >= 2 && frame_count <= 8,
+            (2..=8).contains(&frame_count),
             "Expected 2-8 frames with 0.1s exposure in 500ms, got {}",
             frame_count
         );
@@ -1361,7 +1361,7 @@ mod tests {
     async fn test_instant_mode_no_delays() {
         let camera = MockCamera::builder().mode(MockMode::Instant).build();
 
-        let start = tokio::time::Instant::now();
+        let _start = tokio::time::Instant::now();
         camera.start_stream().await.unwrap();
         tokio::time::sleep(Duration::from_millis(50)).await;
         camera.stop_stream().await.unwrap();
@@ -1391,7 +1391,7 @@ mod tests {
         // At 30fps, should get ~9 frames in 300ms
         // Allow very wide tolerance for timing jitter, async delays, and startup latency
         assert!(
-            frame_count >= 1 && frame_count <= 15,
+            (1..=15).contains(&frame_count),
             "Expected 1-15 frames at 30fps in 300ms, got {}",
             frame_count
         );
@@ -1432,7 +1432,7 @@ mod tests {
             .max_fps(10.0) // Very slow
             .build();
 
-        let start = tokio::time::Instant::now();
+        let _start = tokio::time::Instant::now();
         camera.start_stream().await.unwrap();
         tokio::time::sleep(Duration::from_millis(250)).await;
         camera.stop_stream().await.unwrap();

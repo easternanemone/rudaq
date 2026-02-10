@@ -41,7 +41,7 @@
 
 // TODO: Fix doc comment links
 #![allow(rustdoc::broken_intra_doc_links)]
-// TODO: Address these clippy lints in a dedicated refactoring pass
+// Protobuf/tonic generated code triggers these clippy lints; suppress at crate level (bd-m5fh.4.2).
 #![allow(clippy::mixed_attributes_style)]
 #![allow(clippy::redundant_field_names)]
 #![allow(clippy::result_large_err)]
@@ -59,6 +59,8 @@ pub mod health;
 pub mod modules;
 #[cfg(feature = "rerun_sink")]
 pub mod rerun_sink;
+#[cfg(feature = "scripting")]
+pub mod script_journal;
 
 #[cfg(feature = "server")]
 pub use grpc::server::DaqServer;

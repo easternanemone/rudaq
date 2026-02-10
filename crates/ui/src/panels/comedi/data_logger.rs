@@ -58,7 +58,7 @@ impl LogEntry {
             timestamp,
             channel: format!("DIO{}", pin),
             value: if state { 1.0 } else { 0.0 },
-            unit: "".to_string(),
+            unit: String::new(),
         }
     }
 }

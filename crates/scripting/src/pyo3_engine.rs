@@ -175,8 +175,8 @@ impl ScriptEngine for PyO3Engine {
                     message: format!("Script contains null bytes: {}", e),
                     backtrace: None,
                 })?;
-            let c_filename = std::ffi::CString::new("script.py").unwrap();
-            let c_module = std::ffi::CString::new("script").unwrap();
+            let c_filename = std::ffi::CString::new("script.py").expect("static ASCII string");
+            let c_module = std::ffi::CString::new("script").expect("static ASCII string");
 
             Python::with_gil(|py| {
                 // Create a new module for this script execution
@@ -187,7 +187,10 @@ impl ScriptEngine for PyO3Engine {
                 let module_dict = module.dict();
 
                 // Inject global variables
-                let globals_lock = globals.lock().unwrap();
+                let globals_lock = globals.lock().unwrap_or_else(|e| {
+                    tracing::warn!("Mutex poisoned in PyO3Engine globals read, recovering");
+                    e.into_inner()
+                });
                 for (name, value) in globals_lock.iter() {
                     module_dict
                         .set_item(name, value.bind(py))
@@ -196,7 +199,10 @@ impl ScriptEngine for PyO3Engine {
                 drop(globals_lock);
 
                 // Inject registered functions
-                let functions_lock = functions.lock().unwrap();
+                let functions_lock = functions.lock().unwrap_or_else(|e| {
+                    tracing::warn!("Mutex poisoned in PyO3Engine functions read, recovering");
+                    e.into_inner()
+                });
                 for (name, func) in functions_lock.iter() {
                     module_dict
                         .set_item(name, func.bind(py))
@@ -205,7 +211,10 @@ impl ScriptEngine for PyO3Engine {
                 drop(functions_lock);
 
                 // Update globals with any new variables created in the script
-                let mut globals_lock = globals.lock().unwrap();
+                let mut globals_lock = globals.lock().unwrap_or_else(|e| {
+                    tracing::warn!("Mutex poisoned in PyO3Engine globals write, recovering");
+                    e.into_inner()
+                });
                 for (key, value) in module_dict.iter() {
                     if let Ok(key_str) = key.extract::<String>() {
                         // Skip built-in variables
@@ -266,7 +275,7 @@ impl ScriptEngine for PyO3Engine {
         Python::with_gil(|py| {
             // Try to downcast to Py<PyAny>
             if let Some(py_func) = function.downcast_ref::<Py<PyAny>>() {
-                let mut functions = self.functions.lock().unwrap();
+                let mut functions = self.functions.lock().unwrap_or_else(|e| e.into_inner());
                 functions.insert(name.to_string(), py_func.clone_ref(py));
                 Ok(())
             } else {
@@ -282,7 +291,7 @@ impl ScriptEngine for PyO3Engine {
         Python::with_gil(|py| {
             let py_value = Self::script_value_to_py(value, py).map_err(Self::convert_py_error)?;
 
-            let mut globals = self.globals.lock().unwrap();
+            let mut globals = self.globals.lock().unwrap_or_else(|e| e.into_inner());
             globals.insert(name.to_string(), py_value);
             Ok(())
         })
@@ -290,7 +299,7 @@ impl ScriptEngine for PyO3Engine {
 
     fn get_global(&self, name: &str) -> Result<ScriptValue, ScriptError> {
         Python::with_gil(|_py| {
-            let globals = self.globals.lock().unwrap();
+            let globals = self.globals.lock().unwrap_or_else(|e| e.into_inner());
 
             if let Some(py_value) = globals.get(name) {
                 Python::with_gil(|py| Self::py_to_script_value(&py_value.bind(py)))
@@ -303,10 +312,10 @@ impl ScriptEngine for PyO3Engine {
     }
 
     fn clear_globals(&mut self) {
-        let mut globals = self.globals.lock().unwrap();
+        let mut globals = self.globals.lock().unwrap_or_else(|e| e.into_inner());
         globals.clear();
 
-        let mut functions = self.functions.lock().unwrap();
+        let mut functions = self.functions.lock().unwrap_or_else(|e| e.into_inner());
         functions.clear();
     }
 

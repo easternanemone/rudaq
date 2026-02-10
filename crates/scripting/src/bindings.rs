@@ -1753,13 +1753,13 @@ mod tests {
         );
 
         // Test that all stage methods are registered and callable
-        let script = r#"
+        let script = r"
             stage.move_abs(5.0);
             stage.move_rel(2.0);
             let pos = stage.position();
             stage.wait_settled();
             pos
-        "#;
+        ";
 
         let result = engine.eval_with_scope::<f64>(&mut scope, script).unwrap();
         assert_eq!(result, 7.0); // 5.0 + 2.0
@@ -1824,12 +1824,12 @@ mod tests {
         );
 
         // Test camera methods
-        let script = r#"
+        let script = r"
             camera.arm();
             camera.trigger();
             let res = camera.resolution();
             res[0]
-        "#;
+        ";
 
         let result = engine.eval_with_scope::<i64>(&mut scope, script).unwrap();
         assert_eq!(result, 1920);
@@ -2030,7 +2030,7 @@ mod tests {
 
         // Test timestamps
         let ts: String = engine.eval("timestamp()").unwrap();
-        assert!(ts.len() > 0);
+        assert!(!ts.is_empty());
 
         let ts_iso: String = engine.eval("timestamp_iso()").unwrap();
         assert!(ts_iso.contains('T'));
@@ -2171,7 +2171,7 @@ mod tests {
         );
 
         // Test a complete workflow
-        let script = r#"
+        let script = r"
             // Move to starting position
             stage.move_abs(0.0);
             stage.wait_settled();
@@ -2188,7 +2188,7 @@ mod tests {
 
             // Return the total movement
             end_pos - start_pos
-        "#;
+        ";
 
         let result = engine.eval_with_scope::<f64>(&mut scope, script).unwrap();
         assert!((result - 15.0).abs() < 0.001);

@@ -767,7 +767,7 @@ impl ConnectionManager {
             // Wait for delay if reconnecting
             if let Some(delay) = delay {
                 tokio::select! {
-                    _ = tokio::time::sleep(delay) => {}
+                    () = tokio::time::sleep(delay) => {}
                     _ = cancel_rx => {
                         let _ = tx.send(ConnectResult::Cancelled).await;
                         return;

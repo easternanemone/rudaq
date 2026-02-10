@@ -1,5 +1,6 @@
-//! Property inspector widget for editing node properties.
+// Widget available for integration but not currently used (bd-m5fh.4.2).
 #![allow(dead_code)]
+//! Property inspector widget for editing node properties.
 
 use egui::Ui;
 

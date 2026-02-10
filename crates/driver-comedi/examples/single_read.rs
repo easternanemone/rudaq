@@ -12,7 +12,7 @@
 //! ./target/debug/examples/single_read
 //! ```
 
-use driver_comedi::{ComediDevice, Range};
+use driver_comedi::ComediDevice;
 use std::env;
 
 fn main() -> anyhow::Result<()> {

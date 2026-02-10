@@ -720,7 +720,7 @@ impl Ell14Driver {
     /// Returns error if serial port cannot be opened
     #[deprecated(
         since = "0.2.0",
-        note = "Use Ell14Bus::open() and bus.device() instead. This opens a dedicated port which fails for multidrop configurations."
+        note = "Use Ell14Bus::open() and bus.device() instead. This opens a dedicated port which fails for multidrop configurations. Sunset: v1.0"
     )]
     pub fn new(port_path: &str, address: &str) -> Result<Self> {
         let port = Self::open_port(port_path)?;
@@ -900,7 +900,7 @@ impl Ell14Driver {
     /// Returns error if serial port cannot be opened
     #[deprecated(
         since = "0.2.0",
-        note = "Use Ell14Bus::open() and bus.device_uncalibrated() instead."
+        note = "Use Ell14Bus::open() and bus.device_uncalibrated() instead. Sunset: v1.0"
     )]
     pub async fn new_async(port_path: &str, address: &str) -> Result<Self> {
         let dyn_port = open_serial_async(port_path, 9600, "ELL14").await?;
@@ -939,7 +939,7 @@ impl Ell14Driver {
     /// ```
     #[deprecated(
         since = "0.2.0",
-        note = "Use Ell14Bus::open() and bus.device() instead. This opens a dedicated port which fails for multidrop configurations."
+        note = "Use Ell14Bus::open() and bus.device() instead. This opens a dedicated port which fails for multidrop configurations. Sunset: v1.0"
     )]
     pub async fn new_async_with_device_calibration(port_path: &str, address: &str) -> Result<Self> {
         let dyn_port = open_serial_async(port_path, 9600, "ELL14").await?;

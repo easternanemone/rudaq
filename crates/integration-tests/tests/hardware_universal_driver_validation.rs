@@ -78,13 +78,11 @@ mod mock_tests {
 
         let caps = factory.capabilities();
         assert!(
-            caps.iter()
-                .any(|c| *c == common::driver::Capability::Readable),
+            caps.contains(&common::driver::Capability::Readable),
             "Newport should have Readable capability"
         );
         assert!(
-            caps.iter()
-                .any(|c| *c == common::driver::Capability::WavelengthTunable),
+            caps.contains(&common::driver::Capability::WavelengthTunable),
             "Newport should have WavelengthTunable capability"
         );
     }
@@ -196,8 +194,7 @@ mod mock_tests {
 
         let caps = factory.capabilities();
         assert!(
-            caps.iter()
-                .any(|c| *c == common::driver::Capability::Movable),
+            caps.contains(&common::driver::Capability::Movable),
             "ESP300 should have Movable capability"
         );
     }
@@ -305,18 +302,15 @@ mod mock_tests {
 
         let caps = factory.capabilities();
         assert!(
-            caps.iter()
-                .any(|c| *c == common::driver::Capability::Readable),
+            caps.contains(&common::driver::Capability::Readable),
             "MaiTai should have Readable"
         );
         assert!(
-            caps.iter()
-                .any(|c| *c == common::driver::Capability::WavelengthTunable),
+            caps.contains(&common::driver::Capability::WavelengthTunable),
             "MaiTai should have WavelengthTunable"
         );
         assert!(
-            caps.iter()
-                .any(|c| *c == common::driver::Capability::ShutterControl),
+            caps.contains(&common::driver::Capability::ShutterControl),
             "MaiTai should have ShutterControl"
         );
     }
@@ -361,8 +355,7 @@ mod mock_tests {
 
         let caps = factory.capabilities();
         assert!(
-            caps.iter()
-                .any(|c| *c == common::driver::Capability::Movable),
+            caps.contains(&common::driver::Capability::Movable),
             "ELL14 should have Movable"
         );
     }

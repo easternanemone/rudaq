@@ -224,7 +224,7 @@ impl DaemonLauncher {
             // Try graceful termination first (SIGTERM on Unix)
             #[cfg(unix)]
             {
-                if let Some(pid) = child.id().try_into().ok() {
+                if let Ok(pid) = child.id().try_into() {
                     // SAFETY: Sending SIGTERM to a child process we spawned.
                     // This is the only way to request graceful shutdown on Unix
                     // without adding a dependency; child.kill() sends SIGKILL.

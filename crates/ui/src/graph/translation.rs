@@ -109,11 +109,11 @@ impl GraphPlan {
 }
 
 impl Plan for GraphPlan {
-    fn plan_type(&self) -> &str {
+    fn plan_type(&self) -> &'static str {
         "graph_plan"
     }
 
-    fn plan_name(&self) -> &str {
+    fn plan_name(&self) -> &'static str {
         "Graph Plan"
     }
 

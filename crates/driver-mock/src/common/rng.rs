@@ -135,7 +135,7 @@ mod tests {
         let rng = MockRng::new(Some(42));
         for _ in 0..100 {
             let val = rng.next_f64();
-            assert!(val >= 0.0 && val < 1.0, "f64 should be in [0.0, 1.0)");
+            assert!((0.0..1.0).contains(&val), "f64 should be in [0.0, 1.0)");
         }
     }
 
@@ -144,7 +144,7 @@ mod tests {
         let rng = MockRng::new(Some(42));
         for _ in 0..100 {
             let val = rng.gen_range(10..20);
-            assert!(val >= 10 && val < 20, "Value should be in range [10, 20)");
+            assert!((10..20).contains(&val), "Value should be in range [10, 20)");
         }
     }
 

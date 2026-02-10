@@ -448,34 +448,6 @@ pub async fn execute_script_async(
     }
 }
 
-/// Execute a compiled script (legacy synchronous API with unused timeout).
-///
-/// **Deprecated:** Use [`execute_script_async`] for actual timeout enforcement.
-/// This function accepts a timeout parameter for API compatibility but does not
-/// enforce it. The script is protected only by the operation limit.
-///
-/// # Arguments
-/// * `engine` - The Rhai engine
-/// * `ast` - Compiled script AST
-/// * `context` - Script execution context
-/// * `_timeout` - Maximum execution time (NOT ENFORCED - use execute_script_async)
-///
-/// # Returns
-/// The script result, or an error if execution fails.
-#[deprecated(
-    since = "0.2.0",
-    note = "Use execute_script_async for timeout enforcement. This function ignores the timeout parameter."
-)]
-#[instrument(skip(engine, ast, context), err)]
-pub fn execute_script(
-    engine: &Engine,
-    ast: &AST,
-    context: &ScriptContext,
-    _timeout: Duration,
-) -> Result<ScriptResult> {
-    execute_script_sync(engine, ast, context)
-}
-
 /// Validate a Rhai script without executing it.
 ///
 /// # Arguments
