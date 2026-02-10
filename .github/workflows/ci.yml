@@ -67,6 +67,9 @@ jobs:
             -- -D warnings
 
       - name: Unit and integration tests
+        env:
+          CARGO_BUILD_JOBS: "2"
+          RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
         run: |
           cargo nextest run --workspace --profile ci \
             --exclude ui \

@@ -38,6 +38,7 @@ runs:
         sudo apt-get install -y --no-install-recommends \
           libudev-dev \
           libhdf5-dev \
+          lld \
           pkg-config \
           protobuf-compiler
 
