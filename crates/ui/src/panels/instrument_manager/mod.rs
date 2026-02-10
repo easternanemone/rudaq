@@ -651,7 +651,7 @@ impl InstrumentManagerPanel {
     /// Render the instrument manager panel
     pub fn ui(&mut self, ui: &mut egui::Ui, mut client: Option<&mut DaqClient>, runtime: &Runtime) {
         // Load device configs on first run
-        if self.device_config_cache.protocols().count() == 0 {
+        if !self.device_config_cache.load_attempted() {
             if let Err(e) = self.device_config_cache.load_all() {
                 tracing::warn!("Failed to load device configs: {}", e);
             }

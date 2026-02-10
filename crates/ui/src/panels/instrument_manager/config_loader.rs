@@ -11,12 +11,19 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Cache of loaded device configurations
-#[derive(Default)]
 pub struct DeviceConfigCache {
     /// Map from protocol name (e.g., "elliptec", "maitai") to DeviceConfig
     configs: HashMap<String, DeviceConfig>,
     /// Directory where device configs are stored
     config_dir: PathBuf,
+    /// Whether load_all has been attempted (prevents per-frame retry)
+    load_attempted: bool,
+}
+
+impl Default for DeviceConfigCache {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DeviceConfigCache {
@@ -25,7 +32,13 @@ impl DeviceConfigCache {
         Self {
             configs: HashMap::new(),
             config_dir: PathBuf::from("config/devices"),
+            load_attempted: false,
         }
+    }
+
+    /// Whether a load has been attempted (successful or not)
+    pub fn load_attempted(&self) -> bool {
+        self.load_attempted
     }
 
     /// Set the configuration directory
@@ -37,6 +50,8 @@ impl DeviceConfigCache {
 
     /// Load all device configs from the config directory
     pub fn load_all(&mut self) -> Result<()> {
+        self.load_attempted = true;
+
         if !self.config_dir.exists() {
             // Config directory doesn't exist - return early (not an error in GUI)
             return Ok(());
@@ -55,9 +70,21 @@ impl DeviceConfigCache {
                 continue;
             }
 
-            // Try to load the config
-            if let Err(e) = self.load_config(&path) {
-                tracing::warn!("Failed to load device config {:?}: {}", path, e);
+            // Try to load the config, distinguishing read errors from parse errors
+            match self.load_config(&path) {
+                Ok(()) => {}
+                Err(e) => {
+                    let msg = format!("{:#}", e);
+                    if msg.contains("Failed to read") {
+                        tracing::warn!("Cannot read device config {:?}: {}", path, e);
+                    } else {
+                        tracing::debug!(
+                            "Skipping device config {:?} (schema mismatch): {}",
+                            path,
+                            e
+                        );
+                    }
+                }
             }
         }
 
@@ -121,6 +148,14 @@ mod tests {
     fn test_cache_creation() {
         let cache = DeviceConfigCache::new();
         assert_eq!(cache.config_dir, PathBuf::from("config/devices"));
+    }
+
+    #[test]
+    fn test_default_matches_new() {
+        let from_new = DeviceConfigCache::new();
+        let from_default = DeviceConfigCache::default();
+        assert_eq!(from_new.config_dir, from_default.config_dir);
+        assert_eq!(from_new.load_attempted, from_default.load_attempted);
     }
 
     #[test]
