@@ -654,12 +654,12 @@ impl GenericDevicePanel {
             render_reading_row(ui, reading);
         }
 
-        // --- Emission + Shutter row (on same line) ---
+        // --- Emission + Shutter row (compact, same line) ---
         if self.emission.is_some() || self.shutter.is_some() {
             ui.horizontal(|ui| {
                 if let Some(ref emission) = self.emission {
                     let is_on = emission.value.unwrap_or(false);
-                    ui.label("Emission:");
+                    ui.label("Em:");
                     let text = if is_on { "ON" } else { "OFF" };
                     let color = if is_on {
                         egui::Color32::GREEN
@@ -667,23 +667,33 @@ impl GenericDevicePanel {
                         egui::Color32::GRAY
                     };
                     let btn = egui::Button::new(egui::RichText::new(text).color(color))
-                        .min_size(egui::vec2(70.0, 20.0));
+                        .min_size(egui::vec2(40.0, 18.0));
                     if ui.add(btn).clicked() {
                         self.set_emission_rpc(client.as_deref_mut(), runtime, &device_id, !is_on);
                     }
                 }
                 if let Some(ref shutter) = self.shutter {
-                    ui.add_space(8.0);
+                    if self.emission.is_some() {
+                        ui.separator();
+                    }
                     let is_open = shutter.value.unwrap_or(false);
-                    ui.label("Shutter:");
-                    let text = if is_open { "OPEN" } else { "CLOSED" };
-                    let color = if is_open {
-                        egui::Color32::YELLOW
+                    let (text, text_color, fill) = if is_open {
+                        (
+                            "SHUTTER OPEN",
+                            egui::Color32::WHITE,
+                            crate::layout::colors::ERROR,
+                        )
                     } else {
-                        egui::Color32::GRAY
+                        (
+                            "Shutter Closed",
+                            egui::Color32::WHITE,
+                            crate::layout::colors::SUCCESS,
+                        )
                     };
-                    let btn = egui::Button::new(egui::RichText::new(text).color(color))
-                        .min_size(egui::vec2(70.0, 20.0));
+                    let btn =
+                        egui::Button::new(egui::RichText::new(text).color(text_color).strong())
+                            .fill(fill)
+                            .min_size(egui::vec2(100.0, 18.0));
                     if ui.add(btn).clicked() {
                         self.set_shutter_rpc(client.as_deref_mut(), runtime, &device_id, !is_open);
                     }
@@ -693,12 +703,11 @@ impl GenericDevicePanel {
 
         // --- Wavelength row ---
         if self.wavelength.is_some() {
-            // Take ownership temporarily to avoid double borrow
             let mut wl = self.wavelength.take().unwrap();
             let wl_min = wl.min_nm;
             let wl_max = wl.max_nm;
             ui.horizontal(|ui| {
-                ui.label("λ:");
+                ui.label("\u{03bb}:");
                 let slider_resp = ui.add(
                     egui::Slider::new(&mut wl.slider_value, wl_min..=wl_max)
                         .show_value(false)
@@ -707,7 +716,7 @@ impl GenericDevicePanel {
 
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut wl.input)
-                        .desired_width(50.0)
+                        .desired_width(45.0)
                         .hint_text("nm"),
                 );
                 ui.label("nm");
@@ -750,38 +759,39 @@ impl GenericDevicePanel {
             self.wavelength = Some(wl);
         }
 
-        // --- Motion row ---
+        // --- Motion row (single compact row) ---
         if self.motion.is_some() {
             let mut motion = self.motion.take().unwrap();
             let motion_busy = motion.moving || is_busy;
             let pos_units = motion.position_units.as_str();
 
-            // Position display + jog buttons
             ui.horizontal(|ui| {
+                // Position display
                 if let Some(pos) = motion.position {
                     let text = if pos_units.is_empty() {
                         format!("{pos:.2}")
                     } else {
                         format!("{pos:.2} {pos_units}")
                     };
-                    ui.label(egui::RichText::new(text).monospace().size(18.0));
+                    ui.label(egui::RichText::new(text).monospace());
                 } else {
-                    ui.label(egui::RichText::new("---").monospace().size(18.0));
+                    ui.label(egui::RichText::new("---").monospace());
                 }
 
                 let step: f64 = motion.jog_step.parse().unwrap_or(1.0);
 
+                // Jog buttons
                 if ui
                     .add_enabled(
                         !motion_busy,
-                        egui::Button::new(format!("-{:.0}", step * 10.0)),
+                        egui::Button::new(format!("{:.0}", -step * 10.0)),
                     )
                     .clicked()
                 {
                     self.move_relative(client.as_deref_mut(), runtime, &device_id, -step * 10.0);
                 }
                 if ui
-                    .add_enabled(!motion_busy, egui::Button::new(format!("-{:.0}", step)))
+                    .add_enabled(!motion_busy, egui::Button::new(format!("{:.0}", -step)))
                     .clicked()
                 {
                     self.move_relative(client.as_deref_mut(), runtime, &device_id, -step);
@@ -801,16 +811,15 @@ impl GenericDevicePanel {
                 {
                     self.move_relative(client.as_deref_mut(), runtime, &device_id, step * 10.0);
                 }
-            });
 
-            // Go-to + home row
-            ui.horizontal(|ui| {
+                ui.separator();
+
+                // Go-to input
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut motion.position_input)
-                        .desired_width(60.0)
-                        .hint_text("pos"),
+                        .desired_width(50.0)
+                        .hint_text("go to"),
                 );
-
                 if ui
                     .add_enabled(!motion_busy, egui::Button::new("Go"))
                     .clicked()
@@ -821,7 +830,6 @@ impl GenericDevicePanel {
                         self.error = Some("Invalid position".to_string());
                     }
                 }
-
                 if response.lost_focus()
                     && ui.input(|i| i.key_pressed(egui::Key::Enter))
                     && !motion_busy
@@ -832,34 +840,34 @@ impl GenericDevicePanel {
                 }
 
                 if ui
-                    .add_enabled(!motion_busy, egui::Button::new("Home"))
+                    .add_enabled(!motion_busy, egui::Button::new("H"))
+                    .on_hover_text("Home (0.0)")
                     .clicked()
                 {
                     self.move_absolute(client.as_deref_mut(), runtime, &device_id, 0.0);
                 }
 
-                ui.label("Step:");
-                ui.add(egui::TextEdit::singleline(&mut motion.jog_step).desired_width(40.0));
+                ui.separator();
+
+                // Step size
+                ui.label("stp:");
+                ui.add(egui::TextEdit::singleline(&mut motion.jog_step).desired_width(30.0));
             });
 
             self.motion = Some(motion);
         }
 
-        // --- Settable row (analog output) ---
+        // --- Settable row (analog output, single compact row) ---
         if self.settable.is_some() {
             let mut settable = self.settable.take().unwrap();
 
             ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(format!("{:.3} V", settable.voltage))
-                        .monospace()
-                        .size(18.0),
-                );
+                ui.label(egui::RichText::new(format!("{:.3}V", settable.voltage)).monospace());
 
                 let mut voltage = settable.voltage;
                 let slider =
                     egui::Slider::new(&mut voltage, settable.min_voltage..=settable.max_voltage)
-                        .suffix(" V")
+                        .suffix("V")
                         .clamping(egui::SliderClamping::Always);
 
                 if ui.add_enabled(!is_busy, slider).changed() {
@@ -867,9 +875,9 @@ impl GenericDevicePanel {
                     settable.voltage_input = format!("{:.3}", voltage);
                     self.write_voltage_rpc(client.as_deref_mut(), runtime, &device_id, voltage);
                 }
-            });
 
-            ui.horizontal(|ui| {
+                ui.separator();
+
                 if ui.add_enabled(!is_busy, egui::Button::new("0V")).clicked() {
                     self.write_voltage_rpc(client.as_deref_mut(), runtime, &device_id, 0.0);
                 }
@@ -929,14 +937,13 @@ fn render_reading_row(ui: &mut Ui, reading: &ReadingState) {
         let units = &reading.raw_units;
 
         if is_power_unit(units) {
-            // Power-specific rendering with auto-scaling
             let power_mw = normalize_power_to_mw(raw, units);
             let (value, unit, max_val) = if power_mw >= 1000.0 {
                 (power_mw as f32 / 1000.0, "W", 5.0)
             } else if power_mw >= 1.0 {
                 (power_mw as f32, "mW", 1000.0)
             } else {
-                (power_mw as f32 * 1000.0, "µW", 1000.0)
+                (power_mw as f32 * 1000.0, "\u{00b5}W", 1000.0)
             };
 
             ui.add(
@@ -944,16 +951,10 @@ fn render_reading_row(ui: &mut Ui, reading: &ReadingState) {
                     .range(0.0, max_val)
                     .label("Power")
                     .unit(unit)
-                    .size(48.0),
+                    .size(28.0),
             );
-
-            ui.label(
-                egui::RichText::new(format!("{value:.4} {unit}"))
-                    .monospace()
-                    .size(14.0),
-            );
+            ui.label(egui::RichText::new(format!("{value:.4} {unit}")).monospace());
         } else {
-            // Generic reading: display raw value with its units
             let display_unit = if units.is_empty() { "" } else { units.as_str() };
             let raw_f32 = raw as f32;
             let max_val = if raw_f32.abs() < 1.0 {
@@ -967,14 +968,9 @@ fn render_reading_row(ui: &mut Ui, reading: &ReadingState) {
                     .range(-max_val, max_val)
                     .label("Value")
                     .unit(display_unit)
-                    .size(48.0),
+                    .size(28.0),
             );
-
-            ui.label(
-                egui::RichText::new(format!("{raw:.4} {display_unit}"))
-                    .monospace()
-                    .size(14.0),
-            );
+            ui.label(egui::RichText::new(format!("{raw:.4} {display_unit}")).monospace());
         }
     });
 }

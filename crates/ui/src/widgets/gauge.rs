@@ -87,7 +87,12 @@ impl<'a> Gauge<'a> {
 
 impl Widget for Gauge<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        let desired_size = Vec2::splat(self.size);
+        let label_extra = if self.size >= 40.0 && self.label.is_some() {
+            14.0 // font(10) + spacing(4)
+        } else {
+            0.0
+        };
+        let desired_size = Vec2::new(self.size, self.size + label_extra);
         let (rect, response) = ui.allocate_exact_size(desired_size, Sense::hover());
 
         if ui.is_rect_visible(rect) {
@@ -151,15 +156,18 @@ impl Widget for Gauge<'_> {
                 ui.visuals().text_color(),
             );
 
+            // Only show label below gauge when large enough (>= 40px)
             if let Some(label) = self.label {
-                let label_pos = Pos2::new(center.x, rect.bottom() + 2.0);
-                painter.text(
-                    label_pos,
-                    egui::Align2::CENTER_TOP,
-                    label,
-                    egui::FontId::proportional(10.0),
-                    layout::colors::MUTED,
-                );
+                if self.size >= 40.0 {
+                    let label_pos = Pos2::new(center.x, rect.bottom() + 2.0);
+                    painter.text(
+                        label_pos,
+                        egui::Align2::CENTER_TOP,
+                        label,
+                        egui::FontId::proportional(10.0),
+                        layout::colors::MUTED,
+                    );
+                }
             }
         }
 

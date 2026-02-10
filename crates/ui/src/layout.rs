@@ -9,9 +9,9 @@ pub const NAV_PANEL_WIDTH: f32 = 200.0;
 pub const SIDE_PANEL_WIDTH: f32 = 300.0;
 pub const STATUS_BAR_HEIGHT: f32 = 24.0;
 
-pub const ITEM_SPACING: Vec2 = Vec2::new(6.0, 8.0);
+pub const ITEM_SPACING: Vec2 = Vec2::new(4.0, 4.0);
 pub const SECTION_SPACING: f32 = 16.0;
-pub const PANEL_PADDING: f32 = 8.0;
+pub const PANEL_PADDING: f32 = 4.0;
 
 pub const ICON_SIZE_INLINE: f32 = 16.0;
 pub const ICON_SIZE_BUTTON: f32 = 20.0;
@@ -68,9 +68,9 @@ mod tests {
 
     #[test]
     fn test_spacing_constants() {
-        assert_eq!(ITEM_SPACING, Vec2::new(6.0, 8.0));
+        assert_eq!(ITEM_SPACING, Vec2::new(4.0, 4.0));
         assert_eq!(SECTION_SPACING, 16.0);
-        assert_eq!(PANEL_PADDING, 8.0);
+        assert_eq!(PANEL_PADDING, 4.0);
     }
 
     #[test]
