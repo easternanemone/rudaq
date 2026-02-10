@@ -810,9 +810,20 @@ impl PvcamDriver {
             move |val| {
                 let conn = conn.clone();
                 Box::pin(async move {
+                    tracing::debug!(
+                        param = "temperature_setpoint",
+                        ?val,
+                        "PVCAM hw_write called"
+                    );
                     let conn_guard = conn.lock().await;
-                    PvcamFeatures::set_temperature_setpoint(&conn_guard, val)
-                        .map_err(|e| DaqError::Instrument(e.to_string()))
+                    let result = PvcamFeatures::set_temperature_setpoint(&conn_guard, val)
+                        .map_err(|e| DaqError::Instrument(e.to_string()));
+                    tracing::debug!(
+                        param = "temperature_setpoint",
+                        success = result.is_ok(),
+                        "PVCAM hw_write result"
+                    );
+                    result
                 })
             }
         });
@@ -837,10 +848,17 @@ impl PvcamDriver {
             move |val| {
                 let conn = conn.clone();
                 Box::pin(async move {
+                    tracing::debug!(param = "trigger_mode", %val, "PVCAM hw_write called");
                     let conn_guard = conn.lock().await;
                     let mode = ExposureMode::from_str(&val);
-                    PvcamFeatures::set_exposure_mode(&conn_guard, mode)
-                        .map_err(|e| DaqError::Instrument(e.to_string()))
+                    let result = PvcamFeatures::set_exposure_mode(&conn_guard, mode)
+                        .map_err(|e| DaqError::Instrument(e.to_string()));
+                    tracing::debug!(
+                        param = "trigger_mode",
+                        success = result.is_ok(),
+                        "PVCAM hw_write result"
+                    );
+                    result
                 })
             }
         });
@@ -936,7 +954,12 @@ impl PvcamDriver {
             move |_val| {
                 let streaming = streaming.clone();
                 Box::pin(async move {
+                    tracing::debug!(param = "roi", "PVCAM hw_write called (streaming guard)");
                     if streaming.get() {
+                        tracing::debug!(
+                            param = "roi",
+                            "PVCAM hw_write rejected — streaming active"
+                        );
                         return Err(DaqError::Instrument(
                             "Cannot change ROI while streaming".into(),
                         ));
@@ -952,7 +975,12 @@ impl PvcamDriver {
             move |_val| {
                 let streaming = streaming.clone();
                 Box::pin(async move {
+                    tracing::debug!(param = "binning", "PVCAM hw_write called (streaming guard)");
                     if streaming.get() {
+                        tracing::debug!(
+                            param = "binning",
+                            "PVCAM hw_write rejected — streaming active"
+                        );
                         return Err(DaqError::Instrument(
                             "Cannot change binning while streaming".into(),
                         ));
@@ -970,7 +998,12 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 let streaming = streaming.clone();
                 Box::pin(async move {
+                    tracing::debug!(param = "readout_port", %name, "PVCAM hw_write called");
                     if streaming.get() {
+                        tracing::debug!(
+                            param = "readout_port",
+                            "PVCAM hw_write rejected — streaming active"
+                        );
                         return Err(DaqError::Instrument(
                             "Cannot change readout port while streaming".into(),
                         ));
@@ -979,9 +1012,12 @@ impl PvcamDriver {
                     let ports = PvcamFeatures::list_readout_ports(&conn_guard)
                         .map_err(|e| DaqError::Instrument(e.to_string()))?;
                     if let Some(port) = ports.iter().find(|p| p.name == name) {
-                        PvcamFeatures::set_readout_port(&conn_guard, port.index)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
+                        let result = PvcamFeatures::set_readout_port(&conn_guard, port.index)
+                            .map_err(|e| DaqError::Instrument(e.to_string()));
+                        tracing::debug!(param = "readout_port", success = result.is_ok(), "PVCAM hw_write result");
+                        result
                     } else {
+                        tracing::debug!(param = "readout_port", %name, "PVCAM hw_write failed — invalid port");
                         Err(DaqError::Instrument(format!(
                             "Invalid readout port: {}",
                             name
@@ -999,7 +1035,12 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 let streaming = streaming.clone();
                 Box::pin(async move {
+                    tracing::debug!(param = "speed_mode", %name, "PVCAM hw_write called");
                     if streaming.get() {
+                        tracing::debug!(
+                            param = "speed_mode",
+                            "PVCAM hw_write rejected — streaming active"
+                        );
                         return Err(DaqError::Instrument(
                             "Cannot change speed mode while streaming".into(),
                         ));
@@ -1008,9 +1049,12 @@ impl PvcamDriver {
                     let modes = PvcamFeatures::list_speed_modes(&conn_guard)
                         .map_err(|e| DaqError::Instrument(e.to_string()))?;
                     if let Some(mode) = modes.iter().find(|m| m.name == name) {
-                        PvcamFeatures::set_speed_index(&conn_guard, mode.index)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
+                        let result = PvcamFeatures::set_speed_index(&conn_guard, mode.index)
+                            .map_err(|e| DaqError::Instrument(e.to_string()));
+                        tracing::debug!(param = "speed_mode", success = result.is_ok(), "PVCAM hw_write result");
+                        result
                     } else {
+                        tracing::debug!(param = "speed_mode", %name, "PVCAM hw_write failed — invalid mode");
                         Err(DaqError::Instrument(format!(
                             "Invalid speed mode: {}",
                             name
@@ -1028,7 +1072,12 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 let streaming = streaming.clone();
                 Box::pin(async move {
+                    tracing::debug!(param = "gain_mode", %name, "PVCAM hw_write called");
                     if streaming.get() {
+                        tracing::debug!(
+                            param = "gain_mode",
+                            "PVCAM hw_write rejected — streaming active"
+                        );
                         return Err(DaqError::Instrument(
                             "Cannot change gain mode while streaming".into(),
                         ));
@@ -1037,9 +1086,12 @@ impl PvcamDriver {
                     let modes = PvcamFeatures::list_gain_modes(&conn_guard)
                         .map_err(|e| DaqError::Instrument(e.to_string()))?;
                     if let Some(mode) = modes.iter().find(|m| m.name == name) {
-                        PvcamFeatures::set_gain_index(&conn_guard, mode.index)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
+                        let result = PvcamFeatures::set_gain_index(&conn_guard, mode.index)
+                            .map_err(|e| DaqError::Instrument(e.to_string()));
+                        tracing::debug!(param = "gain_mode", success = result.is_ok(), "PVCAM hw_write result");
+                        result
                     } else {
+                        tracing::debug!(param = "gain_mode", %name, "PVCAM hw_write failed — invalid mode");
                         Err(DaqError::Instrument(format!("Invalid gain mode: {}", name)))
                     }
                 })

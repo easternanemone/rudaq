@@ -1533,6 +1533,12 @@ impl ImageViewerPanel {
         let name_str = name.to_string();
         let value_str = value.to_string();
         let buffer_key = (device_id_str.clone(), name_str.clone());
+        tracing::debug!(
+            device_id = %device_id,
+            param = %name,
+            value = %value,
+            "set_camera_parameter: sending parameter update"
+        );
 
         // Clear any previous error
         self.param_errors.remove(&buffer_key);
@@ -1596,6 +1602,14 @@ impl ImageViewerPanel {
         while let Ok(result) = self.param_set_rx.try_recv() {
             let key = (result.device_id.clone(), result.param_name.clone());
             self.setting_params.remove(&key);
+            tracing::debug!(
+                device_id = %result.device_id,
+                param = %result.param_name,
+                success = result.success,
+                actual_value = ?result.actual_value,
+                error = ?result.error,
+                "poll_param_results: received ParamSetResult"
+            );
 
             if result.success {
                 // Update cache if device matches
@@ -2849,12 +2863,22 @@ impl ImageViewerPanel {
 
             // Handle pending param updates
             let updates: Vec<_> = self.pending_param_updates.drain(..).collect();
-            for (dev, name, val) in updates {
-                self.set_camera_parameter(client_val, runtime, &dev, &name, &val);
+            if !updates.is_empty() {
+                tracing::debug!(count = updates.len(), "flushing pending_param_updates");
+            }
+            for (dev, name, val) in &updates {
+                tracing::debug!(device_id = %dev, param = %name, value = %val, "flushing pending param update");
+                self.set_camera_parameter(client_val, runtime, dev, name, val);
             }
 
             Some(client_val)
         } else {
+            if !self.pending_param_updates.is_empty() {
+                tracing::warn!(
+                    count = self.pending_param_updates.len(),
+                    "dropping pending_param_updates — no gRPC client connected"
+                );
+            }
             self.pending_param_updates.clear();
             None
         };

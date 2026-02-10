@@ -354,18 +354,32 @@ where
     /// Validation is performed BEFORE writing to hardware to prevent
     /// driving the device to an invalid state if validation would fail.
     pub async fn set(&self, value: T) -> Result<()> {
+        let name = self.inner.name();
+        tracing::debug!(param = %name, ?value, "Parameter::set called");
+
         // Step 1: Validate BEFORE hardware write to prevent invalid device states
         // This ensures we don't write to hardware if validation will fail
-        self.inner.validate(&value)?;
+        if let Err(e) = self.inner.validate(&value) {
+            tracing::debug!(param = %name, ?value, error = %e, "Parameter::set validation failed");
+            return Err(e);
+        }
 
         // Step 2: Write to hardware if connected (only after validation passes)
         if let Some(writer) = &self.hardware_writer {
-            writer(value.clone()).await?;
+            tracing::debug!(param = %name, "Parameter::set writing to hardware");
+            if let Err(e) = writer(value.clone()).await {
+                tracing::debug!(param = %name, error = %e, "Parameter::set hardware write failed");
+                return Err(e.into());
+            }
+            tracing::debug!(param = %name, "Parameter::set hardware write succeeded");
+        } else {
+            tracing::debug!(param = %name, "Parameter::set — no hardware writer connected");
         }
 
         // Step 3: Update Observable (skips validation since already done, notifies subscribers)
         // Using set_unchecked since we already validated above
         self.inner.set_unchecked(value.clone());
+        tracing::debug!(param = %name, "Parameter::set observable updated");
 
         // Step 4: Call change listeners (AFTER Observable update)
         let listeners = self.change_listeners.read().await;
@@ -463,7 +477,12 @@ where
     }
 
     fn set_json(&mut self, value: serde_json::Value) -> Result<()> {
-        let typed_value: T = serde_json::from_value(value)?;
+        let name = self.inner.name();
+        tracing::debug!(param = %name, %value, "CoreParameterBase::set_json called");
+        let typed_value: T = serde_json::from_value(value).map_err(|e| {
+            tracing::debug!(param = %name, error = %e, "CoreParameterBase::set_json deserialization failed");
+            e
+        })?;
         futures::executor::block_on(self.set(typed_value))
     }
 
@@ -545,7 +564,12 @@ where
     }
 
     fn set_json(&self, value: serde_json::Value) -> Result<()> {
-        let typed_value: T = serde_json::from_value(value)?;
+        let name = self.inner.name();
+        tracing::debug!(param = %name, %value, "ObservableParameterBase::set_json called");
+        let typed_value: T = serde_json::from_value(value).map_err(|e| {
+            tracing::debug!(param = %name, error = %e, "set_json deserialization failed");
+            e
+        })?;
         futures::executor::block_on(self.set(typed_value))
     }
 

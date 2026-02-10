@@ -2221,9 +2221,16 @@ impl HardwareService for HardwareServiceImpl {
         request: Request<SetParameterRequest>,
     ) -> Result<Response<SetParameterResponse>, Status> {
         let req = request.into_inner();
+        tracing::debug!(
+            device_id = %req.device_id,
+            param = %req.parameter_name,
+            value = %req.value,
+            "set_parameter called"
+        );
 
         // Try legacy Settable trait first (backwards compatibility)
         if let Some(settable) = self.registry.get_settable(&req.device_id) {
+            tracing::debug!(device_id = %req.device_id, param = %req.parameter_name, "set_parameter: using Settable path");
             let metadata = self
                 .registry
                 .get_parameter_metadata(&req.device_id, &req.parameter_name);
@@ -2262,6 +2269,14 @@ impl HardwareService for HardwareServiceImpl {
                 .and_then(|meta| meta.units.clone())
                 .unwrap_or_default();
 
+            tracing::debug!(
+                device_id = %req.device_id,
+                param = %req.parameter_name,
+                %old_value,
+                %actual_value,
+                "set_parameter: Settable path succeeded"
+            );
+
             // Broadcast parameter change notification (ignore send errors - no subscribers is ok)
             let _ = self.param_change_tx.send(ParameterChange {
                 device_id: req.device_id.clone(),
@@ -2282,6 +2297,7 @@ impl HardwareService for HardwareServiceImpl {
 
         // New path - use Parameterized trait
         if let Some(parameterized) = self.registry.get_parameterized(&req.device_id) {
+            tracing::debug!(device_id = %req.device_id, param = %req.parameter_name, "set_parameter: using Parameterized path");
             let metadata = self
                 .registry
                 .get_parameter_metadata(&req.device_id, &req.parameter_name);
@@ -2317,6 +2333,14 @@ impl HardwareService for HardwareServiceImpl {
                     .and_then(|meta| meta.units.clone())
                     .unwrap_or_default();
 
+                tracing::debug!(
+                    device_id = %req.device_id,
+                    param = %req.parameter_name,
+                    %old_value,
+                    %actual_value,
+                    "set_parameter: Parameterized path succeeded"
+                );
+
                 // Broadcast parameter change notification
                 let _ = self.param_change_tx.send(ParameterChange {
                     device_id: req.device_id.clone(),
@@ -2337,6 +2361,7 @@ impl HardwareService for HardwareServiceImpl {
         }
 
         // Neither Settable nor Parameterized - device not found
+        tracing::debug!(device_id = %req.device_id, "set_parameter: device not found (no Settable or Parameterized)");
         Err(Status::not_found(format!(
             "Device '{}' does not support settable parameters",
             req.device_id
