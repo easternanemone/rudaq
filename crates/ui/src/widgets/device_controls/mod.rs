@@ -3,14 +3,12 @@
 //! This module provides specialized control panels for different device types,
 //! including lasers, power meters, rotators, stages, and analog outputs.
 
-mod analog_output_panel;
 mod generic_panel;
 mod maitai_panel;
 mod power_meter_panel;
 mod rotator_panel;
 mod stage_panel;
 
-pub use analog_output_panel::AnalogOutputControlPanel;
 pub use generic_panel::GenericDevicePanel;
 pub use maitai_panel::MaiTaiControlPanel;
 pub use power_meter_panel::PowerMeterControlPanel;
