@@ -186,7 +186,6 @@ async fn test_multi_instrument_scan_to_measurements() {
 // Test 3: Instrument -> Measurement -> CSV Storage Pipeline
 // =============================================================================
 
-#[cfg(feature = "storage_csv")]
 #[tokio::test]
 async fn test_full_pipeline_to_csv() {
     use std::fs;

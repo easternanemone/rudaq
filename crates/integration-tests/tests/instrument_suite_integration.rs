@@ -278,7 +278,7 @@ async fn test_rotate_and_measure() -> Result<()> {
 
 // Long-running integration; run manually with `cargo test --ignored`
 #[tokio::test]
-#[ignore]
+#[ignore = "long-running integration test; run manually with --ignored"]
 async fn test_coordinated_motion_and_measurement() -> Result<()> {
     println!("\n=== Test: Coordinated Motion and Measurement ===");
 
@@ -392,7 +392,7 @@ async fn test_parallel_device_operations() -> Result<()> {
 
 // Long-running integration; run manually with `cargo test --ignored`
 #[tokio::test]
-#[ignore]
+#[ignore = "long-running integration test; run manually with --ignored"]
 async fn test_sequential_sweep() -> Result<()> {
     println!("\n=== Test: Sequential Sweep ===");
 
@@ -435,7 +435,7 @@ async fn test_sequential_sweep() -> Result<()> {
 
 // Long-running integration; run manually with `cargo test --ignored`
 #[tokio::test]
-#[ignore]
+#[ignore = "long-running integration test; run manually with --ignored"]
 async fn test_error_handling_invalid_position() -> Result<()> {
     println!("\n=== Test: Error Handling - Invalid Position ===");
 
@@ -544,7 +544,7 @@ async fn test_polarization_extinction_ratio() -> Result<()> {
 
 // Long-running integration; run manually with `cargo test --ignored`
 #[tokio::test]
-#[ignore]
+#[ignore = "long-running integration test; run manually with --ignored"]
 async fn test_motion_settling_behavior() -> Result<()> {
     println!("\n=== Test: Motion Settling Behavior ===");
 
@@ -590,7 +590,7 @@ async fn test_motion_settling_behavior() -> Result<()> {
 
 // Long-running integration; run manually with `cargo test --ignored`
 #[tokio::test]
-#[ignore]
+#[ignore = "long-running integration test; run manually with --ignored"]
 async fn test_relative_moves() -> Result<()> {
     println!("\n=== Test: Relative Moves ===");
 

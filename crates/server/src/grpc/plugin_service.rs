@@ -59,7 +59,7 @@ impl std::fmt::Debug for PluginInstance {
             .field("plugin_id", &self.plugin_id)
             .field("connected", &self.connected)
             .field("driver", &"<Option<Arc<GenericDriver>>>")
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

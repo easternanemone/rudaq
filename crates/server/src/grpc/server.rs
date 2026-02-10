@@ -133,9 +133,8 @@ fn validate_auth(settings: &GrpcSettings, request: &Request<()>) -> Result<(), S
         .and_then(|value| value.to_str().ok());
 
     let candidate = header_token.or(api_key_header);
-    let token = match candidate {
-        Some(token) => token,
-        None => return Err(Status::unauthenticated("missing authorization token")),
+    let Some(token) = candidate else {
+        return Err(Status::unauthenticated("missing authorization token"));
     };
 
     if token == expected {
@@ -483,7 +482,7 @@ impl std::fmt::Debug for DaqServer {
             )
             .field("start_time", &self.start_time)
             .field("data_tx", &"<broadcast::Sender>")
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -641,10 +640,10 @@ impl ControlService for DaqServer {
                             if let Err(e) = journal_clone.complete_run(&exec_id_clone) {
                                 tracing::warn!("Failed to journal script completion: {}", e);
                             }
-                        } else if let Some(ref err_msg) = report.error {
-                            if let Err(e) = journal_clone.fail_run(&exec_id_clone, err_msg) {
-                                tracing::warn!("Failed to journal script failure: {}", e);
-                            }
+                        } else if let Some(ref err_msg) = report.error
+                            && let Err(e) = journal_clone.fail_run(&exec_id_clone, err_msg)
+                        {
+                            tracing::warn!("Failed to journal script failure: {}", e);
                         }
                     }
                     Err(e) => {

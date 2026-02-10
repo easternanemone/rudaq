@@ -52,7 +52,7 @@ fn test_mock_modes() {
     let realistic = MockMode::Realistic;
     let chaos = MockMode::Chaos;
 
-    drop((instant, realistic, chaos));
+    let _ = (instant, realistic, chaos);
 }
 
 /// Test voltage ranges
@@ -63,7 +63,7 @@ fn test_voltage_ranges() {
     let unipolar10 = VoltageRange::Unipolar10V;
     let unipolar5 = VoltageRange::Unipolar5V;
 
-    drop((bipolar10, bipolar5, unipolar10, unipolar5));
+    let _ = (bipolar10, bipolar5, unipolar10, unipolar5);
 }
 
 /// Test link function (prevents linker optimization)

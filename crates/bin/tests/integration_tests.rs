@@ -61,8 +61,7 @@ fn test_daemon_binary_exists() {
         println!("  Run: cargo build -p daq-bin");
     }
 
-    // This test always passes - it's informational
-    assert!(true);
+    // Informational only: no assertion needed.
 }
 
 // =============================================================================
@@ -110,8 +109,7 @@ async fn test_daemon_startup_and_grpc_connection() {
     // 1. Build daemon: cargo build -p daq-bin
     // 2. Run test: cargo test -p daq-bin --test integration_tests -- --ignored --nocapture
 
-    // Placeholder assertion to make test compile
-    assert!(true, "Integration test requires manual daemon setup");
+    // Placeholder: this test body is intentionally empty and ignored by default.
 }
 
 // =============================================================================

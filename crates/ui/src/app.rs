@@ -112,7 +112,11 @@ fn check_crashed_session() -> Option<String> {
     for entry in entries.flatten() {
         let path = entry.path();
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if !name.starts_with("gui_session_") || !name.ends_with(".json") {
+        if !name.starts_with("gui_session_")
+            || !std::path::Path::new(name)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+        {
             continue;
         }
 
@@ -1299,7 +1303,7 @@ impl DaqApp {
             self.connection.poll(&self.runtime, &self.daemon_address)
         {
             self.client = Some(client);
-            self.daemon_version = daemon_version.clone();
+            self.daemon_version.clone_from(&daemon_version);
             self.logging_panel.connection_status = LogConnectionStatus::Connected;
             self.logging_panel.info(
                 "Connection",

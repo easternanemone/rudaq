@@ -718,7 +718,7 @@ mod tests {
         for (input, expected) in test_cases {
             let parsed: Result<f64, _> = input.parse();
             assert!(parsed.is_ok(), "Failed to parse: {}", input);
-            assert_eq!(parsed.unwrap(), expected);
+            assert!((parsed.unwrap() - expected).abs() < f64::EPSILON);
         }
     }
 
@@ -734,7 +734,7 @@ mod tests {
         for (input, expected) in test_cases {
             let parsed: Result<u16, _> = input.trim().parse();
             assert!(parsed.is_ok(), "Failed to parse: {}", input);
-            assert_eq!(parsed.unwrap() as f64, expected);
+            assert!(((parsed.unwrap() as f64) - expected).abs() < f64::EPSILON);
         }
     }
 

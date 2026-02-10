@@ -155,7 +155,7 @@ impl std::fmt::Debug for ScriptModule {
             .field("state", &self.state)
             .field("running", &self.running.load(Ordering::Relaxed))
             .field("paused", &self.paused.load(Ordering::Relaxed))
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -167,7 +167,7 @@ impl ScriptModule {
     pub async fn from_file(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let script_source = std::fs::read_to_string(path)
-            .map_err(|e| anyhow!("Failed to read script file {:?}: {}", path, e))?;
+            .map_err(|e| anyhow!("Failed to read script file {}: {}", path.display(), e))?;
 
         Self::from_source(script_source, path.to_path_buf()).await
     }
@@ -341,7 +341,7 @@ impl Module for ScriptModule {
 
     fn configure(&mut self, params: HashMap<String, String>) -> Result<Vec<String>> {
         // Store config
-        self.config = params.clone();
+        self.config.clone_from(&params);
 
         // Convert params to Rhai map format
         let params_str = params

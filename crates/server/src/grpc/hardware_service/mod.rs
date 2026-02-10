@@ -2209,7 +2209,6 @@ impl HardwareService for HardwareServiceImpl {
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                         tracing::warn!("Parameter change stream lagged, dropped {} messages", n);
-                        continue;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                         break;

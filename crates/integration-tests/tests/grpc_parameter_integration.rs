@@ -472,8 +472,11 @@ async fn test_concurrent_parameter_access_no_deadlock() -> Result<()> {
         Ok(Err(e)) => {
             panic!("Task failed: {}", e);
         }
-        Err(_) => {
-            panic!("DEADLOCK DETECTED: Test timed out after 30 seconds");
+        Err(err) => {
+            panic!(
+                "DEADLOCK DETECTED: Test timed out after 30 seconds: {}",
+                err
+            );
         }
     }
 

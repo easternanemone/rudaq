@@ -3200,7 +3200,7 @@ mod tests {
 
         // Not in group initially
         assert!(!driver.is_in_group());
-        assert_eq!(driver.get_group_offset(), 0.0);
+        assert!(driver.get_group_offset().abs() < f64::EPSILON);
     }
 
     #[test]

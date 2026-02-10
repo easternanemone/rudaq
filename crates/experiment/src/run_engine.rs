@@ -1089,8 +1089,8 @@ mod tests {
             loop {
                 match rx.recv().await {
                     Ok(Document::Stop(stop)) => return stop,
-                    Ok(_) => continue, // Skip other documents
-                    Err(_) => panic!("Channel closed before StopDoc"),
+                    Ok(_) => {} // Skip other documents
+                    Err(err) => panic!("Channel closed before StopDoc: {err}"),
                 }
             }
         })
@@ -1137,8 +1137,8 @@ mod tests {
             loop {
                 match rx.recv().await {
                     Ok(Document::Stop(stop)) => return stop,
-                    Ok(_) => continue,
-                    Err(_) => panic!("Channel closed before StopDoc"),
+                    Ok(_) => {}
+                    Err(err) => panic!("Channel closed before StopDoc: {err}"),
                 }
             }
         })

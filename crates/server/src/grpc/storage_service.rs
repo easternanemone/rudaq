@@ -237,8 +237,10 @@ pub struct StorageServiceImpl {
 impl StorageServiceImpl {
     /// Create a new StorageService
     pub fn new(ring_buffer: Option<Arc<RingBuffer>>, config: ConfigStorageSettings) -> Self {
-        let mut settings = StorageSettings::default();
-        settings.output_directory = config.output_directory;
+        let settings = StorageSettings {
+            output_directory: config.output_directory,
+            ..StorageSettings::default()
+        };
 
         Self {
             settings: Arc::new(RwLock::new(settings)),
@@ -293,9 +295,8 @@ impl StorageServiceImpl {
         let mut records = HashMap::new();
         let settings = self.settings.read().await;
 
-        let mut entries = match fs::read_dir(&settings.output_directory).await {
-            Ok(dir) => dir,
-            Err(_) => return records,
+        let Ok(mut entries) = fs::read_dir(&settings.output_directory).await else {
+            return records;
         };
 
         while let Ok(Some(entry)) = entries.next_entry().await {

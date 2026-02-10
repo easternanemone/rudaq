@@ -267,7 +267,7 @@ impl std::fmt::Debug for FfiModuleWrapper {
         f.debug_struct("FfiModuleWrapper")
             .field("type_info", &self.type_info)
             .field("module_id", &self.module_id)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

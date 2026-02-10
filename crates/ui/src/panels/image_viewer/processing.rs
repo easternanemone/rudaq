@@ -173,7 +173,10 @@ pub(super) fn convert_frame_to_rgba_into(
 
     // Apply colorbar midpoint adjustment (bd-07j1)
     // Convert midpoint to gamma: gamma = -log(0.5) / log(midpoint)
-    let gamma = if colorbar_midpoint > 0.0 && colorbar_midpoint < 1.0 && colorbar_midpoint != 0.5 {
+    let gamma = if colorbar_midpoint > 0.0
+        && colorbar_midpoint < 1.0
+        && (colorbar_midpoint - 0.5).abs() > f32::EPSILON
+    {
         -std::f32::consts::LN_2 / colorbar_midpoint.ln()
     } else {
         1.0 // Linear (no adjustment)
@@ -195,7 +198,7 @@ pub(super) fn convert_frame_to_rgba_into(
 
                 let scaled = scale_mode.apply(contrasted);
                 // Apply colorbar midpoint adjustment (bd-07j1)
-                let adjusted = if gamma != 1.0 {
+                let adjusted = if (gamma - 1.0).abs() > f32::EPSILON {
                     scaled.powf(gamma).clamp(0.0, 1.0)
                 } else {
                     scaled
@@ -227,7 +230,7 @@ pub(super) fn convert_frame_to_rgba_into(
 
                 let scaled = scale_mode.apply(contrasted);
                 // Apply colorbar midpoint adjustment (bd-07j1)
-                let adjusted = if gamma != 1.0 {
+                let adjusted = if (gamma - 1.0).abs() > f32::EPSILON {
                     scaled.powf(gamma).clamp(0.0, 1.0)
                 } else {
                     scaled

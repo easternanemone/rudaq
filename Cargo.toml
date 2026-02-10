@@ -87,6 +87,7 @@ cast_sign_loss = "allow"             # Common in low-level code
 cast_precision_loss = "allow"        # f64 -> f32 is often intentional
 cast_lossless = "allow"              # Sometimes explicit casts are clearer
 cast_possible_wrap = "allow"         # Hardware drivers handle this case-by-case
+float_cmp = "allow"                  # Exact float comparisons are common in deterministic tests
 
 # Allow other noisy pedantic lints
 unnested_or_patterns = "allow"       # Style preference

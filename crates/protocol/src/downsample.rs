@@ -1065,33 +1065,33 @@ mod tests {
         let mut pixels: Vec<Vec<u16>> = vec![vec![0; 8]; 8];
 
         // Fill top-left 4x4 block with 100
-        for y in 0..4 {
-            for x in 0..4 {
-                pixels[y][x] = 100;
+        for row in pixels.iter_mut().take(4) {
+            for cell in row.iter_mut().take(4) {
+                *cell = 100;
             }
         }
 
         // Fill top-right 4x4 block with sequential values 0..15
         // Sum = 0+1+2+...+15 = 120, avg = 120/16 = 7 (truncated)
         let mut val = 0u16;
-        for y in 0..4 {
-            for x in 4..8 {
-                pixels[y][x] = val;
+        for row in pixels.iter_mut().take(4) {
+            for cell in row.iter_mut().take(8).skip(4) {
+                *cell = val;
                 val += 1;
             }
         }
 
         // Fill bottom-left 4x4 block with 1000
-        for y in 4..8 {
-            for x in 0..4 {
-                pixels[y][x] = 1000;
+        for row in pixels.iter_mut().take(8).skip(4) {
+            for cell in row.iter_mut().take(4) {
+                *cell = 1000;
             }
         }
 
         // Fill bottom-right 4x4 block with 1000
-        for y in 4..8 {
-            for x in 4..8 {
-                pixels[y][x] = 1000;
+        for row in pixels.iter_mut().take(8).skip(4) {
+            for cell in row.iter_mut().take(8).skip(4) {
+                *cell = 1000;
             }
         }
 
@@ -1294,9 +1294,9 @@ mod tests {
         // = sum of x (0+1+2+3)*4 + sum of y (0+1+2+3)*4 = 6*4 + 6*4 = 48
         // avg = 48/16 = 3
         let mut pixels: Vec<Vec<u16>> = vec![vec![0; 4]; 4];
-        for y in 0..4 {
-            for x in 0..4 {
-                pixels[y][x] = (x + y) as u16;
+        for (y, row) in pixels.iter_mut().enumerate().take(4) {
+            for (x, cell) in row.iter_mut().enumerate().take(4) {
+                *cell = (x + y) as u16;
             }
         }
         let pixel_refs: Vec<&[u16]> = pixels.iter().map(|r| r.as_slice()).collect();
@@ -1349,9 +1349,9 @@ mod tests {
         let mut pixels: Vec<Vec<u16>> = vec![vec![100; 8]; 8];
 
         // Bright spot in top-left 4x4
-        for y in 0..4 {
-            for x in 0..4 {
-                pixels[y][x] = 10000;
+        for row in pixels.iter_mut().take(4) {
+            for cell in row.iter_mut().take(4) {
+                *cell = 10000;
             }
         }
 
@@ -1404,9 +1404,9 @@ mod tests {
         // Sum = 0+1+2+...+15 = 120, avg = 120/16 = 7 (truncated from 7.5)
         let mut pixels: Vec<Vec<u16>> = vec![vec![0; 4]; 4];
         let mut val = 0u16;
-        for y in 0..4 {
-            for x in 0..4 {
-                pixels[y][x] = val;
+        for row in pixels.iter_mut().take(4) {
+            for cell in row.iter_mut().take(4) {
+                *cell = val;
                 val += 1;
             }
         }

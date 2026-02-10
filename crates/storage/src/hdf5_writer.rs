@@ -114,14 +114,16 @@ impl HDF5Writer {
     /// one attribute per parameter name. Existing attributes are overwritten.
     #[cfg(feature = "storage_hdf5")]
     pub async fn inject_parameters(&self, params: &ParameterSet) -> Result<()> {
-        // Capture snapshot outside blocking section
-        let snapshot: Vec<(
+        type ParamSnapshotEntry = (
             String,
             serde_json::Value,
             Option<String>,
             Option<String>,
             bool,
-        )> = params
+        );
+
+        // Capture snapshot outside blocking section
+        let snapshot: Vec<ParamSnapshotEntry> = params
             .iter()
             .map(|(name, param)| {
                 let value = param.get_json()?;
@@ -740,11 +742,9 @@ impl HDF5Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[expect(
-        unused_imports,
-        reason = "TempDir used conditionally based on test configuration"
-    )]
-    use tempfile::{NamedTempFile, TempDir};
+    use tempfile::NamedTempFile;
+    #[cfg(feature = "storage_hdf5")]
+    use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_hdf5_writer_create() {

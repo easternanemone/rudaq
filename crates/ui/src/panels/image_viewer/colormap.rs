@@ -12,7 +12,7 @@ pub enum Colormap {
 }
 
 impl Colormap {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Grayscale => "Grayscale",
             Self::Viridis => "Viridis",
@@ -25,7 +25,7 @@ impl Colormap {
     /// Apply colormap to a normalized value (0.0-1.0) returning RGB
     /// Uses pre-computed LUT for performance (bd-7rk0)
     #[inline]
-    pub fn apply(&self, value: f32) -> [u8; 3] {
+    pub fn apply(self, value: f32) -> [u8; 3] {
         // Convert to 8-bit index (0-255)
         let idx = (value.clamp(0.0, 1.0) * 255.0) as usize;
         self.lut()[idx]
@@ -33,7 +33,7 @@ impl Colormap {
 
     /// Get the pre-computed LUT for this colormap (256 RGB entries)
     #[inline]
-    fn lut(&self) -> &'static [[u8; 3]; 256] {
+    fn lut(self) -> &'static [[u8; 3]; 256] {
         match self {
             Self::Grayscale => &GRAYSCALE_LUT,
             Self::Viridis => &VIRIDIS_LUT,
@@ -47,7 +47,7 @@ impl Colormap {
 // Implement ColormapTrait for Colorbar widget (bd-07j1)
 impl crate::widgets::ColormapTrait for Colormap {
     fn apply(&self, value: f32) -> [u8; 3] {
-        Colormap::apply(self, value)
+        Colormap::apply(*self, value)
     }
 }
 
@@ -189,7 +189,7 @@ pub enum ContrastMode {
 }
 
 impl ContrastMode {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Manual => "Manual",
             Self::AutoSimple => "Auto (Simple)",
@@ -220,7 +220,7 @@ pub enum ScaleMode {
 }
 
 impl ScaleMode {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Linear => "Linear",
             Self::Log => "Log",
@@ -229,7 +229,7 @@ impl ScaleMode {
     }
 
     /// Apply scaling to a normalized value (0.0-1.0)
-    pub fn apply(&self, value: f32) -> f32 {
+    pub fn apply(self, value: f32) -> f32 {
         match self {
             Self::Linear => value,
             Self::Log => (1.0 + value * 99.0).log10() / 2.0, // log10(1-100) -> 0-2 -> 0-1

@@ -359,7 +359,7 @@ mod camera_integration_tests {
 
     /// Stress test: 60s sustained streaming (ignored by default).
     #[tokio::test]
-    #[ignore]
+    #[ignore = "long-running stress test; run manually with --ignored"]
     async fn test_stream_frames_sustained_60s() {
         let registry = create_camera_registry().await;
         let service = HardwareServiceImpl::new(Arc::new(registry));

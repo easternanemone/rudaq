@@ -212,9 +212,8 @@ impl ScriptJournal {
         let cutoff = timestamp_nanos().saturating_sub(max_age.as_nanos() as u64);
         let mut removed = 0;
 
-        let entries = match std::fs::read_dir(&self.journal_dir) {
-            Ok(e) => e,
-            Err(_) => return Ok(0),
+        let Ok(entries) = std::fs::read_dir(&self.journal_dir) else {
+            return Ok(0);
         };
 
         for dir_entry in entries {
@@ -227,10 +226,8 @@ impl ScriptJournal {
             if let Ok(entry) = self.read_entry_from_path(&path) {
                 let is_terminal =
                     matches!(entry.state, JournalState::Completed | JournalState::Failed);
-                if is_terminal && entry.updated_at < cutoff {
-                    if std::fs::remove_file(&path).is_ok() {
-                        removed += 1;
-                    }
+                if is_terminal && entry.updated_at < cutoff && std::fs::remove_file(&path).is_ok() {
+                    removed += 1;
                 }
             }
         }

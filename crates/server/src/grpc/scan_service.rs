@@ -287,7 +287,7 @@ impl ScanServiceImpl {
     }
 
     /// Validate scan configuration against available devices
-    async fn validate_config(&self, config: &ScanConfig) -> Result<(), String> {
+    fn validate_config(&self, config: &ScanConfig) -> Result<(), String> {
         // Validate axes
         if config.axes.is_empty() {
             return Err("Scan must have at least one axis".to_string());
@@ -587,7 +587,7 @@ impl ScanServiceImpl {
             .ok_or_else(|| Status::invalid_argument("Missing scan config"))?;
 
         // Validate configuration
-        if let Err(e) = self.validate_config(&config).await {
+        if let Err(e) = self.validate_config(&config) {
             return Ok(Response::new(CreateScanResponse {
                 success: false,
                 scan_id: String::new(),

@@ -2383,7 +2383,7 @@ mod tests {
 
     /// Stress test: many concurrent writers with a reader verifying no panics or deadlocks.
     #[test]
-    #[ignore] // Run with: cargo test -- --ignored
+    #[ignore = "stress test; run with: cargo test -- --ignored"]
     fn stress_concurrent_multi_writer() {
         let temp_dir = tempfile::tempdir().unwrap();
         let path = temp_dir.path().join("stress_multi.buf");
@@ -2444,7 +2444,7 @@ mod tests {
 
     /// Stress test: rapid tap registration and unregistration during writes.
     #[tokio::test]
-    #[ignore] // Run with: cargo test -- --ignored
+    #[ignore = "stress test; run with: cargo test -- --ignored"]
     async fn stress_tap_register_unregister_during_writes() {
         let temp_dir = tempfile::tempdir().unwrap();
         let path = temp_dir.path().join("stress_tap_reg.buf");
@@ -2490,7 +2490,7 @@ mod tests {
 
     /// Stress test: tap backpressure under saturation.
     #[tokio::test]
-    #[ignore] // Run with: cargo test -- --ignored
+    #[ignore = "stress test; run with: cargo test -- --ignored"]
     async fn stress_tap_backpressure_saturation() {
         let temp_dir = tempfile::tempdir().unwrap();
         let path = temp_dir.path().join("stress_bp.buf");
@@ -2547,7 +2547,7 @@ mod tests {
 
     /// Stress test: concurrent async writers and readers (tokio tasks).
     #[tokio::test]
-    #[ignore] // Run with: cargo test -- --ignored
+    #[ignore = "stress test; run with: cargo test -- --ignored"]
     async fn stress_async_concurrent_writers_readers() {
         let temp_dir = tempfile::tempdir().unwrap();
         let path = temp_dir.path().join("stress_async.buf");
@@ -2592,7 +2592,7 @@ mod tests {
 
     /// Stress test: rapid create/write/read/drop cycles to check resource cleanup.
     #[test]
-    #[ignore] // Run with: cargo test -- --ignored
+    #[ignore = "stress test; run with: cargo test -- --ignored"]
     fn stress_buffer_lifecycle_cycles() {
         let temp_dir = tempfile::tempdir().unwrap();
         let cycles = 50;

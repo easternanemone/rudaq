@@ -124,7 +124,7 @@ async fn collect_documents(
                 }
             }
             Ok(Err(_)) => break, // Channel closed
-            Err(_) => continue,  // Timeout, keep trying
+            Err(_) => {}         // Timeout, keep trying
         }
     }
 
@@ -288,12 +288,10 @@ async fn test_pause_resume_multi_device() {
 
         if pause_result.is_ok() {
             // Give the engine time to transition to paused state (may be async)
-            let mut paused = false;
             for _ in 0..20 {
                 tokio::time::sleep(Duration::from_millis(25)).await;
                 let state = engine_for_control.state().await;
                 if state == EngineState::Paused || state == EngineState::Idle {
-                    paused = true;
                     break;
                 }
             }

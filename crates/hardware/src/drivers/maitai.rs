@@ -560,7 +560,7 @@ mod tests {
             .trim_end_matches("nm")
             .trim_end_matches("NM");
         let wavelength: f64 = clean.parse().unwrap();
-        assert_eq!(wavelength, 820.0);
+        assert!((wavelength - 820.0).abs() < f64::EPSILON);
 
         // Test parsing with whitespace
         let response = " 750nm \n";
@@ -569,7 +569,7 @@ mod tests {
             .trim_end_matches("nm")
             .trim_end_matches("NM");
         let wavelength: f64 = clean.parse().unwrap();
-        assert_eq!(wavelength, 750.0);
+        assert!((wavelength - 750.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -592,7 +592,11 @@ mod tests {
                 .trim_end_matches('%')
                 .trim();
             let power: f64 = clean.parse().unwrap();
-            assert_eq!(power, expected, "Failed to parse '{}'", response);
+            assert!(
+                (power - expected).abs() < f64::EPSILON,
+                "Failed to parse '{}'",
+                response
+            );
         }
     }
 
