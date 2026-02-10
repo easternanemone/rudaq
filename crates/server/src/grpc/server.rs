@@ -1088,7 +1088,6 @@ pub async fn start_server_with_hardware(
     use crate::grpc::hardware_service::HardwareServiceImpl;
     use crate::grpc::module_service::ModuleServiceImpl;
     use crate::grpc::ni_daq_service::NiDaqServiceImpl;
-    use storage::hdf5_writer::HDF5Writer;
     use storage::ring_buffer::RingBuffer;
     // use crate::grpc::plugin_service::PluginServiceImpl; // Unused
     use crate::grpc::preset_service::{PresetServiceImpl, default_preset_storage_path};
@@ -1161,29 +1160,10 @@ pub async fn start_server_with_hardware(
         rb.set_tap_channel_capacity(storage_settings.tap_channel_size);
     }
 
-    // Spawn HDF5Writer background task if ring buffer is available
-    // This is the "Business in the Back" of The Mullet Strategy
-    if let Some(ref rb) = ring_buffer {
-        let hdf5_output_path = &storage_settings.hdf5_path;
-
-        match HDF5Writer::new(hdf5_output_path, rb.clone()) {
-            Ok(writer) => {
-                println!(
-                    "  - HDF5Writer: {} (1 Hz flush)",
-                    hdf5_output_path.display()
-                );
-                tokio::spawn(async move {
-                    writer.run().await;
-                });
-            }
-            Err(e) => {
-                eprintln!(
-                    "Warning: Failed to create HDF5 writer: {}. Data will not be persisted to disk.",
-                    e
-                );
-            }
-        }
-    }
+    // NOTE: HDF5Writer is NOT spawned here at startup. Frames are only written
+    // to disk when explicitly requested via StorageService::start_recording().
+    // The ring buffer acts as a circular in-memory buffer that StorageService
+    // taps into on demand.
 
     // Create shared RunEngine FIRST - used by both RunEngineService and ControlService/scripts (bd-si2c)
     let run_engine = std::sync::Arc::new(experiment::RunEngine::new(registry.clone()));
