@@ -96,7 +96,9 @@ impl FpsTracker {
         self.last_frame_number = frame_number;
 
         // Remove frames older than FPS window
-        let cutoff = now - std::time::Duration::from_secs_f64(FPS_WINDOW);
+        let cutoff = now
+            .checked_sub(std::time::Duration::from_secs_f64(FPS_WINDOW))
+            .unwrap();
         while let Some(&time) = self.frame_times.front() {
             if time < cutoff {
                 self.frame_times.pop_front();
@@ -124,7 +126,9 @@ impl FpsTracker {
         }
 
         let now = Instant::now();
-        let cutoff = now - std::time::Duration::from_secs_f64(FPS_WINDOW);
+        let cutoff = now
+            .checked_sub(std::time::Duration::from_secs_f64(FPS_WINDOW))
+            .unwrap();
         let recent_frames: Vec<_> = self.frame_times.iter().filter(|&&t| t >= cutoff).collect();
 
         if recent_frames.len() < 2 {
@@ -217,7 +221,7 @@ impl PlotState {
 
     /// Add a data point and update plot bounds
     fn add_data(&mut self, update: DataUpdate) {
-        let time_offset = (Instant::now() - self.start_time).as_secs_f64();
+        let time_offset = self.start_time.elapsed().as_secs_f64();
         let point = [time_offset, update.value];
         self.data.push_back(point);
 

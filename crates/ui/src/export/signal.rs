@@ -10,21 +10,12 @@ use std::io::{self, Write};
 use std::path::Path;
 
 /// Options specific to signal trace export
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SignalExportOptions {
     /// Common CSV options
     pub csv_options: CsvExportOptions,
     /// Include trace labels in filename
     pub _include_labels_in_filename: bool,
-}
-
-impl Default for SignalExportOptions {
-    fn default() -> Self {
-        Self {
-            csv_options: CsvExportOptions::default(),
-            _include_labels_in_filename: false,
-        }
-    }
 }
 
 /// A single signal trace to export
@@ -182,7 +173,7 @@ fn find_nearest_value(points: &[(f64, f64)], target_time: f64) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
+
     use tempfile::NamedTempFile;
 
     #[test]

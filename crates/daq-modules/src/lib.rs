@@ -215,7 +215,7 @@ impl ModuleContext {
             module_id: self.module_id.clone(),
             event_type: event_type.to_string(),
             timestamp_ns: current_time_ns(),
-            severity: severity,
+            severity,
             message: message.to_string(),
             data,
         };

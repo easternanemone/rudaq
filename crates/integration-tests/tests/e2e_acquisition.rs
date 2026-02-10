@@ -339,7 +339,7 @@ async fn test_stage_failure_recovery() {
 
     for &pos in &positions {
         match stage.move_abs(pos).await {
-            Ok(_) => {
+            Ok(()) => {
                 stage.wait_settled().await.unwrap();
                 camera.trigger().await.unwrap();
                 session.record(pos, 0.0, camera.frame_count()).await;
@@ -388,7 +388,7 @@ async fn test_camera_failure_recovery() {
         stage.wait_settled().await.unwrap();
 
         match camera.trigger().await {
-            Ok(_) => {
+            Ok(()) => {
                 session.record(pos, 0.0, camera.frame_count()).await;
                 successful_frames += 1;
             }

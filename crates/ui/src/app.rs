@@ -1522,7 +1522,7 @@ struct DaqTabViewer<'a> {
     app: &'a mut DaqApp,
 }
 
-impl<'a> TabViewer for DaqTabViewer<'a> {
+impl TabViewer for DaqTabViewer<'_> {
     type Tab = Panel;
 
     fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
@@ -1581,22 +1581,22 @@ impl<'a> TabViewer for DaqTabViewer<'a> {
             Panel::Devices => {
                 self.app
                     .devices_panel
-                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime);
             }
             Panel::Scripts => {
                 self.app
                     .scripts_panel
-                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime);
             }
             Panel::Scans => {
                 self.app
                     .scans_panel
-                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime);
             }
             Panel::ScanBuilder => {
                 self.app
                     .scan_builder_panel
-                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime);
             }
             Panel::ExperimentDesigner => self.app.experiment_designer_panel.ui(
                 ui,
@@ -1606,32 +1606,32 @@ impl<'a> TabViewer for DaqTabViewer<'a> {
             Panel::Storage => {
                 self.app
                     .storage_panel
-                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime);
             }
             Panel::RunHistory => {
                 self.app
                     .run_history_panel
-                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime);
             }
             Panel::RunComparison => {
                 self.app
                     .run_comparison_panel
-                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime);
             }
             Panel::Modules => {
                 self.app
                     .modules_panel
-                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime);
             }
             Panel::PlanRunner => {
                 self.app
                     .plan_runner_panel
-                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime);
             }
             Panel::DocumentViewer => {
                 self.app
                     .document_viewer_panel
-                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime);
             }
             Panel::SignalPlotter => {
                 self.app.signal_plotter_panel.drain_updates();
@@ -1640,7 +1640,7 @@ impl<'a> TabViewer for DaqTabViewer<'a> {
             Panel::ImageViewer => {
                 self.app
                     .image_viewer_panel
-                    .ui(ui, self.app.client.as_mut(), &self.app.runtime)
+                    .ui(ui, self.app.client.as_mut(), &self.app.runtime);
             }
             Panel::Logs => self.app.logging_panel.ui(ui),
             Panel::DeviceControl { id } => {
@@ -1650,7 +1650,7 @@ impl<'a> TabViewer for DaqTabViewer<'a> {
     }
 }
 
-impl<'a> DaqTabViewer<'a> {
+impl DaqTabViewer<'_> {
     fn nav_button(&mut self, ui: &mut egui::Ui, icon: &str, label: &str, panel: Panel) {
         let text = format!("{} {}", icon, label);
         if ui.button(text).clicked() {

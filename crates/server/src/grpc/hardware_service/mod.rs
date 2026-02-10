@@ -67,7 +67,6 @@ use crate::grpc::{
         StreamObservablesRequest,
         StreamParameterChangesRequest,
         StreamPositionRequest,
-        StreamQuality,
         StreamValuesRequest,
         StreamingMetrics,
         TriggerRequest,
@@ -81,231 +80,29 @@ use crate::grpc::{
     },
 };
 use anyhow::Error as AnyError;
-use common::capabilities::FrameObserver;
-use common::data::FrameView;
 use common::driver::Capability;
 use common::error::DaqError;
-use common::limits::{FPS_WINDOW, MAX_STREAMS_PER_CLIENT, RPC_TIMEOUT};
+use common::limits::{FPS_WINDOW, RPC_TIMEOUT};
 use common::observable::{Observable, ParameterMetadata as CommonParameterMetadata};
 use common::parameter::Parameter;
 use hardware::registry::DeviceRegistry;
-use protocol::downsample::{downsample_2x2, downsample_4x4};
 use serde_json;
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{Duration, interval};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 use tracing::instrument;
 
-// =============================================================================
-// Frame Observer for gRPC Streaming (bd-0dax.6.3)
-// =============================================================================
+mod helpers;
+mod streaming;
 
-/// Internal frame data packet sent through the observer channel.
-///
-/// Contains pre-processed frame data ready for gRPC transmission.
-struct ObserverFramePacket {
-    data: Vec<u8>,
-    width: u32,
-    height: u32,
-    bit_depth: u32,
-    frame_number: u64,
-    timestamp_ns: u64,
-    exposure_ms: Option<f64>,
-    roi_x: u32,
-    roi_y: u32,
-    temperature_c: Option<f64>,
-    binning: Option<(u16, u16)>,
-}
-
-/// Observer that sends frames to gRPC stream (bd-0dax.6.3).
-///
-/// This observer receives `FrameView` references from the frame loop and
-/// forwards them (after optional downsampling) to a gRPC client via an
-/// mpsc channel.
-///
-/// # Contract
-///
-/// - `on_frame()` MUST NOT block - uses `try_send()` with bounded channel
-/// - Frame data is copied during `on_frame()` (required - can't hold reference)
-/// - Backpressure is handled by dropping frames when channel is full
-///
-/// # Quality Modes
-///
-/// - `Full`: No downsampling, full resolution frames
-/// - `Preview`: 2x2 binning, ~75% bandwidth reduction
-/// - `Fast`: 4x4 binning, ~94% bandwidth reduction
-struct GrpcStreamObserver {
-    /// Channel sender for frame packets (bounded to handle backpressure)
-    tx: tokio::sync::mpsc::Sender<ObserverFramePacket>,
-    /// Quality setting for server-side downsampling
-    quality: StreamQuality,
-    /// Device ID for logging
-    device_id: String,
-    /// Frame counter for logging
-    frames_received: AtomicU64,
-    /// Frames dropped due to backpressure
-    frames_dropped: AtomicU64,
-}
-
-impl GrpcStreamObserver {
-    /// Create a new gRPC stream observer.
-    fn new(
-        tx: tokio::sync::mpsc::Sender<ObserverFramePacket>,
-        quality: StreamQuality,
-        device_id: String,
-    ) -> Self {
-        Self {
-            tx,
-            quality,
-            device_id,
-            frames_received: AtomicU64::new(0),
-            frames_dropped: AtomicU64::new(0),
-        }
-    }
-}
-
-impl FrameObserver for GrpcStreamObserver {
-    fn on_frame(&self, frame: &FrameView<'_>) {
-        let frame_count = self.frames_received.fetch_add(1, Ordering::Relaxed);
-
-        // Log early frames for debugging
-        if frame_count < 10 {
-            tracing::debug!(
-                device_id = %self.device_id,
-                frame_number = frame.frame_number,
-                width = frame.width,
-                height = frame.height,
-                quality = ?self.quality,
-                "GrpcStreamObserver received frame (early frame debug)"
-            );
-        }
-
-        // Apply server-side downsampling based on quality setting
-        // Note: downsample functions expect 16-bit data
-        let (frame_data, effective_width, effective_height) = match self.quality {
-            StreamQuality::Preview => downsample_2x2(frame.pixels(), frame.width, frame.height),
-            StreamQuality::Fast => downsample_4x4(frame.pixels(), frame.width, frame.height),
-            StreamQuality::Full => (frame.pixels().to_vec(), frame.width, frame.height),
-        };
-
-        let packet = ObserverFramePacket {
-            data: frame_data,
-            width: effective_width,
-            height: effective_height,
-            bit_depth: frame.bit_depth,
-            frame_number: frame.frame_number,
-            timestamp_ns: frame.timestamp_ns,
-            exposure_ms: frame.exposure_ms,
-            roi_x: frame.roi_x,
-            roi_y: frame.roi_y,
-            temperature_c: frame.temperature_c,
-            binning: frame.binning,
-        };
-
-        // Non-blocking send - drop frame if channel is full (backpressure)
-        if self.tx.try_send(packet).is_err() {
-            let dropped = self.frames_dropped.fetch_add(1, Ordering::Relaxed);
-            if dropped.is_multiple_of(10) {
-                tracing::debug!(
-                    device_id = %self.device_id,
-                    frames_dropped = dropped + 1,
-                    "GrpcStreamObserver dropping frame due to backpressure"
-                );
-            }
-        }
-    }
-
-    fn name(&self) -> &'static str {
-        "grpc_stream_observer"
-    }
-}
-
-// =============================================================================
-// Per-Client Stream Rate Limiter (bd-64hu)
-// =============================================================================
-
-/// Tracks active frame streams per client IP for DoS prevention.
-///
-/// Each client IP is limited to `MAX_STREAMS_PER_CLIENT` concurrent frame streams.
-/// Returns `ResourceExhausted` when the limit is exceeded.
-#[derive(Debug, Default)]
-pub struct StreamLimiter {
-    /// Map of client IP to active stream count
-    active_streams: std::sync::Mutex<HashMap<IpAddr, usize>>,
-}
-
-impl StreamLimiter {
-    /// Create a new stream limiter.
-    pub fn new() -> Self {
-        Self {
-            active_streams: std::sync::Mutex::new(HashMap::new()),
-        }
-    }
-
-    /// Try to acquire a stream slot for the given client IP.
-    ///
-    /// Returns `Ok(())` if the client is under the limit, or `Err(Status)` if exceeded.
-    pub fn try_acquire(&self, client_ip: IpAddr) -> Result<(), Status> {
-        let mut streams = self.active_streams.lock().map_err(|_| {
-            tracing::error!("StreamLimiter mutex poisoned in try_acquire");
-            Status::internal("Stream limiter internal error")
-        })?;
-        let count = streams.entry(client_ip).or_insert(0);
-
-        if *count >= MAX_STREAMS_PER_CLIENT {
-            tracing::warn!(
-                client_ip = %client_ip,
-                active_streams = *count,
-                max_allowed = MAX_STREAMS_PER_CLIENT,
-                "Client exceeded maximum concurrent streams"
-            );
-            return Err(Status::resource_exhausted(format!(
-                "Maximum concurrent streams ({}) exceeded for client {}",
-                MAX_STREAMS_PER_CLIENT, client_ip
-            )));
-        }
-
-        *count += 1;
-        tracing::debug!(
-            client_ip = %client_ip,
-            active_streams = *count,
-            "Acquired stream slot"
-        );
-        Ok(())
-    }
-
-    /// Release a stream slot for the given client IP.
-    pub fn release(&self, client_ip: IpAddr) {
-        let mut streams = match self.active_streams.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                tracing::error!("StreamLimiter mutex poisoned in release, recovering");
-                poisoned.into_inner()
-            }
-        };
-
-        // Use Entry API for single-lookup access (avoids double borrow)
-        if let Entry::Occupied(mut entry) = streams.entry(client_ip) {
-            let count = entry.get_mut();
-            *count = count.saturating_sub(1);
-            tracing::debug!(
-                client_ip = %client_ip,
-                active_streams = *count,
-                "Released stream slot"
-            );
-            if *count == 0 {
-                entry.remove();
-            }
-        }
-    }
-}
+use helpers::*;
+pub(super) use streaming::StreamLimiter;
+use streaming::*;
 
 // =============================================================================
 // Hardware Service Implementation
@@ -646,7 +443,7 @@ impl HardwareService for HardwareServiceImpl {
 
             loop {
                 ticker.tick().await;
-                for device_id in device_ids.iter() {
+                for device_id in &device_ids {
                     let state = match fetch_device_state(&registry, device_id).await {
                         Ok(s) => s,
                         Err(status) => {
@@ -664,7 +461,7 @@ impl HardwareService for HardwareServiceImpl {
 
                     let current_version = versions
                         .get(device_id)
-                        .cloned()
+                        .copied()
                         .unwrap_or(last_seen_version);
                     let next_version = current_version.saturating_add(1);
                     let is_snapshot =
@@ -717,22 +514,22 @@ impl HardwareService for HardwareServiceImpl {
             .get_parameter_metadata(&req.device_id, "position")
         {
             // Validate against min_position if set
-            if let Some(min) = meta.min_value {
-                if req.value < min {
-                    return Err(Status::invalid_argument(format!(
-                        "Target position {} is below minimum {}",
-                        req.value, min
-                    )));
-                }
+            if let Some(min) = meta.min_value
+                && req.value < min
+            {
+                return Err(Status::invalid_argument(format!(
+                    "Target position {} is below minimum {}",
+                    req.value, min
+                )));
             }
             // Validate against max_position if set
-            if let Some(max) = meta.max_value {
-                if req.value > max {
-                    return Err(Status::invalid_argument(format!(
-                        "Target position {} is above maximum {}",
-                        req.value, max
-                    )));
-                }
+            if let Some(max) = meta.max_value
+                && req.value > max
+            {
+                return Err(Status::invalid_argument(format!(
+                    "Target position {} is above maximum {}",
+                    req.value, max
+                )));
             }
         }
 
@@ -747,7 +544,7 @@ impl HardwareService for HardwareServiceImpl {
                 )
                 .await
                 {
-                    Ok(Ok(_)) => {
+                    Ok(Ok(())) => {
                         let pos = movable.position().await.map_err(|e| {
                             tracing::error!(device_id = %req.device_id, error = %e, "Failed to verify position after move");
                             Status::unavailable(format!("Move completed but position verification failed: {}", e))
@@ -818,22 +615,22 @@ impl HardwareService for HardwareServiceImpl {
                     Ok(current_pos) => {
                         let target = current_pos + req.value;
 
-                        if let Some(min) = info.metadata.min_position {
-                            if target < min {
-                                return Err(Status::invalid_argument(format!(
-                                    "Relative move to {} is below minimum {}",
-                                    target, min
-                                )));
-                            }
+                        if let Some(min) = info.metadata.min_position
+                            && target < min
+                        {
+                            return Err(Status::invalid_argument(format!(
+                                "Relative move to {} is below minimum {}",
+                                target, min
+                            )));
                         }
 
-                        if let Some(max) = info.metadata.max_position {
-                            if target > max {
-                                return Err(Status::invalid_argument(format!(
-                                    "Relative move to {} is above maximum {}",
-                                    target, max
-                                )));
-                            }
+                        if let Some(max) = info.metadata.max_position
+                            && target > max
+                        {
+                            return Err(Status::invalid_argument(format!(
+                                "Relative move to {} is above maximum {}",
+                                target, max
+                            )));
                         }
                     }
                     Err(e) => {
@@ -862,7 +659,7 @@ impl HardwareService for HardwareServiceImpl {
                 )
                 .await
                 {
-                    Ok(Ok(_)) => {
+                    Ok(Ok(())) => {
                         let pos = movable.position().await.map_err(|e| {
                             tracing::error!(device_id = %req.device_id, error = %e, "Failed to verify position after relative move");
                             Status::unavailable(format!("Move completed but position verification failed: {}", e))
@@ -956,7 +753,7 @@ impl HardwareService for HardwareServiceImpl {
             )
             .await
             {
-                Ok(Ok(_)) => {}
+                Ok(Ok(())) => {}
                 Ok(Err(e)) => return Err(map_hardware_error_to_status(&e.to_string())),
                 Err(_) => {
                     return Err(Status::deadline_exceeded(format!(
@@ -1170,7 +967,7 @@ impl HardwareService for HardwareServiceImpl {
         );
 
         match triggerable.arm().await {
-            Ok(_) => Ok(Response::new(ArmResponse {
+            Ok(()) => Ok(Response::new(ArmResponse {
                 success: true,
                 error_message: String::new(),
                 armed: true,
@@ -1204,7 +1001,7 @@ impl HardwareService for HardwareServiceImpl {
             .as_nanos() as u64;
 
         match triggerable.trigger().await {
-            Ok(_) => Ok(Response::new(TriggerResponse {
+            Ok(()) => Ok(Response::new(TriggerResponse {
                 success: true,
                 error_message: String::new(),
                 trigger_timestamp_ns: timestamp_ns,
@@ -1240,7 +1037,7 @@ impl HardwareService for HardwareServiceImpl {
         let exposure_seconds = req.exposure_ms / 1000.0;
 
         match exposure_ctrl.set_exposure(exposure_seconds).await {
-            Ok(_) => {
+            Ok(()) => {
                 // Convert seconds back to ms for response
                 let actual_seconds = exposure_ctrl
                     .get_exposure()
@@ -1493,7 +1290,7 @@ impl HardwareService for HardwareServiceImpl {
         let frame_limit = req.frame_count.filter(|&n| n > 0);
 
         match frame_producer.start_stream_finite(frame_limit).await {
-            Ok(_) => Ok(Response::new(StartStreamResponse {
+            Ok(()) => Ok(Response::new(StartStreamResponse {
                 success: true,
                 error_message: String::new(),
             })),
@@ -1531,7 +1328,7 @@ impl HardwareService for HardwareServiceImpl {
         );
 
         match frame_producer.stop_stream().await {
-            Ok(_) => {
+            Ok(()) => {
                 // Get frame count from device
                 let frames_captured = frame_producer.frame_count();
                 Ok(Response::new(StopStreamResponse {
@@ -1646,7 +1443,7 @@ impl HardwareService for HardwareServiceImpl {
         tokio::spawn(async move {
             // Initialize to allow first frame through immediately
             let mut last_frame_time = match min_interval {
-                Some(interval) => std::time::Instant::now() - interval,
+                Some(interval) => std::time::Instant::now().checked_sub(interval).unwrap(),
                 None => std::time::Instant::now(),
             };
             let mut frames_sent = 0u64;
@@ -2563,373 +2360,6 @@ impl HardwareService for HardwareServiceImpl {
     }
 }
 
-// Helper: fetch current device state (shared by SubscribeDeviceState)
-async fn fetch_device_state(
-    registry: &Arc<DeviceRegistry>,
-    device_id: &str,
-) -> Result<DeviceStateResponse, Status> {
-    // No global lock needed with DashMap
-    let (movable, readable, triggerable, frame_producer, exposure_control, exists) = (
-        registry.get_movable(device_id),
-        registry.get_readable(device_id),
-        registry.get_triggerable(device_id),
-        registry.get_frame_producer(device_id),
-        registry.get_exposure_control(device_id),
-        registry.contains(device_id),
-    );
-
-    if !exists {
-        return Err(Status::not_found(format!(
-            "Device not found: {}",
-            device_id
-        )));
-    }
-
-    let mut response = DeviceStateResponse {
-        device_id: device_id.to_string(),
-        online: true,
-        position: None,
-        last_reading: None,
-        armed: None,
-        streaming: None,
-        exposure_ms: None,
-    };
-
-    if let Some(movable) = movable
-        && let Ok(pos) = movable.position().await
-    {
-        response.position = Some(pos);
-    }
-    if let Some(readable) = readable
-        && let Ok(val) = readable.read().await
-    {
-        response.last_reading = Some(val);
-    }
-    if let Some(triggerable) = triggerable {
-        response.armed = triggerable.is_armed().await.ok();
-    }
-    if let Some(frame_producer) = frame_producer {
-        response.streaming = frame_producer.is_streaming().await.ok();
-    }
-    if let Some(exposure_ctrl) = exposure_control
-        && let Ok(seconds) = exposure_ctrl.get_exposure().await
-    {
-        response.exposure_ms = Some(seconds * 1000.0);
-    }
-
-    Ok(response)
-}
-
-// Helper: convert state to sparse field map
-fn device_state_to_fields_json(state: &DeviceStateResponse) -> HashMap<String, String> {
-    let mut map = HashMap::new();
-    map.insert("online".into(), state.online.to_string());
-    if let Some(p) = state.position {
-        map.insert("position".into(), p.to_string());
-    }
-    if let Some(r) = state.last_reading {
-        map.insert("reading".into(), r.to_string());
-    }
-    if let Some(a) = state.armed {
-        map.insert("armed".into(), a.to_string());
-    }
-    if let Some(s) = state.streaming {
-        map.insert("streaming".into(), s.to_string());
-    }
-    if let Some(e) = state.exposure_ms {
-        map.insert("exposure_ms".into(), e.to_string());
-    }
-    map
-}
-
-fn now_ns() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64
-}
-
-fn proto_parameter_metadata(meta: &CommonParameterMetadata) -> ProtoParameterMetadata {
-    ProtoParameterMetadata {
-        min_value: meta.min_value,
-        max_value: meta.max_value,
-        step: meta.step,
-        units: meta.units.clone().unwrap_or_default(),
-        read_only: meta.read_only,
-        dtype: meta.dtype.clone(),
-        enum_values: meta.enum_values.clone(),
-        description: meta.description.clone().unwrap_or_default(),
-    }
-}
-
-fn extract_numeric_value(value: &serde_json::Value) -> Option<f64> {
-    match value {
-        serde_json::Value::Number(num) => num.as_f64(),
-        _ => None,
-    }
-}
-
-fn validate_parameter_value(
-    name: &str,
-    metadata: Option<&CommonParameterMetadata>,
-    value: &serde_json::Value,
-) -> Result<(), Status> {
-    let Some(meta) = metadata else {
-        return Ok(());
-    };
-
-    if meta.read_only {
-        return Err(Status::invalid_argument(format!(
-            "Parameter '{}' is read-only",
-            name
-        )));
-    }
-
-    if !meta.enum_values.is_empty() || meta.dtype == "enum" {
-        let value_str = value.as_str().ok_or_else(|| {
-            Status::invalid_argument(format!("Parameter '{}' expects an enum string value", name))
-        })?;
-        if !meta.enum_values.iter().any(|v| v == value_str) {
-            return Err(Status::invalid_argument(format!(
-                "Parameter '{}' value '{}' is not in allowed set {:?}",
-                name, value_str, meta.enum_values
-            )));
-        }
-    }
-
-    if meta.min_value.is_some() || meta.max_value.is_some() {
-        let numeric = extract_numeric_value(value).ok_or_else(|| {
-            Status::invalid_argument(format!("Parameter '{}' expects a numeric value", name))
-        })?;
-        if let Some(min) = meta.min_value {
-            if numeric < min {
-                return Err(Status::invalid_argument(format!(
-                    "Parameter '{}' value {} below minimum {}",
-                    name, numeric, min
-                )));
-            }
-        }
-        if let Some(max) = meta.max_value {
-            if numeric > max {
-                return Err(Status::invalid_argument(format!(
-                    "Parameter '{}' value {} exceeds max {}",
-                    name, numeric, max
-                )));
-            }
-        }
-        if let Some(step) = meta.step {
-            // Align relative to min or zero
-            let origin = meta.min_value.unwrap_or(0.0);
-            let rem = (numeric - origin) % step;
-            // Use a small epsilon for floating point comparison
-            if rem.abs() > 1e-10 && (rem - step).abs() > 1e-10 {
-                return Err(Status::invalid_argument(format!(
-                    "Parameter '{}' value {} is not a multiple of step {}",
-                    name, numeric, step
-                )));
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn monitor_parameter<T: std::fmt::Display + Clone + Send + Sync + 'static>(
-    mut rx: tokio::sync::watch::Receiver<T>,
-    tx: tokio::sync::broadcast::Sender<ParameterChange>,
-    device_id: String,
-    name: String,
-) {
-    tokio::spawn(async move {
-        while rx.changed().await.is_ok() {
-            let value = rx.borrow().clone();
-            let change = ParameterChange {
-                device_id: device_id.clone(),
-                name: name.clone(),
-                old_value: String::new(),
-                new_value: value.to_string(),
-                units: String::new(),
-                timestamp_ns: now_ns(),
-                source: "hardware".to_string(),
-            };
-            let _ = tx.send(change);
-        }
-    });
-}
-
-/// Map anyhow errors to gRPC Status, preferring structured DaqError mapping.
-fn map_anyhow_error_to_status(err: AnyError) -> Status {
-    match err.downcast::<DaqError>() {
-        Ok(daq_err) => map_daq_error_to_status(daq_err),
-        Err(err) => map_hardware_error_to_status(&err.to_string()),
-    }
-}
-
-/// Map hardware errors to canonical gRPC Status codes
-///
-/// This function provides consistent error semantics across all hardware RPCs.
-/// Maps error messages to appropriate Status codes:
-/// - Device not found → NOT_FOUND
-/// - Device busy/armed/streaming state → FAILED_PRECONDITION
-/// - Communication error → UNAVAILABLE
-/// - Invalid parameter → INVALID_ARGUMENT
-/// - Operation not supported → UNIMPLEMENTED
-fn map_hardware_error_to_status(error_msg: &str) -> Status {
-    let err_lower = error_msg.to_lowercase();
-
-    if err_lower.contains("not found") || err_lower.contains("no such device") {
-        Status::not_found(error_msg.to_string())
-    } else if err_lower.contains("busy")
-        || err_lower.contains("in use")
-        || err_lower.contains("already")
-        || err_lower.contains("not armed")
-        || err_lower.contains("not streaming")
-        || err_lower.contains("streaming")
-        || err_lower.contains("precondition")
-    {
-        Status::failed_precondition(error_msg.to_string())
-    } else if err_lower.contains("timeout")
-        || err_lower.contains("communication")
-        || err_lower.contains("connection")
-    {
-        Status::unavailable(error_msg.to_string())
-    } else if err_lower.contains("invalid")
-        || err_lower.contains("out of range")
-        || err_lower.contains("bounds")
-    {
-        Status::invalid_argument(error_msg.to_string())
-    } else if err_lower.contains("not supported") || err_lower.contains("unsupported") {
-        Status::unimplemented(error_msg.to_string())
-    } else {
-        // Default to INTERNAL for unknown errors
-        Status::internal(error_msg.to_string())
-    }
-}
-
-/// Convert internal DeviceInfo to proto DeviceInfo
-fn device_info_to_proto(info: &hardware::registry::DeviceInfo) -> DeviceInfo {
-    // Use explicit category from metadata if set, otherwise infer from driver/capabilities
-    let category = get_device_category(
-        info.metadata.category,
-        &info.driver_type,
-        &info.capabilities,
-    );
-
-    #[allow(deprecated)]
-    DeviceInfo {
-        id: info.id.clone(),
-        name: info.name.clone(),
-        driver_type: info.driver_type.clone(),
-        category: category as i32,
-        // Deprecated booleans - kept populated for backward compatibility
-        // Canonical source is the `capabilities` repeated string field below
-        is_movable: info.capabilities.contains(&Capability::Movable),
-        is_readable: info.capabilities.contains(&Capability::Readable),
-        is_triggerable: info.capabilities.contains(&Capability::Triggerable),
-        is_frame_producer: info.capabilities.contains(&Capability::FrameProducer),
-        is_exposure_controllable: info.capabilities.contains(&Capability::ExposureControl),
-        is_shutter_controllable: info.capabilities.contains(&Capability::ShutterControl),
-        is_wavelength_tunable: info.capabilities.contains(&Capability::WavelengthTunable),
-        is_emission_controllable: info.capabilities.contains(&Capability::EmissionControl),
-        is_parameterized: info.capabilities.contains(&Capability::Parameterized),
-        metadata: Some(ProtoDeviceMetadata {
-            position_units: info.metadata.position_units.clone(),
-            min_position: info.metadata.min_position,
-            max_position: info.metadata.max_position,
-            reading_units: info.metadata.measurement_units.clone(),
-            frame_width: info.metadata.frame_width,
-            frame_height: info.metadata.frame_height,
-            bits_per_pixel: info.metadata.bits_per_pixel,
-            min_exposure_ms: info.metadata.min_exposure_ms,
-            max_exposure_ms: info.metadata.max_exposure_ms,
-            // Wavelength limits for tunable lasers (bd-pwjo)
-            min_wavelength_nm: info.metadata.min_wavelength_nm,
-            max_wavelength_nm: info.metadata.max_wavelength_nm,
-        }),
-        // Dynamic capability list - canonical source of truth (bd-4myc.3)
-        capabilities: info
-            .capabilities
-            .iter()
-            .map(|c| c.as_str().to_string())
-            .collect(),
-    }
-}
-
-/// Get device category, preferring explicit metadata over inference (bd-le6k)
-///
-/// Priority:
-/// 1. Explicit category from DeviceMetadata (set by driver)
-/// 2. String-based inference from driver type
-/// 3. Capability-based inference
-fn get_device_category(
-    explicit_category: Option<common::capabilities::DeviceCategory>,
-    driver_type: &str,
-    capabilities: &[Capability],
-) -> protocol::DeviceCategory {
-    use common::capabilities::DeviceCategory as CoreCategory;
-    use protocol::DeviceCategory as ProtoCategory;
-
-    // 1. Use explicit category from metadata if set by driver
-    if let Some(category) = explicit_category {
-        return match category {
-            CoreCategory::Camera => ProtoCategory::Camera,
-            CoreCategory::Stage => ProtoCategory::Stage,
-            CoreCategory::Detector => ProtoCategory::Detector,
-            CoreCategory::Laser => ProtoCategory::Laser,
-            CoreCategory::PowerMeter => ProtoCategory::PowerMeter,
-            CoreCategory::Other => ProtoCategory::Other,
-        };
-    }
-
-    // 2. Fall back to string-based inference from driver type
-    let driver_lower = driver_type.to_lowercase();
-
-    if driver_lower.contains("pvcam") || driver_lower.contains("camera") {
-        return ProtoCategory::Camera;
-    }
-
-    if driver_lower.contains("maitai") || driver_lower.contains("laser") {
-        return ProtoCategory::Laser;
-    }
-
-    if driver_lower.contains("1830")
-        || driver_lower.contains("power_meter")
-        || driver_lower.contains("powermeter")
-    {
-        return ProtoCategory::PowerMeter;
-    }
-
-    if driver_lower.contains("esp300")
-        || driver_lower.contains("ell14")
-        || driver_lower.contains("stage")
-    {
-        return ProtoCategory::Stage;
-    }
-
-    // 3. Fall back to capability-based inference
-    if capabilities.contains(&Capability::FrameProducer) {
-        return ProtoCategory::Camera;
-    }
-
-    if capabilities.contains(&Capability::WavelengthTunable)
-        || capabilities.contains(&Capability::EmissionControl)
-    {
-        return ProtoCategory::Laser;
-    }
-
-    if capabilities.contains(&Capability::Movable) {
-        return ProtoCategory::Stage;
-    }
-
-    if capabilities.contains(&Capability::Readable) && !capabilities.contains(&Capability::Movable)
-    {
-        return ProtoCategory::Detector;
-    }
-
-    // Default to Other for unknown devices
-    ProtoCategory::Other
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3491,7 +2921,6 @@ mod tests {
         limiter.release(client_ip);
 
         // Internal state should be empty (client removed when count hits 0)
-        let streams = limiter.active_streams.lock().unwrap();
-        assert!(!streams.contains_key(&client_ip));
+        assert!(!limiter.has_streams(client_ip));
     }
 }

@@ -247,24 +247,23 @@ impl DaqServer {
                     loop {
                         match data_rx.recv().await {
                             Ok(data_point) => {
-                                if let Err(err) = rb_tx.try_send(data_point) {
-                                    if matches!(err, mpsc::error::TrySendError::Full(_)) {
-                                        let dropped =
-                                            drop_counter.fetch_add(1, Ordering::Relaxed) + 1;
-                                        if dropped % 100 == 0 {
-                                            tracing::warn!(
-                                                dropped = dropped,
-                                                "Dropped {} measurements while ring buffer writer was saturated",
-                                                dropped
-                                            );
-                                        }
+                                if let Err(err) = rb_tx.try_send(data_point)
+                                    && matches!(err, mpsc::error::TrySendError::Full(_))
+                                {
+                                    let dropped = drop_counter.fetch_add(1, Ordering::Relaxed) + 1;
+                                    if dropped.is_multiple_of(100) {
+                                        tracing::warn!(
+                                            dropped = dropped,
+                                            "Dropped {} measurements while ring buffer writer was saturated",
+                                            dropped
+                                        );
                                     }
                                 }
                             }
                             Err(broadcast::error::RecvError::Lagged(skipped)) => {
                                 // Throttle lag warnings to every 100 events (bd-jnfu.15)
                                 total_lagged += skipped;
-                                if total_lagged % 100 == 0 || skipped > 50 {
+                                if total_lagged.is_multiple_of(100) || skipped > 50 {
                                     tracing::warn!(
                                         skipped = total_lagged,
                                         "Measurement stream lagged, total skipped {} messages",

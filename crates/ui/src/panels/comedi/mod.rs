@@ -25,6 +25,7 @@
 //! These panels are work-in-progress and not yet integrated into the main UI.
 //! They are retained for future use when the Comedi gRPC interface is complete.
 
+// Comedi panels are under development; blanket allow justified until gRPC integration (bd-m5fh.4.2).
 #![allow(dead_code)]
 
 mod analog_input;

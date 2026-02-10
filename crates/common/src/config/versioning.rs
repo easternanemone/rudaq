@@ -3,6 +3,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use similar::{ChangeTag, TextDiff};
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use tokio::fs;
 
@@ -322,7 +323,7 @@ impl VersionManager {
                 else {
                     continue;
                 };
-                if let Some(info) = self.parse_version_info(&filename).await {
+                if let Some(info) = self.parse_version_info(&filename) {
                     versions.push(info);
                 }
             }
@@ -331,7 +332,7 @@ impl VersionManager {
         Ok(versions)
     }
 
-    async fn parse_version_info(&self, filename: &str) -> Option<VersionInfo> {
+    fn parse_version_info(&self, filename: &str) -> Option<VersionInfo> {
         // Expected format: config-YYYYMMDD_HHMMSS-hash.toml
         // or: config-YYYYMMDD_HHMMSS-hash-label.toml
         let name_without_ext = filename.strip_suffix(".toml")?;
@@ -418,7 +419,7 @@ impl VersionManager {
                 ChangeTag::Insert => "+",
                 ChangeTag::Equal => " ",
             };
-            diff_text.push_str(&format!("{}{}", sign, change));
+            let _ = write!(diff_text, "{}{}", sign, change);
         }
 
         Ok(diff_text)

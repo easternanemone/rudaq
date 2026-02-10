@@ -41,7 +41,7 @@ use super::validation::{validate_evalexpr_formula, validate_regex_pattern};
 /// **Deprecated:** New drivers should use `driver_universal::config` instead.
 /// This type is retained for compatibility with the `scripting` and `ui` crates.
 #[deprecated(
-    note = "Use driver_universal::config instead. Retained for scripting/UI compatibility."
+    note = "Use driver_universal::config instead. Retained for scripting/UI compatibility. Sunset: v1.0"
 )]
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(deny_unknown_fields)]

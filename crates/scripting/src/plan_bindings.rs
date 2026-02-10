@@ -401,10 +401,10 @@ mod tests {
             .expect("Failed to set run_engine");
 
         // This should not panic - run_engine should be accessible
-        let script = r#"
+        let script = r"
             let plan = count_simple(5);
             run_engine.queue(plan);
-        "#;
+        ";
 
         let result = engine.execute_script(script).await;
         assert!(

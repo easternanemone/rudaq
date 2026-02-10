@@ -161,7 +161,7 @@ impl ScanExecution {
 /// - Scientists see HDF5 files compatible with Python/MATLAB/Igor
 #[deprecated(
     since = "0.7.0",
-    note = "Use RunEngineService instead. See scan_service module docs for migration guide."
+    note = "Use RunEngineService instead. See scan_service module docs for migration guide. Sunset: v1.0"
 )]
 pub struct ScanServiceImpl {
     registry: Arc<DeviceRegistry>,
@@ -1066,7 +1066,7 @@ mod tests {
         // Third send should fail with Full (channel capacity is 2)
         match tx.try_send(progress3) {
             Err(mpsc::error::TrySendError::Full(_)) => {} // Expected
-            Ok(_) => panic!("Expected channel to be full"),
+            Ok(()) => panic!("Expected channel to be full"),
             Err(e) => panic!("Expected Full error, got {:?}", e),
         }
 
@@ -1094,7 +1094,7 @@ mod tests {
         };
         match tx.try_send(progress5) {
             Err(mpsc::error::TrySendError::Closed(_)) => {} // Expected
-            Ok(_) => panic!("Expected channel to be closed"),
+            Ok(()) => panic!("Expected channel to be closed"),
             Err(e) => panic!("Expected Closed error, got {:?}", e),
         }
     }

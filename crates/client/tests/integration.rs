@@ -8,7 +8,6 @@
 use client::connection::AddressSource;
 use client::connection::DaemonAddress;
 use client::DaqClient;
-use std::str::FromStr;
 
 /// Get daemon URL from environment or default to maitai-eos
 fn daemon_url() -> String {

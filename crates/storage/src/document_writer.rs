@@ -353,7 +353,7 @@ mod tests {
                 source: "det1".to_string(),
                 dtype: "number".to_string(),
                 shape: vec![],
-                units: "".to_string(),
+                units: String::new(),
                 precision: None,
                 lower_limit: None,
                 upper_limit: None,
@@ -366,7 +366,7 @@ mod tests {
                 source: "cam1".to_string(),
                 dtype: "uint16".to_string(),
                 shape: vec![10, 10], // 10x10 frame
-                units: "".to_string(),
+                units: String::new(),
                 precision: None,
                 lower_limit: None,
                 upper_limit: None,
@@ -420,13 +420,13 @@ mod tests {
             run_uid: "test_run_1".to_string(),
             time_ns: 2_000_000_000,
             exit_status: "success".to_string(),
-            reason: "".to_string(),
+            reason: String::new(),
             num_events: 1,
         };
         writer.write(Document::Stop(stop)).await.unwrap();
 
         // Verify file exists
-        let filename = format!("test_run_1_1000.h5");
+        let filename = "test_run_1_1000.h5".to_string();
         let file_path = temp_dir.path().join(filename);
         assert!(file_path.exists());
 

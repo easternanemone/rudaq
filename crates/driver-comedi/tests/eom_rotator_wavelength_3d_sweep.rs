@@ -571,10 +571,10 @@ fn save_3d_hdf5(
     // Min/max power
     let valid_powers: Vec<f64> = power_flat.iter().filter(|p| !p.is_nan()).copied().collect();
     if !valid_powers.is_empty() {
-        let min_p = valid_powers.iter().cloned().fold(f64::INFINITY, f64::min);
+        let min_p = valid_powers.iter().copied().fold(f64::INFINITY, f64::min);
         let max_p = valid_powers
             .iter()
-            .cloned()
+            .copied()
             .fold(f64::NEG_INFINITY, f64::max);
         file.new_attr::<f64>()
             .create("min_power_W")?

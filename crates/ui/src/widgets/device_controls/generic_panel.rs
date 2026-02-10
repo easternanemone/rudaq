@@ -73,7 +73,7 @@ impl Default for ReadingState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct MotionState {
     position: Option<f64>,
     moving: bool,
@@ -82,20 +82,6 @@ struct MotionState {
     position_units: String,
     last_command_time: Option<Instant>,
     last_position_refresh: Option<Instant>,
-}
-
-impl Default for MotionState {
-    fn default() -> Self {
-        Self {
-            position: None,
-            moving: false,
-            position_input: String::new(),
-            jog_step: String::new(),
-            position_units: String::new(),
-            last_command_time: None,
-            last_position_refresh: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default)]

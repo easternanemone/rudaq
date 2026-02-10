@@ -1,7 +1,8 @@
+// Widget available for integration but not currently used (bd-m5fh.4.2).
+#![allow(dead_code)]
 //! Toast notification widget for temporary status messages.
 //!
 //! This widget is available for integration but not currently used.
-#![allow(dead_code)]
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};

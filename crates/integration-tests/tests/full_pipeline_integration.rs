@@ -320,7 +320,7 @@ async fn test_full_pipeline_to_hdf5() {
     camera.arm().await.unwrap();
 
     // Simulate acquisition
-    let positions = vec![0.0, 5.0, 10.0];
+    let positions = [0.0, 5.0, 10.0];
     let mut all_measurements = Vec::new();
 
     for (i, &pos) in positions.iter().enumerate() {

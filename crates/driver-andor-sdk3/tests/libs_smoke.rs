@@ -150,7 +150,7 @@ async fn mock_camera_frame_producer() {
 async fn mock_spectrograph_initialization() {
     println!("=== Andor Spectrograph Mock Initialization Test ===");
 
-    let spectro = AndorSpectrograph::new_mock()
+    let _spectro = AndorSpectrograph::new_mock()
         .await
         .expect("Failed to create mock spectrograph");
 

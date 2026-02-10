@@ -264,7 +264,7 @@ impl Module for PowerMonitor {
         }
     }
 
-    fn type_id(&self) -> &str {
+    fn type_id(&self) -> &'static str {
         "power_monitor"
     }
 

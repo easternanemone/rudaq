@@ -594,11 +594,11 @@ mod tests {
     async fn test_rhai_execute_simple_script() {
         let mut engine = RhaiEngine::new().unwrap();
 
-        let script = r#"
+        let script = r"
             let x = 10;
             let y = 20;
             x + y
-        "#;
+        ";
 
         let result = engine.execute_script(script).await.unwrap();
         let value: i64 = result.downcast().unwrap();
@@ -665,13 +665,13 @@ mod tests {
         let mut engine = RhaiEngine::new().unwrap();
 
         // Script with many operations should be stopped by safety limit (10,000 operations)
-        let script = r#"
+        let script = r"
             let x = 0;
             for i in 0..20000 {
                 x = x + 1;
             }
             x
-        "#;
+        ";
 
         let result = engine.execute_script(script).await;
         assert!(
@@ -756,11 +756,11 @@ mod tests {
             .unwrap();
 
         // Test that hardware methods are available
-        let script = r#"
+        let script = r"
             stage.move_abs(5.0);
             let pos = stage.position();
             pos
-        "#;
+        ";
 
         let result = engine.execute_script(script).await.unwrap();
         let value: f64 = result.downcast().unwrap();

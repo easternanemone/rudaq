@@ -172,7 +172,7 @@ impl GenericDriver {
     ///
     /// # Returns
     /// A new GenericDriver instance, or an error if regex compilation fails.
-    #[deprecated(since = "0.2.0", note = "use new_serial instead")]
+    #[deprecated(since = "0.2.0", note = "use new_serial instead. Sunset: v1.0")]
     pub fn new(config: InstrumentConfig, port: DynSerial) -> Result<Self> {
         Self::new_serial(config, port)
     }

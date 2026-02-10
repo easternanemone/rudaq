@@ -253,7 +253,7 @@ impl PvcamDriver {
         Self::create(camera_name, connection).await
     }
 
-    #[deprecated(note = "Use new_async()")]
+    #[deprecated(note = "Use new_async(). Sunset: v1.0")]
     pub fn new(camera_name: &str) -> Result<Self> {
         let rt = tokio::runtime::Handle::current();
         rt.block_on(Self::new_async(camera_name.to_string()))

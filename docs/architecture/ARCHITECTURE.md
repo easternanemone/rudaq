@@ -217,3 +217,66 @@ Experiments are written in [Rhai](https://rhai.rs), a scripting language designe
 ├── examples/                 # Rhai script examples
 └── proto/                    # Protobuf source files
 ```
+
+---
+
+## Module Decomposition (2026-02 Tech Debt Remediation)
+
+Several monolithic files have been decomposed into bounded submodules to improve
+maintainability and review surface. Public API paths are preserved via re-exports.
+
+### driver-pvcam
+
+`crates/driver-pvcam/src/` — directory module:
+
+| File | Lines | Responsibility |
+|------|-------|----------------|
+| `lib.rs` | ~600 | PvcamDriver struct, trait impls, entry point |
+| `components/acquisition/` | ~350 | Frame acquisition loop, callback handling |
+| `components/features/` | ~200 | PVCAM feature enumeration and parameter mapping |
+
+### ui::panels::image_viewer
+
+`crates/ui/src/panels/image_viewer/` — directory module:
+
+| File | Lines | Responsibility |
+|------|-------|----------------|
+| `mod.rs` | ~3360 | ImageViewerPanel struct, impl, tests |
+| `processing.rs` | ~440 | RGBA conversion pipeline, histogram computation |
+| `colormap.rs` | ~260 | Colormap LUTs, ContrastMode, ScaleMode enums |
+| `types.rs` | ~220 | FrameUpdate, StreamMetrics, state enums, channels |
+
+### server::grpc::hardware_service
+
+`crates/server/src/grpc/hardware_service/` — directory module:
+
+| File | Lines | Responsibility |
+|------|-------|----------------|
+| `mod.rs` | ~2930 | HardwareServiceImpl struct, gRPC trait impl, tests |
+| `helpers.rs` | ~370 | Validation, error mapping, proto conversions |
+| `streaming.rs` | ~225 | GrpcStreamObserver, StreamLimiter |
+
+---
+
+## Legacy Migration Status
+
+The following items carry `#[deprecated(since = "...", note = "Sunset: v1.0")]`
+annotations and are scheduled for removal at v1.0:
+
+| Item | Crate | Replacement |
+|------|-------|-------------|
+| `DataPoint` | common | `Observable<T>` / `Parameter<T>` |
+| `DeviceConfig` (schema v2) | hardware | `UniversalDriverConfig` (schema v3) |
+| `GenericSerialDriver` | hardware | `driver-universal` crate |
+| `GenericDriver::new` | hardware | `UniversalDriver::from_config` |
+| `ScriptHost` | scripting | `ScriptEngine` |
+| `ScanServiceImpl` | server | `RunEngineService` |
+| `TiffWriter::write_frame` | storage | `TiffWriter::write_frame_data` |
+| `take_frame_receiver` / `subscribe_frames` | common | `FrameObserver` trait |
+| `Ell14Driver` legacy constructors | hardware | `Ell14Driver::from_config` |
+| `PvcamDriver::new` | driver-pvcam | `PvcamDriver::from_config` |
+
+**Zero-caller deprecated items removed in this cycle:**
+- `InstrumentConfigV3` type alias (common)
+- `CodePreviewPanel::ui()` method (ui)
+- `execute_script` free function (hardware)

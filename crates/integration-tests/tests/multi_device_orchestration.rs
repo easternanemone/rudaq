@@ -202,11 +202,11 @@ async fn test_gridscan_two_stages() {
 
     // Check that we have variety in positions (both axes moved)
     // Positions are in the `positions` field, not `data`
-    let x_positions: std::collections::HashSet<_> = events
+    let _x_positions: std::collections::HashSet<_> = events
         .iter()
         .filter_map(|e| e.positions.get("stage_x").map(|v| (*v * 10.0) as i32))
         .collect();
-    let y_positions: std::collections::HashSet<_> = events
+    let _y_positions: std::collections::HashSet<_> = events
         .iter()
         .filter_map(|e| e.positions.get("stage_y").map(|v| (*v * 10.0) as i32))
         .collect();

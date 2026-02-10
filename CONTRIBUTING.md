@@ -157,6 +157,46 @@ The workspace has pedantic lints enabled with specific allows configured in
 - Add context with `.context("what failed")`
 - Propagate errors with `?`, don't unwrap in library code
 
+## Debt Prevention Guardrails
+
+These rules prevent common anti-patterns that lead to accumulated technical debt.
+Violations should be caught during code review and CI.
+
+### Banned Patterns and Alternatives
+
+| Anti-Pattern | Why Banned | Use Instead |
+|-------------|-----------|-------------|
+| `.unwrap()` in library code | Panics crash the daemon | `?`, `.context("reason")`, or `.unwrap_or_default()` |
+| `.expect("msg")` in library code | Same as unwrap, obscured | `?` with `.context()` or `map_err()` |
+| `panic!()` / `unreachable!()` | Crashes daemon | Return `Err(...)` or use `debug_assert!` |
+| `std::thread::sleep()` in async | Blocks the tokio runtime | `tokio::time::sleep()` |
+| `#[allow(clippy::*)]` without comment | Silences lints invisibly | Add `// Rationale: ...` comment or fix the warning |
+| `#![allow(...)]` at crate level | Suppresses all instances | Use per-item `#[allow]` with rationale |
+| `TODO` / `FIXME` without issue | Untracked work | `TODO(bd-XXXX): description` with beads issue |
+| `unsafe {}` without safety comment | Undocumented invariants | Add `// SAFETY: ...` explaining the contract |
+| Glob imports (`use foo::*`) in lib code | Namespace pollution | Import specific items |
+
+### Exception Process
+
+When a guardrail exception is genuinely needed:
+
+1. Add `#[allow(...)]` at the narrowest scope possible (item, not module)
+2. Include a comment: `// Rationale: <why this is acceptable>`
+3. If the exception is temporary, create a beads issue and reference it
+
+### Lint Configuration
+
+Workspace-level lint policy is defined in `Cargo.toml` under `[workspace.lints.clippy]`.
+Crate-level `#![allow(...)]` attributes must include a rationale comment explaining why
+the suppression is necessary. See `bd-m5fh.4.2` for the audit that added these.
+
+### Deprecated Code Policy
+
+- All deprecated items must include a `note` with replacement guidance
+- Items with zero external callers should be removed immediately
+- Items with callers carry `Sunset: v1.0` and are tracked in `docs/architecture/ARCHITECTURE.md`
+- New code must not call deprecated items
+
 ## Pull Request Process
 
 ### Branch Naming

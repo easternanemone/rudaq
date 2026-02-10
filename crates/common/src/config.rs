@@ -87,10 +87,6 @@ pub struct InstrumentConfig {
     pub settings: serde_json::Value,
 }
 
-#[deprecated(note = "Use InstrumentConfig instead")]
-/// Instrument configuration V3
-pub type InstrumentConfigV3 = InstrumentConfig;
-
 /// Top-level application configuration.
 ///
 /// Aggregates all settings for logging, storage, instruments, and processors.

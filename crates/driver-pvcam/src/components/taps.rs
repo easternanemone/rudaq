@@ -981,6 +981,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn test_frame_snapshot_from_frame_data() {
         let mut frame = FrameData::with_capacity(100);
         frame.frame_number = 123;

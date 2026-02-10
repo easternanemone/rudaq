@@ -484,7 +484,7 @@ async fn run_stream(
                     }
                 }
             }
-            _ = tokio::time::sleep(Duration::from_secs(2)) => {
+            () = tokio::time::sleep(Duration::from_secs(2)) => {
                 if last_frame_time.elapsed() > Duration::from_secs(2) {
                     stats.stall_events += 1;
                     notes.push("Stall detected: no frames for >2s".to_string());

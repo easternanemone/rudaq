@@ -154,7 +154,7 @@ impl HDF5Writer {
                 file.create_group("parameters")?
             };
 
-            for (name, value, description, units, read_only) in snapshot.iter() {
+            for (name, value, description, units, read_only) in &snapshot {
                 let record = serde_json::json!({
                     "name": name,
                     "value": value,

@@ -1,10 +1,11 @@
+// Some methods defined for future use (bd-m5fh.4.2).
+#![allow(dead_code)]
 //! Status bar widget for the DAQ GUI.
 //!
 //! Displays connection state, breadcrumb navigation, transient status messages,
 //! and version information in a fixed-height bottom panel.
 //!
 //! Some methods are defined for future use and may not currently be called.
-#![allow(dead_code)]
 
 use eframe::egui;
 
@@ -334,7 +335,9 @@ mod tests {
         bar.status_message = Some(StatusMessage {
             text: "Test".to_string(),
             level: StatusLevel::Info,
-            created_at: std::time::Instant::now() - std::time::Duration::from_secs(10),
+            created_at: std::time::Instant::now()
+                .checked_sub(std::time::Duration::from_secs(10))
+                .unwrap(),
             duration: Some(std::time::Duration::from_secs(5)),
         });
 
@@ -351,7 +354,9 @@ mod tests {
         bar.status_message = Some(StatusMessage {
             text: "Persistent".to_string(),
             level: StatusLevel::Warning,
-            created_at: std::time::Instant::now() - std::time::Duration::from_secs(100),
+            created_at: std::time::Instant::now()
+                .checked_sub(std::time::Duration::from_secs(100))
+                .unwrap(),
             duration: None, // Persistent
         });
 

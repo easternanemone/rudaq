@@ -141,7 +141,7 @@ mod mock_driver {
                 assert!(frame.height > 0);
                 println!("Received mock frame: {}x{}", frame.width, frame.height);
             }
-            _ = tokio::time::sleep(Duration::from_secs(2)) => {
+            () = tokio::time::sleep(Duration::from_secs(2)) => {
                 panic!("Timed out waiting for frame");
             }
         }

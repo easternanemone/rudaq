@@ -1,7 +1,8 @@
+// Widget available for integration but not currently used (bd-m5fh.4.2).
+#![allow(dead_code)]
 //! Toggle switch widget for boolean values.
 //!
 //! This widget is available for integration but not currently used.
-#![allow(dead_code)]
 
 use egui::{Response, Sense, Ui, Vec2, Widget};
 use tracing;

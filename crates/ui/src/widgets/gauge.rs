@@ -1,7 +1,8 @@
+// Widget available for integration but not currently used (bd-m5fh.4.2).
+#![allow(dead_code)]
 //! Radial and linear gauge widgets for value visualization.
 //!
 //! These widgets are available for integration but not currently used.
-#![allow(dead_code)]
 
 use egui::{Color32, Pos2, Response, Sense, Stroke, Ui, Vec2, Widget};
 

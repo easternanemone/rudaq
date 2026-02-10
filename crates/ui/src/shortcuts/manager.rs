@@ -93,7 +93,12 @@ impl ShortcutManager {
     /// Create a new manager with default key bindings
     pub fn with_defaults() -> Self {
         use egui::Key;
-        use ShortcutAction::*;
+        use ShortcutAction::{
+            CycleColormap, FitToView, OpenSettings, PanDown, PanLeft, PanRight, PanUp, SaveCurrent,
+            ToggleAcquisition, ToggleCheatSheet, ToggleCrosshair, ToggleHistogram, ToggleRecording,
+            Zoom100, Zoom200, Zoom300, Zoom400, Zoom500, Zoom600, Zoom700, Zoom800, Zoom900,
+            ZoomIn, ZoomOut,
+        };
 
         let mut manager = Self {
             bindings: HashMap::new(),
@@ -223,10 +228,7 @@ impl ShortcutManager {
         let mut result: HashMap<ShortcutContext, Vec<ShortcutAction>> = HashMap::new();
 
         for action in self.bindings.keys() {
-            result
-                .entry(action.context())
-                .or_insert_with(Vec::new)
-                .push(*action);
+            result.entry(action.context()).or_default().push(*action);
         }
 
         // Sort actions within each context
@@ -256,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_conflict_detection() {
-        let mut manager = ShortcutManager::with_defaults();
+        let manager = ShortcutManager::with_defaults();
 
         let binding = KeyBinding::new(egui::Key::Space);
 

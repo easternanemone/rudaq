@@ -1,5 +1,6 @@
-//! Experiment Designer panel with node graph editor.
+// Panel under active development; not yet fully integrated (bd-m5fh.4.2).
 #![allow(dead_code)]
+//! Experiment Designer panel with node graph editor.
 
 use std::path::PathBuf;
 
@@ -425,7 +426,7 @@ impl ExperimentDesignerPanel {
 
         // Show adaptive alert modal if present
         if let Some(ref alert_data) = self.adaptive_alert.clone() {
-            let response = show_adaptive_alert(ui.ctx(), &alert_data);
+            let response = show_adaptive_alert(ui.ctx(), alert_data);
 
             match response {
                 AdaptiveAlertResponse::Approved => {

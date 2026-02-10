@@ -64,7 +64,7 @@ fn main() -> anyhow::Result<()> {
             total_scans += n_scans as u64;
 
             // Print first few values periodically
-            if total_scans % 5000 == 0 && !samples.is_empty() {
+            if total_scans.is_multiple_of(5000) && !samples.is_empty() {
                 print!("\r  Scans: {:8} | Latest:", total_scans);
                 for (i, ch) in channels.iter().enumerate() {
                     if let Some(&v) = samples.get(i) {

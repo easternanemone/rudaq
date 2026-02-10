@@ -20,7 +20,9 @@ use std::io::{self, Write};
 /// CSV delimiter options
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
+#[derive(Default)]
 pub enum CsvDelimiter {
+    #[default]
     Comma,
     Tab,
     Semicolon,
@@ -42,12 +44,6 @@ impl CsvDelimiter {
             CsvDelimiter::Tab => "\t",
             CsvDelimiter::Semicolon => ";",
         }
-    }
-}
-
-impl Default for CsvDelimiter {
-    fn default() -> Self {
-        CsvDelimiter::Comma
     }
 }
 

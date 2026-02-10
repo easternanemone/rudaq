@@ -620,8 +620,11 @@ mod tests {
         let mut panel = RotatorControlPanel::default();
 
         // Set last_command_time to a time in the past (well beyond debounce period)
-        panel.last_command_time =
-            Some(std::time::Instant::now() - std::time::Duration::from_millis(500));
+        panel.last_command_time = Some(
+            std::time::Instant::now()
+                .checked_sub(std::time::Duration::from_millis(500))
+                .unwrap(),
+        );
 
         // Should allow command since debounce period (250ms) has elapsed
         assert!(
