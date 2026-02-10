@@ -461,6 +461,37 @@ where
 }
 
 // =============================================================================
+// Sync→Async Bridge (bd-aruo.2)
+// =============================================================================
+
+/// Bridge sync `set_json` to async `Parameter::set` safely across runtime types.
+///
+/// On multi-threaded tokio runtime (production): uses `block_in_place` to prevent
+/// deadlocking worker threads when hardware callbacks await `tokio::sync::Mutex`.
+///
+/// On current-thread runtime (tests) or outside tokio: falls back to
+/// `futures::executor::block_on` which is safe when there's no mutex contention.
+fn block_on_parameter_set<T>(param: &Parameter<T>, value: T) -> Result<()>
+where
+    T: Clone + Send + Sync + PartialEq + Debug + 'static,
+{
+    // Detect runtime type explicitly to choose the correct blocking strategy.
+    // Multi-thread runtime: block_in_place prevents deadlocking tokio workers
+    // when hardware callbacks await tokio::sync::Mutex.
+    // Current-thread runtime (tests) or no runtime: futures::executor::block_on
+    // is safe because there's no cross-task mutex contention.
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => match handle.runtime_flavor() {
+            tokio::runtime::RuntimeFlavor::MultiThread => {
+                tokio::task::block_in_place(|| handle.block_on(param.set(value)))
+            }
+            _ => futures::executor::block_on(param.set(value)),
+        },
+        Err(_) => futures::executor::block_on(param.set(value)),
+    }
+}
+
+// =============================================================================
 // ParameterBase Implementation (for dynamic collections)
 // =============================================================================
 
@@ -483,7 +514,12 @@ where
             tracing::debug!(param = %name, error = %e, "CoreParameterBase::set_json deserialization failed");
             e
         })?;
-        futures::executor::block_on(self.set(typed_value))
+        // bd-aruo.2: Bridge sync→async safely.
+        // On multi-thread runtime: block_in_place prevents deadlocking tokio workers
+        // by allowing other tasks to be moved off the current thread.
+        // On current-thread runtime (tests): fall back to futures executor which is
+        // safe because tests don't have contention on tokio::sync::Mutex.
+        block_on_parameter_set(self, typed_value)
     }
 
     fn constraints_json(&self) -> serde_json::Value {
@@ -570,7 +606,7 @@ where
             tracing::debug!(param = %name, error = %e, "set_json deserialization failed");
             e
         })?;
-        futures::executor::block_on(self.set(typed_value))
+        block_on_parameter_set(self, typed_value)
     }
 
     fn metadata(&self) -> crate::observable::ObservableMetadata {

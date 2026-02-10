@@ -73,6 +73,7 @@ pub struct MockCameraState {
     pub temperature_c: f64,
     pub temperature_setpoint_c: f64,
     pub fan_speed: i32, // Store as raw int to match simpler mocking, or use clean types if easy
+    pub exposure_time_ms: f64,
     pub exposure_mode: i32,
     pub clear_mode: i32,
     pub expose_out_mode: i32,
@@ -92,7 +93,8 @@ impl Default for MockCameraState {
         Self {
             temperature_c: 25.0,
             temperature_setpoint_c: -10.0,
-            fan_speed: 0,       // High
+            fan_speed: 0, // High
+            exposure_time_ms: 100.0,
             exposure_mode: 0,   // Timed
             clear_mode: 1,      // PreExposure
             expose_out_mode: 0, // FirstRow

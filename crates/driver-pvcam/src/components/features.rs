@@ -1922,6 +1922,75 @@ impl PvcamFeatures {
     }
 
     // =========================================================================
+    // Exposure Time (bd-aruo.1)
+    // =========================================================================
+
+    /// Set exposure time in milliseconds (bd-aruo.1)
+    ///
+    /// Writes PARAM_EXP_TIME to the PVCAM SDK. The value is converted to the
+    /// camera's current exposure resolution units before writing.
+    ///
+    /// Note: This parameter is used at acquisition setup time. Changes take
+    /// effect on the next `start_stream()` or `acquire_single_frame()` call.
+    /// Some cameras also support live updates during streaming.
+    ///
+    /// # SDK Pattern (bd-smn3)
+    /// Checks PARAM_EXP_TIME availability before access.
+    pub fn set_exposure_time_ms(_conn: &PvcamConnection, _ms: f64) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            // Check if PARAM_EXP_TIME is available and writable
+            if !Self::is_param_available(h, PARAM_EXP_TIME) {
+                // Not all cameras expose PARAM_EXP_TIME as writable.
+                // The exposure value is still used at acquisition setup.
+                tracing::debug!("PARAM_EXP_TIME not available — value stored for next acquisition");
+                return Ok(());
+            }
+
+            // Get current exposure resolution to convert ms to correct units
+            let exp_res = Self::get_exposure_resolution(_conn)?;
+            let value: uns32 = match exp_res {
+                ExposureResolution::Milliseconds => _ms as uns32,
+                ExposureResolution::Microseconds => (_ms * 1000.0) as uns32,
+                ExposureResolution::Seconds => {
+                    let secs = _ms / 1000.0;
+                    if secs < 1.0 {
+                        tracing::warn!(
+                            requested_ms = _ms,
+                            "Exposure {_ms}ms cannot be represented in seconds resolution (min 1s)"
+                        );
+                        return Err(anyhow!(
+                            "Exposure {_ms}ms below minimum 1s for camera seconds-resolution mode"
+                        ));
+                    }
+                    secs as uns32
+                }
+            };
+
+            unsafe {
+                // SAFETY: h is valid handle from successful pl_cam_open();
+                // value pointer is valid stack-allocated uns32 for duration of call.
+                if pl_set_param(h, PARAM_EXP_TIME, &value as *const _ as *mut _) == 0 {
+                    let err = get_pvcam_error();
+                    return Err(anyhow!("Failed to set PARAM_EXP_TIME: {}", err));
+                }
+            }
+            tracing::debug!(
+                exposure_ms = _ms,
+                sdk_value = value,
+                ?exp_res,
+                "PARAM_EXP_TIME set"
+            );
+        }
+        #[cfg(not(feature = "pvcam_sdk"))]
+        {
+            let mut state = _conn.mock_state.lock().unwrap();
+            state.exposure_time_ms = _ms;
+        }
+        Ok(())
+    }
+
+    // =========================================================================
     // ADC & Sensor Parameters (bd-i2k7.2, bd-i2k7.3)
     // =========================================================================
 
@@ -2604,6 +2673,35 @@ impl PvcamFeatures {
         }
         // Mock mode - common binning factors
         Ok(vec![1, 2, 4, 8])
+    }
+
+    /// Set hardware binning (serial, parallel) (bd-aruo.5)
+    ///
+    /// Writes PARAM_BINNING_SER and PARAM_BINNING_PAR. The new binning takes
+    /// effect at the next acquisition setup; cannot be changed while streaming.
+    pub fn set_binning(_conn: &PvcamConnection, _serial: u16, _parallel: u16) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            let ser_val = _serial as i32;
+            let par_val = _parallel as i32;
+            unsafe {
+                // SAFETY: h is valid handle; value pointers are valid stack-allocated i32.
+                if pl_set_param(h, PARAM_BINNING_SER, &ser_val as *const _ as *mut _) == 0 {
+                    return Err(anyhow!(
+                        "Failed to set serial binning: {}",
+                        get_pvcam_error()
+                    ));
+                }
+                if pl_set_param(h, PARAM_BINNING_PAR, &par_val as *const _ as *mut _) == 0 {
+                    return Err(anyhow!(
+                        "Failed to set parallel binning: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+            tracing::debug!(serial = _serial, parallel = _parallel, "PARAM_BINNING set");
+        }
+        Ok(())
     }
 
     /// Get current binning as (serial, parallel) (bd-fqi8)

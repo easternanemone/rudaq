@@ -2873,11 +2873,18 @@ impl ImageViewerPanel {
 
             Some(client_val)
         } else {
+            // bd-aruo.4: Show per-parameter error when updates are dropped
             if !self.pending_param_updates.is_empty() {
                 tracing::warn!(
                     count = self.pending_param_updates.len(),
                     "dropping pending_param_updates — no gRPC client connected"
                 );
+                for (dev, name, _val) in &self.pending_param_updates {
+                    self.param_errors.insert(
+                        (dev.clone(), name.clone()),
+                        "Not connected — change not applied".to_string(),
+                    );
+                }
             }
             self.pending_param_updates.clear();
             None
