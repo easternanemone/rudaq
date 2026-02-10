@@ -43,7 +43,7 @@ jobs:
         uses: ./.github/actions/setup-daq
         with:
           dependency-profile: minimal
-          components: clippy
+          components: clippy,rustfmt
           cache-key: ci-ubuntu-lean
 
       - name: Install cargo-nextest
