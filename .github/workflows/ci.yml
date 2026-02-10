@@ -34,7 +34,12 @@ jobs:
   validate:
     name: Format, lint, and tests (ubuntu)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,10 +71,27 @@ jobs:
             --exclude driver-comedi \
             -- -D warnings
 
+      - name: Reclaim disk before tests
+        run: |
+          set -euo pipefail
+          echo "Disk before cleanup:"
+          df -h .
+          du -sh target || true
+
+          avail_kb=$(df --output=avail . | tail -1 | tr -d ' ')
+          min_kb=$((8 * 1024 * 1024))
+          if [ "$avail_kb" -lt "$min_kb" ]; then
+            echo "Low disk (<8GiB free). Running cargo clean."
+            cargo clean
+          else
+            echo "Sufficient disk, skipping cargo clean."
+          fi
+
+          echo "Disk after cleanup:"
+          df -h .
+          du -sh target || true
+
       - name: Unit and integration tests
-        env:
-          CARGO_BUILD_JOBS: "2"
-          RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
         run: |
           cargo nextest run --workspace --profile ci \
             --exclude ui \
