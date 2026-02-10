@@ -14,7 +14,6 @@
 //! - Panel drains channel each frame and updates texture
 
 use eframe::egui;
-#[allow(unused_imports)]
 use egui_extras::{Size, StripBuilder};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
@@ -3053,6 +3052,7 @@ impl ImageViewerPanel {
                                         } else {
                                             // Pan mode
                                             if response.dragged() {
+                                                self.auto_fit = false;
                                                 self.pan += response.drag_delta();
                                             }
                                         }

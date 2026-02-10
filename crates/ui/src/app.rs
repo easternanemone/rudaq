@@ -1480,14 +1480,13 @@ impl DaqApp {
         }
 
         // Apply panel migrations
-        for (panel_id, new_kind) in migrations {
-            self.ensure_panel_widget_kind(panel_id, new_kind);
+        for (panel_id, _new_kind) in migrations {
+            self.invalidate_panel_widget(panel_id);
         }
     }
 
-    /// Ensure panel widget exists in the correct HashMap for its kind
-    fn ensure_panel_widget_kind(&mut self, panel_id: usize, _kind: DevicePanelKind) {
-        // Remove stale panel; it will be lazily recreated with updated capabilities
+    /// Invalidate a panel widget so it will be lazily recreated with updated capabilities.
+    fn invalidate_panel_widget(&mut self, panel_id: usize) {
         self.docked_panels.remove(&panel_id);
     }
 
