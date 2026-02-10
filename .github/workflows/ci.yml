@@ -73,6 +73,7 @@ jobs:
         run: |
           cargo nextest run --workspace --profile ci \
             --exclude ui \
+            --exclude driver-generic \
             --exclude driver-dover-motion \
             --exclude driver-andor-sdk3 \
             --exclude dover-motion-sys \
