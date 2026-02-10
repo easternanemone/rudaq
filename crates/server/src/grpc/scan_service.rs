@@ -462,7 +462,7 @@ impl ScanServiceImpl {
                 // Read all acquisition devices
                 let timestamp_ns = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_nanos() as u64;
 
                 for (device_id, readable) in &readables {
@@ -498,7 +498,7 @@ impl ScanServiceImpl {
                 total_points,
                 timestamp_ns: SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_nanos() as u64,
                 axis_positions: axis_positions_map,
                 data_points,
@@ -633,7 +633,7 @@ impl ScanServiceImpl {
 
         let start_time_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_nanos() as u64;
 
         scan.state = ScanState::ScanRunning.into();

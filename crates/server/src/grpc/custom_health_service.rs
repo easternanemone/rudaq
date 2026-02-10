@@ -149,11 +149,7 @@ impl HealthService for HealthServiceImpl {
     ) -> Result<Response<GetErrorHistoryResponse>, Status> {
         let req = request.into_inner();
 
-        let limit = if req.limit.unwrap_or(0) > 0 {
-            Some(req.limit.unwrap() as usize)
-        } else {
-            Some(100) // Default limit
-        };
+        let limit = Some(req.limit.filter(|&l| l > 0).map_or(100, |l| l as usize));
 
         let errors = if let Some(module_name) = req.module_name {
             self.monitor.get_module_errors(&module_name, limit).await

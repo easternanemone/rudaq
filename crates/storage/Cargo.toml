@@ -39,6 +39,7 @@ tempfile.workspace = true
 tokio = { workspace = true, features = ["full"] }
 chrono = { workspace = true, features = ["serde"] }
 bincode = "1"
+proptest.workspace = true
 
 [features]
 default = []

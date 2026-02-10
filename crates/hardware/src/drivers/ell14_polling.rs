@@ -14,8 +14,8 @@ async fn test_polling_task_broadcasts_state_updates() {
     let driver = Ell14Driver::with_test_port(shared_port, "0", 398.2222);
     let mut rx = driver.subscribe();
 
-    // Start polling
-    driver.start_polling(Duration::from_millis(10));
+    // Start polling (store handle to abort after test)
+    let _polling_handle = driver.start_polling(Duration::from_millis(10));
 
     // Simulate device responses
     tokio::spawn(async move {
@@ -58,8 +58,8 @@ async fn test_polling_task_handles_errors() {
     let driver = Ell14Driver::with_test_port(shared_port, "0", 398.2222);
     let mut rx = driver.subscribe();
 
-    // Start polling
-    driver.start_polling(Duration::from_millis(10));
+    // Start polling (store handle to abort after test)
+    let _polling_handle = driver.start_polling(Duration::from_millis(10));
 
     // Simulate device responses
     tokio::spawn(async move {

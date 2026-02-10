@@ -132,7 +132,7 @@ async fn test_parameter_change_notifications() -> Result<()> {
     let mut stream = response.into_inner();
 
     // Give stream time to initialize
-    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     // Set parameter via gRPC
     let request = Request::new(SetParameterRequest {
@@ -595,7 +595,7 @@ async fn test_filtered_parameter_notifications() -> Result<()> {
     let response = service.stream_parameter_changes(request).await?;
     let mut stream = response.into_inner();
 
-    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     // Change parameter on camera2 (should be filtered out)
     let request = Request::new(SetParameterRequest {

@@ -1122,7 +1122,7 @@ impl RingBuffer {
 /// let async_rb = AsyncRingBuffer::new(rb);
 ///
 /// // This automatically uses spawn_blocking internally
-/// let snapshot = async_rb.read_snapshot().await;
+/// let snapshot = async_rb.read_snapshot().await?;
 /// # Ok(())
 /// # }
 /// ```
@@ -1158,10 +1158,8 @@ impl AsyncRingBuffer {
     /// the blocking backoff logic doesn't stall the async runtime.
     ///
     /// # Returns
-    /// A Vec containing a snapshot of the current buffer contents
-    ///
-    /// # Panics
-    /// Panics if the blocking task panics (should be extremely rare)
+    /// Ok(Vec) containing a snapshot of the current buffer contents,
+    /// or Err if the blocking task panicked or was cancelled.
     ///
     /// # Example
     /// ```no_run
@@ -1172,16 +1170,16 @@ impl AsyncRingBuffer {
     /// let rb = Arc::new(RingBuffer::create(Path::new("/tmp/test.buf"), 10)?);
     /// let async_rb = AsyncRingBuffer::new(rb);
     ///
-    /// let snapshot = async_rb.read_snapshot().await;
+    /// let snapshot = async_rb.read_snapshot().await?;
     /// println!("Read {} bytes", snapshot.len());
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn read_snapshot(&self) -> Vec<u8> {
+    pub async fn read_snapshot(&self) -> Result<Vec<u8>> {
         let rb = self.inner.clone();
         tokio::task::spawn_blocking(move || rb.read_snapshot())
             .await
-            .expect("spawn_blocking panicked during read_snapshot")
+            .map_err(|e| anyhow::anyhow!("spawn_blocking failed during read_snapshot: {e}"))
     }
 
     /// Write data to the ring buffer (async-safe).
@@ -1214,7 +1212,7 @@ impl AsyncRingBuffer {
         let data = data.to_vec();
         tokio::task::spawn_blocking(move || rb.write(&data))
             .await
-            .expect("spawn_blocking panicked during write")?;
+            .map_err(|e| anyhow::anyhow!("spawn_blocking failed during write: {e}"))??;
         Ok(())
     }
 
@@ -1345,7 +1343,9 @@ impl AsyncRingBuffer {
         let batch = batch.clone();
         tokio::task::spawn_blocking(move || rb.write_arrow_batch(&batch))
             .await
-            .expect("spawn_blocking panicked during write_arrow_batch")?;
+            .map_err(|e| {
+                anyhow::anyhow!("spawn_blocking failed during write_arrow_batch: {e}")
+            })??;
         Ok(())
     }
 }
@@ -1961,7 +1961,7 @@ mod tests {
         async_rb.write(test_data).await.unwrap();
 
         // Read snapshot
-        let snapshot = async_rb.read_snapshot().await;
+        let snapshot = async_rb.read_snapshot().await.unwrap();
         assert_eq!(snapshot, test_data);
     }
 
@@ -1992,7 +1992,7 @@ mod tests {
             let arb = async_rb.clone();
             let handle = tokio::spawn(async move {
                 for _ in 0..50 {
-                    let _snapshot = arb.read_snapshot().await;
+                    let _snapshot = arb.read_snapshot().await.unwrap();
                     tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
                 }
             });
@@ -2008,7 +2008,7 @@ mod tests {
         }
 
         // Final read should succeed
-        let snapshot = async_rb.read_snapshot().await;
+        let snapshot = async_rb.read_snapshot().await.unwrap();
         assert!(!snapshot.is_empty());
     }
 
@@ -2091,7 +2091,7 @@ mod tests {
         }
 
         // Verify data wraps correctly
-        let snapshot = async_rb.read_snapshot().await;
+        let snapshot = async_rb.read_snapshot().await.unwrap();
         assert!(snapshot.len() <= capacity);
     }
 
@@ -2123,14 +2123,14 @@ mod tests {
         async_rb.write(b"original").await.unwrap();
 
         // Read with clone
-        let snapshot = async_rb_clone.read_snapshot().await;
+        let snapshot = async_rb_clone.read_snapshot().await.unwrap();
         assert_eq!(snapshot, b"original");
 
         // Write with clone
         async_rb_clone.write(b"clone").await.unwrap();
 
         // Read with original
-        let snapshot = async_rb.read_snapshot().await;
+        let snapshot = async_rb.read_snapshot().await.unwrap();
         assert!(!snapshot.is_empty());
     }
 
@@ -2180,7 +2180,7 @@ mod tests {
         async_rb.write_arrow_batch(&batch).await.unwrap();
 
         // Read snapshot
-        let snapshot = async_rb.read_snapshot().await;
+        let snapshot = async_rb.read_snapshot().await.unwrap();
         assert!(!snapshot.is_empty());
 
         // The snapshot should contain the Arrow IPC data with length prefix
@@ -2249,5 +2249,366 @@ mod tests {
         let schema_json2 = async_rb.arrow_schema_json().unwrap();
         assert!(schema_json2.contains("temperature"));
         assert!(!schema_json2.contains("different"));
+    }
+
+    // =============================================================================
+    // Property-Based Tests (proptest) — bd-m5fh.7.1
+    // =============================================================================
+
+    mod property_tests {
+        use super::*;
+        use proptest::prelude::*;
+        use std::sync::Arc;
+
+        /// Strategy: generate a write payload between 1 byte and 64 KB.
+        fn write_payload() -> impl Strategy<Value = Vec<u8>> {
+            proptest::collection::vec(any::<u8>(), 1..=65_536)
+        }
+
+        /// Strategy: generate a sequence of write payloads (1..=20 writes, each 1..=4 KB).
+        fn write_sequence() -> impl Strategy<Value = Vec<Vec<u8>>> {
+            proptest::collection::vec(proptest::collection::vec(any::<u8>(), 1..=4_096), 1..=20)
+        }
+
+        // Reduce cases for faster CI runs; increase locally with PROPTEST_CASES env var
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(20))]
+
+            /// Property: write_head advances by exactly data.len() after each write.
+            #[test]
+            fn write_head_advances_by_data_len(data in write_payload()) {
+                let temp_dir = tempfile::tempdir().unwrap();
+                let path = temp_dir.path().join("prop_head.buf");
+                let rb = RingBuffer::create(&path, 1).unwrap(); // 1 MB
+
+                let head_before = rb.write_head();
+                rb.write(&data).unwrap();
+                let head_after = rb.write_head();
+
+                prop_assert_eq!(head_after, head_before + data.len() as u64);
+            }
+
+            /// Property: write_epoch is always even after a completed write.
+            #[test]
+            fn epoch_even_after_write(data in write_payload()) {
+                let temp_dir = tempfile::tempdir().unwrap();
+                let path = temp_dir.path().join("prop_epoch.buf");
+                let rb = RingBuffer::create(&path, 1).unwrap();
+
+                rb.write(&data).unwrap();
+                let epoch = rb.write_epoch();
+
+                prop_assert!(epoch % 2 == 0, "epoch {} should be even after write", epoch);
+            }
+
+            /// Property: read_snapshot length never exceeds capacity.
+            #[test]
+            fn snapshot_bounded_by_capacity(writes in write_sequence()) {
+                let temp_dir = tempfile::tempdir().unwrap();
+                let path = temp_dir.path().join("prop_bounded.buf");
+                let rb = RingBuffer::create(&path, 1).unwrap();
+                let capacity = rb.capacity() as usize;
+
+                for data in &writes {
+                    rb.write(data).unwrap();
+                }
+
+                let snapshot = rb.read_snapshot();
+                prop_assert!(
+                    snapshot.len() <= capacity,
+                    "snapshot {} > capacity {}",
+                    snapshot.len(),
+                    capacity
+                );
+            }
+
+            /// Property: after wrap-around, snapshot contains the tail of concatenated writes.
+            #[test]
+            fn wrap_preserves_latest_data(writes in write_sequence()) {
+                let temp_dir = tempfile::tempdir().unwrap();
+                let path = temp_dir.path().join("prop_wrap.buf");
+                let rb = RingBuffer::create(&path, 1).unwrap();
+                let capacity = rb.capacity() as usize;
+
+                let mut all_data = Vec::new();
+                for data in &writes {
+                    rb.write(data).unwrap();
+                    all_data.extend_from_slice(data);
+                }
+
+                let snapshot = rb.read_snapshot();
+
+                if all_data.len() <= capacity {
+                    prop_assert_eq!(&snapshot, &all_data);
+                } else {
+                    let expected = &all_data[all_data.len() - capacity..];
+                    prop_assert_eq!(&snapshot, expected);
+                }
+            }
+
+            /// Property: write_head is monotonically increasing across a sequence of writes.
+            #[test]
+            fn write_head_monotonic(writes in write_sequence()) {
+                let temp_dir = tempfile::tempdir().unwrap();
+                let path = temp_dir.path().join("prop_mono.buf");
+                let rb = RingBuffer::create(&path, 1).unwrap();
+
+                let mut prev_head = rb.write_head();
+                for data in &writes {
+                    rb.write(data).unwrap();
+                    let head = rb.write_head();
+                    prop_assert!(head > prev_head, "head {} <= prev {}", head, prev_head);
+                    prev_head = head;
+                }
+            }
+
+            /// Property: write rejects data larger than capacity.
+            #[test]
+            fn write_rejects_oversized(extra in 1..=1024usize) {
+                let temp_dir = tempfile::tempdir().unwrap();
+                let path = temp_dir.path().join("prop_oversize.buf");
+                let rb = RingBuffer::create(&path, 1).unwrap();
+                let capacity = rb.capacity() as usize;
+
+                let oversized = vec![0u8; capacity + extra];
+                let result = rb.write(&oversized);
+                prop_assert!(result.is_err(), "should reject data exceeding capacity");
+            }
+        }
+    }
+
+    // =============================================================================
+    // Stress Tests — bd-m5fh.7.1
+    // =============================================================================
+
+    /// Stress test: many concurrent writers with a reader verifying no panics or deadlocks.
+    #[test]
+    #[ignore] // Run with: cargo test -- --ignored
+    fn stress_concurrent_multi_writer() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("stress_multi.buf");
+        let rb = Arc::new(RingBuffer::create(&path, 10).unwrap());
+
+        let num_writers = 8;
+        let writes_per_writer = 500;
+        let payload_size = 256;
+
+        let mut handles = Vec::new();
+
+        for writer_id in 0..num_writers {
+            let rb = Arc::clone(&rb);
+            handles.push(thread::spawn(move || {
+                for i in 0..writes_per_writer {
+                    let mut data = vec![writer_id as u8; payload_size];
+                    let seq_bytes = (i as u32).to_le_bytes();
+                    data[..4].copy_from_slice(&seq_bytes);
+                    rb.write(&data).unwrap();
+                }
+            }));
+        }
+
+        let rb_reader = Arc::clone(&rb);
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let done_clone = Arc::clone(&done);
+        let reader = thread::spawn(move || {
+            let mut reads = 0u64;
+            while !done_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                let snapshot = rb_reader.read_snapshot();
+                assert!(snapshot.len() <= rb_reader.capacity() as usize);
+                reads += 1;
+                if reads % 100 == 0 {
+                    thread::yield_now();
+                }
+            }
+            reads
+        });
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        done.store(true, std::sync::atomic::Ordering::Relaxed);
+        let read_count = reader.join().unwrap();
+
+        let expected_total_bytes = (num_writers * writes_per_writer * payload_size) as u64;
+        assert_eq!(rb.write_head(), expected_total_bytes);
+        assert!(
+            rb.write_epoch() % 2 == 0,
+            "epoch should be even after all writes"
+        );
+        assert!(
+            read_count > 0,
+            "reader should have completed at least one read"
+        );
+    }
+
+    /// Stress test: rapid tap registration and unregistration during writes.
+    #[tokio::test]
+    #[ignore] // Run with: cargo test -- --ignored
+    async fn stress_tap_register_unregister_during_writes() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("stress_tap_reg.buf");
+        let rb = Arc::new(RingBuffer::create(&path, 10).unwrap());
+        let async_rb = AsyncRingBuffer::new(rb);
+
+        let num_writes = 200;
+        let num_tap_cycles = 20;
+
+        let writer_rb = async_rb.clone();
+        let writer = tokio::spawn(async move {
+            for i in 0..num_writes {
+                let data = vec![i as u8; 1024];
+                writer_rb.write(&data).await.unwrap();
+                if i % 10 == 0 {
+                    tokio::task::yield_now().await;
+                }
+            }
+        });
+
+        let tap_rb = async_rb.clone();
+        let tap_task = tokio::spawn(async move {
+            for cycle in 0..num_tap_cycles {
+                let tap_id = format!("stress_tap_{}", cycle);
+                if let Ok(mut rx) = tap_rb.register_tap(tap_id.clone(), 1) {
+                    for _ in 0..5 {
+                        match tokio::time::timeout(Duration::from_millis(10), rx.recv()).await {
+                            Ok(Some(_)) => {}
+                            _ => break,
+                        }
+                    }
+                    let _ = tap_rb.unregister_tap(&tap_id);
+                }
+            }
+        });
+
+        writer.await.unwrap();
+        tap_task.await.unwrap();
+
+        assert!(async_rb.write_head() > 0);
+        assert_eq!(async_rb.tap_count(), 0, "all taps should be unregistered");
+    }
+
+    /// Stress test: tap backpressure under saturation.
+    #[tokio::test]
+    #[ignore] // Run with: cargo test -- --ignored
+    async fn stress_tap_backpressure_saturation() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("stress_bp.buf");
+        let rb = Arc::new(RingBuffer::create(&path, 10).unwrap());
+        let async_rb = AsyncRingBuffer::new(rb.clone());
+
+        let mut rx = async_rb
+            .register_tap("slow_consumer".to_string(), 1)
+            .unwrap();
+
+        let writer_rb = async_rb.clone();
+        let writer = tokio::spawn(async move {
+            for i in 0..500u32 {
+                let data = vec![0xFFu8; 4096];
+                writer_rb.write(&data).await.unwrap();
+                if i % 50 == 0 {
+                    tokio::task::yield_now().await;
+                }
+            }
+        });
+
+        let consumer = tokio::spawn(async move {
+            let mut received = 0u64;
+            loop {
+                match tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
+                    Ok(Some(_)) => received += 1,
+                    _ => break,
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            received
+        });
+
+        writer.await.unwrap();
+        let received = consumer.await.unwrap();
+
+        assert!(
+            received > 0,
+            "consumer should have received at least 1 frame"
+        );
+        // Slow consumer with 5ms delay per frame cannot keep up with 500 writes.
+        // On fast CI runners the consumer may receive many frames before the writer
+        // fills the channel, so only assert backpressure occurred via dropped_frames
+        // OR that the consumer received fewer frames than were written.
+        let health = rb.tap_health_for("slow_consumer");
+        let dropped = health.map_or(0, |h| h.dropped_frames);
+        assert!(
+            dropped > 0 || received < 500,
+            "expected backpressure evidence: dropped_frames={}, received={}",
+            dropped,
+            received
+        );
+    }
+
+    /// Stress test: concurrent async writers and readers (tokio tasks).
+    #[tokio::test]
+    #[ignore] // Run with: cargo test -- --ignored
+    async fn stress_async_concurrent_writers_readers() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("stress_async.buf");
+        let rb = Arc::new(RingBuffer::create(&path, 10).unwrap());
+        let async_rb = AsyncRingBuffer::new(rb);
+
+        let num_writers = 10;
+        let writes_per = 200;
+        let num_readers = 5;
+        let reads_per = 100;
+
+        let mut handles = Vec::new();
+
+        for w in 0..num_writers {
+            let arb = async_rb.clone();
+            handles.push(tokio::spawn(async move {
+                for i in 0..writes_per {
+                    let data = format!("W{}:{}", w, i);
+                    arb.write(data.as_bytes()).await.unwrap();
+                }
+            }));
+        }
+
+        for _ in 0..num_readers {
+            let arb = async_rb.clone();
+            handles.push(tokio::spawn(async move {
+                for _ in 0..reads_per {
+                    let snapshot = arb.read_snapshot().await.unwrap();
+                    assert!(snapshot.len() <= arb.capacity() as usize);
+                    tokio::task::yield_now().await;
+                }
+            }));
+        }
+
+        for h in handles {
+            h.await.unwrap();
+        }
+
+        assert!(async_rb.write_head() > 0);
+        assert!(async_rb.inner().write_epoch() % 2 == 0);
+    }
+
+    /// Stress test: rapid create/write/read/drop cycles to check resource cleanup.
+    #[test]
+    #[ignore] // Run with: cargo test -- --ignored
+    fn stress_buffer_lifecycle_cycles() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cycles = 50;
+
+        for i in 0..cycles {
+            let path = temp_dir.path().join(format!("lifecycle_{}.buf", i));
+            let rb = RingBuffer::create(&path, 1).unwrap();
+
+            let data = vec![i as u8; 4096];
+            rb.write(&data).unwrap();
+
+            let snapshot = rb.read_snapshot();
+            assert_eq!(snapshot, data);
+
+            let _rx = rb.register_tap(format!("tap_{}", i), 1).unwrap();
+            rb.unregister_tap(&format!("tap_{}", i)).unwrap();
+        }
     }
 }

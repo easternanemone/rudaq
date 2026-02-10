@@ -40,6 +40,7 @@ tokio-test = "0.4"
 tracing-test = "0.2"
 tracing-subscriber = { version = "0.3", features = ["registry"] }
 
+
 [features]
 default = ["networking", "server", "scripting", "storage_hdf5", "storage_arrow", "native_plugins", "serial", "thorlabs", "newport", "newport_power_meter", "modules", "pvcam", "universal"]
 networking = ["server/networking"]

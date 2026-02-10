@@ -1062,18 +1062,21 @@ impl Ell14Driver {
         self.state_tx.subscribe()
     }
 
-    /// Starts a background task to poll the device state
-    pub fn start_polling(&self, interval: Duration) {
+    /// Starts a background task to poll the device state.
+    ///
+    /// Returns a `JoinHandle` that can be used to cancel the polling task.
+    /// Dropping the handle does NOT cancel the task — call `.abort()` to stop polling.
+    pub fn start_polling(&self, interval: Duration) -> tokio::task::JoinHandle<()> {
         let driver = self.clone();
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(interval);
             loop {
                 ticker.tick().await;
                 if let Err(e) = driver.poll_state().await {
-                    eprintln!("Failed to poll Elliptec state: {}", e);
+                    tracing::warn!("Failed to poll Elliptec state: {}", e);
                 }
             }
-        });
+        })
     }
 
     /// Polls the current state and broadcasts it

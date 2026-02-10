@@ -260,7 +260,7 @@ impl StorageServiceImpl {
 
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         pattern
@@ -471,7 +471,7 @@ impl StorageService for StorageServiceImpl {
         let recording_id = Uuid::new_v4().to_string();
         let start_time_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_nanos() as u64;
 
         let session = Arc::new(RecordingSession {
@@ -602,9 +602,9 @@ impl StorageService for StorageServiceImpl {
         // Calculate duration
         let end_time_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_nanos() as u64;
-        let duration_ns = end_time_ns - session.start_time_ns;
+        let duration_ns = end_time_ns.saturating_sub(session.start_time_ns);
 
         // bd-q33m: Take writer under lock, then drop lock before awaiting flush
         // This prevents holding the mutex guard across the .await point
@@ -699,7 +699,7 @@ impl StorageService for StorageServiceImpl {
 
                 let now_ns = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_nanos() as u64;
 
                 let state = session.state.read().await;
@@ -963,7 +963,7 @@ impl StorageService for StorageServiceImpl {
                     Some(session) if session.id == scan_id => {
                         let now_ns = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
-                            .unwrap()
+                            .unwrap_or_default()
                             .as_nanos() as u64;
 
                         let state = session.state.read().await;

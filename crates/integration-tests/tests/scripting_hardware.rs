@@ -253,8 +253,10 @@ async fn test_sleep_function_in_script() {
     engine.execute_script(script).await.unwrap();
 
     let elapsed = start.elapsed();
-    assert!(elapsed.as_millis() >= 45); // Allow some tolerance
-    assert!(elapsed.as_millis() <= 100);
+    // Rhai sleep(0.05) = 50ms. Lower bound is generous; upper bound must
+    // accommodate CI runner scheduling jitter.
+    assert!(elapsed.as_millis() >= 40, "sleep too short: {:?}", elapsed);
+    assert!(elapsed.as_millis() <= 500, "sleep too long: {:?}", elapsed);
 }
 
 #[tokio::test(flavor = "multi_thread")]

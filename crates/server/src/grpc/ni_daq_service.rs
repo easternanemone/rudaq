@@ -787,7 +787,7 @@ impl NiDaqService for NiDaqServiceImpl {
                         // Get timestamp
                         let timestamp_ns = SystemTime::now()
                             .duration_since(SystemTime::UNIX_EPOCH)
-                            .unwrap()
+                            .unwrap_or_default()
                             .as_nanos() as u64;
 
                         Ok((count as u64, timestamp_ns))

@@ -47,6 +47,7 @@ anyhow.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 tracing-subscriber = "0.3.22"
+tokio = { workspace = true, features = ["rt", "macros", "test-util"] }
 
 [features]
 storage_arrow = ["dep:arrow"]
