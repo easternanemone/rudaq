@@ -34,11 +34,11 @@ enum GenericAction {
     ReadValue(Result<(f64, String), String>),
     // Movable
     Moved(Result<(), String>),
-    // Emission / Shutter
-    Emission(Result<bool, String>),
-    Shutter(Result<bool, String>),
-    // WavelengthTunable
-    Wavelength(Result<f64, String>),
+    // Emission / Shutter — bool tag: true = user command, false = refresh
+    Emission(Result<bool, String>, bool),
+    Shutter(Result<bool, String>, bool),
+    // WavelengthTunable — bool tag: true = user command, false = refresh
+    Wavelength(Result<f64, String>, bool),
     // Settable (analog output)
     SetValue(Result<f64, String>),
     // Full state fetch (position, online, etc.)
@@ -259,7 +259,18 @@ impl GenericDevicePanel {
 
     fn poll_results(&mut self) {
         while let Ok(result) = self.action_rx.try_recv() {
-            self.actions_in_flight = self.actions_in_flight.saturating_sub(1);
+            // Only decrement for user-initiated commands (not background refreshes)
+            let is_user_command = matches!(
+                &result,
+                GenericAction::Moved(_)
+                    | GenericAction::SetValue(_)
+                    | GenericAction::Emission(_, true)
+                    | GenericAction::Shutter(_, true)
+                    | GenericAction::Wavelength(_, true)
+            );
+            if is_user_command {
+                self.actions_in_flight = self.actions_in_flight.saturating_sub(1);
+            }
 
             match result {
                 GenericAction::ReadValue(res) => {
@@ -283,7 +294,7 @@ impl GenericDevicePanel {
                         Err(e) => self.error = Some(format!("Move failed: {}", e)),
                     }
                 }
-                GenericAction::Emission(res) => {
+                GenericAction::Emission(res, _) => {
                     if let Some(ref mut t) = self.emission {
                         match res {
                             Ok(v) => {
@@ -299,7 +310,7 @@ impl GenericDevicePanel {
                         }
                     }
                 }
-                GenericAction::Shutter(res) => {
+                GenericAction::Shutter(res, _) => {
                     if let Some(ref mut t) = self.shutter {
                         match res {
                             Ok(v) => {
@@ -315,7 +326,7 @@ impl GenericDevicePanel {
                         }
                     }
                 }
-                GenericAction::Wavelength(res) => {
+                GenericAction::Wavelength(res, _) => {
                     if let Some(ref mut wl) = self.wavelength {
                         match res {
                             Ok(nm) => {
@@ -367,7 +378,7 @@ impl GenericDevicePanel {
 
     fn read_power(&mut self, client: Option<&mut DaqClient>, runtime: &Runtime, device_id: &str) {
         let Some(client) = client else { return };
-        self.actions_in_flight += 1;
+        // No actions_in_flight increment — this is a background refresh
         let mut c = client.clone();
         let tx = self.action_tx.clone();
         let id = device_id.to_string();
@@ -386,7 +397,7 @@ impl GenericDevicePanel {
 
     fn fetch_state(&mut self, client: Option<&mut DaqClient>, runtime: &Runtime, device_id: &str) {
         let Some(client) = client else { return };
-        self.actions_in_flight += 1;
+        // No actions_in_flight increment — this is a background refresh
         let mut c = client.clone();
         let tx = self.action_tx.clone();
         let id = device_id.to_string();
@@ -420,26 +431,24 @@ impl GenericDevicePanel {
             let has_emission = self.emission.is_some();
             let has_shutter = self.shutter.is_some();
             let has_wavelength = self.wavelength.is_some();
-            let query_count =
-                has_emission as usize + has_shutter as usize + has_wavelength as usize;
-            self.actions_in_flight += query_count;
+            // No actions_in_flight increment — these are background refresh queries
             let mut c = client.clone();
             let tx = self.action_tx.clone();
             let id = device_id.to_string();
 
             runtime.spawn(async move {
-                // Sequential queries for serial devices
+                // Sequential queries for serial devices (is_command = false)
                 if has_emission {
                     let result = c.get_emission(&id).await.map_err(|e| e.to_string());
-                    let _ = tx.send(GenericAction::Emission(result)).await;
+                    let _ = tx.send(GenericAction::Emission(result, false)).await;
                 }
                 if has_shutter {
                     let result = c.get_shutter(&id).await.map_err(|e| e.to_string());
-                    let _ = tx.send(GenericAction::Shutter(result)).await;
+                    let _ = tx.send(GenericAction::Shutter(result, false)).await;
                 }
                 if has_wavelength {
                     let result = c.get_wavelength(&id).await.map_err(|e| e.to_string());
-                    let _ = tx.send(GenericAction::Wavelength(result)).await;
+                    let _ = tx.send(GenericAction::Wavelength(result, false)).await;
                 }
             });
         }
@@ -520,7 +529,7 @@ impl GenericDevicePanel {
                 .set_emission(&id, enabled)
                 .await
                 .map_err(|e| e.to_string());
-            let _ = tx.send(GenericAction::Emission(result)).await;
+            let _ = tx.send(GenericAction::Emission(result, true)).await;
         });
     }
 
@@ -538,7 +547,7 @@ impl GenericDevicePanel {
         let id = device_id.to_string();
         runtime.spawn(async move {
             let result = c.set_shutter(&id, open).await.map_err(|e| e.to_string());
-            let _ = tx.send(GenericAction::Shutter(result)).await;
+            let _ = tx.send(GenericAction::Shutter(result, true)).await;
         });
     }
 
@@ -556,7 +565,7 @@ impl GenericDevicePanel {
         let id = device_id.to_string();
         runtime.spawn(async move {
             let result = c.set_wavelength(&id, nm).await.map_err(|e| e.to_string());
-            let _ = tx.send(GenericAction::Wavelength(result)).await;
+            let _ = tx.send(GenericAction::Wavelength(result, true)).await;
         });
     }
 

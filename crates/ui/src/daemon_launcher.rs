@@ -225,7 +225,10 @@ impl DaemonLauncher {
             #[cfg(unix)]
             {
                 if let Some(pid) = child.id().try_into().ok() {
-                    // SAFETY: sending SIGTERM to child process we spawned
+                    // SAFETY: Sending SIGTERM to a child process we spawned.
+                    // This is the only way to request graceful shutdown on Unix
+                    // without adding a dependency; child.kill() sends SIGKILL.
+                    #[allow(unsafe_code)]
                     unsafe {
                         libc::kill(pid, libc::SIGTERM);
                     }
