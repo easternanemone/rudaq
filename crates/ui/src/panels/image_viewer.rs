@@ -1095,7 +1095,7 @@ impl Default for ImageViewerPanel {
             last_frame_data: None,
             show_roi_panel: true,
             histogram: Histogram::new(),
-            histogram_position: HistogramPosition::BottomRight,
+            histogram_position: HistogramPosition::SidePanel,
             available_cameras: Vec::new(),
             display_min: 0.0,
             display_max: 1.0,
@@ -1138,7 +1138,7 @@ impl Default for ImageViewerPanel {
             last_recording_poll: None,
 
             // Stream quality for bandwidth control
-            stream_quality: StreamQuality::Full,
+            stream_quality: StreamQuality::Fast,
 
             // Physical coordinate calibration (bd-4088.6)
             pixel_scale_x: None,
@@ -4119,6 +4119,13 @@ mod helper_function_tests {
         assert_eq!(stream_quality_label(StreamQuality::Full), "Full");
         assert_eq!(stream_quality_label(StreamQuality::Preview), "Preview (2x)");
         assert_eq!(stream_quality_label(StreamQuality::Fast), "Fast (4x)");
+    }
+
+    #[test]
+    fn test_image_viewer_default_quality_and_histogram() {
+        let panel = ImageViewerPanel::default();
+        assert_eq!(panel.stream_quality, StreamQuality::Fast);
+        assert_eq!(panel.histogram_position, HistogramPosition::SidePanel);
     }
 }
 
