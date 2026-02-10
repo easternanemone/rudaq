@@ -1,21 +1,26 @@
-name: Rust CI/CD
+name: CI
 
 on:
+  workflow_dispatch:
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "history/**"
+      - ".beads/**"
   push:
     branches: ["main"]
-    tags:
-      - "v*"
-  pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "history/**"
+      - ".beads/**"
 
-# Explicit permissions for GitHub integration features
 permissions:
   contents: read
-  security-events: write
-  actions: read
 
-# Cancel stale runs when new commits are pushed
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -26,443 +31,48 @@ defaults:
     shell: bash
 
 jobs:
-  # ast-grep:
-  #   name: AST-Grep Quality Checks
-  #   # DISABLED: ast-grep rules were in crates/rust-daq/ which was dissolved in Phase 8.
-  #   # To re-enable: recreate rules at project root (e.g., ast-grep-rules/) and update config path.
-  #   runs-on: ubuntu-latest
-  #   timeout-minutes: 10
-  #   if: github.ref == 'refs/heads/main'
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v4
-  #     - name: Setup Rust
-  #       uses: dtolnay/rust-toolchain@stable
-  #     - name: Install ast-grep
-  #       uses: taiki-e/install-action@v2
-  #       with:
-  #         tool: ast-grep
-  #     - name: Run ast-grep scan
-  #       run: ast-grep scan --config crates/rust-daq/ast-grep-rules/ --json > ast-grep-results.json || true
-
-  msrv:
-    name: MSRV Check (1.75)
+  validate:
+    name: Format, lint, and tests (ubuntu)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    # Only run on main branch
-    if: github.ref == 'refs/heads/main'
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Environment
+      - name: Setup environment
         uses: ./.github/actions/setup-daq
         with:
-          rust-toolchain: "1.75"
-          cache-key: msrv
-
-      - name: Check MSRV compatibility
-        run: |
-          # Exclude server which uses edition 2024 (requires Rust 1.85+)
-          cargo check --workspace --exclude server --exclude ui
-
-  security:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    # Only run on main branch
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-daq
-
-      - name: Run cargo-audit
-        uses: rustsec/audit-check@v1.4.1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true  # Don't fail build if GitHub integration has permission issues
-
-  license-check:
-    name: License Compliance
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    # Only run on main branch
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-daq
-
-      - name: Install cargo-deny
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-deny
-
-      - name: Check licenses
-        run: cargo deny check licenses
-
-      - name: Check bans
-        run: cargo deny check bans
-
-      - name: Check advisories
-        run: cargo deny check advisories
-        continue-on-error: true  # Advisory DB updates may cause transient failures
-
-      - name: Check sources
-        run: cargo deny check sources
-
-      - name: Full cargo-deny check (summary)
-        run: |
-          echo "### License Compliance Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          cargo deny check 2>&1 | tee deny-output.txt || true
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          tail -50 deny-output.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-
-  docs:
-    name: Documentation
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    # Only run on main branch
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-daq
-
-      - name: Check documentation builds
-        # Use 'full' feature set (excludes pvcam_hardware, storage_hdf5 which need native SDKs)
-        # Exclude ui which requires full desktop environment (X11/Wayland runtime)
-        run: cargo doc --workspace --features full --no-deps --document-private-items --exclude ui
-        env:
-          RUSTDOCFLAGS: -D warnings
-
-      - name: Upload documentation artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: docs-${{ github.sha }}
-          path: target/doc
-          if-no-files-found: error
-          retention-days: 30
-
-  blueprints:
-    name: Rerun Blueprints
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    # Only run on main branch
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Regenerate blueprints
-        run: scripts/regenerate_blueprints.sh
-
-      - name: Upload blueprints artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: rerun-blueprints-${{ github.sha }}
-          path: |
-            crates/server/blueprints/*.rbl
-          if-no-files-found: error
-          retention-days: 30
-
-  tee-bench:
-    name: Tee Bench Sample
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'tee-bench')
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-daq
-
-      - name: Run tee bench (sample)
-        env:
-          TEE_BENCH_LATENCY: 1
-        run: |
-          set -e
-          {
-            echo "=== Tee bench: 50k msgs, payload 0 ==="
-            TEE_BENCH_MESSAGES=50000 TEE_BENCH_PAYLOAD=0 cargo run -p common --example tee_bench --release
-            echo
-            echo "=== Tee bench: 50k msgs, payload 256 ==="
-            TEE_BENCH_MESSAGES=50000 TEE_BENCH_PAYLOAD=256 cargo run -p common --example tee_bench --release
-            echo
-            echo "=== Tee bench: 20k msgs, payload 256, buffer 32 (backpressure) ==="
-            TEE_BENCH_MESSAGES=20000 TEE_BENCH_PAYLOAD=256 TEE_BENCH_BUFFER=32 cargo run -p common --example tee_bench --release
-          } | tee tee_bench_output.txt
-
-      - name: Upload bench output
-        uses: actions/upload-artifact@v4
-        with:
-          name: tee-bench-${{ github.sha }}
-          path: tee_bench_output.txt
-          if-no-files-found: error
-          retention-days: 14
-
-  test:
-    name: Tests (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        # Run all platforms on main/tags, Linux-only on PRs (macOS is 10x cost)
-        os: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && fromJson('["ubuntu-latest", "macos-latest", "windows-latest"]') || fromJson('["ubuntu-latest"]') }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-daq
-        with:
-          cache-key: ci-${{ matrix.os }}
+          dependency-profile: minimal
+          components: clippy
+          cache-key: ci-ubuntu-lean
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
 
-      - name: Unit and integration tests (nextest)
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy (Linux-safe workspace scope)
         run: |
-          cargo nextest run --workspace --profile ci 2>&1 | tee test-output.txt
-          # Extract test summary for GitHub step summary
-          echo "### Test Results (${{ matrix.os }})" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
-          tail -30 test-output.txt >> "$GITHUB_STEP_SUMMARY" || true
-          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          cargo clippy --workspace --all-targets \
+            --exclude ui \
+            --exclude driver-dover-motion \
+            --exclude driver-andor-sdk3 \
+            --exclude dover-motion-sys \
+            --exclude andor-sdk3-sys \
+            --exclude comedi-sys \
+            --exclude driver-comedi \
+            -- -D warnings
 
-      - name: Documentation tests
-        # Doctests are not supported by nextest, run with cargo test
-        run: cargo test --workspace --doc
-
-  hardware-tests:
-    name: Hardware Tests (Tailnet)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    # Only run on main branch pushes (OAuth creates ephemeral nodes with tag:ci)
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-daq
-
-      - name: Connect to Tailscale
-        uses: tailscale/github-action@v2
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
-
-      - name: Test SSH access and serial ports
-        env:
-          SSH_HOST: ${{ secrets.MAITAI_SSH_HOST }}
-          SSH_USER: ${{ secrets.MAITAI_SSH_USER }}
+      - name: Unit and integration tests
         run: |
-          echo "Testing SSH access to $SSH_HOST..."
-          ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST '
-            echo "SSH connection successful."
-            echo "Verifying serial ports..."
-            ls -l /dev/ttyUSB* /dev/ttyS*
-          '
-
-      - name: Run PVCAM smoke test
-        env:
-          SSH_HOST: ${{ secrets.MAITAI_SSH_HOST }}
-          SSH_USER: ${{ secrets.MAITAI_SSH_USER }}
-        run: |
-          echo "Running PVCAM hardware smoke test on remote..."
-          ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST '
-            source /opt/pvcam/etc/profile.d/pvcam.sh 2>/dev/null || true
-            export PVCAM_SDK_DIR=/opt/pvcam/sdk
-            export LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:$LD_LIBRARY_PATH
-            export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH
-            export PVCAM_SMOKE_TEST=1
-            export PVCAM_CAMERA_NAME=PrimeBSI
-            cd ~/rust-daq-sync || cd ~/rust-daq
-            cargo test --test pvcam_hardware_smoke \
-              --features "instrument_photometrics,pvcam_hardware" \
-              -- --nocapture
-          '
-        continue-on-error: true
-
-      - name: Run hardware integration tests (when available)
-        run: |
-          echo "Additional hardware tests can be added here"
-          echo "Example: cargo test --test hardware_integration -- --ignored"
-        continue-on-error: true
-
-  features:
-    name: Feature Builds (${{ matrix.feature-set }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # Only run on main branch
-    if: github.ref == 'refs/heads/main'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - feature-set: default
-            args: ""
-          - feature-set: full
-            args: "--features full"
-          - feature-set: storage_hdf5
-            args: "--features storage_hdf5"
-          - feature-set: storage_arrow
-            args: "--features storage_arrow"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-daq
-        with:
-          cache-key: feature-builds
-
-      - name: cargo build ${{ matrix.feature-set }}
-        # Exclude ui which requires full desktop environment (X11/Wayland runtime)
-        run: |
-          cargo build --workspace --exclude ui ${{ matrix.args }}
-
-  coverage:
-    name: Coverage
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: [test, features, security, license-check, docs]
-    # Only run on main branch
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-daq
-        with:
-          components: llvm-tools-preview
-          cache-key: coverage
-
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-llvm-cov
-
-      - name: Generate coverage report
-        run: |
-          mkdir -p coverage
-          # Use 'full' feature set (excludes pvcam_hardware, storage_hdf5 which need native SDKs)
-          # Exclude ui which requires full desktop environment (X11/Wayland runtime)
-          cargo llvm-cov --workspace --features full --exclude ui --lcov --output-path coverage/lcov.info --html --output-dir coverage/html
-
-      - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-${{ github.sha }}
-          path: coverage
-          if-no-files-found: error
-          retention-days: 30
-
-  release:
-    name: Release (${{ matrix.os }})
-    if: startsWith(github.ref, 'refs/tags/')
-    timeout-minutes: 45
-    needs: [test, features]
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-daq
-        with:
-          cache-key: release-${{ matrix.os }}
-
-      - name: Build release binaries
-        run: cargo build --workspace --features full --release
-
-      - name: Package artifacts
-        run: |
-          ARTIFACT_DIR="artifacts"
-          ARTIFACT_NAME="rust-daq-${{ matrix.os }}-${{ github.ref_name }}"
-          mkdir -p "$ARTIFACT_DIR"
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            cp target/release/rust-daq-daemon.exe "$ARTIFACT_DIR/"
-            cp target/release/rust-daq-gui.exe "$ARTIFACT_DIR/"
-            pwsh -Command "Compress-Archive -Path '${ARTIFACT_DIR}/*.exe' -DestinationPath '${ARTIFACT_DIR}/${ARTIFACT_NAME}.zip' -Force"
-            rm "$ARTIFACT_DIR"/*.exe
-          else
-            cp target/release/rust-daq-daemon "$ARTIFACT_DIR/"
-            cp target/release/rust-daq-gui "$ARTIFACT_DIR/"
-            tar -czf "$ARTIFACT_DIR/${ARTIFACT_NAME}.tar.gz" -C "$ARTIFACT_DIR" rust-daq-daemon rust-daq-gui
-            rm "$ARTIFACT_DIR"/rust-daq-daemon "$ARTIFACT_DIR"/rust-daq-gui
-          fi
-
-      - name: Upload release artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.os }}-release-${{ github.ref_name }}
-          path: artifacts
-          if-no-files-found: error
-          retention-days: 90
-
-  publish-release:
-    name: Publish Release
-    if: startsWith(github.ref, 'refs/tags/')
-    timeout-minutes: 10
-    needs: release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-artifacts
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release-artifacts/**/*
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  sync-public:
-    name: Sync to Public Repository
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    timeout-minutes: 10
-    needs: [test, features, security, docs, coverage]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Push to public repository
-        run: |
-          git remote add public https://x-access-token:${{ secrets.PUBLIC_REPO_TOKEN }}@github.com/easternanemone/rust-daq.git
-          git push public main --tags --force
-        env:
-          GIT_AUTHOR_NAME: ${{ github.event.head_commit.author.name }}
-          GIT_AUTHOR_EMAIL: ${{ github.event.head_commit.author.email }}
-          GIT_COMMITTER_NAME: ${{ github.event.head_commit.committer.name }}
-          GIT_COMMITTER_EMAIL: ${{ github.event.head_commit.committer.email }}
+          cargo nextest run --workspace --profile ci \
+            --exclude ui \
+            --exclude driver-dover-motion \
+            --exclude driver-andor-sdk3 \
+            --exclude dover-motion-sys \
+            --exclude andor-sdk3-sys \
+            --exclude comedi-sys \
+            --exclude driver-comedi

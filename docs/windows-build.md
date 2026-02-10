@@ -37,29 +37,24 @@ $env:LIBCLANG_PATH = "C:\path\to\llvm\bin"
 
 ## CI/CD Pipeline
 
-The Windows CI workflow is defined in `.github/workflows/libs-windows.yml`.
+Windows checks are now opt-in and live in `.github/workflows/ops.yml` (`windows-driver-check` job).
 
-### Jobs
+### Job
 
-1. **build-windows** - Builds all LIBS driver crates in mock mode
-2. **test-windows** - Runs tests for LIBS drivers (no hardware required)
-3. **lint-windows** - Runs clippy on Windows to catch platform-specific issues
+1. **windows-driver-check** - Manually triggered Windows-targeted `cargo check` for optional LIBS crates
 
 ### Triggers
 
-The workflow runs on:
-- Push to `main` branch (when LIBS driver files change)
-- Pull requests (when LIBS driver files change)
-- Manual dispatch (`workflow_dispatch`)
+The job runs only via manual dispatch (`workflow_dispatch`) to avoid always-on GitHub Actions cost.
 
 ### Caching
 
-The workflow uses `Swatinem/rust-cache@v2` to cache:
+The manual job uses `Swatinem/rust-cache@v2` to cache:
 - Cargo registry
 - Target directory
 - Build artifacts
 
-Cache keys are scoped per job (`libs-windows`, `libs-windows-test`, `libs-windows-lint`).
+Cache key is scoped to `ops-windows-driver-check`.
 
 ## Local Development
 

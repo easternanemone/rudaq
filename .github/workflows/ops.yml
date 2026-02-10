@@ -1,0 +1,183 @@
+name: Ops (Manual + Weekly)
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_security_audit:
+        description: "Run cargo-audit and cargo-deny checks"
+        required: false
+        default: true
+        type: boolean
+      run_release_please:
+        description: "Run release-please to update/create release PR"
+        required: false
+        default: false
+        type: boolean
+      run_windows_driver_check:
+        description: "Run Windows driver checks (manual only)"
+        required: false
+        default: false
+        type: boolean
+      run_benchmarks:
+        description: "Run Rust benchmarks and upload output"
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "35 6 * * 1"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: ops-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  security-audit:
+    name: Security and dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_security_audit)
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          shared-key: ops-security
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: cargo audit
+        run: cargo audit
+
+      - name: cargo deny advisories
+        run: cargo deny check advisories
+
+  release-please:
+    name: Release Please (manual)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'workflow_dispatch' && inputs.run_release_please
+    steps:
+      - name: Release please
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  windows-driver-check:
+    name: Windows driver check (manual)
+    runs-on: windows-latest
+    timeout-minutes: 35
+    if: github.event_name == 'workflow_dispatch' && inputs.run_windows_driver_check
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install LLVM and Clang
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+          directory: ${{ runner.temp }}/llvm
+
+      - name: Set LIBCLANG_PATH
+        run: echo "LIBCLANG_PATH=${{ runner.temp }}/llvm/bin" >> "$GITHUB_ENV"
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          shared-key: ops-windows-driver-check
+
+      - name: Check Windows-targeted drivers
+        run: |
+          set -euo pipefail
+          METADATA_JSON="$(cargo metadata --format-version=1 --no-deps)"
+          DRIVERS=(
+            "driver-dover-motion"
+            "driver-andor-sdk3"
+            "driver-spirit-laser"
+            "driver-nidaqmx"
+          )
+
+          FOUND=0
+          for driver in "${DRIVERS[@]}"; do
+            if grep -q "\"name\":\"${driver}\"" <<<"$METADATA_JSON"; then
+              FOUND=1
+              echo "Checking ${driver}..."
+              cargo check -p "${driver}" --target x86_64-pc-windows-msvc
+            else
+              echo "Skipping ${driver} (not present in workspace)"
+            fi
+          done
+
+          if [[ "$FOUND" -eq 0 ]]; then
+            echo "No optional Windows driver crates found in workspace."
+          fi
+
+  benchmarks:
+    name: Benchmarks (manual)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'workflow_dispatch' && inputs.run_benchmarks
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup environment
+        uses: ./.github/actions/setup-daq
+        with:
+          dependency-profile: minimal
+          cache-key: ops-bench
+
+      - name: Run benchmarks
+        run: |
+          cargo bench --workspace \
+            --exclude ui \
+            --exclude driver-dover-motion \
+            --exclude driver-andor-sdk3 \
+            --exclude dover-motion-sys \
+            --exclude andor-sdk3-sys \
+            -- --noplot 2>&1 | tee benchmark-output.txt
+
+      - name: Upload benchmark output
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-output-${{ github.sha }}
+          path: benchmark-output.txt
+          if-no-files-found: error
+          retention-days: 14

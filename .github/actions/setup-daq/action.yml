@@ -1,6 +1,10 @@
 name: 'Setup Rust DAQ Environment'
 description: 'Sets up Rust toolchain and system dependencies for rust-daq'
 inputs:
+  dependency-profile:
+    description: 'System dependency profile: minimal, full, or none'
+    required: false
+    default: 'minimal'
   python-version:
     description: 'Python version to install'
     required: false
@@ -27,29 +31,36 @@ runs:
   steps:
     - name: Install system dependencies (Linux)
       shell: bash
-      if: runner.os == 'Linux'
+      if: runner.os == 'Linux' && inputs.dependency-profile != 'none'
       run: |
+        set -euo pipefail
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
           libudev-dev \
           pkg-config \
-          libhdf5-dev \
-          protobuf-compiler \
-          libxkbcommon-dev \
-          libwayland-dev \
-          libxcb-shape0-dev \
-          libxcb-xfixes0-dev
+          protobuf-compiler
+
+        if [ "${{ inputs.dependency-profile }}" = "full" ]; then
+          sudo apt-get install -y --no-install-recommends \
+            libhdf5-dev \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev
+        fi
 
     - name: Install system dependencies (macOS)
       shell: bash
-      if: runner.os == 'macOS'
+      if: runner.os == 'macOS' && inputs.dependency-profile == 'full'
       run: |
+        set -euo pipefail
         brew install hdf5 protobuf
 
     - name: Install system dependencies (Windows)
       shell: bash
-      if: runner.os == 'Windows'
+      if: runner.os == 'Windows' && inputs.dependency-profile == 'full'
       run: |
+        set -euo pipefail
         vcpkg install hdf5:x64-windows protobuf:x64-windows
         echo "HDF5_DIR=C:/vcpkg/installed/x64-windows" >> $GITHUB_ENV
 
