@@ -434,6 +434,28 @@ source scripts/env-check.sh
 bash scripts/build-maitai.sh
 ```
 
+### Local Target Cache Maintenance
+
+If local `target/` growth gets out of hand after many builds, tests, and feature
+switches, use the maintenance scripts:
+
+```bash
+# Run immediately (full cleanup when target >= 30 GiB by default)
+bash scripts/target-maintenance.sh
+
+# Force cleanup now
+bash scripts/target-maintenance.sh --force --mode full
+
+# Install periodic cleanup (weekly, local machine only)
+bash scripts/install-target-maintenance.sh
+
+# Optional: lighter partial mode
+bash scripts/install-target-maintenance.sh --mode partial --threshold-gb 20
+
+# Uninstall scheduled cleanup
+bash scripts/install-target-maintenance.sh --uninstall
+```
+
 ### Hardware Not Detected
 
 **Problem**: Daemon starts but shows no devices
