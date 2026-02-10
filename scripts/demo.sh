@@ -141,7 +141,7 @@ esac
 echo ""
 echo -e "${YELLOW}Next steps:${NC}"
 echo "  • Read DEMO.md for detailed guide"
-echo "  • Try other scripts: ${BLUE}ls crates/daq-examples/examples/*.rhai${NC}"
+echo "  • Try other scripts: ${BLUE}ls examples/*.rhai${NC}"
 echo "  • Modify ${BLUE}$DEMO_CONFIG${NC} to customize mock devices"
 echo "  • See ${BLUE}docs/guides/${NC} for scripting and storage tutorials"
 echo ""

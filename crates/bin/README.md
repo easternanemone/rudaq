@@ -182,7 +182,7 @@ RUST_LOG=debug,hyper=warn daq-daemon
 DAQ_LOG_FORMAT=json daq-daemon 2>&1 | jq .
 
 # Specific module debugging
-RUST_LOG=daq_server::grpc=trace daq-daemon
+RUST_LOG=server::grpc=trace daq-daemon
 ```
 
 ## Systemd Service

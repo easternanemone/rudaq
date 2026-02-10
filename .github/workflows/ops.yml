@@ -128,8 +128,6 @@ jobs:
           DRIVERS=(
             "driver-dover-motion"
             "driver-andor-sdk3"
-            "driver-spirit-laser"
-            "driver-nidaqmx"
           )
 
           FOUND=0

@@ -28,7 +28,7 @@ Connect to the gRPC server at the configured address and port.
 **Client Connection Examples:**
 
 ```rust
-use daq_server::grpc::proto::hardware_service_client::HardwareServiceClient;
+use server::grpc::proto::hardware_service_client::HardwareServiceClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -1066,7 +1066,7 @@ if !response.get_ref().success {
 ### Rust
 
 ```rust
-use daq_server::grpc::{
+use server::grpc::{
     proto::hardware_service_client::HardwareServiceClient,
     proto::ListDevicesRequest,
 };
@@ -1222,8 +1222,8 @@ let timestamp_ns = duration.as_nanos() as u64;
 ### Complete Motion Workflow
 
 ```rust
-use daq_server::grpc::proto::hardware_service_client::HardwareServiceClient;
-use daq_server::grpc::proto::{ListDevicesRequest, MoveRequest};
+use server::grpc::proto::hardware_service_client::HardwareServiceClient;
+use server::grpc::proto::{ListDevicesRequest, MoveRequest};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -1263,8 +1263,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Streaming Camera Frames
 
 ```rust
-use daq_server::grpc::proto::hardware_service_client::HardwareServiceClient;
-use daq_server::grpc::proto::{StreamFramesRequest, StreamQuality};
+use server::grpc::proto::hardware_service_client::HardwareServiceClient;
+use server::grpc::proto::{StreamFramesRequest, StreamQuality};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -1297,8 +1297,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Reading Sensor Values
 
 ```rust
-use daq_server::grpc::proto::hardware_service_client::HardwareServiceClient;
-use daq_server::grpc::proto::ReadValueRequest;
+use server::grpc::proto::hardware_service_client::HardwareServiceClient;
+use server::grpc::proto::ReadValueRequest;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

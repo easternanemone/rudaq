@@ -128,4 +128,4 @@ units = "V"
 #   cargo build --features comedi_hardware  # Real hardware (requires comedilib)
 #
 # Test on maitai:
-#   ssh maitai "cd ~/rust-daq && cargo test -p daq-driver-comedi --features hardware"
+#   ssh maitai "cd ~/rust-daq && cargo test -p driver-comedi --features hardware"

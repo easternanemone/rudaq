@@ -55,7 +55,6 @@
     }
   },
   "extra-files": [
-    "crates/rust-daq/Cargo.toml",
     "crates/common/Cargo.toml",
     "crates/hardware/Cargo.toml",
     "crates/server/Cargo.toml",

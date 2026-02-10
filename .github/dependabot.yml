@@ -61,19 +61,3 @@ updates:
     commit-message:
       prefix: "ci(deps)"
 
-  # Python dependencies (if using pip/requirements.txt)
-  - package-ecosystem: "pip"
-    directory: "/crates/rust-daq/python"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    groups:
-      python-deps:
-        patterns:
-          - "*"
-    open-pull-requests-limit: 3
-    labels:
-      - "dependencies"
-      - "python"
-    commit-message:
-      prefix: "deps(python)"

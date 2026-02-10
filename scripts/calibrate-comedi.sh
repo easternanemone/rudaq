@@ -187,7 +187,7 @@ verify_calibration() {
         # Build if needed
         if [[ ! -f "target/debug/deps/analog_loopback"* ]]; then
             log_info "Building test binary..."
-            cargo build -p daq-driver-comedi --features hardware --tests 2>/dev/null || true
+            cargo build -p driver-comedi --features hardware --tests 2>/dev/null || true
         fi
 
         # Run quick loopback test
@@ -204,7 +204,7 @@ verify_calibration() {
             fi
         else
             log_warn "Test binary not found - skipping verification"
-            log_info "Build with: cargo build -p daq-driver-comedi --features hardware --tests"
+            log_info "Build with: cargo build -p driver-comedi --features hardware --tests"
         fi
     else
         log_warn "rust-daq project not found - skipping verification"
