@@ -24,10 +24,7 @@ use crate::panels::{
 };
 use crate::shortcuts::{CheatSheetPanel, ShortcutAction, ShortcutContext, ShortcutManager};
 use crate::theme::{self, ThemePreference};
-use crate::widgets::{
-    AnalogOutputControlPanel, DeviceControlWidget, MaiTaiControlPanel, PowerMeterControlPanel,
-    RotatorControlPanel, StageControlPanel, StatusBar,
-};
+use crate::widgets::{GenericDevicePanel, StatusBar};
 use client::reconnect::{friendly_error_message, ConnectionManager, ConnectionState};
 use client::DaqClient;
 use protocol::daq::DeviceInfo;
@@ -152,20 +149,8 @@ pub struct DaqApp {
     /// Next available device panel ID
     next_device_panel_id: usize,
 
-    /// Docked MaiTai control panels (keyed by panel ID)
-    docked_maitai_panels: HashMap<usize, MaiTaiControlPanel>,
-
-    /// Docked power meter control panels (keyed by panel ID)
-    docked_power_meter_panels: HashMap<usize, PowerMeterControlPanel>,
-
-    /// Docked rotator control panels (keyed by panel ID)
-    docked_rotator_panels: HashMap<usize, RotatorControlPanel>,
-
-    /// Docked stage control panels (keyed by panel ID)
-    docked_stage_panels: HashMap<usize, StageControlPanel>,
-
-    /// Docked analog output control panels (keyed by panel ID)
-    docked_analog_output_panels: HashMap<usize, AnalogOutputControlPanel>,
+    /// Docked device control panels using GenericDevicePanel (keyed by panel ID)
+    docked_panels: HashMap<usize, GenericDevicePanel>,
 
     /// Settings window state
     settings_window: crate::settings::SettingsWindow,
@@ -460,49 +445,16 @@ impl DaqApp {
             .unwrap_or_default();
 
         // Load persisted device panel info
-        let (
-            device_panel_info,
-            next_device_panel_id,
-            docked_maitai_panels,
-            docked_power_meter_panels,
-            docked_rotator_panels,
-            docked_stage_panels,
-            docked_analog_output_panels,
-        ) = if let Some(storage) = cc.storage {
+        // GenericDevicePanel instances are created lazily on first render
+        let (device_panel_info, next_device_panel_id) = if let Some(storage) = cc.storage {
             let persisted: HashMap<usize, PersistedPanelInfo> =
                 eframe::get_value(storage, "device_panel_info").unwrap_or_default();
             let next_id: usize = eframe::get_value(storage, "next_device_panel_id").unwrap_or(0);
 
-            // Convert persisted panels to runtime structures and create panel widgets
             let mut device_info_map = HashMap::new();
-            let mut maitai = HashMap::new();
-            let mut power_meter = HashMap::new();
-            let mut rotator = HashMap::new();
-            let mut stage = HashMap::new();
-
             for (id, persisted_info) in persisted {
                 let device_info: DeviceInfo = persisted_info.clone().into();
                 let kind = panel_kind_for_device(&device_info);
-
-                // Create the appropriate panel widget based on panel kind
-                match kind {
-                    DevicePanelKind::MaiTai => {
-                        maitai.insert(id, MaiTaiControlPanel::default());
-                    }
-                    DevicePanelKind::PowerMeter => {
-                        power_meter.insert(id, PowerMeterControlPanel::default());
-                    }
-                    DevicePanelKind::Rotator => {
-                        rotator.insert(id, RotatorControlPanel::default());
-                    }
-                    DevicePanelKind::Stage => {
-                        stage.insert(id, StageControlPanel::default());
-                    }
-                    DevicePanelKind::AnalogOutput => {
-                        // analog_output - not persisted yet
-                    }
-                }
-
                 device_info_map.insert(
                     id,
                     DevicePanelInfo {
@@ -513,25 +465,9 @@ impl DaqApp {
                 );
             }
 
-            (
-                device_info_map,
-                next_id,
-                maitai,
-                power_meter,
-                rotator,
-                stage,
-                HashMap::new(), // analog_output - not persisted yet
-            )
+            (device_info_map, next_id)
         } else {
-            (
-                HashMap::new(),
-                0,
-                HashMap::new(),
-                HashMap::new(),
-                HashMap::new(),
-                HashMap::new(),
-                HashMap::new(),
-            )
+            (HashMap::new(), 0)
         };
 
         // Initialize dock state and filter out orphaned DeviceControl panels
@@ -630,11 +566,7 @@ impl DaqApp {
             status_bar: StatusBar::new(),
             device_panel_info,
             next_device_panel_id,
-            docked_maitai_panels,
-            docked_power_meter_panels,
-            docked_rotator_panels,
-            docked_stage_panels,
-            docked_analog_output_panels,
+            docked_panels: HashMap::new(),
             settings_window: crate::settings::SettingsWindow::default(),
             app_settings,
             #[cfg(all(feature = "rerun_viewer", feature = "pvcam"))]
@@ -1186,14 +1118,7 @@ impl DaqApp {
     /// Returns the removed DevicePanelInfo if the panel existed, None otherwise.
     /// Used for cleanup when panels are closed or during app shutdown.
     pub(crate) fn remove_panel_data(&mut self, id: usize) -> Option<DevicePanelInfo> {
-        // Remove from all panel-type-specific maps
-        self.docked_maitai_panels.remove(&id);
-        self.docked_power_meter_panels.remove(&id);
-        self.docked_rotator_panels.remove(&id);
-        self.docked_stage_panels.remove(&id);
-        self.docked_analog_output_panels.remove(&id);
-
-        // Remove and return the panel info
+        self.docked_panels.remove(&id);
         self.device_panel_info.remove(&id)
     }
 
@@ -1561,37 +1486,9 @@ impl DaqApp {
     }
 
     /// Ensure panel widget exists in the correct HashMap for its kind
-    fn ensure_panel_widget_kind(&mut self, panel_id: usize, kind: DevicePanelKind) {
-        // Remove from all widget maps
-        self.docked_maitai_panels.remove(&panel_id);
-        self.docked_power_meter_panels.remove(&panel_id);
-        self.docked_rotator_panels.remove(&panel_id);
-        self.docked_stage_panels.remove(&panel_id);
-        self.docked_analog_output_panels.remove(&panel_id);
-
-        // Insert into correct map based on new kind
-        match kind {
-            DevicePanelKind::MaiTai => {
-                self.docked_maitai_panels
-                    .insert(panel_id, MaiTaiControlPanel::default());
-            }
-            DevicePanelKind::PowerMeter => {
-                self.docked_power_meter_panels
-                    .insert(panel_id, PowerMeterControlPanel::default());
-            }
-            DevicePanelKind::Rotator => {
-                self.docked_rotator_panels
-                    .insert(panel_id, RotatorControlPanel::default());
-            }
-            DevicePanelKind::Stage => {
-                self.docked_stage_panels
-                    .insert(panel_id, StageControlPanel::default());
-            }
-            DevicePanelKind::AnalogOutput => {
-                self.docked_analog_output_panels
-                    .insert(panel_id, AnalogOutputControlPanel::default());
-            }
-        }
+    fn ensure_panel_widget_kind(&mut self, panel_id: usize, _kind: DevicePanelKind) {
+        // Remove stale panel; it will be lazily recreated with updated capabilities
+        self.docked_panels.remove(&panel_id);
     }
 
     /// Detect connection state transitions and handle them
@@ -1925,42 +1822,16 @@ impl<'a> DaqTabViewer<'a> {
             }
         }
 
-        // Debug: log which HashMap contains this panel (bd-kj7i)
-        let panel_type = if self.app.docked_maitai_panels.contains_key(&panel_id) {
-            "MaiTai"
-        } else if self.app.docked_power_meter_panels.contains_key(&panel_id) {
-            "PowerMeter"
-        } else if self.app.docked_rotator_panels.contains_key(&panel_id) {
-            "Rotator"
-        } else if self.app.docked_stage_panels.contains_key(&panel_id) {
-            "Stage"
-        } else if self.app.docked_analog_output_panels.contains_key(&panel_id) {
-            "AnalogOutput"
-        } else {
-            "NONE (bug!)"
-        };
-        tracing::debug!(
-            panel_id,
-            device_id = %device_info.id,
-            panel_type,
-            "render_device_control: found panel in HashMap"
-        );
+        // Lazily create GenericDevicePanel if not yet present
+        let panel = self
+            .app
+            .docked_panels
+            .entry(panel_id)
+            .or_insert_with(|| GenericDevicePanel::from_device_info(device_info));
 
-        // Render the appropriate panel widget based on which HashMap contains the panel
-        // (panel type was determined at creation time using capability flags)
         // Use push_id to avoid widget ID collisions with instrument manager panels
         ui.push_id(("docked", panel_id), |ui| {
-            if let Some(panel) = self.app.docked_maitai_panels.get_mut(&panel_id) {
-                panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
-            } else if let Some(panel) = self.app.docked_power_meter_panels.get_mut(&panel_id) {
-                panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
-            } else if let Some(panel) = self.app.docked_rotator_panels.get_mut(&panel_id) {
-                panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
-            } else if let Some(panel) = self.app.docked_stage_panels.get_mut(&panel_id) {
-                panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
-            } else if let Some(panel) = self.app.docked_analog_output_panels.get_mut(&panel_id) {
-                panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
-            }
+            panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
         });
     }
 }
@@ -2101,36 +1972,7 @@ impl eframe::App for DaqApp {
                         },
                     );
 
-                    // Create the appropriate panel widget based on panel kind
-                    tracing::info!(
-                        panel_id,
-                        ?kind,
-                        device_id = %device_info.id,
-                        "OpenDeviceControl: routing to panel"
-                    );
-
-                    match kind {
-                        DevicePanelKind::MaiTai => {
-                            self.docked_maitai_panels
-                                .insert(panel_id, MaiTaiControlPanel::default());
-                        }
-                        DevicePanelKind::PowerMeter => {
-                            self.docked_power_meter_panels
-                                .insert(panel_id, PowerMeterControlPanel::default());
-                        }
-                        DevicePanelKind::Rotator => {
-                            self.docked_rotator_panels
-                                .insert(panel_id, RotatorControlPanel::default());
-                        }
-                        DevicePanelKind::Stage => {
-                            self.docked_stage_panels
-                                .insert(panel_id, StageControlPanel::default());
-                        }
-                        DevicePanelKind::AnalogOutput => {
-                            self.docked_analog_output_panels
-                                .insert(panel_id, AnalogOutputControlPanel::default());
-                        }
-                    }
+                    // GenericDevicePanel created lazily on first render
 
                     // Add the panel to the dock
                     let panel = Panel::DeviceControl { id: panel_id };
