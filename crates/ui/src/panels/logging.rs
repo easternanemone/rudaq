@@ -9,6 +9,7 @@
 //! - Text search filtering
 
 use std::collections::VecDeque;
+use std::fmt::Write;
 use std::time::Instant;
 
 use eframe::egui;
@@ -55,7 +56,7 @@ pub enum LogLevel {
 
 impl LogLevel {
     /// Get display label for the level
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Error => "ERROR",
             Self::Warn => "WARN",
@@ -67,7 +68,7 @@ impl LogLevel {
 
     /// Get short label for compact display (for compact log formats)
     #[allow(dead_code)]
-    pub fn short_label(&self) -> &'static str {
+    pub fn short_label(self) -> &'static str {
         match self {
             Self::Error => "E",
             Self::Warn => "W",
@@ -78,7 +79,7 @@ impl LogLevel {
     }
 
     /// Get color for the level
-    pub fn color(&self) -> egui::Color32 {
+    pub fn color(self) -> egui::Color32 {
         match self {
             Self::Error => egui::Color32::from_rgb(255, 100, 100), // Red
             Self::Warn => egui::Color32::from_rgb(255, 200, 100),  // Orange/Yellow
@@ -126,7 +127,7 @@ pub enum LogCategory {
 
 impl LogCategory {
     /// Get display label for the category
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::All => "All",
             Self::Connection => "Connection",
@@ -141,7 +142,7 @@ impl LogCategory {
     }
 
     /// Get color for the category (for visual distinction)
-    pub fn color(&self) -> egui::Color32 {
+    pub fn color(self) -> egui::Color32 {
         match self {
             Self::All => egui::Color32::WHITE,
             Self::Connection => egui::Color32::from_rgb(100, 200, 255), // Blue
@@ -314,7 +315,7 @@ pub struct ConnectionDiagnostics {
 }
 
 impl ConnectionStatus {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Disconnected => "Disconnected",
             Self::Connecting => "Connecting...",
@@ -324,7 +325,7 @@ impl ConnectionStatus {
         }
     }
 
-    pub fn color(&self) -> egui::Color32 {
+    pub fn color(self) -> egui::Color32 {
         match self {
             Self::Disconnected => egui::Color32::GRAY,
             Self::Connecting => egui::Color32::YELLOW,
@@ -347,7 +348,7 @@ pub enum SystemStatus {
 }
 
 impl SystemStatus {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Idle => "Idle",
             Self::Busy => "Busy",
@@ -356,7 +357,7 @@ impl SystemStatus {
         }
     }
 
-    pub fn color(&self) -> egui::Color32 {
+    pub fn color(self) -> egui::Color32 {
         match self {
             Self::Idle => egui::Color32::from_rgb(100, 200, 100),
             Self::Busy => egui::Color32::from_rgb(100, 150, 255),
@@ -380,7 +381,7 @@ pub enum ExperimentStatus {
 }
 
 impl ExperimentStatus {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::None => "No Experiment",
             Self::Queued => "Queued",
@@ -391,7 +392,7 @@ impl ExperimentStatus {
         }
     }
 
-    pub fn color(&self) -> egui::Color32 {
+    pub fn color(self) -> egui::Color32 {
         match self {
             Self::None => egui::Color32::GRAY,
             Self::Queued => egui::Color32::from_rgb(180, 180, 100),
@@ -590,13 +591,15 @@ impl LoggingPanel {
         let mut output = String::with_capacity(filtered.len() * 100);
 
         output.push_str("# rust-daq Log Export\n");
-        output.push_str(&format!("# Entries: {}\n", filtered.len()));
-        output.push_str(&format!(
-            "# Filter: category={}, level>={}, search='{}'\n",
+        writeln!(output, "# Entries: {}", filtered.len()).unwrap();
+        writeln!(
+            output,
+            "# Filter: category={}, level>={}, search='{}'",
             self.selected_category.label(),
             self.min_level.label(),
             self.search_filter
-        ));
+        )
+        .unwrap();
         output.push_str("#\n");
 
         for entry in filtered {

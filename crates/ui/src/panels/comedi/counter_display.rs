@@ -51,7 +51,7 @@ pub enum CounterDisplayFormat {
 }
 
 impl CounterDisplayFormat {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Decimal => "Decimal",
             Self::Hexadecimal => "Hex",

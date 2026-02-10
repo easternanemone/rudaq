@@ -196,8 +196,8 @@ mod tests {
 
     #[derive(Debug)]
     enum TestAction {
-        Read(Result<f64, String>),
-        Write(Result<(), String>),
+        _Read(Result<f64, String>),
+        _Write(Result<(), String>),
     }
 
     #[test]

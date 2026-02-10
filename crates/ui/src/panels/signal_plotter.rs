@@ -13,6 +13,7 @@
 use eframe::egui;
 use egui_plot::{Line, Plot, PlotPoints};
 use std::collections::VecDeque;
+use std::fmt::Write;
 use std::sync::mpsc;
 use std::time::Instant;
 
@@ -972,13 +973,13 @@ impl SignalPlotterPanel {
 
         // For each timestamp, find values from each trace
         for ts in &all_timestamps {
-            csv.push_str(&format!("{:.6}", ts));
+            write!(csv, "{:.6}", ts).expect("write to String cannot fail");
 
             for trace in &self.traces {
                 csv.push(',');
                 // Find value at this timestamp (exact match within tolerance)
                 if let Some((_, val)) = trace.points.iter().find(|(t, _)| (*t - ts).abs() < 1e-9) {
-                    csv.push_str(&format!("{:.6}", val));
+                    write!(csv, "{:.6}", val).expect("write to String cannot fail");
                 }
                 // If no value, leave empty (which represents NaN in CSV conventions)
             }

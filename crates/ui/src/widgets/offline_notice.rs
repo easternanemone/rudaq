@@ -25,7 +25,7 @@ pub enum OfflineContext {
 
 impl OfflineContext {
     /// Human-readable label for the context
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Devices => "device control",
             Self::Experiments => "experiment execution",
@@ -37,7 +37,7 @@ impl OfflineContext {
     }
 
     /// Icon for the context
-    pub fn icon(&self) -> &'static str {
+    pub fn icon(self) -> &'static str {
         match self {
             Self::Devices => "🔧",
             Self::Experiments => "🔬",

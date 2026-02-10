@@ -24,7 +24,7 @@ pub enum ToggleSize {
 }
 
 impl ToggleSize {
-    fn dimensions(&self) -> (f32, f32) {
+    fn dimensions(self) -> (f32, f32) {
         match self {
             ToggleSize::Small => (28.0, 16.0),
             ToggleSize::Medium => (36.0, 20.0),

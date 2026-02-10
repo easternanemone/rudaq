@@ -425,7 +425,7 @@ impl ExperimentDesignerPanel {
         }
 
         // Show adaptive alert modal if present
-        if let Some(ref alert_data) = self.adaptive_alert.clone() {
+        if let Some(ref alert_data) = self.adaptive_alert {
             let response = show_adaptive_alert(ui.ctx(), alert_data);
 
             match response {
@@ -485,7 +485,7 @@ impl ExperimentDesignerPanel {
             }
 
             // Sync device list to viewer for dropdown selectors
-            self.viewer.device_ids = self.cached_device_ids.clone();
+            self.viewer.device_ids.clone_from(&self.cached_device_ids);
 
             // Capture canvas rect BEFORE widget consumes space (for drop detection)
             let canvas_rect = ui.available_rect_before_wrap();

@@ -177,26 +177,9 @@ mod data_transformation_tests {
     }
 }
 
-#[cfg(test)]
-mod crosshair_tests {
-    /// Test crosshair feature is present (bd-pgcb)
-    ///
-    /// The crosshair feature is implemented in ImageViewerPanel and tested
-    /// through GUI interaction. Unit testing private fields would require
-    /// pub(crate) visibility changes that aren't needed for production code.
-    ///
-    /// Key functionality:
-    /// - Toggle button in toolbar
-    /// - Click to lock/unlock position
-    /// - Display pixel coordinates and intensity
-    /// - Support for 8-bit and 16-bit images
-    #[test]
-    fn test_crosshair_feature_exists() {
-        // This test documents that the feature is implemented
-        // Actual testing requires GUI interaction or exposing internals
-        assert!(true, "Crosshair feature implemented in ImageViewerPanel");
-    }
-}
+// Crosshair feature (bd-pgcb) is implemented in ImageViewerPanel.
+// GUI interaction testing requires a graphics context; see the panel's
+// internal unit tests for coverage.
 
 #[cfg(test)]
 mod daemon_lifecycle_tests {
@@ -276,16 +259,8 @@ mod app_state_tests {
                 "emission_controllable".to_string(),
                 "shutter_controllable".to_string(),
             ],
-            is_movable: false,
-            is_readable: false,
-            is_triggerable: false,
-            is_frame_producer: false,
-            is_exposure_controllable: false,
-            is_shutter_controllable: true,
-            is_wavelength_tunable: false,
-            is_emission_controllable: true,
-            is_parameterized: false,
             metadata: None,
+            ..Default::default()
         };
 
         // Device with emission/shutter control should be classified as MaiTai
@@ -306,21 +281,13 @@ mod app_state_tests {
             driver_type: "newport_1830c".to_string(),
             category: 0,
             capabilities: vec!["readable".to_string()],
-            is_movable: false,
-            is_readable: true,
-            is_triggerable: false,
-            is_frame_producer: false,
-            is_exposure_controllable: false,
-            is_shutter_controllable: false,
-            is_wavelength_tunable: false,
-            is_emission_controllable: false,
-            is_parameterized: false,
             metadata: None,
+            ..Default::default()
         };
 
         // Readable but not movable should be power meter
-        assert!(!device.is_movable);
-        assert!(device.is_readable);
+        assert!(!device.capabilities.contains(&"movable".to_string()));
+        assert!(device.capabilities.contains(&"readable".to_string()));
     }
 
     #[test]
@@ -331,20 +298,12 @@ mod app_state_tests {
             driver_type: "ell14_rotator".to_string(),
             category: 0,
             capabilities: vec!["movable".to_string()],
-            is_movable: true,
-            is_readable: false,
-            is_triggerable: false,
-            is_frame_producer: false,
-            is_exposure_controllable: false,
-            is_shutter_controllable: false,
-            is_wavelength_tunable: false,
-            is_emission_controllable: false,
-            is_parameterized: false,
             metadata: None,
+            ..Default::default()
         };
 
         // Movable with rotator/ell14 in name should be rotator
-        assert!(device.is_movable);
+        assert!(device.capabilities.contains(&"movable".to_string()));
         assert!(device.driver_type.contains("rotator") || device.driver_type.contains("ell14"));
     }
 
@@ -356,20 +315,12 @@ mod app_state_tests {
             driver_type: "esp300".to_string(),
             category: 0,
             capabilities: vec!["movable".to_string()],
-            is_movable: true,
-            is_readable: false,
-            is_triggerable: false,
-            is_frame_producer: false,
-            is_exposure_controllable: false,
-            is_shutter_controllable: false,
-            is_wavelength_tunable: false,
-            is_emission_controllable: false,
-            is_parameterized: false,
             metadata: None,
+            ..Default::default()
         };
 
         // Movable but not a rotator should default to stage
-        assert!(device.is_movable);
+        assert!(device.capabilities.contains(&"movable".to_string()));
         assert!(!device.driver_type.contains("rotator"));
     }
 
@@ -381,16 +332,8 @@ mod app_state_tests {
             driver_type: "comedi_analog_output".to_string(),
             category: 0,
             capabilities: vec!["settable".to_string()],
-            is_movable: false,
-            is_readable: false,
-            is_triggerable: false,
-            is_frame_producer: false,
-            is_exposure_controllable: false,
-            is_shutter_controllable: false,
-            is_wavelength_tunable: false,
-            is_emission_controllable: false,
-            is_parameterized: false,
             metadata: None,
+            ..Default::default()
         };
 
         // Device with analog_output in driver type
@@ -513,7 +456,7 @@ mod app_state_tests {
     fn test_layout_version_constant() {
         // Test that layout version is defined and positive
         const LAYOUT_VERSION: u32 = 2;
-        assert!(LAYOUT_VERSION > 0);
+        const { assert!(LAYOUT_VERSION > 0) };
         assert_eq!(LAYOUT_VERSION, 2);
     }
 
@@ -523,8 +466,8 @@ mod app_state_tests {
         #[derive(Debug, Clone)]
         enum Panel {
             Instruments,
-            Devices,
-            ImageViewer,
+            _Devices,
+            _ImageViewer,
         }
 
         #[derive(Debug)]
@@ -540,17 +483,23 @@ mod app_state_tests {
         };
         let action3 = UiAction::CloseDevicePanel { id: 42 };
 
-        // Just verify they can be constructed
+        // Verify they can be constructed and fields are accessible
         match action1 {
-            UiAction::FocusTab(_) => {}
+            UiAction::FocusTab(panel) => {
+                assert!(matches!(panel, Panel::Instruments));
+            }
             _ => panic!("Wrong variant"),
         }
         match action2 {
-            UiAction::OpenDeviceControl { .. } => {}
+            UiAction::OpenDeviceControl { device_id } => {
+                assert!(!device_id.is_empty());
+            }
             _ => panic!("Wrong variant"),
         }
         match action3 {
-            UiAction::CloseDevicePanel { .. } => {}
+            UiAction::CloseDevicePanel { id } => {
+                assert_eq!(id, 42);
+            }
             _ => panic!("Wrong variant"),
         }
     }
@@ -625,10 +574,11 @@ mod app_state_tests {
         match err_msg {
             DeviceReconcileMsg::Err {
                 epoch,
-                daemon_url: _,
+                daemon_url,
                 error,
             } => {
                 assert_eq!(epoch, 2);
+                assert!(daemon_url.contains("localhost"));
                 assert!(error.contains("Network"));
             }
             _ => panic!("Wrong variant"),

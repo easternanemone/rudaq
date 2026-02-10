@@ -60,7 +60,7 @@ pub enum GateSource {
 }
 
 impl GateSource {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Internal => "Internal",
             Self::PFI0 => "PFI0",

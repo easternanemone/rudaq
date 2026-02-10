@@ -419,7 +419,7 @@ impl VersionManager {
                 ChangeTag::Insert => "+",
                 ChangeTag::Equal => " ",
             };
-            let _ = write!(diff_text, "{}{}", sign, change);
+            write!(diff_text, "{}{}", sign, change)?;
         }
 
         Ok(diff_text)

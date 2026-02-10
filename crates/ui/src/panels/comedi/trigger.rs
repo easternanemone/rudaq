@@ -26,7 +26,7 @@ pub enum TriggerSource {
 }
 
 impl TriggerSource {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Software => "Software",
             Self::PFI0 => "PFI0",
@@ -54,7 +54,7 @@ impl TriggerSource {
         ]
     }
 
-    pub fn is_external(&self) -> bool {
+    pub fn is_external(self) -> bool {
         matches!(
             self,
             Self::PFI0
@@ -78,7 +78,7 @@ pub enum TriggerPolarity {
 }
 
 impl TriggerPolarity {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Rising => "Rising Edge",
             Self::Falling => "Falling Edge",
@@ -102,7 +102,7 @@ pub enum ClockSource {
 }
 
 impl ClockSource {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Internal20MHz => "Internal 20MHz",
             Self::Internal100kHz => "Internal 100kHz",
@@ -193,7 +193,7 @@ enum TriggerTab {
 }
 
 impl TriggerTab {
-    fn label(&self) -> &'static str {
+    fn label(self) -> &'static str {
         match self {
             Self::AnalogInput => "Analog Input",
             Self::AnalogOutput => "Analog Output",
@@ -222,7 +222,7 @@ pub enum SyncMode {
 }
 
 impl SyncMode {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Standalone => "Standalone",
             Self::Master => "Master",

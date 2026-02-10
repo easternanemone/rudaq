@@ -30,7 +30,7 @@ pub enum CsvDelimiter {
 
 impl CsvDelimiter {
     #[allow(dead_code)]
-    pub fn as_byte(&self) -> u8 {
+    pub fn as_byte(self) -> u8 {
         match self {
             CsvDelimiter::Comma => b',',
             CsvDelimiter::Tab => b'\t',
@@ -38,7 +38,7 @@ impl CsvDelimiter {
         }
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             CsvDelimiter::Comma => ",",
             CsvDelimiter::Tab => "\t",

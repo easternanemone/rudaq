@@ -616,6 +616,7 @@ mod tests {
     /// Test that can_send_command returns true after the debounce period has elapsed.
     /// This verifies the debounce logic correctly allows commands after waiting.
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn test_can_send_command_after_debounce() {
         let mut panel = RotatorControlPanel::default();
 
@@ -636,6 +637,7 @@ mod tests {
     /// Test that can_send_command returns false during the debounce period.
     /// This verifies the debounce logic correctly blocks rapid commands.
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn test_can_send_command_during_debounce() {
         let mut panel = RotatorControlPanel::default();
 

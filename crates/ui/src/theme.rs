@@ -18,7 +18,7 @@ impl ThemePreference {
         };
     }
 
-    pub fn icon(&self) -> &'static str {
+    pub fn icon(self) -> &'static str {
         match self {
             Self::Light => crate::icons::SUN,
             Self::Dark => crate::icons::MOON,
@@ -26,7 +26,7 @@ impl ThemePreference {
         }
     }
 
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Light => "Light",
             Self::Dark => "Dark",
@@ -34,7 +34,7 @@ impl ThemePreference {
         }
     }
 
-    pub fn is_dark(&self) -> bool {
+    pub fn is_dark(self) -> bool {
         match self {
             Self::Light => false,
             Self::Dark => true,

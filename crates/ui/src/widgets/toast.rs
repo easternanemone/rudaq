@@ -21,7 +21,7 @@ pub enum ToastLevel {
 }
 
 impl ToastLevel {
-    fn icon(&self) -> &'static str {
+    fn icon(self) -> &'static str {
         match self {
             ToastLevel::Info => icons::status::INFO,
             ToastLevel::Success => icons::status::SUCCESS,
@@ -30,7 +30,7 @@ impl ToastLevel {
         }
     }
 
-    fn color(&self) -> Color32 {
+    fn color(self) -> Color32 {
         match self {
             ToastLevel::Info => layout::colors::INFO,
             ToastLevel::Success => layout::colors::SUCCESS,

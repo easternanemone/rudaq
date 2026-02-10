@@ -40,6 +40,7 @@ pub use types::{DeviceCategory, DeviceGroup, ParameterInfo, PopOutRequest};
 use eframe::egui;
 use egui_extras::{Size, StripBuilder};
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
@@ -353,7 +354,7 @@ impl InstrumentManagerPanel {
                                 Ok(params) => {
                                     self.params_viewer_device_id = Some(device_id);
                                     self.params_viewer_device_name = Some(device_name);
-                                    self.params_viewer_params = params.clone();
+                                    self.params_viewer_params.clone_from(&params);
                                     self.params_viewer_open = true;
                                     self.params_viewer_error = None;
                                     // Initialize edit values from current values
@@ -849,7 +850,7 @@ impl InstrumentManagerPanel {
                 }
 
                 if !state_parts.is_empty() {
-                    label.push_str(&format!(" [{}]", state_parts.join(", ")));
+                    write!(label, " [{}]", state_parts.join(", ")).unwrap();
                 }
             }
 

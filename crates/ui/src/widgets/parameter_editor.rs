@@ -32,7 +32,7 @@ impl ParameterCache {
 
     /// Update the current value (called after successful server response)
     pub fn update_value(&mut self, value: String) {
-        self.current_value = value.clone();
+        self.current_value.clone_from(&value);
         if !self.is_editing {
             self.edit_buffer = value;
         }

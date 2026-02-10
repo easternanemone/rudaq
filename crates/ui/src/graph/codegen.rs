@@ -49,12 +49,9 @@ pub fn graph_to_rhai_script(snarl: &Snarl<ExperimentNode>, filename: Option<&str
         return script;
     }
 
-    let sorted = match topological_sort(&adjacency, &roots, snarl.node_ids().count()) {
-        Ok(sorted) => sorted,
-        Err(_) => {
-            script.push_str("// ERROR: Graph contains a cycle - cannot generate code\n");
-            return script;
-        }
+    let Ok(sorted) = topological_sort(&adjacency, &roots, snarl.node_ids().count()) else {
+        script.push_str("// ERROR: Graph contains a cycle - cannot generate code\n");
+        return script;
     };
 
     // Identify loop body nodes (skip in main traversal)

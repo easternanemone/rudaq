@@ -92,7 +92,7 @@ pub enum LogLevel {
 }
 
 impl LogLevel {
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Trace => "Trace",
             Self::Debug => "Debug",
@@ -134,7 +134,7 @@ pub enum FileFormat {
 }
 
 impl FileFormat {
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Hdf5 => "HDF5",
             Self::Csv => "CSV",
@@ -174,7 +174,7 @@ enum SettingsSection {
 }
 
 impl SettingsSection {
-    fn label(&self) -> &'static str {
+    fn label(self) -> &'static str {
         match self {
             Self::Connection => "Connection",
             Self::Appearance => "Appearance",
@@ -185,7 +185,7 @@ impl SettingsSection {
         }
     }
 
-    fn icon(&self) -> &'static str {
+    fn icon(self) -> &'static str {
         match self {
             Self::Connection => crate::icons::PLUGS,
             Self::Appearance => crate::icons::PALETTE,
@@ -568,7 +568,7 @@ mod tests {
         let settings = AppSettings::default();
         assert_eq!(settings.connection.daemon_address, "localhost:50051");
         assert!(settings.connection.auto_reconnect);
-        assert_eq!(settings.appearance.font_scale, 1.0);
+        assert!((settings.appearance.font_scale - 1.0).abs() < f32::EPSILON);
         assert_eq!(settings.logging.level, LogLevel::Info);
     }
 

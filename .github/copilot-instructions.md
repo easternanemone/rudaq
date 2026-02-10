@@ -59,19 +59,28 @@ param.connect_to_hardware_write(move |val| -> BoxFuture<'static, Result<()>> {
 ### Essential Commands
 
 ```bash
-bd ready                           # Unblocked issues
-bd create "Title" -t task -p 2     # Create issue
-bd update <id> --status in_progress
-bd close <id> --reason "Done"
+scripts/bd-safe.sh ready                           # Unblocked issues (canonical DB)
+scripts/bd-safe.sh create "Title" -t task -p 2     # Create issue
+scripts/bd-safe.sh update <id> --status in_progress
+scripts/bd-safe.sh close <id> --reason "Done"
 ```
 
 ### Workflow
 
-1. Check ready work: `bd ready`
-2. Claim task: `bd update <id> --status in_progress`
+1. Check ready work: `scripts/bd-safe.sh ready`
+2. Claim task: `scripts/bd-safe.sh update <id> --status in_progress`
 3. Work on it
-4. Complete: `bd close <id> --reason "Done"`
+4. Complete: `scripts/bd-safe.sh close <id> --reason "Done"`
 5. Commit `.beads/issues.jsonl` with code changes
+
+### Worktree Safety
+
+When using git worktrees, avoid local `.beads` runtime drift:
+
+```bash
+scripts/beads-worktree-hygiene.sh status
+scripts/beads-worktree-hygiene.sh cleanup --apply
+```
 
 ## Build Commands
 

@@ -30,6 +30,16 @@ bd update <issue-id> --status done
 bd sync
 ```
 
+### Worktree Canonical DB (rust-daq)
+
+In git worktrees, use the canonical DB wrapper to avoid stale local `.beads` drift:
+
+```bash
+scripts/bd-safe.sh where --json
+scripts/bd-safe.sh ready --json
+scripts/beads-worktree-hygiene.sh status
+```
+
 ### Working with Issues
 
 Issues in Beads are:

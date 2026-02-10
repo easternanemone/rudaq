@@ -22,7 +22,7 @@ pub enum ComediTab {
 }
 
 impl ComediTab {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Overview => "Overview",
             Self::AnalogInput => "Analog In",
@@ -32,7 +32,7 @@ impl ComediTab {
         }
     }
 
-    pub fn icon(&self) -> &'static str {
+    pub fn icon(self) -> &'static str {
         match self {
             Self::Overview => "📊",
             Self::AnalogInput => "📈",
@@ -54,7 +54,7 @@ pub enum ConnectionStatus {
 }
 
 impl ConnectionStatus {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Disconnected => "Disconnected",
             Self::Connecting => "Connecting...",
@@ -63,7 +63,7 @@ impl ConnectionStatus {
         }
     }
 
-    pub fn color(&self) -> Color32 {
+    pub fn color(self) -> Color32 {
         match self {
             Self::Disconnected => Color32::GRAY,
             Self::Connecting => Color32::YELLOW,

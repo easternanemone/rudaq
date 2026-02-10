@@ -90,7 +90,7 @@ pub enum TriggerMode {
 }
 
 impl TriggerMode {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Auto => "Auto",
             Self::Normal => "Normal",
@@ -114,7 +114,7 @@ pub enum TriggerEdge {
 }
 
 impl TriggerEdge {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Rising => "Rising",
             Self::Falling => "Falling",
@@ -223,7 +223,7 @@ pub enum SignalSource {
 }
 
 impl SignalSource {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::External => "External",
             Self::Synthetic => "Synthetic",
@@ -243,7 +243,7 @@ pub enum SyntheticSignal {
 }
 
 impl SyntheticSignal {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Sine => "Sine",
             Self::Square => "Square",
@@ -264,7 +264,7 @@ impl SyntheticSignal {
     }
 
     /// Generate value at time t with given frequency and amplitude
-    fn generate(&self, t: f64, frequency: f64, amplitude: f64) -> f64 {
+    fn generate(self, t: f64, frequency: f64, amplitude: f64) -> f64 {
         let phase = (t * frequency * std::f64::consts::TAU) % std::f64::consts::TAU;
 
         match self {

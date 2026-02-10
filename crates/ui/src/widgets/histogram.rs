@@ -262,7 +262,7 @@ pub enum HistogramPosition {
 }
 
 impl HistogramPosition {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Hidden => "Hidden",
             Self::BottomRight => "Bottom Right",
@@ -273,11 +273,11 @@ impl HistogramPosition {
         }
     }
 
-    pub fn is_visible(&self) -> bool {
+    pub fn is_visible(self) -> bool {
         !matches!(self, Self::Hidden)
     }
 
-    pub fn is_overlay(&self) -> bool {
+    pub fn is_overlay(self) -> bool {
         matches!(
             self,
             Self::BottomRight | Self::BottomLeft | Self::TopRight | Self::TopLeft
@@ -285,7 +285,7 @@ impl HistogramPosition {
     }
 
     /// Calculate overlay rect within an image rect
-    pub fn overlay_rect(&self, image_rect: egui::Rect, size: egui::Vec2) -> egui::Rect {
+    pub fn overlay_rect(self, image_rect: egui::Rect, size: egui::Vec2) -> egui::Rect {
         let margin = 8.0;
         match self {
             Self::BottomRight => egui::Rect::from_min_size(

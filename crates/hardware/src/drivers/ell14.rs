@@ -3290,36 +3290,49 @@ mod tests {
         let port: SharedPort = Arc::new(Mutex::new(Box::new(device)));
 
         let driver = Ell14Driver::with_test_port(port, "2", 398.2222);
+        let full_data = "0E1400284220211500168000023000";
+        // type(2) + serial(8) + year(4) + fw(2) + hw(1) + travel(5) + pulses(8) = 30
+        assert_eq!(full_data.len(), 30);
 
         // Spawn a task to send mock responses (bd-2m11.5: mock must handle retries).
-        // First request -> truncated (16 chars); second request -> full (30 chars).
+        // First request -> truncated (16 chars); later requests -> full (30 chars).
+        // Keep the mock alive until idle timeout so extra retry writes do not hit broken pipe.
         let response_task = tokio::spawn(async move {
             let mut buf = vec![0u8; 64];
+            let mut requests_seen = 0usize;
+            let truncated = format!("2IN{}\n", &full_data[..16]);
+            let complete = format!("2IN{}\n", full_data);
 
-            // First attempt: truncated response (simulates bus contention)
-            let _bytes_read = host
-                .read(&mut buf)
-                .await
-                .expect("Mock should receive first request");
-            host.write_all(b"2IN0E14002842202115\n")
-                .await
-                .expect("Mock should send truncated response"); // 16 chars
+            loop {
+                let read_result =
+                    tokio::time::timeout(Duration::from_millis(800), host.read(&mut buf)).await;
+                let bytes_read = match read_result {
+                    Ok(Ok(n)) if n > 0 => n,
+                    _ => break, // idle timeout, EOF, or read error
+                };
+                if bytes_read == 0 {
+                    break;
+                }
+                requests_seen += 1;
 
-            // Second attempt (after driver retry): full 30-char response
-            let _bytes_read = host
-                .read(&mut buf)
-                .await
-                .expect("Mock should receive second request after retry");
-            host.write_all(b"2IN0E140028422021150168000023000\n")
-                .await
-                .expect("Mock should send full response"); // 30 chars after IN
+                let response = if requests_seen == 1 {
+                    truncated.as_bytes() // truncated response
+                } else {
+                    complete.as_bytes() // full 30-char payload after IN
+                };
+
+                if host.write_all(response).await.is_err() {
+                    break;
+                }
+            }
         });
 
         // This should retry once and succeed on second attempt
         let result = driver.get_device_info().await;
 
-        // Wait for response task
-        let _ = tokio::time::timeout(Duration::from_millis(500), response_task).await;
+        // Ensure mock task is not left running in background
+        response_task.abort();
+        let _ = response_task.await;
 
         assert!(
             result.is_ok(),
@@ -3335,29 +3348,39 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_device_info_fails_after_max_retries() -> Result<()> {
-        use tokio::io::AsyncWriteExt;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         let (mut host, device) = tokio::io::duplex(256);
         let port: SharedPort = Arc::new(Mutex::new(Box::new(device)));
 
         let driver = Ell14Driver::with_test_port(port, "2", 398.2222);
 
-        // Spawn a task to send mock responses
+        // Spawn a task to send truncated responses and keep the mock endpoint alive
+        // until idle timeout so retries never hit broken pipe.
         let response_task = tokio::spawn(async move {
             let mut buf = vec![0u8; 64];
-
-            // Send truncated responses for all 5 attempts (matches MAX_RETRIES)
-            for _ in 0..5 {
-                let _n = host.read(&mut buf).await.unwrap();
-                host.write_all(b"2IN0E14002842202115\n").await.unwrap(); // Always 16 chars (too short)
+            loop {
+                let read_result =
+                    tokio::time::timeout(Duration::from_millis(800), host.read(&mut buf)).await;
+                let bytes_read = match read_result {
+                    Ok(Ok(n)) if n > 0 => n,
+                    _ => break, // idle timeout, EOF, or read error
+                };
+                if bytes_read == 0 {
+                    break;
+                }
+                if host.write_all(b"2IN0E14002842202115\n").await.is_err() {
+                    break;
+                }
             }
         });
 
         // This should fail after 5 attempts
         let result = driver.get_device_info().await;
 
-        // Wait for response task
-        let _ = tokio::time::timeout(Duration::from_millis(1000), response_task).await;
+        // Ensure mock task is not left running in background
+        response_task.abort();
+        let _ = response_task.await;
 
         assert!(
             result.is_err(),

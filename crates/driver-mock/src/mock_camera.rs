@@ -1333,7 +1333,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_exposure_rate_coupling() {
-        let camera = MockCamera::builder()
+        let camera = MockCameraBuilder::new(64, 64)
             .mode(MockMode::Realistic)
             .max_fps(30.0)
             .build();
@@ -1341,18 +1341,17 @@ mod tests {
         // Set long exposure (0.1s = 10 fps max)
         camera.set_exposure(0.1).await.unwrap();
 
-        let _start = tokio::time::Instant::now();
         camera.start_stream().await.unwrap();
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        tokio::time::sleep(Duration::from_millis(700)).await;
         camera.stop_stream().await.unwrap();
 
         let frame_count = camera.get_frame_count();
 
-        // With 0.1s exposure, should get ~5 frames in 500ms
-        // Allow wide tolerance for async scheduling and timing jitter
+        // With 0.1s exposure, theoretical rate is 10 fps.
+        // Over 700ms that's ~7 frames. Allow 4-9 for timing jitter.
         assert!(
-            (2..=8).contains(&frame_count),
-            "Expected 2-8 frames with 0.1s exposure in 500ms, got {}",
+            (4..=9).contains(&frame_count),
+            "Expected 4-9 frames with 0.1s exposure in 700ms, got {}",
             frame_count
         );
     }
@@ -1361,7 +1360,6 @@ mod tests {
     async fn test_instant_mode_no_delays() {
         let camera = MockCamera::builder().mode(MockMode::Instant).build();
 
-        let _start = tokio::time::Instant::now();
         camera.start_stream().await.unwrap();
         tokio::time::sleep(Duration::from_millis(50)).await;
         camera.stop_stream().await.unwrap();
@@ -1432,7 +1430,6 @@ mod tests {
             .max_fps(10.0) // Very slow
             .build();
 
-        let _start = tokio::time::Instant::now();
         camera.start_stream().await.unwrap();
         tokio::time::sleep(Duration::from_millis(250)).await;
         camera.stop_stream().await.unwrap();

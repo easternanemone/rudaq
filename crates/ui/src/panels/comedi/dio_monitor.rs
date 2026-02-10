@@ -120,7 +120,7 @@ pub enum MonitorDisplayMode {
 }
 
 impl MonitorDisplayMode {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::LEDs => "LED View",
             Self::Table => "Table View",

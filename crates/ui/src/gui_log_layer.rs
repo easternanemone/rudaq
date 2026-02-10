@@ -3,6 +3,7 @@
 //! This layer captures tracing events and sends them through a channel
 //! to be displayed in the LoggingPanel.
 
+use std::fmt::Write as _;
 use tokio::sync::mpsc;
 
 use tracing::field::{Field, Visit};
@@ -45,12 +46,8 @@ impl Visit for MessageVisitor {
                 self.message = self.message[1..self.message.len() - 1].to_string();
             }
         } else if self.message.is_empty() {
-            // Fallback: use any field as message
-            if !self.message.is_empty() {
-                self.message.push(' ');
-            }
-            self.message
-                .push_str(&format!("{}={:?}", field.name(), value));
+            // Fallback: use first non-message field
+            let _ = write!(self.message, "{}={:?}", field.name(), value);
         }
     }
 

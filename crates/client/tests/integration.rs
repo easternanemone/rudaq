@@ -22,7 +22,7 @@ async fn try_connect() -> Option<DaqClient> {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires live daemon"]
 async fn test_connect_to_daemon() {
     let url = daemon_url();
     let addr =
@@ -39,7 +39,7 @@ async fn test_connect_to_daemon() {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires live daemon"]
 async fn test_connect_invalid_address() {
     let addr = DaemonAddress::parse("http://invalid-host:99999", AddressSource::UserInput)
         .expect("Failed to parse invalid URL");
@@ -50,14 +50,11 @@ async fn test_connect_invalid_address() {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires live daemon"]
 async fn test_list_devices() {
-    let mut client = match try_connect().await {
-        Some(c) => c,
-        None => {
-            eprintln!("Skipping test: daemon not available");
-            return;
-        }
+    let Some(mut client) = try_connect().await else {
+        eprintln!("Skipping test: daemon not available");
+        return;
     };
 
     let devices = client.list_devices().await.expect("Failed to list devices");
@@ -79,14 +76,11 @@ async fn test_list_devices() {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires live daemon"]
 async fn test_get_device_info() {
-    let mut client = match try_connect().await {
-        Some(c) => c,
-        None => {
-            eprintln!("Skipping test: daemon not available");
-            return;
-        }
+    let Some(mut client) = try_connect().await else {
+        eprintln!("Skipping test: daemon not available");
+        return;
     };
 
     let devices = client.list_devices().await.expect("Failed to list devices");
@@ -108,14 +102,11 @@ async fn test_get_device_info() {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires live daemon"]
 async fn test_health_check() {
-    let mut client = match try_connect().await {
-        Some(c) => c,
-        None => {
-            eprintln!("Skipping test: daemon not available");
-            return;
-        }
+    let Some(mut client) = try_connect().await else {
+        eprintln!("Skipping test: daemon not available");
+        return;
     };
 
     let result = client.health_check().await;
@@ -127,14 +118,11 @@ async fn test_health_check() {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires live daemon"]
 async fn test_read_value() {
-    let mut client = match try_connect().await {
-        Some(c) => c,
-        None => {
-            eprintln!("Skipping test: daemon not available");
-            return;
-        }
+    let Some(mut client) = try_connect().await else {
+        eprintln!("Skipping test: daemon not available");
+        return;
     };
 
     let devices = client.list_devices().await.expect("Failed to list devices");

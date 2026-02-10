@@ -22,7 +22,7 @@ pub enum DeviceCategory {
 }
 
 impl DeviceCategory {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Camera => "Cameras",
             Self::Stage => "Stages",
@@ -34,7 +34,7 @@ impl DeviceCategory {
     }
 
     /// Icon for UI display (aligned with common::capabilities::DeviceCategory)
-    pub fn icon(&self) -> &'static str {
+    pub fn icon(self) -> &'static str {
         match self {
             Self::Camera => "📷",
             Self::Stage => "🔄",

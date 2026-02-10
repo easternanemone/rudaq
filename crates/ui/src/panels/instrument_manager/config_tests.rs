@@ -1,6 +1,7 @@
 //! Tests for device config loading and rendering
 
 #[cfg(test)]
+#[allow(deprecated)] // Tests exercise the deprecated DeviceConfig schema via config_loader
 mod tests {
     use super::super::config_loader::DeviceConfigCache;
 

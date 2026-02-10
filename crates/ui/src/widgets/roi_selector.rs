@@ -10,6 +10,8 @@
 //! - Export coordinates
 //! - Works with different bit depths (8, 12, 16-bit)
 
+use std::fmt::Write;
+
 use eframe::egui;
 
 /// Color palette for multiple ROIs
@@ -1048,7 +1050,7 @@ impl RoiSelector {
     pub fn export_coordinates(&self) -> String {
         let mut output = String::new();
         for roi in &self.rois {
-            output.push_str(&format!("{}\n", roi.name));
+            writeln!(output, "{}", roi.name).unwrap();
             match &roi.shape {
                 RoiShape::Rectangle {
                     x,
@@ -1056,15 +1058,17 @@ impl RoiSelector {
                     width,
                     height,
                 } => {
-                    output.push_str(&format!(
-                        "  Rectangle: x={}, y={}, width={}, height={}\n",
+                    writeln!(
+                        output,
+                        "  Rectangle: x={}, y={}, width={}, height={}",
                         x, y, width, height
-                    ));
+                    )
+                    .unwrap();
                 }
                 RoiShape::Polygon { vertices } => {
                     output.push_str("  Polygon vertices:\n");
                     for (i, (vx, vy)) in vertices.iter().enumerate() {
-                        output.push_str(&format!("    {}: ({:.2}, {:.2})\n", i, vx, vy));
+                        writeln!(output, "    {}: ({:.2}, {:.2})", i, vx, vy).unwrap();
                     }
                 }
             }
@@ -1084,13 +1088,13 @@ mod tests {
         let square = RoiShape::Polygon {
             vertices: vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
         };
-        assert_eq!(square.area(), 100.0);
+        assert!((square.area() - 100.0).abs() < 1e-10);
 
         // Triangle: (0,0), (10,0), (5,10)
         let triangle = RoiShape::Polygon {
             vertices: vec![(0.0, 0.0), (10.0, 0.0), (5.0, 10.0)],
         };
-        assert_eq!(triangle.area(), 50.0);
+        assert!((triangle.area() - 50.0).abs() < 1e-10);
     }
 
     #[test]
@@ -1099,7 +1103,7 @@ mod tests {
         let square = RoiShape::Polygon {
             vertices: vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
         };
-        assert_eq!(square.perimeter(), 40.0);
+        assert!((square.perimeter() - 40.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -1139,11 +1143,11 @@ mod tests {
         };
 
         assert!(rect.is_valid());
-        assert_eq!(rect.area(), 5000.0);
-        assert_eq!(rect.perimeter(), 300.0);
+        assert!((rect.area() - 5000.0).abs() < f64::EPSILON);
+        assert!((rect.perimeter() - 300.0).abs() < f64::EPSILON);
 
         let (cx, cy) = rect.centroid();
-        assert_eq!(cx, 60.0);
-        assert_eq!(cy, 45.0);
+        assert!((cx - 60.0).abs() < f32::EPSILON);
+        assert!((cy - 45.0).abs() < f32::EPSILON);
     }
 }

@@ -383,6 +383,10 @@ impl DeviceControlWidget for PowerMeterControlPanel {
 mod tests {
     use super::*;
 
+    /// Tolerance for floating-point comparisons in power normalization tests.
+    /// 1e-12 is sufficient for values produced by simple multiplication chains.
+    const TOLERANCE: f64 = 1e-12;
+
     /// Test unit normalization from Watts to milliwatts.
     ///
     /// The Newport 1830-C returns readings in Watts, which must be
@@ -390,24 +394,20 @@ mod tests {
     #[test]
     fn test_normalize_watts_to_mw() {
         // Typical Newport 1830-C readings (scientific notation in Watts)
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(5e-9, "W"),
-            5e-6,
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(5e-9, "W") - 5e-6).abs() < TOLERANCE,
             "5 nW should become 5e-6 mW"
         );
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(1.5e-3, "W"),
-            1.5,
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(1.5e-3, "W") - 1.5).abs() < TOLERANCE,
             "1.5 mW in Watts should become 1.5 mW"
         );
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(0.001, "W"),
-            1.0,
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(0.001, "W") - 1.0).abs() < TOLERANCE,
             "1 mW in Watts should become 1.0 mW"
         );
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(1.0, "W"),
-            1000.0,
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(1.0, "W") - 1000.0).abs() < TOLERANCE,
             "1 W should become 1000 mW"
         );
     }
@@ -416,27 +416,23 @@ mod tests {
     #[test]
     fn test_normalize_watts_case_insensitive() {
         let value = 0.005; // 5 mW in Watts
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(value, "W"),
-            5.0
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(value, "W") - 5.0).abs() < TOLERANCE
         );
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(value, "w"),
-            5.0
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(value, "w") - 5.0).abs() < TOLERANCE
         );
     }
 
     /// Test that milliwatts pass through unchanged.
     #[test]
     fn test_normalize_milliwatts_passthrough() {
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(1.5, "mW"),
-            1.5,
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(1.5, "mW") - 1.5).abs() < TOLERANCE,
             "mW should pass through unchanged"
         );
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(0.001, "mw"),
-            0.001,
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(0.001, "mw") - 0.001).abs() < TOLERANCE,
             "lowercase mw should also pass through"
         );
     }
@@ -445,17 +441,14 @@ mod tests {
     #[test]
     fn test_normalize_microwatts() {
         // 1000 µW = 1 mW
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(1000.0, "uW"),
-            1.0
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(1000.0, "uW") - 1.0).abs() < TOLERANCE
         );
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(1000.0, "µW"),
-            1.0
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(1000.0, "µW") - 1.0).abs() < TOLERANCE
         );
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(500.0, "uw"),
-            0.5
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(500.0, "uw") - 0.5).abs() < TOLERANCE
         );
     }
 
@@ -463,13 +456,12 @@ mod tests {
     #[test]
     fn test_normalize_nanowatts() {
         // 1,000,000 nW = 1 mW
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(1_000_000.0, "nW"),
-            1.0
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(1_000_000.0, "nW") - 1.0).abs()
+                < TOLERANCE
         );
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(5000.0, "nw"),
-            0.005
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(5000.0, "nw") - 0.005).abs() < TOLERANCE
         );
     }
 
@@ -477,9 +469,8 @@ mod tests {
     #[test]
     fn test_normalize_empty_units_assumes_watts() {
         // Empty string should be treated as Watts (default for Newport)
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(0.001, ""),
-            1.0,
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(0.001, "") - 1.0).abs() < TOLERANCE,
             "Empty units should assume Watts"
         );
     }
@@ -488,28 +479,25 @@ mod tests {
     #[test]
     fn test_normalize_unknown_units_passthrough() {
         // Unknown units should pass through to avoid data corruption
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(42.0, "dBm"),
-            42.0,
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(42.0, "dBm") - 42.0).abs() < TOLERANCE,
             "Unknown units should pass through unchanged"
         );
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(100.0, "arbitrary"),
-            100.0
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(100.0, "arbitrary") - 100.0).abs()
+                < TOLERANCE
         );
     }
 
     /// Test whitespace trimming in unit strings.
     #[test]
     fn test_normalize_trims_whitespace() {
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(0.001, "  W  "),
-            1.0,
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(0.001, "  W  ") - 1.0).abs() < TOLERANCE,
             "Should trim whitespace from unit string"
         );
-        assert_eq!(
-            PowerMeterControlPanel::normalize_power_to_mw(1.0, "\tmW\n"),
-            1.0
+        assert!(
+            (PowerMeterControlPanel::normalize_power_to_mw(1.0, "\tmW\n") - 1.0).abs() < TOLERANCE
         );
     }
 

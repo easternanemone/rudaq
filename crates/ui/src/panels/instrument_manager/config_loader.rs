@@ -59,7 +59,7 @@ impl DeviceConfigCache {
 
         // Read all .toml files in the directory
         let entries = fs::read_dir(&self.config_dir)
-            .with_context(|| format!("Failed to read config dir: {:?}", self.config_dir))?;
+            .with_context(|| format!("Failed to read config dir: {}", self.config_dir.display()))?;
 
         for entry in entries {
             let entry = entry?;
@@ -94,10 +94,10 @@ impl DeviceConfigCache {
     /// Load a single device config file
     fn load_config(&mut self, path: &Path) -> Result<()> {
         let contents = fs::read_to_string(path)
-            .with_context(|| format!("Failed to read config file: {:?}", path))?;
+            .with_context(|| format!("Failed to read config file: {}", path.display()))?;
 
         let config: DeviceConfig = toml::from_str(&contents)
-            .with_context(|| format!("Failed to parse config file: {:?}", path))?;
+            .with_context(|| format!("Failed to parse config file: {}", path.display()))?;
 
         // Use protocol name as key
         let protocol = config.device.protocol.clone();

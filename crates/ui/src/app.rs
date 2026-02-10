@@ -2286,15 +2286,7 @@ mod tests {
                 "shutter_controllable".to_string(),
             ],
             metadata: None,
-            is_movable: false,
-            is_readable: false,
-            is_triggerable: false,
-            is_frame_producer: false,
-            is_exposure_controllable: false,
-            is_shutter_controllable: false,
-            is_wavelength_tunable: false,
-            is_emission_controllable: false,
-            is_parameterized: false,
+            ..Default::default()
         };
 
         assert_eq!(panel_kind_for_device(&device), DevicePanelKind::MaiTai);
@@ -2309,15 +2301,7 @@ mod tests {
             category: 0,
             capabilities: vec!["readable".to_string()],
             metadata: None,
-            is_movable: false,
-            is_readable: false,
-            is_triggerable: false,
-            is_frame_producer: false,
-            is_exposure_controllable: false,
-            is_shutter_controllable: false,
-            is_wavelength_tunable: false,
-            is_emission_controllable: false,
-            is_parameterized: false,
+            ..Default::default()
         };
 
         assert_eq!(panel_kind_for_device(&device), DevicePanelKind::PowerMeter);
@@ -2332,15 +2316,7 @@ mod tests {
             category: 0,
             capabilities: vec!["movable".to_string()],
             metadata: None,
-            is_movable: false,
-            is_readable: false,
-            is_triggerable: false,
-            is_frame_producer: false,
-            is_exposure_controllable: false,
-            is_shutter_controllable: false,
-            is_wavelength_tunable: false,
-            is_emission_controllable: false,
-            is_parameterized: false,
+            ..Default::default()
         };
 
         assert_eq!(panel_kind_for_device(&device), DevicePanelKind::Rotator);
@@ -2355,15 +2331,7 @@ mod tests {
             category: 0,
             capabilities: vec!["movable".to_string()],
             metadata: None,
-            is_movable: false,
-            is_readable: false,
-            is_triggerable: false,
-            is_frame_producer: false,
-            is_exposure_controllable: false,
-            is_shutter_controllable: false,
-            is_wavelength_tunable: false,
-            is_emission_controllable: false,
-            is_parameterized: false,
+            ..Default::default()
         };
 
         assert_eq!(panel_kind_for_device(&device), DevicePanelKind::Stage);
@@ -2378,15 +2346,7 @@ mod tests {
             category: 0,
             capabilities: vec!["settable".to_string()],
             metadata: None,
-            is_movable: false,
-            is_readable: false,
-            is_triggerable: false,
-            is_frame_producer: false,
-            is_exposure_controllable: false,
-            is_shutter_controllable: false,
-            is_wavelength_tunable: false,
-            is_emission_controllable: false,
-            is_parameterized: false,
+            ..Default::default()
         };
 
         assert_eq!(
@@ -2455,15 +2415,7 @@ mod tests {
             category: 0,
             capabilities: vec!["movable".to_string(), "readable".to_string()],
             metadata: None,
-            is_movable: false,
-            is_readable: false,
-            is_triggerable: false,
-            is_frame_producer: false,
-            is_exposure_controllable: false,
-            is_shutter_controllable: false,
-            is_wavelength_tunable: false,
-            is_emission_controllable: false,
-            is_parameterized: false,
+            ..Default::default()
         };
 
         let persisted = PersistedPanelInfo::from(&device_info);

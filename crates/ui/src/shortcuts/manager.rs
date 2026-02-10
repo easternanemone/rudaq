@@ -46,7 +46,7 @@ impl KeyBinding {
     }
 
     /// Check if this binding matches the current input state
-    pub fn matches(&self, ctx: &egui::Context) -> bool {
+    pub fn matches(self, ctx: &egui::Context) -> bool {
         ctx.input(|i| {
             i.key_pressed(self.key)
                 && i.modifiers.ctrl == self.ctrl
@@ -56,7 +56,7 @@ impl KeyBinding {
     }
 
     /// Get human-readable label for this binding
-    pub fn label(&self) -> String {
+    pub fn label(self) -> String {
         let mut parts = Vec::new();
         if self.ctrl {
             parts.push("Ctrl");

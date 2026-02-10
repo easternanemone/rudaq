@@ -96,9 +96,8 @@ impl FpsTracker {
         self.last_frame_number = frame_number;
 
         // Remove frames older than FPS window
-        let cutoff = now
-            .checked_sub(std::time::Duration::from_secs_f64(FPS_WINDOW))
-            .unwrap();
+        let fps_window = std::time::Duration::from_secs_f64(FPS_WINDOW);
+        let cutoff = now.checked_sub(fps_window).unwrap_or(now);
         while let Some(&time) = self.frame_times.front() {
             if time < cutoff {
                 self.frame_times.pop_front();
@@ -126,9 +125,8 @@ impl FpsTracker {
         }
 
         let now = Instant::now();
-        let cutoff = now
-            .checked_sub(std::time::Duration::from_secs_f64(FPS_WINDOW))
-            .unwrap();
+        let fps_window = std::time::Duration::from_secs_f64(FPS_WINDOW);
+        let cutoff = now.checked_sub(fps_window).unwrap_or(now);
         let recent_frames: Vec<_> = self.frame_times.iter().filter(|&&t| t >= cutoff).collect();
 
         if recent_frames.len() < 2 {

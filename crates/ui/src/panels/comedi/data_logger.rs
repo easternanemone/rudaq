@@ -5,6 +5,7 @@
 
 use eframe::egui::{self, Color32, RichText, Ui};
 use std::collections::VecDeque;
+use std::fmt::Write;
 use std::time::Instant;
 use tokio::sync::mpsc;
 
@@ -243,14 +244,16 @@ impl DataLoggerPanel {
         let mut csv = String::from("Timestamp,Channel,Value,Unit\n");
 
         for entry in &self.log_buffer {
-            csv.push_str(&format!(
-                "{:.6},{},{:.decimals$},{}\n",
+            writeln!(
+                csv,
+                "{:.6},{},{:.decimals$},{}",
                 entry.timestamp,
                 entry.channel,
                 entry.value,
                 entry.unit,
                 decimals = self.decimals
-            ));
+            )
+            .unwrap();
         }
 
         Ok(csv)

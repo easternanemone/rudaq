@@ -12,7 +12,7 @@ pub enum ShortcutContext {
 }
 
 impl ShortcutContext {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Global => "Global",
             Self::ImageViewer => "Image Viewer",
@@ -79,7 +79,7 @@ pub enum ShortcutAction {
 
 impl ShortcutAction {
     /// Get the context where this action is valid
-    pub fn context(&self) -> ShortcutContext {
+    pub fn context(self) -> ShortcutContext {
         match self {
             Self::OpenSettings | Self::ToggleCheatSheet | Self::SaveCurrent => {
                 ShortcutContext::Global
@@ -109,7 +109,7 @@ impl ShortcutAction {
     }
 
     /// Get human-readable description
-    pub fn description(&self) -> &'static str {
+    pub fn description(self) -> &'static str {
         match self {
             Self::OpenSettings => "Open settings",
             Self::ToggleCheatSheet => "Show/hide keyboard shortcuts",

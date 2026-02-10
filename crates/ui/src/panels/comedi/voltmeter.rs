@@ -54,7 +54,7 @@ pub enum VoltageUnit {
 }
 
 impl VoltageUnit {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::MicroVolts => "uV",
             Self::MilliVolts => "mV",
@@ -68,7 +68,7 @@ impl VoltageUnit {
     }
 
     /// Convert voltage to display value and unit string
-    pub fn format(&self, voltage: f64) -> (f64, &'static str) {
+    pub fn format(self, voltage: f64) -> (f64, &'static str) {
         match self {
             Self::MicroVolts => (voltage * 1_000_000.0, "uV"),
             Self::MilliVolts => (voltage * 1000.0, "mV"),
@@ -99,7 +99,7 @@ pub enum DisplayMode {
 }
 
 impl DisplayMode {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::DC => "DC",
             Self::AC => "AC",

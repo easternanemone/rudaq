@@ -31,7 +31,7 @@ impl NodeType {
     }
 
     /// Returns the display name for this node type.
-    pub fn name(&self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             Self::Scan => "Scan",
             Self::Acquire => "Acquire",
@@ -44,7 +44,7 @@ impl NodeType {
     }
 
     /// Returns a brief description of this node type.
-    pub fn description(&self) -> &'static str {
+    pub fn description(self) -> &'static str {
         match self {
             Self::Scan => "Sweep a parameter across a range",
             Self::Acquire => "Capture data from a detector",
@@ -57,7 +57,7 @@ impl NodeType {
     }
 
     /// Returns the identifying color for this node type.
-    pub fn color(&self) -> Color32 {
+    pub fn color(self) -> Color32 {
         match self {
             Self::Scan => Color32::from_rgb(100, 149, 237), // Cornflower blue
             Self::Acquire => Color32::from_rgb(144, 238, 144), // Light green
@@ -70,7 +70,7 @@ impl NodeType {
     }
 
     /// Creates a new ExperimentNode instance with default values.
-    pub fn create_node(&self) -> ExperimentNode {
+    pub fn create_node(self) -> ExperimentNode {
         match self {
             Self::Scan => ExperimentNode::default_scan(),
             Self::Acquire => ExperimentNode::default_acquire(),

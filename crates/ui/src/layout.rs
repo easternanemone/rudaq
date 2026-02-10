@@ -76,8 +76,8 @@ mod tests {
 
     #[test]
     fn test_icon_sizes() {
-        assert!(ICON_SIZE_INLINE < ICON_SIZE_BUTTON);
-        assert!(ICON_SIZE_BUTTON < ICON_SIZE_LARGE);
+        const { assert!(ICON_SIZE_INLINE < ICON_SIZE_BUTTON) };
+        const { assert!(ICON_SIZE_BUTTON < ICON_SIZE_LARGE) };
     }
 
     #[test]

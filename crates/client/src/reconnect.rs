@@ -835,9 +835,8 @@ impl ConnectionManager {
         address: &DaemonAddress,
     ) -> Option<(DaqClient, Option<String>)> {
         self.advance_circuit_breaker(address, runtime);
-        let result = match self.rx.try_recv() {
-            Ok(r) => r,
-            Err(_) => return None,
+        let Ok(result) = self.rx.try_recv() else {
+            return None;
         };
 
         self.cancel_handle = None;

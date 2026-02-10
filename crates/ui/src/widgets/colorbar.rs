@@ -97,7 +97,7 @@ impl Colorbar {
     #[inline]
     #[allow(dead_code)]
     pub fn apply_adjustment(&self, value: f32) -> f32 {
-        if self.midpoint == 0.5 {
+        if (self.midpoint - 0.5).abs() < f32::EPSILON {
             // Fast path for linear mapping
             value
         } else {
@@ -457,19 +457,10 @@ pub trait ColormapTrait {
 mod tests {
     use super::*;
 
-    struct TestColormap;
-
-    impl ColormapTrait for TestColormap {
-        fn apply(&self, value: f32) -> [u8; 3] {
-            let v = (value * 255.0) as u8;
-            [v, v, v]
-        }
-    }
-
     #[test]
     fn test_linear_midpoint() {
         let colorbar = Colorbar::new();
-        assert_eq!(colorbar.midpoint, 0.5);
+        assert!((colorbar.midpoint - 0.5).abs() < f32::EPSILON);
 
         // Linear mapping: input = output
         assert!((colorbar.apply_adjustment(0.0) - 0.0).abs() < 1e-6);
@@ -510,7 +501,7 @@ mod tests {
         let mut colorbar = Colorbar::new();
         colorbar.midpoint = 0.8;
         colorbar.reset_midpoint();
-        assert_eq!(colorbar.midpoint, 0.5);
+        assert!((colorbar.midpoint - 0.5).abs() < f32::EPSILON);
     }
 
     #[test]

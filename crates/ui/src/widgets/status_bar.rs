@@ -55,7 +55,7 @@ pub enum StatusLevel {
 impl StatusLevel {
     /// Get the icon for this status level.
     #[must_use]
-    pub fn icon(&self) -> &'static str {
+    pub fn icon(self) -> &'static str {
         match self {
             Self::Info => icons::status::INFO,
             Self::Success => icons::status::SUCCESS,
@@ -66,7 +66,7 @@ impl StatusLevel {
 
     /// Get the color for this status level.
     #[must_use]
-    pub fn color(&self) -> egui::Color32 {
+    pub fn color(self) -> egui::Color32 {
         match self {
             Self::Info => colors::INFO,
             Self::Success => colors::SUCCESS,
@@ -337,7 +337,7 @@ mod tests {
             level: StatusLevel::Info,
             created_at: std::time::Instant::now()
                 .checked_sub(std::time::Duration::from_secs(10))
-                .unwrap(),
+                .unwrap_or_else(std::time::Instant::now),
             duration: Some(std::time::Duration::from_secs(5)),
         });
 

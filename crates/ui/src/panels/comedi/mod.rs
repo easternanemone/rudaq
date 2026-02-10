@@ -158,7 +158,7 @@ pub enum AnalogReference {
 }
 
 impl AnalogReference {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Ground => "Ground (RSE)",
             Self::Common => "Common",
@@ -181,7 +181,7 @@ pub enum DioDirection {
 }
 
 impl DioDirection {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Input => "In",
             Self::Output => "Out",
@@ -202,7 +202,7 @@ pub enum CounterMode {
 }
 
 impl CounterMode {
-    pub fn label(&self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::EventCount => "Event Count",
             Self::FrequencyMeasurement => "Frequency",
