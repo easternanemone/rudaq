@@ -95,6 +95,10 @@ pub use driver_newport;
 #[cfg(feature = "spectra_physics")]
 pub use driver_spectra_physics;
 
+/// Andor iStar camera and Shamrock spectrograph (SDK3)
+#[cfg(feature = "andor")]
+pub use driver_andor_sdk3;
+
 // =============================================================================
 // Linker Reference Functions
 // =============================================================================
@@ -148,6 +152,10 @@ pub fn link_drivers() {
     // Spectra-Physics MaiTai
     #[cfg(feature = "spectra_physics")]
     driver_spectra_physics::link();
+
+    // Andor iStar / Shamrock
+    #[cfg(feature = "andor")]
+    driver_andor_sdk3::link();
 }
 
 /// Get a list of driver types that are linked into this binary.
@@ -190,6 +198,12 @@ pub fn available_drivers() -> Vec<&'static str> {
 
     #[cfg(feature = "spectra_physics")]
     drivers.push("maitai");
+
+    #[cfg(feature = "andor")]
+    {
+        drivers.push("andor_istar");
+        drivers.push("andor_shamrock");
+    }
 
     drivers
 }

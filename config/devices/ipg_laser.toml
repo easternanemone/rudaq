@@ -1,13 +1,19 @@
 # config/devices/ipg_laser.toml
-# IPG Fiber Laser - Protocol Definition
+# IPG YLPP-200-1-50-R Fiber Laser - Protocol Definition
 #
-# Converted from v2 SCPI format to v3 schema.
+# TCP control interface on port 10001.
+# All responses use "CMD: value" prefix format (e.g. "ROP: 12.5").
+# When emission is off, power reads return "ROP: Off" instead of a number.
 
 schema_version = 3
 
 [device]
-name = "IPG Fiber Laser"
-description = "IPG fiber laser with TCP control"
+name = "IPG YLPP-200-1-50-R"
+description = "IPG ytterbium fiber laser with TCP control"
+manufacturer = "IPG Photonics"
+model = "YLPP-200-1-50-R"
+protocol = "ipg_tcp"
+category = "source"
 capabilities = ["Readable", "EmissionControl"]
 
 [connection]
@@ -15,6 +21,32 @@ type = "tcp"
 host = "10.0.0.15"
 port = 10001
 timeout_ms = 1000
+
+# ==============================================================================
+# Response Definitions
+# ==============================================================================
+# All IPG responses have "CMD: value" format. Use regex_extract to isolate the
+# value portion after the colon, then parse appropriately.
+
+[responses.ipg_float]
+# Extracts the value after "CMD: " and parses as float.
+# e.g. "RCS: 100.00" -> 100.0, "RRR: 250.680" -> 250.68
+transform = ["regex_extract('^\\w+:\\s+(.*)', 1)", "trim", "to_float"]
+
+[responses.ipg_integer]
+# Extracts the value after "CMD: " and parses as integer.
+# e.g. "STA: 8256" -> 8256
+transform = ["regex_extract('^\\w+:\\s+(.*)', 1)", "trim", "to_int"]
+
+[responses.ipg_string]
+# Extracts the value after "CMD: " as a string.
+# e.g. "REM: Off" -> "Off", "REF: 0x00000000" -> "0x00000000"
+transform = ["regex_extract('^\\w+:\\s+(.*)', 1)", "trim"]
+
+[responses.ipg_power]
+# Power reads return a float when emitting, or "Off" when idle.
+# "ROP: 12.5" -> 12.5, "ROP: Off" -> 0.0
+transform = ["regex_extract('^\\w+:\\s+(.*)', 1)", "trim", "map('Off', '0.0')", "to_float"]
 
 # ==============================================================================
 # Command Definitions
@@ -32,45 +64,45 @@ expects_response = false
 
 [commands.read_emission]
 template = "REM"
-description = "Read emission status"
-response_type = "string"
+description = "Read emission status (On/Off)"
+response = "ipg_string"
 
 [commands.set_current]
 template = "SCS {{ value }}"
-description = "Set laser current"
+description = "Set laser current (percent)"
 parameters = { value = "float" }
 expects_response = false
 
 [commands.read_current]
 template = "RCS"
-description = "Read laser current"
-response_type = "float"
+description = "Read laser current setpoint (percent)"
+response = "ipg_float"
 
 [commands.read_power]
 template = "ROP"
-description = "Read output power"
-response_type = "float"
+description = "Read output power (W). Returns 'Off' when emission is disabled."
+response = "ipg_power"
 
 [commands.read_status]
 template = "STA"
-description = "Read laser status"
-response_type = "integer"
+description = "Read laser status word (bitmask)"
+response = "ipg_integer"
 
 [commands.read_error]
 template = "REF"
-description = "Read error status"
-response_type = "string"
+description = "Read error flags (hex bitmask)"
+response = "ipg_string"
 
 [commands.set_rep_rate]
 template = "SRR {{ value }}"
-description = "Set repetition rate"
+description = "Set repetition rate (kHz)"
 parameters = { value = "float" }
 expects_response = false
 
 [commands.read_rep_rate]
 template = "RRR"
-description = "Read repetition rate"
-response_type = "float"
+description = "Read repetition rate (kHz)"
+response = "ipg_float"
 
 [commands.reset_errors]
 template = "RERR"
@@ -82,11 +114,12 @@ expects_response = false
 # ==============================================================================
 
 [capabilities.readable]
-read = { command = "read_power" }
+read = { command = "read_power", output_field = "value" }
 
 [capabilities.emission_control]
 enable = { command = "emission_on" }
 disable = { command = "emission_off" }
+is_enabled = { command = "read_emission" }
 
 # ==============================================================================
 # UI Configuration

@@ -1590,6 +1590,14 @@ pub async fn register_all_factories(
         registry.register_factory(Box::new(RedPitayaPidFactory));
     }
 
+    // Register Andor SDK3 factories (iStar camera + Shamrock spectrograph)
+    #[cfg(feature = "andor")]
+    {
+        use driver_andor_sdk3::{AndorCameraFactory, AndorSpectrographFactory};
+        registry.register_factory(Box::new(AndorCameraFactory));
+        registry.register_factory(Box::new(AndorSpectrographFactory));
+    }
+
     // Register PVCAM factory
     #[cfg(feature = "pvcam")]
     {

@@ -138,20 +138,42 @@
 #![allow(clippy::all)]
 #![allow(unsafe_code)] // FFI bindings require unsafe
 
-use widestring::U16CString;
-
 // Include the generated bindings
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
-// Wide string helper functions for Andor SDK3
-// The SDK uses UTF-16 strings (AT_WC = wchar_t on Windows)
+// Wide string helper functions for Andor SDK3.
+//
+// AT_WC = wchar_t, which is:
+//   - u16 on Windows (UTF-16)
+//   - i32 on Linux (UTF-32)
+//   - u16 in dummy bindings (cross-compilation compat)
+//
+// These helpers abstract over the platform difference so driver code
+// can use `to_wide_string("FeatureName")` uniformly.
 
-/// Convert a Rust string to a wide string (UTF-16) for Andor SDK3.
+/// Null-terminated wide string buffer matching the platform's `AT_WC` type.
 ///
-/// # Panics
+/// Use [`to_wide_string`] to create one from a Rust `&str`.
+pub struct WideString {
+    buf: Vec<AT_WC>,
+}
+
+impl WideString {
+    /// Pointer to the null-terminated wide string, suitable for passing to SDK functions.
+    pub fn as_ptr(&self) -> *const AT_WC {
+        self.buf.as_ptr()
+    }
+
+    /// View the buffer contents (including null terminator).
+    pub fn as_slice(&self) -> &[AT_WC] {
+        &self.buf
+    }
+}
+
+/// Convert a Rust string to a null-terminated wide string for Andor SDK3.
 ///
-/// Panics if the input string contains interior null bytes (U+0000).
-/// This should never happen with valid SDK feature names.
+/// On Windows, this produces UTF-16 values. On Linux, UTF-32.
+/// All Andor SDK feature names are ASCII, so this conversion is lossless.
 ///
 /// # Example
 ///
@@ -165,42 +187,42 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 ///     AT_GetInt(handle, feature.as_ptr(), &mut value);
 /// }
 /// ```
-pub fn to_wide_string(s: &str) -> U16CString {
-    U16CString::from_str(s).expect("Failed to convert string to wide string")
+pub fn to_wide_string(s: &str) -> WideString {
+    let mut buf: Vec<AT_WC> = s.chars().map(|c| c as AT_WC).collect();
+    buf.push(0); // null terminator
+    WideString { buf }
 }
 
-/// Convert a wide string buffer to a Rust String.
+/// Convert a wide string buffer (from the SDK) back to a Rust String.
 ///
-/// This is useful for reading string values from the Andor SDK3.
-///
-/// # Safety
-///
-/// The buffer must be a valid null-terminated UTF-16 string.
+/// Reads until the first null terminator (or end of buffer).
 ///
 /// # Example
 ///
 /// ```no_run
-/// use andor_sdk3_sys::{from_wide_string, to_wide_string, AT_GetEnumStringByIndex};
+/// use andor_sdk3_sys::{from_wide_string, to_wide_string, wide_string_buffer, AT_WC, AT_GetString};
 ///
 /// unsafe {
-///     let handle = 1; // Assume valid handle
-///     let feature = to_wide_string("PixelEncoding");
-///     let mut buffer = vec![0u16; 256];
-///     AT_GetEnumStringByIndex(handle, feature.as_ptr(), 0, buffer.as_mut_ptr(), 256);
-///     let value = from_wide_string(&buffer);
+///     let handle = 1;
+///     let feature = to_wide_string("CameraModel");
+///     let mut buffer = wide_string_buffer(256);
+///     AT_GetString(handle, feature.as_ptr(), buffer.as_mut_ptr(), 256);
+///     let model = from_wide_string(&buffer);
 /// }
 /// ```
-pub fn from_wide_string(buffer: &[u16]) -> String {
-    // Find the null terminator
+pub fn from_wide_string(buffer: &[AT_WC]) -> String {
     let len = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
-    String::from_utf16_lossy(&buffer[..len])
+    buffer[..len]
+        .iter()
+        .map(|&c| char::from_u32(c as u32).unwrap_or(char::REPLACEMENT_CHARACTER))
+        .collect()
 }
 
-/// Create a wide string buffer of specified size.
+/// Create a zeroed wide string buffer of the specified size.
 ///
-/// This is useful for receiving string values from the Andor SDK3.
-pub fn wide_string_buffer(size: usize) -> Vec<u16> {
-    vec![0u16; size]
+/// Use this for receiving string values from the SDK.
+pub fn wide_string_buffer(size: usize) -> Vec<AT_WC> {
+    vec![0 as AT_WC; size]
 }
 
 /// Andor SDK3 feature name constants.
@@ -285,6 +307,7 @@ pub mod features {
     pub const INSERTION_DELAY: &str = "InsertionDelay";
     pub const DDG_OUTPUT_DELAY: &str = "DDGOutputDelay";
     pub const DDG_OUTPUT_WIDTH: &str = "DDGOutputWidth";
+    pub const DDG_OUTPUT_SELECTOR: &str = "DDGOutputSelector";
     pub const DDG_STEP_ENABLED: &str = "DDGStepEnabled";
     pub const DDG_STEP_COUNT: &str = "DDGStepCount";
     pub const DDG_STEP_DELAY_COEFFICIENT: &str = "DDGStepDelayCoefficient";
@@ -315,10 +338,10 @@ mod tests {
     fn test_wide_string_conversion() {
         let s = "SensorWidth";
         let wide = to_wide_string(s);
-        let wide_slice: Vec<u16> = wide.as_slice().to_vec();
 
-        // Convert back
-        let back = from_wide_string(&wide_slice);
+        // Convert back (skip null terminator)
+        let slice = wide.as_slice();
+        let back = from_wide_string(&slice[..slice.len() - 1]);
         assert_eq!(s, back);
     }
 

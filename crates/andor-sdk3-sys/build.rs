@@ -46,13 +46,41 @@ fn generate_bindings() {
     let mut builder = bindgen::Builder::default()
         .header("wrapper.h")
         .clang_arg(format!("-I{}", include_path.display()))
+        // atcore.h uses wchar_t without including <wchar.h>
+        .clang_arg("-include")
+        .clang_arg("wchar.h");
+
+    // Define feature macros so wrapper.h includes the correct headers
+    #[cfg(feature = "camera")]
+    {
+        builder = builder.clang_arg("-DANDOR_SDK3_CAMERA");
+    }
+
+    // Only define spectrograph macro if the header actually exists
+    #[cfg(feature = "spectrograph")]
+    {
+        if include_path.join("atspectrograph.h").exists() {
+            builder = builder.clang_arg("-DANDOR_SDK3_SPECTROGRAPH");
+        } else {
+            println!(
+                "cargo:warning=atspectrograph.h not found in {:?}, skipping spectrograph bindings",
+                include_path
+            );
+        }
+    }
+
+    builder = builder
         // Allow all AT functions (camera + spectrograph)
         .allowlist_function("AT_.*")
         .allowlist_function("ATSpectrograph.*")
+        .allowlist_function("Shamrock.*")
         // Allow Andor types
         .allowlist_type("AT_.*")
         // Allow Andor constants
         .allowlist_var("AT_.*")
+        .allowlist_var("SHAMROCK_.*")
+        // Use signed types for #define constants (matches function return types)
+        .default_macro_constant_type(bindgen::MacroTypeVariation::Signed)
         // Use default enum style to keep constants at top level
         .default_enum_style(bindgen::EnumVariation::Consts)
         // Derive common traits
@@ -79,25 +107,130 @@ fn generate_bindings() {
     let out_path = PathBuf::from(
         env::var("OUT_DIR").expect("OUT_DIR environment variable must be set by Cargo"),
     );
+    let bindings_path = out_path.join("bindings.rs");
     bindings
-        .write_to_file(out_path.join("bindings.rs"))
+        .write_to_file(&bindings_path)
         .expect("Couldn't write bindings!");
 
-    // Link against Andor SDK3 libraries (Windows only)
+    // If spectrograph feature is enabled but header is missing, append stub bindings
+    // so the spectrograph module compiles (stubs panic at runtime, same as dummy mode)
+    #[cfg(feature = "spectrograph")]
+    if !include_path.join("atspectrograph.h").exists() {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&bindings_path)
+            .expect("Couldn't open bindings for appending");
+        write!(f, "{}", SHAMROCK_STUBS).expect("Couldn't append Shamrock stubs");
+    }
+
+    // Link against Andor SDK3 libraries
     #[cfg(target_os = "windows")]
     {
         let lib_path = sdk_path.join("lib");
         println!("cargo:rustc-link-search=native={}", lib_path.display());
+    }
 
-        // Link camera library
-        #[cfg(feature = "camera")]
-        println!("cargo:rustc-link-lib=atcore");
+    // On Linux, the SDK installs to /usr/local/lib (or ANDOR_SDK3_DIR/lib)
+    #[cfg(target_os = "linux")]
+    {
+        let lib_path = sdk_path.join("lib");
+        if lib_path.exists() {
+            println!("cargo:rustc-link-search=native={}", lib_path.display());
+        }
+    }
 
-        // Link spectrograph library
-        #[cfg(feature = "spectrograph")]
+    // Link camera library (atcore)
+    #[cfg(feature = "camera")]
+    println!("cargo:rustc-link-lib=atcore");
+
+    // Link spectrograph library (atspectrograph) if header exists
+    #[cfg(feature = "spectrograph")]
+    if include_path.join("atspectrograph.h").exists() {
         println!("cargo:rustc-link-lib=atspectrograph");
     }
 }
+
+/// Shamrock spectrograph stub bindings for when the header is not available.
+/// These allow the spectrograph module to compile but panic at runtime.
+#[cfg(feature = "andor-sdk3")]
+const SHAMROCK_STUBS: &str = r#"
+
+// ══════════════════════════════════════════════════════════════════════════
+// Shamrock spectrograph stubs (atspectrograph.h not found)
+// ══════════════════════════════════════════════════════════════════════════
+
+use std::os::raw::{c_char, c_int, c_double};
+
+pub const SHAMROCK_SUCCESS: c_int = 20202;
+pub const SHAMROCK_COMMUNICATION_ERROR: c_int = 20201;
+pub const SHAMROCK_P1INVALID: c_int = 20266;
+pub const SHAMROCK_P2INVALID: c_int = 20267;
+pub const SHAMROCK_P3INVALID: c_int = 20268;
+pub const SHAMROCK_P4INVALID: c_int = 20269;
+pub const SHAMROCK_NOT_INITIALIZED: c_int = 20275;
+pub const SHAMROCK_NOT_AVAILABLE: c_int = 20292;
+
+pub const SHAMROCK_INPUT_SLIT_SIDE: c_int = 1;
+pub const SHAMROCK_INPUT_SLIT_DIRECT: c_int = 2;
+pub const SHAMROCK_OUTPUT_SLIT_SIDE: c_int = 3;
+pub const SHAMROCK_OUTPUT_SLIT_DIRECT: c_int = 4;
+pub const SHAMROCK_FLIPPER_INPUT: c_int = 1;
+pub const SHAMROCK_FLIPPER_OUTPUT: c_int = 2;
+
+// Stubs return SHAMROCK_NOT_AVAILABLE instead of panicking to avoid
+// undefined behavior from unwinding across the extern "C" FFI boundary.
+
+#[no_mangle] pub unsafe extern "C" fn ShamrockInitialize(_p: *mut c_char) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockClose() -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetNumberDevices(_n: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetSerialNumber(_d: c_int, _s: *mut c_char) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockSetGrating(_d: c_int, _g: c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetGrating(_d: c_int, _g: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetNumberGratings(_d: c_int, _n: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetGratingInfo(_d: c_int, _g: c_int, _l: *mut c_double, _b: *mut c_double, _h: *mut c_int, _o: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGratingIsPresent(_d: c_int, _p: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetGratingOffset(_d: c_int, _g: c_int, _o: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockSetGratingOffset(_d: c_int, _g: c_int, _o: c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockSetWavelength(_d: c_int, _w: f32) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetWavelength(_d: c_int, _w: *mut f32) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetWavelengthLimits(_d: c_int, _g: c_int, _min: *mut f32, _max: *mut f32) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockWavelengthReset(_d: c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockAutoSlitIsPresent(_d: c_int, _s: c_int, _p: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockSetAutoSlitWidth(_d: c_int, _s: c_int, _w: f32) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetAutoSlitWidth(_d: c_int, _s: c_int, _w: *mut f32) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockAutoSlitReset(_d: c_int, _s: c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockSlitIsPresent(_d: c_int, _p: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockSetSlit(_d: c_int, _w: f32) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetSlit(_d: c_int, _w: *mut f32) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockSetShutter(_d: c_int, _m: c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetShutter(_d: c_int, _m: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockShutterIsPresent(_d: c_int, _p: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockSetFlipperMirror(_d: c_int, _p: c_int, _pos: c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetFlipperMirror(_d: c_int, _p: c_int, _pos: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockFlipperMirrorIsPresent(_d: c_int, _p: c_int, _pr: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockFlipperMirrorReset(_d: c_int, _p: c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetCalibration(_d: c_int, _c: *mut f32, _n: c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetPixelCalibrationCoefficients(_d: c_int, _a: *mut f32, _b: *mut f32, _c: *mut f32, _dd: *mut f32) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockSetPixelWidth(_d: c_int, _w: f32) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetPixelWidth(_d: c_int, _w: *mut f32) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockSetNumberPixels(_d: c_int, _n: c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetNumberPixels(_d: c_int, _n: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetDetectorOffset(_d: c_int, _o: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockSetDetectorOffset(_d: c_int, _o: c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockEepromGetOpticalParams(_d: c_int, _f: *mut f32, _a: *mut f32, _t: *mut f32) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockFocusMirrorIsPresent(_d: c_int, _p: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetFocusMirror(_d: c_int, _f: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockSetFocusMirror(_d: c_int, _f: c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetFocusMirrorMaxSteps(_d: c_int, _s: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockFilterIsPresent(_d: c_int, _p: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetFilter(_d: c_int, _f: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockSetFilter(_d: c_int, _f: c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetFilterInfo(_d: c_int, _f: c_int, _i: *mut c_char) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockAccessoryIsPresent(_d: c_int, _p: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockGetAccessoryState(_d: c_int, _a: c_int, _s: *mut c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+#[no_mangle] pub unsafe extern "C" fn ShamrockSetAccessory(_d: c_int, _a: c_int, _s: c_int) -> c_int { SHAMROCK_NOT_AVAILABLE }
+"#;
 
 /// Generate dummy bindings when SDK is not available.
 /// This allows the crate to compile on systems without Andor SDK3 installed.

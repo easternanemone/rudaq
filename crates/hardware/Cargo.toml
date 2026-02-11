@@ -67,6 +67,10 @@ optional = true
 path = "../driver-red-pitaya"
 optional = true
 
+[dependencies.driver-andor-sdk3]
+path = "../driver-andor-sdk3"
+optional = true
+
 [dev-dependencies]
 tempfile.workspace = true
 
@@ -107,8 +111,12 @@ pvcam_hardware = ["pvcam_sdk"]                             # Back-compat alias f
 comedi = ["dep:driver-comedi"]                         # Mock driver (fast compile)
 comedi_hardware = ["comedi", "driver-comedi/hardware"] # Real hardware (requires comedilib)
 
+# Andor iStar camera and Shamrock spectrograph (SDK3)
+andor = ["dep:driver-andor-sdk3"]
+andor_hardware = ["andor", "driver-andor-sdk3/hardware"]
+
 # Convenience feature: all hardware drivers (with mock PVCAM and Comedi)
-all_hardware = ["thorlabs", "newport", "spectra_physics", "newport_power_meter", "pvcam", "comedi", "red_pitaya"]
+all_hardware = ["thorlabs", "newport", "spectra_physics", "newport_power_meter", "pvcam", "comedi", "red_pitaya", "andor"]
 
 # Full feature set
 full = ["all_hardware", "simulator"]

@@ -27,18 +27,22 @@
 //!
 //! ```rust,no_run
 //! use driver_andor_sdk3::camera::AndorCamera;
-//! use common::capabilities::{FrameProducer, Triggerable};
+//! use common::capabilities::{ExposureControl, FrameProducer, Triggerable};
 //!
 //! # async fn example() -> anyhow::Result<()> {
 //! let camera = AndorCamera::new_async(0).await?;
 //!
-//! // Configure for external triggering
+//! // Configure for external triggering (set modes before exposure)
 //! camera.set_trigger_mode("External").await?;
-//! camera.set_exposure(0.0015).await?;  // 1.5ms
 //! camera.set_gate_mode("DDG").await?;
+//!
+//! // Query dynamic exposure range (changes with trigger/gate mode)
+//! let (exp_min, _exp_max) = camera.get_exposure_range().await?;
+//! camera.set_exposure(exp_min * 1.1).await?;
+//!
 //! camera.set_mcp_gain(3600).await?;
-//! camera.set_ddg_output_delay(1300000).await?;  // ps
-//! camera.set_ddg_output_width(10000000).await?; // ps
+//! camera.set_ddg_output_delay(1300000).await?;  // ps (MCP gate delay)
+//! camera.set_ddg_output_width(10000000).await?; // ps (MCP gate width)
 //!
 //! // Start streaming
 //! camera.start_stream().await?;
@@ -424,6 +428,50 @@ impl AndorCamera {
         Ok(())
     }
 
+    /// Query the current valid range for ExposureTime (in seconds).
+    ///
+    /// The valid range changes dynamically based on trigger mode, gate mode,
+    /// and other camera settings. Always query after changing modes.
+    pub async fn get_exposure_range(&self) -> Result<(f64, f64)> {
+        #[cfg(feature = "camera")]
+        {
+            let handle = self.inner.handle;
+            let (min, max) = tokio::task::spawn_blocking(move || {
+                let min = Self::get_float_min(handle, "ExposureTime")?;
+                let max = Self::get_float_max(handle, "ExposureTime")?;
+                Ok::<(f64, f64), anyhow::Error>((min, max))
+            })
+            .await??;
+            return Ok((min, max));
+        }
+
+        #[cfg(not(feature = "camera"))]
+        Ok((0.0000001, 30.0))
+    }
+
+    /// Check if a named SDK feature is implemented on this camera model.
+    ///
+    /// This is a static capability check (`AT_IsImplemented`). Use it to
+    /// determine whether the camera model supports a feature at all, not
+    /// whether the feature is currently writable in the present state.
+    pub async fn is_feature_implemented_on_camera(&self, feature: &str) -> Result<bool> {
+        #[cfg(feature = "camera")]
+        {
+            let handle = self.inner.handle;
+            let feature = feature.to_string();
+            return tokio::task::spawn_blocking(move || {
+                Self::is_feature_implemented(handle, &feature)
+            })
+            .await?;
+        }
+
+        #[cfg(not(feature = "camera"))]
+        {
+            let _ = feature;
+            Ok(true)
+        }
+    }
+
     /// Enable/disable sensor cooling
     pub async fn set_cooling(&self, enabled: bool) -> Result<()> {
         #[cfg(feature = "camera")]
@@ -520,6 +568,66 @@ impl AndorCamera {
         }
     }
 
+    #[cfg(feature = "camera")]
+    fn get_float_min(handle: AT_H, feature: &str) -> Result<f64> {
+        use crate::error::sdk_result;
+
+        unsafe {
+            let feature_wide = to_wide_string(feature);
+            let mut value: f64 = 0.0;
+            // SAFETY: handle is valid (camera is open), feature_wide is NUL-terminated,
+            // value is a valid aligned f64 pointer
+            let ret = AT_GetFloatMin(handle, feature_wide.as_ptr(), &mut value);
+            sdk_result(ret)?;
+            Ok(value)
+        }
+    }
+
+    #[cfg(feature = "camera")]
+    fn get_float_max(handle: AT_H, feature: &str) -> Result<f64> {
+        use crate::error::sdk_result;
+
+        unsafe {
+            let feature_wide = to_wide_string(feature);
+            let mut value: f64 = 0.0;
+            // SAFETY: handle is valid (camera is open), feature_wide is NUL-terminated,
+            // value is a valid aligned f64 pointer
+            let ret = AT_GetFloatMax(handle, feature_wide.as_ptr(), &mut value);
+            sdk_result(ret)?;
+            Ok(value)
+        }
+    }
+
+    #[cfg(feature = "camera")]
+    fn is_feature_implemented(handle: AT_H, feature: &str) -> Result<bool> {
+        use crate::error::sdk_result;
+
+        unsafe {
+            let feature_wide = to_wide_string(feature);
+            let mut implemented: AT_BOOL = AT_FALSE;
+            // SAFETY: handle is valid (camera is open), feature_wide is NUL-terminated,
+            // implemented is a valid aligned AT_BOOL pointer
+            let ret = AT_IsImplemented(handle, feature_wide.as_ptr(), &mut implemented);
+            sdk_result(ret)?;
+            Ok(implemented == AT_TRUE)
+        }
+    }
+
+    #[cfg(feature = "camera")]
+    fn is_feature_writable(handle: AT_H, feature: &str) -> Result<bool> {
+        use crate::error::sdk_result;
+
+        unsafe {
+            let feature_wide = to_wide_string(feature);
+            let mut writable: AT_BOOL = AT_FALSE;
+            // SAFETY: handle is valid (camera is open), feature_wide is NUL-terminated,
+            // writable is a valid aligned AT_BOOL pointer
+            let ret = AT_IsWritable(handle, feature_wide.as_ptr(), &mut writable);
+            sdk_result(ret)?;
+            Ok(writable == AT_TRUE)
+        }
+    }
+
     // =========================================================================
     // Parameter<T> hardware callback attachment methods
     // =========================================================================
@@ -560,12 +668,19 @@ impl AndorCamera {
         param.connect_to_hardware_write(move |mode: GateMode| {
             Box::pin(async move {
                 let mode_str = mode.to_string();
-                tokio::task::spawn_blocking(move || {
-                    AndorCamera::set_enum_feature(handle, "GateMode", &mode_str)
+                tokio::task::spawn_blocking(move || -> Result<(), anyhow::Error> {
+                    AndorCamera::set_enum_feature(handle, "GateMode", &mode_str)?;
+                    // When DDG mode is active, select the Gater (MCP intensifier)
+                    // as the DDG output target so that DDGOutputDelay/Width
+                    // control the MCP gate timing.
+                    if mode == GateMode::DDG {
+                        AndorCamera::set_enum_feature(handle, "DDGOutputSelector", "Gater")?;
+                    }
+                    Ok(())
                 })
                 .await
                 .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-                .map_err(|e| DaqError::Instrument(e.to_string()))
+                .map_err(|e: anyhow::Error| DaqError::Instrument(e.to_string()))
             })
         });
     }
@@ -589,7 +704,7 @@ impl AndorCamera {
         param.connect_to_hardware_write(move |delay_ps: u64| {
             Box::pin(async move {
                 tokio::task::spawn_blocking(move || {
-                    AndorCamera::set_float_feature(handle, "DDGOutputDelay", delay_ps as f64)
+                    AndorCamera::set_int_feature(handle, "DDGOutputDelay", delay_ps as i64)
                 })
                 .await
                 .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
@@ -603,7 +718,7 @@ impl AndorCamera {
         param.connect_to_hardware_write(move |width_ps: u64| {
             Box::pin(async move {
                 tokio::task::spawn_blocking(move || {
-                    AndorCamera::set_float_feature(handle, "DDGOutputWidth", width_ps as f64)
+                    AndorCamera::set_int_feature(handle, "DDGOutputWidth", width_ps as i64)
                 })
                 .await
                 .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?

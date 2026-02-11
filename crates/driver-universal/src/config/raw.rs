@@ -542,10 +542,10 @@ baud_rate = 9600
             failures.join("\n")
         );
 
-        // We expect at least 9 config files
+        // We expect at least 10 config files
         assert!(
-            count >= 9,
-            "expected at least 9 config files, found {count}"
+            count >= 10,
+            "expected at least 10 config files, found {count}"
         );
     }
 
@@ -601,7 +601,7 @@ baud_rate = 9600
         let contents = std::fs::read_to_string(&path).expect("should read ipg_laser.toml");
         let raw: RawManifest = toml::from_str(&contents).expect("should parse ipg_laser.toml");
         assert_eq!(raw.schema_version, 3);
-        assert_eq!(raw.device.name, "IPG Fiber Laser");
+        assert_eq!(raw.device.name, "IPG YLPP-200-1-50-R");
         assert!(raw.capabilities.readable.is_some());
     }
 }

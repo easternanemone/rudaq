@@ -1,0 +1,139 @@
+# config/devices/thorlabs_pm400.toml
+# Thorlabs PM400 Power Meter - Protocol Definition
+#
+# Standard SCPI power meter with USB-TMC/VISA interface.
+# The PM400 natively uses USB-TMC, but can be accessed over TCP via a
+# VISA server bridge or virtual serial port. This config uses TCP as a
+# transport-agnostic placeholder; set host/port at the instance level.
+
+schema_version = 3
+
+[device]
+name = "Thorlabs PM400"
+description = "Thorlabs PM400 optical power meter with SCPI control"
+manufacturer = "Thorlabs"
+model = "PM400"
+protocol = "scpi"
+category = "sensor"
+capabilities = ["Readable", "WavelengthTunable"]
+
+[connection]
+type = "tcp"
+host = "127.0.0.1"
+port = 5025
+timeout_ms = 2000
+
+# ==============================================================================
+# Response Definitions
+# ==============================================================================
+
+[responses.scpi_float]
+transform = ["trim", "to_float"]
+
+[responses.scpi_string]
+transform = ["trim"]
+
+[responses.scpi_int]
+transform = ["trim", "to_int"]
+
+# ==============================================================================
+# Command Definitions
+# ==============================================================================
+
+[commands.identify]
+template = "*IDN?"
+description = "Query instrument identification string"
+response = "scpi_string"
+
+[commands.read_power]
+template = "MEASure:SCALar:POWer?"
+description = "Read optical power (W)"
+response = "scpi_float"
+
+[commands.get_wavelength]
+template = "SENSe:CORRection:WAVelength?"
+description = "Query current correction wavelength (nm)"
+response = "scpi_float"
+
+[commands.set_wavelength]
+template = "SENSe:CORRection:WAVelength {{ value }}"
+description = "Set correction wavelength (nm)"
+parameters = { value = "float" }
+expects_response = false
+
+[commands.set_autorange_on]
+template = "SENSe:POWer:DC:RANGe:AUTO ON"
+description = "Enable auto-range"
+expects_response = false
+
+[commands.set_autorange_off]
+template = "SENSe:POWer:DC:RANGe:AUTO OFF"
+description = "Disable auto-range"
+expects_response = false
+
+[commands.get_autorange]
+template = "SENSe:POWer:DC:RANGe:AUTO?"
+description = "Query auto-range state"
+response = "scpi_int"
+
+[commands.zero_sensor]
+template = "SENSe:CORRection:COLLect:ZERO:INITiate"
+description = "Initiate zero adjustment (block laser before calling)"
+expects_response = false
+
+[commands.read_error]
+template = "SYSTem:ERRor:NEXT?"
+description = "Read next error from error queue"
+response = "scpi_string"
+
+# ==============================================================================
+# Capability Mapping
+# ==============================================================================
+
+[capabilities.readable]
+read = { command = "read_power", output_field = "value" }
+
+[capabilities.wavelength_tunable]
+set_wavelength = { command = "set_wavelength", from_param = "value" }
+get_wavelength = { command = "get_wavelength", output_field = "value" }
+
+# ==============================================================================
+# UI Configuration
+# ==============================================================================
+
+[ui]
+icon = "sensor"
+color = "#1E88E5"
+
+[ui.control_panel]
+layout = "vertical"
+show_header = true
+
+[[ui.control_panel.sections]]
+type = "sensor"
+label = "Optical Power"
+precision = 6
+unit = "W"
+refresh_ms = 500
+
+[[ui.control_panel.sections]]
+type = "separator"
+visible = true
+
+[[ui.control_panel.sections]]
+type = "parameter"
+label = "Wavelength"
+parameter = "wavelength"
+widget = "spinner"
+read_only = false
+
+[[ui.control_panel.sections]]
+type = "custom_action"
+label = "Zero Sensor"
+command = "zero_sensor"
+style = "warning"
+
+[ui.status_display]
+summary_params = ["power"]
+summary_format = "{{ power }} W"
+show_connection = true

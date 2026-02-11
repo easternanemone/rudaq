@@ -1,0 +1,47 @@
+# LEABS (Laser-Excited Atomic Breakdown Spectroscopy) Hardware Configuration
+#
+# Instruments:
+#   - IPG YLPP-200-1-50-R fiber laser (TCP control on port 10001)
+#   - Andor iStar sCMOS detector (mock mode; real SDK on Linux later)
+#   - Thorlabs PM400 power meter (TCP/VISA bridge)
+#
+# Usage:
+#   rust-daq-daemon daemon --hardware-config config/leabs_hardware.toml
+
+# ============================================================================
+# IPG YLPP-200-1-50-R Fiber Laser
+# ============================================================================
+# Pulsed ytterbium fiber laser, 200W max, TCP control.
+# Config-driven driver from config/devices/ipg_laser.toml.
+
+[[devices]]
+id = "ipg_laser"
+name = "IPG YLPP-200-1-50-R Fiber Laser"
+[devices.driver]
+type = "universal_ipg_ylpp-200-1-50-r"
+
+# ============================================================================
+# Andor iStar sCMOS Detector
+# ============================================================================
+# Intensified camera for time-resolved spectroscopy.
+# Uses mock mode on macOS; enable `andor_hardware` feature for real SDK.
+
+[[devices]]
+id = "istar_camera"
+name = "Andor iStar sCMOS"
+[devices.driver]
+type = "andor_istar"
+camera_index = 0
+
+# ============================================================================
+# Thorlabs PM400 Power Meter
+# ============================================================================
+# SCPI power meter via TCP/VISA bridge.
+# Config-driven driver from config/devices/thorlabs_pm400.toml.
+# Update host/port below to match your VISA server or virtual serial bridge.
+
+[[devices]]
+id = "power_meter"
+name = "Thorlabs PM400 Power Meter"
+[devices.driver]
+type = "universal_thorlabs_pm400"

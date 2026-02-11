@@ -348,13 +348,25 @@ async fn hardware_camera_and_trigger_sync() {
         .await
         .expect("Failed to set trigger mode");
     camera
-        .set_exposure(0.0015)
-        .await
-        .expect("Failed to set exposure");
-    camera
         .set_gate_mode("DDG")
         .await
         .expect("Failed to set gate mode");
+
+    // Query dynamic exposure range — limits change with trigger/gate mode
+    let (exp_min, exp_max) = camera
+        .get_exposure_range()
+        .await
+        .expect("Failed to get exposure range");
+    println!("  Exposure range: {exp_min}..{exp_max} s");
+
+    // Use minimum + 10% headroom (1.5ms may be out of range in External mode)
+    let exposure = (exp_min * 1.1).min(exp_max);
+    println!("  Using exposure: {exposure} s");
+    camera
+        .set_exposure(exposure)
+        .await
+        .expect("Failed to set exposure");
+
     camera
         .set_mcp_gain(3600)
         .await

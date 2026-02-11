@@ -15,6 +15,7 @@ driver-mock = { path = "../driver-mock", optional = true }
 driver-thorlabs = { path = "../driver-thorlabs", optional = true }
 driver-newport = { path = "../driver-newport", optional = true }
 driver-spectra-physics = { path = "../driver-spectra-physics", optional = true }
+driver-andor-sdk3 = { path = "../driver-andor-sdk3", optional = true }
 
 [features]
 default = []
@@ -37,16 +38,20 @@ newport = ["dep:driver-newport"]
 # Spectra-Physics MaiTai Ti:Sapphire laser
 spectra_physics = ["dep:driver-spectra-physics"]
 
+# Andor iStar camera and Shamrock spectrograph (SDK3)
+andor = ["dep:driver-andor-sdk3"]
+andor_hardware = ["andor", "driver-andor-sdk3/hardware"]
+
 # Convenience feature sets
 #
 # all: All drivers with mock implementations (for development/testing)
-all = ["thorlabs", "newport", "spectra_physics", "pvcam", "comedi", "mock"]
+all = ["thorlabs", "newport", "spectra_physics", "pvcam", "comedi", "mock", "andor"]
 
 # maitai: Hardware configuration for the maitai lab system
 maitai = ["thorlabs", "newport", "spectra_physics", "pvcam_sdk"]
 
 # hardware: All drivers with real hardware support
-hardware = ["thorlabs", "newport", "spectra_physics", "pvcam_sdk", "comedi_hardware"]
+hardware = ["thorlabs", "newport", "spectra_physics", "pvcam_sdk", "comedi_hardware", "andor_hardware"]
 
 [lints]
 workspace = true
