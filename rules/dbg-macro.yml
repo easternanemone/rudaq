@@ -1,11 +1,11 @@
-id: unimplemented-macro
+id: dbg-macro
 language: rust
 severity: error
-message: "unimplemented!() will panic at runtime. Implement or return an error."
-note: "Replace with a proper implementation or return Err() for unfinished code paths."
-url: https://doc.rust-lang.org/std/macro.unimplemented.html
+message: "dbg!() writes to stderr and should not be in production code. Use tracing macros instead."
+note: "dbg!() is for local debugging only. Use tracing::debug!() for structured logging."
+url: https://doc.rust-lang.org/std/macro.dbg.html
 rule:
-  pattern: unimplemented!($$$)
+  pattern: dbg!($$$)
   not:
     any:
       - inside:

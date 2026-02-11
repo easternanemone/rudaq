@@ -3,6 +3,7 @@ language: rust
 severity: hint
 message: "Unsafe block detected. Ensure it is documented with a SAFETY comment."
 note: "Unsafe blocks in this codebase are typically for FFI (PVCAM, Comedi, Andor). Each should have a // SAFETY: comment."
+url: https://doc.rust-lang.org/nomicon/meet-safe-and-unsafe.html
 rule:
   kind: unsafe_block
   pattern: unsafe { $$$ }

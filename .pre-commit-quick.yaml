@@ -33,7 +33,7 @@ repos:
       # Runs full project scan; .ignore handles exclusions
       - id: ast-grep
         name: ast-grep lint
-        entry: sg scan --report-style short
+        entry: bash scripts/run-ast-grep.sh scan --report-style short
         language: system
         types: [rust]
         pass_filenames: false

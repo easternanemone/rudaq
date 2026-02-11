@@ -1,2 +1,7 @@
 ruleDirs:
   - rules
+
+# Only scan Rust files - skip YAML, TOML, markdown, etc.
+languageGlobs:
+  Rust:
+    - "**/*.rs"

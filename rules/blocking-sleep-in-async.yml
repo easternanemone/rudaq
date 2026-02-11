@@ -14,3 +14,17 @@ rule:
         pattern: async
       stopBy: end
     stopBy: end
+  not:
+    any:
+      - inside:
+          kind: function_item
+          follows:
+            kind: attribute_item
+            regex: "test"
+          stopBy: end
+      - inside:
+          kind: mod_item
+          follows:
+            kind: attribute_item
+            regex: "cfg.*test"
+          stopBy: end

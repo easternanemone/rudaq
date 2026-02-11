@@ -1,0 +1,24 @@
+id: println-in-production
+language: rust
+severity: hint
+message: "println!()/eprintln!() bypass structured logging. Use tracing macros instead."
+note: "Use tracing::info!(), tracing::warn!(), or tracing::error!() for observable, filterable output. Acceptable in CLIs and REPLs."
+url: https://docs.rs/tracing/latest/tracing/
+rule:
+  any:
+    - pattern: println!($$$)
+    - pattern: eprintln!($$$)
+  not:
+    any:
+      - inside:
+          kind: function_item
+          follows:
+            kind: attribute_item
+            regex: "test"
+          stopBy: end
+      - inside:
+          kind: mod_item
+          follows:
+            kind: attribute_item
+            regex: "cfg.*test"
+          stopBy: end

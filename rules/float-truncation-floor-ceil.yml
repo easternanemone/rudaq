@@ -3,6 +3,7 @@ language: rust
 severity: warning
 message: "Float .floor()/.ceil() cast to integer - verify this is intentional, not a missing .round()."
 note: "Per CLAUDE.md: Use .round() when converting to integers for scientific accuracy."
+url: https://doc.rust-lang.org/std/primitive.f64.html#method.round
 rule:
   kind: type_cast_expression
   all:
@@ -19,3 +20,17 @@ rule:
             regex: "^(floor|ceil)$"
           stopBy: end
         stopBy: end
+  not:
+    any:
+      - inside:
+          kind: function_item
+          follows:
+            kind: attribute_item
+            regex: "test"
+          stopBy: end
+      - inside:
+          kind: mod_item
+          follows:
+            kind: attribute_item
+            regex: "cfg.*test"
+          stopBy: end

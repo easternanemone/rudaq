@@ -1,0 +1,25 @@
+# Repository-wide ignore file for search tools (ripgrep, ast-grep, etc.)
+# Build artifacts and tool directories
+target/
+.git/
+.venv/
+node_modules/
+dist/
+
+# Documentation and data files
+**/archive/**
+**/*.json
+**/*.xml
+**/*.md
+
+# Test directories contain expected unwraps/panics/expects.
+# Use **/ prefix to match nested directories (e.g., crates/*/tests/).
+**/tests/
+**/examples/
+**/benches/
+
+# Build scripts - panics are expected for missing deps/env
+**/build.rs
+
+# Sys crates contain auto-generated FFI bindings (bindgen)
+**/*-sys/

@@ -3,19 +3,22 @@ language: rust
 severity: error
 message: "panic!() will crash the daemon. Return a Result<T, Error> instead."
 note: "Use anyhow::bail!() or return Err() for recoverable errors."
+url: https://doc.rust-lang.org/std/macro.panic.html
 rule:
   pattern: panic!($$$)
   not:
     any:
+      # Exclude #[test] functions (attribute precedes the function item as sibling)
       - inside:
           kind: function_item
-          has:
+          follows:
             kind: attribute_item
             regex: "test"
           stopBy: end
+      # Exclude #[cfg(test)] modules
       - inside:
           kind: mod_item
-          has:
+          follows:
             kind: attribute_item
             regex: "cfg.*test"
           stopBy: end

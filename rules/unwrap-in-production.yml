@@ -3,11 +3,12 @@ language: rust
 severity: warning
 message: "Avoid .unwrap() in production code - use ? operator or .context() instead."
 note: "unwrap() panics on None/Err, crashing the daemon. Use anyhow .context() for error propagation."
+url: https://docs.rs/anyhow/latest/anyhow/trait.Context.html
 rule:
   pattern: $EXPR.unwrap()
   not:
     any:
-      # Exclude #[test] functions (attribute precedes the function item)
+      # Exclude #[test] functions (attribute precedes the function item as sibling)
       - inside:
           kind: function_item
           follows:

@@ -2,6 +2,8 @@ id: todo-macro
 language: rust
 severity: error
 message: "todo!() will panic at runtime if reached. Implement or return an error before merging."
+note: "Replace with a proper implementation or return Err() for unfinished code paths."
+url: https://doc.rust-lang.org/std/macro.todo.html
 rule:
   pattern: todo!($$$)
   not:

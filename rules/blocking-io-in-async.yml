@@ -1,0 +1,40 @@
+id: blocking-io-in-async
+language: rust
+severity: warning
+message: "Blocking std::fs I/O in async function. Use tokio::fs for non-blocking file operations."
+note: "Blocking I/O in async context starves the Tokio runtime. Use tokio::fs or spawn_blocking()."
+url: https://docs.rs/tokio/latest/tokio/fs/index.html
+rule:
+  any:
+    - pattern: std::fs::read($$$)
+    - pattern: std::fs::write($$$)
+    - pattern: std::fs::read_to_string($$$)
+    - pattern: std::fs::create_dir($$$)
+    - pattern: std::fs::create_dir_all($$$)
+    - pattern: std::fs::remove_file($$$)
+    - pattern: std::fs::remove_dir($$$)
+    - pattern: std::fs::remove_dir_all($$$)
+    - pattern: std::fs::copy($$$)
+    - pattern: std::fs::rename($$$)
+  inside:
+    kind: function_item
+    has:
+      kind: function_modifiers
+      has:
+        pattern: async
+      stopBy: end
+    stopBy: end
+  not:
+    any:
+      - inside:
+          kind: function_item
+          follows:
+            kind: attribute_item
+            regex: "test"
+          stopBy: end
+      - inside:
+          kind: mod_item
+          follows:
+            kind: attribute_item
+            regex: "cfg.*test"
+          stopBy: end

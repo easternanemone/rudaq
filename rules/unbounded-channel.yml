@@ -3,7 +3,22 @@ language: rust
 severity: warning
 message: "Unbounded channel detected. Use bounded mpsc::channel(N) to apply backpressure."
 note: "In DAQ systems, fast producers (cameras) with unbounded channels cause OOM when consumers are slow."
+url: https://docs.rs/tokio/latest/tokio/sync/mpsc/fn.channel.html
 rule:
   any:
     - pattern: mpsc::unbounded_channel()
     - pattern: tokio::sync::mpsc::unbounded_channel()
+  not:
+    any:
+      - inside:
+          kind: function_item
+          follows:
+            kind: attribute_item
+            regex: "test"
+          stopBy: end
+      - inside:
+          kind: mod_item
+          follows:
+            kind: attribute_item
+            regex: "cfg.*test"
+          stopBy: end

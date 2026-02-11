@@ -24,9 +24,17 @@ JSON
   exit 0
 fi
 
-if command -v sg &>/dev/null; then
+# Prefer 'ast-grep' (npm install), fall back to 'sg' (cargo install)
+sg_cmd=""
+if command -v ast-grep &>/dev/null; then
+  sg_cmd="ast-grep"
+elif command -v sg &>/dev/null && sg --version 2>&1 | grep -q 'ast-grep'; then
+  sg_cmd="sg"
+fi
+
+if [[ -n "$sg_cmd" ]]; then
   echo "Quality gate: Running ast-grep structural lint..." >&2
-  sg_output=$(sg scan --report-style short 2>&1)
+  sg_output=$($sg_cmd scan --report-style short 2>&1)
   sg_exit=$?
 
   if [[ $sg_exit -ne 0 ]]; then
