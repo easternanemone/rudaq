@@ -39,9 +39,9 @@ direnv allow
 
 ## Available Host Configurations
 
-| File | Machine | Description |
-|------|---------|-------------|
-| `maitai.env` | maitai@100.117.5.12 | Hardware machine with PVCAM, serial devices |
+| File | Machine | SSH | Description |
+|------|---------|-----|-------------|
+| `maitai.env` | maitai-optiplex7040 | `ssh maitai@100.117.5.12` | Hardware machine with PVCAM, serial devices |
 
 ## Creating a New Host Configuration
 
