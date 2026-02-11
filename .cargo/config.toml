@@ -18,6 +18,12 @@ opt-level = 2
 # Disable incremental for release builds (not useful, saves space)
 incremental = false
 
+# Mold linker for faster linking on Linux (opt-in):
+# Copy the following into ~/.cargo/config.toml on machines with mold installed:
+#   [target.x86_64-unknown-linux-gnu]
+#   rustflags = ["-C", "linker=clang", "-C", "link-arg=-fuse-ld=mold"]
+# Requires: sudo apt install mold clang
+
 # Recommendations for managing target directory size:
 # 1. Run `cargo clean` periodically (monthly or when >5GB)
 # 2. Install cargo-sweep: `cargo install cargo-sweep`

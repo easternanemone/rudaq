@@ -1,7 +1,7 @@
 //! Frame metadata and page-aligned buffer types for PVCAM acquisition.
 
 #[cfg(feature = "pvcam_sdk")]
-use anyhow::Result;
+use anyhow::{anyhow, bail, Result};
 #[cfg(feature = "pvcam_sdk")]
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 

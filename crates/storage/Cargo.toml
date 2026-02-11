@@ -24,7 +24,6 @@ image = { version = "0.25", optional = true, default-features = false, features 
 
 # Zarr V3 storage
 zarrs = { version = "0.22", optional = true, features = ["filesystem"] }
-object_store = { version = "0.11", optional = true }
 
 # Async & Logging
 tokio = { workspace = true, features = ["sync", "fs"] }
@@ -47,7 +46,7 @@ storage_hdf5 = ["dep:hdf5"]
 storage_arrow = ["dep:arrow"]
 storage_parquet = ["dep:parquet", "dep:arrow"]
 storage_tiff = ["dep:image"]
-storage_zarr = ["dep:zarrs", "dep:object_store"]
+storage_zarr = ["dep:zarrs"]
 networking = []
 metrics = ["dep:prometheus", "dep:lazy_static", "pool/metrics"]
 

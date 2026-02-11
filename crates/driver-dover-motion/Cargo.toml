@@ -20,7 +20,6 @@ futures.workspace = true
 
 # Error handling
 anyhow.workspace = true
-thiserror.workspace = true
 
 # Configuration
 serde = { workspace = true, features = ["derive"] }

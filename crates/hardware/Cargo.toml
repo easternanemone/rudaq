@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 common = { path = "../common" }
-pool = { path = "../pool" }
 async-trait.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
@@ -13,10 +12,7 @@ serde = { workspace = true, features = ["derive"] }
 tracing.workspace = true
 serde_json.workspace = true
 regex = "1.0.8"
-garde = { version = "0.18", features = ["derive", "serde"] }
 minijinja = { version = "2.10", features = ["loader"] }
-winnow = "0.6"
-strum = { version = "0.26", features = ["derive"] }
 futures.workspace = true
 log = "0.4.21"
 serde_yaml = "0.9"
@@ -71,10 +67,6 @@ optional = true
 path = "../driver-red-pitaya"
 optional = true
 
-[dependencies.driver-generic]
-path = "../driver-generic"
-optional = true
-
 [dev-dependencies]
 tempfile.workspace = true
 
@@ -105,7 +97,6 @@ newport = ["serial", "dep:driver-newport"]            # Newport stages
 spectra_physics = ["serial", "dep:driver-spectra-physics"]    # Spectra-Physics lasers
 newport_power_meter = ["newport"] # Newport 1830-C power meter (included in newport)
 red_pitaya = ["dep:driver-red-pitaya"]      # Red Pitaya PID controller
-generic = ["dep:driver-generic"] # Config-driven generic driver
 
 # PVCAM camera support
 pvcam = ["dep:driver-pvcam"]                           # Mock driver (fast compile)
@@ -117,7 +108,7 @@ comedi = ["dep:driver-comedi"]                         # Mock driver (fast compi
 comedi_hardware = ["comedi", "driver-comedi/hardware"] # Real hardware (requires comedilib)
 
 # Convenience feature: all hardware drivers (with mock PVCAM and Comedi)
-all_hardware = ["thorlabs", "newport", "spectra_physics", "newport_power_meter", "pvcam", "comedi", "red_pitaya", "generic"]
+all_hardware = ["thorlabs", "newport", "spectra_physics", "newport_power_meter", "pvcam", "comedi", "red_pitaya"]
 
 # Full feature set
 full = ["all_hardware", "simulator"]

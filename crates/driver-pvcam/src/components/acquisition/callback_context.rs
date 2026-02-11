@@ -7,11 +7,15 @@
 use pvcam_sys::*;
 #[cfg(feature = "pvcam_sdk")]
 use std::sync::atomic::{AtomicBool, AtomicI16, AtomicI32, AtomicPtr, AtomicU32, Ordering};
+#[cfg(feature = "pvcam_sdk")]
+use std::time::Duration;
+#[cfg(feature = "pvcam_sdk")]
+use tokio::time::timeout;
 
 /// bd-3gnv: Prefer continuous FIFO streaming; keep sequence mode as a last-resort fallback.
 /// Sequence mode is slower but can be toggled for diagnostics if continuous mode regresses.
 #[cfg(feature = "pvcam_sdk")]
-const USE_SEQUENCE_MODE: bool = false;
+pub(super) const USE_SEQUENCE_MODE: bool = false;
 
 /// Batch size for sequence mode streaming (bd-3gnv).
 ///
@@ -20,7 +24,7 @@ const USE_SEQUENCE_MODE: bool = false;
 ///
 /// 10 frames at 10ms exposure = ~150ms batch time (balances latency + throughput)
 #[cfg(feature = "pvcam_sdk")]
-const SEQUENCE_BATCH_SIZE: u16 = 10;
+pub(super) const SEQUENCE_BATCH_SIZE: u16 = 10;
 
 /// Callback context for EOF notifications (bd-ek9n.2)
 ///

@@ -28,13 +28,12 @@ eframe = { version = "0.33", default-features = false, features = [
     "x11",
 ], optional = true }
 egui = "0.33"
-egui_extras = { version = "0.33", features = ["all_loaders"], optional = true }
+egui_extras = { version = "0.33", default-features = false, optional = true }
 egui_dock = { version = "0.18", optional = true, features = ["serde"] }
 egui_plot = { version = "0.34", optional = true }
 
 # UI enhancement dependencies
 egui-phosphor = { version = "0.11", optional = true }
-egui-notify = { version = "0.19", optional = true }
 dark-light = { version = "2.0", optional = true }
 
 # Node graph editor
@@ -59,8 +58,6 @@ bytemuck = { version = "1.14", optional = true }
 # gRPC client
 protocol = { path = "../protocol" }
 experiment = { path = "../experiment" }
-# LZ4 decompression for frame streaming (bd-7rk0: gRPC improvements)
-lz4_flex = "0.11"
 tonic = { workspace = true, default-features = false, features = ["transport", "prost", "codegen"] }
 prost.workspace = true
 
@@ -72,7 +69,6 @@ anyhow.workspace = true
 tracing.workspace = true
 log = "0.4"
 url = "2"  # URL parsing and normalization for daemon addresses
-once_cell = "1.19"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono.workspace = true
 serde_json.workspace = true
@@ -91,13 +87,11 @@ libc = "0.2"  # For graceful daemon termination (SIGTERM)
 common = { path = "../common", optional = true }
 driver-pvcam = { path = "../driver-pvcam", optional = true }
 hardware = { path = "../hardware" }  # For device UI config schema
-rfd = "0.17.2"
+rfd = { version = "0.17.2", optional = true }
 
 # Peak detection for adaptive scans
 find_peaks = "0.1"
 
-# CSV export
-csv = "1.3"
 ordered-float = "4.5"
 
 # HDF5 storage for run comparison and annotation (optional)
@@ -107,7 +101,7 @@ hdf5 = { package = "hdf5-metno", version = "0.11.0", optional = true }
 [features]
 default = ["standalone"]
 # Note: dark-light temporarily removed due to ashpd/zbus version conflict (2025-01-17)
-standalone = ["dep:eframe", "dep:egui_extras", "dep:egui_dock", "dep:egui_plot", "dep:egui-phosphor", "dep:egui-notify"]
+standalone = ["dep:eframe", "dep:egui_extras", "dep:egui_dock", "dep:egui_plot", "dep:egui-phosphor", "dep:rfd"]
 # Embedded Rerun viewer with gRPC camera streaming support
 rerun_viewer = ["dep:rerun", "dep:mimalloc", "dep:bytemuck", "dep:egui_dock", "dep:egui_plot"]
 

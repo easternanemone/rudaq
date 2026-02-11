@@ -7,17 +7,13 @@ description = "Experiment modules and plugin system for rust-daq"
 [dependencies]
 common = { path = "../common" }
 hardware = { path = "../hardware" }
-experiment = { path = "../experiment" }
 anyhow.workspace = true
-thiserror.workspace = true
 async-trait.workspace = true
-futures.workspace = true
 tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
 tracing.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 uuid = { version = "1.10", features = ["v4", "serde"] }
-chrono = { workspace = true, features = ["serde"] }
 scripting = { path = "../scripting", optional = true }
 plugin-api = { path = "../plugin-api", optional = true }
 

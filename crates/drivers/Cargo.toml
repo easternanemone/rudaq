@@ -14,7 +14,6 @@ driver-comedi = { path = "../driver-comedi", optional = true }
 driver-mock = { path = "../driver-mock", optional = true }
 driver-thorlabs = { path = "../driver-thorlabs", optional = true }
 driver-newport = { path = "../driver-newport", optional = true }
-driver-generic = { path = "../driver-generic", optional = true }
 driver-spectra-physics = { path = "../driver-spectra-physics", optional = true }
 
 [features]
@@ -29,9 +28,6 @@ comedi_hardware = ["comedi", "driver-comedi/hardware"]
 # Mock drivers for testing/simulation
 mock = ["dep:driver-mock"]
 
-# Generic config-driven serial driver
-generic = ["dep:driver-generic"]
-
 # Thorlabs ELL14 rotation mount
 thorlabs = ["dep:driver-thorlabs"]
 
@@ -44,7 +40,7 @@ spectra_physics = ["dep:driver-spectra-physics"]
 # Convenience feature sets
 #
 # all: All drivers with mock implementations (for development/testing)
-all = ["thorlabs", "newport", "spectra_physics", "pvcam", "comedi", "mock", "generic"]
+all = ["thorlabs", "newport", "spectra_physics", "pvcam", "comedi", "mock"]
 
 # maitai: Hardware configuration for the maitai lab system
 maitai = ["thorlabs", "newport", "spectra_physics", "pvcam_sdk"]

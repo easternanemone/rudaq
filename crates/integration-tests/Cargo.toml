@@ -21,7 +21,6 @@ tracing.workspace = true
 serde_json.workspace = true
 uuid = { version = "1.10", features = ["v4", "serde"] }
 futures.workspace = true
-futures-util = "0.3"
 async-trait.workspace = true
 tempfile.workspace = true
 chrono.workspace = true

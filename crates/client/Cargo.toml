@@ -12,7 +12,6 @@ path = "src/lib.rs"
 # gRPC client
 protocol = { path = "../protocol" }
 tonic = { workspace = true, default-features = false, features = ["transport", "prost", "codegen"] }
-prost.workspace = true
 
 # Async runtime
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros", "time"] }

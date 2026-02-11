@@ -36,4 +36,14 @@ if echo "$command" | grep -qE '(^|[[:space:]]|&&|\|)git[[:space:]]+push([[:space
   run_hook ".claude/hooks/pre-push-checks.sh" || exit 0
 fi
 
+# Guard: git worktree remove destroys the target directory. If the Bash tool's
+# persisted CWD is inside that directory, ALL subsequent Bash commands will
+# silently fail (exit 1, no output). Require an explicit cd before removal.
+if echo "$command" | grep -qE 'git[[:space:]]+worktree[[:space:]]+remove'; then
+  if ! echo "$command" | grep -qE '^cd[[:space:]]'; then
+    echo "BLOCKED: 'git worktree remove' without a leading 'cd' will break the Bash tool if the CWD is inside the worktree. Prepend: cd /Users/briansquires/code/rust-daq && git worktree remove ..."
+    exit 1
+  fi
+fi
+
 exit 0
