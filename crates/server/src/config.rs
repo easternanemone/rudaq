@@ -1,3 +1,4 @@
+use anyhow::{Context, Result};
 use figment::{
     Figment,
     providers::{Env, Format, Serialized, Toml},
@@ -89,7 +90,7 @@ impl Default for StorageSettings {
 }
 
 impl ServerConfig {
-    pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load() -> Result<Self> {
         let config_path = PathBuf::from("config/config.v4.toml");
         let mut figment = Figment::from(Serialized::defaults(ServerConfig {
             grpc: GrpcSettings::default(),
@@ -106,7 +107,9 @@ impl ServerConfig {
             );
         }
 
-        let config: ServerConfig = figment.extract()?;
+        let config: ServerConfig = figment
+            .extract()
+            .context("failed to extract ServerConfig from figment (check config/config.v4.toml and RUSTDAQ_ env vars)")?;
         Ok(config)
     }
 }

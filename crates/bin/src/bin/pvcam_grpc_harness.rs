@@ -815,6 +815,7 @@ async fn spawn_server(addr: &str) -> Result<()> {
             addr,
             Arc::new(registry),
             health_monitor,
+            tokio_util::sync::CancellationToken::new(),
         )
         .await
         {

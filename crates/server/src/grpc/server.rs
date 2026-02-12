@@ -33,6 +33,7 @@ use sysinfo::System;
 use tokio::sync::mpsc;
 use tokio::sync::{RwLock, broadcast};
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tonic::service::interceptor::interceptor;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
 use tonic::{Request, Response, Status};
@@ -225,6 +226,7 @@ impl DaqServer {
     pub fn new(
         ring_buffer: Option<Arc<storage::ring_buffer::RingBuffer>>,
         run_engine: Arc<RunEngine>,
+        shutdown_token: CancellationToken,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         // Create broadcast channel for data distribution (capacity 1000 in-flight messages)
         let (data_tx, mut data_rx) = broadcast::channel(1000);
@@ -329,6 +331,25 @@ impl DaqServer {
             }
         }
 
+        // SAFETY (bd-1afe.12): Spawn reaper task to abort running scripts on shutdown.
+        // When the shutdown token fires, all running script tasks are aborted before
+        // hardware shutdown begins. This prevents scripts from commanding disconnected hardware.
+        let running_tasks: Arc<RwLock<HashMap<String, JoinHandle<()>>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+        {
+            let tasks_map = running_tasks.clone();
+            let token = shutdown_token.clone();
+            tokio::spawn(async move {
+                token.cancelled().await;
+                tracing::info!("Shutdown token received: aborting all running scripts");
+                let tasks = tasks_map.read().await;
+                for (id, handle) in tasks.iter() {
+                    tracing::debug!(execution_id = %id, "Aborting script execution");
+                    handle.abort();
+                }
+            });
+        }
+
         Ok(Self {
             #[cfg(feature = "scripting")]
             script_engine: Arc::new(RwLock::new(RhaiEngine::with_hardware().map_err(|e| {
@@ -344,7 +365,7 @@ impl DaqServer {
             #[cfg(feature = "scripting")]
             executions: Arc::new(RwLock::new(HashMap::new())),
             #[cfg(feature = "scripting")]
-            running_tasks: Arc::new(RwLock::new(HashMap::new())),
+            running_tasks,
             #[cfg(feature = "scripting")]
             run_engine,
             #[cfg(feature = "scripting")]
@@ -359,7 +380,10 @@ impl DaqServer {
     /// Create a new DAQ server instance without storage features.
     /// Requires `run_engine` when scripting feature is enabled (bd-si2c).
     #[cfg(all(not(feature = "storage_hdf5"), feature = "scripting"))]
-    pub fn new(run_engine: Arc<RunEngine>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(
+        run_engine: Arc<RunEngine>,
+        shutdown_token: CancellationToken,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         // Create broadcast channel for data distribution
         let (data_tx, _rx) = broadcast::channel(1000);
         let data_tx = Arc::new(data_tx);
@@ -370,14 +394,31 @@ impl DaqServer {
         );
 
         // Check for interrupted scripts from previous daemon runs
-        if let Ok(interrupted) = script_journal.find_interrupted() {
-            if !interrupted.is_empty() {
-                tracing::warn!(
-                    count = interrupted.len(),
-                    "Found {} interrupted script(s) from previous daemon run",
-                    interrupted.len()
-                );
-            }
+        if let Ok(interrupted) = script_journal.find_interrupted()
+            && !interrupted.is_empty()
+        {
+            tracing::warn!(
+                count = interrupted.len(),
+                "Found {} interrupted script(s) from previous daemon run",
+                interrupted.len()
+            );
+        }
+
+        // SAFETY (bd-1afe.12): Spawn reaper task to abort running scripts on shutdown.
+        let running_tasks: Arc<RwLock<HashMap<String, JoinHandle<()>>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+        {
+            let tasks_map = running_tasks.clone();
+            let token = shutdown_token.clone();
+            tokio::spawn(async move {
+                token.cancelled().await;
+                tracing::info!("Shutdown token received: aborting all running scripts");
+                let tasks = tasks_map.read().await;
+                for (id, handle) in tasks.iter() {
+                    tracing::debug!(execution_id = %id, "Aborting script execution");
+                    handle.abort();
+                }
+            });
         }
 
         Ok(Self {
@@ -390,7 +431,7 @@ impl DaqServer {
             scripts: Arc::new(RwLock::new(HashMap::new())),
             script_metadata: Arc::new(RwLock::new(HashMap::new())),
             executions: Arc::new(RwLock::new(HashMap::new())),
-            running_tasks: Arc::new(RwLock::new(HashMap::new())),
+            running_tasks,
             run_engine,
             script_journal,
             start_time: SystemTime::now(),
@@ -1088,10 +1129,12 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
     let run_engine_instance = std::sync::Arc::new(experiment::RunEngine::new(registry));
 
     // Create DaqServer with shared RunEngine when scripting enabled (bd-si2c)
+    // start_server() has no external shutdown coordination, so create a standalone token
+    let standalone_token = CancellationToken::new();
     #[cfg(all(feature = "scripting", feature = "storage_hdf5"))]
-    let server = DaqServer::new(None, run_engine_instance.clone())?;
+    let server = DaqServer::new(None, run_engine_instance.clone(), standalone_token)?;
     #[cfg(all(feature = "scripting", not(feature = "storage_hdf5")))]
-    let server = DaqServer::new(run_engine_instance.clone())?;
+    let server = DaqServer::new(run_engine_instance.clone(), standalone_token)?;
     #[cfg(all(not(feature = "scripting"), feature = "storage_hdf5"))]
     let server = DaqServer::new(None)?;
     #[cfg(all(not(feature = "scripting"), not(feature = "storage_hdf5")))]
@@ -1172,6 +1215,7 @@ pub async fn start_server_with_hardware(
     addr: std::net::SocketAddr,
     registry: std::sync::Arc<hardware::registry::DeviceRegistry>,
     health_monitor: std::sync::Arc<common::health::SystemHealthMonitor>,
+    shutdown_token: CancellationToken,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::grpc::hardware_service::HardwareServiceImpl;
     use crate::grpc::module_service::ModuleServiceImpl;
@@ -1259,11 +1303,11 @@ pub async fn start_server_with_hardware(
     // Initialize control server WITHOUT internal RingBuffer logic (we wire it manually)
     // Pass shared run_engine for script execution (bd-si2c)
     #[cfg(all(feature = "storage_hdf5", feature = "scripting"))]
-    let control_server = DaqServer::new(None, run_engine.clone())?;
+    let control_server = DaqServer::new(None, run_engine.clone(), shutdown_token.clone())?;
     #[cfg(all(feature = "storage_hdf5", not(feature = "scripting")))]
     let control_server = DaqServer::new(None)?;
     #[cfg(all(not(feature = "storage_hdf5"), feature = "scripting"))]
-    let control_server = DaqServer::new(run_engine.clone())?;
+    let control_server = DaqServer::new(run_engine.clone(), shutdown_token.clone())?;
     #[cfg(all(not(feature = "storage_hdf5"), not(feature = "scripting")))]
     let control_server = DaqServer::new()?;
 
@@ -1609,7 +1653,13 @@ pub async fn start_server_with_hardware(
         }
     };
 
-    server_builder.serve(bind_addr).await?;
+    // SAFETY (bd-1afe.12): Use serve_with_shutdown so the daemon can trigger graceful
+    // server termination. When shutdown_token is cancelled, the server stops accepting
+    // new connections and drains existing RPCs. The reaper task in DaqServer concurrently
+    // aborts running scripts to prevent commands on disconnected hardware.
+    server_builder
+        .serve_with_shutdown(bind_addr, shutdown_token.cancelled())
+        .await?;
 
     Ok(())
 }
@@ -1624,13 +1674,14 @@ mod tests {
     fn create_test_server() -> DaqServer {
         let registry = std::sync::Arc::new(hardware::registry::DeviceRegistry::new());
         let run_engine = std::sync::Arc::new(experiment::RunEngine::new(registry));
+        let token = CancellationToken::new();
         #[cfg(feature = "storage_hdf5")]
         {
-            DaqServer::new(None, run_engine).expect("failed to create test DaqServer")
+            DaqServer::new(None, run_engine, token).expect("failed to create test DaqServer")
         }
         #[cfg(not(feature = "storage_hdf5"))]
         {
-            DaqServer::new(run_engine).expect("failed to create test DaqServer")
+            DaqServer::new(run_engine, token).expect("failed to create test DaqServer")
         }
     }
 
