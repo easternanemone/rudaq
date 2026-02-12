@@ -342,6 +342,15 @@ impl<T: Send + 'static> Pool<T> {
     ///
     /// Uses an `IndexGuard` to ensure the slot index and semaphore permit are
     /// always recovered, even if `reset_fn` panics during unwind (bd-qa36.6.4).
+    ///
+    /// # Panic Recovery
+    ///
+    /// If `reset_fn` panics, the slot is returned to the pool with its contents
+    /// in a potentially partially-reset state. This is acceptable because:
+    /// - Pool capacity is preserved (no permanent leak)
+    /// - For frame buffers (the primary use case), the next user overwrites all data
+    /// - The warning log allows operators to detect and fix broken reset functions
+    /// - Memory safety is maintained regardless of content state
     fn release(&self, idx: usize) {
         /// RAII guard that returns a slot index and semaphore permit on drop.
         /// Ensures pool capacity is never permanently leaked by a panicking reset_fn.
