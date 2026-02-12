@@ -55,6 +55,12 @@
 //! `release()` restores the permit via `semaphore.add_permits(1)`. The RAII
 //! `IndexGuard` ensures permits are restored even if `reset_fn` panics.
 //!
+//! **INV-6: Index validity and free-list integrity**
+//! `free_indices` contains only valid indices `< slots.len()`. Indices are added
+//! only by `new()` (0..size) and `grow()` (old_size..new_size), both of which
+//! ensure validity. No duplicates exist because each index enters `free_indices`
+//! exactly once (at creation or on release) and is removed exactly once (on acquire).
+//!
 //! # Example
 //!
 //! ```
@@ -387,7 +393,21 @@ impl<T: Send + 'static> Pool<T> {
     /// - For frame buffers (the primary use case), the next user overwrites all data
     /// - The warning log allows operators to detect and fix broken reset functions
     /// - Memory safety is maintained regardless of content state
+    ///
+    /// # Warning: reset_fn reentrancy
+    ///
+    /// The `reset_fn` is called while the pool's RwLock is held (read lock). The
+    /// reset function must NOT call back into the pool (e.g., `acquire`, `release`,
+    /// `grow`), as this would deadlock or violate internal invariants.
     fn release(&self, idx: usize) {
+        // INV-6: Verify index is within bounds (debug-only, zero cost in release)
+        debug_assert!(
+            idx < self.current_size.load(Ordering::Acquire),
+            "release called with out-of-bounds index {} (size {})",
+            idx,
+            self.current_size.load(Ordering::Acquire),
+        );
+
         /// RAII guard that returns a slot index and semaphore permit on drop.
         /// Ensures pool capacity is never permanently leaked by a panicking reset_fn.
         struct IndexGuard<'a, U> {
@@ -482,9 +502,10 @@ pub struct Loaned<T: Send + 'static> {
 }
 
 // SAFETY: Loaned<T> is Send because:
-// 1. We have exclusive access to our slot via semaphore (no concurrent mutation)
-// 2. T: Send allows the value to be transferred between threads
-// 3. The raw pointer is derived from pool slots which outlive this Loaned
+// - INV-1: Semaphore permit grants exclusive slot access (no concurrent mutation)
+// - INV-2: Box indirection means the cached pointer survives Vec reallocation
+// - INV-3: Arc<Pool<T>> keeps slots alive, so the pointer outlives this Loaned
+// - T: Send allows the value to be transferred between threads
 unsafe impl<T: Send + 'static> Send for Loaned<T> {}
 
 // SAFETY: Loaned<T> is Sync only when T: Sync because:
@@ -966,7 +987,11 @@ mod tests {
         should_panic.store(false, Ordering::SeqCst);
 
         // Both slots should still be available (no permanent leak)
-        assert_eq!(pool.available(), 2, "pool leaked a slot after reset_fn panic");
+        assert_eq!(
+            pool.available(),
+            2,
+            "pool leaked a slot after reset_fn panic"
+        );
 
         // Verify we can still acquire both slots
         let _a = pool.acquire().await;
@@ -1413,25 +1438,42 @@ async fn test_grow_while_loaned_items_held() {
 // tokio::sync::Semaphore have no loom-compatible replacements.
 // =========================================================================
 
-/// INV-1: Verify no two tasks ever observe the same slot index.
+/// INV-1: Verify no two tasks ever hold the same slot index simultaneously.
+///
+/// Uses per-slot AtomicU64 ownership markers to detect actual overlapping access,
+/// not just post-hoc availability counts.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_acquire_release_no_duplicate_slots() {
-    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
-    let pool = Pool::new(4, || 0u64, None::<fn(&mut u64)>);
-    let seen_indices: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
+    const POOL_SIZE: usize = 4;
+    let pool = Pool::new(POOL_SIZE, || 0u64, None::<fn(&mut u64)>);
+
+    // Per-slot ownership markers: 0 = free, non-zero = owning task id
+    let owners: Arc<Vec<AtomicU64>> = Arc::new((0..POOL_SIZE).map(|_| AtomicU64::new(0)).collect());
+    let violation_count = Arc::new(AtomicU64::new(0));
 
     let mut handles = Vec::new();
-    for _ in 0..8 {
+    for task_id in 1..=8u64 {
         let p = pool.clone();
-        let seen = seen_indices.clone();
+        let owners = owners.clone();
+        let violations = violation_count.clone();
         handles.push(tokio::spawn(async move {
             for _ in 0..100 {
                 let loan = p.acquire().await;
                 let idx = loan.slot_index();
-                seen.lock().unwrap().push(idx);
-                // Hold briefly to create contention
+
+                // Claim ownership — previous value must be 0 (free)
+                let prev = owners[idx].swap(task_id, Ordering::SeqCst);
+                if prev != 0 {
+                    violations.fetch_add(1, Ordering::SeqCst);
+                }
+
+                // Hold briefly to widen the race window
                 tokio::task::yield_now().await;
+
+                // Release ownership before returning to pool
+                owners[idx].store(0, Ordering::SeqCst);
                 drop(loan);
             }
         }));
@@ -1441,7 +1483,11 @@ async fn concurrent_acquire_release_no_duplicate_slots() {
         h.await.unwrap();
     }
 
-    // All indices should be < pool size and pool should not have leaked
+    assert_eq!(
+        violation_count.load(Ordering::SeqCst),
+        0,
+        "INV-1 violated: two tasks held the same slot simultaneously"
+    );
     assert_eq!(pool.available(), pool.size());
 }
 
@@ -1486,7 +1532,11 @@ async fn concurrent_grow_does_not_invalidate_pointers() {
     assert!(pool.size() > 2, "pool should have grown");
     drop(loan_a);
     drop(loan_b);
-    assert_eq!(pool.available(), pool.size(), "all slots should be returned");
+    assert_eq!(
+        pool.available(),
+        pool.size(),
+        "all slots should be returned"
+    );
 }
 
 /// INV-5: Verify permits and indices stay coupled under high churn.
@@ -1528,12 +1578,13 @@ async fn concurrent_panic_recovery_preserves_capacity() {
 
     let should_panic = Arc::new(AtomicBool::new(true));
     let sp = should_panic.clone();
-    let pool = Pool::new_with_reset(4, || 0u64, move |_| {
-        assert!(
-            !sp.load(Ordering::SeqCst),
-            "intentional reset_fn panic"
-        );
-    });
+    let pool = Pool::new_with_reset(
+        4,
+        || 0u64,
+        move |_| {
+            assert!(!sp.load(Ordering::SeqCst), "intentional reset_fn panic");
+        },
+    );
 
     // Acquire and drop items — each drop will panic in reset_fn
     // IndexGuard should recover the slot regardless
