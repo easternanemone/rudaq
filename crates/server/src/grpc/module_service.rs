@@ -1191,14 +1191,13 @@ impl ModuleService for ModuleServiceImpl {
     ) -> Result<Response<ModuleConfig>, Status> {
         let req = request.into_inner();
         let modules = self.stub_modules.read().await;
-        let registry = self.device_registry.read().await;
 
         if let Some(module) = modules.get(&req.module_id) {
             let assignments: Vec<DeviceAssignment> = module
                 .assignments
                 .iter()
                 .map(|(role_id, device_id)| {
-                    let device_info = registry.get_device_info(device_id);
+                    let device_info = self.device_registry.get_device_info(device_id);
                     DeviceAssignment {
                         role_id: role_id.clone(),
                         device_id: device_id.clone(),
@@ -1232,8 +1231,11 @@ impl ModuleService for ModuleServiceImpl {
         let req = request.into_inner();
 
         {
-            let registry = self.device_registry.read().await;
-            if registry.get_device_info(&req.device_id).is_none() {
+            if self
+                .device_registry
+                .get_device_info(&req.device_id)
+                .is_none()
+            {
                 return Ok(Response::new(AssignDeviceResponse {
                     success: false,
                     error_message: format!("Device not found: {}", req.device_id),
@@ -1318,14 +1320,13 @@ impl ModuleService for ModuleServiceImpl {
     ) -> Result<Response<ListAssignmentsResponse>, Status> {
         let req = request.into_inner();
         let modules = self.stub_modules.read().await;
-        let registry = self.device_registry.read().await;
 
         if let Some(module) = modules.get(&req.module_id) {
             let assignments: Vec<DeviceAssignment> = module
                 .assignments
                 .iter()
                 .map(|(role_id, device_id)| {
-                    let device_info = registry.get_device_info(device_id);
+                    let device_info = self.device_registry.get_device_info(device_id);
                     DeviceAssignment {
                         role_id: role_id.clone(),
                         device_id: device_id.clone(),
