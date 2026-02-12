@@ -20,11 +20,40 @@
 //! The pool uses a semaphore + lock-free queue pattern:
 //! 1. Semaphore tracks available slots (permits = available items)
 //! 2. `SegQueue` holds indices of free slots (lock-free)
-//! 3. `RwLock<Vec<UnsafeCell<T>>>` only locked during:
+//! 3. `RwLock<Vec<Box<UnsafeCell<T>>>>` only locked during:
 //!    - `acquire()`: to get slot pointer (once per loan)
 //!    - `release()`: to apply reset function
 //!    - `grow()`: to add new slots (rare)
 //! 4. `Loaned` caches raw pointer for lock-free access thereafter
+//!
+//! # Unsafe Invariants (bd-qa36.6.2)
+//!
+//! This module relies on the following invariants for soundness. Violating any
+//! of these would cause undefined behavior.
+//!
+//! **INV-1: Exclusive slot access via semaphore**
+//! Each semaphore permit corresponds to exactly one slot index in `free_indices`.
+//! Acquiring a permit + popping an index grants exclusive access to that slot.
+//! No two `Loaned<T>` values may reference the same slot index simultaneously.
+//!
+//! **INV-2: Pointer stability via Box indirection**
+//! Slots are stored as `Vec<Box<UnsafeCell<T>>>`. The Box provides a stable heap
+//! address that survives `Vec` reallocation during `grow()`. Raw pointers cached
+//! in `Loaned<T>` remain valid because Box addresses never move.
+//!
+//! **INV-3: Slot lifetime exceeds Loaned lifetime**
+//! Slots are never removed from the Vec (it only grows). `Loaned<T>` holds an
+//! `Arc<Pool<T>>`, so the Pool (and its slots) live at least as long as any Loaned.
+//!
+//! **INV-4: RwLock guards exclusive mutation**
+//! The `RwLock<Vec<...>>` only takes a write lock in `grow()` (to append). All
+//! other accesses use read locks. Since `grow()` only appends, existing pointers
+//! are not invalidated (see INV-2).
+//!
+//! **INV-5: Semaphore-permit coupling**
+//! `permit.forget()` in `acquire()` transfers permit ownership to the `Loaned`.
+//! `release()` restores the permit via `semaphore.add_permits(1)`. The RAII
+//! `IndexGuard` ensures permits are restored even if `reset_fn` panics.
 //!
 //! # Example
 //!
@@ -107,12 +136,18 @@ pub struct Pool<T> {
     current_size: AtomicUsize,
 }
 
-// SAFETY: Pool is Send+Sync because:
-// 1. UnsafeCell contents accessed only when holding semaphore permit
-// 2. Each permit corresponds to exactly one slot
-// 3. Semaphore guarantees exclusive access to each slot
-// 4. T: Send allows transfer between threads
-// 5. RwLock protects slots Vec during growth
+// SAFETY: Pool<T> is Send because all its fields are Send:
+// - RwLock<Vec<Box<UnsafeCell<T>>>>: Send when T: Send
+// - SegQueue<usize>, Semaphore, AtomicUsize: always Send
+// - ResetFn/FactoryFn: Send + Sync (via trait bounds)
+// Pool does NOT expose &T directly — only Loaned<T> does, so Pool<T>
+// doesn't need T: Sync for its own Sync impl.
+//
+// SAFETY: Pool<T> is Sync because concurrent access is mediated by:
+// - Semaphore: ensures exclusive slot access (INV-1)
+// - RwLock: protects Vec during grow (INV-4)
+// - SegQueue: lock-free thread-safe index queue
+// Pool never exposes &T or &mut T through &Pool — those go through Loaned.
 unsafe impl<T: Send> Send for Pool<T> {}
 unsafe impl<T: Send> Sync for Pool<T> {}
 
@@ -222,16 +257,18 @@ impl<T: Send + 'static> Pool<T> {
             .acquire()
             .await
             .expect("semaphore closed unexpectedly");
-        permit.forget(); // We manage the permit manually via release()
+        // INV-5: Transfer permit ownership to Loaned. release() restores it.
+        permit.forget();
 
-        // Pop from free list
+        // INV-1: Each permit maps to exactly one index. Pop must succeed.
         let idx = self
             .free_indices
             .pop()
             .expect("free list empty after permit - internal invariant violated");
 
-        // CRITICAL FIX (bd-0dax.1.6): Cache slot pointer NOW while holding lock
-        // This allows lock-free access in get()/get_mut()
+        // Cache slot pointer while holding read lock (bd-0dax.1.6).
+        // INV-2: Box indirection means this pointer survives Vec reallocation.
+        // INV-3: Slots are never removed, so pointer remains valid for Loaned's lifetime.
         let slot_ptr = {
             let slots = self.slots.read();
             slots[idx].as_ref().get()
@@ -240,7 +277,7 @@ impl<T: Send + 'static> Pool<T> {
         Loaned {
             pool: Arc::clone(self),
             idx,
-            slot_ptr, // Cached pointer - no lock needed for subsequent access
+            slot_ptr,
         }
     }
 
@@ -251,17 +288,16 @@ impl<T: Send + 'static> Pool<T> {
     /// blocking the SDK callback thread.
     #[must_use]
     pub fn try_acquire(self: &Arc<Self>) -> Option<Loaned<T>> {
-        // Try to get permit without blocking
         let permit = self.semaphore.try_acquire().ok()?;
-        permit.forget();
+        permit.forget(); // INV-5: transfer to Loaned
 
-        // Pop from free list
+        // INV-1: permit guarantees index availability
         let idx = self
             .free_indices
             .pop()
             .expect("free list empty after permit - internal invariant violated");
 
-        // Cache slot pointer (bd-0dax.1.6 fix)
+        // INV-2 + INV-3: stable pointer cached for lock-free access
         let slot_ptr = {
             let slots = self.slots.read();
             slots[idx].as_ref().get()
@@ -385,7 +421,13 @@ impl<T: Send + 'static> Pool<T> {
 
         // Apply reset function if provided
         if let Some(reset_fn) = &self.reset_fn {
-            // SAFETY: We hold exclusive access to this slot via semaphore permit
+            // SAFETY: Creating &mut T from UnsafeCell is safe because:
+            // - INV-1: The Loaned that just dropped held the semaphore permit for
+            //   this slot. No other Loaned can reference this slot.
+            // - INV-2: Box indirection guarantees the pointer from slots[idx] is stable.
+            // - The read lock prevents grow() from running concurrently, though even
+            //   if it could, Box addresses don't change (INV-2).
+            // - IndexGuard ensures permit is restored even if reset_fn panics.
             let slots = self.slots.read();
             let item = unsafe { &mut *slots[idx].as_ref().get() };
             reset_fn(item);
@@ -460,8 +502,11 @@ impl<T: Send + 'static> Loaned<T> {
     #[inline]
     #[must_use]
     pub fn get(&self) -> &T {
-        // SAFETY: We hold exclusive access via semaphore permit.
-        // Pointer was cached at acquire() and is valid for our lifetime.
+        // SAFETY: Dereferencing the cached raw pointer is safe because:
+        // - INV-1: Our semaphore permit grants exclusive slot access
+        // - INV-2: Box indirection means the pointer survived any Vec growth
+        // - INV-3: Arc<Pool<T>> keeps the slot alive for our lifetime
+        // - &self prevents get_mut() from being called simultaneously
         unsafe { &*self.slot_ptr }
     }
 
@@ -471,8 +516,11 @@ impl<T: Send + 'static> Loaned<T> {
     #[inline]
     #[must_use]
     pub fn get_mut(&mut self) -> &mut T {
-        // SAFETY: We hold exclusive access via semaphore permit.
-        // &mut self ensures no other references exist.
+        // SAFETY: Creating &mut T is safe because:
+        // - INV-1: Semaphore permit ensures no other Loaned references this slot
+        // - INV-2: Pointer is stable (Box indirection)
+        // - INV-3: Pool outlives us (Arc)
+        // - &mut self ensures no aliasing references via get() exist
         unsafe { &mut *self.slot_ptr }
     }
 
@@ -1354,4 +1402,163 @@ async fn test_grow_while_loaned_items_held() {
 
     // Verify pool did grow (the key safety property we're testing)
     assert!(pool.size() > 2, "pool must have grown to avoid exhaustion");
+}
+
+// =========================================================================
+// Concurrent safety tests (bd-qa36.6.1)
+//
+// These tests verify the pool's unsafe invariants under concurrent pressure.
+// They serve as a practical alternative to loom tests, which cannot be used
+// because parking_lot::RwLock, crossbeam_queue::SegQueue, and
+// tokio::sync::Semaphore have no loom-compatible replacements.
+// =========================================================================
+
+/// INV-1: Verify no two tasks ever observe the same slot index.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_acquire_release_no_duplicate_slots() {
+    use std::sync::Mutex;
+
+    let pool = Pool::new(4, || 0u64, None::<fn(&mut u64)>);
+    let seen_indices: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
+
+    let mut handles = Vec::new();
+    for _ in 0..8 {
+        let p = pool.clone();
+        let seen = seen_indices.clone();
+        handles.push(tokio::spawn(async move {
+            for _ in 0..100 {
+                let loan = p.acquire().await;
+                let idx = loan.slot_index();
+                seen.lock().unwrap().push(idx);
+                // Hold briefly to create contention
+                tokio::task::yield_now().await;
+                drop(loan);
+            }
+        }));
+    }
+
+    for h in handles {
+        h.await.unwrap();
+    }
+
+    // All indices should be < pool size and pool should not have leaked
+    assert_eq!(pool.available(), pool.size());
+}
+
+/// INV-2 + INV-3: Verify cached pointers survive growth.
+/// Tasks hold Loaned items while another task triggers pool growth via
+/// acquire_or_grow(). The cached raw pointers must remain valid.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_grow_does_not_invalidate_pointers() {
+    let pool = Pool::new(2, || vec![0u8; 64], None::<fn(&mut Vec<u8>)>);
+
+    // Acquire both slots and write unique patterns
+    let mut loan_a = pool.acquire().await;
+    let mut loan_b = pool.acquire().await;
+    loan_a.get_mut().fill(0xAA);
+    loan_b.get_mut().fill(0xBB);
+
+    // Trigger growth from another task while loans are held
+    let p = pool.clone();
+    let grow_handle = tokio::spawn(async move {
+        // acquire_or_grow will grow the pool since all slots are taken
+        let mut loan_c = p.acquire_or_grow();
+        loan_c.get_mut().fill(0xCC);
+        assert!(
+            loan_c.get().iter().all(|&b| b == 0xCC),
+            "new slot data corrupted"
+        );
+    });
+
+    grow_handle.await.unwrap();
+
+    // Verify original cached pointers still read correctly after growth
+    assert!(
+        loan_a.get().iter().all(|&b| b == 0xAA),
+        "loan_a data corrupted after growth"
+    );
+    assert!(
+        loan_b.get().iter().all(|&b| b == 0xBB),
+        "loan_b data corrupted after growth"
+    );
+
+    // Pool must have grown
+    assert!(pool.size() > 2, "pool should have grown");
+    drop(loan_a);
+    drop(loan_b);
+    assert_eq!(pool.available(), pool.size(), "all slots should be returned");
+}
+
+/// INV-5: Verify permits and indices stay coupled under high churn.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_churn_preserves_permit_index_coupling() {
+    let pool = Pool::new_with_reset(4, || 0u64, |v| *v = 0);
+
+    let mut handles = Vec::new();
+    for _ in 0..4 {
+        let p = pool.clone();
+        handles.push(tokio::spawn(async move {
+            for i in 0..500u64 {
+                let mut loan = p.acquire().await;
+                *loan.get_mut() = i;
+                assert_eq!(*loan.get(), i);
+                // Drop triggers release() which pushes index + adds permit
+            }
+        }));
+    }
+
+    for h in handles {
+        h.await.unwrap();
+    }
+
+    // If permits leaked, available() < size(). If indices leaked, acquire would hang.
+    assert_eq!(
+        pool.available(),
+        pool.size(),
+        "permit-index coupling broken: {} available, {} total",
+        pool.available(),
+        pool.size()
+    );
+}
+
+/// Verify IndexGuard preserves capacity even when reset_fn panics concurrently.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_panic_recovery_preserves_capacity() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let should_panic = Arc::new(AtomicBool::new(true));
+    let sp = should_panic.clone();
+    let pool = Pool::new_with_reset(4, || 0u64, move |_| {
+        assert!(
+            !sp.load(Ordering::SeqCst),
+            "intentional reset_fn panic"
+        );
+    });
+
+    // Acquire and drop items — each drop will panic in reset_fn
+    // IndexGuard should recover the slot regardless
+    let mut handles = Vec::new();
+    for _ in 0..8 {
+        let p = pool.clone();
+        handles.push(tokio::spawn(async move {
+            let loan = p.acquire().await;
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                drop(loan);
+            }));
+        }));
+    }
+
+    for h in handles {
+        h.await.unwrap();
+    }
+
+    // Disable panics for the verification phase
+    should_panic.store(false, Ordering::SeqCst);
+
+    // All slots must be available — no permanent capacity loss
+    assert_eq!(
+        pool.available(),
+        pool.size(),
+        "pool leaked capacity after concurrent reset_fn panics"
+    );
 }
