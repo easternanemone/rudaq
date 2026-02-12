@@ -23,6 +23,7 @@ use experiment::RunEngine;
 use hardware::registry::DeviceRegistry;
 use server::grpc::DaqServer;
 use storage::ring_buffer::RingBuffer;
+use tokio_util::sync::CancellationToken;
 
 #[tokio::test]
 async fn daq_server_new_smoke() {
@@ -35,8 +36,9 @@ async fn daq_server_new_smoke() {
     {
         let registry = Arc::new(DeviceRegistry::new());
         let run_engine = Arc::new(RunEngine::new(registry));
-        let _server =
-            DaqServer::new(Some(ring_buffer), run_engine).expect("Failed to create DaqServer");
+        let token = CancellationToken::new();
+        let _server = DaqServer::new(Some(ring_buffer), run_engine, token)
+            .expect("Failed to create DaqServer");
     }
     #[cfg(not(feature = "scripting"))]
     {

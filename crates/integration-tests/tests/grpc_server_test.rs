@@ -14,19 +14,21 @@ use server::grpc::{
 };
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 use tonic::{Request, Response, Status};
 
 /// Create a test DaqServer with a mock RunEngine (bd-si2c)
 fn create_test_server() -> DaqServer {
     let registry = Arc::new(DeviceRegistry::new());
     let run_engine = Arc::new(RunEngine::new(registry));
+    let token = CancellationToken::new();
     #[cfg(feature = "storage_hdf5")]
     {
-        DaqServer::new(None, run_engine).expect("failed to create test DaqServer")
+        DaqServer::new(None, run_engine, token).expect("failed to create test DaqServer")
     }
     #[cfg(not(feature = "storage_hdf5"))]
     {
-        DaqServer::new(run_engine).expect("failed to create test DaqServer")
+        DaqServer::new(run_engine, token).expect("failed to create test DaqServer")
     }
 }
 

@@ -5639,6 +5639,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-test",
+ "tokio-util",
  "toml 0.9.11+spec-1.1.0",
  "tonic 0.10.2",
  "tracing",
