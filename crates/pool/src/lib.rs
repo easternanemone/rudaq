@@ -132,6 +132,7 @@ lazy_static! {
 
 /// Error type for pool operations that can fail.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum PoolError {
     /// Pool has reached its configured maximum capacity and cannot grow further.
     CapacityExhausted {
@@ -408,7 +409,10 @@ impl<T: Send + 'static> Pool<T> {
         };
 
         #[cfg(feature = "metrics")]
-        POOL_ACQUIRE_TOTAL.inc();
+        {
+            POOL_ACQUIRE_TOTAL.inc();
+            POOL_AVAILABLE.dec();
+        }
 
         Loaned {
             pool: Arc::clone(self),
@@ -440,7 +444,10 @@ impl<T: Send + 'static> Pool<T> {
         };
 
         #[cfg(feature = "metrics")]
-        POOL_ACQUIRE_TOTAL.inc();
+        {
+            POOL_ACQUIRE_TOTAL.inc();
+            POOL_AVAILABLE.dec();
+        }
 
         Some(Loaned {
             pool: Arc::clone(self),
@@ -486,6 +493,12 @@ impl<T: Send + 'static> Pool<T> {
             slots[idx].as_ref().get()
         };
 
+        #[cfg(feature = "metrics")]
+        {
+            POOL_ACQUIRE_TOTAL.inc();
+            POOL_AVAILABLE.dec();
+        }
+
         Some(Loaned {
             pool: Arc::clone(self),
             idx,
@@ -513,18 +526,34 @@ impl<T: Send + 'static> Pool<T> {
     /// - Can be called directly for fire-and-forget acquire patterns where
     ///   blocking on the semaphore is unacceptable.
     fn acquire_or_grow(self: &Arc<Self>) -> Result<Loaned<T>, PoolError> {
+        // Fast path: try without growing
         if let Some(loaned) = self.try_acquire() {
             return Ok(loaned);
         }
 
-        // Grow by doubling or at least 8 slots
-        let current = self.current_size.load(Ordering::Acquire);
-        let grow_count = current.max(8);
-        self.grow(grow_count)?;
+        // Slow path: grow and retry. Loop because another thread may consume
+        // the new slots between grow() returning and our try_acquire() call.
+        loop {
+            let current = self.current_size.load(Ordering::Acquire);
+            let grow_count = current.max(8);
 
-        Ok(self
-            .try_acquire()
-            .expect("acquire failed after grow - internal invariant violated"))
+            match self.grow(grow_count) {
+                Ok(_) => {
+                    if let Some(loaned) = self.try_acquire() {
+                        return Ok(loaned);
+                    }
+                    // Another thread consumed new slots before us — retry growth
+                }
+                Err(e) => {
+                    // Max capacity reached. One final try_acquire in case a slot
+                    // was released while we attempted to grow.
+                    if let Some(loaned) = self.try_acquire() {
+                        return Ok(loaned);
+                    }
+                    return Err(e);
+                }
+            }
+        }
     }
 
     /// Release an item back to the pool.
@@ -605,6 +634,9 @@ impl<T: Send + 'static> Pool<T> {
         // Mark clean exit — guard will still return the slot on drop
         guard.clean = true;
         // guard drops here, pushing idx back to free_indices and releasing permit
+
+        #[cfg(feature = "metrics")]
+        POOL_AVAILABLE.inc();
     }
 
     /// Get the total size of the pool.
