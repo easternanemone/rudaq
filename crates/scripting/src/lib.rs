@@ -21,6 +21,7 @@ pub mod comedi_bindings;
 pub mod engine;
 #[cfg(feature = "generic_driver")]
 pub mod generic_driver_bindings;
+pub mod path_security;
 pub mod plan_bindings;
 pub mod rhai_engine;
 pub mod script_runner;
