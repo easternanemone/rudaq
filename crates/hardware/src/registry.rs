@@ -1053,10 +1053,12 @@ impl DeviceRegistry {
             None => return Ok(false),
         };
 
-        // Check if device is actually faulted
-        let is_faulted = self
-            .device_health
-            .get(device_id)
+        // Snapshot the current health state so we can preserve restart_attempts
+        // across the unregister/re-register cycle (review fix: counter was lost).
+        let prev_health = self.device_health.get(device_id).map(|s| s.clone());
+
+        let is_faulted = prev_health
+            .as_ref()
             .map(|s| s.health == common::health::DeviceHealth::Faulted)
             .unwrap_or(false);
 
@@ -1064,23 +1066,35 @@ impl DeviceRegistry {
             return Ok(false);
         }
 
-        // Mark as recovering
+        // Mark as recovering (increments restart_attempts in the snapshot)
         if let Some(mut state) = self.device_health.get_mut(device_id) {
             state.mark_recovering();
         }
 
+        // Re-snapshot after mark_recovering so we have the updated restart_attempts
+        let preserved_health = self.device_health.get(device_id).map(|s| s.clone());
+
         tracing::info!(
             device_id = %device_id,
             driver_type = %device_config.driver.driver_type,
+            restart_attempt = preserved_health.as_ref().map_or(0, |s| s.restart_attempts),
             "Attempting device restart"
         );
 
-        // Unregister the faulted device (runs on_unregister lifecycle)
+        // Unregister the faulted device (runs on_unregister lifecycle).
+        // This removes both the device entry and device_health entry.
         let _ = self.unregister(device_id).await;
 
-        // Re-register via factory (this re-initializes health state to Healthy)
+        // Re-register via factory
         match self.register(device_config.clone()).await {
             Ok(()) => {
+                // Success: restore restart_attempts on the fresh health state
+                // so the supervisor can still track the cumulative count.
+                if let Some(prev) = &preserved_health {
+                    if let Some(mut new_state) = self.device_health.get_mut(device_id) {
+                        new_state.restart_attempts = prev.restart_attempts;
+                    }
+                }
                 tracing::info!(device_id = %device_id, "Device restart successful");
                 Ok(true)
             }
@@ -1090,9 +1104,10 @@ impl DeviceRegistry {
                     error = %e,
                     "Device restart failed"
                 );
-                // Re-insert a faulted health state (register removed the old one on unregister)
-                let mut state = common::health::DeviceHealthState::new();
-                state.record_failure(e.to_string(), 1); // immediately faulted
+                // Restore the preserved health state with updated failure info.
+                // This keeps restart_attempts, consecutive_failures, etc. intact.
+                let mut state = preserved_health.unwrap_or_default();
+                state.record_failure(e.to_string(), 1); // keep it faulted
                 self.device_health.insert(device_id.to_string(), state);
                 Err(e)
             }

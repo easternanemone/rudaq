@@ -100,7 +100,8 @@ impl DeviceHealthState {
             return base_delay;
         }
         let exp = (self.restart_attempts - 1).min(10); // cap exponent to avoid overflow
-        let delay = base_delay.saturating_mul(1u32.wrapping_shl(exp));
+        let multiplier = 1u32.checked_shl(exp).unwrap_or(1024);
+        let delay = base_delay.saturating_mul(multiplier);
         delay.min(max_delay)
     }
 }
