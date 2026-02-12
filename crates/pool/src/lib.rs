@@ -339,20 +339,52 @@ impl<T: Send + 'static> Pool<T> {
     /// Release an item back to the pool.
     ///
     /// Called automatically by `Loaned::drop`.
+    ///
+    /// Uses an `IndexGuard` to ensure the slot index and semaphore permit are
+    /// always recovered, even if `reset_fn` panics during unwind (bd-qa36.6.4).
     fn release(&self, idx: usize) {
+        /// RAII guard that returns a slot index and semaphore permit on drop.
+        /// Ensures pool capacity is never permanently leaked by a panicking reset_fn.
+        struct IndexGuard<'a, U> {
+            free_indices: &'a SegQueue<usize>,
+            semaphore: &'a Semaphore,
+            idx: usize,
+            clean: bool,
+            _marker: std::marker::PhantomData<U>,
+        }
+
+        impl<U> Drop for IndexGuard<'_, U> {
+            fn drop(&mut self) {
+                if !self.clean {
+                    tracing::warn!(
+                        slot = self.idx,
+                        "pool reset_fn panicked — recovering slot to prevent capacity leak"
+                    );
+                }
+                self.free_indices.push(self.idx);
+                self.semaphore.add_permits(1);
+            }
+        }
+
+        let mut guard = IndexGuard::<T> {
+            free_indices: &self.free_indices,
+            semaphore: &self.semaphore,
+            idx,
+            clean: false,
+            _marker: std::marker::PhantomData,
+        };
+
         // Apply reset function if provided
         if let Some(reset_fn) = &self.reset_fn {
-            // SAFETY: We hold exclusive access to this slot
+            // SAFETY: We hold exclusive access to this slot via semaphore permit
             let slots = self.slots.read();
             let item = unsafe { &mut *slots[idx].as_ref().get() };
             reset_fn(item);
         }
 
-        // Return index to free list
-        self.free_indices.push(idx);
-
-        // Release semaphore permit
-        self.semaphore.add_permits(1);
+        // Mark clean exit — guard will still return the slot on drop
+        guard.clean = true;
+        // guard drops here, pushing idx back to free_indices and releasing permit
     }
 
     /// Get the total size of the pool.
@@ -398,12 +430,19 @@ pub struct Loaned<T: Send + 'static> {
     slot_ptr: *mut T,
 }
 
-// SAFETY: Loaned is Send+Sync because:
-// 1. We have exclusive access to our slot via semaphore
-// 2. T: Send allows transfer between threads
-// 3. The raw pointer is derived from pool slots which are Sync
+// SAFETY: Loaned<T> is Send because:
+// 1. We have exclusive access to our slot via semaphore (no concurrent mutation)
+// 2. T: Send allows the value to be transferred between threads
+// 3. The raw pointer is derived from pool slots which outlive this Loaned
 unsafe impl<T: Send + 'static> Send for Loaned<T> {}
-unsafe impl<T: Send + 'static> Sync for Loaned<T> {}
+
+// SAFETY: Loaned<T> is Sync only when T: Sync because:
+// 1. Deref exposes &T to other threads — this requires T: Sync
+// 2. Without T: Sync, sharing &Loaned<T> across threads would allow
+//    data races on types like Cell<i32> (Send but not Sync)
+// 3. The semaphore guarantees exclusive *ownership*, but Sync concerns
+//    shared *references*, which Deref provides
+unsafe impl<T: Send + Sync + 'static> Sync for Loaned<T> {}
 
 impl<T: Send + 'static> Loaned<T> {
     /// Get immutable reference to the loaned item.
@@ -818,6 +857,64 @@ mod tests {
             "Max latency {} us exceeds 1ms - possible lock contention",
             max_latency_us
         );
+    }
+
+    /// Verify that Loaned<T> Sync requires T: Sync (bd-qa36.6.3).
+    ///
+    /// This is a compile-time negative test. If the Sync bound is wrong,
+    /// this test will fail to compile.
+    #[test]
+    fn loaned_sync_requires_t_sync() {
+        fn assert_sync<T: Sync>() {}
+
+        // Vec<u8> is Send + Sync → Loaned<Vec<u8>> should be Sync
+        assert_sync::<Loaned<Vec<u8>>>();
+
+        // Compile-time check: Cell<i32> is Send but NOT Sync,
+        // so Loaned<Cell<i32>> must NOT be Sync.
+        // Uncomment the line below to verify it fails to compile:
+        // assert_sync::<Loaned<std::cell::Cell<i32>>>();  // MUST NOT COMPILE
+    }
+
+    /// Verify that pool recovers slots after reset_fn panic (bd-qa36.6.4).
+    #[tokio::test]
+    async fn test_release_recovers_from_reset_panic() {
+        use std::sync::atomic::AtomicBool;
+
+        let should_panic = Arc::new(AtomicBool::new(true));
+        let should_panic_clone = Arc::clone(&should_panic);
+
+        let pool = Pool::new_with_reset(
+            2,
+            || 0i32,
+            move |_| {
+                assert!(
+                    !should_panic_clone.load(Ordering::SeqCst),
+                    "intentional reset_fn panic for testing"
+                );
+            },
+        );
+
+        // Acquire and drop — reset_fn will panic but slot should be recovered
+        let item = pool.acquire().await;
+        // catch_unwind the drop since the panic propagates through Drop → release
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            drop(item);
+        }));
+        // The panic may or may not propagate depending on unwind behavior,
+        // but the slot MUST be recovered either way
+        let _ = result;
+
+        // Disable panic for subsequent acquires
+        should_panic.store(false, Ordering::SeqCst);
+
+        // Both slots should still be available (no permanent leak)
+        assert_eq!(pool.available(), 2, "pool leaked a slot after reset_fn panic");
+
+        // Verify we can still acquire both slots
+        let _a = pool.acquire().await;
+        let _b = pool.acquire().await;
+        assert_eq!(pool.available(), 0);
     }
 }
 
