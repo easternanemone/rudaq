@@ -127,9 +127,12 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
             common::error::DriverErrorKind::NotFound => {
                 status_with_metadata(Code::NotFound, err.to_string(), "driver", Some(err))
             }
-            common::error::DriverErrorKind::Safety => {
-                status_with_metadata(Code::Aborted, err.to_string(), "driver", Some(err))
-            }
+            common::error::DriverErrorKind::Safety => status_with_metadata(
+                Code::FailedPrecondition,
+                err.to_string(),
+                "driver",
+                Some(err),
+            ),
             common::error::DriverErrorKind::Shutdown | common::error::DriverErrorKind::Unknown => {
                 status_with_metadata(Code::Internal, err.to_string(), "driver", Some(err))
             }

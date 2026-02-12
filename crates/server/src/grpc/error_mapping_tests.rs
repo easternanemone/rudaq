@@ -162,13 +162,13 @@ mod tests {
         }
 
         #[test]
-        fn driver_safety_maps_to_aborted() {
+        fn driver_safety_maps_to_failed_precondition() {
             let err = DaqError::Driver(DriverError::new(
                 "laser",
                 DriverErrorKind::Safety,
                 "interlock open",
             ));
-            assert_status_code(err, Code::Aborted);
+            assert_status_code(err, Code::FailedPrecondition);
         }
     }
 

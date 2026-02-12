@@ -402,7 +402,7 @@ impl RunEngine {
 fn now_ns() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("System clock should not be before UNIX epoch")
+        .unwrap_or_default()
         .as_nanos() as u64
 }
 
