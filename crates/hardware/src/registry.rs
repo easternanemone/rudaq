@@ -410,6 +410,9 @@ pub struct DeviceRegistry {
 
     /// Registration failures for debugging (device_id, driver_type, error_message)
     registration_failures: DashMap<DeviceId, RegistrationFailure>,
+
+    /// Per-device health tracking for supervisor (bd-qa36.4.2)
+    device_health: DashMap<DeviceId, common::health::DeviceHealthState>,
 }
 
 /// Information about a failed device registration
@@ -486,6 +489,7 @@ impl DeviceRegistry {
             #[cfg(feature = "serial")]
             plugin_factory: Arc::new(RwLock::new(crate::plugin::registry::PluginFactory::new())),
             registration_failures: DashMap::new(),
+            device_health: DashMap::new(),
         }
     }
 
@@ -499,6 +503,7 @@ impl DeviceRegistry {
             factories: DashMap::new(),
             plugin_factory,
             registration_failures: DashMap::new(),
+            device_health: DashMap::new(),
         }
     }
 
@@ -726,6 +731,10 @@ impl DeviceRegistry {
         );
 
         self.devices.insert(device_id.to_string(), registered);
+        self.device_health.insert(
+            device_id.to_string(),
+            common::health::DeviceHealthState::new(),
+        );
         tracing::info!(device_id = %device_id, "Device registered successfully");
         Ok(())
     }
@@ -867,8 +876,10 @@ impl DeviceRegistry {
                 .await;
             return Err(err);
         }
-        self.devices
-            .insert(registered.config.id.clone(), registered);
+        let device_id = registered.config.id.clone();
+        self.devices.insert(device_id.clone(), registered);
+        self.device_health
+            .insert(device_id, common::health::DeviceHealthState::new());
         Ok(())
     }
 
@@ -884,6 +895,7 @@ impl DeviceRegistry {
     /// This method is thread-safe and can be called concurrently.
     pub async fn unregister(&self, id: &str) -> Result<bool, DaqError> {
         if let Some((_, device)) = self.devices.remove(id) {
+            self.device_health.remove(id);
             let driver_type = device.driver_type.clone();
             self.run_on_unregister(&device.config.id, &driver_type, device.lifecycle.as_ref())
                 .await?;
@@ -975,6 +987,116 @@ impl DeviceRegistry {
     /// Clear all registration failures (e.g., after user acknowledges)
     pub fn clear_registration_failures(&self) {
         self.registration_failures.clear();
+    }
+
+    // =========================================================================
+    // Device Health (bd-qa36.4.2)
+    // =========================================================================
+
+    /// Report a device failure to the health tracker.
+    ///
+    /// Increments consecutive failures and transitions to Degraded/Faulted
+    /// based on the threshold (default: 3 consecutive failures → Faulted).
+    pub fn report_device_failure(&self, device_id: &str, error: impl Into<String>) {
+        if let Some(mut state) = self.device_health.get_mut(device_id) {
+            state.record_failure(error, 3);
+            tracing::warn!(
+                device_id = %device_id,
+                health = %state.health,
+                consecutive_failures = state.consecutive_failures,
+                "Device failure recorded"
+            );
+        }
+    }
+
+    /// Report a successful device operation, resetting failure counters.
+    pub fn report_device_success(&self, device_id: &str) {
+        if let Some(mut state) = self.device_health.get_mut(device_id) {
+            state.record_success();
+        }
+    }
+
+    /// Get the health state for a specific device.
+    pub fn get_device_health(&self, device_id: &str) -> Option<common::health::DeviceHealthState> {
+        self.device_health.get(device_id).map(|s| s.clone())
+    }
+
+    /// Get health states for all devices.
+    pub fn list_device_health(&self) -> Vec<(DeviceId, common::health::DeviceHealthState)> {
+        self.device_health
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect()
+    }
+
+    /// Get device IDs that are in Faulted state.
+    pub fn faulted_devices(&self) -> Vec<DeviceId> {
+        self.device_health
+            .iter()
+            .filter(|entry| entry.value().health == common::health::DeviceHealth::Faulted)
+            .map(|entry| entry.key().clone())
+            .collect()
+    }
+
+    /// Attempt to restart a faulted device by unregistering and re-registering via factory.
+    ///
+    /// Transitions the device to Recovering, then rebuilds it from the original
+    /// config using the registered factory. On success, transitions to Healthy.
+    /// On failure, transitions back to Faulted with updated error.
+    ///
+    /// Returns Ok(true) if restart succeeded, Ok(false) if device not found or not faulted,
+    /// Err if the restart itself encountered an error.
+    pub async fn restart_device(&self, device_id: &str) -> Result<bool, DaqError> {
+        // Get the device config before removing it
+        let device_config = match self.devices.get(device_id) {
+            Some(d) => d.config.clone(),
+            None => return Ok(false),
+        };
+
+        // Check if device is actually faulted
+        let is_faulted = self
+            .device_health
+            .get(device_id)
+            .map(|s| s.health == common::health::DeviceHealth::Faulted)
+            .unwrap_or(false);
+
+        if !is_faulted {
+            return Ok(false);
+        }
+
+        // Mark as recovering
+        if let Some(mut state) = self.device_health.get_mut(device_id) {
+            state.mark_recovering();
+        }
+
+        tracing::info!(
+            device_id = %device_id,
+            driver_type = %device_config.driver.driver_type,
+            "Attempting device restart"
+        );
+
+        // Unregister the faulted device (runs on_unregister lifecycle)
+        let _ = self.unregister(device_id).await;
+
+        // Re-register via factory (this re-initializes health state to Healthy)
+        match self.register(device_config.clone()).await {
+            Ok(()) => {
+                tracing::info!(device_id = %device_id, "Device restart successful");
+                Ok(true)
+            }
+            Err(e) => {
+                tracing::error!(
+                    device_id = %device_id,
+                    error = %e,
+                    "Device restart failed"
+                );
+                // Re-insert a faulted health state (register removed the old one on unregister)
+                let mut state = common::health::DeviceHealthState::new();
+                state.record_failure(e.to_string(), 1); // immediately faulted
+                self.device_health.insert(device_id.to_string(), state);
+                Err(e)
+            }
+        }
     }
 
     /// Get device info by ID

@@ -1510,15 +1510,16 @@ pub async fn start_server_with_hardware(
         ScanServiceImpl::new(registry.clone())
     };
 
-    let preset_server = PresetServiceImpl::new(registry, default_preset_storage_path());
+    let preset_server = PresetServiceImpl::new(registry.clone(), default_preset_storage_path());
     let storage_server = StorageServiceImpl::new(ring_buffer.clone(), storage_settings);
 
     // Standard gRPC Health Check (grpc.health.v1)
     let standard_health_service = crate::grpc::health_service::HealthServiceImpl::new();
 
-    // Custom System Health Monitoring    // Custom health service with monitoring
+    // Custom System Health Monitoring (with per-device health via bd-qa36.4.3)
     let custom_health_service =
-        crate::grpc::custom_health_service::HealthServiceImpl::new(health_monitor);
+        crate::grpc::custom_health_service::HealthServiceImpl::new(health_monitor)
+            .with_registry(registry.clone());
 
     // Register serving status for all services
     standard_health_service.set_serving_status("", ServingStatus::Serving);

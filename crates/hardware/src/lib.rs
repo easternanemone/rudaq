@@ -55,6 +55,7 @@ pub mod plugin;
 pub mod port_resolver;
 pub mod registry;
 pub mod resource_pool;
+pub mod supervisor;
 
 pub use capabilities::*;
 pub use registry::{

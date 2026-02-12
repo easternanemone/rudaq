@@ -16,7 +16,9 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use common::health::watchdog::{HardwareWatchdog, WatchdogConfig};
 use hardware::registry::DeviceRegistry;
+use hardware::supervisor::{run_device_supervisor, SupervisorConfig};
 use scripting::shutter_safety::ShutterRegistry;
 use server::health::sys_monitor::SystemMetricsCollector;
 use server::health::{HealthMonitorConfig, SystemHealthMonitor};
@@ -91,6 +93,10 @@ pub struct DaemonInstance {
     shutdown_token: CancellationToken,
     metrics_task: JoinHandle<()>,
     registry_monitor_task: JoinHandle<()>,
+    /// Hardware watchdog — fires emergency shutdown if the daemon loop hangs (bd-qa36.4.1).
+    watchdog: Option<HardwareWatchdog>,
+    /// Device supervisor — restarts faulted devices with exponential backoff (bd-qa36.4.2).
+    supervisor_task: JoinHandle<()>,
     #[cfg(feature = "networking")]
     server_task: JoinHandle<Result<(), anyhow::Error>>,
     #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
@@ -216,6 +222,18 @@ impl DaemonInstance {
         println!("   Emergency shutdown will activate on panic (shutters + motors + DAQ)");
         println!();
 
+        // --- Phase: Hardware Watchdog (bd-qa36.4.1) ---
+        // Separate OS thread monitors daemon liveness. If the tokio runtime hangs
+        // (deadlock, blocking call, etc.), the watchdog fires emergency shutdown.
+        println!("🐕 Starting hardware watchdog...");
+        let (watchdog, wd_kicker) = HardwareWatchdog::start(WatchdogConfig::default(), || {
+            // Emergency action runs on the watchdog's OS thread.
+            // ShutterRegistry handles its own runtime bridging internally.
+            ShutterRegistry::emergency_close_all();
+        });
+        println!("   Timeout: 30s (kicks from registry monitor task)");
+        println!();
+
         // --- Phase: Registry Monitoring ---
         let mon_registry = registry.clone();
         let mon_health = health.clone();
@@ -223,6 +241,8 @@ impl DaemonInstance {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
             loop {
                 interval.tick().await;
+                // Kick the hardware watchdog — proves the tokio runtime is responsive
+                wd_kicker.kick();
                 let count = mon_registry.len();
                 mon_health
                     .heartbeat_with_message(
@@ -236,6 +256,14 @@ impl DaemonInstance {
         // --- Phase: Shutdown Token (bd-1afe.12) ---
         // CancellationToken enables graceful server shutdown + script abort before hardware teardown.
         let shutdown_token = CancellationToken::new();
+
+        // --- Phase: Device Supervisor (bd-qa36.4.2) ---
+        // Periodically checks for faulted devices and attempts restart with backoff.
+        let sup_registry = registry.clone();
+        let sup_token = shutdown_token.clone();
+        let supervisor_task = tokio::spawn(async move {
+            run_device_supervisor(sup_registry, SupervisorConfig::default(), sup_token).await;
+        });
 
         // --- Phase: gRPC Server ---
         #[cfg(feature = "networking")]
@@ -272,6 +300,8 @@ impl DaemonInstance {
             shutdown_token,
             metrics_task,
             registry_monitor_task,
+            watchdog: Some(watchdog),
+            supervisor_task,
             #[cfg(feature = "networking")]
             server_task,
             #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
@@ -301,6 +331,14 @@ impl DaemonInstance {
     /// 4. **Cleanup** — abort monitoring tasks
     pub async fn shutdown(mut self) -> Result<()> {
         println!("   Initiating graceful shutdown...");
+
+        // Disarm the hardware watchdog FIRST — prevent false emergency during
+        // intentional shutdown (the registry_monitor_task will be aborted below,
+        // which would stop kicking the watchdog).
+        if let Some(watchdog) = self.watchdog.take() {
+            watchdog.stop();
+            println!("   ✓ Hardware watchdog disarmed");
+        }
 
         // Helper to record phases in test builds
         #[cfg(test)]
@@ -377,6 +415,8 @@ impl DaemonInstance {
         }
 
         // Cleanup auxiliary tasks
+        // Supervisor exits via CancellationToken (already cancelled above), but abort as safety net
+        self.supervisor_task.abort();
         self.registry_monitor_task.abort();
         self.metrics_task.abort();
 
