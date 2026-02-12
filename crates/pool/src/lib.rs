@@ -95,12 +95,67 @@ pub use frame_data::FrameData;
 use crossbeam_queue::SegQueue;
 use parking_lot::RwLock;
 use std::cell::UnsafeCell;
+use std::fmt;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
 use tracing::{error, warn};
+
+#[cfg(feature = "metrics")]
+use lazy_static::lazy_static;
+#[cfg(feature = "metrics")]
+use prometheus::{register_int_counter, register_int_gauge, IntCounter, IntGauge};
+
+#[cfg(feature = "metrics")]
+lazy_static! {
+    static ref POOL_AVAILABLE: IntGauge = register_int_gauge!(
+        "pool_available",
+        "Current number of available items in the generic pool"
+    )
+    .expect("Failed to register pool_available");
+    static ref POOL_TOTAL_CAPACITY: IntGauge = register_int_gauge!(
+        "pool_total_capacity",
+        "Total number of slots in the generic pool"
+    )
+    .expect("Failed to register pool_total_capacity");
+    static ref POOL_ACQUIRE_TOTAL: IntCounter = register_int_counter!(
+        "pool_acquire_total",
+        "Total number of pool acquire operations"
+    )
+    .expect("Failed to register pool_acquire_total");
+    static ref POOL_GROW_TOTAL: IntCounter =
+        register_int_counter!("pool_grow_total", "Total number of pool grow events")
+            .expect("Failed to register pool_grow_total");
+}
+
+/// Error type for pool operations that can fail.
+#[derive(Debug, Clone)]
+pub enum PoolError {
+    /// Pool has reached its configured maximum capacity and cannot grow further.
+    CapacityExhausted {
+        /// Current number of slots in the pool.
+        current: usize,
+        /// Configured maximum slot count.
+        max: usize,
+    },
+}
+
+impl fmt::Display for PoolError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PoolError::CapacityExhausted { current, max } => {
+                write!(
+                    f,
+                    "pool capacity exhausted: {current} slots allocated (max {max})"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for PoolError {}
 
 /// Type alias for reset function used when returning items to the pool.
 type ResetFn<T> = Box<dyn Fn(&mut T) + Send + Sync>;
@@ -140,6 +195,9 @@ pub struct Pool<T> {
     initial_size: usize,
     /// Current total size (atomic for lock-free reads)
     current_size: AtomicUsize,
+    /// Maximum pool size (None = unbounded). When set, `grow()` will refuse
+    /// to exceed this limit, returning `PoolError::CapacityExhausted`.
+    max_size: Option<usize>,
 }
 
 // SAFETY: Pool<T> is Send because all its fields are Send:
@@ -172,7 +230,38 @@ impl<T: Send + 'static> Pool<T> {
         F: Fn() -> T + Send + Sync + 'static,
         R: Fn(&mut T) + Send + Sync + 'static,
     {
+        Self::with_max_size(size, None, factory, reset)
+    }
+
+    /// Create a new pool with an upper bound on growth.
+    ///
+    /// # Arguments
+    /// - `size`: Initial number of items to pre-allocate (must be > 0)
+    /// - `max_size`: Maximum total slots. `None` = unbounded. When set, `grow()`
+    ///   will refuse to exceed this limit and `acquire_or_grow()` returns
+    ///   `Err(PoolError::CapacityExhausted)`.
+    /// - `factory`: Function that creates a new instance of T
+    /// - `reset`: Optional function to reset T when returned to pool
+    ///
+    /// # Panics
+    /// Panics if `size` is 0 or if `max_size` is set and less than `size`.
+    pub fn with_max_size<F, R>(
+        size: usize,
+        max_size: Option<usize>,
+        factory: F,
+        reset: Option<R>,
+    ) -> Arc<Self>
+    where
+        F: Fn() -> T + Send + Sync + 'static,
+        R: Fn(&mut T) + Send + Sync + 'static,
+    {
         assert!(size > 0, "pool size must be greater than 0");
+        if let Some(max) = max_size {
+            assert!(
+                max >= size,
+                "max_size ({max}) must be >= initial size ({size})"
+            );
+        }
 
         // Pre-allocate all slots
         let slots: Vec<Box<UnsafeCell<T>>> = (0..size)
@@ -185,7 +274,7 @@ impl<T: Send + 'static> Pool<T> {
             free_indices.push(i);
         }
 
-        Arc::new(Self {
+        let pool = Arc::new(Self {
             slots: RwLock::new(slots),
             free_indices,
             semaphore: Semaphore::new(size),
@@ -193,7 +282,13 @@ impl<T: Send + 'static> Pool<T> {
             factory: Arc::new(factory),
             initial_size: size,
             current_size: AtomicUsize::new(size),
-        })
+            max_size,
+        });
+
+        #[cfg(feature = "metrics")]
+        Self::update_metrics(&pool);
+
+        pool
     }
 
     /// Create a new pool without a reset function.
@@ -213,12 +308,35 @@ impl<T: Send + 'static> Pool<T> {
         Self::new(size, factory, Some(reset))
     }
 
+    #[cfg(feature = "metrics")]
+    fn update_metrics(pool: &Self) {
+        POOL_AVAILABLE.set(pool.semaphore.available_permits() as i64);
+        POOL_TOTAL_CAPACITY.set(pool.current_size.load(Ordering::Relaxed) as i64);
+    }
+
     /// Grow the pool by adding new slots.
     ///
     /// Called automatically when pool exhausted. Logs an error to indicate backpressure.
-    fn grow(&self, count: usize) {
+    ///
+    /// Returns `Ok(actual_added)` on success, or `Err(PoolError::CapacityExhausted)`
+    /// if `max_size` is set and would be exceeded (no slots are added in that case).
+    fn grow(&self, count: usize) -> Result<usize, PoolError> {
         let mut slots = self.slots.write();
         let old_size = slots.len();
+
+        // Clamp growth to max_size if configured
+        let count = if let Some(max) = self.max_size {
+            if old_size >= max {
+                return Err(PoolError::CapacityExhausted {
+                    current: old_size,
+                    max,
+                });
+            }
+            count.min(max - old_size)
+        } else {
+            count
+        };
+
         let new_size = old_size + count;
 
         error!(
@@ -226,6 +344,7 @@ impl<T: Send + 'static> Pool<T> {
             old_size,
             new_size,
             initial_size = self.initial_size,
+            max_size = ?self.max_size,
             "Pool exhausted! Growing pool. This indicates backpressure - \
              frames produced faster than consumed."
         );
@@ -245,6 +364,14 @@ impl<T: Send + 'static> Pool<T> {
 
         // Add permits for new slots
         self.semaphore.add_permits(count);
+
+        #[cfg(feature = "metrics")]
+        {
+            POOL_GROW_TOTAL.inc();
+            POOL_TOTAL_CAPACITY.set(new_size as i64);
+        }
+
+        Ok(count)
     }
 
     /// Acquire an item from the pool, blocking if none available.
@@ -280,6 +407,9 @@ impl<T: Send + 'static> Pool<T> {
             slots[idx].as_ref().get()
         };
 
+        #[cfg(feature = "metrics")]
+        POOL_ACQUIRE_TOTAL.inc();
+
         Loaned {
             pool: Arc::clone(self),
             idx,
@@ -308,6 +438,9 @@ impl<T: Send + 'static> Pool<T> {
             let slots = self.slots.read();
             slots[idx].as_ref().get()
         };
+
+        #[cfg(feature = "metrics")]
+        POOL_ACQUIRE_TOTAL.inc();
 
         Some(Loaned {
             pool: Arc::clone(self),
@@ -362,20 +495,36 @@ impl<T: Send + 'static> Pool<T> {
 
     /// Acquire an item, growing the pool if necessary.
     ///
-    /// Unlike `try_acquire`, this will grow the pool if exhausted.
-    /// Use sparingly - pool growth indicates backpressure issues.
-    fn acquire_or_grow(self: &Arc<Self>) -> Loaned<T> {
+    /// Unlike `try_acquire`, this will grow the pool if exhausted. Returns
+    /// `Err(PoolError::CapacityExhausted)` if `max_size` is configured and
+    /// the pool is already at capacity.
+    ///
+    /// # Blocking behavior
+    ///
+    /// This method does NOT block on the semaphore. It first attempts a
+    /// non-blocking `try_acquire`. If that fails, it calls `grow()` to add
+    /// new slots and tries again. The only scenario where it blocks is
+    /// briefly on the `RwLock` write lock during `grow()`.
+    ///
+    /// # When is this called?
+    ///
+    /// - Internally by `Clone for Loaned<T>` when the pool is exhausted
+    ///   (clone needs a new slot but none are available).
+    /// - Can be called directly for fire-and-forget acquire patterns where
+    ///   blocking on the semaphore is unacceptable.
+    fn acquire_or_grow(self: &Arc<Self>) -> Result<Loaned<T>, PoolError> {
         if let Some(loaned) = self.try_acquire() {
-            return loaned;
+            return Ok(loaned);
         }
 
         // Grow by doubling or at least 8 slots
         let current = self.current_size.load(Ordering::Acquire);
         let grow_count = current.max(8);
-        self.grow(grow_count);
+        self.grow(grow_count)?;
 
-        self.try_acquire()
-            .expect("acquire failed after grow - internal invariant violated")
+        Ok(self
+            .try_acquire()
+            .expect("acquire failed after grow - internal invariant violated"))
     }
 
     /// Release an item back to the pool.
@@ -474,6 +623,12 @@ impl<T: Send + 'static> Pool<T> {
     #[must_use]
     pub fn initial_size(&self) -> usize {
         self.initial_size
+    }
+
+    /// Get the configured maximum size, if any.
+    #[must_use]
+    pub fn max_size(&self) -> Option<usize> {
+        self.max_size
     }
 }
 
@@ -598,14 +753,19 @@ impl<T: Send + 'static> DerefMut for Loaned<T> {
 impl<T: Clone + Send + 'static> Clone for Loaned<T> {
     /// Clone the loaned item into a new pool slot.
     ///
-    /// If the pool is exhausted, it will automatically grow and log an error.
+    /// If the pool is exhausted, it will automatically grow. Panics if the
+    /// pool has reached its `max_size` limit and cannot grow further.
     fn clone(&self) -> Self {
         if let Some(cloned) = self.try_clone() {
             return cloned;
         }
 
-        // Slow path: grow pool and clone
-        let mut new_loan = self.pool.acquire_or_grow();
+        // Slow path: grow pool and clone. Panic on capacity exhaustion because
+        // Clone::clone cannot return an error.
+        let mut new_loan = self
+            .pool
+            .acquire_or_grow()
+            .expect("pool capacity exhausted during clone — consider increasing max_size");
         *new_loan.get_mut() = self.get().clone();
         new_loan
     }
@@ -997,6 +1157,40 @@ mod tests {
         let _a = pool.acquire().await;
         let _b = pool.acquire().await;
         assert_eq!(pool.available(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_max_size_prevents_unbounded_growth() {
+        let pool = Pool::with_max_size(2, Some(4), || 0u64, None::<fn(&mut u64)>);
+        assert_eq!(pool.max_size(), Some(4));
+
+        // Exhaust pool
+        let _a = pool.acquire().await;
+        let _b = pool.acquire().await;
+
+        // First grow should succeed (2 → 4, within max)
+        let result = pool.acquire_or_grow();
+        assert!(result.is_ok());
+        let _c = result.unwrap();
+        // Pool grew to 4 (clamped by max_size from the requested 8)
+
+        // Exhaust remaining slot
+        let _d = pool.try_acquire().expect("should have one more slot");
+
+        // Next grow should fail — already at max
+        match pool.acquire_or_grow() {
+            Ok(_) => panic!("expected CapacityExhausted error"),
+            Err(PoolError::CapacityExhausted { current, max }) => {
+                assert_eq!(current, 4);
+                assert_eq!(max, 4);
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "max_size (1) must be >= initial size (2)")]
+    fn test_max_size_less_than_initial_panics() {
+        let _ = Pool::with_max_size(2, Some(1), || 0u64, None::<fn(&mut u64)>);
     }
 }
 
@@ -1400,7 +1594,9 @@ async fn test_grow_while_loaned_items_held() {
     // Pool is now exhausted - next acquire will trigger grow()
     // This grow() will reallocate the Vec, which would invalidate
     // item1 and item2's cached pointers if they pointed into the Vec directly.
-    let mut item3 = pool.acquire_or_grow();
+    let mut item3 = pool
+        .acquire_or_grow()
+        .expect("grow should succeed for unbounded pool");
     item3[0] = 126;
 
     // Verify the original items' data is still accessible
@@ -1508,7 +1704,7 @@ async fn concurrent_grow_does_not_invalidate_pointers() {
     let p = pool.clone();
     let grow_handle = tokio::spawn(async move {
         // acquire_or_grow will grow the pool since all slots are taken
-        let mut loan_c = p.acquire_or_grow();
+        let mut loan_c = p.acquire_or_grow().expect("grow should succeed");
         loan_c.get_mut().fill(0xCC);
         assert!(
             loan_c.get().iter().all(|&b| b == 0xCC),
