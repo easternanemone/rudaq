@@ -191,6 +191,9 @@ pub struct DaqServer {
     #[cfg(feature = "scripting")]
     /// Persistent journal for script crash recovery (bd-izdj.7)
     script_journal: Arc<crate::script_journal::ScriptJournal>,
+    #[cfg(feature = "scripting")]
+    /// Token used to reject new script starts during shutdown (bd-1afe.12 race fix).
+    shutdown_token: CancellationToken,
     start_time: SystemTime,
 
     /// Broadcast channel for distributing hardware measurements to multiple consumers.
@@ -370,6 +373,8 @@ impl DaqServer {
             run_engine,
             #[cfg(feature = "scripting")]
             script_journal,
+            #[cfg(feature = "scripting")]
+            shutdown_token,
             start_time: SystemTime::now(),
             data_tx,
             #[cfg(feature = "storage_hdf5")]
@@ -434,6 +439,7 @@ impl DaqServer {
             running_tasks,
             run_engine,
             script_journal,
+            shutdown_token,
             start_time: SystemTime::now(),
             data_tx,
         })
@@ -652,6 +658,12 @@ impl ControlService for DaqServer {
             tracing::warn!(execution_id = %execution_id, "Failed to journal script start: {}", e);
         }
 
+        // SAFETY (bd-1afe.12): Reject new scripts if shutdown is in progress.
+        // Without this check, a script could start after the reaper has already fired.
+        if self.shutdown_token.is_cancelled() {
+            return Err(Status::unavailable("Server is shutting down"));
+        }
+
         // Execute script via ScriptPlanRunner using shared RunEngine (bd-si2c)
         // This ensures all yielded plans emit Documents and coordinate with gRPC services
         let script_clone = script.clone();
@@ -662,6 +674,10 @@ impl ControlService for DaqServer {
         let exec_id_for_cleanup = execution_id.clone();
         let journal_clone = self.script_journal.clone();
 
+        // SAFETY (bd-1afe.12): Acquire write lock BEFORE spawning the task.
+        // This closes the race window where the reaper could fire between
+        // tokio::spawn and running_tasks.insert, missing the new task.
+        let mut tasks = self.running_tasks.write().await;
         let handle = tokio::spawn(async move {
             // Create a ScriptPlanRunner with the shared RunEngine
             let runner = ScriptPlanRunner::new(run_engine_clone);
@@ -711,12 +727,8 @@ impl ControlService for DaqServer {
                 .await
                 .remove(&exec_id_for_cleanup);
         });
-
-        // Store handle for potential cancellation
-        self.running_tasks
-            .write()
-            .await
-            .insert(execution_id.clone(), handle);
+        tasks.insert(execution_id.clone(), handle);
+        drop(tasks);
 
         Ok(Response::new(StartResponse {
             started: true,
