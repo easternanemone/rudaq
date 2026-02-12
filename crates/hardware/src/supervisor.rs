@@ -28,6 +28,9 @@ pub struct SupervisorConfig {
     /// Maximum restart attempts before giving up on a device.
     /// Set to 0 for unlimited attempts.
     pub max_restart_attempts: u32,
+    /// Consecutive failures before a device transitions to Faulted.
+    /// Applied to the registry when the supervisor starts.
+    pub fault_threshold: u32,
 }
 
 impl Default for SupervisorConfig {
@@ -37,6 +40,7 @@ impl Default for SupervisorConfig {
             base_backoff: Duration::from_secs(2),
             max_backoff: Duration::from_secs(120),
             max_restart_attempts: 5,
+            fault_threshold: 3,
         }
     }
 }
@@ -60,9 +64,13 @@ pub async fn run_device_supervisor(
     config: SupervisorConfig,
     cancel: CancellationToken,
 ) {
+    // Apply fault threshold to registry so report_device_failure uses it
+    registry.set_fault_threshold(config.fault_threshold);
+
     tracing::info!(
         check_interval_secs = config.check_interval.as_secs(),
         max_restart_attempts = config.max_restart_attempts,
+        fault_threshold = config.fault_threshold,
         "Device supervisor started"
     );
 
@@ -157,6 +165,7 @@ mod tests {
         assert_eq!(config.base_backoff, Duration::from_secs(2));
         assert_eq!(config.max_backoff, Duration::from_secs(120));
         assert_eq!(config.max_restart_attempts, 5);
+        assert_eq!(config.fault_threshold, 3);
     }
 
     #[tokio::test]

@@ -209,13 +209,31 @@ impl HardwareWatchdog {
     /// Stop the watchdog thread gracefully.
     ///
     /// Disarms the watchdog and sends a wake-up kick so the thread exits
-    /// without waiting for the full timeout period.
+    /// without waiting for the full timeout period. Uses a bounded wait
+    /// (5 seconds) to avoid blocking indefinitely if the emergency action hangs.
     pub fn stop(mut self) {
         self.disarmed.store(true, Ordering::SeqCst);
         // Wake the thread so it sees the disarmed flag immediately
         let _ = self.kick_tx.try_send(());
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            // Use a bounded wait to avoid blocking forever if the thread hangs
+            // (e.g., emergency_action is stuck). Spawn a helper thread that
+            // performs the join, then wait on it with a timeout via channel.
+            let (done_tx, done_rx) = std::sync::mpsc::sync_channel::<()>(1);
+            std::thread::Builder::new()
+                .name("daq-watchdog-join".into())
+                .spawn(move || {
+                    let _ = thread.join();
+                    let _ = done_tx.send(());
+                })
+                .expect("Failed to spawn watchdog join helper");
+
+            match done_rx.recv_timeout(Duration::from_secs(5)) {
+                Ok(()) => {}
+                Err(_) => {
+                    tracing::warn!("Watchdog thread did not exit within 5s — detaching");
+                }
+            }
         }
     }
 }

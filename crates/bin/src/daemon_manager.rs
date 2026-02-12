@@ -335,6 +335,14 @@ impl DaemonInstance {
         // Disarm the hardware watchdog FIRST — prevent false emergency during
         // intentional shutdown (the registry_monitor_task will be aborted below,
         // which would stop kicking the watchdog).
+        //
+        // DESIGN NOTE (bd-qa36.4.7): There is a small window between
+        // watchdog.stop() returning and shutdown_token.cancel() being called
+        // below. During this window, a new fault could in theory trigger an
+        // action that races with shutdown. This is acceptable because:
+        //   1. The watchdog is disarmed, so it won't fire false emergencies.
+        //   2. The supervisor is still running but will be cancelled momentarily.
+        //   3. The window is sub-millisecond in practice (sequential code).
         if let Some(watchdog) = self.watchdog.take() {
             watchdog.stop();
             println!("   ✓ Hardware watchdog disarmed");

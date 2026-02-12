@@ -87,6 +87,7 @@ use crate::plugin::driver::GenericDriver;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 #[cfg(feature = "serial")]
 use tokio::sync::RwLock;
@@ -413,6 +414,10 @@ pub struct DeviceRegistry {
 
     /// Per-device health tracking for supervisor (bd-qa36.4.2)
     device_health: DashMap<DeviceId, common::health::DeviceHealthState>,
+
+    /// Consecutive failures before transitioning to Faulted (default: 3).
+    /// Configurable via [`set_fault_threshold`](DeviceRegistry::set_fault_threshold).
+    fault_threshold: AtomicU32,
 }
 
 /// Information about a failed device registration
@@ -490,6 +495,7 @@ impl DeviceRegistry {
             plugin_factory: Arc::new(RwLock::new(crate::plugin::registry::PluginFactory::new())),
             registration_failures: DashMap::new(),
             device_health: DashMap::new(),
+            fault_threshold: AtomicU32::new(3),
         }
     }
 
@@ -504,6 +510,7 @@ impl DeviceRegistry {
             plugin_factory,
             registration_failures: DashMap::new(),
             device_health: DashMap::new(),
+            fault_threshold: AtomicU32::new(3),
         }
     }
 
@@ -993,13 +1000,26 @@ impl DeviceRegistry {
     // Device Health (bd-qa36.4.2)
     // =========================================================================
 
+    /// Set the consecutive-failure threshold before a device transitions to Faulted.
+    ///
+    /// Default is 3. Set to 1 for fail-fast behavior.
+    pub fn set_fault_threshold(&self, threshold: u32) {
+        self.fault_threshold.store(threshold, Ordering::Relaxed);
+    }
+
+    /// Get the current fault threshold.
+    pub fn fault_threshold(&self) -> u32 {
+        self.fault_threshold.load(Ordering::Relaxed)
+    }
+
     /// Report a device failure to the health tracker.
     ///
     /// Increments consecutive failures and transitions to Degraded/Faulted
-    /// based on the threshold (default: 3 consecutive failures → Faulted).
+    /// based on the configured fault threshold (default: 3).
     pub fn report_device_failure(&self, device_id: &str, error: impl Into<String>) {
+        let threshold = self.fault_threshold.load(Ordering::Relaxed);
         if let Some(mut state) = self.device_health.get_mut(device_id) {
-            state.record_failure(error, 3);
+            state.record_failure(error, threshold);
             tracing::warn!(
                 device_id = %device_id,
                 health = %state.health,
@@ -1081,9 +1101,40 @@ impl DeviceRegistry {
             "Attempting device restart"
         );
 
-        // Unregister the faulted device (runs on_unregister lifecycle).
-        // This removes both the device entry and device_health entry.
-        let _ = self.unregister(device_id).await;
+        // Quiesce: Remove the device from the registry and run on_unregister
+        // lifecycle to give it a chance to clean up (close shutters, stop motors)
+        // before rebuilding. This is best-effort — we continue even if it fails.
+        // NOTE: We intentionally keep the device_health entry (Recovering status)
+        // so the device remains visible in health queries during the restart window.
+        // Capture metadata before removal so we can reconstruct on failure.
+        let old_driver_type = self
+            .devices
+            .get(device_id)
+            .map(|d| d.driver_type.clone())
+            .unwrap_or_else(|| device_config.driver.driver_type.clone());
+        let old_metadata = self
+            .devices
+            .get(device_id)
+            .map(|d| d.metadata.clone())
+            .unwrap_or_default();
+
+        if let Some((_, old_device)) = self.devices.remove(device_id) {
+            let driver_type = old_device.driver_type.clone();
+            if let Err(e) = self
+                .run_on_unregister(
+                    &old_device.config.id,
+                    &driver_type,
+                    old_device.lifecycle.as_ref(),
+                )
+                .await
+            {
+                tracing::warn!(
+                    device_id = %device_id,
+                    error = %e,
+                    "Quiesce (on_unregister) failed during restart — continuing"
+                );
+            }
+        }
 
         // Re-register via factory
         match self.register(device_config.clone()).await {
@@ -1106,9 +1157,38 @@ impl DeviceRegistry {
                 );
                 // Restore the preserved health state with updated failure info.
                 // This keeps restart_attempts, consecutive_failures, etc. intact.
+                let threshold = self.fault_threshold.load(Ordering::Relaxed);
                 let mut state = preserved_health.unwrap_or_default();
-                state.record_failure(e.to_string(), 1); // keep it faulted
+                state.record_failure(e.to_string(), threshold);
                 self.device_health.insert(device_id.to_string(), state);
+
+                // Re-insert a stub device entry so the supervisor can retry.
+                // Without this, the config is lost and the device becomes
+                // permanently unreachable (devices map empty, health shows Faulted).
+                self.devices.insert(
+                    device_id.to_string(),
+                    RegisteredDevice {
+                        config: device_config,
+                        driver_type: old_driver_type,
+                        movable: None,
+                        readable: None,
+                        triggerable: None,
+                        frame_producer: None,
+                        source_frame: None,
+                        exposure_control: None,
+                        settable: None,
+                        stageable: None,
+                        commandable: None,
+                        parameterized: None,
+                        parameter_metadata: HashMap::new(),
+                        shutter_control: None,
+                        emission_control: None,
+                        wavelength_tunable: None,
+                        lifecycle: None,
+                        metadata: old_metadata,
+                    },
+                );
+
                 Err(e)
             }
         }
