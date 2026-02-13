@@ -89,6 +89,24 @@ maitai = [
     "hardware/serial"              # Serial port base
 ]
 
+# ============================================================================
+# LEABS LAB PROFILE - LASER ENERGY ASSISTED BREAKDOWN SPECTROSCOPY
+# ============================================================================
+# Build: cargo build --release -p bin --features leabs
+#
+# Enabled drivers:
+#   - andor (mock)        : Andor iStar sCMOS (mock mode, SDK not installed)
+#   - universal drivers   : IPG laser (TCP), Thorlabs PM400 (TCP)
+#
+# Expected devices (3):
+#   1. ipg_laser (IPG YLPP-200-1-50-R fiber laser)
+#   2. istar_camera (Andor iStar sCMOS, mock)
+#   3. power_meter (Thorlabs PM400)
+# ============================================================================
+leabs = [
+    "hardware/andor",              # Andor iStar (mock mode)
+]
+
 [lints]
 workspace = true
 

@@ -175,6 +175,7 @@ impl DriverFactory for UniversalDriverFactory {
                         host,
                         port,
                         timeout,
+                        terminator,
                     } => {
                         let host = instance.host.as_deref().unwrap_or(host.as_str());
                         Box::new(
@@ -182,6 +183,7 @@ impl DriverFactory for UniversalDriverFactory {
                                 host,
                                 *port,
                                 timeout.as_duration(),
+                                terminator.as_deref(),
                             )
                             .await?,
                         )

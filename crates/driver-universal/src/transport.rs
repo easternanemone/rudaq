@@ -10,6 +10,35 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+/// Read a line terminated by `\r`, `\n`, or `\r\n`.
+///
+/// Unlike [`AsyncBufReadExt::read_line`] which only stops on `\n`, this
+/// handles devices (e.g., IPG lasers) that terminate responses with `\r`
+/// only.  Stops at the first `\r` or `\n` encountered.  Any trailing
+/// `\n` after a `\r` (i.e., a CRLF pair) is left in the buffer and
+/// drained by the caller's stale-data check on the next operation.
+async fn read_line_any_eol<R: tokio::io::AsyncBufRead + Unpin>(reader: &mut R) -> Result<String> {
+    let mut bytes = Vec::new();
+    loop {
+        let buffer = reader.fill_buf().await?;
+        if buffer.is_empty() {
+            break; // EOF
+        }
+
+        if let Some(pos) = buffer.iter().position(|&b| b == b'\n' || b == b'\r') {
+            bytes.extend_from_slice(&buffer[..pos]);
+            reader.consume(pos + 1);
+            break;
+        }
+
+        // No delimiter in this chunk — consume all and continue
+        bytes.extend_from_slice(buffer);
+        let len = buffer.len();
+        reader.consume(len);
+    }
+    Ok(String::from_utf8(bytes)?.trim().to_string())
+}
+
 /// Transport trait abstracting the communication layer.
 ///
 /// Implementations handle the low-level sending and receiving of data
@@ -148,11 +177,9 @@ impl Transport for SerialTransport {
 
     async fn receive(&self, timeout: Duration) -> Result<String> {
         let mut guard = self.port.lock().await;
-        let mut response = String::new();
-        tokio::time::timeout(timeout, guard.read_line(&mut response))
+        tokio::time::timeout(timeout, read_line_any_eol(&mut *guard))
             .await
-            .map_err(|_| anyhow::anyhow!("serial receive timed out"))??;
-        Ok(response.trim().to_string())
+            .map_err(|_| anyhow::anyhow!("serial receive timed out"))?
     }
 
     /// Override query to drain stale BufReader data before each command-response cycle.
@@ -185,25 +212,22 @@ impl Transport for SerialTransport {
                 anyhow::bail!("serial receive timed out");
             }
 
-            let mut response = String::new();
-            tokio::time::timeout(remaining, guard.read_line(&mut response))
+            let response = tokio::time::timeout(remaining, read_line_any_eol(&mut *guard))
                 .await
                 .map_err(|_| anyhow::anyhow!("serial receive timed out"))??;
 
-            let trimmed = response.trim();
-
             // Skip empty lines
-            if trimmed.is_empty() {
+            if response.is_empty() {
                 continue;
             }
 
             // Skip echoes of the command we just sent
             let cmd_str = String::from_utf8_lossy(data);
-            if trimmed == cmd_str.as_ref() {
+            if response == cmd_str.as_ref() {
                 continue;
             }
 
-            return Ok(trimmed.to_string());
+            return Ok(response);
         }
     }
 }
@@ -218,18 +242,32 @@ impl Transport for SerialTransport {
 /// Nagle's algorithm for low-latency command-response exchanges.
 pub struct TcpTransport {
     stream: tokio::sync::Mutex<BufReader<tokio::net::TcpStream>>,
+    terminator: String,
 }
 
 impl TcpTransport {
     /// Connect to a TCP endpoint.
-    pub async fn connect(host: &str, port: u16, connect_timeout: Duration) -> Result<Self> {
+    pub async fn connect(
+        host: &str,
+        port: u16,
+        connect_timeout: Duration,
+        terminator: Option<&str>,
+    ) -> Result<Self> {
         let addr: std::net::SocketAddr = format!("{host}:{port}").parse()?;
         let stream = tokio::time::timeout(connect_timeout, tokio::net::TcpStream::connect(addr))
             .await
             .map_err(|_| anyhow::anyhow!("TCP connect to {addr} timed out"))??;
         stream.set_nodelay(true)?;
+        let term = terminator.unwrap_or("");
+        tracing::debug!(
+            addr = %addr,
+            terminator_bytes = ?term.as_bytes(),
+            terminator_len = term.len(),
+            "TcpTransport connected"
+        );
         Ok(Self {
             stream: tokio::sync::Mutex::new(BufReader::new(stream)),
+            terminator: term.to_string(),
         })
     }
 }
@@ -240,6 +278,9 @@ impl Transport for TcpTransport {
         let mut guard = self.stream.lock().await;
         let writer = guard.get_mut();
         writer.write_all(data).await?;
+        if !self.terminator.is_empty() {
+            writer.write_all(self.terminator.as_bytes()).await?;
+        }
         writer.flush().await?;
         Ok(())
     }
@@ -251,11 +292,36 @@ impl Transport for TcpTransport {
         if stale > 0 {
             guard.consume(stale);
         }
-        let mut response = String::new();
-        tokio::time::timeout(timeout, guard.read_line(&mut response))
+        tokio::time::timeout(timeout, read_line_any_eol(&mut *guard))
             .await
-            .map_err(|_| anyhow::anyhow!("TCP receive timed out"))??;
-        Ok(response.trim().to_string())
+            .map_err(|_| anyhow::anyhow!("TCP receive timed out"))?
+    }
+
+    /// Override query to hold the stream lock for the entire send+receive cycle.
+    ///
+    /// This prevents interleaved commands from concurrent tasks and ensures
+    /// the response we read corresponds to the command we just sent.
+    async fn query(&self, data: &[u8], timeout: Duration) -> Result<String> {
+        let mut guard = self.stream.lock().await;
+
+        // Drain stale buffered data before sending
+        let stale = guard.buffer().len();
+        if stale > 0 {
+            guard.consume(stale);
+        }
+
+        // Send command + terminator
+        let writer = guard.get_mut();
+        writer.write_all(data).await?;
+        if !self.terminator.is_empty() {
+            writer.write_all(self.terminator.as_bytes()).await?;
+        }
+        writer.flush().await?;
+
+        // Read response
+        tokio::time::timeout(timeout, read_line_any_eol(&mut *guard))
+            .await
+            .map_err(|_| anyhow::anyhow!("TCP receive timed out"))?
     }
 }
 
