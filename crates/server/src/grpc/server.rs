@@ -1142,6 +1142,7 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
 
     // Create DaqServer with shared RunEngine when scripting enabled (bd-si2c)
     // start_server() has no external shutdown coordination, so create a standalone token
+    #[cfg(feature = "scripting")]
     let standalone_token = CancellationToken::new();
     #[cfg(all(feature = "scripting", feature = "storage_hdf5"))]
     let server = DaqServer::new(None, run_engine_instance.clone(), standalone_token)?;

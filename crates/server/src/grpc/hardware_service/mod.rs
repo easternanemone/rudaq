@@ -140,6 +140,10 @@ impl HardwareServiceImpl {
     ///
     /// Wraps `await_with_timeout` and reports success/failure to the device health
     /// tracker so the supervisor can detect degraded or faulted devices.
+    ///
+    /// Only device/transport errors (Internal, Unavailable, DeadlineExceeded) count
+    /// as health failures. Client-side errors (InvalidArgument, NotFound, etc.) are
+    /// passed through without affecting device health state.
     async fn await_with_health_reporting<F, T>(
         &self,
         device_id: &str,
@@ -156,11 +160,25 @@ impl HardwareServiceImpl {
                 Ok(value)
             }
             Err(status) => {
-                self.registry
-                    .report_device_failure(device_id, status.message());
+                if Self::is_device_error(&status) {
+                    self.registry
+                        .report_device_failure(device_id, status.message());
+                }
                 Err(status)
             }
         }
+    }
+
+    /// Returns true if the gRPC status indicates a device/transport failure
+    /// rather than a client-side error.
+    fn is_device_error(status: &Status) -> bool {
+        matches!(
+            status.code(),
+            tonic::Code::Internal
+                | tonic::Code::Unavailable
+                | tonic::Code::DeadlineExceeded
+                | tonic::Code::FailedPrecondition
+        )
     }
 
     /// Create a new HardwareService with the given device registry
