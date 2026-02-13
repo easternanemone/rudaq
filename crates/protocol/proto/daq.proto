@@ -2439,6 +2439,9 @@ service HealthService {
   // Get detailed health status for all modules
   rpc GetModuleHealth(GetModuleHealthRequest) returns (GetModuleHealthResponse);
 
+  // Get per-device hardware health (bd-qa36.4.3)
+  rpc GetDeviceHealth(GetDeviceHealthRequest) returns (GetDeviceHealthResponse);
+
   // Get recent error history
   rpc GetErrorHistory(GetErrorHistoryRequest) returns (GetErrorHistoryResponse);
 
@@ -2466,6 +2469,37 @@ enum SystemHealthStatus {
   SYSTEM_HEALTH_HEALTHY = 1;
   SYSTEM_HEALTH_DEGRADED = 2;
   SYSTEM_HEALTH_CRITICAL = 3;
+}
+
+// Per-device health status (bd-qa36.4.3)
+enum DeviceHealthLevel {
+  DEVICE_HEALTH_UNKNOWN = 0;
+  DEVICE_HEALTH_HEALTHY = 1;
+  DEVICE_HEALTH_DEGRADED = 2;
+  DEVICE_HEALTH_FAULTED = 3;
+  DEVICE_HEALTH_RECOVERING = 4;
+}
+
+// Request for per-device health status
+message GetDeviceHealthRequest {
+  optional string device_id = 1;  // If set, return health for this device only
+}
+
+// Response with per-device health status
+message GetDeviceHealthResponse {
+  repeated DeviceHealthEntry devices = 1;
+  uint64 timestamp_ns = 2;
+}
+
+// Health status for a single device
+message DeviceHealthEntry {
+  string device_id = 1;
+  DeviceHealthLevel health = 2;
+  uint32 consecutive_failures = 3;
+  uint32 restart_attempts = 4;
+  optional string last_error = 5;
+  uint64 state_since_ns = 6;
+  optional uint64 last_failure_ns = 7;
 }
 
 // Request for module health details

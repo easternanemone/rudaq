@@ -17,6 +17,7 @@ scripting = { path = "../scripting" }
 daq-modules = { path = "../daq-modules", optional = true }
 driver-mock = { path = "../driver-mock" }
 anyhow.workspace = true
+tokio-util = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tokio-stream = "0.1"

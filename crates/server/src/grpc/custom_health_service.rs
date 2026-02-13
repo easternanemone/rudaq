@@ -3,13 +3,16 @@
 //! Provides remote monitoring of system health for headless operation.
 
 use crate::grpc::proto::{
-    ErrorSeverityLevel, GetErrorHistoryRequest, GetErrorHistoryResponse, GetModuleHealthRequest,
-    GetModuleHealthResponse, GetSystemHealthRequest, GetSystemHealthResponse, HealthErrorRecord,
-    HealthUpdate, ModuleHealthStatus as ProtoModuleHealthStatus, StreamHealthUpdatesRequest,
+    DeviceHealthEntry, DeviceHealthLevel, ErrorSeverityLevel, GetDeviceHealthRequest,
+    GetDeviceHealthResponse, GetErrorHistoryRequest, GetErrorHistoryResponse,
+    GetModuleHealthRequest, GetModuleHealthResponse, GetSystemHealthRequest,
+    GetSystemHealthResponse, HealthErrorRecord, HealthUpdate,
+    ModuleHealthStatus as ProtoModuleHealthStatus, StreamHealthUpdatesRequest,
     SystemHealthStatus as ProtoSystemHealthStatus, health_service_server::HealthService,
 };
-use common::health::{ErrorSeverity, SystemHealth, SystemHealthMonitor};
+use common::health::{DeviceHealth, ErrorSeverity, SystemHealth, SystemHealthMonitor};
 use common::limits::HEALTH_CHECK_INTERVAL;
+use hardware::DeviceRegistry;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::interval;
@@ -20,12 +23,22 @@ use tonic::{Request, Response, Status};
 /// gRPC service for health monitoring
 pub struct HealthServiceImpl {
     monitor: Arc<SystemHealthMonitor>,
+    registry: Option<Arc<DeviceRegistry>>,
 }
 
 impl HealthServiceImpl {
     /// Create a new HealthService with the given monitor
     pub fn new(monitor: Arc<SystemHealthMonitor>) -> Self {
-        Self { monitor }
+        Self {
+            monitor,
+            registry: None,
+        }
+    }
+
+    /// Attach a device registry for per-device health reporting (bd-qa36.4.3).
+    pub fn with_registry(mut self, registry: Arc<DeviceRegistry>) -> Self {
+        self.registry = Some(registry);
+        self
     }
 }
 
@@ -59,6 +72,32 @@ fn system_health_to_proto(health: SystemHealth) -> ProtoSystemHealthStatus {
         SystemHealth::Healthy => ProtoSystemHealthStatus::SystemHealthHealthy,
         SystemHealth::Degraded => ProtoSystemHealthStatus::SystemHealthDegraded,
         SystemHealth::Critical => ProtoSystemHealthStatus::SystemHealthCritical,
+    }
+}
+
+/// Convert a DeviceHealthState into a proto DeviceHealthEntry.
+fn health_state_to_proto(
+    device_id: &str,
+    state: &common::health::DeviceHealthState,
+) -> DeviceHealthEntry {
+    DeviceHealthEntry {
+        device_id: device_id.to_string(),
+        health: device_health_to_proto(state.health) as i32,
+        consecutive_failures: state.consecutive_failures,
+        restart_attempts: state.restart_attempts,
+        last_error: state.last_error.clone(),
+        state_since_ns: instant_to_ns(state.state_since),
+        last_failure_ns: state.last_failure.map(instant_to_ns),
+    }
+}
+
+/// Convert DeviceHealth to proto enum
+fn device_health_to_proto(health: DeviceHealth) -> DeviceHealthLevel {
+    match health {
+        DeviceHealth::Healthy => DeviceHealthLevel::DeviceHealthHealthy,
+        DeviceHealth::Degraded => DeviceHealthLevel::DeviceHealthDegraded,
+        DeviceHealth::Faulted => DeviceHealthLevel::DeviceHealthFaulted,
+        DeviceHealth::Recovering => DeviceHealthLevel::DeviceHealthRecovering,
     }
 }
 
@@ -137,6 +176,46 @@ impl HealthService for HealthServiceImpl {
 
         let response = GetModuleHealthResponse {
             modules: proto_modules,
+            timestamp_ns: now_ns(),
+        };
+
+        Ok(Response::new(response))
+    }
+
+    async fn get_device_health(
+        &self,
+        request: Request<GetDeviceHealthRequest>,
+    ) -> Result<Response<GetDeviceHealthResponse>, Status> {
+        let Some(registry) = &self.registry else {
+            return Err(Status::unavailable(
+                "Device registry not available for health reporting",
+            ));
+        };
+
+        let req = request.into_inner();
+
+        let entries: Vec<DeviceHealthEntry> = if let Some(device_id) = req.device_id {
+            // Single device query
+            match registry.get_device_health(&device_id) {
+                Some(state) => vec![health_state_to_proto(&device_id, &state)],
+                None => {
+                    return Err(Status::not_found(format!(
+                        "Device '{}' not found",
+                        device_id
+                    )));
+                }
+            }
+        } else {
+            // All devices
+            registry
+                .list_device_health()
+                .into_iter()
+                .map(|(id, state)| health_state_to_proto(&id, &state))
+                .collect()
+        };
+
+        let response = GetDeviceHealthResponse {
+            devices: entries,
             timestamp_ns: now_ns(),
         };
 

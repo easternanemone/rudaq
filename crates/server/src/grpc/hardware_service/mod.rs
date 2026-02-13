@@ -136,6 +136,51 @@ impl HardwareServiceImpl {
         }
     }
 
+    /// Execute a device I/O operation with timeout and health state reporting (bd-zs0l).
+    ///
+    /// Wraps `await_with_timeout` and reports success/failure to the device health
+    /// tracker so the supervisor can detect degraded or faulted devices.
+    ///
+    /// Only device/transport errors (Internal, Unavailable, DeadlineExceeded) count
+    /// as health failures. Client-side errors (InvalidArgument, NotFound, etc.) are
+    /// passed through without affecting device health state.
+    async fn await_with_health_reporting<F, T>(
+        &self,
+        device_id: &str,
+        operation: &str,
+        fut: F,
+    ) -> Result<T, Status>
+    where
+        F: Future<Output = Result<T, AnyError>> + Send,
+        T: Send,
+    {
+        match self.await_with_timeout(operation, fut).await {
+            Ok(value) => {
+                self.registry.report_device_success(device_id);
+                Ok(value)
+            }
+            Err(status) => {
+                if Self::is_device_error(&status) {
+                    self.registry
+                        .report_device_failure(device_id, status.message());
+                }
+                Err(status)
+            }
+        }
+    }
+
+    /// Returns true if the gRPC status indicates a device/transport failure
+    /// rather than a client-side error.
+    fn is_device_error(status: &Status) -> bool {
+        matches!(
+            status.code(),
+            tonic::Code::Internal
+                | tonic::Code::Unavailable
+                | tonic::Code::DeadlineExceeded
+                | tonic::Code::FailedPrecondition
+        )
+    }
+
     /// Create a new HardwareService with the given device registry
     pub fn new(registry: Arc<DeviceRegistry>) -> Self {
         // Create broadcast channel for parameter changes (capacity 256 in-flight messages)
@@ -533,7 +578,7 @@ impl HardwareService for HardwareServiceImpl {
             }
         }
 
-        self.await_with_timeout("move_abs", movable.move_abs(req.value))
+        self.await_with_health_reporting(&req.device_id, "move_abs", movable.move_abs(req.value))
             .await?;
 
         let (final_position, settled) = if req.wait_for_completion.unwrap_or(false) {
@@ -565,8 +610,12 @@ impl HardwareService for HardwareServiceImpl {
                     }
                 }
             } else {
-                self.await_with_timeout("wait_settled", movable.wait_settled())
-                    .await?;
+                self.await_with_health_reporting(
+                    &req.device_id,
+                    "wait_settled",
+                    movable.wait_settled(),
+                )
+                .await?;
                 let pos = movable.position().await.map_err(|e| {
                     tracing::error!(device_id = %req.device_id, error = %e, "Failed to verify position after move");
                     Status::unavailable(format!("Move completed but position verification failed: {}", e))
@@ -648,7 +697,7 @@ impl HardwareService for HardwareServiceImpl {
             }
         }
 
-        self.await_with_timeout("move_rel", movable.move_rel(req.value))
+        self.await_with_health_reporting(&req.device_id, "move_rel", movable.move_rel(req.value))
             .await?;
 
         let (final_position, settled) = if req.wait_for_completion.unwrap_or(false) {
@@ -680,8 +729,12 @@ impl HardwareService for HardwareServiceImpl {
                     }
                 }
             } else {
-                self.await_with_timeout("wait_settled", movable.wait_settled())
-                    .await?;
+                self.await_with_health_reporting(
+                    &req.device_id,
+                    "wait_settled",
+                    movable.wait_settled(),
+                )
+                .await?;
                 let pos = movable.position().await.map_err(|e| {
                     tracing::error!(device_id = %req.device_id, error = %e, "Failed to verify position after relative move");
                     Status::unavailable(format!("Move completed but position verification failed: {}", e))
@@ -719,7 +772,7 @@ impl HardwareService for HardwareServiceImpl {
             "not found or not movable"
         );
 
-        self.await_with_timeout("stop_motion", movable.stop())
+        self.await_with_health_reporting(&req.device_id, "stop_motion", movable.stop())
             .await?;
 
         let position = movable.position().await.map_err(|e| {
@@ -763,8 +816,12 @@ impl HardwareService for HardwareServiceImpl {
                 }
             }
         } else {
-            self.await_with_timeout("wait_settled", movable.wait_settled())
-                .await?;
+            self.await_with_health_reporting(
+                &req.device_id,
+                "wait_settled",
+                movable.wait_settled(),
+            )
+            .await?;
         }
 
         let position = movable.position().await.map_err(|e| {
@@ -866,7 +923,7 @@ impl HardwareService for HardwareServiceImpl {
             .unwrap_or_default();
 
         let value = self
-            .await_with_timeout("read_value", readable.read())
+            .await_with_health_reporting(&req.device_id, "read_value", readable.read())
             .await?;
 
         tracing::debug!(
@@ -924,19 +981,29 @@ impl HardwareService for HardwareServiceImpl {
                     .unwrap_or_default();
 
                 if let Some(readable) = readable {
-                    if let Ok(value) = readable.read().await {
-                        let update = ValueUpdate {
-                            device_id: device_id.clone(),
-                            value,
-                            units,
-                            timestamp_ns: SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_nanos() as u64,
-                        };
+                    match readable.read().await {
+                        Ok(value) => {
+                            registry.report_device_success(&device_id);
+                            let update = ValueUpdate {
+                                device_id: device_id.clone(),
+                                value,
+                                units,
+                                timestamp_ns: SystemTime::now()
+                                    .duration_since(UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_nanos()
+                                    as u64,
+                            };
 
-                        if tx.send(Ok(update)).await.is_err() {
-                            break;
+                            if tx.send(Ok(update)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            registry.report_device_failure(
+                                &device_id,
+                                format!("stream_values read failed: {}", e),
+                            );
                         }
                     }
                 } else {
@@ -967,13 +1034,18 @@ impl HardwareService for HardwareServiceImpl {
         );
 
         match triggerable.arm().await {
-            Ok(()) => Ok(Response::new(ArmResponse {
-                success: true,
-                error_message: String::new(),
-                armed: true,
-            })),
+            Ok(()) => {
+                self.registry.report_device_success(&req.device_id);
+                Ok(Response::new(ArmResponse {
+                    success: true,
+                    error_message: String::new(),
+                    armed: true,
+                }))
+            }
             Err(e) => {
                 let err_msg = e.to_string();
+                self.registry
+                    .report_device_failure(&req.device_id, &err_msg);
                 let status = map_hardware_error_to_status(&err_msg);
                 Err(status)
             }
@@ -1001,13 +1073,18 @@ impl HardwareService for HardwareServiceImpl {
             .as_nanos() as u64;
 
         match triggerable.trigger().await {
-            Ok(()) => Ok(Response::new(TriggerResponse {
-                success: true,
-                error_message: String::new(),
-                trigger_timestamp_ns: timestamp_ns,
-            })),
+            Ok(()) => {
+                self.registry.report_device_success(&req.device_id);
+                Ok(Response::new(TriggerResponse {
+                    success: true,
+                    error_message: String::new(),
+                    trigger_timestamp_ns: timestamp_ns,
+                }))
+            }
             Err(e) => {
                 let err_msg = e.to_string();
+                self.registry
+                    .report_device_failure(&req.device_id, &err_msg);
                 let status = map_hardware_error_to_status(&err_msg);
                 Err(status)
             }
@@ -1038,6 +1115,7 @@ impl HardwareService for HardwareServiceImpl {
 
         match exposure_ctrl.set_exposure(exposure_seconds).await {
             Ok(()) => {
+                self.registry.report_device_success(&req.device_id);
                 // Convert seconds back to ms for response
                 let actual_seconds = exposure_ctrl
                     .get_exposure()
@@ -1051,6 +1129,8 @@ impl HardwareService for HardwareServiceImpl {
             }
             Err(e) => {
                 let err_msg = e.to_string();
+                self.registry
+                    .report_device_failure(&req.device_id, &err_msg);
                 // Check for out-of-range errors
                 if err_msg.contains("out of range")
                     || err_msg.contains("bounds")
@@ -1084,13 +1164,18 @@ impl HardwareService for HardwareServiceImpl {
 
         // Convert seconds to ms for response
         match exposure_ctrl.get_exposure().await {
-            Ok(seconds) => Ok(Response::new(GetExposureResponse {
-                exposure_ms: seconds * 1000.0,
-            })),
-            Err(e) => Err(map_hardware_error_to_status(&format!(
-                "Failed to get exposure: {}",
-                e
-            ))),
+            Ok(seconds) => {
+                self.registry.report_device_success(&req.device_id);
+                Ok(Response::new(GetExposureResponse {
+                    exposure_ms: seconds * 1000.0,
+                }))
+            }
+            Err(e) => {
+                let err_msg = format!("Failed to get exposure: {}", e);
+                self.registry
+                    .report_device_failure(&req.device_id, &err_msg);
+                Err(map_hardware_error_to_status(&err_msg))
+            }
         }
     }
 
@@ -1118,15 +1203,20 @@ impl HardwareService for HardwareServiceImpl {
         } else {
             shutter_ctrl.close_shutter().await
         } {
-            Ok(()) => Ok(Response::new(SetShutterResponse {
-                success: true,
-                error_message: String::new(),
-                is_open: open,
-            })),
-            Err(e) => Err(map_hardware_error_to_status(&format!(
-                "Failed to set shutter: {}",
-                e
-            ))),
+            Ok(()) => {
+                self.registry.report_device_success(&req.device_id);
+                Ok(Response::new(SetShutterResponse {
+                    success: true,
+                    error_message: String::new(),
+                    is_open: open,
+                }))
+            }
+            Err(e) => {
+                let err_msg = format!("Failed to set shutter: {}", e);
+                self.registry
+                    .report_device_failure(&req.device_id, &err_msg);
+                Err(map_hardware_error_to_status(&err_msg))
+            }
         }
     }
 
@@ -1144,11 +1234,16 @@ impl HardwareService for HardwareServiceImpl {
         );
 
         match shutter_ctrl.is_shutter_open().await {
-            Ok(is_open) => Ok(Response::new(GetShutterResponse { is_open })),
-            Err(e) => Err(map_hardware_error_to_status(&format!(
-                "Failed to get shutter state: {}",
-                e
-            ))),
+            Ok(is_open) => {
+                self.registry.report_device_success(&req.device_id);
+                Ok(Response::new(GetShutterResponse { is_open }))
+            }
+            Err(e) => {
+                let err_msg = format!("Failed to get shutter state: {}", e);
+                self.registry
+                    .report_device_failure(&req.device_id, &err_msg);
+                Err(map_hardware_error_to_status(&err_msg))
+            }
         }
     }
 
@@ -1168,15 +1263,20 @@ impl HardwareService for HardwareServiceImpl {
 
         let requested_nm = req.wavelength_nm;
         match wavelength_ctrl.set_wavelength(requested_nm).await {
-            Ok(()) => Ok(Response::new(SetWavelengthResponse {
-                success: true,
-                error_message: String::new(),
-                actual_wavelength_nm: requested_nm,
-            })),
-            Err(e) => Err(map_hardware_error_to_status(&format!(
-                "Failed to set wavelength: {}",
-                e
-            ))),
+            Ok(()) => {
+                self.registry.report_device_success(&req.device_id);
+                Ok(Response::new(SetWavelengthResponse {
+                    success: true,
+                    error_message: String::new(),
+                    actual_wavelength_nm: requested_nm,
+                }))
+            }
+            Err(e) => {
+                let err_msg = format!("Failed to set wavelength: {}", e);
+                self.registry
+                    .report_device_failure(&req.device_id, &err_msg);
+                Err(map_hardware_error_to_status(&err_msg))
+            }
         }
     }
 
@@ -1194,11 +1294,16 @@ impl HardwareService for HardwareServiceImpl {
         );
 
         match wavelength_ctrl.get_wavelength().await {
-            Ok(nm) => Ok(Response::new(GetWavelengthResponse { wavelength_nm: nm })),
-            Err(e) => Err(map_hardware_error_to_status(&format!(
-                "Failed to get wavelength: {}",
-                e
-            ))),
+            Ok(nm) => {
+                self.registry.report_device_success(&req.device_id);
+                Ok(Response::new(GetWavelengthResponse { wavelength_nm: nm }))
+            }
+            Err(e) => {
+                let err_msg = format!("Failed to get wavelength: {}", e);
+                self.registry
+                    .report_device_failure(&req.device_id, &err_msg);
+                Err(map_hardware_error_to_status(&err_msg))
+            }
         }
     }
 
@@ -1227,15 +1332,20 @@ impl HardwareService for HardwareServiceImpl {
         } else {
             emission_ctrl.disable_emission().await
         } {
-            Ok(()) => Ok(Response::new(SetEmissionResponse {
-                success: true,
-                error_message: String::new(),
-                is_enabled: enabled,
-            })),
-            Err(e) => Err(map_hardware_error_to_status(&format!(
-                "Failed to set emission: {}",
-                e
-            ))),
+            Ok(()) => {
+                self.registry.report_device_success(&req.device_id);
+                Ok(Response::new(SetEmissionResponse {
+                    success: true,
+                    error_message: String::new(),
+                    is_enabled: enabled,
+                }))
+            }
+            Err(e) => {
+                let err_msg = format!("Failed to set emission: {}", e);
+                self.registry
+                    .report_device_failure(&req.device_id, &err_msg);
+                Err(map_hardware_error_to_status(&err_msg))
+            }
         }
     }
 
@@ -1257,13 +1367,16 @@ impl HardwareService for HardwareServiceImpl {
         log::info!(">>> get_emission: calling is_emission_enabled()...");
         match emission_ctrl.is_emission_enabled().await {
             Ok(is_enabled) => {
+                self.registry.report_device_success(&req.device_id);
                 log::info!(">>> get_emission: is_enabled={}", is_enabled);
                 Ok(Response::new(GetEmissionResponse { is_enabled }))
             }
-            Err(e) => Err(map_hardware_error_to_status(&format!(
-                "Failed to get emission state: {}",
-                e
-            ))),
+            Err(e) => {
+                let err_msg = format!("Failed to get emission state: {}", e);
+                self.registry
+                    .report_device_failure(&req.device_id, &err_msg);
+                Err(map_hardware_error_to_status(&err_msg))
+            }
         }
     }
 
@@ -1290,20 +1403,26 @@ impl HardwareService for HardwareServiceImpl {
         let frame_limit = req.frame_count.filter(|&n| n > 0);
 
         match frame_producer.start_stream_finite(frame_limit).await {
-            Ok(()) => Ok(Response::new(StartStreamResponse {
-                success: true,
-                error_message: String::new(),
-            })),
+            Ok(()) => {
+                self.registry.report_device_success(&req.device_id);
+                Ok(Response::new(StartStreamResponse {
+                    success: true,
+                    error_message: String::new(),
+                }))
+            }
             Err(e) => {
                 let err_msg = e.to_string();
                 // Idempotent: treat "already streaming" as success
                 if err_msg.to_lowercase().contains("already streaming") {
+                    self.registry.report_device_success(&req.device_id);
                     tracing::info!(device_id = %req.device_id, "Device already streaming (idempotent success)");
                     Ok(Response::new(StartStreamResponse {
                         success: true,
                         error_message: "Already streaming".to_string(),
                     }))
                 } else {
+                    self.registry
+                        .report_device_failure(&req.device_id, &err_msg);
                     let status = map_hardware_error_to_status(&err_msg);
                     Err(status)
                 }
@@ -1329,6 +1448,7 @@ impl HardwareService for HardwareServiceImpl {
 
         match frame_producer.stop_stream().await {
             Ok(()) => {
+                self.registry.report_device_success(&req.device_id);
                 // Get frame count from device
                 let frames_captured = frame_producer.frame_count();
                 Ok(Response::new(StopStreamResponse {
@@ -1336,10 +1456,12 @@ impl HardwareService for HardwareServiceImpl {
                     frames_captured,
                 }))
             }
-            Err(e) => Err(map_hardware_error_to_status(&format!(
-                "Failed to stop stream: {}",
-                e
-            ))),
+            Err(e) => {
+                let err_msg = format!("Failed to stop stream: {}", e);
+                self.registry
+                    .report_device_failure(&req.device_id, &err_msg);
+                Err(map_hardware_error_to_status(&err_msg))
+            }
         }
     }
 
@@ -1744,11 +1866,12 @@ impl HardwareService for HardwareServiceImpl {
         // If device implements Stageable, call stage()
         if let Some(stageable) = stageable {
             stageable.stage().await.map_err(|e| {
-                map_hardware_error_to_status(&format!(
-                    "Failed to stage device '{}': {}",
-                    req.device_id, e
-                ))
+                let err_msg = format!("Failed to stage device '{}': {}", req.device_id, e);
+                self.registry
+                    .report_device_failure(&req.device_id, &err_msg);
+                map_hardware_error_to_status(&err_msg)
             })?;
+            self.registry.report_device_success(&req.device_id);
             tracing::info!("Staged device '{}' successfully", req.device_id);
         } else {
             // No-op for devices that don't implement Stageable
@@ -1792,11 +1915,12 @@ impl HardwareService for HardwareServiceImpl {
         // If device implements Stageable, call unstage()
         if let Some(stageable) = stageable {
             stageable.unstage().await.map_err(|e| {
-                map_hardware_error_to_status(&format!(
-                    "Failed to unstage device '{}': {}",
-                    req.device_id, e
-                ))
+                let err_msg = format!("Failed to unstage device '{}': {}", req.device_id, e);
+                self.registry
+                    .report_device_failure(&req.device_id, &err_msg);
+                map_hardware_error_to_status(&err_msg)
             })?;
+            self.registry.report_device_success(&req.device_id);
             tracing::info!("Unstaged device '{}' successfully", req.device_id);
         } else {
             // No-op for devices that don't implement Stageable
@@ -1847,9 +1971,13 @@ impl HardwareService for HardwareServiceImpl {
                 .execute_command(&req.command, args)
                 .await
                 .map_err(|e| {
-                    map_hardware_error_to_status(&format!("Command execution failed: {}", e))
+                    let err_msg = format!("Command execution failed: {}", e);
+                    self.registry
+                        .report_device_failure(&req.device_id, &err_msg);
+                    map_hardware_error_to_status(&err_msg)
                 })?;
 
+            self.registry.report_device_success(&req.device_id);
             return Ok(Response::new(DeviceCommandResponse {
                 success: true,
                 error_message: String::new(),
@@ -1982,8 +2110,12 @@ impl HardwareService for HardwareServiceImpl {
         if let Some(settable) = self.registry.get_settable(&req.device_id) {
             // Get the parameter value
             let value = settable.get_value(&req.parameter_name).await.map_err(|e| {
-                map_hardware_error_to_status(&format!("Failed to get parameter: {}", e))
+                let err_msg = format!("Failed to get parameter: {}", e);
+                self.registry
+                    .report_device_failure(&req.device_id, &err_msg);
+                map_hardware_error_to_status(&err_msg)
             })?;
+            self.registry.report_device_success(&req.device_id);
             let units = self
                 .registry
                 .get_parameter_metadata(&req.device_id, &req.parameter_name)
@@ -2052,7 +2184,13 @@ impl HardwareService for HardwareServiceImpl {
             settable
                 .set_value(&req.parameter_name, json_value)
                 .await
-                .map_err(|e| Status::invalid_argument(format!("Failed to set parameter: {}", e)))?;
+                .map_err(|e| {
+                    let err_msg = format!("Failed to set parameter: {}", e);
+                    self.registry
+                        .report_device_failure(&req.device_id, &err_msg);
+                    Status::invalid_argument(err_msg)
+                })?;
+            self.registry.report_device_success(&req.device_id);
 
             // Read back the actual value
             let actual_value = settable

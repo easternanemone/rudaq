@@ -140,6 +140,36 @@ mod tests {
             ));
             assert_status_code(err, Code::InvalidArgument);
         }
+
+        #[test]
+        fn driver_busy_maps_to_unavailable() {
+            let err = DaqError::Driver(DriverError::new(
+                "camera",
+                DriverErrorKind::Busy,
+                "acquisition in progress",
+            ));
+            assert_status_code(err, Code::Unavailable);
+        }
+
+        #[test]
+        fn driver_not_found_maps_to_not_found() {
+            let err = DaqError::Driver(DriverError::new(
+                "stage",
+                DriverErrorKind::NotFound,
+                "device not connected",
+            ));
+            assert_status_code(err, Code::NotFound);
+        }
+
+        #[test]
+        fn driver_safety_maps_to_failed_precondition() {
+            let err = DaqError::Driver(DriverError::new(
+                "laser",
+                DriverErrorKind::Safety,
+                "interlock open",
+            ));
+            assert_status_code(err, Code::FailedPrecondition);
+        }
     }
 
     mod runtime_errors {

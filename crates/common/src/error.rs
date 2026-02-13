@@ -44,6 +44,12 @@ pub enum DriverErrorKind {
     Timeout,
     Permission,
     InvalidParameter,
+    /// Device is busy and cannot accept the operation right now.
+    Busy,
+    /// Referenced device or resource was not found.
+    NotFound,
+    /// Safety-critical error (e.g. interlock violation, laser fault).
+    Safety,
     Unknown,
 }
 
@@ -58,6 +64,9 @@ impl std::fmt::Display for DriverErrorKind {
             DriverErrorKind::Timeout => "timeout",
             DriverErrorKind::Permission => "permission",
             DriverErrorKind::InvalidParameter => "invalid_parameter",
+            DriverErrorKind::Busy => "busy",
+            DriverErrorKind::NotFound => "not_found",
+            DriverErrorKind::Safety => "safety",
             DriverErrorKind::Unknown => "unknown",
         };
         write!(f, "{}", label)

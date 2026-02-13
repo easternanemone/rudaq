@@ -30,18 +30,16 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+mod daemon_manager;
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use driver_mock::{MockCamera, MockStage};
-use scripting::shutter_safety::ShutterRegistry;
 use scripting::{CameraHandle, RhaiEngine, ScriptEngine, ScriptValue, SoftLimits, StageHandle};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::signal;
 
 use protocol::daq::*;
-#[cfg(feature = "networking")]
-use server::grpc::start_server_with_hardware;
 #[cfg(feature = "networking")]
 use std::collections::HashMap;
 
@@ -245,218 +243,17 @@ async fn start_daemon(
     hardware_config: Option<PathBuf>,
     lab_hardware: bool,
 ) -> Result<()> {
-    use server::health::sys_monitor::SystemMetricsCollector;
-    use server::health::{HealthMonitorConfig, SystemHealthMonitor};
+    use daemon_manager::{DaemonConfig, DaemonInstance};
 
-    println!("🌐 Starting Headless DAQ Daemon");
-    println!("   Architecture: V5 (Headless-First + Scriptable)");
-    println!("   gRPC Port: {}", port);
-    println!();
-
-    // Phase 5: Health Monitoring (bd-3ti1)
-    println!("❤️  Initializing health monitoring...");
-    let health_monitor = Arc::new(SystemHealthMonitor::new(HealthMonitorConfig::default()));
-
-    // Start system metrics collection
-    let metrics_collector = SystemMetricsCollector::new(health_monitor.clone());
-    tokio::spawn(async move {
-        metrics_collector.run().await;
-    });
-
-    // Phase 4: Data Plane - Ring Buffer + HDF5 Writer (optional)
-    #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
-    let (ring_buffer, writer_handle) = {
-        use std::path::Path;
-        use std::sync::Arc;
-        use storage::hdf5_writer::HDF5Writer;
-        use storage::ring_buffer::RingBuffer;
-
-        println!("📊 Initializing data plane (Phase 4)...");
-        println!("   - Ring buffer: 100 MB in /tmp/rust_daq_ring");
-        println!("   - HDF5 output: experiment_data.h5");
-        println!("   - Background flush: every 1 second");
-
-        // Create ring buffer (100 MB)
-        let ring_buffer = Arc::new(RingBuffer::create(Path::new("/tmp/rust_daq_ring"), 100)?);
-
-        // Start background HDF5 writer
-        let writer = HDF5Writer::new(Path::new("experiment_data.h5"), ring_buffer.clone())?;
-        let writer_arc = Arc::new(writer);
-        let writer_clone = writer_arc.clone();
-
-        let handle = tokio::spawn(async move {
-            writer_clone.run().await;
-        });
-
-        println!("✅ Data plane ready");
-        println!();
-
-        (Some(ring_buffer), Some((writer_arc, handle)))
+    let config = DaemonConfig {
+        port,
+        hardware_config,
+        lab_hardware,
     };
 
-    #[cfg(not(all(feature = "storage_hdf5", feature = "storage_arrow")))]
-    let _ring_buffer: Option<Arc<storage::ring_buffer::RingBuffer>> = None;
-
-    // Phase 3: Start gRPC server
-    #[cfg(feature = "networking")]
-    {
-        // use server::grpc::start_server_with_hardware; // Imported at top level
-        use hardware::registry::{
-            create_mock_registry, create_registry_from_file, register_all_factories,
-        };
-        use std::sync::Arc;
-
-        let addr = format!("0.0.0.0:{}", port).parse()?;
-
-        // Create device registry based on configuration
-        println!("🔧 Initializing hardware registry...");
-        let registry = if let Some(config_path) = hardware_config {
-            println!("   Loading from config: {}", config_path.display());
-            create_registry_from_file(&config_path).await?
-        } else if lab_hardware {
-            println!("   Using lab hardware configuration (maitai@100.117.5.12)");
-            let default_config = std::path::Path::new("config/maitai_hardware.toml");
-            create_registry_from_file(default_config).await?
-        } else {
-            println!("   Using mock devices (no hardware config specified)");
-            create_mock_registry().await?
-        };
-
-        // Register driver factories for plugin-based device creation
-        // This enables using register_from_toml() for dynamic device registration
-        let config_dir = std::path::Path::new("config/devices");
-        if let Err(e) = register_all_factories(&registry, Some(config_dir)).await {
-            tracing::warn!("Failed to register some factories: {}", e);
-        }
-        let factory_count = registry.list_factories().len();
-        if factory_count > 0 {
-            println!("   Registered {} driver factories", factory_count);
-        }
-
-        let device_count = registry.len();
-        println!("   Registered {} device(s)", device_count);
-        for info in registry.list_devices() {
-            println!(
-                "     - {}: {} ({:?})",
-                info.id, info.name, info.capabilities
-            );
-        }
-        println!();
-
-        let registry = Arc::new(registry);
-
-        // Install panic hook for hardware emergency shutdown (bd-d9nw.8)
-        println!("🛡️  Installing hardware safety panic hook...");
-        ShutterRegistry::install_panic_hook_with_hardware(&registry);
-        println!("   Emergency shutdown will activate on panic (shutters + motors + DAQ)");
-        println!();
-
-        // Start registry monitoring
-        let mon_registry = registry.clone();
-        let mon_health = health_monitor.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
-            loop {
-                interval.tick().await;
-                let count = mon_registry.len();
-                mon_health
-                    .heartbeat_with_message(
-                        "hardware_registry",
-                        Some(format!("Managing {} devices", count)),
-                    )
-                    .await;
-            }
-        });
-
-        println!("✅ gRPC server ready");
-        println!("   Listening on: {}", addr);
-        println!("   Features:");
-        println!("     - Script upload & execution");
-        println!("     - Remote hardware control (HardwareService)");
-        println!("     - Module system (ModuleService)");
-        println!("     - Coordinated scans (ScanService)");
-        println!("     - Preset save/load (PresetService)");
-        println!("     - System Health Monitoring (HealthService)");
-        println!();
-        println!("📡 Daemon running - Press Ctrl+C to stop");
-        println!();
-
-        // Setup graceful shutdown handler
-        let shutdown_signal = async {
-            signal::ctrl_c()
-                .await
-                .expect("Failed to install Ctrl+C handler");
-            println!("\n🛑 Shutdown signal received, cleaning up...");
-        };
-
-        // Race server against shutdown signal
-        let registry_for_server = registry.clone();
-        tokio::select! {
-            result = start_server_with_hardware(addr, registry_for_server, health_monitor) => {
-                if let Err(e) = result {
-                    eprintln!("❌ gRPC server error: {}", e);
-                }
-            }
-            () = shutdown_signal => {
-                println!("   Initiating graceful shutdown...");
-            }
-        }
-
-        if let Err(err) = registry.shutdown_all().await {
-            eprintln!("   Warning: device shutdown encountered errors: {}", err);
-        }
-
-        // Perform cleanup
-        #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
-        if let Some((writer, handle)) = writer_handle {
-            println!("   Flushing HDF5 writer...");
-            // Final flush to ensure all data is written
-            if let Err(e) = writer.flush_to_disk().await {
-                eprintln!("   Warning: HDF5 flush error during shutdown: {}", e);
-            }
-            // Abort the background writer task
-            handle.abort();
-            println!("   ✓ HDF5 writer flushed and stopped");
-        }
-
-        println!("👋 Daemon shutdown complete");
-        Ok(())
-    }
-
-    // Fallback if networking feature not enabled
-    #[cfg(not(feature = "networking"))]
-    {
-        // Silence unused variable warnings
-        let _ = (hardware_config, lab_hardware);
-
-        println!("⚠️  Networking feature not enabled - daemon mode requires 'networking' feature");
-        println!("   Rebuild with: cargo build --features networking");
-        println!();
-        println!("   Keeping daemon alive for data plane... Press Ctrl+C to stop");
-
-        tokio::signal::ctrl_c().await?;
-
-        println!("\n🛑 Shutdown signal received, cleaning up...");
-
-        if let Err(err) = registry.shutdown_all().await {
-            eprintln!("   Warning: device shutdown encountered errors: {}", err);
-        }
-
-        #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
-        if let Some((writer, handle)) = writer_handle {
-            println!("   Flushing HDF5 writer...");
-            // Final flush to ensure all data is written
-            if let Err(e) = writer.flush_to_disk().await {
-                eprintln!("   Warning: HDF5 flush error during shutdown: {}", e);
-            }
-            // Abort the background writer task
-            handle.abort();
-            println!("   ✓ HDF5 writer flushed and stopped");
-        }
-
-        println!("👋 Daemon shutdown complete");
-        Ok(())
-    }
+    let instance = DaemonInstance::start(config).await?;
+    instance.wait_for_shutdown_signal().await;
+    instance.shutdown().await
 }
 
 #[cfg(feature = "networking")]

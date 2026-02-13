@@ -200,8 +200,13 @@ impl Module for FfiModuleWrapper {
     }
 
     fn get_config(&self) -> HashMap<String, String> {
-        let inner = self.inner.lock().expect("Lock poisoned");
-        Self::from_ffi_config(&inner.get_config())
+        match self.inner.lock() {
+            Ok(inner) => Self::from_ffi_config(&inner.get_config()),
+            Err(e) => {
+                tracing::error!("FfiModuleWrapper::get_config lock poisoned: {}", e);
+                HashMap::new()
+            }
+        }
     }
 
     async fn stage(&mut self, ctx: &ModuleContext) -> Result<()> {
@@ -257,8 +262,13 @@ impl Module for FfiModuleWrapper {
     }
 
     fn state(&self) -> ModuleState {
-        let inner = self.inner.lock().expect("Lock poisoned");
-        convert_state(inner.state())
+        match self.inner.lock() {
+            Ok(inner) => convert_state(inner.state()),
+            Err(e) => {
+                tracing::error!("FfiModuleWrapper::state lock poisoned: {}", e);
+                ModuleState::Error
+            }
+        }
     }
 }
 

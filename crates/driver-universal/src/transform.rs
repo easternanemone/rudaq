@@ -49,6 +49,8 @@ pub enum TransformOp {
     Offset { value: f64 },
     /// Split by comma and take element at index.
     SplitComma { index: usize },
+    /// Map a specific string value to a replacement (e.g. "Off" -> "0.0").
+    Map { from: String, to: String },
 }
 
 impl TransformOp {
@@ -154,6 +156,10 @@ impl TransformOp {
                 }
                 _ => Err(anyhow!("SplitComma can only be applied to strings")),
             },
+            TransformOp::Map { from, to } => match input {
+                TransformValue::String(s) if s == *from => Ok(TransformValue::String(to.clone())),
+                other => Ok(other),
+            },
         }
     }
 
@@ -169,6 +175,7 @@ impl TransformOp {
     /// - `"scale(1000.0)"` -> `Scale { factor: 1000.0 }`
     /// - `"offset(-273.15)"` -> `Offset { value: -273.15 }`
     /// - `"split_comma(0)"` -> `SplitComma { index: 0 }`
+    /// - `"map('Off', '0.0')"` -> `Map { from: "Off", to: "0.0" }`
     pub fn from_shorthand(s: &str) -> Result<Self> {
         let s = s.trim();
 
@@ -239,6 +246,22 @@ impl TransformOp {
                 .parse::<usize>()
                 .context("Failed to parse split_comma index")?;
             return Ok(TransformOp::SplitComma { index });
+        }
+
+        if let Some(rest) = s.strip_prefix("map(") {
+            let arg = rest
+                .strip_suffix(')')
+                .ok_or_else(|| anyhow!("Missing closing parenthesis"))?;
+            // Parse two comma-separated string arguments: map('from', 'to')
+            let parts: Vec<&str> = arg.splitn(2, ',').collect();
+            if parts.len() != 2 {
+                return Err(anyhow!(
+                    "map() requires exactly 2 arguments: map('from', 'to')"
+                ));
+            }
+            let from = parse_string_arg(parts[0].trim())?;
+            let to = parse_string_arg(parts[1].trim())?;
+            return Ok(TransformOp::Map { from, to });
         }
 
         Err(anyhow!("Unknown transform operation: {}", s))
