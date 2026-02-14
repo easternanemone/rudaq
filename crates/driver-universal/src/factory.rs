@@ -148,7 +148,17 @@ impl DriverFactory for UniversalDriverFactory {
 
             use crate::config::validated::ConnectionConfig;
             let transport: Box<dyn crate::transport::Transport> = if instance.mock {
-                Box::new(crate::transport::MockTransport::new(vec![]))
+                #[cfg(feature = "emulator")]
+                {
+                    Box::new(crate::emulator::create_emulator_transport(
+                        &manifest,
+                        &instance.address,
+                    )?)
+                }
+                #[cfg(not(feature = "emulator"))]
+                {
+                    Box::new(crate::transport::MockTransport::new(vec![]))
+                }
             } else {
                 match &manifest.connection {
                     ConnectionConfig::Serial {

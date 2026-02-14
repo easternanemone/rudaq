@@ -23,10 +23,12 @@ serial2-tokio = { version = "0.1", optional = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "io-util", "sync"] }
 tempfile.workspace = true
+driver-universal = { path = ".", features = ["emulator"] }
 
 [features]
 default = ["serial"]
 serial = ["common/serial", "dep:serial2-tokio"]
+emulator = []  # Manifest-driven device emulator for mock mode
 
 [lints]
 workspace = true
