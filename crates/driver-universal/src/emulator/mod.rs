@@ -826,14 +826,14 @@ mod integration_tests {
         let manifest = load_manifest(crate::test_fixtures::SCPI_TCP_TOML);
         let driver = build_emulated_driver(manifest, "");
 
-        // Set voltage to 3.14
-        common::capabilities::Settable::set_value(&driver, "voltage", serde_json::json!(3.14))
+        // Set voltage to 2.75
+        common::capabilities::Settable::set_value(&driver, "voltage", serde_json::json!(2.75))
             .await
             .expect("set_value");
 
         // Read it back
         let value = Readable::read(&driver).await.expect("read");
-        assert!((value - 3.14).abs() < 0.01, "expected ~3.14, got {value}");
+        assert!((value - 2.75).abs() < 0.01, "expected ~2.75, got {value}");
     }
 
     // =====================================================================
