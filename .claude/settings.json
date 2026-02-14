@@ -13,12 +13,6 @@
         "hooks": [
           {"type": "command", "command": ".claude/hooks/pretool-dispatch.sh"}
         ]
-      },
-      {
-        "matcher": "Read",
-        "hooks": [
-          {"type": "command", "command": ".claude/hooks/check-file-size.sh"}
-        ]
       }
     ],
     "SessionStart": [
