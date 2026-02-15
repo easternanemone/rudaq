@@ -571,6 +571,15 @@ impl ControlService for DaqServer {
         let script_id = Uuid::new_v4().to_string();
 
         let script_size = req.script_content.len();
+
+        // SECURITY AUDIT (bd-qa36.8.2): Log all script uploads for audit trail.
+        tracing::info!(
+            script_id = %script_id,
+            script_name = %req.name,
+            script_size = script_size,
+            "AUDIT: Script upload received"
+        );
+
         if script_size > limits::MAX_SCRIPT_SIZE {
             return Ok(Response::new(UploadResponse {
                 script_id: String::new(),
@@ -1164,7 +1173,13 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
     println!("DAQ gRPC server listening on {}", bind_addr);
 
     if !grpc_settings.auth_enabled {
+        // SECURITY (bd-qa36.8.2): Script upload/execution endpoints accept arbitrary
+        // Rhai code. Without auth, any network client can execute scripts with daemon
+        // privileges. This warning is intentionally loud.
         eprintln!("⚠️  gRPC auth is disabled (set grpc.auth_enabled=true to require auth)");
+        eprintln!("🚨 SECURITY: Script upload/execution endpoints are unauthenticated!");
+        eprintln!("   Any client can upload and execute Rhai scripts with daemon privileges.");
+        eprintln!("   Set grpc.auth_enabled=true and grpc.auth_token in production.");
     }
 
     let cors = build_cors_layer(&grpc_settings)?;

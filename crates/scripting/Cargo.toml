@@ -58,6 +58,9 @@ scripting_full_comedi = [
 # Alias for backwards compatibility (prefer scripting_full)
 polarization = ["scripting_full"]
 
+[dev-dependencies]
+tempfile = "3"
+
 [[bin]]
 name = "rhai-runner"
 path = "src/bin/rhai_runner.rs"

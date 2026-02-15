@@ -870,9 +870,11 @@ fn register_hardware_factories(engine: &mut Engine) {
     // Note: ELL14 uses 9600 baud (factory default). Use by-id path for stable port resolution.
     // If calibration times out (device not responding), falls back to uncalibrated mode
     // Velocity is automatically set to maximum during calibrated initialization.
+    // SECURITY (bd-qa36.8.1): Port path validated to /dev/tty* or /dev/serial/by-id/*.
     engine.register_fn(
         "create_elliptec",
         |port: &str, address: &str| -> Result<Ell14Handle, Box<EvalAltResult>> {
+            crate::path_security::validate_serial_port(port)?;
             let port = port.to_string();
             let address = address.to_string();
 
@@ -932,9 +934,11 @@ fn register_hardware_factories(engine: &mut Engine) {
     engine.register_type_with_name::<Newport1830CHandle>("Newport1830C");
 
     // create_newport_1830c(port) - Create Newport 1830-C power meter driver
+    // SECURITY (bd-qa36.8.1): Port path validated.
     engine.register_fn(
         "create_newport_1830c",
         |port: &str| -> Result<Newport1830CHandle, Box<EvalAltResult>> {
+            crate::path_security::validate_serial_port(port)?;
             let port = port.to_string();
 
             let driver = run_blocking(
@@ -1035,9 +1039,11 @@ fn register_hardware_factories(engine: &mut Engine) {
     // =========================================================================
 
     // create_maitai(port) - Create MaiTai laser driver with default baud (115200)
+    // SECURITY (bd-qa36.8.1): Port path validated.
     engine.register_fn(
         "create_maitai",
         |port: &str| -> Result<ShutterHandle, Box<EvalAltResult>> {
+            crate::path_security::validate_serial_port(port)?;
             let port = port.to_string();
 
             // Default baud rate for USB-to-USB connection is 115200
@@ -1050,9 +1056,11 @@ fn register_hardware_factories(engine: &mut Engine) {
     );
 
     // create_maitai_with_baud(port, baud_rate) - Create MaiTai with custom baud rate
+    // SECURITY (bd-qa36.8.1): Port path validated.
     engine.register_fn(
         "create_maitai_with_baud",
         |port: &str, baud_rate: i64| -> Result<ShutterHandle, Box<EvalAltResult>> {
+            crate::path_security::validate_serial_port(port)?;
             let port = port.to_string();
             let baud = baud_rate as u32;
 
@@ -1072,9 +1080,11 @@ fn register_hardware_factories(engine: &mut Engine) {
     engine.register_type_with_name::<MaiTaiHandle>("MaiTaiLaser");
 
     // create_maitai_tunable(port) - Create MaiTai with wavelength control
+    // SECURITY (bd-qa36.8.1): Port path validated.
     engine.register_fn(
         "create_maitai_tunable",
         |port: &str| -> Result<MaiTaiHandle, Box<EvalAltResult>> {
+            crate::path_security::validate_serial_port(port)?;
             let port = port.to_string();
             let driver = run_blocking("MaiTai create", MaiTaiDriver::new_async_default(&port))?;
             Ok(MaiTaiHandle {
@@ -1162,9 +1172,12 @@ fn register_comedi_functions(engine: &mut Engine) {
     engine.register_type_with_name::<ComediHandle>("ComediDAQ");
 
     // create_comedi(device_path) - Open Comedi device
+    // SECURITY (bd-qa36.8.1): Device path validated to /dev/comedi* only.
     engine.register_fn(
         "create_comedi",
         |device_path: &str| -> Result<ComediHandle, Box<EvalAltResult>> {
+            crate::path_security::validate_comedi_device(device_path)?;
+
             let device = ComediDevice::open(device_path).map_err(|e| {
                 Box::new(EvalAltResult::ErrorRuntime(
                     format!("Failed to open Comedi device '{}': {}", device_path, e).into(),
@@ -1426,19 +1439,33 @@ fn register_hdf5_functions(engine: &mut Engine) {
     engine.register_type_with_name::<Hdf5Handle>("Hdf5File");
 
     // create_hdf5(path) - Create new HDF5 file for writing
+    // SECURITY (bd-qa36.8.1): Path is validated to prevent directory traversal.
+    // Scripts can only create HDF5 files under the configured data directory.
     engine.register_fn(
         "create_hdf5",
         |path: &str| -> Result<Hdf5Handle, Box<EvalAltResult>> {
-            let file = hdf5::File::create(path).map_err(|e| {
+            let validated_path = crate::path_security::validate_hdf5_path(path)?;
+
+            // Store the original user-provided path for display (not the canonical path,
+            // which would leak internal directory structure to script callers)
+            let user_path = path.to_string();
+
+            let file = hdf5::File::create(&validated_path).map_err(|e| {
+                // Use generic error message — don't expose canonical path to scripts
+                tracing::warn!(
+                    path = %validated_path.display(),
+                    error = %e,
+                    "Failed to create HDF5 file"
+                );
                 Box::new(EvalAltResult::ErrorRuntime(
-                    format!("Failed to create HDF5 file '{}': {}", path, e).into(),
+                    format!("Failed to create HDF5 file '{}': {}", user_path, e).into(),
                     Position::NONE,
                 ))
             })?;
 
             Ok(Hdf5Handle {
                 file: Arc::new(tokio::sync::Mutex::new(Some(file))),
-                path: std::path::PathBuf::from(path),
+                path: std::path::PathBuf::from(user_path),
             })
         },
     );
@@ -2072,12 +2099,17 @@ mod tests {
         let mut engine = Engine::new();
         register_hardware(&mut engine);
 
-        // Use a temp file path that will be cleaned up
-        let file_path = std::env::temp_dir().join(format!("test_{}.h5", std::process::id()));
-        let path_str = file_path.to_str().unwrap().to_string();
+        // Use a relative filename — validate_hdf5_path will resolve it under the
+        // configured data directory. We use set_data_directory to point it at a temp dir.
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        // set_data_directory may fail if already set by another test (OnceLock),
+        // in which case we fall back to a relative path under whatever data dir is configured.
+        let _ = crate::path_security::set_data_directory(temp_dir.path().to_path_buf());
+
+        let filename = format!("test_{}.h5", std::process::id());
 
         let mut scope = Scope::new();
-        scope.push_constant("FILE_PATH", path_str.clone());
+        scope.push_constant("FILE_PATH", filename.clone());
 
         let script = r#"
             let hdf5 = create_hdf5(FILE_PATH);
@@ -2090,8 +2122,8 @@ mod tests {
 
         let result = engine.eval_with_scope::<bool>(&mut scope, script);
 
-        // Clean up temp file
-        let _ = std::fs::remove_file(&file_path);
+        // Clean up
+        let _ = std::fs::remove_file(temp_dir.path().join(&filename));
 
         assert!(result.is_ok(), "HDF5 script failed: {:?}", result.err());
     }
