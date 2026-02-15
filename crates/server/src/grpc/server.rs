@@ -570,15 +570,16 @@ impl ControlService for DaqServer {
         let req = request.into_inner();
         let script_id = Uuid::new_v4().to_string();
 
+        let script_size = req.script_content.len();
+
         // SECURITY AUDIT (bd-qa36.8.2): Log all script uploads for audit trail.
         tracing::info!(
             script_id = %script_id,
             script_name = %req.name,
-            script_size = req.script_content.len(),
+            script_size = script_size,
             "AUDIT: Script upload received"
         );
 
-        let script_size = req.script_content.len();
         if script_size > limits::MAX_SCRIPT_SIZE {
             return Ok(Response::new(UploadResponse {
                 script_id: String::new(),

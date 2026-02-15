@@ -1446,21 +1446,26 @@ fn register_hdf5_functions(engine: &mut Engine) {
         |path: &str| -> Result<Hdf5Handle, Box<EvalAltResult>> {
             let validated_path = crate::path_security::validate_hdf5_path(path)?;
 
+            // Store the original user-provided path for display (not the canonical path,
+            // which would leak internal directory structure to script callers)
+            let user_path = path.to_string();
+
             let file = hdf5::File::create(&validated_path).map_err(|e| {
+                // Use generic error message — don't expose canonical path to scripts
+                tracing::warn!(
+                    path = %validated_path.display(),
+                    error = %e,
+                    "Failed to create HDF5 file"
+                );
                 Box::new(EvalAltResult::ErrorRuntime(
-                    format!(
-                        "Failed to create HDF5 file '{}': {}",
-                        validated_path.display(),
-                        e
-                    )
-                    .into(),
+                    format!("Failed to create HDF5 file '{}': {}", user_path, e).into(),
                     Position::NONE,
                 ))
             })?;
 
             Ok(Hdf5Handle {
                 file: Arc::new(tokio::sync::Mutex::new(Some(file))),
-                path: validated_path,
+                path: std::path::PathBuf::from(user_path),
             })
         },
     );
@@ -2094,12 +2099,17 @@ mod tests {
         let mut engine = Engine::new();
         register_hardware(&mut engine);
 
-        // Use a temp file path that will be cleaned up
-        let file_path = std::env::temp_dir().join(format!("test_{}.h5", std::process::id()));
-        let path_str = file_path.to_str().unwrap().to_string();
+        // Use a relative filename — validate_hdf5_path will resolve it under the
+        // configured data directory. We use set_data_directory to point it at a temp dir.
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        // set_data_directory may fail if already set by another test (OnceLock),
+        // in which case we fall back to a relative path under whatever data dir is configured.
+        let _ = crate::path_security::set_data_directory(temp_dir.path().to_path_buf());
+
+        let filename = format!("test_{}.h5", std::process::id());
 
         let mut scope = Scope::new();
-        scope.push_constant("FILE_PATH", path_str.clone());
+        scope.push_constant("FILE_PATH", filename.clone());
 
         let script = r#"
             let hdf5 = create_hdf5(FILE_PATH);
@@ -2112,8 +2122,8 @@ mod tests {
 
         let result = engine.eval_with_scope::<bool>(&mut scope, script);
 
-        // Clean up temp file
-        let _ = std::fs::remove_file(&file_path);
+        // Clean up
+        let _ = std::fs::remove_file(temp_dir.path().join(&filename));
 
         assert!(result.is_ok(), "HDF5 script failed: {:?}", result.err());
     }

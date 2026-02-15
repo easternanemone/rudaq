@@ -19,7 +19,7 @@
 //! Error messages returned to scripts are generic to prevent information leakage.
 
 use rhai::{EvalAltResult, Position};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
 
 /// Configurable base directory for script HDF5 output.
@@ -29,18 +29,27 @@ static DATA_DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
 /// Set the allowed data directory for script file output.
 ///
 /// Must be called before any scripts run. Can only be called once.
+/// The path is canonicalized (with directory creation if needed) to ensure
+/// consistent `starts_with` checks during validation.
 /// Returns `Err` if already set.
 pub fn set_data_directory(path: PathBuf) -> Result<(), PathBuf> {
-    DATA_DIRECTORY.set(path)
+    // Canonicalize to ensure starts_with checks work with canonical paths.
+    // Create the directory first if it doesn't exist, so canonicalize succeeds.
+    let _ = std::fs::create_dir_all(&path);
+    let canonical = std::fs::canonicalize(&path).unwrap_or(path);
+    DATA_DIRECTORY.set(canonical)
 }
 
 /// Get the configured data directory, or the default (`./data`).
+///
+/// On first access, creates the default directory and canonicalizes the path.
+/// This initialization performs filesystem operations (create_dir_all, canonicalize)
+/// but only once — subsequent calls return the cached canonical path.
 fn data_directory() -> &'static Path {
     DATA_DIRECTORY.get_or_init(|| {
         let default = PathBuf::from("./data");
-        // Try to create the directory if it doesn't exist
+        // Create the directory if it doesn't exist, then canonicalize
         let _ = std::fs::create_dir_all(&default);
-        // Canonicalize if possible, otherwise use as-is
         std::fs::canonicalize(&default).unwrap_or(default)
     })
 }
@@ -72,8 +81,13 @@ pub fn validate_hdf5_path(user_path: &str) -> Result<PathBuf, Box<EvalAltResult>
         return Err(security_reject("Path rejected: invalid characters in path"));
     }
 
-    // Reject traversal sequences before any filesystem operations
-    if user_path.contains("..") {
+    // Reject traversal sequences before any filesystem operations.
+    // Uses Path::components() instead of string-based .contains("..") to avoid
+    // false positives on filenames containing ".." (e.g., "my..data.h5").
+    if Path::new(user_path)
+        .components()
+        .any(|c| matches!(c, Component::ParentDir))
+    {
         tracing::warn!(
             path = %user_path,
             "SECURITY: Rejected HDF5 path containing traversal sequence"
@@ -142,6 +156,21 @@ pub fn validate_hdf5_path(user_path: &str) -> Result<PathBuf, Box<EvalAltResult>
         return Err(security_reject("Path rejected: invalid path structure."));
     };
 
+    // Defense-in-depth: if the target file already exists as a symlink, reject it.
+    // This prevents an attacker from pre-creating a symlink that points outside data_dir.
+    // Note: TOCTOU is inherent here, but this raises the bar for exploitation.
+    if canonical.exists() {
+        if let Ok(meta) = std::fs::symlink_metadata(&canonical) {
+            if meta.file_type().is_symlink() {
+                tracing::warn!(
+                    path = %canonical.display(),
+                    "SECURITY: Rejected HDF5 path — target is a symlink"
+                );
+                return Err(security_reject("Path rejected: symlinks are not allowed."));
+            }
+        }
+    }
+
     // Post-canonicalization containment check (resolves symlink escapes)
     if !canonical.starts_with(data_dir) {
         tracing::warn!(
@@ -183,8 +212,11 @@ pub fn validate_serial_port(port: &str) -> Result<(), Box<EvalAltResult>> {
         return Err(security_reject("Port rejected: invalid characters"));
     }
 
-    // Reject traversal
-    if port.contains("..") {
+    // Reject traversal (use Path::components to avoid false positives on ".." in names)
+    if Path::new(port)
+        .components()
+        .any(|c| matches!(c, Component::ParentDir))
+    {
         tracing::warn!(port = %port, "SECURITY: Rejected serial port with traversal");
         return Err(security_reject("Port rejected: invalid path"));
     }
@@ -222,12 +254,16 @@ pub fn validate_comedi_device(path: &str) -> Result<(), Box<EvalAltResult>> {
     }
 
     // Must be /dev/comedi followed by digits only (e.g., /dev/comedi0, /dev/comedi12)
+    // The digit-only suffix check already prevents traversal, but we keep the explicit
+    // component check for defense-in-depth.
     let valid = path.starts_with("/dev/comedi")
         && path.len() > "/dev/comedi".len()
         && path["/dev/comedi".len()..]
             .chars()
             .all(|c| c.is_ascii_digit())
-        && !path.contains("..");
+        && !Path::new(path)
+            .components()
+            .any(|c| matches!(c, Component::ParentDir));
 
     if !valid {
         tracing::warn!(
@@ -253,12 +289,23 @@ mod tests {
     }
 
     #[test]
-    fn test_hdf5_relative_path_ok() {
+    fn test_hdf5_relative_path_containment() {
         with_temp_data_dir(|dir| {
-            // Can't use the global DATA_DIRECTORY in tests (OnceLock),
-            // so test the logic directly
-            let candidate = dir.join("experiment.h5");
-            assert!(candidate.starts_with(dir));
+            // Can't call validate_hdf5_path() directly because it uses
+            // a global OnceLock. Instead, exercise the same containment logic:
+            // a relative path joined to the data dir should stay inside it.
+            let candidate = dir.join("subdir/experiment.h5");
+            assert!(
+                candidate.starts_with(dir),
+                "Relative path should resolve under data dir"
+            );
+
+            // An absolute path outside data_dir should NOT pass containment
+            let outside = PathBuf::from("/etc/passwd");
+            assert!(
+                !outside.starts_with(dir),
+                "Absolute path outside data dir should fail containment"
+            );
         });
     }
 
@@ -268,6 +315,23 @@ mod tests {
         assert!(result.is_err());
         let err = format!("{}", result.unwrap_err());
         assert!(err.contains("traversal"), "error: {err}");
+    }
+
+    #[test]
+    fn test_hdf5_double_dot_in_filename_not_rejected() {
+        // Filenames containing ".." (e.g., "my..data.h5") should NOT be rejected
+        // as traversal attempts — only actual ParentDir components ("..") should be.
+        // This tests that we use Path::components() instead of string .contains("..").
+        let result = validate_hdf5_path("my..data.h5");
+        // The path should pass the traversal check (may fail later on containment
+        // depending on OnceLock state, but it should NOT fail with "traversal")
+        if let Err(ref e) = result {
+            let err_str = format!("{}", e);
+            assert!(
+                !err_str.contains("traversal"),
+                "Filename 'my..data.h5' should not be rejected as traversal: {err_str}"
+            );
+        }
     }
 
     #[test]
