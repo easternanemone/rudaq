@@ -31,6 +31,7 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod daemon_manager;
+mod safety_sentinel;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};

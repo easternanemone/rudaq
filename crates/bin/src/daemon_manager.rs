@@ -16,6 +16,7 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use crate::safety_sentinel::SafetySentinel;
 use common::health::watchdog::{HardwareWatchdog, WatchdogConfig};
 use hardware::registry::DeviceRegistry;
 use hardware::supervisor::{run_device_supervisor, SupervisorConfig};
@@ -101,6 +102,9 @@ pub struct DaemonInstance {
     server_task: JoinHandle<Result<(), anyhow::Error>>,
     #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
     storage: Option<StorageResources>,
+    /// Safety sentinel — RAII emergency shutter close on abnormal exit.
+    /// Armed on start, disarmed only after successful shutdown.
+    sentinel: SafetySentinel,
     /// Records which shutdown phases have been executed, in order.
     /// Used by contract tests to verify the shutdown sequence.
     #[cfg(test)]
@@ -219,7 +223,9 @@ impl DaemonInstance {
         // --- Phase: Safety Hooks (CRITICAL) ---
         println!("🛡️  Installing hardware safety panic hook...");
         ShutterRegistry::install_panic_hook_with_hardware(&registry);
+        let sentinel = SafetySentinel::new();
         println!("   Emergency shutdown will activate on panic (shutters + motors + DAQ)");
+        println!("   Safety sentinel armed (auto-close on abnormal exit)");
         println!();
 
         // --- Phase: Hardware Watchdog (bd-qa36.4.1) ---
@@ -306,6 +312,7 @@ impl DaemonInstance {
             server_task,
             #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
             storage,
+            sentinel,
             #[cfg(test)]
             shutdown_log: Arc::new(std::sync::Mutex::new(Vec::new())),
         })
@@ -427,6 +434,10 @@ impl DaemonInstance {
         self.supervisor_task.abort();
         self.registry_monitor_task.abort();
         self.metrics_task.abort();
+
+        // Disarm safety sentinel — shutdown completed successfully.
+        // Only reached after hardware is confirmed safe-stated.
+        self.sentinel.disarm();
 
         println!("👋 Daemon shutdown complete");
         Ok(())
