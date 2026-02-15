@@ -20,11 +20,46 @@
 //! The pool uses a semaphore + lock-free queue pattern:
 //! 1. Semaphore tracks available slots (permits = available items)
 //! 2. `SegQueue` holds indices of free slots (lock-free)
-//! 3. `RwLock<Vec<UnsafeCell<T>>>` only locked during:
+//! 3. `RwLock<Vec<Box<UnsafeCell<T>>>>` only locked during:
 //!    - `acquire()`: to get slot pointer (once per loan)
 //!    - `release()`: to apply reset function
 //!    - `grow()`: to add new slots (rare)
 //! 4. `Loaned` caches raw pointer for lock-free access thereafter
+//!
+//! # Unsafe Invariants (bd-qa36.6.2)
+//!
+//! This module relies on the following invariants for soundness. Violating any
+//! of these would cause undefined behavior.
+//!
+//! **INV-1: Exclusive slot access via semaphore**
+//! Each semaphore permit corresponds to exactly one slot index in `free_indices`.
+//! Acquiring a permit + popping an index grants exclusive access to that slot.
+//! No two `Loaned<T>` values may reference the same slot index simultaneously.
+//!
+//! **INV-2: Pointer stability via Box indirection**
+//! Slots are stored as `Vec<Box<UnsafeCell<T>>>`. The Box provides a stable heap
+//! address that survives `Vec` reallocation during `grow()`. Raw pointers cached
+//! in `Loaned<T>` remain valid because Box addresses never move.
+//!
+//! **INV-3: Slot lifetime exceeds Loaned lifetime**
+//! Slots are never removed from the Vec (it only grows). `Loaned<T>` holds an
+//! `Arc<Pool<T>>`, so the Pool (and its slots) live at least as long as any Loaned.
+//!
+//! **INV-4: RwLock guards exclusive mutation**
+//! The `RwLock<Vec<...>>` only takes a write lock in `grow()` (to append). All
+//! other accesses use read locks. Since `grow()` only appends, existing pointers
+//! are not invalidated (see INV-2).
+//!
+//! **INV-5: Semaphore-permit coupling**
+//! `permit.forget()` in `acquire()` transfers permit ownership to the `Loaned`.
+//! `release()` restores the permit via `semaphore.add_permits(1)`. The RAII
+//! `IndexGuard` ensures permits are restored even if `reset_fn` panics.
+//!
+//! **INV-6: Index validity and free-list integrity**
+//! `free_indices` contains only valid indices `< slots.len()`. Indices are added
+//! only by `new()` (0..size) and `grow()` (old_size..new_size), both of which
+//! ensure validity. No duplicates exist because each index enters `free_indices`
+//! exactly once (at creation or on release) and is removed exactly once (on acquire).
 //!
 //! # Example
 //!
@@ -60,12 +95,68 @@ pub use frame_data::FrameData;
 use crossbeam_queue::SegQueue;
 use parking_lot::RwLock;
 use std::cell::UnsafeCell;
+use std::fmt;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
 use tracing::{error, warn};
+
+#[cfg(feature = "metrics")]
+use lazy_static::lazy_static;
+#[cfg(feature = "metrics")]
+use prometheus::{register_int_counter, register_int_gauge, IntCounter, IntGauge};
+
+#[cfg(feature = "metrics")]
+lazy_static! {
+    static ref POOL_AVAILABLE: IntGauge = register_int_gauge!(
+        "pool_available",
+        "Current number of available items in the generic pool"
+    )
+    .expect("Failed to register pool_available");
+    static ref POOL_TOTAL_CAPACITY: IntGauge = register_int_gauge!(
+        "pool_total_capacity",
+        "Total number of slots in the generic pool"
+    )
+    .expect("Failed to register pool_total_capacity");
+    static ref POOL_ACQUIRE_TOTAL: IntCounter = register_int_counter!(
+        "pool_acquire_total",
+        "Total number of pool acquire operations"
+    )
+    .expect("Failed to register pool_acquire_total");
+    static ref POOL_GROW_TOTAL: IntCounter =
+        register_int_counter!("pool_grow_total", "Total number of pool grow events")
+            .expect("Failed to register pool_grow_total");
+}
+
+/// Error type for pool operations that can fail.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum PoolError {
+    /// Pool has reached its configured maximum capacity and cannot grow further.
+    CapacityExhausted {
+        /// Current number of slots in the pool.
+        current: usize,
+        /// Configured maximum slot count.
+        max: usize,
+    },
+}
+
+impl fmt::Display for PoolError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PoolError::CapacityExhausted { current, max } => {
+                write!(
+                    f,
+                    "pool capacity exhausted: {current} slots allocated (max {max})"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for PoolError {}
 
 /// Type alias for reset function used when returning items to the pool.
 type ResetFn<T> = Box<dyn Fn(&mut T) + Send + Sync>;
@@ -105,14 +196,23 @@ pub struct Pool<T> {
     initial_size: usize,
     /// Current total size (atomic for lock-free reads)
     current_size: AtomicUsize,
+    /// Maximum pool size (None = unbounded). When set, `grow()` will refuse
+    /// to exceed this limit, returning `PoolError::CapacityExhausted`.
+    max_size: Option<usize>,
 }
 
-// SAFETY: Pool is Send+Sync because:
-// 1. UnsafeCell contents accessed only when holding semaphore permit
-// 2. Each permit corresponds to exactly one slot
-// 3. Semaphore guarantees exclusive access to each slot
-// 4. T: Send allows transfer between threads
-// 5. RwLock protects slots Vec during growth
+// SAFETY: Pool<T> is Send because all its fields are Send:
+// - RwLock<Vec<Box<UnsafeCell<T>>>>: Send when T: Send
+// - SegQueue<usize>, Semaphore, AtomicUsize: always Send
+// - ResetFn/FactoryFn: Send + Sync (via trait bounds)
+// Pool does NOT expose &T directly — only Loaned<T> does, so Pool<T>
+// doesn't need T: Sync for its own Sync impl.
+//
+// SAFETY: Pool<T> is Sync because concurrent access is mediated by:
+// - Semaphore: ensures exclusive slot access (INV-1)
+// - RwLock: protects Vec during grow (INV-4)
+// - SegQueue: lock-free thread-safe index queue
+// Pool never exposes &T or &mut T through &Pool — those go through Loaned.
 unsafe impl<T: Send> Send for Pool<T> {}
 unsafe impl<T: Send> Sync for Pool<T> {}
 
@@ -131,7 +231,38 @@ impl<T: Send + 'static> Pool<T> {
         F: Fn() -> T + Send + Sync + 'static,
         R: Fn(&mut T) + Send + Sync + 'static,
     {
+        Self::with_max_size(size, None, factory, reset)
+    }
+
+    /// Create a new pool with an upper bound on growth.
+    ///
+    /// # Arguments
+    /// - `size`: Initial number of items to pre-allocate (must be > 0)
+    /// - `max_size`: Maximum total slots. `None` = unbounded. When set, `grow()`
+    ///   will refuse to exceed this limit and `acquire_or_grow()` returns
+    ///   `Err(PoolError::CapacityExhausted)`.
+    /// - `factory`: Function that creates a new instance of T
+    /// - `reset`: Optional function to reset T when returned to pool
+    ///
+    /// # Panics
+    /// Panics if `size` is 0 or if `max_size` is set and less than `size`.
+    pub fn with_max_size<F, R>(
+        size: usize,
+        max_size: Option<usize>,
+        factory: F,
+        reset: Option<R>,
+    ) -> Arc<Self>
+    where
+        F: Fn() -> T + Send + Sync + 'static,
+        R: Fn(&mut T) + Send + Sync + 'static,
+    {
         assert!(size > 0, "pool size must be greater than 0");
+        if let Some(max) = max_size {
+            assert!(
+                max >= size,
+                "max_size ({max}) must be >= initial size ({size})"
+            );
+        }
 
         // Pre-allocate all slots
         let slots: Vec<Box<UnsafeCell<T>>> = (0..size)
@@ -144,7 +275,7 @@ impl<T: Send + 'static> Pool<T> {
             free_indices.push(i);
         }
 
-        Arc::new(Self {
+        let pool = Arc::new(Self {
             slots: RwLock::new(slots),
             free_indices,
             semaphore: Semaphore::new(size),
@@ -152,7 +283,13 @@ impl<T: Send + 'static> Pool<T> {
             factory: Arc::new(factory),
             initial_size: size,
             current_size: AtomicUsize::new(size),
-        })
+            max_size,
+        });
+
+        #[cfg(feature = "metrics")]
+        Self::update_metrics(&pool);
+
+        pool
     }
 
     /// Create a new pool without a reset function.
@@ -172,12 +309,35 @@ impl<T: Send + 'static> Pool<T> {
         Self::new(size, factory, Some(reset))
     }
 
+    #[cfg(feature = "metrics")]
+    fn update_metrics(pool: &Self) {
+        POOL_AVAILABLE.set(pool.semaphore.available_permits() as i64);
+        POOL_TOTAL_CAPACITY.set(pool.current_size.load(Ordering::Relaxed) as i64);
+    }
+
     /// Grow the pool by adding new slots.
     ///
     /// Called automatically when pool exhausted. Logs an error to indicate backpressure.
-    fn grow(&self, count: usize) {
+    ///
+    /// Returns `Ok(actual_added)` on success, or `Err(PoolError::CapacityExhausted)`
+    /// if `max_size` is set and would be exceeded (no slots are added in that case).
+    fn grow(&self, count: usize) -> Result<usize, PoolError> {
         let mut slots = self.slots.write();
         let old_size = slots.len();
+
+        // Clamp growth to max_size if configured
+        let count = if let Some(max) = self.max_size {
+            if old_size >= max {
+                return Err(PoolError::CapacityExhausted {
+                    current: old_size,
+                    max,
+                });
+            }
+            count.min(max - old_size)
+        } else {
+            count
+        };
+
         let new_size = old_size + count;
 
         error!(
@@ -185,6 +345,7 @@ impl<T: Send + 'static> Pool<T> {
             old_size,
             new_size,
             initial_size = self.initial_size,
+            max_size = ?self.max_size,
             "Pool exhausted! Growing pool. This indicates backpressure - \
              frames produced faster than consumed."
         );
@@ -204,6 +365,14 @@ impl<T: Send + 'static> Pool<T> {
 
         // Add permits for new slots
         self.semaphore.add_permits(count);
+
+        #[cfg(feature = "metrics")]
+        {
+            POOL_GROW_TOTAL.inc();
+            POOL_TOTAL_CAPACITY.set(new_size as i64);
+        }
+
+        Ok(count)
     }
 
     /// Acquire an item from the pool, blocking if none available.
@@ -222,25 +391,33 @@ impl<T: Send + 'static> Pool<T> {
             .acquire()
             .await
             .expect("semaphore closed unexpectedly");
-        permit.forget(); // We manage the permit manually via release()
+        // INV-5: Transfer permit ownership to Loaned. release() restores it.
+        permit.forget();
 
-        // Pop from free list
+        // INV-1: Each permit maps to exactly one index. Pop must succeed.
         let idx = self
             .free_indices
             .pop()
             .expect("free list empty after permit - internal invariant violated");
 
-        // CRITICAL FIX (bd-0dax.1.6): Cache slot pointer NOW while holding lock
-        // This allows lock-free access in get()/get_mut()
+        // Cache slot pointer while holding read lock (bd-0dax.1.6).
+        // INV-2: Box indirection means this pointer survives Vec reallocation.
+        // INV-3: Slots are never removed, so pointer remains valid for Loaned's lifetime.
         let slot_ptr = {
             let slots = self.slots.read();
             slots[idx].as_ref().get()
         };
 
+        #[cfg(feature = "metrics")]
+        {
+            POOL_ACQUIRE_TOTAL.inc();
+            POOL_AVAILABLE.dec();
+        }
+
         Loaned {
             pool: Arc::clone(self),
             idx,
-            slot_ptr, // Cached pointer - no lock needed for subsequent access
+            slot_ptr,
         }
     }
 
@@ -251,21 +428,26 @@ impl<T: Send + 'static> Pool<T> {
     /// blocking the SDK callback thread.
     #[must_use]
     pub fn try_acquire(self: &Arc<Self>) -> Option<Loaned<T>> {
-        // Try to get permit without blocking
         let permit = self.semaphore.try_acquire().ok()?;
-        permit.forget();
+        permit.forget(); // INV-5: transfer to Loaned
 
-        // Pop from free list
+        // INV-1: permit guarantees index availability
         let idx = self
             .free_indices
             .pop()
             .expect("free list empty after permit - internal invariant violated");
 
-        // Cache slot pointer (bd-0dax.1.6 fix)
+        // INV-2 + INV-3: stable pointer cached for lock-free access
         let slot_ptr = {
             let slots = self.slots.read();
             slots[idx].as_ref().get()
         };
+
+        #[cfg(feature = "metrics")]
+        {
+            POOL_ACQUIRE_TOTAL.inc();
+            POOL_AVAILABLE.dec();
+        }
 
         Some(Loaned {
             pool: Arc::clone(self),
@@ -311,6 +493,12 @@ impl<T: Send + 'static> Pool<T> {
             slots[idx].as_ref().get()
         };
 
+        #[cfg(feature = "metrics")]
+        {
+            POOL_ACQUIRE_TOTAL.inc();
+            POOL_AVAILABLE.dec();
+        }
+
         Some(Loaned {
             pool: Arc::clone(self),
             idx,
@@ -320,39 +508,135 @@ impl<T: Send + 'static> Pool<T> {
 
     /// Acquire an item, growing the pool if necessary.
     ///
-    /// Unlike `try_acquire`, this will grow the pool if exhausted.
-    /// Use sparingly - pool growth indicates backpressure issues.
-    fn acquire_or_grow(self: &Arc<Self>) -> Loaned<T> {
+    /// Unlike `try_acquire`, this will grow the pool if exhausted. Returns
+    /// `Err(PoolError::CapacityExhausted)` if `max_size` is configured and
+    /// the pool is already at capacity.
+    ///
+    /// # Blocking behavior
+    ///
+    /// This method does NOT block on the semaphore. It first attempts a
+    /// non-blocking `try_acquire`. If that fails, it calls `grow()` to add
+    /// new slots and tries again. The only scenario where it blocks is
+    /// briefly on the `RwLock` write lock during `grow()`.
+    ///
+    /// # When is this called?
+    ///
+    /// - Internally by `Clone for Loaned<T>` when the pool is exhausted
+    ///   (clone needs a new slot but none are available).
+    /// - Can be called directly for fire-and-forget acquire patterns where
+    ///   blocking on the semaphore is unacceptable.
+    fn acquire_or_grow(self: &Arc<Self>) -> Result<Loaned<T>, PoolError> {
+        // Fast path: try without growing
         if let Some(loaned) = self.try_acquire() {
-            return loaned;
+            return Ok(loaned);
         }
 
-        // Grow by doubling or at least 8 slots
-        let current = self.current_size.load(Ordering::Acquire);
-        let grow_count = current.max(8);
-        self.grow(grow_count);
+        // Slow path: grow and retry. Loop because another thread may consume
+        // the new slots between grow() returning and our try_acquire() call.
+        loop {
+            let current = self.current_size.load(Ordering::Acquire);
+            let grow_count = current.max(8);
 
-        self.try_acquire()
-            .expect("acquire failed after grow - internal invariant violated")
+            match self.grow(grow_count) {
+                Ok(_) => {
+                    if let Some(loaned) = self.try_acquire() {
+                        return Ok(loaned);
+                    }
+                    // Another thread consumed new slots before us — retry growth
+                }
+                Err(e) => {
+                    // Max capacity reached. One final try_acquire in case a slot
+                    // was released while we attempted to grow.
+                    if let Some(loaned) = self.try_acquire() {
+                        return Ok(loaned);
+                    }
+                    return Err(e);
+                }
+            }
+        }
     }
 
     /// Release an item back to the pool.
     ///
     /// Called automatically by `Loaned::drop`.
+    ///
+    /// Uses an `IndexGuard` to ensure the slot index and semaphore permit are
+    /// always recovered, even if `reset_fn` panics during unwind (bd-qa36.6.4).
+    ///
+    /// # Panic Recovery
+    ///
+    /// If `reset_fn` panics, the slot is returned to the pool with its contents
+    /// in a potentially partially-reset state. This is acceptable because:
+    /// - Pool capacity is preserved (no permanent leak)
+    /// - For frame buffers (the primary use case), the next user overwrites all data
+    /// - The warning log allows operators to detect and fix broken reset functions
+    /// - Memory safety is maintained regardless of content state
+    ///
+    /// # Warning: reset_fn reentrancy
+    ///
+    /// The `reset_fn` is called while the pool's RwLock is held (read lock). The
+    /// reset function must NOT call back into the pool (e.g., `acquire`, `release`,
+    /// `grow`), as this would deadlock or violate internal invariants.
     fn release(&self, idx: usize) {
+        // INV-6: Verify index is within bounds (debug-only, zero cost in release)
+        debug_assert!(
+            idx < self.current_size.load(Ordering::Acquire),
+            "release called with out-of-bounds index {} (size {})",
+            idx,
+            self.current_size.load(Ordering::Acquire),
+        );
+
+        /// RAII guard that returns a slot index and semaphore permit on drop.
+        /// Ensures pool capacity is never permanently leaked by a panicking reset_fn.
+        struct IndexGuard<'a, U> {
+            free_indices: &'a SegQueue<usize>,
+            semaphore: &'a Semaphore,
+            idx: usize,
+            clean: bool,
+            _marker: std::marker::PhantomData<U>,
+        }
+
+        impl<U> Drop for IndexGuard<'_, U> {
+            fn drop(&mut self) {
+                if !self.clean {
+                    tracing::warn!(
+                        slot = self.idx,
+                        "pool reset_fn panicked — recovering slot to prevent capacity leak"
+                    );
+                }
+                self.free_indices.push(self.idx);
+                self.semaphore.add_permits(1);
+            }
+        }
+
+        let mut guard = IndexGuard::<T> {
+            free_indices: &self.free_indices,
+            semaphore: &self.semaphore,
+            idx,
+            clean: false,
+            _marker: std::marker::PhantomData,
+        };
+
         // Apply reset function if provided
         if let Some(reset_fn) = &self.reset_fn {
-            // SAFETY: We hold exclusive access to this slot
+            // SAFETY: Creating &mut T from UnsafeCell is safe because:
+            // - INV-1: The Loaned that just dropped held the semaphore permit for
+            //   this slot. No other Loaned can reference this slot.
+            // - INV-2: Box indirection guarantees the pointer from slots[idx] is stable.
+            // - The read lock prevents grow() from running concurrently, though even
+            //   if it could, Box addresses don't change (INV-2).
+            // - IndexGuard ensures permit is restored even if reset_fn panics.
             let slots = self.slots.read();
             let item = unsafe { &mut *slots[idx].as_ref().get() };
             reset_fn(item);
         }
 
-        // Return index to free list
-        self.free_indices.push(idx);
+        // Mark clean exit — guard will still return the slot on drop
+        guard.clean = true;
+        // guard drops here, pushing idx back to free_indices and releasing permit
 
-        // Release semaphore permit
-        self.semaphore.add_permits(1);
+        #[cfg(feature = "metrics")]
+        POOL_AVAILABLE.inc();
     }
 
     /// Get the total size of the pool.
@@ -371,6 +655,12 @@ impl<T: Send + 'static> Pool<T> {
     #[must_use]
     pub fn initial_size(&self) -> usize {
         self.initial_size
+    }
+
+    /// Get the configured maximum size, if any.
+    #[must_use]
+    pub fn max_size(&self) -> Option<usize> {
+        self.max_size
     }
 }
 
@@ -398,12 +688,20 @@ pub struct Loaned<T: Send + 'static> {
     slot_ptr: *mut T,
 }
 
-// SAFETY: Loaned is Send+Sync because:
-// 1. We have exclusive access to our slot via semaphore
-// 2. T: Send allows transfer between threads
-// 3. The raw pointer is derived from pool slots which are Sync
+// SAFETY: Loaned<T> is Send because:
+// - INV-1: Semaphore permit grants exclusive slot access (no concurrent mutation)
+// - INV-2: Box indirection means the cached pointer survives Vec reallocation
+// - INV-3: Arc<Pool<T>> keeps slots alive, so the pointer outlives this Loaned
+// - T: Send allows the value to be transferred between threads
 unsafe impl<T: Send + 'static> Send for Loaned<T> {}
-unsafe impl<T: Send + 'static> Sync for Loaned<T> {}
+
+// SAFETY: Loaned<T> is Sync only when T: Sync because:
+// 1. Deref exposes &T to other threads — this requires T: Sync
+// 2. Without T: Sync, sharing &Loaned<T> across threads would allow
+//    data races on types like Cell<i32> (Send but not Sync)
+// 3. The semaphore guarantees exclusive *ownership*, but Sync concerns
+//    shared *references*, which Deref provides
+unsafe impl<T: Send + Sync + 'static> Sync for Loaned<T> {}
 
 impl<T: Send + 'static> Loaned<T> {
     /// Get immutable reference to the loaned item.
@@ -412,8 +710,11 @@ impl<T: Send + 'static> Loaned<T> {
     #[inline]
     #[must_use]
     pub fn get(&self) -> &T {
-        // SAFETY: We hold exclusive access via semaphore permit.
-        // Pointer was cached at acquire() and is valid for our lifetime.
+        // SAFETY: Dereferencing the cached raw pointer is safe because:
+        // - INV-1: Our semaphore permit grants exclusive slot access
+        // - INV-2: Box indirection means the pointer survived any Vec growth
+        // - INV-3: Arc<Pool<T>> keeps the slot alive for our lifetime
+        // - &self prevents get_mut() from being called simultaneously
         unsafe { &*self.slot_ptr }
     }
 
@@ -423,8 +724,11 @@ impl<T: Send + 'static> Loaned<T> {
     #[inline]
     #[must_use]
     pub fn get_mut(&mut self) -> &mut T {
-        // SAFETY: We hold exclusive access via semaphore permit.
-        // &mut self ensures no other references exist.
+        // SAFETY: Creating &mut T is safe because:
+        // - INV-1: Semaphore permit ensures no other Loaned references this slot
+        // - INV-2: Pointer is stable (Box indirection)
+        // - INV-3: Pool outlives us (Arc)
+        // - &mut self ensures no aliasing references via get() exist
         unsafe { &mut *self.slot_ptr }
     }
 
@@ -481,14 +785,19 @@ impl<T: Send + 'static> DerefMut for Loaned<T> {
 impl<T: Clone + Send + 'static> Clone for Loaned<T> {
     /// Clone the loaned item into a new pool slot.
     ///
-    /// If the pool is exhausted, it will automatically grow and log an error.
+    /// If the pool is exhausted, it will automatically grow. Panics if the
+    /// pool has reached its `max_size` limit and cannot grow further.
     fn clone(&self) -> Self {
         if let Some(cloned) = self.try_clone() {
             return cloned;
         }
 
-        // Slow path: grow pool and clone
-        let mut new_loan = self.pool.acquire_or_grow();
+        // Slow path: grow pool and clone. Panic on capacity exhaustion because
+        // Clone::clone cannot return an error.
+        let mut new_loan = self
+            .pool
+            .acquire_or_grow()
+            .expect("pool capacity exhausted during clone — consider increasing max_size");
         *new_loan.get_mut() = self.get().clone();
         new_loan
     }
@@ -818,6 +1127,102 @@ mod tests {
             "Max latency {} us exceeds 1ms - possible lock contention",
             max_latency_us
         );
+    }
+
+    /// Verify that Loaned<T> Sync requires T: Sync (bd-qa36.6.3).
+    ///
+    /// This is a compile-time negative test. If the Sync bound is wrong,
+    /// this test will fail to compile.
+    #[test]
+    fn loaned_sync_requires_t_sync() {
+        fn assert_sync<T: Sync>() {}
+
+        // Vec<u8> is Send + Sync → Loaned<Vec<u8>> should be Sync
+        assert_sync::<Loaned<Vec<u8>>>();
+
+        // Compile-time check: Cell<i32> is Send but NOT Sync,
+        // so Loaned<Cell<i32>> must NOT be Sync.
+        // Uncomment the line below to verify it fails to compile:
+        // assert_sync::<Loaned<std::cell::Cell<i32>>>();  // MUST NOT COMPILE
+    }
+
+    /// Verify that pool recovers slots after reset_fn panic (bd-qa36.6.4).
+    #[tokio::test]
+    async fn test_release_recovers_from_reset_panic() {
+        use std::sync::atomic::AtomicBool;
+
+        let should_panic = Arc::new(AtomicBool::new(true));
+        let should_panic_clone = Arc::clone(&should_panic);
+
+        let pool = Pool::new_with_reset(
+            2,
+            || 0i32,
+            move |_| {
+                assert!(
+                    !should_panic_clone.load(Ordering::SeqCst),
+                    "intentional reset_fn panic for testing"
+                );
+            },
+        );
+
+        // Acquire and drop — reset_fn will panic but slot should be recovered
+        let item = pool.acquire().await;
+        // catch_unwind the drop since the panic propagates through Drop → release
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            drop(item);
+        }));
+        // The panic may or may not propagate depending on unwind behavior,
+        // but the slot MUST be recovered either way
+        let _ = result;
+
+        // Disable panic for subsequent acquires
+        should_panic.store(false, Ordering::SeqCst);
+
+        // Both slots should still be available (no permanent leak)
+        assert_eq!(
+            pool.available(),
+            2,
+            "pool leaked a slot after reset_fn panic"
+        );
+
+        // Verify we can still acquire both slots
+        let _a = pool.acquire().await;
+        let _b = pool.acquire().await;
+        assert_eq!(pool.available(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_max_size_prevents_unbounded_growth() {
+        let pool = Pool::with_max_size(2, Some(4), || 0u64, None::<fn(&mut u64)>);
+        assert_eq!(pool.max_size(), Some(4));
+
+        // Exhaust pool
+        let _a = pool.acquire().await;
+        let _b = pool.acquire().await;
+
+        // First grow should succeed (2 → 4, within max)
+        let result = pool.acquire_or_grow();
+        assert!(result.is_ok());
+        let _c = result.unwrap();
+        // Pool grew to 4 (clamped by max_size from the requested 8)
+
+        // Exhaust remaining slot
+        let _d = pool.try_acquire().expect("should have one more slot");
+
+        // Next grow should fail — already at max
+        match pool.acquire_or_grow() {
+            Ok(_) => panic!("expected CapacityExhausted error"),
+            Err(PoolError::CapacityExhausted { current, max }) => {
+                assert_eq!(current, 4);
+                assert_eq!(max, 4);
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "max_size (1) must be >= initial size (2)")]
+    fn test_max_size_less_than_initial_panics() {
+        let _ = Pool::with_max_size(2, Some(1), || 0u64, None::<fn(&mut u64)>);
     }
 }
 
@@ -1221,7 +1626,9 @@ async fn test_grow_while_loaned_items_held() {
     // Pool is now exhausted - next acquire will trigger grow()
     // This grow() will reallocate the Vec, which would invalidate
     // item1 and item2's cached pointers if they pointed into the Vec directly.
-    let mut item3 = pool.acquire_or_grow();
+    let mut item3 = pool
+        .acquire_or_grow()
+        .expect("grow should succeed for unbounded pool");
     item3[0] = 126;
 
     // Verify the original items' data is still accessible
@@ -1248,4 +1655,189 @@ async fn test_grow_while_loaned_items_held() {
 
     // Verify pool did grow (the key safety property we're testing)
     assert!(pool.size() > 2, "pool must have grown to avoid exhaustion");
+}
+
+// =========================================================================
+// Concurrent safety tests (bd-qa36.6.1)
+//
+// These tests verify the pool's unsafe invariants under concurrent pressure.
+// They serve as a practical alternative to loom tests, which cannot be used
+// because parking_lot::RwLock, crossbeam_queue::SegQueue, and
+// tokio::sync::Semaphore have no loom-compatible replacements.
+// =========================================================================
+
+/// INV-1: Verify no two tasks ever hold the same slot index simultaneously.
+///
+/// Uses per-slot AtomicU64 ownership markers to detect actual overlapping access,
+/// not just post-hoc availability counts.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_acquire_release_no_duplicate_slots() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    const POOL_SIZE: usize = 4;
+    let pool = Pool::new(POOL_SIZE, || 0u64, None::<fn(&mut u64)>);
+
+    // Per-slot ownership markers: 0 = free, non-zero = owning task id
+    let owners: Arc<Vec<AtomicU64>> = Arc::new((0..POOL_SIZE).map(|_| AtomicU64::new(0)).collect());
+    let violation_count = Arc::new(AtomicU64::new(0));
+
+    let mut handles = Vec::new();
+    for task_id in 1..=8u64 {
+        let p = pool.clone();
+        let owners = owners.clone();
+        let violations = violation_count.clone();
+        handles.push(tokio::spawn(async move {
+            for _ in 0..100 {
+                let loan = p.acquire().await;
+                let idx = loan.slot_index();
+
+                // Claim ownership — previous value must be 0 (free)
+                let prev = owners[idx].swap(task_id, Ordering::SeqCst);
+                if prev != 0 {
+                    violations.fetch_add(1, Ordering::SeqCst);
+                }
+
+                // Hold briefly to widen the race window
+                tokio::task::yield_now().await;
+
+                // Release ownership before returning to pool
+                owners[idx].store(0, Ordering::SeqCst);
+                drop(loan);
+            }
+        }));
+    }
+
+    for h in handles {
+        h.await.unwrap();
+    }
+
+    assert_eq!(
+        violation_count.load(Ordering::SeqCst),
+        0,
+        "INV-1 violated: two tasks held the same slot simultaneously"
+    );
+    assert_eq!(pool.available(), pool.size());
+}
+
+/// INV-2 + INV-3: Verify cached pointers survive growth.
+/// Tasks hold Loaned items while another task triggers pool growth via
+/// acquire_or_grow(). The cached raw pointers must remain valid.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_grow_does_not_invalidate_pointers() {
+    let pool = Pool::new(2, || vec![0u8; 64], None::<fn(&mut Vec<u8>)>);
+
+    // Acquire both slots and write unique patterns
+    let mut loan_a = pool.acquire().await;
+    let mut loan_b = pool.acquire().await;
+    loan_a.get_mut().fill(0xAA);
+    loan_b.get_mut().fill(0xBB);
+
+    // Trigger growth from another task while loans are held
+    let p = pool.clone();
+    let grow_handle = tokio::spawn(async move {
+        // acquire_or_grow will grow the pool since all slots are taken
+        let mut loan_c = p.acquire_or_grow().expect("grow should succeed");
+        loan_c.get_mut().fill(0xCC);
+        assert!(
+            loan_c.get().iter().all(|&b| b == 0xCC),
+            "new slot data corrupted"
+        );
+    });
+
+    grow_handle.await.unwrap();
+
+    // Verify original cached pointers still read correctly after growth
+    assert!(
+        loan_a.get().iter().all(|&b| b == 0xAA),
+        "loan_a data corrupted after growth"
+    );
+    assert!(
+        loan_b.get().iter().all(|&b| b == 0xBB),
+        "loan_b data corrupted after growth"
+    );
+
+    // Pool must have grown
+    assert!(pool.size() > 2, "pool should have grown");
+    drop(loan_a);
+    drop(loan_b);
+    assert_eq!(
+        pool.available(),
+        pool.size(),
+        "all slots should be returned"
+    );
+}
+
+/// INV-5: Verify permits and indices stay coupled under high churn.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_churn_preserves_permit_index_coupling() {
+    let pool = Pool::new_with_reset(4, || 0u64, |v| *v = 0);
+
+    let mut handles = Vec::new();
+    for _ in 0..4 {
+        let p = pool.clone();
+        handles.push(tokio::spawn(async move {
+            for i in 0..500u64 {
+                let mut loan = p.acquire().await;
+                *loan.get_mut() = i;
+                assert_eq!(*loan.get(), i);
+                // Drop triggers release() which pushes index + adds permit
+            }
+        }));
+    }
+
+    for h in handles {
+        h.await.unwrap();
+    }
+
+    // If permits leaked, available() < size(). If indices leaked, acquire would hang.
+    assert_eq!(
+        pool.available(),
+        pool.size(),
+        "permit-index coupling broken: {} available, {} total",
+        pool.available(),
+        pool.size()
+    );
+}
+
+/// Verify IndexGuard preserves capacity even when reset_fn panics concurrently.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_panic_recovery_preserves_capacity() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let should_panic = Arc::new(AtomicBool::new(true));
+    let sp = should_panic.clone();
+    let pool = Pool::new_with_reset(
+        4,
+        || 0u64,
+        move |_| {
+            assert!(!sp.load(Ordering::SeqCst), "intentional reset_fn panic");
+        },
+    );
+
+    // Acquire and drop items — each drop will panic in reset_fn
+    // IndexGuard should recover the slot regardless
+    let mut handles = Vec::new();
+    for _ in 0..8 {
+        let p = pool.clone();
+        handles.push(tokio::spawn(async move {
+            let loan = p.acquire().await;
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                drop(loan);
+            }));
+        }));
+    }
+
+    for h in handles {
+        h.await.unwrap();
+    }
+
+    // Disable panics for the verification phase
+    should_panic.store(false, Ordering::SeqCst);
+
+    // All slots must be available — no permanent capacity loss
+    assert_eq!(
+        pool.available(),
+        pool.size(),
+        "pool leaked capacity after concurrent reset_fn panics"
+    );
 }

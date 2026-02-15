@@ -200,15 +200,24 @@ impl std::fmt::Debug for RingBuffer {
 // 4. The TapRegistry is wrapped in Arc and is itself Send+Sync
 unsafe impl Send for RingBuffer {}
 
-// SAFETY (bd-t17q): RingBuffer can be safely shared across threads because:
-// 1. Data access is synchronized through `data_lock` (std::sync::RwLock):
+// SAFETY (bd-t17q, updated bd-qa36.6.8): RingBuffer can be safely shared across
+// threads because:
+// 1. **Primary safety mechanism:** `data_lock` (std::sync::RwLock) serializes all
+//    data access:
 //    - Writers take exclusive write lock, preventing concurrent reads/writes
 //    - Readers take shared read lock, allowing concurrent reads but blocking writers
+//    - This alone is sufficient to prevent data races on the mmap region.
 // 2. Readers use Acquire ordering on atomic loads to see published writes
 // 3. Writers use Release ordering after memcpy to publish data
-// 4. The seqlock pattern (write_epoch) provides optimistic retry for stale reads:
-//    - Writers increment epoch (odd) before writing, (even) after
-//    - Readers check epoch after read to detect concurrent writes (now blocked by lock)
+// 4. **Defensive layer:** The seqlock (write_epoch) is a *consistency validator*,
+//    not the primary concurrency mechanism. Since bd-t17q added data_lock, the
+//    seqlock no longer prevents data races — the RwLock does. The seqlock now
+//    serves two purposes:
+//    a. Crash detection: an odd epoch indicates a write was in progress when the
+//       process crashed (incomplete memcpy → potentially corrupt data).
+//    b. Future optimization: if a lock-free read path is added later, the seqlock
+//       provides the necessary retry mechanism for torn reads.
+//    Writers still increment epoch (odd) before writing, (even) after.
 // 5. Memory ordering: Release on write_head/epoch ensures prior memcpy is visible
 //    to readers who Acquire load these values
 // 6. The TapRegistry uses internal synchronization (RwLock)
