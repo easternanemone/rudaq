@@ -381,6 +381,13 @@ pub struct TransformPipeline {
 }
 
 impl TransformPipeline {
+    /// Access the operations in this pipeline (for emulator transform inversion).
+    pub fn ops(&self) -> &[TransformOp] {
+        &self.ops
+    }
+}
+
+impl TransformPipeline {
     /// Create a new pipeline from a sequence of operations.
     ///
     /// Pre-compiles any regex patterns in the operations.

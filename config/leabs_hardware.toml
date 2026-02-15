@@ -1,4 +1,4 @@
-# LEABS (Laser-Excited Atomic Breakdown Spectroscopy) Hardware Configuration
+# LEABS (Laser Energy Assisted Breakdown Spectroscopy) Hardware Configuration
 #
 # Instruments:
 #   - IPG YLPP-200-1-50-R fiber laser (TCP control on port 10001)
@@ -36,12 +36,12 @@ camera_index = 0
 # ============================================================================
 # Thorlabs PM400 Power Meter
 # ============================================================================
-# SCPI power meter via TCP/VISA bridge.
+# SCPI power meter via TCP/VISA bridge on the LEABS subnet.
 # Config-driven driver from config/devices/thorlabs_pm400.toml.
-# Update host/port below to match your VISA server or virtual serial bridge.
 
 [[devices]]
 id = "power_meter"
 name = "Thorlabs PM400 Power Meter"
 [devices.driver]
 type = "universal_thorlabs_pm400"
+host = "10.0.0.16"

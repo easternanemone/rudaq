@@ -148,6 +148,9 @@ pub enum RawConnectionConfig {
         port: u16,
         #[serde(default = "default_timeout_ms")]
         timeout_ms: u32,
+        /// Optional line terminator (e.g. "\r\n").
+        #[serde(default)]
+        terminator: Option<String>,
     },
     Udp {
         host: String,

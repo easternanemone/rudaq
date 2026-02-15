@@ -104,6 +104,7 @@ pub enum ConnectionConfig {
         host: String,
         port: u16,
         timeout: Timeout,
+        terminator: Option<String>,
     },
     Udp {
         host: String,

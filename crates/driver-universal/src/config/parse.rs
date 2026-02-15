@@ -303,6 +303,7 @@ fn validate_connection(
             host,
             port,
             timeout_ms,
+            terminator,
         } => {
             let timeout = match Timeout::new(*timeout_ms) {
                 Ok(t) => t,
@@ -315,6 +316,7 @@ fn validate_connection(
                 host: host.clone(),
                 port: *port,
                 timeout,
+                terminator: terminator.clone(),
             }
         }
         RawConnectionConfig::Udp {

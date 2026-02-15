@@ -30,5 +30,8 @@ pub mod template;
 pub mod transform;
 pub mod transport;
 
+#[cfg(feature = "emulator")]
+pub mod emulator;
+
 #[cfg(test)]
 pub(crate) mod test_fixtures;

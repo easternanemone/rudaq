@@ -148,7 +148,17 @@ impl DriverFactory for UniversalDriverFactory {
 
             use crate::config::validated::ConnectionConfig;
             let transport: Box<dyn crate::transport::Transport> = if instance.mock {
-                Box::new(crate::transport::MockTransport::new(vec![]))
+                #[cfg(feature = "emulator")]
+                {
+                    Box::new(crate::emulator::create_emulator_transport(
+                        &manifest,
+                        &instance.address,
+                    )?)
+                }
+                #[cfg(not(feature = "emulator"))]
+                {
+                    Box::new(crate::transport::MockTransport::new(vec![]))
+                }
             } else {
                 match &manifest.connection {
                     ConnectionConfig::Serial {
@@ -175,6 +185,7 @@ impl DriverFactory for UniversalDriverFactory {
                         host,
                         port,
                         timeout,
+                        terminator,
                     } => {
                         let host = instance.host.as_deref().unwrap_or(host.as_str());
                         Box::new(
@@ -182,6 +193,7 @@ impl DriverFactory for UniversalDriverFactory {
                                 host,
                                 *port,
                                 timeout.as_duration(),
+                                terminator.as_deref(),
                             )
                             .await?,
                         )

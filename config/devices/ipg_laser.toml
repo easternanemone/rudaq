@@ -21,6 +21,7 @@ type = "tcp"
 host = "10.0.0.15"
 port = 10001
 timeout_ms = 1000
+terminator = "\r\n"
 
 # ==============================================================================
 # Response Definitions

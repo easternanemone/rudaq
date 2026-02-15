@@ -1018,12 +1018,14 @@ impl DeviceRegistry {
     /// based on the configured fault threshold (default: 3).
     pub fn report_device_failure(&self, device_id: &str, error: impl Into<String>) {
         let threshold = self.fault_threshold.load(Ordering::Relaxed);
+        let error_str = error.into();
         if let Some(mut state) = self.device_health.get_mut(device_id) {
-            state.record_failure(error, threshold);
+            state.record_failure(&error_str, threshold);
             tracing::warn!(
                 device_id = %device_id,
                 health = %state.health,
                 consecutive_failures = state.consecutive_failures,
+                error = %error_str,
                 "Device failure recorded"
             );
         }
