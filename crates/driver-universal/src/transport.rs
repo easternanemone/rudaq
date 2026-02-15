@@ -433,4 +433,53 @@ mod tests {
         let result = transport.receive(Duration::from_secs(1)).await;
         assert!(result.is_err());
     }
+
+    // -----------------------------------------------------------------------
+    // read_line_any_eol tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn read_line_any_eol_cr_only() {
+        let data = b"HELLO\rWORLD\r";
+        let mut reader = &data[..];
+        let line = read_line_any_eol(&mut reader).await.unwrap();
+        assert_eq!(line, "HELLO");
+        let line2 = read_line_any_eol(&mut reader).await.unwrap();
+        assert_eq!(line2, "WORLD");
+    }
+
+    #[tokio::test]
+    async fn read_line_any_eol_lf_only() {
+        let data = b"HELLO\nWORLD\n";
+        let mut reader = &data[..];
+        let line = read_line_any_eol(&mut reader).await.unwrap();
+        assert_eq!(line, "HELLO");
+        let line2 = read_line_any_eol(&mut reader).await.unwrap();
+        assert_eq!(line2, "WORLD");
+    }
+
+    #[tokio::test]
+    async fn read_line_any_eol_crlf() {
+        let data = b"HELLO\r\nWORLD\r\n";
+        let mut reader = &data[..];
+        // First line stops at \r; the trailing \n appears as an empty next read
+        let line = read_line_any_eol(&mut reader).await.unwrap();
+        assert_eq!(line, "HELLO");
+    }
+
+    #[tokio::test]
+    async fn read_line_any_eol_eof_no_delimiter() {
+        let data = b"NO_NEWLINE";
+        let mut reader = &data[..];
+        let line = read_line_any_eol(&mut reader).await.unwrap();
+        assert_eq!(line, "NO_NEWLINE");
+    }
+
+    #[tokio::test]
+    async fn read_line_any_eol_empty_input() {
+        let data = b"";
+        let mut reader = &data[..];
+        let line = read_line_any_eol(&mut reader).await.unwrap();
+        assert_eq!(line, "");
+    }
 }
