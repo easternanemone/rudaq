@@ -21,6 +21,8 @@ pub mod export;
 #[cfg(feature = "standalone")]
 pub mod graph;
 #[cfg(feature = "standalone")]
+pub mod gui_config;
+#[cfg(feature = "standalone")]
 pub mod icons;
 #[cfg(feature = "standalone")]
 pub mod layout;

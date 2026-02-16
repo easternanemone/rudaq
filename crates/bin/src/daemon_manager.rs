@@ -21,6 +21,7 @@ use common::health::watchdog::{HardwareWatchdog, WatchdogConfig};
 use hardware::registry::DeviceRegistry;
 use hardware::supervisor::{run_device_supervisor, SupervisorConfig};
 use scripting::shutter_safety::ShutterRegistry;
+use server::config::ServerConfig;
 use server::health::sys_monitor::SystemMetricsCollector;
 use server::health::{HealthMonitorConfig, SystemHealthMonitor};
 
@@ -143,6 +144,9 @@ impl DaemonInstance {
         println!("   gRPC Port: {}", config.port);
         println!();
 
+        // --- Phase: Config Loading & Validation ---
+        let _server_config = ServerConfig::load().context("Failed to load server configuration")?;
+
         // --- Phase: Health Monitoring ---
         println!("❤️  Initializing health monitoring...");
         let health = Arc::new(SystemHealthMonitor::new(HealthMonitorConfig::default()));
@@ -187,21 +191,24 @@ impl DaemonInstance {
         // --- Phase: Storage (feature-gated) ---
         #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
         let storage = {
-            use std::path::Path;
             use storage::hdf5_writer::HDF5Writer;
             use storage::ring_buffer::RingBuffer;
 
+            let rb_path = &_server_config.storage.ring_buffer_path;
+            let rb_size = _server_config.storage.ring_buffer_size_mb;
+            let hdf5_path = &_server_config.storage.hdf5_path;
+
             println!("📊 Initializing data plane (Phase 4)...");
-            println!("   - Ring buffer: 100 MB in /tmp/rust_daq_ring");
-            println!("   - HDF5 output: experiment_data.h5");
+            println!("   - Ring buffer: {} MB in {}", rb_size, rb_path.display());
+            println!("   - HDF5 output: {}", hdf5_path.display());
             println!("   - Background flush: every 1 second");
 
             let ring_buffer = Arc::new(
-                RingBuffer::create(Path::new("/tmp/rust_daq_ring"), 100)
+                RingBuffer::create(rb_path.as_path(), rb_size)
                     .context("Failed to create ring buffer")?,
             );
 
-            let writer = HDF5Writer::new(Path::new("experiment_data.h5"), ring_buffer.clone())
+            let writer = HDF5Writer::new(hdf5_path.as_path(), ring_buffer.clone())
                 .context("Failed to create HDF5 writer")?;
             let writer_arc = Arc::new(writer);
             let writer_clone = writer_arc.clone();
@@ -239,8 +246,14 @@ impl DaemonInstance {
                     .context("Failed to create hardware registry from config")?;
                 (reg, Some(hw))
             } else if config.lab_hardware {
-                println!("   Using lab hardware configuration (maitai@100.117.5.12)");
                 let default_path = std::path::Path::new("config/maitai_hardware.toml");
+                if !default_path.exists() {
+                    anyhow::bail!(
+                        "--lab-hardware requires {} or use --hardware-config <path>",
+                        default_path.display()
+                    );
+                }
+                println!("   Loading lab hardware from: {}", default_path.display());
                 let hw = HardwareConfig::from_file(default_path)
                     .context("Failed to parse lab hardware config")?;
                 let config_dir = default_path

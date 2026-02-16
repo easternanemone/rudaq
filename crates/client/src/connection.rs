@@ -55,6 +55,8 @@ pub enum AddressSource {
     Default,
     /// Loaded from `DAQ_DAEMON_URL` environment variable
     Environment,
+    /// Loaded from configuration file preset
+    Preset,
     /// Restored from previous session via storage
     Persisted,
     /// User typed in the UI address field
@@ -69,8 +71,9 @@ impl AddressSource {
         match self {
             Self::Default => 0,
             Self::Environment => 1,
-            Self::Persisted => 2,
-            Self::UserInput => 3,
+            Self::Preset => 2,
+            Self::Persisted => 3,
+            Self::UserInput => 4,
         }
     }
 
@@ -80,6 +83,7 @@ impl AddressSource {
         match self {
             Self::Default => "default",
             Self::Environment => "env",
+            Self::Preset => "preset",
             Self::Persisted => "saved",
             Self::UserInput => "user",
         }
@@ -91,6 +95,7 @@ impl fmt::Display for AddressSource {
         match self {
             Self::Default => write!(f, "Default"),
             Self::Environment => write!(f, "Environment (DAQ_DAEMON_URL)"),
+            Self::Preset => write!(f, "Config file preset"),
             Self::Persisted => write!(f, "Saved from previous session"),
             Self::UserInput => write!(f, "User input"),
         }
@@ -298,18 +303,24 @@ pub fn normalize_url(input: &str) -> Result<Url, AddressError> {
 /// Tries sources in order of priority (highest first):
 /// 1. User input (if provided and valid)
 /// 2. Persisted address (from previous session)
-/// 3. `DAQ_DAEMON_URL` environment variable
-/// 4. Default: `http://127.0.0.1:50051`
+/// 3. Config file preset
+/// 4. `DAQ_DAEMON_URL` environment variable
+/// 5. Default: `http://127.0.0.1:50051`
 ///
 /// # Arguments
 ///
 /// * `user_input` - Optional user-typed address
 /// * `persisted_addr` - Optional persisted address string from storage
+/// * `preset_addr` - Optional preset address from configuration
 ///
 /// # Returns
 ///
 /// The resolved [`DaemonAddress`] (never fails, falls back to default).
-pub fn resolve_address(user_input: Option<&str>, persisted_addr: Option<&str>) -> DaemonAddress {
+pub fn resolve_address(
+    user_input: Option<&str>,
+    persisted_addr: Option<&str>,
+    preset_addr: Option<&str>,
+) -> DaemonAddress {
     // 1. User input (highest priority)
     if let Some(input) = user_input {
         if !input.trim().is_empty() {
@@ -321,19 +332,32 @@ pub fn resolve_address(user_input: Option<&str>, persisted_addr: Option<&str>) -
 
     // 2. Persisted from previous session
     if let Some(persisted) = persisted_addr {
-        if let Ok(addr) = DaemonAddress::parse(persisted, AddressSource::Persisted) {
-            return addr;
+        if !persisted.trim().is_empty() {
+            if let Ok(addr) = DaemonAddress::parse(persisted, AddressSource::Persisted) {
+                return addr;
+            }
         }
     }
 
-    // 3. Environment variable
+    // 3. Config file preset
+    if let Some(preset) = preset_addr {
+        if !preset.trim().is_empty() {
+            if let Ok(addr) = DaemonAddress::parse(preset, AddressSource::Preset) {
+                return addr;
+            }
+        }
+    }
+
+    // 4. Environment variable
     if let Ok(env_url) = std::env::var("DAQ_DAEMON_URL") {
-        if let Ok(addr) = DaemonAddress::parse(&env_url, AddressSource::Environment) {
-            return addr;
+        if !env_url.trim().is_empty() {
+            if let Ok(addr) = DaemonAddress::parse(&env_url, AddressSource::Environment) {
+                return addr;
+            }
         }
     }
 
-    // 4. Default fallback
+    // 5. Default fallback
     DaemonAddress::default()
 }
 
@@ -432,7 +456,8 @@ mod tests {
     #[test]
     fn test_address_source_priority() {
         assert!(AddressSource::UserInput.priority() > AddressSource::Persisted.priority());
-        assert!(AddressSource::Persisted.priority() > AddressSource::Environment.priority());
+        assert!(AddressSource::Persisted.priority() > AddressSource::Preset.priority());
+        assert!(AddressSource::Preset.priority() > AddressSource::Environment.priority());
         assert!(AddressSource::Environment.priority() > AddressSource::Default.priority());
     }
 
@@ -440,6 +465,7 @@ mod tests {
     fn test_address_source_labels() {
         assert_eq!(AddressSource::Default.label(), "default");
         assert_eq!(AddressSource::Environment.label(), "env");
+        assert_eq!(AddressSource::Preset.label(), "preset");
         assert_eq!(AddressSource::Persisted.label(), "saved");
         assert_eq!(AddressSource::UserInput.label(), "user");
     }
@@ -449,14 +475,14 @@ mod tests {
         // Clear env var for test isolation
         std::env::remove_var("DAQ_DAEMON_URL");
 
-        let addr = resolve_address(None, None);
+        let addr = resolve_address(None, None, None);
         assert_eq!(addr.source(), AddressSource::Default);
     }
 
     #[test]
     fn test_resolve_address_env() {
         std::env::set_var("DAQ_DAEMON_URL", "http://test.local:9999");
-        let addr = resolve_address(None, None);
+        let addr = resolve_address(None, None, None);
         assert_eq!(addr.as_str(), "http://test.local:9999/");
         assert_eq!(addr.source(), AddressSource::Environment);
         std::env::remove_var("DAQ_DAEMON_URL");
@@ -465,7 +491,7 @@ mod tests {
     #[test]
     fn test_resolve_address_user_input_priority() {
         std::env::set_var("DAQ_DAEMON_URL", "http://env.local:8888");
-        let addr = resolve_address(Some("user.local:7777"), None);
+        let addr = resolve_address(Some("user.local:7777"), None, None);
         assert_eq!(addr.as_str(), "http://user.local:7777/");
         assert_eq!(addr.source(), AddressSource::UserInput);
         std::env::remove_var("DAQ_DAEMON_URL");
@@ -474,9 +500,18 @@ mod tests {
     #[test]
     fn test_resolve_address_persisted_priority() {
         std::env::set_var("DAQ_DAEMON_URL", "http://env.local:8888");
-        let addr = resolve_address(None, Some("http://persisted.local:6666"));
+        let addr = resolve_address(None, Some("http://persisted.local:6666"), None);
         assert_eq!(addr.as_str(), "http://persisted.local:6666/");
         assert_eq!(addr.source(), AddressSource::Persisted);
+        std::env::remove_var("DAQ_DAEMON_URL");
+    }
+
+    #[test]
+    fn test_resolve_address_preset_priority() {
+        std::env::set_var("DAQ_DAEMON_URL", "http://env.local:8888");
+        let addr = resolve_address(None, None, Some("http://preset.local:5555"));
+        assert_eq!(addr.as_str(), "http://preset.local:5555/");
+        assert_eq!(addr.source(), AddressSource::Preset);
         std::env::remove_var("DAQ_DAEMON_URL");
     }
 

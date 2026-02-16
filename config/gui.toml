@@ -1,0 +1,58 @@
+# GUI Configuration for rust-daq Control Panel
+#
+# This file provides default settings and named connection presets for the
+# desktop GUI. It does NOT contain hardware parameters (those belong in
+# hardware config files like maitai_hardware.toml).
+#
+# Discovery order (first found wins):
+#   1. ./config/gui.toml (project root)
+#   2. <exe_dir>/../config/gui.toml (relative to binary)
+#   3. ~/.config/rust-daq/gui.toml (user home)
+#
+# Usage:
+#   rust-daq-gui                        # auto-discovers this file
+#   rust-daq-gui --preset "Maitai Lab"  # connect using named preset
+
+config_version = 1
+
+# ============================================================================
+# Default GUI Settings
+# ============================================================================
+# These are applied when no persisted user preference exists.
+# Users can override any of these in the Settings window; their choices
+# persist across sessions via eframe storage.
+
+[defaults]
+theme = "Dark"
+font_scale = 1.0
+auto_reconnect = true
+
+# ============================================================================
+# Connection Presets
+# ============================================================================
+# Named presets appear in the Daemon menu for quick switching.
+# The `default = true` preset is selected on first launch.
+
+[[presets]]
+name = "Local Mock"
+grpc_url = "http://127.0.0.1:50051"
+description = "Auto-start local daemon with mock devices"
+
+[[presets]]
+name = "Maitai Lab"
+grpc_url = "http://100.117.5.12:50051"
+description = "Maitai lab via SSH tunnel (auto-start remote daemon)"
+default = true
+
+[presets.ssh]
+user = "maitai"
+host = "100.117.5.12"
+remote_dir = "/home/maitai/code/rust-daq"
+env_file = ".env.maitai"
+daemon_port = 50051
+hardware_config = "config/maitai_hardware.toml"
+
+[[presets]]
+name = "Maitai Direct"
+grpc_url = "http://100.117.5.12:50051"
+description = "Connect directly to already-running Maitai daemon (no SSH)"

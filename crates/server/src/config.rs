@@ -9,11 +9,22 @@ use std::path::PathBuf;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ServerConfig {
+    /// Schema version for forward-compatible config parsing.
+    /// Unversioned configs default to 1.
+    #[serde(default = "default_config_version")]
+    pub config_version: u32,
     #[serde(default)]
     pub grpc: GrpcSettings,
     #[serde(default)]
     pub storage: StorageSettings,
 }
+
+fn default_config_version() -> u32 {
+    1
+}
+
+/// Maximum supported config version. Reject configs from newer software.
+const MAX_CONFIG_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -93,6 +104,7 @@ impl ServerConfig {
     pub fn load() -> Result<Self> {
         let config_path = PathBuf::from("config/config.v4.toml");
         let mut figment = Figment::from(Serialized::defaults(ServerConfig {
+            config_version: default_config_version(),
             grpc: GrpcSettings::default(),
             storage: StorageSettings::default(),
         }))
@@ -110,6 +122,73 @@ impl ServerConfig {
         let config: ServerConfig = figment
             .extract()
             .context("failed to extract ServerConfig from figment (check config/config.v4.toml and RUSTDAQ_ env vars)")?;
+        config.validate()?;
         Ok(config)
+    }
+
+    /// Validate configuration values.
+    ///
+    /// Returns errors for critical issues (invalid version, missing parents).
+    /// Logs warnings for non-critical issues (unwritable output dir).
+    pub fn validate(&self) -> Result<()> {
+        // Version gate: reject invalid or future versions
+        if self.config_version < 1 || self.config_version > MAX_CONFIG_VERSION {
+            anyhow::bail!(
+                "Config version {} is not supported (expected: 1..={})",
+                self.config_version,
+                MAX_CONFIG_VERSION
+            );
+        }
+
+        // Ring buffer size must be at least 1 MB
+        if self.storage.ring_buffer_size_mb == 0 {
+            anyhow::bail!("ring_buffer_size_mb must be at least 1");
+        }
+
+        // Ring buffer path: parent directory must exist
+        if let Some(parent) = self.storage.ring_buffer_path.parent()
+            && !parent.as_os_str().is_empty()
+            && !parent.exists()
+        {
+            anyhow::bail!(
+                "Ring buffer parent directory does not exist: {}",
+                parent.display()
+            );
+        }
+
+        // HDF5 path: parent directory must exist
+        if let Some(parent) = self.storage.hdf5_path.parent()
+            && !parent.as_os_str().is_empty()
+            && !parent.exists()
+        {
+            anyhow::bail!("HDF5 parent directory does not exist: {}", parent.display());
+        }
+
+        // Output directory: warn if not writable (non-fatal)
+        // Use is_dir() + temp file probe instead of metadata().readonly()
+        // which is unreliable on Unix (only checks owner write bit).
+        if self.storage.output_directory.exists() {
+            if !self.storage.output_directory.is_dir() {
+                eprintln!(
+                    "⚠️  Output path is not a directory: {}",
+                    self.storage.output_directory.display()
+                );
+            } else {
+                let probe = self.storage.output_directory.join(".daq_write_probe");
+                match std::fs::File::create(&probe) {
+                    Ok(_) => {
+                        let _ = std::fs::remove_file(&probe);
+                    }
+                    Err(_) => {
+                        eprintln!(
+                            "⚠️  Output directory is not writable: {}",
+                            self.storage.output_directory.display()
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }

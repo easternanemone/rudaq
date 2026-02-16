@@ -28,6 +28,8 @@ mod export;
 #[cfg(feature = "standalone")]
 mod graph;
 #[cfg(feature = "standalone")]
+mod gui_config;
+#[cfg(feature = "standalone")]
 mod gui_log_layer;
 #[cfg(feature = "standalone")]
 mod icons;
@@ -76,6 +78,13 @@ struct Cli {
     #[arg(long)]
     lab_hardware: bool,
 
+    /// Use a named connection preset from gui.toml
+    ///
+    /// Loads config/gui.toml and connects using the named preset.
+    /// Example: --preset "Maitai Lab"
+    #[arg(long, value_name = "NAME")]
+    preset: Option<String>,
+
     /// Daemon port when auto-starting (default: 50051)
     #[arg(long, default_value = "50051")]
     port: u16,
@@ -89,6 +98,40 @@ fn main() -> eframe::Result<()> {
     // Determine daemon mode from CLI arguments
     let daemon_mode = if let Some(url) = cli.daemon_url {
         DaemonMode::Remote { url }
+    } else if let Some(preset_name) = cli.preset {
+        // Load gui.toml and find the named preset
+        match gui_config::load_gui_config() {
+            Ok(Some(config)) => {
+                let preset = config
+                    .presets
+                    .iter()
+                    .find(|p| p.name.eq_ignore_ascii_case(&preset_name));
+                match preset {
+                    Some(p) => DaemonMode::Remote {
+                        url: p.grpc_url.clone(),
+                    },
+                    None => {
+                        let names: Vec<_> =
+                            config.presets.iter().map(|p| p.name.as_str()).collect();
+                        let available = if names.is_empty() {
+                            "(none)".to_string()
+                        } else {
+                            names.join(", ")
+                        };
+                        eprintln!("Unknown preset '{}'. Available: {}", preset_name, available);
+                        std::process::exit(1);
+                    }
+                }
+            }
+            Ok(None) => {
+                eprintln!("No gui.toml found. Cannot use --preset flag.");
+                std::process::exit(1);
+            }
+            Err(e) => {
+                eprintln!("Failed to load gui.toml: {}", e);
+                std::process::exit(1);
+            }
+        }
     } else if cli.lab_hardware {
         DaemonMode::LabHardware { port: cli.port }
     } else {

@@ -9,7 +9,8 @@ use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 use tokio::sync::mpsc;
 
 use crate::connection::{
-    load_daemon_address, resolve_address, save_daemon_address, AddressSource, DaemonAddress,
+    clear_legacy_daemon_address, migrate_legacy_daemon_address, resolve_address, AddressSource,
+    DaemonAddress,
 };
 use crate::connection_state_ext::ConnectionStateExt;
 use crate::daemon_launcher::{AutoConnectState, DaemonLauncher, DaemonMode};
@@ -293,6 +294,9 @@ pub struct DaqApp {
     /// Application settings
     app_settings: crate::settings::AppSettings,
 
+    /// Connection presets loaded from gui.toml
+    gui_presets: Vec<crate::gui_config::DaemonPreset>,
+
     /// PVCAM live view streaming state (requires rerun_viewer + instrument_photometrics)
     /// Works in mock mode without pvcam_hardware, or with real SDK when pvcam_hardware enabled
     #[cfg(all(feature = "rerun_viewer", feature = "pvcam"))]
@@ -551,22 +555,74 @@ impl DaqApp {
             AutoConnectState::ReadyToConnect
         };
 
+        // Load application settings from storage (before address resolution)
+        let mut app_settings: crate::settings::AppSettings = cc
+            .storage
+            .and_then(|s| eframe::get_value(s, "app_settings"))
+            .unwrap_or_default();
+
+        // Migrate legacy "daemon_address" key → AppSettings (one-time)
+        if let Some(storage) = cc.storage {
+            if let Some(legacy_addr) = migrate_legacy_daemon_address(storage) {
+                if !legacy_addr.trim().is_empty()
+                    && app_settings.connection.daemon_address
+                        == crate::settings::ConnectionSettings::default().daemon_address
+                {
+                    tracing::info!(
+                        "Migrating legacy daemon_address '{}' to AppSettings",
+                        legacy_addr
+                    );
+                    app_settings.connection.daemon_address = legacy_addr;
+                }
+            }
+        }
+
+        // Load GUI config (presets + defaults) from gui.toml
+        let gui_config = match crate::gui_config::load_gui_config() {
+            Ok(config) => config,
+            Err(e) => {
+                tracing::warn!("GUI config error: {}", e);
+                None
+            }
+        };
+        let gui_presets = gui_config
+            .as_ref()
+            .map(|c| c.presets.clone())
+            .unwrap_or_default();
+        if let Some(ref config) = gui_config {
+            crate::gui_config::apply_defaults(&mut app_settings, &config.defaults);
+        }
+
+        // Find the default preset URL (if any) for address resolution
+        let default_preset_url = gui_presets
+            .iter()
+            .find(|p| p.default)
+            .map(|p| p.grpc_url.as_str());
+
         // Use daemon mode URL as the address, or fall back to stored/env/default
+        let persisted_addr = &app_settings.connection.daemon_address;
+        let persisted = if persisted_addr.trim().is_empty()
+            || *persisted_addr == crate::settings::ConnectionSettings::default().daemon_address
+        {
+            None
+        } else {
+            Some(persisted_addr.as_str())
+        };
         let daemon_address = if matches!(daemon_mode, DaemonMode::Remote { .. }) {
-            // For remote mode, use the provided URL directly
-            DaemonAddress::parse(&daemon_mode.daemon_url(), AddressSource::UserInput)
-                .unwrap_or_else(|_| {
-                    let persisted = cc.storage.and_then(load_daemon_address);
-                    resolve_address(None, persisted.as_deref())
-                })
+            // For remote mode, use the provided URL directly.
+            // Detect preset URLs so AddressSource is correct for priority resolution.
+            let url = daemon_mode.daemon_url();
+            let source = if gui_presets.iter().any(|p| p.grpc_url == url) {
+                AddressSource::Preset
+            } else {
+                AddressSource::UserInput
+            };
+            DaemonAddress::parse(&url, source)
+                .unwrap_or_else(|_| resolve_address(None, persisted, default_preset_url))
         } else {
             // For local modes, use the generated URL
-            DaemonAddress::parse(&daemon_mode.daemon_url(), AddressSource::Default).unwrap_or_else(
-                |_| {
-                    let persisted = cc.storage.and_then(load_daemon_address);
-                    resolve_address(None, persisted.as_deref())
-                },
-            )
+            DaemonAddress::parse(&daemon_mode.daemon_url(), AddressSource::Default)
+                .unwrap_or_else(|_| resolve_address(None, persisted, default_preset_url))
         };
         let address_input = daemon_address.original().to_string();
 
@@ -575,12 +631,6 @@ impl DaqApp {
 
         // Create device reconciliation channel
         let (device_reconcile_tx, device_reconcile_rx) = mpsc::channel(4);
-
-        // Load application settings from storage
-        let app_settings: crate::settings::AppSettings = cc
-            .storage
-            .and_then(|s| eframe::get_value(s, "app_settings"))
-            .unwrap_or_default();
 
         // Load persisted device panel info
         // GenericDevicePanel instances are created lazily on first render
@@ -721,6 +771,7 @@ impl DaqApp {
             docked_panels: HashMap::new(),
             settings_window: crate::settings::SettingsWindow::default(),
             app_settings,
+            gui_presets,
             #[cfg(all(feature = "rerun_viewer", feature = "pvcam"))]
             pvcam_streaming: false,
             #[cfg(all(feature = "rerun_viewer", feature = "pvcam"))]
@@ -883,6 +934,33 @@ impl DaqApp {
                     if ui.button("Lab Hardware").clicked() {
                         self.switch_daemon_mode(DaemonMode::LabHardware { port: 50051 });
                         ui.close();
+                    }
+
+                    // Connection presets from gui.toml
+                    if !self.gui_presets.is_empty() {
+                        ui.separator();
+                        ui.label("Presets");
+                        let mut selected_preset_url: Option<String> = None;
+                        for i in 0..self.gui_presets.len() {
+                            let preset = &self.gui_presets[i];
+                            let label = if preset.default {
+                                format!("{} \u{2605}", preset.name)
+                            } else {
+                                preset.name.clone()
+                            };
+                            let response = ui.button(&label);
+                            if !preset.description.is_empty() {
+                                response.clone().on_hover_text(&preset.description);
+                            }
+                            if response.clicked() {
+                                selected_preset_url = Some(preset.grpc_url.clone());
+                                ui.close();
+                            }
+                        }
+                        if let Some(url) = selected_preset_url {
+                            self.address_input.clone_from(&url);
+                            self.switch_daemon_mode(DaemonMode::Remote { url });
+                        }
                     }
 
                     ui.separator();
@@ -2176,9 +2254,13 @@ impl eframe::App for DaqApp {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        // Persist daemon address via AppSettings (single source of truth)
         if self.connection.state().is_connected() {
-            save_daemon_address(storage, &self.daemon_address);
+            self.app_settings.connection.daemon_address =
+                self.daemon_address.original().to_string();
         }
+        // Clear legacy key if still present (one-time cleanup)
+        clear_legacy_daemon_address(storage);
 
         // Update session file with current daemon URL (bd-izdj.30)
         write_session_file(self.daemon_address.as_str());
