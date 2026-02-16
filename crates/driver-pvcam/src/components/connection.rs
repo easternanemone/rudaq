@@ -401,24 +401,12 @@ impl PvcamConnection {
         Ok(())
     }
 
-    /// Run camera diagnostics via `pl_cam_get_diags` (bd-lcqv).
+    /// Run post-open camera diagnostics (bd-lcqv).
     ///
-    /// # Deprecation Notice
-    ///
-    /// `pl_cam_get_diags` is a PVCAM 2.x legacy function. In PVCAM 3.x,
-    /// camera diagnostics should use `PARAM_DD_INFO` parameter queries instead.
-    /// This function is retained for backward compatibility with PVCAM 2.x
-    /// installations but should be migrated when PVCAM 3.x is the minimum
-    /// supported version.
-    ///
-    /// PVCAM documentation recommends calling this immediately after
-    /// `pl_cam_open()` to detect critical hardware problems such as:
-    /// - Communication failures
-    /// - Firmware issues
-    /// - Sensor problems
-    ///
-    /// A failure here does not prevent camera use but indicates potential
-    /// reliability issues that should be investigated.
+    /// The PVCAM 2.x `pl_cam_get_diags` function was removed in PVCAM 3.x.
+    /// Since our minimum SDK is 3.10+, this performs a lightweight check
+    /// by reading `PARAM_DD_INFO` (driver/device info string) to confirm
+    /// the camera is communicating after `pl_cam_open()`.
     #[cfg(feature = "pvcam_sdk")]
     pub fn run_diagnostics(&self) {
         let Some(hcam) = self.handle else {
@@ -426,25 +414,34 @@ impl PvcamConnection {
             return;
         };
 
-        // SAFETY: pl_cam_get_diags() is safe because:
-        // 1. `hcam` is a valid camera handle from a successful pl_cam_open()
-        // 2. The function performs read-only hardware queries
-        // 3. It does not modify camera state
-        // Ref: PVCAM SDK Manual, "pl_cam_get_diags" section
+        // Read PARAM_DD_INFO as a lightweight post-open sanity check.
+        // This parameter returns a driver/device info string and confirms
+        // the camera handle is valid and communicating.
+        let mut buf = [0i8; 256];
+        // SAFETY: hcam is a valid handle from a successful pl_cam_open().
+        // buf is a stack-allocated array with known size. ATTR_CURRENT is
+        // a read-only attribute. pl_get_param does not modify camera state.
         unsafe {
-            tracing::debug!("Running pl_cam_get_diags(hcam={})...", hcam);
-            let result = pl_cam_get_diags(hcam);
+            let result = pl_get_param(
+                hcam,
+                PARAM_DD_INFO as uns32,
+                ATTR_CURRENT as i16,
+                &mut buf as *mut _ as *mut _,
+            );
             if result == 0 {
                 let err = get_pvcam_error();
                 tracing::warn!(
-                    "pl_cam_get_diags FAILED (hcam={}): {} — camera may have hardware issues",
+                    "Post-open diagnostics FAILED (hcam={}): {} — camera may have issues",
                     hcam,
                     err
                 );
             } else {
+                let info = std::ffi::CStr::from_ptr(buf.as_ptr())
+                    .to_string_lossy();
                 tracing::info!(
-                    "pl_cam_get_diags passed (hcam={}) — camera hardware OK",
-                    hcam
+                    "Post-open diagnostics passed (hcam={}): DD_INFO={}",
+                    hcam,
+                    info
                 );
             }
         }
