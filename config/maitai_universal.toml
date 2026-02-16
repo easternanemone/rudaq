@@ -7,9 +7,22 @@
 # Usage:
 #   rust-daq-daemon daemon --hardware-config config/maitai_universal.toml
 #
-# Excluded devices:
-#   - Prime BSI Camera (PVCAM) — no universal driver, requires C SDK
-#   - ESP300 Motion Controller — physically not responding (timeout errors)
+# Notes:
+#   - Prime BSI Camera uses native PVCAM driver (requires C SDK)
+#   - ESP300 included for bus exercising; may need hardware verification
+
+# ============================================================================
+# Photometrics Prime BSI Camera (PVCAM)
+# ============================================================================
+# Native driver — PVCAM requires C SDK, no universal driver equivalent
+# Resolution: 2048x2048, 16-bit
+
+[[devices]]
+id = "prime_bsi"
+name = "Photometrics Prime BSI Camera"
+[devices.driver]
+type = "pvcam"
+camera_name = "pvcamUSB_0"
 
 # ============================================================================
 # Thorlabs ELL14 Rotation Mounts (RS-485 Multidrop Bus)
@@ -65,6 +78,36 @@ name = "Newport 1830-C Power Meter"
 [devices.driver]
 type = "universal_newport_1830-c"
 port = "/dev/ttyS0"
+
+# ============================================================================
+# Newport ESP300 Motion Controller
+# ============================================================================
+# 3-axis motion controller via FTDI 4-port cable
+# Uses {{ address }} in command templates for axis number
+
+[[devices]]
+id = "esp300_axis1"
+name = "ESP300 Axis 1"
+[devices.driver]
+type = "universal_newport_esp300"
+port = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Cable_FT1RALWL-if00-port0"
+address = "1"
+
+[[devices]]
+id = "esp300_axis2"
+name = "ESP300 Axis 2"
+[devices.driver]
+type = "universal_newport_esp300"
+port = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Cable_FT1RALWL-if00-port0"
+address = "2"
+
+[[devices]]
+id = "esp300_axis3"
+name = "ESP300 Axis 3"
+[devices.driver]
+type = "universal_newport_esp300"
+port = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Cable_FT1RALWL-if00-port0"
+address = "3"
 
 # ============================================================================
 # Comedi DAQ Card (NI PCI-MIO-16XE-10)

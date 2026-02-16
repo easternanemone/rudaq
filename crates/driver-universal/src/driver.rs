@@ -48,6 +48,23 @@ impl UniversalDriver {
         }
     }
 
+    /// Create a new `UniversalDriver` with a pre-shared transport.
+    ///
+    /// Used when multiple devices share the same physical bus (e.g., RS-485
+    /// multidrop). All drivers sharing a transport coordinate through the
+    /// same `Mutex`, preventing interleaved I/O.
+    pub fn new_shared(
+        manifest: Arc<DeviceManifest>,
+        transport: Arc<Mutex<Box<dyn Transport>>>,
+        address: &str,
+    ) -> Self {
+        Self {
+            manifest,
+            transport,
+            address: address.to_string(),
+        }
+    }
+
     /// Build a base parameter map containing only the device address.
     fn address_params(&self) -> HashMap<String, serde_json::Value> {
         let mut params = HashMap::with_capacity(4);

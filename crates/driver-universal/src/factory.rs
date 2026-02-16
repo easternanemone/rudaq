@@ -12,8 +12,47 @@ use common::driver::{
     Capability as CoreCapability, DeviceComponents, DeviceMetadata, DriverFactory,
 };
 use futures::future::BoxFuture;
+use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, RwLock};
+use tokio::sync::Mutex;
+
+/// A shared, mutex-guarded transport handle.
+type SharedTransport = Arc<Mutex<Box<dyn crate::transport::Transport>>>;
+
+/// Registry mapping serial port paths to their shared transports.
+type TransportRegistry = RwLock<HashMap<String, SharedTransport>>;
+
+/// Global registry for shared serial transports on RS-485 multidrop buses.
+///
+/// When multiple devices share the same serial port (e.g., 3 ELL14 rotators
+/// on one RS-485 bus), each `build()` call checks this registry. If a transport
+/// already exists for that port path, it clones the `Arc` so all devices
+/// coordinate through the same `Mutex`. This prevents interleaved I/O on
+/// shared buses.
+///
+/// Modeled after `crates/driver-thorlabs/src/shared_ports.rs`.
+static SHARED_TRANSPORTS: OnceLock<TransportRegistry> = OnceLock::new();
+
+fn transport_registry() -> &'static TransportRegistry {
+    SHARED_TRANSPORTS.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+/// Look up an existing shared transport for a serial port path.
+///
+/// Separated from the async `build()` method so the `RwLockReadGuard`
+/// (which is `!Send`) never appears in the generator state.
+fn get_shared_transport(port_path: &str) -> Option<SharedTransport> {
+    transport_registry().read().unwrap().get(port_path).cloned()
+}
+
+/// Register a newly created transport in the shared registry.
+fn register_shared_transport(port_path: &str, transport: &SharedTransport) {
+    transport_registry()
+        .write()
+        .unwrap()
+        .insert(port_path.to_string(), transport.clone());
+}
 
 /// Instance configuration passed via the hardware TOML config
 /// (e.g., `maitai_hardware.toml`).
@@ -153,17 +192,22 @@ impl DriverFactory for UniversalDriverFactory {
             let instance: InstanceConfig = config.try_into()?;
 
             use crate::config::validated::ConnectionConfig;
-            let transport: Box<dyn crate::transport::Transport> = if instance.mock {
+            let transport: SharedTransport = if instance.mock {
                 #[cfg(feature = "emulator")]
                 {
-                    Box::new(crate::emulator::create_emulator_transport(
-                        &manifest,
-                        &instance.address,
-                    )?)
+                    Arc::new(Mutex::new(
+                        Box::new(crate::emulator::create_emulator_transport(
+                            &manifest,
+                            &instance.address,
+                        )?) as Box<dyn crate::transport::Transport>,
+                    ))
                 }
                 #[cfg(not(feature = "emulator"))]
                 {
-                    Box::new(crate::transport::MockTransport::new(vec![]))
+                    Arc::new(Mutex::new(
+                        Box::new(crate::transport::MockTransport::new(vec![]))
+                            as Box<dyn crate::transport::Transport>,
+                    ))
                 }
             } else {
                 match &manifest.connection {
@@ -177,15 +221,37 @@ impl DriverFactory for UniversalDriverFactory {
                             anyhow!("serial device requires 'port' in instance config")
                         })?;
                         let baud = instance.baud_rate.unwrap_or_else(|| baud_rate.value());
-                        Box::new(
-                            crate::transport::SerialTransport::open(
+
+                        // Check if a transport already exists for this port (RS-485 bus sharing).
+                        let existing = get_shared_transport(port_path);
+
+                        if let Some(shared) = existing {
+                            tracing::info!(
+                                port = port_path,
+                                address = %instance.address,
+                                "Reusing shared serial transport for RS-485 bus"
+                            );
+                            shared
+                        } else {
+                            // No existing transport -- create a new one
+                            let transport = crate::transport::SerialTransport::open(
                                 port_path,
                                 baud,
                                 terminator.as_deref(),
                                 serial_config,
                             )
-                            .await?,
-                        )
+                            .await?;
+                            let shared: SharedTransport = Arc::new(Mutex::new(Box::new(transport)));
+
+                            // Register for future devices on the same bus
+                            register_shared_transport(port_path, &shared);
+                            tracing::info!(
+                                port = port_path,
+                                "Registered new shared serial transport"
+                            );
+
+                            shared
+                        }
                     }
                     ConnectionConfig::Tcp {
                         host,
@@ -194,7 +260,7 @@ impl DriverFactory for UniversalDriverFactory {
                         terminator,
                     } => {
                         let host = instance.host.as_deref().unwrap_or(host.as_str());
-                        Box::new(
+                        Arc::new(Mutex::new(Box::new(
                             crate::transport::TcpTransport::connect(
                                 host,
                                 *port,
@@ -203,6 +269,7 @@ impl DriverFactory for UniversalDriverFactory {
                             )
                             .await?,
                         )
+                            as Box<dyn crate::transport::Transport>))
                     }
                     ConnectionConfig::Udp { .. } => {
                         anyhow::bail!("UDP transport not yet implemented")
@@ -216,13 +283,14 @@ impl DriverFactory for UniversalDriverFactory {
                             .ok_or_else(|| {
                             anyhow!("USB TMC device requires 'device' in instance config")
                         })?;
-                        Box::new(
+                        Arc::new(Mutex::new(Box::new(
                             crate::transport::UsbtmcTransport::open(
                                 device_path,
                                 terminator.as_deref(),
                             )
                             .await?,
                         )
+                            as Box<dyn crate::transport::Transport>))
                     }
                     #[cfg(not(target_os = "linux"))]
                     ConnectionConfig::Usbtmc { .. } => {
@@ -234,7 +302,8 @@ impl DriverFactory for UniversalDriverFactory {
                 }
             };
 
-            let driver = UniversalDriver::new(manifest.clone(), transport, &instance.address);
+            let driver =
+                UniversalDriver::new_shared(manifest.clone(), transport, &instance.address);
 
             // Run initialization sequence before advertising capabilities
             if !manifest.init_sequence.is_empty() {
@@ -295,7 +364,7 @@ impl DriverFactory for UniversalDriverFactory {
                     "camera" => Some(DeviceCategory::Camera),
                     "stage" | "motion" => Some(DeviceCategory::Stage),
                     "detector" | "sensor" => Some(DeviceCategory::Detector),
-                    "laser" => Some(DeviceCategory::Laser),
+                    "laser" | "source" => Some(DeviceCategory::Laser),
                     "power_meter" => Some(DeviceCategory::PowerMeter),
                     _ => None,
                 })
