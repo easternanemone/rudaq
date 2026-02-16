@@ -6,7 +6,7 @@
 //!
 //! Run with: cargo test --features hardware_tests --test counter_rpc_test -- --nocapture
 
-#![cfg(feature = "hardware_tests")]
+#![cfg(feature = "hardware")]
 
 use protocol::ni_daq::ni_daq_service_client::NiDaqServiceClient;
 use protocol::ni_daq::{

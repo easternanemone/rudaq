@@ -6,7 +6,7 @@ members = [
     "crates/pool",
     "crates/plugin-api",
     "crates/plugin-example",
-    "crates/drivers",
+
     "crates/dover-motion-sys",
     "crates/driver-dover-motion",
     "crates/andor-sdk3-sys",

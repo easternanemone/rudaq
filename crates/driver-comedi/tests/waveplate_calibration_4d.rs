@@ -795,17 +795,3 @@ impl Ell14Bus {
         Ok(())
     }
 }
-
-// Rotator handle that references shared bus
-struct RotatorHandle<'a> {
-    bus: &'a mut Ell14Bus,
-    address: String,
-    pulses_per_degree: f64,
-}
-
-impl RotatorHandle<'_> {
-    fn move_abs(&mut self, degrees: f64) -> Result<(), Box<dyn std::error::Error>> {
-        self.bus
-            .move_abs(&self.address, degrees, self.pulses_per_degree)
-    }
-}

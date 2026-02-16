@@ -49,8 +49,6 @@
 #![allow(rustdoc::broken_intra_doc_links)]
 
 pub mod core;
-// Config and validation
-pub mod config;
 pub mod validation;
 // Data types (Frame, etc.)
 pub mod data;

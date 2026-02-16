@@ -2043,8 +2043,6 @@ dependencies = [
  "async-trait",
  "bytes",
  "chrono",
- "config",
- "figment",
  "futures",
  "getrandom 0.2.17",
  "hostname",
@@ -2056,7 +2054,6 @@ dependencies = [
  "serde_json",
  "serial2-tokio",
  "sha2",
- "similar",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -3568,20 +3565,6 @@ dependencies = [
  "tokio",
  "toml 0.9.11+spec-1.1.0",
  "tracing",
-]
-
-[[package]]
-name = "drivers"
-version = "0.1.0"
-dependencies = [
- "common",
- "driver-andor-sdk3",
- "driver-comedi",
- "driver-mock",
- "driver-newport",
- "driver-pvcam",
- "driver-spectra-physics",
- "driver-thorlabs",
 ]
 
 [[package]]

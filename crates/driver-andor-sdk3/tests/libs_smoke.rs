@@ -25,32 +25,35 @@
 
 use common::capabilities::{ExposureControl, FrameProducer, Triggerable};
 use driver_andor_sdk3::{AndorCamera, AndorSpectrograph};
-use std::env;
 
 // =============================================================================
-// Test Configuration
+// Test Configuration (used by feature-gated hardware tests)
 // =============================================================================
 
+#[cfg(feature = "hardware")]
 fn smoke_test_enabled() -> bool {
-    env::var("ANDOR_SMOKE_TEST")
+    std::env::var("ANDOR_SMOKE_TEST")
         .map(|v| v == "1" || v.to_lowercase() == "true")
         .unwrap_or(false)
 }
 
+#[cfg(all(feature = "hardware", feature = "camera"))]
 fn camera_index() -> i32 {
-    env::var("ANDOR_CAMERA_INDEX")
+    std::env::var("ANDOR_CAMERA_INDEX")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(0)
 }
 
+#[cfg(all(feature = "hardware", feature = "spectrograph"))]
 fn spectrograph_index() -> i32 {
-    env::var("ANDOR_SPECTROGRAPH_INDEX")
+    std::env::var("ANDOR_SPECTROGRAPH_INDEX")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(0)
 }
 
+#[cfg(feature = "hardware")]
 macro_rules! skip_if_disabled {
     () => {
         if !smoke_test_enabled() {

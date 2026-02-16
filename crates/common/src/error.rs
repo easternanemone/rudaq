@@ -148,17 +148,8 @@ pub enum DaqError {
     /// **Error Type**: Permanent - requires fixing the configuration file.
     ///
     /// **Recovery Strategy**: Abort startup, display error to user, fix config file.
-    ///
-    /// **Source**: Wraps `config::ConfigError` from the `config` crate.
-    ///
-    /// # Example
-    ///
-    /// ```toml
-    /// # Invalid TOML - missing closing quote
-    /// device_name = "camera
-    /// ```
     #[error("Configuration error: {0}")]
-    Config(#[from] config::ConfigError),
+    Config(String),
 
     /// Configuration validation failed.
     ///

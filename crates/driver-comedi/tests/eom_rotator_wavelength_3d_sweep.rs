@@ -769,7 +769,7 @@ impl Ell14Simple {
         for _ in 0..5 {
             match port.read(&mut discard) {
                 Ok(0) | Err(_) => break,
-                Ok(_) => continue,
+                Ok(_) => {}
             }
         }
         thread::sleep(Duration::from_millis(100));
@@ -837,7 +837,7 @@ impl Ell14Simple {
         for _ in 0..5 {
             match self.port.read(&mut discard) {
                 Ok(0) | Err(_) => break,
-                Ok(_) => continue,
+                Ok(_) => {}
             }
         }
         thread::sleep(Duration::from_millis(50));
@@ -854,7 +854,7 @@ impl Ell14Simple {
         for _ in 0..3 {
             match self.port.read(&mut response) {
                 Ok(0) | Err(_) => break,
-                Ok(_) => continue,
+                Ok(_) => {}
             }
         }
 
@@ -869,7 +869,7 @@ impl Ell14Simple {
         for _ in 0..5 {
             match self.port.read(&mut discard) {
                 Ok(0) | Err(_) => break,
-                Ok(_) => continue,
+                Ok(_) => {}
             }
         }
         thread::sleep(Duration::from_millis(50));

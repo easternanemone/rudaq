@@ -23,7 +23,7 @@ mod tests {
 
         #[test]
         fn config_error_maps_to_invalid_argument() {
-            let err = DaqError::Config(config::ConfigError::Message("bad config".into()));
+            let err = DaqError::Config("bad config".into());
             assert_status_code(err, Code::InvalidArgument);
         }
 

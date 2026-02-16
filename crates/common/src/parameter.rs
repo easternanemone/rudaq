@@ -101,7 +101,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::{watch, RwLock};
 
-use crate::core::ParameterBase as CoreParameterBase;
 use crate::error::DaqError;
 use crate::observable::{Observable, ParameterAny, ParameterBase as ObservableParameterBase};
 
@@ -398,7 +397,7 @@ where
         let reader = self
             .hardware_reader
             .as_ref()
-            .ok_or_else(|| DaqError::ParameterNoHardwareReader)?;
+            .ok_or(DaqError::ParameterNoHardwareReader)?;
 
         let value = reader().await?;
 
@@ -488,65 +487,6 @@ where
             _ => futures::executor::block_on(param.set(value)),
         },
         Err(_) => futures::executor::block_on(param.set(value)),
-    }
-}
-
-// =============================================================================
-// ParameterBase Implementation (for dynamic collections)
-// =============================================================================
-
-impl<T> CoreParameterBase for Parameter<T>
-where
-    T: Clone + Send + Sync + PartialEq + Debug + Serialize + for<'de> Deserialize<'de> + 'static,
-{
-    fn name(&self) -> String {
-        self.inner.name()
-    }
-
-    fn value_json(&self) -> serde_json::Value {
-        serde_json::to_value(self.get()).unwrap_or(serde_json::Value::Null)
-    }
-
-    fn set_json(&mut self, value: serde_json::Value) -> Result<()> {
-        let name = self.inner.name();
-        tracing::debug!(param = %name, %value, "CoreParameterBase::set_json called");
-        let typed_value: T = serde_json::from_value(value).map_err(|e| {
-            tracing::debug!(param = %name, error = %e, "CoreParameterBase::set_json deserialization failed");
-            e
-        })?;
-        // bd-aruo.2: Bridge sync→async safely.
-        // On multi-thread runtime: block_in_place prevents deadlocking tokio workers
-        // by allowing other tasks to be moved off the current thread.
-        // On current-thread runtime (tests): fall back to futures executor which is
-        // safe because tests don't have contention on tokio::sync::Mutex.
-        block_on_parameter_set(self, typed_value)
-    }
-
-    fn constraints_json(&self) -> serde_json::Value {
-        let metadata = self.inner.metadata();
-        let mut constraints = serde_json::Map::new();
-
-        if let Some(min) = metadata.min_value {
-            constraints.insert("min".to_string(), serde_json::json!(min));
-        }
-        if let Some(max) = metadata.max_value {
-            constraints.insert("max".to_string(), serde_json::json!(max));
-        }
-        if !metadata.enum_values.is_empty() {
-            constraints.insert(
-                "enum_values".to_string(),
-                serde_json::json!(metadata.enum_values),
-            );
-        }
-        if !metadata.dtype.is_empty() {
-            constraints.insert("dtype".to_string(), serde_json::json!(metadata.dtype));
-        }
-
-        if constraints.is_empty() {
-            serde_json::Value::Null
-        } else {
-            serde_json::Value::Object(constraints)
-        }
     }
 }
 

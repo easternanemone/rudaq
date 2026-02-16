@@ -20,7 +20,6 @@ mod scans;
 mod script_editor;
 mod scripts;
 mod signal_plotter;
-mod signal_plotter_stream;
 mod storage;
 
 // Comedi panels for NI DAQ control

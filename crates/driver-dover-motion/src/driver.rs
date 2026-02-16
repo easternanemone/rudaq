@@ -507,16 +507,3 @@ impl TriggerOnPosition for DoverAxisDriver {
         Ok(*self.top_enabled.lock().await)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Tests require mock hardware since we can't use real Dover Motion SDK in CI
-
-    #[test]
-    fn test_driver_construction_placeholder() {
-        // Placeholder test - actual tests require mock implementation
-        assert!(true);
-    }
-}

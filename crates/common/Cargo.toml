@@ -19,9 +19,6 @@ async-trait.workspace = true
 futures.workspace = true
 tracing.workspace = true
 schemars = { version = "0.8", optional = true } # If needed for schema generation
-config = { version = "0.14.0", features = ["toml"] }
-figment = { version = "0.10", features = ["toml", "env"] }
-similar = "2.3"
 arrow = { version = "57", optional = true, features = ["ipc"] }
 pool = { path = "../pool" }
 sha2 = "0.10"  # For graph file hashing

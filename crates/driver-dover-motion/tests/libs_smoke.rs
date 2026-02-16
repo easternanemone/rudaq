@@ -26,26 +26,29 @@
 
 use common::capabilities::{Movable, Parameterized, TriggerOnPosition};
 use driver_dover_motion::DoverAxisDriver;
-use std::env;
 
 // =============================================================================
-// Test Configuration
+// Test Configuration (used by feature-gated hardware tests)
 // =============================================================================
 
+#[cfg(feature = "hardware")]
 fn smoke_test_enabled() -> bool {
-    env::var("DOVER_MOTION_SMOKE_TEST")
+    std::env::var("DOVER_MOTION_SMOKE_TEST")
         .map(|v| v == "1" || v.to_lowercase() == "true")
         .unwrap_or(false)
 }
 
+#[cfg(feature = "hardware")]
 fn config_path() -> String {
-    env::var("DOVER_CONFIG_PATH").unwrap_or_else(|_| "mock://smartstage".to_string())
+    std::env::var("DOVER_CONFIG_PATH").unwrap_or_else(|_| "mock://smartstage".to_string())
 }
 
+#[cfg(feature = "hardware")]
 fn axis_name() -> String {
-    env::var("DOVER_AXIS_NAME").unwrap_or_else(|_| "X".to_string())
+    std::env::var("DOVER_AXIS_NAME").unwrap_or_else(|_| "X".to_string())
 }
 
+#[cfg(feature = "hardware")]
 macro_rules! skip_if_disabled {
     () => {
         if !smoke_test_enabled() {
