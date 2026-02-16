@@ -75,7 +75,7 @@ fn status_with_metadata(
 ///
 /// ```
 /// use common::error::DaqError;
-/// use daq_server::grpc::map_daq_error_to_status;
+/// use server::grpc::map_daq_error_to_status;
 /// use tonic::Code;
 ///
 /// let err = DaqError::SerialPortNotConnected;

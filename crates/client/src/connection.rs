@@ -23,13 +23,13 @@
 //! # Example
 //!
 //! ```
-//! use daq_client::connection::{DaemonAddress, AddressSource};
+//! use client::connection::{DaemonAddress, AddressSource};
 //!
 //! // Parse and normalize a user-provided address
 //! let addr = DaemonAddress::parse("100.117.5.12:50051", AddressSource::UserInput)?;
 //! assert_eq!(addr.as_str(), "http://100.117.5.12:50051/");
 //! assert!(!addr.is_tls());
-//! # Ok::<(), daq_client::connection::AddressError>(())
+//! # Ok::<(), client::connection::AddressError>(())
 //! ```
 
 use serde::{Deserialize, Serialize};
@@ -127,11 +127,11 @@ impl DaemonAddress {
     /// # Example
     ///
     /// ```
-    /// use daq_client::connection::{DaemonAddress, AddressSource};
+    /// use client::connection::{DaemonAddress, AddressSource};
     ///
     /// let addr = DaemonAddress::parse("localhost:50051", AddressSource::UserInput)?;
     /// assert_eq!(addr.as_str(), "http://localhost:50051/");
-    /// # Ok::<(), daq_client::connection::AddressError>(())
+    /// # Ok::<(), client::connection::AddressError>(())
     /// ```
     pub fn parse(input: &str, source: AddressSource) -> Result<Self, AddressError> {
         let normalized = normalize_url(input)?;
@@ -241,7 +241,7 @@ impl fmt::Display for AddressError {
 /// # Examples
 ///
 /// ```
-/// use daq_client::connection::normalize_url;
+/// use client::connection::normalize_url;
 ///
 /// // Bare host:port
 /// let url = normalize_url("192.168.1.100:50051")?;
@@ -254,7 +254,7 @@ impl fmt::Display for AddressError {
 /// // IPv6
 /// let url = normalize_url("[::1]:8080")?;
 /// assert_eq!(url.as_str(), "http://[::1]:8080/");
-/// # Ok::<(), daq_client::connection::AddressError>(())
+/// # Ok::<(), client::connection::AddressError>(())
 /// ```
 pub fn normalize_url(input: &str) -> Result<Url, AddressError> {
     let input = input.trim();

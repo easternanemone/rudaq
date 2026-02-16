@@ -56,6 +56,18 @@ impl MockCamera {
             firmware_version: "1.0.0-mock".to_string(),
             sensor_width: 2048,
             sensor_height: 2048,
+            features: crate::types::FeatureSupport {
+                mcp_gain: true,
+                gate_mode: true,
+                ddg_output_delay: true,
+                ddg_output_width: true,
+                sensor_cooling: true,
+                sensor_temperature: true,
+                pixel_encoding: true,
+                external_trigger_modes: true,
+                electronic_shuttering_mode: true,
+                frame_count: true,
+            },
         };
 
         let exposure_s = Parameter::new("exposure_s", 0.001)

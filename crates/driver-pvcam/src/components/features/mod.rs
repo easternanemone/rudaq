@@ -64,6 +64,8 @@ impl PvcamFeatures {
     #[cfg(feature = "pvcam_sdk")]
     pub fn is_param_available(hcam: i16, param_id: u32) -> bool {
         let mut avail: rs_bool = 0;
+        // SAFETY: hcam is a valid camera handle. avail is a stack-allocated rs_bool
+        // of the correct type for ATTR_AVAIL. This is a read-only query.
         unsafe {
             if pl_get_param(
                 hcam,
@@ -114,6 +116,7 @@ impl PvcamFeatures {
             }
 
             let mut temp_raw: i16 = 0;
+            // SAFETY: h is a valid open handle; temp_raw is a writable i16 on the stack.
             unsafe {
                 // SAFETY: h is a valid open handle; temp_raw is a writable i16 on the stack.
                 if pl_get_param(
@@ -150,6 +153,7 @@ impl PvcamFeatures {
             }
 
             let temp_raw = (_celsius * 100.0) as i16;
+            // SAFETY: h is a valid open handle; temp_raw pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is a valid open handle; temp_raw pointer valid for duration of call.
                 if pl_set_param(h, PARAM_TEMP_SETPOINT, &temp_raw as *const _ as *mut _) == 0 {
@@ -273,6 +277,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let mut value: i32 = 0;
+            // SAFETY: h is valid handle; value is writable i32 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable i32 on stack.
                 if pl_get_param(
@@ -302,6 +307,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let value = _speed.to_pvcam();
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_FAN_SPEED_SETPOINT, &value as *const _ as *mut _) == 0 {
@@ -360,6 +366,7 @@ impl PvcamFeatures {
                 ));
             }
             let value = _index as i32;
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_SPDTAB_INDEX, &value as *const _ as *mut _) == 0 {
@@ -414,6 +421,7 @@ impl PvcamFeatures {
                 ));
             }
             let value = _port as i32;
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_READOUT_PORT, &value as *const _ as *mut _) == 0 {
@@ -453,6 +461,7 @@ impl PvcamFeatures {
             for i in 0..count {
                 // Set speed index to enumerate its properties
                 let idx = i as i32;
+                // SAFETY: h is valid; setting speed index to enumerate properties.
                 unsafe {
                     // SAFETY: h is valid; setting speed index to enumerate properties.
                     if pl_set_param(h, PARAM_SPDTAB_INDEX, &idx as *const _ as *mut _) != 0 {
@@ -471,6 +480,7 @@ impl PvcamFeatures {
 
             // Restore original speed index
             let restore = current_speed as i32;
+            // SAFETY: h is valid; restoring original speed index.
             unsafe {
                 // SAFETY: h is valid; restoring original speed index.
                 let _ = pl_set_param(h, PARAM_SPDTAB_INDEX, &restore as *const _ as *mut _);
@@ -518,6 +528,7 @@ impl PvcamFeatures {
 
             for i in 0..count {
                 let idx = i as i32;
+                // SAFETY: h is valid; setting port to enumerate properties.
                 unsafe {
                     // SAFETY: h is valid; setting port to enumerate properties.
                     if pl_set_param(h, PARAM_READOUT_PORT, &idx as *const _ as *mut _) != 0 {
@@ -532,6 +543,7 @@ impl PvcamFeatures {
 
             // Restore original port
             let restore = current_port as i32;
+            // SAFETY: h is valid; restoring original port.
             unsafe {
                 // SAFETY: h is valid; restoring original port.
                 let _ = pl_set_param(h, PARAM_READOUT_PORT, &restore as *const _ as *mut _);
@@ -589,6 +601,7 @@ impl PvcamFeatures {
                 return Err(anyhow!("PARAM_GAIN_INDEX is not available on this camera"));
             }
             let value = _index as i32;
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_GAIN_INDEX, &value as *const _ as *mut _) == 0 {
@@ -623,6 +636,7 @@ impl PvcamFeatures {
 
             for i in 0..count {
                 let idx = i as i32;
+                // SAFETY: h is valid; setting gain index to enumerate properties.
                 unsafe {
                     // SAFETY: h is valid; setting gain index to enumerate properties.
                     if pl_set_param(h, PARAM_GAIN_INDEX, &idx as *const _ as *mut _) != 0 {
@@ -637,6 +651,7 @@ impl PvcamFeatures {
 
             // Restore original gain
             let restore = current_gain as i32;
+            // SAFETY: h is valid; restoring original gain index.
             unsafe {
                 // SAFETY: h is valid; restoring original gain index.
                 let _ = pl_set_param(h, PARAM_GAIN_INDEX, &restore as *const _ as *mut _);
@@ -675,6 +690,7 @@ impl PvcamFeatures {
                 ));
             }
             let mut value: i32 = 0;
+            // SAFETY: h is valid handle; value is writable i32 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable i32 on stack.
                 if pl_get_param(
@@ -716,6 +732,7 @@ impl PvcamFeatures {
                 ));
             }
             let value = _mode.to_pvcam();
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_EXPOSURE_MODE, &value as *const _ as *mut _) == 0 {
@@ -754,6 +771,8 @@ impl PvcamFeatures {
             let mut modes = Vec::with_capacity(count as usize);
 
             for idx in 0..count {
+                // SAFETY: h is a valid camera handle. idx is within 0..count from prior
+                // enumeration. name buffer is stack-allocated [0i8; 256] with sufficient size.
                 unsafe {
                     let mut value: i32 = 0;
                     let mut name = [0i8; 256];
@@ -795,6 +814,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let mut value: i32 = 0;
+            // SAFETY: h is valid handle; value is writable i32 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable i32 on stack.
                 if pl_get_param(
@@ -824,6 +844,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let value = _mode.to_pvcam();
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_CLEAR_MODE, &value as *const _ as *mut _) == 0 {
@@ -857,6 +878,8 @@ impl PvcamFeatures {
             let mut modes = Vec::with_capacity(count as usize);
 
             for idx in 0..count {
+                // SAFETY: h is a valid camera handle. idx is within 0..count from prior
+                // enumeration. name buffer is stack-allocated [0i8; 256] with sufficient size.
                 unsafe {
                     let mut value: i32 = 0;
                     let mut name = [0i8; 256];
@@ -908,6 +931,7 @@ impl PvcamFeatures {
                 ));
             }
             let mut value: uns16 = 0;
+            // SAFETY: h is valid handle; value is writable uns16 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable uns16 on stack.
                 if pl_get_param(
@@ -940,6 +964,7 @@ impl PvcamFeatures {
                 ));
             }
             let value: uns16 = _cycles;
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_CLEAR_CYCLES, &value as *const _ as *mut _) == 0 {
@@ -968,6 +993,7 @@ impl PvcamFeatures {
                 return Err(anyhow!("PARAM_PMODE is not available on this camera"));
             }
             let mut value: i32 = 0;
+            // SAFETY: h is valid handle; value is writable i32 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable i32 on stack.
                 if pl_get_param(h, PARAM_PMODE, ATTR_CURRENT, &mut value as *mut _ as *mut _) == 0 {
@@ -997,6 +1023,7 @@ impl PvcamFeatures {
             if !Self::is_param_available(h, PARAM_PMODE) {
                 return Err(anyhow!("PARAM_PMODE is not available on this camera"));
             }
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_PMODE, &_mode as *const _ as *mut _) == 0 {
@@ -1021,6 +1048,7 @@ impl PvcamFeatures {
                 ));
             }
             let mut value: i32 = 0;
+            // SAFETY: h is valid handle; value is writable i32 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable i32 on stack.
                 if pl_get_param(
@@ -1062,6 +1090,7 @@ impl PvcamFeatures {
                 ));
             }
             let value = _mode.to_pvcam();
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_EXPOSE_OUT_MODE, &value as *const _ as *mut _) == 0 {
@@ -1100,6 +1129,8 @@ impl PvcamFeatures {
             let mut modes = Vec::with_capacity(count as usize);
 
             for idx in 0..count {
+                // SAFETY: h is a valid camera handle. idx is within 0..count from prior
+                // enumeration. name buffer is stack-allocated [0i8; 256] with sufficient size.
                 unsafe {
                     let mut value: i32 = 0;
                     let mut name = [0i8; 256];
@@ -1143,6 +1174,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let mut value: i32 = 0;
+            // SAFETY: h is valid handle; value is writable i32 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable i32 on stack.
                 if pl_get_param(
@@ -1171,6 +1203,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let value = _res.to_pvcam();
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_EXP_RES, &value as *const _ as *mut _) == 0 {
@@ -1199,6 +1232,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let value = _index as i32;
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_EXP_RES_INDEX, &value as *const _ as *mut _) == 0 {
@@ -1258,6 +1292,7 @@ impl PvcamFeatures {
                 }
             };
 
+            // SAFETY: h is valid handle from successful pl_cam_open();
             unsafe {
                 // SAFETY: h is valid handle from successful pl_cam_open();
                 // value pointer is valid stack-allocated uns32 for duration of call.
@@ -1290,6 +1325,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let mut value: i16 = 0;
+            // SAFETY: h is valid handle; value is writable i16 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable i16 on stack.
                 if pl_get_param(
@@ -1311,6 +1347,7 @@ impl PvcamFeatures {
     pub fn set_adc_offset(_conn: &PvcamConnection, _offset: i16) -> Result<()> {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
+            // SAFETY: h is valid handle; offset pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; offset pointer valid for duration of call.
                 if pl_set_param(h, PARAM_ADC_OFFSET, &_offset as *const _ as *mut _) == 0 {
@@ -1384,6 +1421,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let mut value: f64 = 0.0;
+            // SAFETY: h is valid handle; value is writable f64 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable f64 on stack.
                 if pl_get_param(
@@ -1410,6 +1448,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let mut value: i64 = 0;
+            // SAFETY: h is valid handle; value is writable i64 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable i64 on stack.
                 if pl_get_param(
@@ -1436,6 +1475,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let mut value: i64 = 0;
+            // SAFETY: h is valid handle; value is writable i64 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable i64 on stack.
                 if pl_get_param(
@@ -1462,6 +1502,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let mut value: i64 = 0;
+            // SAFETY: h is valid handle; value is writable i64 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable i64 on stack.
                 if pl_get_param(
@@ -1492,6 +1533,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let mut value: i32 = 0;
+            // SAFETY: h is valid handle; value is writable i32 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable i32 on stack.
                 if pl_get_param(
@@ -1517,6 +1559,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let mut value: i32 = 0;
+            // SAFETY: h is valid handle; value is writable i32 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable i32 on stack.
                 if pl_get_param(
@@ -1547,6 +1590,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let value = _mode.to_pvcam();
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_SHTR_OPEN_MODE, &value as *const _ as *mut _) == 0 {
@@ -1562,6 +1606,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let mut value: uns32 = 0;
+            // SAFETY: h is valid handle; value is writable uns32 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable uns32 on stack.
                 if pl_get_param(
@@ -1587,6 +1632,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let mut value: uns32 = 0;
+            // SAFETY: h is valid handle; value is writable uns32 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable uns32 on stack.
                 if pl_get_param(
@@ -1612,6 +1658,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let value = _delay_us as uns32;
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_SHTR_OPEN_DELAY, &value as *const _ as *mut _) == 0 {
@@ -1630,6 +1677,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let value = _delay_us as uns32;
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_SHTR_CLOSE_DELAY, &value as *const _ as *mut _) == 0 {
@@ -1666,6 +1714,7 @@ impl PvcamFeatures {
             for i in 0..count {
                 // Select the PP feature
                 let idx = i as i32;
+                // SAFETY: h is valid; setting PP index to enumerate features.
                 unsafe {
                     // SAFETY: h is valid; setting PP index to enumerate features.
                     if pl_set_param(h, PARAM_PP_INDEX, &idx as *const _ as *mut _) == 0 {
@@ -1715,6 +1764,7 @@ impl PvcamFeatures {
             }
             // Select the feature first
             let feat_idx = _feature_index as i32;
+            // SAFETY: h is valid; selecting PP feature.
             unsafe {
                 // SAFETY: h is valid; selecting PP feature.
                 if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
@@ -1732,6 +1782,7 @@ impl PvcamFeatures {
             for i in 0..count {
                 // Select the parameter
                 let param_idx = i as i32;
+                // SAFETY: h is valid; selecting PP parameter.
                 unsafe {
                     // SAFETY: h is valid; selecting PP parameter.
                     if pl_set_param(h, PARAM_PP_PARAM_INDEX, &param_idx as *const _ as *mut _) == 0
@@ -1790,6 +1841,7 @@ impl PvcamFeatures {
             }
             // Select feature
             let feat_idx = _feature_index as i32;
+            // SAFETY: h is valid; selecting PP feature.
             unsafe {
                 // SAFETY: h is valid; selecting PP feature.
                 if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
@@ -1802,6 +1854,7 @@ impl PvcamFeatures {
 
             // Select parameter
             let param_idx = _param_index as i32;
+            // SAFETY: h is valid; selecting PP parameter.
             unsafe {
                 // SAFETY: h is valid; selecting PP parameter.
                 if pl_set_param(h, PARAM_PP_PARAM_INDEX, &param_idx as *const _ as *mut _) == 0 {
@@ -1813,6 +1866,7 @@ impl PvcamFeatures {
             }
 
             // Set value
+            // SAFETY: h is valid; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_PP_PARAM, &_value as *const _ as *mut _) == 0 {
@@ -1843,6 +1897,7 @@ impl PvcamFeatures {
             }
             // Select feature
             let feat_idx = _feature_index as i32;
+            // SAFETY: h is valid; selecting PP feature.
             unsafe {
                 // SAFETY: h is valid; selecting PP feature.
                 if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
@@ -1855,6 +1910,7 @@ impl PvcamFeatures {
 
             // Select parameter
             let param_idx = _param_index as i32;
+            // SAFETY: h is valid; selecting PP parameter.
             unsafe {
                 // SAFETY: h is valid; selecting PP parameter.
                 if pl_set_param(h, PARAM_PP_PARAM_INDEX, &param_idx as *const _ as *mut _) == 0 {
@@ -1888,6 +1944,7 @@ impl PvcamFeatures {
     pub fn reset_pp_features(_conn: &PvcamConnection) -> Result<()> {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
+            // SAFETY: h is a valid camera handle. pl_pp_reset resets all PP features.
             unsafe {
                 if pl_pp_reset(h) == 0 {
                     return Err(anyhow!(
@@ -1914,6 +1971,7 @@ impl PvcamFeatures {
             for i in 0..count {
                 let idx = i as i32;
                 let mut value: i32 = 0;
+                // SAFETY: h is valid; setting index and getting value.
                 unsafe {
                     // SAFETY: h is valid; setting index and getting value.
                     if pl_set_param(h, PARAM_BINNING_SER, &idx as *const _ as *mut _) != 0 {
@@ -1945,6 +2003,7 @@ impl PvcamFeatures {
             for i in 0..count {
                 let idx = i as i32;
                 let mut value: i32 = 0;
+                // SAFETY: h is valid; setting index and getting value.
                 unsafe {
                     // SAFETY: h is valid; setting index and getting value.
                     if pl_set_param(h, PARAM_BINNING_PAR, &idx as *const _ as *mut _) != 0 {
@@ -1975,6 +2034,7 @@ impl PvcamFeatures {
         if let Some(h) = _conn.handle() {
             let ser_val = _serial as i32;
             let par_val = _parallel as i32;
+            // SAFETY: h is valid handle; value pointers are valid stack-allocated i32.
             unsafe {
                 // SAFETY: h is valid handle; value pointers are valid stack-allocated i32.
                 if pl_set_param(h, PARAM_BINNING_SER, &ser_val as *const _ as *mut _) == 0 {
@@ -2024,6 +2084,7 @@ impl PvcamFeatures {
                 ));
             }
             let mut value: rs_bool = 0;
+            // SAFETY: h is valid; value is writable rs_bool on stack.
             unsafe {
                 // SAFETY: h is valid; value is writable rs_bool on stack.
                 if pl_get_param(
@@ -2044,23 +2105,17 @@ impl PvcamFeatures {
         Ok(false)
     }
 
-    /// Enable or disable frame metadata (bd-ne6a)
+    /// Enable or disable frame metadata (bd-ne6a, bd-32f4)
     ///
-    /// **WARNING:** Frame metadata is currently disabled during acquisition (see acquisition.rs).
-    /// When enabled, frame buffers contain header data before pixel data which requires
-    /// parsing with pl_md_frame_decode. Without proper parsing, this corrupts image data.
+    /// When enabled, PVCAM embeds per-frame metadata headers in frame buffers.
+    /// The frame loop decodes these via `pl_md_frame_decode` to extract:
+    /// - Hardware timestamps (BOF/EOF with nanosecond resolution)
+    /// - Exposure time (FPGA-measured)
+    /// - Bit depth and ROI count
     ///
-    /// # Future Work (Gemini SDK Review)
-    ///
-    /// To fully support metadata:
-    /// 1. Add pl_md_create_frame_struct and pl_md_frame_decode to pvcam-sys bindings
-    /// 2. Create md_frame struct to hold decoded metadata
-    /// 3. Update frame_loop_hardware to detect metadata-enabled mode
-    /// 4. Parse frames using pl_md_frame_decode to extract:
-    ///    - Hardware timestamps (microsecond precision from FPGA)
-    ///    - Hardware frame count (absolute reference for loss detection)
-    ///    - Pixel data offset/size
-    /// 5. Remove the force-disable in start_stream once parsing is implemented
+    /// The acquisition's `metadata_enabled` flag is synced via the driver's
+    /// `processing.metadata_enabled` parameter write callback (bd-32f4),
+    /// ensuring the frame loop always decodes when metadata is embedded.
     ///
     /// # SDK Pattern (bd-l35g)
     /// Checks PARAM_METADATA_ENABLED availability before access.
@@ -2074,6 +2129,7 @@ impl PvcamFeatures {
                 ));
             }
             let value: rs_bool = if _enabled { 1 } else { 0 };
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_METADATA_ENABLED, &value as *const _ as *mut _) == 0 {
@@ -2104,6 +2160,7 @@ impl PvcamFeatures {
             }
             let mode = {
                 let mut value: i32 = 0;
+                // SAFETY: h is valid; value is writable i32 on stack.
                 unsafe {
                     // SAFETY: h is valid; value is writable i32 on stack.
                     let _ = pl_get_param(
@@ -2148,6 +2205,8 @@ impl PvcamFeatures {
                     "PARAM_CENTROIDS_MODE is not available on this camera"
                 ));
             }
+            // SAFETY: h is a valid camera handle; value pointers are valid stack-allocated
+            // variables of the correct type for each PARAM_CENTROIDS_* constant.
             unsafe {
                 // Set mode
                 let mode = _config.mode.to_pvcam();
@@ -2207,6 +2266,7 @@ impl PvcamFeatures {
                 ));
             }
             let mut value: rs_bool = 0;
+            // SAFETY: h is valid handle; value is writable rs_bool on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable rs_bool on stack.
                 if pl_get_param(
@@ -2242,6 +2302,7 @@ impl PvcamFeatures {
                 ));
             }
             let value: rs_bool = if _enabled { 1 } else { 0 };
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_CENTROIDS_ENABLED, &value as *const _ as *mut _) == 0 {
@@ -2271,6 +2332,7 @@ impl PvcamFeatures {
                 ));
             }
             let mut value: uns32 = 0;
+            // SAFETY: h is valid handle; value is writable uns32 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable uns32 on stack.
                 if pl_get_param(
@@ -2308,6 +2370,7 @@ impl PvcamFeatures {
                 ));
             }
             let value: uns32 = _threshold;
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_CENTROIDS_THRESHOLD, &value as *const _ as *mut _) == 0 {
@@ -2339,6 +2402,7 @@ impl PvcamFeatures {
                 ));
             }
             let mut value: rs_bool = 0;
+            // SAFETY: h is valid; value is writable rs_bool on stack.
             unsafe {
                 // SAFETY: h is valid; value is writable rs_bool on stack.
                 if pl_get_param(
@@ -2376,6 +2440,7 @@ impl PvcamFeatures {
                 ));
             }
             let value: rs_bool = if _enabled { 1 } else { 0 };
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(
@@ -2413,6 +2478,7 @@ impl PvcamFeatures {
                 ));
             }
             let mut value: i32 = 0;
+            // SAFETY: h is valid handle; value is writable i32 on stack.
             unsafe {
                 // SAFETY: h is valid handle; value is writable i32 on stack.
                 if pl_get_param(
@@ -2453,6 +2519,7 @@ impl PvcamFeatures {
                 ));
             }
             let value = _mode.to_pvcam();
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
                 if pl_set_param(h, PARAM_SMART_STREAM_MODE, &value as *const _ as *mut _) == 0 {
@@ -2487,6 +2554,8 @@ impl PvcamFeatures {
             let entries = _exposures_ms.len() as u16;
             let mut ss_struct: *mut smart_stream_type = std::ptr::null_mut();
 
+            // SAFETY: Pointers to valid buffers/structs; sizes match allocations.
+            // pl_create_smart_stream_struct allocates, pl_release_smart_stream_struct frees.
             unsafe {
                 if pl_create_smart_stream_struct(&mut ss_struct, entries) == 0 {
                     return Err(anyhow!(
@@ -2523,6 +2592,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let mut value: i32 = 0;
+            // SAFETY: h is a valid camera handle. value is a stack-allocated i32.
             unsafe {
                 if pl_get_param(
                     h,
@@ -2546,6 +2616,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let value = _rotate.to_pvcam();
+            // SAFETY: h is a valid camera handle; value pointer valid for duration of call.
             unsafe {
                 if pl_set_param(h, PARAM_HOST_FRAME_ROTATE, &value as *const _ as *mut _) == 0 {
                     return Err(anyhow!(
@@ -2562,6 +2633,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let mut value: i32 = 0;
+            // SAFETY: h is a valid camera handle. value is a stack-allocated i32.
             unsafe {
                 if pl_get_param(
                     h,
@@ -2585,6 +2657,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let value = _flip.to_pvcam();
+            // SAFETY: h is a valid camera handle; value pointer valid for duration of call.
             unsafe {
                 if pl_set_param(h, PARAM_HOST_FRAME_FLIP, &value as *const _ as *mut _) == 0 {
                     return Err(anyhow!(
@@ -2601,6 +2674,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let mut value: rs_bool = 0;
+            // SAFETY: h is a valid camera handle. value is a stack-allocated rs_bool.
             unsafe {
                 if pl_get_param(
                     h,
@@ -2621,6 +2695,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let value: rs_bool = if _enabled { 1 } else { 0 };
+            // SAFETY: h is a valid camera handle; value pointer valid for duration of call.
             unsafe {
                 if pl_set_param(
                     h,
@@ -2650,6 +2725,7 @@ impl PvcamFeatures {
     pub fn set_host_frame_summing_count(_conn: &PvcamConnection, _count: u32) -> Result<()> {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
+            // SAFETY: h is a valid camera handle; value pointer valid for duration of call.
             unsafe {
                 if pl_set_param(
                     h,
@@ -2668,12 +2744,173 @@ impl PvcamFeatures {
     }
 
     // =========================================================================
+    // I/O Control (bd-6q0k)
+    // =========================================================================
+
+    /// Set the I/O signal address (selects which I/O line to control).
+    ///
+    /// Must be called before get/set_io_direction or get/set_io_state.
+    /// The address selects the physical I/O line on the camera (0, 1, 2, etc.).
+    pub fn set_io_address(_conn: &PvcamConnection, _address: u16) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_IO_ADDR) {
+                return Err(anyhow!("PARAM_IO_ADDR is not available on this camera"));
+            }
+            let val = _address as i32;
+            // SAFETY: h is a valid camera handle; val pointer valid for duration of call.
+            unsafe {
+                if pl_set_param(h, PARAM_IO_ADDR, &val as *const _ as *mut _) == 0 {
+                    return Err(anyhow!("Failed to set I/O address: {}", get_pvcam_error()));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Set I/O signal direction for the currently selected I/O address.
+    ///
+    /// Internally sets PARAM_IO_ADDR first, then PARAM_IO_DIRECTION.
+    pub fn set_io_direction(
+        _conn: &PvcamConnection,
+        _address: u16,
+        _direction: &str,
+    ) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            // Select I/O address first
+            Self::set_io_address(_conn, _address)?;
+
+            if !Self::is_param_available(h, PARAM_IO_DIRECTION) {
+                return Err(anyhow!(
+                    "PARAM_IO_DIRECTION is not available on this camera"
+                ));
+            }
+            let dir_val: i32 = match _direction {
+                "Output" => 1,
+                _ => 0, // Input
+            };
+            // SAFETY: h is a valid camera handle; dir_val pointer valid for duration of call.
+            unsafe {
+                if pl_set_param(h, PARAM_IO_DIRECTION, &dir_val as *const _ as *mut _) == 0 {
+                    return Err(anyhow!(
+                        "Failed to set I/O direction: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Set I/O signal state for the currently selected I/O address.
+    ///
+    /// Internally sets PARAM_IO_ADDR first, then PARAM_IO_STATE.
+    /// Value 0.0 = low, 1.0 = high.
+    pub fn set_io_state(_conn: &PvcamConnection, _address: u16, _state: f64) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            // Select I/O address first
+            Self::set_io_address(_conn, _address)?;
+
+            if !Self::is_param_available(h, PARAM_IO_STATE) {
+                return Err(anyhow!("PARAM_IO_STATE is not available on this camera"));
+            }
+            let state_val = if _state > 0.5 { 1.0f64 } else { 0.0f64 };
+            // SAFETY: h is a valid camera handle; state_val pointer valid for duration of call.
+            unsafe {
+                if pl_set_param(h, PARAM_IO_STATE, &state_val as *const _ as *mut _) == 0 {
+                    return Err(anyhow!("Failed to set I/O state: {}", get_pvcam_error()));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Get I/O signal state for the currently selected I/O address.
+    pub fn get_io_state(_conn: &PvcamConnection, _address: u16) -> Result<f64> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            Self::set_io_address(_conn, _address)?;
+
+            if !Self::is_param_available(h, PARAM_IO_STATE) {
+                return Err(anyhow!("PARAM_IO_STATE is not available on this camera"));
+            }
+            let mut value: f64 = 0.0;
+            // SAFETY: h is a valid camera handle; value is a stack-allocated f64.
+            unsafe {
+                if pl_get_param(
+                    h,
+                    PARAM_IO_STATE,
+                    ATTR_CURRENT,
+                    &mut value as *mut _ as *mut _,
+                ) == 0
+                {
+                    return Err(anyhow!("Failed to get I/O state: {}", get_pvcam_error()));
+                }
+            }
+            return Ok(value);
+        }
+        Ok(0.0)
+    }
+
+    // =========================================================================
+    // I/O Script Control (bd-ncbd)
+    // =========================================================================
+
+    /// Control a programmable I/O script on the camera (bd-ncbd).
+    ///
+    /// # Deprecation Notice
+    ///
+    /// `pl_io_script_control` is a PVCAM 2.x Class 3 legacy function.
+    /// In PVCAM 3.x, I/O scripting should use `PARAM_IO_STATE` and related
+    /// parameter-based APIs instead. This function is retained for backward
+    /// compatibility but should be migrated when PVCAM 3.x is the minimum
+    /// supported version.
+    ///
+    /// Sends a start, stop, or reset command to the I/O script engine at the
+    /// given script address. Script commands:
+    /// - 0: Start the script
+    /// - 1: Stop the script
+    /// - 2: Reset the script
+    ///
+    /// # SDK Reference
+    /// Uses `pl_io_script_control` which programs the camera's I/O scripting
+    /// engine for automated signal generation during acquisition.
+    pub fn io_script_control(
+        _conn: &PvcamConnection,
+        _script_addr: u16,
+        _script_cmd: u16,
+    ) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            let addr = _script_addr as uns16;
+            let cmd = _script_cmd as uns16;
+            // SAFETY: h is a valid camera handle from a successful pl_cam_open().
+            // addr and cmd are value types passed by value. pl_io_script_control
+            // does not write to any caller-provided buffers.
+            unsafe {
+                if pl_io_script_control(h, addr, cmd) == 0 {
+                    return Err(anyhow!(
+                        "Failed to execute I/O script control (addr={}, cmd={}): {}",
+                        _script_addr,
+                        _script_cmd,
+                        get_pvcam_error()
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    // =========================================================================
     // Private Implementation Helpers
     // =========================================================================
 
     #[cfg(feature = "pvcam_sdk")]
     fn get_serial_number_impl(h: i16) -> Result<String> {
         let mut buf = [0i8; 256];
+        // SAFETY: h is valid; buf is writable array for string parameter.
         unsafe {
             // SAFETY: h is valid; buf is writable array for string parameter.
             if pl_get_param(
@@ -2704,6 +2941,7 @@ impl PvcamFeatures {
         }
 
         let mut version: uns16 = 0;
+        // SAFETY: h is valid; version is writable uns16 on stack.
         unsafe {
             // SAFETY: h is valid; version is writable uns16 on stack.
             if pl_get_param(
@@ -2735,6 +2973,7 @@ impl PvcamFeatures {
         }
 
         let mut buf = [0i8; 256];
+        // SAFETY: h is valid; buf is writable array for string parameter.
         unsafe {
             // SAFETY: h is valid; buf is writable array for string parameter.
             if pl_get_param(h, PARAM_CHIP_NAME, ATTR_CURRENT, buf.as_mut_ptr() as *mut _) == 0 {
@@ -2755,6 +2994,7 @@ impl PvcamFeatures {
         }
 
         let mut version: uns16 = 0;
+        // SAFETY: h is valid; version is writable uns16 on stack.
         unsafe {
             // SAFETY: h is valid; version is writable uns16 on stack.
             if pl_get_param(
@@ -2786,6 +3026,7 @@ impl PvcamFeatures {
         }
 
         let mut value: i16 = 0;
+        // SAFETY: h is valid; value is writable i16 on stack.
         unsafe {
             // SAFETY: h is valid; value is writable i16 on stack.
             if pl_get_param(
@@ -2811,6 +3052,7 @@ impl PvcamFeatures {
         }
 
         let mut value: uns16 = 0;
+        // SAFETY: h is valid; value is writable uns16 on stack.
         unsafe {
             // SAFETY: h is valid; value is writable uns16 on stack.
             if pl_get_param(
@@ -2830,6 +3072,7 @@ impl PvcamFeatures {
     fn get_pixel_size_impl(h: i16) -> Result<(u32, u32)> {
         let mut width: uns16 = 0;
         let mut height: uns16 = 0;
+        // SAFETY: h is valid; width/height are writable uns16 on stack.
         unsafe {
             // SAFETY: h is valid; width/height are writable uns16 on stack.
             if pl_get_param(
@@ -2869,6 +3112,7 @@ impl PvcamFeatures {
 
         let mut width: uns16 = 0;
         let mut height: uns16 = 0;
+        // SAFETY: h is valid; width/height are writable uns16 on stack.
         unsafe {
             // SAFETY: h is valid; width/height are writable uns16 on stack.
             if pl_get_param(
@@ -2899,6 +3143,7 @@ impl PvcamFeatures {
     #[cfg(any(feature = "pvcam_sdk", feature = "pvcam_hardware"))]
     pub(crate) fn get_u16_param_impl(h: i16, param: u32) -> Result<u16> {
         let mut value: i32 = 0;
+        // SAFETY: h is valid; value is writable i32 on stack.
         unsafe {
             // SAFETY: h is valid; value is writable i32 on stack.
             if pl_get_param(h, param, ATTR_CURRENT, &mut value as *mut _ as *mut _) == 0 {
@@ -2915,6 +3160,7 @@ impl PvcamFeatures {
     #[cfg(any(feature = "pvcam_sdk", feature = "pvcam_hardware"))]
     pub(crate) fn get_enum_count_impl(h: i16, param: u32) -> Result<u32> {
         let mut count: uns32 = 0;
+        // SAFETY: h is valid; count is writable uns32 on stack.
         unsafe {
             // SAFETY: h is valid; count is writable uns32 on stack.
             if pl_get_param(h, param, ATTR_COUNT, &mut count as *mut _ as *mut _) == 0 {
@@ -2932,6 +3178,7 @@ impl PvcamFeatures {
     pub(crate) fn get_enum_string_impl(h: i16, param: u32) -> Result<String> {
         // Get current value first
         let mut value: i32 = 0;
+        // SAFETY: h is valid; value is writable i32 on stack.
         unsafe {
             // SAFETY: h is valid; value is writable i32 on stack.
             if pl_get_param(h, param, ATTR_CURRENT, &mut value as *mut _ as *mut _) == 0 {
@@ -2964,6 +3211,7 @@ impl PvcamFeatures {
     #[cfg(any(feature = "pvcam_sdk", feature = "pvcam_hardware"))]
     pub(crate) fn get_u32_param_impl(h: i16, param: u32) -> Result<u32> {
         let mut value: uns32 = 0;
+        // SAFETY: h is valid; value is writable uns32 on stack.
         unsafe {
             // SAFETY: h is valid; value is writable uns32 on stack.
             if pl_get_param(h, param, ATTR_CURRENT, &mut value as *mut _ as *mut _) == 0 {
@@ -2980,6 +3228,7 @@ impl PvcamFeatures {
     #[cfg(feature = "pvcam_sdk")]
     fn get_pp_feature_name_impl(h: i16) -> Result<String> {
         let mut buf = [0i8; 256];
+        // SAFETY: h is valid; buf is writable array for PP feature name string.
         unsafe {
             // SAFETY: h is valid; buf is writable array for PP feature name string.
             if pl_get_param(
@@ -3001,6 +3250,7 @@ impl PvcamFeatures {
     #[cfg(feature = "pvcam_sdk")]
     fn get_pp_param_name_impl(h: i16) -> Result<String> {
         let mut buf = [0i8; 256];
+        // SAFETY: h is valid; buf is writable array for PP parameter name string.
         unsafe {
             // SAFETY: h is valid; buf is writable array for PP parameter name string.
             if pl_get_param(

@@ -204,6 +204,17 @@ pub struct PvcamDriver {
     host_summing_enabled: Parameter<bool>,
     host_summing_count: Parameter<u32>,
 
+    // I/O Control (bd-6q0k)
+    io_address: Parameter<u16>,
+    io_direction: Parameter<String>,
+    io_state: Parameter<f64>,
+
+    // Frame Transfer Mode (bd-03s3)
+    frame_transfer_mode: Parameter<String>,
+
+    // I/O Scripting (bd-ncbd)
+    io_script_cmd: Parameter<String>,
+
     // Metadata (Info)
     serial_number: Parameter<String>,
     firmware_version: Parameter<String>,
@@ -428,8 +439,8 @@ impl PvcamDriver {
         .with_choices_introspectable(ExposeOutMode::all_choices());
 
         let buffer_mode = Parameter::new("acquisition.buffer_mode", "Overwrite".to_string())
-            .with_description("Circular buffer mode")
-            .with_choices_introspectable(vec!["Overwrite".into(), "No Overwrite".into()]);
+            .with_description("Acquisition buffer mode: Overwrite (circular, newest wins), No Overwrite (circular FIFO), or Sequence (batch-based, non-circular)")
+            .with_choices_introspectable(vec!["Overwrite".into(), "No Overwrite".into(), "Sequence".into()]);
 
         let roi = Parameter::new(
             "acquisition.roi",
@@ -582,6 +593,31 @@ impl PvcamDriver {
             .with_description("Number of frames to sum on host")
             .with_range(1, 1000);
 
+        // I/O Control (bd-6q0k)
+        let io_address = Parameter::new("io.address", 0u16)
+            .with_description("I/O signal address (selects which I/O line to control)");
+        let io_direction = Parameter::new("io.direction", "Input".to_string())
+            .with_description("I/O signal direction")
+            .with_choices_introspectable(vec!["Input".into(), "Output".into()]);
+        let io_state = Parameter::new("io.state", 0.0f64)
+            .with_description("I/O signal state (0.0 = low, 1.0 = high)")
+            .with_range(0.0, 1.0);
+
+        // Frame Transfer Mode (bd-03s3)
+        let frame_transfer_mode =
+            Parameter::new("readout.frame_transfer_mode", "Normal".to_string())
+                .with_description("Parallel clocking mode (CCD frame transfer)")
+                .with_choices_introspectable(vec![
+                    "Normal".into(),
+                    "Frame Transfer".into(),
+                    "Frame Transfer MPP".into(),
+                ]);
+
+        // I/O Scripting (bd-ncbd)
+        let io_script_cmd = Parameter::new("io.script_cmd", "Stop".to_string())
+            .with_description("I/O script command (Start/Stop/Reset)")
+            .with_choices_introspectable(vec!["Start".into(), "Stop".into(), "Reset".into()]);
+
         // Metadata Info Group
         let serial_number = Parameter::new("info.serial_number", info.serial_number)
             .with_description("Camera Serial Number")
@@ -639,6 +675,11 @@ impl PvcamDriver {
         params.register(host_flip.clone());
         params.register(host_summing_enabled.clone());
         params.register(host_summing_count.clone());
+        params.register(io_address.clone());
+        params.register(io_direction.clone());
+        params.register(io_state.clone());
+        params.register(frame_transfer_mode.clone());
+        params.register(io_script_cmd.clone());
         params.register(serial_number.clone());
         params.register(firmware_version.clone());
         params.register(model_name.clone());
@@ -692,6 +733,11 @@ impl PvcamDriver {
             host_flip,
             host_summing_enabled,
             host_summing_count,
+            io_address,
+            io_direction,
+            io_state,
+            frame_transfer_mode,
+            io_script_cmd,
             serial_number,
             firmware_version,
             model_name,
@@ -1206,12 +1252,21 @@ impl PvcamDriver {
             }
         });
 
-        // Metadata Enabled
+        // Metadata Enabled (bd-32f4: sync acquisition decoding flag with SDK parameter)
         self.metadata_enabled.connect_to_hardware_write({
             let conn = conn.clone();
+            let acquisition = self.acquisition.clone();
             move |val| {
                 let conn = conn.clone();
+                let _acquisition = acquisition.clone();
                 Box::pin(async move {
+                    // Sync acquisition metadata decoding flag (bd-32f4).
+                    // Without this, enabling the SDK parameter would embed metadata
+                    // in frame buffers but the frame loop wouldn't decode them,
+                    // corrupting pixel data.
+                    #[cfg(feature = "pvcam_sdk")]
+                    _acquisition.set_metadata_decoding(val);
+
                     let conn_guard = conn.lock_owned().await;
                     tokio::task::spawn_blocking(move || {
                         PvcamFeatures::set_metadata_enabled(&conn_guard, val)
@@ -1302,6 +1357,104 @@ impl PvcamDriver {
                     let conn_guard = conn.lock_owned().await;
                     tokio::task::spawn_blocking(move || {
                         PvcamFeatures::set_host_frame_summing_count(&conn_guard, val)
+                            .map_err(|e| DaqError::Instrument(e.to_string()))
+                    })
+                    .await
+                    .map_err(|e| DaqError::Instrument(e.to_string()))?
+                })
+            }
+        });
+
+        // I/O Control (bd-6q0k)
+        self.io_address.connect_to_hardware_write({
+            let conn = conn.clone();
+            move |val| {
+                let conn = conn.clone();
+                Box::pin(async move {
+                    let conn_guard = conn.lock_owned().await;
+                    tokio::task::spawn_blocking(move || {
+                        PvcamFeatures::set_io_address(&conn_guard, val)
+                            .map_err(|e| DaqError::Instrument(e.to_string()))
+                    })
+                    .await
+                    .map_err(|e| DaqError::Instrument(e.to_string()))?
+                })
+            }
+        });
+
+        self.io_direction.connect_to_hardware_write({
+            let conn = conn.clone();
+            let io_address = self.io_address.clone();
+            move |val| {
+                let conn = conn.clone();
+                let addr = io_address.get();
+                Box::pin(async move {
+                    let conn_guard = conn.lock_owned().await;
+                    tokio::task::spawn_blocking(move || {
+                        PvcamFeatures::set_io_direction(&conn_guard, addr, &val)
+                            .map_err(|e| DaqError::Instrument(e.to_string()))
+                    })
+                    .await
+                    .map_err(|e| DaqError::Instrument(e.to_string()))?
+                })
+            }
+        });
+
+        self.io_state.connect_to_hardware_write({
+            let conn = conn.clone();
+            let io_address = self.io_address.clone();
+            move |val| {
+                let conn = conn.clone();
+                let addr = io_address.get();
+                Box::pin(async move {
+                    let conn_guard = conn.lock_owned().await;
+                    tokio::task::spawn_blocking(move || {
+                        PvcamFeatures::set_io_state(&conn_guard, addr, val)
+                            .map_err(|e| DaqError::Instrument(e.to_string()))
+                    })
+                    .await
+                    .map_err(|e| DaqError::Instrument(e.to_string()))?
+                })
+            }
+        });
+
+        // Frame Transfer Mode (bd-03s3)
+        self.frame_transfer_mode.connect_to_hardware_write({
+            let conn = conn.clone();
+            move |val| {
+                let conn = conn.clone();
+                Box::pin(async move {
+                    let mode = match val.as_str() {
+                        "Frame Transfer" => 1,     // PMODE_FT
+                        "Frame Transfer MPP" => 3, // PMODE_FT_MPP
+                        _ => 0,                    // PMODE_NORMAL
+                    };
+                    let conn_guard = conn.lock_owned().await;
+                    tokio::task::spawn_blocking(move || {
+                        PvcamFeatures::set_pmode(&conn_guard, mode)
+                            .map_err(|e| DaqError::Instrument(e.to_string()))
+                    })
+                    .await
+                    .map_err(|e| DaqError::Instrument(e.to_string()))?
+                })
+            }
+        });
+
+        // I/O Script Command (bd-ncbd)
+        self.io_script_cmd.connect_to_hardware_write({
+            let conn = conn.clone();
+            move |val| {
+                let conn = conn.clone();
+                Box::pin(async move {
+                    let cmd: u16 = match val.as_str() {
+                        "Start" => 0,
+                        "Reset" => 2,
+                        _ => 1, // Stop
+                    };
+                    let conn_guard = conn.lock_owned().await;
+                    tokio::task::spawn_blocking(move || {
+                        // Use script address 0 (default); address is fixed for simple use cases
+                        PvcamFeatures::io_script_control(&conn_guard, 0, cmd)
                             .map_err(|e| DaqError::Instrument(e.to_string()))
                     })
                     .await

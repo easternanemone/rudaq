@@ -291,7 +291,7 @@ impl HardwareServiceImpl {
 /// Usage: require_capability!(self, get_movable, &device_id, "not movable")
 ///
 /// Expands to:
-/// ```
+/// ```ignore
 /// let capability = self.registry.$getter($device_id);
 /// let capability = capability.ok_or_else(|| {
 ///     Status::not_found(format!("Device '{}' {}",

@@ -43,7 +43,10 @@
 //! ```
 
 use crate::error::AndorError;
-use crate::types::{FlipperMirror, Grating, GratingInfo, SpectrographInfo, WavelengthCalibration};
+use crate::types::{
+    FilterPosition, FlipperMirror, Grating, GratingInfo, SlitPort, SpectrographInfo,
+    WavelengthCalibration, WavelengthLimits,
+};
 use anyhow::Result;
 use async_trait::async_trait;
 use common::capabilities::{Parameterized, ShutterControl, WavelengthTunable};
@@ -468,6 +471,392 @@ impl AndorSpectrograph {
 
             Ok(WavelengthCalibration::new(wavelengths))
         }
+    }
+
+    // ── Wavelength limits per grating [bd-p1zz] ──────────────────────────
+
+    /// Get wavelength limits for a specific grating.
+    ///
+    /// Returns the minimum and maximum center wavelength allowed by the SDK
+    /// for the given grating, accounting for its line density and blaze angle.
+    ///
+    /// # Arguments
+    ///
+    /// * `grating_index` - Grating number (1-3)
+    pub async fn get_wavelength_limits(&self, grating_index: i32) -> Result<WavelengthLimits> {
+        #[cfg(feature = "spectrograph")]
+        {
+            let handle = self.inner.handle;
+            tokio::task::spawn_blocking(move || {
+                use crate::error::sdk_result;
+                unsafe {
+                    let mut min: f32 = 0.0;
+                    let mut max: f32 = 0.0;
+                    let ret =
+                        ShamrockGetWavelengthLimits(handle, grating_index, &mut min, &mut max);
+                    sdk_result(ret)?;
+                    Ok(WavelengthLimits {
+                        min_nm: min as f64,
+                        max_nm: max as f64,
+                    })
+                }
+            })
+            .await?
+        }
+
+        #[cfg(not(feature = "spectrograph"))]
+        Ok(WavelengthLimits {
+            min_nm: 200.0,
+            max_nm: 1000.0,
+        })
+    }
+
+    // ── Detector offset [bd-1rfx] ──────────────────────────────────────
+
+    /// Get detector offset in pixels.
+    ///
+    /// The detector offset compensates for physical misalignment between the
+    /// detector and the spectrograph focal plane.
+    pub async fn get_detector_offset(&self) -> Result<i32> {
+        #[cfg(feature = "spectrograph")]
+        {
+            let handle = self.inner.handle;
+            tokio::task::spawn_blocking(move || {
+                use crate::error::sdk_result;
+                unsafe {
+                    let mut offset: i32 = 0;
+                    let ret = ShamrockGetDetectorOffset(handle, &mut offset);
+                    sdk_result(ret)?;
+                    Ok(offset)
+                }
+            })
+            .await?
+        }
+
+        #[cfg(not(feature = "spectrograph"))]
+        Ok(0)
+    }
+
+    /// Set detector offset in pixels.
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - Offset in pixels (positive shifts toward red)
+    pub async fn set_detector_offset(&self, offset: i32) -> Result<()> {
+        #[cfg(feature = "spectrograph")]
+        {
+            let handle = self.inner.handle;
+            tokio::task::spawn_blocking(move || {
+                use crate::error::sdk_result;
+                unsafe {
+                    let ret = ShamrockSetDetectorOffset(handle, offset);
+                    sdk_result(ret)?;
+                    Ok::<(), anyhow::Error>(())
+                }
+            })
+            .await??;
+        }
+
+        tracing::info!("Detector offset set to {} pixels", offset);
+        Ok(())
+    }
+
+    // ── Filter wheel control [bd-8n55] ─────────────────────────────────
+
+    /// Check if a filter wheel is installed.
+    pub async fn filter_is_present(&self) -> Result<bool> {
+        #[cfg(feature = "spectrograph")]
+        {
+            let handle = self.inner.handle;
+            tokio::task::spawn_blocking(move || unsafe {
+                let mut present: i32 = 0;
+                let ret = ShamrockFilterIsPresent(handle, &mut present);
+                if ret == SHAMROCK_SUCCESS {
+                    Ok(present != 0)
+                } else {
+                    Ok(false)
+                }
+            })
+            .await?
+        }
+
+        #[cfg(not(feature = "spectrograph"))]
+        Ok(true) // Mock has filter wheel
+    }
+
+    /// Get current filter wheel position.
+    pub async fn get_filter(&self) -> Result<FilterPosition> {
+        #[cfg(feature = "spectrograph")]
+        {
+            let handle = self.inner.handle;
+            tokio::task::spawn_blocking(move || {
+                use crate::error::sdk_result;
+                unsafe {
+                    let mut filter: i32 = 0;
+                    let ret = ShamrockGetFilter(handle, &mut filter);
+                    sdk_result(ret)?;
+                    Ok(FilterPosition(filter))
+                }
+            })
+            .await?
+        }
+
+        #[cfg(not(feature = "spectrograph"))]
+        Ok(FilterPosition(1))
+    }
+
+    /// Set filter wheel position.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - Filter position (1-indexed, typically 1-6)
+    pub async fn set_filter(&self, position: FilterPosition) -> Result<()> {
+        #[cfg(feature = "spectrograph")]
+        {
+            let handle = self.inner.handle;
+            let pos = position.0;
+            tokio::task::spawn_blocking(move || {
+                use crate::error::sdk_result;
+                unsafe {
+                    let ret = ShamrockSetFilter(handle, pos);
+                    sdk_result(ret)?;
+                    Ok::<(), anyhow::Error>(())
+                }
+            })
+            .await??;
+        }
+
+        tracing::info!("Filter wheel set to position {}", position);
+        Ok(())
+    }
+
+    /// Get description string for a filter position.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - Filter position (1-indexed)
+    pub async fn get_filter_info(&self, position: FilterPosition) -> Result<String> {
+        #[cfg(feature = "spectrograph")]
+        {
+            let handle = self.inner.handle;
+            let pos = position.0;
+            tokio::task::spawn_blocking(move || {
+                use crate::error::sdk_result;
+                unsafe {
+                    let mut buffer = vec![0i8; 256];
+                    let ret = ShamrockGetFilterInfo(handle, pos, buffer.as_mut_ptr());
+                    sdk_result(ret)?;
+                    let bytes: Vec<u8> = buffer.iter().map(|&b| b as u8).collect();
+                    Ok(String::from_utf8_lossy(&bytes)
+                        .trim_end_matches('\0')
+                        .to_string())
+                }
+            })
+            .await?
+        }
+
+        #[cfg(not(feature = "spectrograph"))]
+        Ok(format!("Mock Filter {}", position.0))
+    }
+
+    // ── Focus mirror control [bd-2in1] ─────────────────────────────────
+
+    /// Check if a motorized focus mirror is installed.
+    pub async fn focus_mirror_is_present(&self) -> Result<bool> {
+        #[cfg(feature = "spectrograph")]
+        {
+            let handle = self.inner.handle;
+            tokio::task::spawn_blocking(move || unsafe {
+                let mut present: i32 = 0;
+                let ret = ShamrockFocusMirrorIsPresent(handle, &mut present);
+                if ret == SHAMROCK_SUCCESS {
+                    Ok(present != 0)
+                } else {
+                    Ok(false)
+                }
+            })
+            .await?
+        }
+
+        #[cfg(not(feature = "spectrograph"))]
+        Ok(true) // Mock has focus mirror
+    }
+
+    /// Get current focus mirror position in steps.
+    pub async fn get_focus_mirror(&self) -> Result<i32> {
+        #[cfg(feature = "spectrograph")]
+        {
+            let handle = self.inner.handle;
+            tokio::task::spawn_blocking(move || {
+                use crate::error::sdk_result;
+                unsafe {
+                    let mut focus: i32 = 0;
+                    let ret = ShamrockGetFocusMirror(handle, &mut focus);
+                    sdk_result(ret)?;
+                    Ok(focus)
+                }
+            })
+            .await?
+        }
+
+        #[cfg(not(feature = "spectrograph"))]
+        Ok(0)
+    }
+
+    /// Set focus mirror position in steps.
+    ///
+    /// # Arguments
+    ///
+    /// * `focus` - Focus mirror position in steps (0 to max_steps)
+    pub async fn set_focus_mirror(&self, focus: i32) -> Result<()> {
+        #[cfg(feature = "spectrograph")]
+        {
+            let handle = self.inner.handle;
+            tokio::task::spawn_blocking(move || {
+                use crate::error::sdk_result;
+                unsafe {
+                    let ret = ShamrockSetFocusMirror(handle, focus);
+                    sdk_result(ret)?;
+                    Ok::<(), anyhow::Error>(())
+                }
+            })
+            .await??;
+        }
+
+        tracing::info!("Focus mirror set to step {}", focus);
+        Ok(())
+    }
+
+    /// Get maximum number of focus mirror steps.
+    pub async fn get_focus_mirror_max_steps(&self) -> Result<i32> {
+        #[cfg(feature = "spectrograph")]
+        {
+            let handle = self.inner.handle;
+            tokio::task::spawn_blocking(move || {
+                use crate::error::sdk_result;
+                unsafe {
+                    let mut steps: i32 = 0;
+                    let ret = ShamrockGetFocusMirrorMaxSteps(handle, &mut steps);
+                    sdk_result(ret)?;
+                    Ok(steps)
+                }
+            })
+            .await?
+        }
+
+        #[cfg(not(feature = "spectrograph"))]
+        Ok(1000)
+    }
+
+    // ── Multi-port slit management [bd-2qd1] ──────────────────────────
+
+    /// Check if a specific auto-slit port is present.
+    ///
+    /// # Arguments
+    ///
+    /// * `port` - Slit port to check
+    pub async fn auto_slit_is_present(&self, port: SlitPort) -> Result<bool> {
+        #[cfg(feature = "spectrograph")]
+        {
+            let handle = self.inner.handle;
+            let port_id = port as i32;
+            tokio::task::spawn_blocking(move || unsafe {
+                let mut present: i32 = 0;
+                let ret = ShamrockAutoSlitIsPresent(handle, port_id, &mut present);
+                if ret == SHAMROCK_SUCCESS {
+                    Ok(present != 0)
+                } else {
+                    Ok(false)
+                }
+            })
+            .await?
+        }
+
+        #[cfg(not(feature = "spectrograph"))]
+        {
+            let _ = port;
+            Ok(true) // Mock has all slit ports
+        }
+    }
+
+    /// Set slit width for a specific port.
+    ///
+    /// # Arguments
+    ///
+    /// * `port` - Slit port to configure
+    /// * `width_um` - Slit width in micrometers
+    pub async fn set_slit_width_port(&self, port: SlitPort, width_um: f64) -> Result<()> {
+        #[cfg(feature = "spectrograph")]
+        {
+            let handle = self.inner.handle;
+            let port_id = port as i32;
+            tokio::task::spawn_blocking(move || {
+                use crate::error::sdk_result;
+                unsafe {
+                    let ret = ShamrockSetAutoSlitWidth(handle, port_id, width_um as f32);
+                    sdk_result(ret)?;
+                    Ok::<(), anyhow::Error>(())
+                }
+            })
+            .await??;
+        }
+
+        tracing::info!("Slit {} set to {}µm", port, width_um);
+        Ok(())
+    }
+
+    /// Get slit width for a specific port.
+    ///
+    /// # Arguments
+    ///
+    /// * `port` - Slit port to query
+    pub async fn get_slit_width_port(&self, port: SlitPort) -> Result<f64> {
+        #[cfg(feature = "spectrograph")]
+        {
+            let handle = self.inner.handle;
+            let port_id = port as i32;
+            tokio::task::spawn_blocking(move || {
+                use crate::error::sdk_result;
+                unsafe {
+                    let mut width: f32 = 0.0;
+                    let ret = ShamrockGetAutoSlitWidth(handle, port_id, &mut width);
+                    sdk_result(ret)?;
+                    Ok(width as f64)
+                }
+            })
+            .await?
+        }
+
+        #[cfg(not(feature = "spectrograph"))]
+        {
+            let _ = port;
+            Ok(self.inner.slit_width_um.get())
+        }
+    }
+
+    /// Reset a slit port to its home position.
+    ///
+    /// # Arguments
+    ///
+    /// * `port` - Slit port to reset
+    pub async fn reset_slit(&self, port: SlitPort) -> Result<()> {
+        #[cfg(feature = "spectrograph")]
+        {
+            let handle = self.inner.handle;
+            let port_id = port as i32;
+            tokio::task::spawn_blocking(move || {
+                use crate::error::sdk_result;
+                unsafe {
+                    let ret = ShamrockAutoSlitReset(handle, port_id);
+                    sdk_result(ret)?;
+                    Ok::<(), anyhow::Error>(())
+                }
+            })
+            .await??;
+        }
+
+        tracing::info!("Slit {} reset to home", port);
+        Ok(())
     }
 
     // --- Hardware callback attachment methods ---

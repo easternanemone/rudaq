@@ -375,6 +375,9 @@ impl PvcamAcquisition {
 
         // Try to query PARAM_FRAME_BUFFER_SIZE from SDK
         // This returns recommended buffer size in bytes for current acquisition settings
+        // SAFETY: `hcam` is a valid camera handle. All output parameters
+        // (`avail`, `recommended_bytes`) are stack-allocated with correct
+        // types. These are read-only parameter queries with no side effects.
         let sdk_recommended = unsafe {
             let mut avail: rs_bool = 0;
             // Check if parameter is available
@@ -449,6 +452,8 @@ impl PvcamAcquisition {
         if let Some(h) = conn.handle() {
             // SDK Pattern: Check availability before access
             let mut avail: rs_bool = 0;
+            // SAFETY: `h` is a valid camera handle. `avail` is a stack-allocated
+            // rs_bool output parameter. Read-only availability query.
             unsafe {
                 if pl_get_param(
                     h,
@@ -522,6 +527,18 @@ impl PvcamAcquisition {
         let mut guard = self.metadata_tx.lock().await;
         *guard = None;
         self.metadata_enabled.store(false, Ordering::Release);
+    }
+
+    /// Toggle metadata decoding without changing the channel (bd-32f4).
+    ///
+    /// Called by the driver's `metadata_enabled` parameter write callback to
+    /// sync the acquisition's decoding flag with the SDK parameter. When enabled
+    /// without a channel, frames are still decoded (useful for data integrity)
+    /// but decoded metadata is silently dropped.
+    #[cfg(feature = "pvcam_sdk")]
+    pub fn set_metadata_decoding(&self, enabled: bool) {
+        self.metadata_enabled.store(enabled, Ordering::Release);
+        tracing::debug!("Metadata decoding flag set to {}", enabled);
     }
 
     /// Start streaming frames
@@ -657,8 +674,10 @@ impl PvcamAcquisition {
                 rgn
             };
 
-            // bd-3gnv: Use sequence mode if enabled (proven to work on Prime BSI)
-            if USE_SEQUENCE_MODE {
+            // bd-9pel: Use sequence mode when buffer_mode is "Sequence" (runtime configurable).
+            // Sequence mode uses pl_exp_setup_seq/start_seq for batch-based non-circular
+            // acquisition. Useful for single-frame capture workflows or diagnostics.
+            if buffer_mode == "Sequence" {
                 return self
                     .start_stream_sequence_impl(
                         h,
@@ -675,10 +694,23 @@ impl PvcamAcquisition {
             // PVCAM Best Practices: Use actual frame_bytes from pl_exp_setup_cont
             // rather than assuming pixels * 2 - metadata/alignment can change frame size.
             let mut frame_bytes: uns32 = 0;
-            // Prefer CIRC_OVERWRITE; fall back to CIRC_NO_OVERWRITE if the camera rejects it
-            // (some firmware returned error 185 "Invalid Configuration" previously).
-            // CIRC_OVERWRITE prevents stalls when the host drains slowly.
-            let mut circ_overwrite = matches!(buffer_mode.as_str(), "Overwrite");
+            // bd-g3ap P0 FIX: Force CIRC_NO_OVERWRITE to prevent data corruption.
+            //
+            // The current frame loop unlocks frames BEFORE copying pixel data and
+            // decoding metadata (see bd-unlock-before-copy-2026-01-12 comment below).
+            // In CIRC_OVERWRITE mode, the SDK can reuse the DMA buffer immediately
+            // after unlock, causing a data race on frame_ptr. Until the frame loop
+            // is restructured to copy-then-unlock, CIRC_OVERWRITE is unsafe.
+            //
+            // TODO(bd-g3ap): Restructure frame loop to copy data before unlock,
+            // then re-enable CIRC_OVERWRITE for better throughput.
+            let mut circ_overwrite = false;
+            if matches!(buffer_mode.as_str(), "Overwrite") {
+                tracing::warn!(
+                    "CIRC_OVERWRITE requested but disabled (bd-g3ap): \
+                     unlock-before-copy pattern is unsafe in overwrite mode"
+                );
+            }
             // Smoke tests on hardware have historically required CIRC_NO_OVERWRITE (bd-ek9n).
             if std::env::var("PVCAM_SMOKE_TEST")
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
@@ -695,6 +727,10 @@ impl PvcamAcquisition {
 
             // Probe PARAM_CIRC_BUFFER for visibility only; do not override user choice unless setup fails.
             if circ_overwrite {
+                // SAFETY: `h` is a valid camera handle from conn.handle().
+                // All output parameters are stack-allocated with correct types
+                // (rs_bool for ATTR_AVAIL, uns32 for ATTR_MIN/ATTR_MAX).
+                // These are read-only queries with no side effects.
                 unsafe {
                     let mut circ_avail: rs_bool = 0;
                     if pl_get_param(
@@ -754,6 +790,12 @@ impl PvcamAcquisition {
                 // Using a static global pointer like the minimal test fixes this.
                 set_global_callback_ctx(callback_ctx_ptr);
 
+                // SAFETY: `h` is a valid camera handle. `pvcam_eof_callback` is
+                // an extern "system" fn matching the SDK's expected callback
+                // signature. `callback_ctx_ptr` points to a Pin<Box<CallbackContext>>
+                // kept alive by self.callback_context for the duration of
+                // acquisition. The callback uses catch_unwind to prevent panics
+                // from unwinding across the FFI boundary.
                 unsafe {
                     // Use bindgen-generated function, cast callback to *mut c_void
                     let result = pl_cam_register_callback_ex3(
@@ -764,7 +806,8 @@ impl PvcamAcquisition {
                     );
                     if result == 0 {
                         tracing::warn!(
-                            "Failed to register EOF callback, falling back to polling mode"
+                            "Failed to register EOF callback ({}), falling back to polling mode",
+                            get_pvcam_error()
                         );
                         clear_global_callback_ctx(); // Clear on failure
                         false
@@ -795,6 +838,10 @@ impl PvcamAcquisition {
                 "Calling pl_exp_setup_cont"
             );
 
+            // SAFETY: `h` is a valid camera handle. `region` is a stack-allocated
+            // rgn_type. `frame_bytes` is a stack-allocated uns32 output parameter.
+            // `selected_buffer_mode` is a valid CIRC_* constant. No acquisition
+            // is active (we are in setup). On failure, we retry with NO_OVERWRITE.
             unsafe {
                 // Try overwrite first
                 if pl_exp_setup_cont(
@@ -851,6 +898,8 @@ impl PvcamAcquisition {
             );
 
             // Report the current buffer mode the camera accepted.
+            // SAFETY: `h` is a valid camera handle. `circ_current` is a
+            // stack-allocated uns32 output parameter. Read-only query.
             unsafe {
                 let mut circ_current: uns32 = 0;
                 if pl_get_param(
@@ -968,8 +1017,14 @@ impl PvcamAcquisition {
                 "Calling pl_exp_start_cont"
             );
 
+            // SAFETY: `h` is a valid camera handle. `circ_ptr` points to a
+            // page-aligned contiguous buffer allocated above. `circ_size_bytes`
+            // matches the buffer's actual size. All inner fallback calls
+            // (pl_exp_setup_cont, pl_exp_start_cont, pl_cam_deregister_callback,
+            // pl_cam_register_callback_ex3) use the same valid `h` and
+            // stack-allocated parameters. On failure paths, callbacks are
+            // deregistered and state is cleaned up before returning.
             unsafe {
-                // SAFETY: circ_ptr points to page-aligned contiguous buffer; SDK expects byte size.
                 if pl_exp_start_cont(h, circ_ptr as *mut _, circ_size_bytes) == 0 {
                     // bd-3gnv: Log SDK error with full message for diagnostics
                     let err_msg = get_pvcam_error();
@@ -1099,7 +1154,10 @@ impl PvcamAcquisition {
                     buf_cnt
                 );
             } else {
-                tracing::warn!("PVCAM start status check failed right after pl_exp_start_cont");
+                tracing::warn!(
+                    "PVCAM start status check failed right after pl_exp_start_cont: {}",
+                    get_pvcam_error()
+                );
             }
 
             // CRITICAL: Store the page-aligned buffer passed to pl_exp_start_cont.
@@ -1516,6 +1574,10 @@ impl PvcamAcquisition {
         );
 
         // Query frame size using pl_exp_setup_seq
+        // SAFETY: `hcam` is a valid camera handle. `region` is a stack-allocated
+        // rgn_type. `buffer_bytes` is a stack-allocated uns32 output parameter.
+        // SEQUENCE_BATCH_SIZE and 1 (region count) are valid constants.
+        // No acquisition is active (we are in setup).
         let mut buffer_bytes: uns32 = 0;
         let setup_result = unsafe {
             pl_exp_setup_seq(
@@ -1630,6 +1692,8 @@ impl PvcamAcquisition {
             batch_num += 1;
 
             // Setup sequence for batch
+            // SAFETY: `hcam` is a valid camera handle. `region` is a valid
+            // rgn_type. `buffer_bytes` is a stack-allocated output parameter.
             let mut buffer_bytes: uns32 = 0;
             let setup_result = unsafe {
                 pl_exp_setup_seq(
@@ -1652,6 +1716,8 @@ impl PvcamAcquisition {
             let mut buffer = vec![0u8; buffer_bytes as usize];
 
             // Start sequence acquisition
+            // SAFETY: `hcam` is a valid camera handle. `buffer` is a valid
+            // mutable Vec<u8> with capacity = buffer_bytes from setup above.
             let start_result =
                 unsafe { pl_exp_start_seq(hcam, buffer.as_mut_ptr() as *mut std::ffi::c_void) };
 
@@ -1670,12 +1736,15 @@ impl PvcamAcquisition {
 
             loop {
                 if shutdown.load(Ordering::SeqCst) || !streaming.get() {
+                    // SAFETY: `hcam` is valid; CCS_HALT is a valid abort mode.
                     unsafe {
                         pl_exp_abort(hcam, CCS_HALT);
                     }
                     break;
                 }
 
+                // SAFETY: `hcam` is valid. `status` and `bytes_arrived` are
+                // stack-allocated output parameters with correct types.
                 unsafe {
                     pl_exp_check_status(hcam, &mut status, &mut bytes_arrived);
                 }
@@ -1732,18 +1801,19 @@ impl PvcamAcquisition {
                 }
 
                 if status == READOUT_FAILED {
-                    tracing::error!("Sequence readout failed");
+                    tracing::error!("Sequence readout failed: {}", get_pvcam_error());
                     break;
                 }
                 if status == READOUT_NOT_ACTIVE
                     && start_time.elapsed() > std::time::Duration::from_millis(100)
                 {
-                    tracing::warn!("Acquisition not active after 100ms");
+                    tracing::warn!("Acquisition not active after 100ms: {}", get_pvcam_error());
                     break;
                 }
 
                 if start_time.elapsed() > timeout {
                     tracing::error!("Sequence batch {} timed out after {:?}", batch_num, timeout);
+                    // SAFETY: `hcam` is valid; CCS_HALT is a valid abort mode.
                     unsafe {
                         pl_exp_abort(hcam, CCS_HALT);
                     }
@@ -1754,6 +1824,8 @@ impl PvcamAcquisition {
             }
 
             // Finish sequence
+            // SAFETY: `hcam` is valid. `buffer` is the same buffer passed to
+            // pl_exp_start_seq. The 0 parameter resets the sequence state.
             unsafe {
                 pl_exp_finish_seq(hcam, buffer.as_mut_ptr() as *mut std::ffi::c_void, 0);
             }
@@ -2089,6 +2161,8 @@ impl PvcamAcquisition {
                     let pending = callback_ctx.pending_frames.load(Ordering::Acquire);
                     frame_trace.log_timeout(consecutive_timeouts, st, bytes, cnt, pending);
                     // bd-3gnv: Get SDK error code when status is READOUT_NOT_ACTIVE (0)
+                    // SAFETY: pl_error_code() is a thread-local getter with no
+                    // arguments and no side effects. Always safe to call.
                     let err_code = if st == 0 {
                         unsafe { pl_error_code() }
                     } else {
@@ -2223,11 +2297,18 @@ impl PvcamAcquisition {
             // The minimal test that works for 200 frames does: get_oldest_frame → UNLOCK → process
             // We MUST unlock BEFORE any processing to match the SDK's expected timing.
             //
-            // Safety: In CIRC_NO_OVERWRITE mode with 20 buffer slots, the frame data remains
-            // valid after unlock because the SDK won't overwrite until ALL 20 slots are filled.
-            // Since we process one frame at a time, the data is safe to access after unlock.
+            // SAFETY INVARIANT: This unlock-before-copy pattern is ONLY safe in
+            // CIRC_NO_OVERWRITE mode. In this mode, the SDK won't reuse the buffer
+            // slot until ALL buffer slots are filled, so frame_ptr remains valid
+            // for the copy and metadata decode that follow.
+            //
+            // CIRC_OVERWRITE mode is disabled above (bd-g3ap P0) because the SDK
+            // can reuse the DMA buffer immediately after unlock in that mode,
+            // invalidating frame_ptr before the copy completes.
 
             // Step 1: UNLOCK IMMEDIATELY after get_oldest_frame - EXACTLY like minimal test
+            // SAFETY: frame_info is a stack-allocated FRAME_INFO filled by
+            // pl_exp_get_oldest_frame_ex above. FrameNr is a plain i32 field.
             let unlock_frame_nr = unsafe { frame_info.FrameNr };
             // bd-fix-2026-01-17: Use loop_iteration (global counter) instead of
             // frames_processed_in_drain (reset each loop) to limit debug logging.
@@ -2354,6 +2435,8 @@ impl PvcamAcquisition {
                     let misses = POOL_MISSES.load(Ordering::Relaxed);
 
                     // Log warning with rate limiting to avoid log spam
+                    // SAFETY: frame_info.FrameNr is a plain i32 field in a
+                    // stack-allocated FRAME_INFO filled earlier by the SDK.
                     if drop_count <= 10 || drop_count % 100 == 0 {
                         // eprintln for guaranteed console visibility during debugging
                         eprintln!(
@@ -2363,6 +2446,7 @@ impl PvcamAcquisition {
                             buffer_pool.size(),
                             drop_count
                         );
+                        // SAFETY: Same frame_info.FrameNr access as above.
                         tracing::warn!(
                             target: "pvcam_pool",
                             frame_nr = unsafe { frame_info.FrameNr },
@@ -2424,6 +2508,10 @@ impl PvcamAcquisition {
             }
 
             // Step 3: Decode metadata (frame_ptr data still valid in NO_OVERWRITE mode)
+            // SAFETY: md_frame_ptr was allocated via Box::into_raw (non-null checked above).
+            // frame_ptr and frame_bytes come from the SDK's get_oldest_frame call.
+            // decode_frame_metadata is an FFI wrapper that reads the frame buffer.
+            // The header dereference is safe because decode populates it on success.
             let frame_metadata = if !md_frame_ptr.is_null() {
                 unsafe {
                     if ffi_safe::decode_frame_metadata(
@@ -2450,9 +2538,46 @@ impl PvcamAcquisition {
                 None
             };
 
+            // bd-0o6b: Extract per-ROI data when multi-ROI frame detected.
+            // Only triggers when metadata reports roiCount > 1 and md_frame is valid.
+            // This enables downstream consumers to access individual ROI pixel data.
+            if let Some(ref md) = frame_metadata {
+                if md.roi_count > 1 && !md_frame_ptr.is_null() {
+                    match ffi_safe::extract_roi_data(md_frame_ptr) {
+                        Ok(roi_data) => {
+                            // Log per-ROI dimensions on first multi-ROI frame or periodically
+                            if loop_iteration <= 5 || loop_iteration % 500 == 0 {
+                                for roi in &roi_data {
+                                    tracing::info!(
+                                        target: "pvcam_multi_roi",
+                                        roi_nr = roi.roi_nr,
+                                        width = roi.width,
+                                        height = roi.height,
+                                        s1 = roi.s1,
+                                        s2 = roi.s2,
+                                        p1 = roi.p1,
+                                        p2 = roi.p2,
+                                        data_bytes = roi.pixels.len(),
+                                        "Multi-ROI frame: ROI data extracted (bd-0o6b)"
+                                    );
+                                }
+                            }
+                            // TODO(bd-0o6b): Pass roi_data to downstream consumers
+                            // when multi-ROI Frame output format is defined.
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to extract multi-ROI data: {} (bd-0o6b)", e);
+                        }
+                    }
+                }
+            }
+
             // TRACING: Frame retrieved (bd-trace-2026-01-11)
             // bd-non-ex-2026-01-12: frame_info.FrameNr may be -1 if using non-_ex get_oldest_frame
             // bd-fix-2026-01-17: Use loop_iteration only (frames_processed_in_drain resets each loop)
+            // SAFETY: frame_info is a stack-allocated FRAME_INFO struct filled
+            // by pl_exp_get_oldest_frame_ex. All field accesses (FrameNr,
+            // TimeStamp, TimeStampBOF, ReadoutTime) read plain integer fields.
             if loop_iteration <= 10 || loop_iteration % 100 == 0 {
                 if unsafe { frame_info.FrameNr } >= 0 {
                     unsafe {
@@ -2479,6 +2604,10 @@ impl PvcamAcquisition {
 
             // Remaining frame processing uses our copies (pixel_data, frame_metadata, frame_info)
             // frame_ptr is NO LONGER VALID after unlock above
+            // SAFETY: frame_info.FrameNr is a plain i32 field in the stack-
+            // allocated FRAME_INFO. callback_ctx fields are atomic loads.
+            // last_hw_frame_nr and discontinuity_events are AtomicI32/AtomicU64
+            // with correct ordering. No raw pointer dereferences occur here.
             unsafe {
                 // bd-non-ex-2026-01-12: Get frame number from callback context when using non-_ex API
                 // The callback still receives FRAME_INFO from PVCAM even if get_oldest_frame doesn't fill it
@@ -2609,7 +2738,13 @@ impl PvcamAcquisition {
 
                 // Create Frame with ownership transfer - no additional copy (bd-ek9n.5)
                 // Populate metadata using builder pattern (bd-183h)
-                let mut frame = Frame::from_bytes(width, height, 16, pixel_data)
+                // bd-w5az: Use hardware bit_depth from metadata when available,
+                // fall back to 16 (most PVCAM cameras are 16-bit).
+                let frame_bit_depth: u32 = frame_metadata
+                    .as_ref()
+                    .map(|md| md.bit_depth as u32)
+                    .unwrap_or(16);
+                let mut frame = Frame::from_bytes(width, height, frame_bit_depth, pixel_data)
                     .with_frame_number(monotonic_frame_count)
                     .with_roi_offset(roi_x, roi_y);
 
@@ -2781,6 +2916,10 @@ impl PvcamAcquisition {
                     // Callback said frames were ready, but we couldn't retrieve any.
                     // Confirm there's really no data available and then clear pending_frames to avoid spin.
                     let mut has_buffered_frames = false;
+                    // SAFETY: `hcam` is a valid camera handle. `status`,
+                    // `bytes_arrived`, and `buffer_cnt` are stack-allocated
+                    // output parameters with correct types. This is a read-only
+                    // SDK query with no side effects.
                     unsafe {
                         if pl_exp_check_cont_status(
                             hcam,
@@ -2952,11 +3091,22 @@ impl Drop for PvcamAcquisition {
                     );
                 }
 
+                // SAFETY: `hcam` was obtained from active_hcam.swap(-1), so we
+                // have exclusive ownership of the handle for cleanup. The swap
+                // ensures no concurrent stop_stream can use the same handle.
+                // pl_exp_stop_cont halts the camera; pl_cam_deregister_callback
+                // removes the EOF callback. Both are idempotent if acquisition
+                // is already stopped. Callback deregistration MUST happen before
+                // circ_buffer/callback_context are dropped (below) to prevent
+                // use-after-free in the callback.
                 unsafe {
                     // Stop continuous acquisition first (halts camera operation)
                     let stop_result = pl_exp_stop_cont(hcam, CCS_HALT);
                     if stop_result == 0 {
-                        tracing::warn!("pl_exp_stop_cont failed in Drop (may already be stopped)");
+                        tracing::warn!(
+                            "pl_exp_stop_cont failed in Drop (may already be stopped): {}",
+                            get_pvcam_error()
+                        );
                     } else {
                         tracing::debug!("Stopped PVCAM acquisition in Drop");
                     }
@@ -2965,7 +3115,10 @@ impl Drop for PvcamAcquisition {
                     if self.callback_registered.swap(false, Ordering::AcqRel) {
                         let dereg_result = pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
                         if dereg_result == 0 {
-                            tracing::warn!("pl_cam_deregister_callback failed in Drop");
+                            tracing::warn!(
+                                "pl_cam_deregister_callback failed in Drop: {}",
+                                get_pvcam_error()
+                            );
                         } else {
                             tracing::debug!("Deregistered PVCAM EOF callback in Drop");
                         }

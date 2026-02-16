@@ -12,9 +12,12 @@ async-trait = "0.1"
 bytes = "1.5"
 ctor = "0.2"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 tracing = "0.1"
 common = { path = "../common" }
+pool = { path = "../pool" }
+parking_lot = "0.12"
 toml.workspace = true
 thiserror.workspace = true
 futures = "0.3"
@@ -26,6 +29,11 @@ hardware = ["andor-sdk3-sys/hardware"]
 # Individual component features
 camera = ["andor-sdk3-sys/camera"]
 spectrograph = ["andor-sdk3-sys/spectrograph"]
+# Gate for hardware smoke tests (requires camera/spectrograph connected)
+hardware_tests = []
+
+[dev-dependencies]
+serde_json = "1"
 
 [lints]
 workspace = true

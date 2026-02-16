@@ -114,6 +114,10 @@ pub fn full_restart_acquisition(
 
     // Probe PARAM_CIRC_BUFFER for visibility only; do not override user choice unless setup fails.
     if circ_overwrite {
+        // SAFETY: `hcam` is a valid camera handle (guaranteed by caller).
+        // All output parameters are stack-allocated with correct types:
+        // rs_bool for ATTR_AVAIL, uns32 for ATTR_MIN/ATTR_MAX.
+        // These are read-only queries with no side effects.
         unsafe {
             let mut circ_avail: rs_bool = 0;
             if pl_get_param(
@@ -162,6 +166,10 @@ pub fn full_restart_acquisition(
     };
 
     // Step 1: pl_exp_setup_cont (try overwrite, then fall back)
+    // SAFETY: `hcam` is a valid camera handle. `region` points to a valid
+    // stack-allocated rgn_type. `frame_bytes` is a stack-allocated uns32
+    // output parameter. The SDK writes the required buffer size into it.
+    // `selected_buffer_mode` is a valid CIRC_* constant per PVCAM SDK docs.
     let setup_overwrite = unsafe {
         pl_exp_setup_cont(
             hcam,
@@ -183,6 +191,9 @@ pub fn full_restart_acquisition(
         selected_buffer_mode = CIRC_NO_OVERWRITE;
         circ_overwrite = false;
         frame_bytes = 0;
+        // SAFETY: Same as above — valid handle, region, and output pointer.
+        // CIRC_NO_OVERWRITE is the fallback mode for cameras that don't
+        // support overwrite (e.g., Prime BSI returns error 185).
         if unsafe {
             pl_exp_setup_cont(
                 hcam,
@@ -204,6 +215,10 @@ pub fn full_restart_acquisition(
     }
 
     // Step 2: pl_exp_start_cont
+    // SAFETY: `hcam` is a valid camera handle. `circ_ptr` points to a
+    // caller-owned buffer with `circ_size_bytes` capacity, sized by
+    // the preceding pl_exp_setup_cont output. The buffer remains valid
+    // for the lifetime of the acquisition.
     let start_result = unsafe { pl_exp_start_cont(hcam, circ_ptr as *mut _, circ_size_bytes) };
     if start_result == 0 {
         let err_msg = get_pvcam_error();
@@ -275,6 +290,7 @@ pub fn check_cont_status(hcam: i16) -> Result<(i16, uns32, uns32), ()> {
         unsafe { pl_exp_check_cont_status(hcam, &mut status, &mut bytes_arrived, &mut buffer_cnt) };
 
     if result == 0 {
+        // SAFETY: pl_error_code() is thread-safe and stateless per SDK docs.
         let err_code = unsafe { pl_error_code() };
         let err_msg = get_pvcam_error();
         tracing::debug!(
@@ -323,6 +339,7 @@ pub fn get_oldest_frame(
 
     if result == 0 || frame_ptr.is_null() {
         // bd-3gnv: Log error code to diagnose why get_oldest_frame is failing
+        // SAFETY: pl_error_code() is thread-safe and stateless per SDK docs.
         let err_code = unsafe { pl_error_code() };
         // Filter out legitimate "no frame" error (3025 = READOUT_FAILED? No, usually 0 is generic fail)
         // But for get_oldest_frame, failure usually means no frame ready.
@@ -366,6 +383,7 @@ pub fn release_oldest_frame(hcam: i16) -> bool {
     let result = unsafe { pl_exp_unlock_oldest_frame(hcam) };
     if result == 0 {
         // Unlock failed - this is critical for continuous acquisition
+        // SAFETY: pl_error_code() is thread-safe and stateless per SDK docs.
         let err_code = unsafe { pl_error_code() };
         let err_msg = get_pvcam_error();
         tracing::error!(
@@ -440,4 +458,193 @@ pub fn decode_frame_metadata(
     let result = unsafe { pl_md_frame_decode(md_frame_ptr, frame_ptr as *mut _, frame_size) };
 
     result != 0
+}
+
+/// Per-ROI pixel data extracted from a multi-ROI frame (bd-0o6b).
+///
+/// After `pl_md_frame_decode` populates the `md_frame.roiArray`, this struct
+/// holds a copy of the pixel data and region coordinates for a single ROI.
+#[derive(Debug, Clone)]
+pub struct RoiData {
+    /// ROI index (0-based) within the frame
+    pub roi_nr: u16,
+    /// Region coordinates (serial start, end, binning; parallel start, end, binning)
+    pub s1: u16,
+    pub s2: u16,
+    pub sbin: u16,
+    pub p1: u16,
+    pub p2: u16,
+    pub pbin: u16,
+    /// Width in pixels after binning
+    pub width: u16,
+    /// Height in pixels after binning
+    pub height: u16,
+    /// Pixel data copied from the frame buffer (owned, safe to use after unlock)
+    pub pixels: Vec<u8>,
+}
+
+/// Extract per-ROI pixel data from a decoded metadata frame (bd-0o6b).
+///
+/// PVCAM 3.x uses metadata-embedded frames where `pl_md_frame_decode` populates
+/// `md_frame.roiArray` with per-ROI data pointers and region headers. This
+/// replaces the legacy `pl_exp_unravel` approach.
+///
+/// **Requires metadata to be enabled** (`PARAM_METADATA_ENABLED = true`).
+/// Without metadata, frames contain raw interleaved data that cannot be
+/// separated without knowing the exact layout.
+///
+/// # Arguments
+/// * `md_frame_ptr` - A valid `md_frame` pointer that has been decoded via
+///   `decode_frame_metadata` (i.e., `pl_md_frame_decode` was called successfully)
+///
+/// # Returns
+/// * `Ok(Vec<RoiData>)` - Per-ROI pixel data with region coordinates
+/// * `Err(String)` - If the md_frame is null or has no ROIs
+///
+/// # Safety Contract
+/// - `md_frame_ptr` must have been created with `create_md_frame` and decoded
+///   with `decode_frame_metadata`
+/// - The frame buffer that was decoded must still be valid (not yet unlocked
+///   from the circular buffer)
+pub fn extract_roi_data(md_frame_ptr: *const md_frame) -> Result<Vec<RoiData>, String> {
+    if md_frame_ptr.is_null() {
+        return Err("md_frame_ptr is null".to_string());
+    }
+
+    // SAFETY: `md_frame_ptr` is non-null and was created by `pl_md_create_frame_struct_cont`,
+    // then decoded by `pl_md_frame_decode`. The header pointer is set by the SDK during
+    // decode and points into the frame buffer. We only read fields — no mutation.
+    let hdr = unsafe { &*(*md_frame_ptr).header };
+    let roi_count = hdr.roiCount as usize;
+
+    if roi_count == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut result = Vec::with_capacity(roi_count);
+
+    for i in 0..roi_count {
+        // SAFETY: `roiArray` is a C array of `md_frame_roi` allocated by
+        // `pl_md_create_frame_struct_cont` with capacity >= roiCount.
+        // Index `i` is in range [0, roiCount). Each element's `header` and
+        // `data` pointers were populated by `pl_md_frame_decode` and point
+        // into the still-valid frame buffer.
+        let roi = unsafe { &*(*md_frame_ptr).roiArray.add(i) };
+        let roi_hdr = unsafe { &*roi.header };
+
+        let s1 = roi_hdr.roi.s1;
+        let s2 = roi_hdr.roi.s2;
+        let sbin = roi_hdr.roi.sbin;
+        let p1 = roi_hdr.roi.p1;
+        let p2 = roi_hdr.roi.p2;
+        let pbin = roi_hdr.roi.pbin;
+
+        // Calculate dimensions after binning
+        let width = (s2 - s1 + 1) / sbin.max(1);
+        let height = (p2 - p1 + 1) / pbin.max(1);
+
+        let data_size = roi.dataSize as usize;
+        if data_size == 0 || roi.data.is_null() {
+            tracing::warn!(
+                "ROI {} has no data (dataSize={}, null={})",
+                i,
+                data_size,
+                roi.data.is_null()
+            );
+            continue;
+        }
+
+        // Copy pixel data to owned Vec so it survives frame buffer unlock
+        // SAFETY: `roi.data` points into the frame buffer with `dataSize` valid
+        // bytes. The frame buffer is still locked (caller guarantees this).
+        // We copy to an owned Vec to decouple lifetime from the SDK buffer.
+        let pixels =
+            unsafe { std::slice::from_raw_parts(roi.data as *const u8, data_size).to_vec() };
+
+        result.push(RoiData {
+            roi_nr: roi_hdr.roiNr,
+            s1,
+            s2,
+            sbin,
+            p1,
+            p2,
+            pbin,
+            width,
+            height,
+            pixels,
+        });
+    }
+
+    tracing::debug!(
+        "Extracted {} ROIs from metadata frame (bd-0o6b)",
+        result.len()
+    );
+    Ok(result)
+}
+
+/// Set up continuous acquisition with multiple ROIs (bd-0o6b).
+///
+/// Extends the single-ROI `pl_exp_setup_cont` call to accept multiple regions.
+/// The camera must support multi-ROI (check `PARAM_ROI_COUNT` first).
+/// Up to 16 ROIs are supported by the Prime BSI.
+///
+/// # Arguments
+/// * `hcam` - Valid camera handle
+/// * `regions` - Slice of rgn_type regions (1-16)
+/// * `exp_mode` - Exposure mode (typically TIMED_MODE)
+/// * `exposure_ms` - Exposure time in milliseconds
+/// * `buffer_mode` - CIRC_OVERWRITE or CIRC_NO_OVERWRITE
+///
+/// # Returns
+/// * `Ok(frame_bytes)` - Size of each frame in bytes (includes all ROIs + metadata)
+/// * `Err(String)` - If setup fails
+///
+/// # Safety Contract
+/// - `hcam` must be a valid, open camera handle
+/// - `regions` must contain valid ROI coordinates within sensor bounds
+pub fn setup_multi_roi_cont(
+    hcam: i16,
+    regions: &[rgn_type],
+    exp_mode: i16,
+    exposure_ms: u32,
+    buffer_mode: i16,
+) -> Result<uns32, String> {
+    debug_assert!(hcam >= 0, "Invalid camera handle: {}", hcam);
+    debug_assert!(!regions.is_empty(), "At least one region required");
+    debug_assert!(regions.len() <= 16, "PVCAM supports at most 16 ROIs");
+
+    let rgn_count = regions.len() as u16;
+    let mut frame_bytes: uns32 = 0;
+
+    // SAFETY: `hcam` is a valid camera handle. `regions` is a contiguous slice
+    // of rgn_type (C-compatible POD struct). `rgn_count` matches the slice length.
+    // `frame_bytes` is a stack-allocated uns32 output parameter. The SDK reads
+    // `rgn_count` elements from the regions pointer and writes the total frame
+    // size (all ROIs + metadata) into `frame_bytes`.
+    let result = unsafe {
+        pl_exp_setup_cont(
+            hcam,
+            rgn_count,
+            regions.as_ptr() as *const _,
+            exp_mode,
+            exposure_ms,
+            &mut frame_bytes,
+            buffer_mode,
+        )
+    };
+
+    if result == 0 {
+        let err_msg = get_pvcam_error();
+        Err(format!(
+            "pl_exp_setup_cont failed for {} ROIs: {}",
+            rgn_count, err_msg
+        ))
+    } else {
+        tracing::info!(
+            "Multi-ROI setup complete: {} ROIs, frame_bytes={} (bd-0o6b)",
+            rgn_count,
+            frame_bytes
+        );
+        Ok(frame_bytes)
+    }
 }

@@ -1,3 +1,5 @@
+#[cfg(feature = "pvcam_hardware")]
+use crate::components::connection::get_pvcam_error;
 use anyhow::Result;
 #[cfg(feature = "pvcam_hardware")]
 use pvcam_sys::*;
@@ -55,6 +57,10 @@ impl SpeedTable {
             for p_idx in 0..port_count {
                 // Set Port
                 let p_val = p_idx as i32;
+                // SAFETY: `h` is a valid camera handle from pl_cam_open().
+                // `p_val` is a stack-allocated i32 whose address is valid for
+                // the duration of this call. pl_set_param reads sizeof(i32)
+                // bytes from the pointer per PVCAM SDK PARAM_READOUT_PORT docs.
                 unsafe {
                     if pl_set_param(h, PARAM_READOUT_PORT, &p_val as *const _ as *mut _) == 0 {
                         continue; // Skip invalid ports
@@ -67,6 +73,10 @@ impl SpeedTable {
                 if let Ok(speed_count) = PvcamFeatures::get_enum_count_impl(h, PARAM_SPDTAB_INDEX) {
                     for s_idx in 0..speed_count {
                         let s_val = s_idx as i32;
+                        // SAFETY: `h` is a valid camera handle. `s_val` is a
+                        // stack-allocated i32 valid for this call. The port has
+                        // been set above, so PARAM_SPDTAB_INDEX is valid in
+                        // this port context.
                         unsafe {
                             if pl_set_param(h, PARAM_SPDTAB_INDEX, &s_val as *const _ as *mut _)
                                 == 0
@@ -113,26 +123,34 @@ impl SpeedTable {
             // 5. Restore original state
             // Dependency chain: Speed is defined within the selected Port, and Gain is defined within the selected Speed.
             // Therefore we must restore Port first, then Speed, then Gain so that each index is interpreted in the correct context.
+            // SAFETY: `h` is a valid camera handle. All values (`p`, `s`, `g`)
+            // are stack-allocated i32s valid for each call. Restore order is
+            // Port→Speed→Gain because speed indices are port-relative and gain
+            // indices are speed-relative. Original values were captured from
+            // the same handle at function entry, so they are known-valid indices.
             unsafe {
                 let p = orig_port as i32;
                 if pl_set_param(h, PARAM_READOUT_PORT, &p as *const _ as *mut _) == 0 {
                     tracing::warn!(
-                        "Failed to restore original PARAM_READOUT_PORT to {} after building SpeedTable",
-                        orig_port
+                        "Failed to restore original PARAM_READOUT_PORT to {} after building SpeedTable: {}",
+                        orig_port,
+                        get_pvcam_error()
                     );
                 }
                 let s = orig_speed as i32;
                 if pl_set_param(h, PARAM_SPDTAB_INDEX, &s as *const _ as *mut _) == 0 {
                     tracing::warn!(
-                        "Failed to restore original PARAM_SPDTAB_INDEX to {} after building SpeedTable",
-                        orig_speed
+                        "Failed to restore original PARAM_SPDTAB_INDEX to {} after building SpeedTable: {}",
+                        orig_speed,
+                        get_pvcam_error()
                     );
                 }
                 let g = orig_gain as i32;
                 if pl_set_param(h, PARAM_GAIN_INDEX, &g as *const _ as *mut _) == 0 {
                     tracing::warn!(
-                        "Failed to restore original PARAM_GAIN_INDEX to {} after building SpeedTable",
-                        orig_gain
+                        "Failed to restore original PARAM_GAIN_INDEX to {} after building SpeedTable: {}",
+                        orig_gain,
+                        get_pvcam_error()
                     );
                 }
             }
@@ -187,6 +205,11 @@ fn get_enum_name(h: i16, param: u32, index: u32) -> Result<String> {
     let mut name = [0i8; 256];
     let mut name_len: u32 = 256;
     let mut value: i32 = 0;
+    // SAFETY: `h` is a valid camera handle. `param` and `index` are validated
+    // by the caller (iterating 0..count from SDK). `name` is a stack-allocated
+    // [i8; 256] buffer. We cap `name_len` at 256 to prevent buffer overflow.
+    // pl_get_enum_param null-terminates the output per SDK docs, making
+    // CStr::from_ptr safe.
     unsafe {
         if pl_enum_str_length(h, param, index, &mut name_len) != 0 {
             if pl_get_enum_param(

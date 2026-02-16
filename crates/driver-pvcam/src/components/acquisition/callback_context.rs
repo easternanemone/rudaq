@@ -17,7 +17,7 @@ use tokio::time::timeout;
 #[cfg(feature = "pvcam_sdk")]
 pub(super) const USE_SEQUENCE_MODE: bool = false;
 
-/// Batch size for sequence mode streaming (bd-3gnv).
+/// Batch size for sequence mode streaming (bd-3gnv, bd-9pel).
 ///
 /// Smaller batches = lower latency, more restarts
 /// Larger batches = higher throughput, less restart overhead

@@ -392,7 +392,68 @@ impl PvcamConnection {
 
         self.handle = Some(hcam);
         tracing::debug!("PvcamConnection::open() completed, handle={}", hcam);
+
+        // Run diagnostics immediately after opening (bd-lcqv)
+        // PVCAM docs recommend calling pl_cam_get_diags after pl_cam_open()
+        // to detect critical hardware problems early.
+        self.run_diagnostics();
+
         Ok(())
+    }
+
+    /// Run camera diagnostics via `pl_cam_get_diags` (bd-lcqv).
+    ///
+    /// # Deprecation Notice
+    ///
+    /// `pl_cam_get_diags` is a PVCAM 2.x legacy function. In PVCAM 3.x,
+    /// camera diagnostics should use `PARAM_DD_INFO` parameter queries instead.
+    /// This function is retained for backward compatibility with PVCAM 2.x
+    /// installations but should be migrated when PVCAM 3.x is the minimum
+    /// supported version.
+    ///
+    /// PVCAM documentation recommends calling this immediately after
+    /// `pl_cam_open()` to detect critical hardware problems such as:
+    /// - Communication failures
+    /// - Firmware issues
+    /// - Sensor problems
+    ///
+    /// A failure here does not prevent camera use but indicates potential
+    /// reliability issues that should be investigated.
+    #[cfg(feature = "pvcam_sdk")]
+    pub fn run_diagnostics(&self) {
+        let Some(hcam) = self.handle else {
+            tracing::warn!("run_diagnostics: no camera handle, skipping");
+            return;
+        };
+
+        // SAFETY: pl_cam_get_diags() is safe because:
+        // 1. `hcam` is a valid camera handle from a successful pl_cam_open()
+        // 2. The function performs read-only hardware queries
+        // 3. It does not modify camera state
+        // Ref: PVCAM SDK Manual, "pl_cam_get_diags" section
+        unsafe {
+            tracing::debug!("Running pl_cam_get_diags(hcam={})...", hcam);
+            let result = pl_cam_get_diags(hcam);
+            if result == 0 {
+                let err = get_pvcam_error();
+                tracing::warn!(
+                    "pl_cam_get_diags FAILED (hcam={}): {} — camera may have hardware issues",
+                    hcam,
+                    err
+                );
+            } else {
+                tracing::info!(
+                    "pl_cam_get_diags passed (hcam={}) — camera hardware OK",
+                    hcam
+                );
+            }
+        }
+    }
+
+    /// Run camera diagnostics (mock mode — always passes).
+    #[cfg(not(feature = "pvcam_sdk"))]
+    pub fn run_diagnostics(&self) {
+        tracing::debug!("run_diagnostics called (mock mode — always passes)");
     }
 
     /// Close the camera if open.

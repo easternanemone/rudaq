@@ -4,14 +4,20 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Trigger mode for camera acquisition
+///
+/// Maps to SDK3 "TriggerMode" enum feature values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TriggerMode {
     /// Internal (free-running) mode
     Internal,
-    /// External trigger input
+    /// External trigger input (edge-triggered)
     External,
-    /// Software trigger
+    /// Software trigger via AT_Command("SoftwareTrigger")
     Software,
+    /// External start: external edge starts acquisition, internal timing continues
+    ExternalStart,
+    /// External exposure: external signal controls both start and duration
+    ExternalExposure,
 }
 
 impl fmt::Display for TriggerMode {
@@ -20,6 +26,8 @@ impl fmt::Display for TriggerMode {
             Self::Internal => write!(f, "Internal"),
             Self::External => write!(f, "External"),
             Self::Software => write!(f, "Software"),
+            Self::ExternalStart => write!(f, "External Start"),
+            Self::ExternalExposure => write!(f, "External Exposure"),
         }
     }
 }
@@ -32,6 +40,8 @@ impl TryFrom<&str> for TriggerMode {
             "Internal" => Ok(Self::Internal),
             "External" => Ok(Self::External),
             "Software" => Ok(Self::Software),
+            "External Start" | "ExternalStart" => Ok(Self::ExternalStart),
+            "External Exposure" | "ExternalExposure" => Ok(Self::ExternalExposure),
             _ => Err(format!("Invalid trigger mode: {}", s)),
         }
     }
@@ -65,6 +75,51 @@ impl TryFrom<&str> for GateMode {
             _ => Err(format!("Invalid gate mode: {}", s)),
         }
     }
+}
+
+/// Electronic shuttering mode for SDK3 cameras.
+///
+/// Controls how the sensor readout is performed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ElectronicShutteringMode {
+    /// Rolling shutter — rows exposed sequentially
+    Rolling,
+    /// Global shutter — all rows exposed simultaneously
+    Global,
+}
+
+impl fmt::Display for ElectronicShutteringMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Rolling => write!(f, "Rolling"),
+            Self::Global => write!(f, "Global"),
+        }
+    }
+}
+
+impl TryFrom<&str> for ElectronicShutteringMode {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "Rolling" => Ok(Self::Rolling),
+            "Global" => Ok(Self::Global),
+            _ => Err(format!("Invalid electronic shuttering mode: {}", s)),
+        }
+    }
+}
+
+/// Cooling status of the camera sensor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoolingStatus {
+    /// Cooling is off
+    Off,
+    /// Cooling is stabilising (not yet at target)
+    Stabilising,
+    /// Cooling has reached and is maintaining target temperature
+    Stabilised,
+    /// Cooler fault detected
+    Fault,
 }
 
 /// Spectrograph grating index (1-3)
@@ -126,12 +181,126 @@ impl TryFrom<i32> for FlipperMirror {
 
 /// Camera information from SDK
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CameraInfo {
     pub model: String,
     pub serial_number: String,
     pub firmware_version: String,
     pub sensor_width: u32,
     pub sensor_height: u32,
+    pub features: FeatureSupport,
+}
+
+/// Tracks which optional SDK3 features are implemented on this camera.
+///
+/// Queried once at init via AT_IsImplemented. Allows conditional feature
+/// access without repeated FFI calls.
+#[derive(Debug, Clone, Default)]
+pub struct FeatureSupport {
+    pub mcp_gain: bool,
+    pub gate_mode: bool,
+    pub ddg_output_delay: bool,
+    pub ddg_output_width: bool,
+    pub sensor_cooling: bool,
+    pub sensor_temperature: bool,
+    pub pixel_encoding: bool,
+    pub external_trigger_modes: bool,
+    pub electronic_shuttering_mode: bool,
+    pub frame_count: bool,
+}
+
+/// Known Andor SDK3 camera models and their expected feature sets.
+///
+/// This is used for documentation, testing, and mock mode configuration.
+/// At runtime, actual feature support is determined by AT_IsImplemented.
+///
+/// Reference: Andor SDK3 manual, per-camera feature matrices.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CameraModel {
+    /// iStar sCMOS — intensified camera with MCP, DDG, gate modes
+    IStar,
+    /// Zyla sCMOS — general purpose scientific camera
+    Zyla,
+    /// Neo sCMOS — high-end cooled camera
+    Neo,
+    /// Marana sCMOS — large format back-illuminated camera
+    Marana,
+    /// Sona — back-illuminated sCMOS
+    Sona,
+    /// Balor — large format, high speed
+    Balor,
+    /// SimCam — SDK simulated camera for testing
+    SimCam,
+}
+
+impl CameraModel {
+    /// Return the expected feature profile for this camera model.
+    ///
+    /// These are the features *expected* to be available based on SDK
+    /// documentation. Actual availability is determined at runtime
+    /// via `AT_IsImplemented`.
+    pub fn expected_features(&self) -> FeatureSupport {
+        match self {
+            Self::IStar => FeatureSupport {
+                mcp_gain: true,
+                gate_mode: true,
+                ddg_output_delay: true,
+                ddg_output_width: true,
+                sensor_cooling: true,
+                sensor_temperature: true,
+                pixel_encoding: true,
+                external_trigger_modes: true,
+                electronic_shuttering_mode: true,
+                frame_count: true,
+            },
+            Self::Zyla | Self::Neo | Self::Marana | Self::Sona | Self::Balor => FeatureSupport {
+                mcp_gain: false,
+                gate_mode: false,
+                ddg_output_delay: false,
+                ddg_output_width: false,
+                sensor_cooling: true,
+                sensor_temperature: true,
+                pixel_encoding: true,
+                external_trigger_modes: true,
+                electronic_shuttering_mode: true,
+                frame_count: true,
+            },
+            Self::SimCam => FeatureSupport {
+                mcp_gain: false,
+                gate_mode: false,
+                ddg_output_delay: false,
+                ddg_output_width: false,
+                sensor_cooling: false,
+                sensor_temperature: true,
+                pixel_encoding: true,
+                external_trigger_modes: true,
+                electronic_shuttering_mode: true,
+                frame_count: true,
+            },
+        }
+    }
+
+    /// Try to identify camera model from its SDK model string.
+    pub fn from_model_string(model: &str) -> Option<Self> {
+        let lower = model.to_lowercase();
+        if lower.contains("istar") {
+            Some(Self::IStar)
+        } else if lower.contains("zyla") {
+            Some(Self::Zyla)
+        } else if lower.contains("neo") {
+            Some(Self::Neo)
+        } else if lower.contains("marana") {
+            Some(Self::Marana)
+        } else if lower.contains("sona") {
+            Some(Self::Sona)
+        } else if lower.contains("balor") {
+            Some(Self::Balor)
+        } else if lower.contains("simcam") {
+            Some(Self::SimCam)
+        } else {
+            None
+        }
+    }
 }
 
 /// Spectrograph information from SDK
@@ -190,5 +359,62 @@ impl WavelengthCalibration {
             .copied()
             .fold(f64::NEG_INFINITY, f64::max);
         Some((min, max))
+    }
+}
+
+/// Wavelength limits for a specific grating
+#[derive(Debug, Clone, Copy)]
+pub struct WavelengthLimits {
+    pub min_nm: f64,
+    pub max_nm: f64,
+}
+
+/// Slit port identifier for the Shamrock spectrograph
+///
+/// The Shamrock has up to 4 motorized slit ports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SlitPort {
+    /// Input slit, side port (port 1)
+    InputSide = 1,
+    /// Input slit, direct port (port 2)
+    InputDirect = 2,
+    /// Output slit, side port (port 3)
+    OutputSide = 3,
+    /// Output slit, direct port (port 4)
+    OutputDirect = 4,
+}
+
+impl fmt::Display for SlitPort {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InputSide => write!(f, "InputSide"),
+            Self::InputDirect => write!(f, "InputDirect"),
+            Self::OutputSide => write!(f, "OutputSide"),
+            Self::OutputDirect => write!(f, "OutputDirect"),
+        }
+    }
+}
+
+impl TryFrom<i32> for SlitPort {
+    type Error = String;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Self::InputSide),
+            2 => Ok(Self::InputDirect),
+            3 => Ok(Self::OutputSide),
+            4 => Ok(Self::OutputDirect),
+            _ => Err(format!("Invalid slit port: {}", value)),
+        }
+    }
+}
+
+/// Filter wheel position (1-indexed)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilterPosition(pub i32);
+
+impl fmt::Display for FilterPosition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Filter {}", self.0)
     }
 }

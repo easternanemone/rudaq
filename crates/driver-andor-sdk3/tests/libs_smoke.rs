@@ -24,7 +24,8 @@
 //! ```
 
 use common::capabilities::{ExposureControl, FrameProducer, Triggerable};
-use driver_andor_sdk3::{AndorCamera, AndorSpectrograph};
+use driver_andor_sdk3::{AndorCamera, AndorSpectrograph, FilterPosition, SlitPort};
+use std::env;
 
 // =============================================================================
 // Test Configuration (used by feature-gated hardware tests)
@@ -161,6 +162,158 @@ async fn mock_spectrograph_initialization() {
     println!("  Mock spectrograph created successfully");
 
     println!("=== Mock Spectrograph Initialization Test PASSED ===");
+}
+
+// =============================================================================
+// Mock Spectrograph — Wavelength Limits [bd-p1zz]
+// =============================================================================
+
+#[tokio::test]
+async fn mock_spectrograph_wavelength_limits() {
+    let spectro = AndorSpectrograph::new_mock()
+        .await
+        .expect("Failed to create mock spectrograph");
+
+    let limits = spectro
+        .get_wavelength_limits(1)
+        .await
+        .expect("Failed to get wavelength limits");
+
+    assert!(limits.min_nm < limits.max_nm, "min should be less than max");
+    assert!(limits.min_nm >= 0.0, "min should be non-negative");
+}
+
+// =============================================================================
+// Mock Spectrograph — Detector Offset [bd-1rfx]
+// =============================================================================
+
+#[tokio::test]
+async fn mock_spectrograph_detector_offset() {
+    let spectro = AndorSpectrograph::new_mock()
+        .await
+        .expect("Failed to create mock spectrograph");
+
+    let offset = spectro
+        .get_detector_offset()
+        .await
+        .expect("Failed to get detector offset");
+    assert_eq!(offset, 0, "Default mock detector offset should be 0");
+
+    spectro
+        .set_detector_offset(5)
+        .await
+        .expect("Failed to set detector offset");
+}
+
+// =============================================================================
+// Mock Spectrograph — Filter Wheel [bd-8n55]
+// =============================================================================
+
+#[tokio::test]
+async fn mock_spectrograph_filter_wheel() {
+    let spectro = AndorSpectrograph::new_mock()
+        .await
+        .expect("Failed to create mock spectrograph");
+
+    let present = spectro
+        .filter_is_present()
+        .await
+        .expect("Failed to check filter presence");
+    assert!(present, "Mock should report filter wheel present");
+
+    let filter = spectro
+        .get_filter()
+        .await
+        .expect("Failed to get filter position");
+    assert_eq!(filter.0, 1, "Default mock filter position should be 1");
+
+    spectro
+        .set_filter(FilterPosition(3))
+        .await
+        .expect("Failed to set filter position");
+
+    let info = spectro
+        .get_filter_info(FilterPosition(1))
+        .await
+        .expect("Failed to get filter info");
+    assert!(!info.is_empty(), "Filter info should not be empty");
+}
+
+// =============================================================================
+// Mock Spectrograph — Focus Mirror [bd-2in1]
+// =============================================================================
+
+#[tokio::test]
+async fn mock_spectrograph_focus_mirror() {
+    let spectro = AndorSpectrograph::new_mock()
+        .await
+        .expect("Failed to create mock spectrograph");
+
+    let present = spectro
+        .focus_mirror_is_present()
+        .await
+        .expect("Failed to check focus mirror presence");
+    assert!(present, "Mock should report focus mirror present");
+
+    let focus = spectro
+        .get_focus_mirror()
+        .await
+        .expect("Failed to get focus mirror position");
+    assert_eq!(focus, 0, "Default mock focus mirror should be 0");
+
+    let max_steps = spectro
+        .get_focus_mirror_max_steps()
+        .await
+        .expect("Failed to get focus mirror max steps");
+    assert!(max_steps > 0, "Max steps should be positive");
+
+    spectro
+        .set_focus_mirror(100)
+        .await
+        .expect("Failed to set focus mirror");
+}
+
+// =============================================================================
+// Mock Spectrograph — Multi-Port Slit Management [bd-2qd1]
+// =============================================================================
+
+#[tokio::test]
+async fn mock_spectrograph_multi_port_slit() {
+    let spectro = AndorSpectrograph::new_mock()
+        .await
+        .expect("Failed to create mock spectrograph");
+
+    // Check presence of all slit ports
+    for port in [
+        SlitPort::InputSide,
+        SlitPort::InputDirect,
+        SlitPort::OutputSide,
+        SlitPort::OutputDirect,
+    ] {
+        let present = spectro
+            .auto_slit_is_present(port)
+            .await
+            .expect("Failed to check slit presence");
+        assert!(present, "Mock should report slit port {:?} present", port);
+    }
+
+    // Set and get slit width on a specific port
+    spectro
+        .set_slit_width_port(SlitPort::InputDirect, 200.0)
+        .await
+        .expect("Failed to set slit width");
+
+    let width = spectro
+        .get_slit_width_port(SlitPort::InputDirect)
+        .await
+        .expect("Failed to get slit width");
+    assert!(width > 0.0, "Slit width should be positive");
+
+    // Reset slit
+    spectro
+        .reset_slit(SlitPort::InputDirect)
+        .await
+        .expect("Failed to reset slit");
 }
 
 // =============================================================================
