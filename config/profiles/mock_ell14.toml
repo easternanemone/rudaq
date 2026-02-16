@@ -1,0 +1,38 @@
+# Mock Thorlabs ELL14 Rotation Mount Profile
+#
+# Simulates a Thorlabs ELL14 rotation mount using the universal driver
+# emulator. Matches real hardware specs:
+#   - Full rotation: 360 degrees
+#   - Encoder resolution: 143.4 pulses/degree (0.00697 deg/step)
+#   - Homing accuracy: 0.22 degrees
+#   - Max speed: ~25 deg/s
+#
+# This profile configures three rotators on an RS-485 bus (addresses 2, 3, 8)
+# matching the maitai lab hardware layout.
+#
+# Usage:
+#   rust-daq-daemon daemon --hardware-config config/profiles/mock_ell14.toml
+
+[[devices]]
+id = "mock_rotator_2"
+name = "ELL14 Rotator Address 2 (Mock)"
+[devices.driver]
+type = "universal_thorlabs_ell14"
+mock = true
+address = "2"
+
+[[devices]]
+id = "mock_rotator_3"
+name = "ELL14 Rotator Address 3 (Mock)"
+[devices.driver]
+type = "universal_thorlabs_ell14"
+mock = true
+address = "3"
+
+[[devices]]
+id = "mock_rotator_8"
+name = "ELL14 Rotator Address 8 (Mock)"
+[devices.driver]
+type = "universal_thorlabs_ell14"
+mock = true
+address = "8"

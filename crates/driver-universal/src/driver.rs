@@ -427,6 +427,50 @@ macro_rules! capability_method {
 // =============================================================================
 
 #[async_trait]
+impl common::capabilities::Commandable for UniversalDriver {
+    async fn execute_command(
+        &self,
+        command: &str,
+        args: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let cmd_config = self
+            .manifest
+            .commands
+            .get(command)
+            .ok_or_else(|| anyhow!("Unknown command: '{}'", command))?;
+
+        // Build template parameters from args + address
+        let mut params = self.address_params();
+        if let serde_json::Value::Object(map) = &args {
+            for (k, v) in map {
+                params.insert(k.clone(), v.clone());
+            }
+        }
+
+        // Render and send command
+        let command_str = template::render_command(&cmd_config.template, &params)?;
+        let timeout = self.manifest.connection.timeout().as_duration();
+        let transport = self.transport.lock().await;
+        let raw_response = if cmd_config.expects_response {
+            transport.query(command_str.as_bytes(), timeout).await?
+        } else {
+            transport.send(command_str.as_bytes()).await?;
+            drop(transport);
+            return Ok(serde_json::json!({"status": "ok"}));
+        };
+        drop(transport);
+
+        // Parse response and return as JSON
+        let fields = self.parse_command_response(cmd_config, &raw_response)?;
+        Ok(serde_json::Value::Object(
+            fields
+                .into_iter()
+                .collect::<serde_json::Map<String, serde_json::Value>>(),
+        ))
+    }
+}
+
+#[async_trait]
 impl common::capabilities::Movable for UniversalDriver {
     async fn move_abs(&self, position: f64) -> Result<()> {
         let mapping = capability_method!(self, movable, move_abs, "Movable", "move_abs");
@@ -905,5 +949,65 @@ mod tests {
             .expect("empty init sequence should succeed");
 
         assert!(mock.sent_strings().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_commandable_execute_known_command() {
+        let manifest = Arc::new(parse_ell14());
+        // ELL14 get_position command returns hex position
+        let mock = MockTransport::new(vec!["2PO0000A1B3".to_string()]);
+
+        let driver = UniversalDriver::new(manifest, Box::new(mock.clone()), "2");
+        let result = common::capabilities::Commandable::execute_command(
+            &driver,
+            "get_position",
+            serde_json::json!({}),
+        )
+        .await
+        .unwrap();
+
+        // Should return parsed response fields
+        assert!(result.is_object());
+        let sent = mock.sent_strings();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0], "2gp");
+    }
+
+    #[tokio::test]
+    async fn test_commandable_unknown_command_fails() {
+        let manifest = Arc::new(parse_ell14());
+        let mock = MockTransport::new(vec![]);
+
+        let driver = UniversalDriver::new(manifest, Box::new(mock), "2");
+        let result = common::capabilities::Commandable::execute_command(
+            &driver,
+            "nonexistent_command",
+            serde_json::json!({}),
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Unknown command"));
+    }
+
+    #[tokio::test]
+    async fn test_commandable_fire_and_forget() {
+        let manifest = Arc::new(parse_ell14());
+        let mock = MockTransport::new(vec![]);
+
+        let driver = UniversalDriver::new(manifest, Box::new(mock.clone()), "2");
+        // stop command doesn't expect a response
+        let result = common::capabilities::Commandable::execute_command(
+            &driver,
+            "stop",
+            serde_json::json!({}),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result, serde_json::json!({"status": "ok"}));
+        let sent = mock.sent_strings();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0], "2st");
     }
 }

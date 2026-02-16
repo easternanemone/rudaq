@@ -21,12 +21,62 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::{sleep, Duration};
 
+use std::sync::atomic::AtomicU8;
+
 /// Pool size for MockCamera frame delivery
 const MOCK_FRAME_POOL_SIZE: usize = 16;
 
 /// Type alias for frame observer registry to reduce complexity.
 /// Each observer is a tuple of (observer_id, observer_callback).
 type ObserverRegistry = Arc<RwLock<Vec<(u64, Box<dyn FrameObserver>)>>>;
+
+// =============================================================================
+// DeviceState - Camera State Machine (bd-wn20)
+// =============================================================================
+
+/// Camera device states mimicking real hardware lifecycle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum CameraDeviceState {
+    /// Camera not connected or powered off
+    Disconnected = 0,
+    /// Initializing hardware (firmware load, self-test)
+    Initializing = 1,
+    /// Sensor cooling to target temperature
+    Cooling = 2,
+    /// Ready for acquisition
+    Ready = 3,
+    /// Actively acquiring frames
+    Acquiring = 4,
+    /// Hardware error state
+    Error = 5,
+}
+
+impl CameraDeviceState {
+    fn from_u8(v: u8) -> Self {
+        match v {
+            0 => Self::Disconnected,
+            1 => Self::Initializing,
+            2 => Self::Cooling,
+            3 => Self::Ready,
+            4 => Self::Acquiring,
+            5 => Self::Error,
+            _ => Self::Error,
+        }
+    }
+
+    /// Human-readable state name for GUI display
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Disconnected => "Disconnected",
+            Self::Initializing => "Initializing",
+            Self::Cooling => "Cooling",
+            Self::Ready => "Ready",
+            Self::Acquiring => "Acquiring",
+            Self::Error => "Error",
+        }
+    }
+}
 
 // =============================================================================
 // MockCameraFactory - DriverFactory implementation
@@ -219,6 +269,10 @@ pub struct MockCameraBuilder {
     shutter_close_delay_ms: u64,
     initial_temperature: f64,
     max_fps: f64,
+    // Configurable frame metadata (bd-817q)
+    gain_mode: String,
+    readout_speed: String,
+    trigger_mode: String,
 }
 
 impl MockCameraBuilder {
@@ -234,6 +288,9 @@ impl MockCameraBuilder {
             shutter_close_delay_ms: 0,
             initial_temperature: 20.0,
             max_fps: 30.0,
+            gain_mode: "Normal".to_string(),
+            readout_speed: "100 MHz".to_string(),
+            trigger_mode: "Internal".to_string(),
         }
     }
 
@@ -270,6 +327,21 @@ impl MockCameraBuilder {
 
     pub fn max_fps(mut self, fps: f64) -> Self {
         self.max_fps = fps.max(1.0);
+        self
+    }
+
+    pub fn gain_mode(mut self, mode: impl Into<String>) -> Self {
+        self.gain_mode = mode.into();
+        self
+    }
+
+    pub fn readout_speed(mut self, speed: impl Into<String>) -> Self {
+        self.readout_speed = speed.into();
+        self
+    }
+
+    pub fn trigger_mode(mut self, mode: impl Into<String>) -> Self {
+        self.trigger_mode = mode.into();
         self
     }
 
@@ -331,6 +403,14 @@ pub struct MockCamera {
     statistics: Arc<Mutex<FrameStatistics>>,
     rng: Arc<MockRng>,
     max_fps: f64,
+    // Device state machine (bd-wn20)
+    device_state: Arc<AtomicU8>,
+    // Observable temperature parameter (bd-34gs)
+    sensor_temperature: Parameter<f64>,
+    // Configurable frame metadata (bd-817q)
+    gain_mode: String,
+    readout_speed: String,
+    trigger_mode: String,
 }
 
 impl MockCamera {
@@ -373,6 +453,9 @@ impl MockCamera {
             builder.shutter_close_delay_ms,
             builder.initial_temperature,
             builder.max_fps,
+            builder.gain_mode,
+            builder.readout_speed,
+            builder.trigger_mode,
         )
     }
 
@@ -388,6 +471,9 @@ impl MockCamera {
         shutter_close_delay_ms: u64,
         initial_temperature: f64,
         max_fps: f64,
+        gain_mode: String,
+        readout_speed: String,
+        trigger_mode: String,
     ) -> Self {
         let (frame_tx, _) = tokio::sync::broadcast::channel(16);
         let frame_count = Arc::new(AtomicU64::new(0));
@@ -459,6 +545,9 @@ impl MockCamera {
             let temp_sim_for_streaming = temperature.clone();
             let exposure_param_for_streaming = exposure.clone();
             let max_fps_for_streaming = max_fps;
+            let gain_mode_for_streaming = gain_mode.clone();
+            let readout_speed_for_streaming = readout_speed.clone();
+            let trigger_mode_for_streaming = trigger_mode.clone();
 
             streaming.connect_to_hardware_write(move |enable| {
                 let streaming_flag = streaming_flag_write.clone();
@@ -478,6 +567,9 @@ impl MockCamera {
                 let temp_sim = temp_sim_for_streaming.clone();
                 let exposure_param = exposure_param_for_streaming.clone();
                 let max_fps_val = max_fps_for_streaming;
+                let gain_mode = gain_mode_for_streaming.clone();
+                let readout_speed = readout_speed_for_streaming.clone();
+                let trigger_mode = trigger_mode_for_streaming.clone();
 
                 Box::pin(async move {
                     if enable {
@@ -528,7 +620,24 @@ impl MockCamera {
                                 }
 
                                 let (w, h) = res;
-                                let buffer = generate_test_pattern(w, h, frame_num);
+                                let mut buffer = generate_test_pattern(w, h, frame_num);
+
+                                // Temperature-dependent noise coupling (bd-8wt9)
+                                // Higher sensor temp = more thermal noise in frames
+                                if matches!(mode, MockMode::Realistic | MockMode::Chaos) {
+                                    let current_temp_for_noise = temp_sim.lock().await.current();
+                                    // ~12 ADU noise at 20°C, scales with temperature
+                                    let thermal_sigma =
+                                        ((current_temp_for_noise.max(-20.0) + 20.0) * 0.3) as i32;
+                                    if thermal_sigma > 0 {
+                                        for pixel in &mut buffer {
+                                            let noise =
+                                                rng_val.gen_range(-thermal_sigma..=thermal_sigma);
+                                            *pixel =
+                                                ((*pixel as i32) + noise).clamp(0, 65535) as u16;
+                                        }
+                                    }
+                                }
 
                                 // Calculate actual frame delay based on exposure and max_fps
                                 let exposure_s = exposure_param.get();
@@ -594,6 +703,9 @@ impl MockCamera {
                                     }
                                 }
 
+                                // Get current sensor temperature for metadata
+                                let current_temp = temp_sim.lock().await.current();
+
                                 // Notify registered observers with FrameView
                                 {
                                     let observers_guard = observers_for_spawn.read().await;
@@ -614,7 +726,9 @@ impl MockCamera {
                                             frame_num,
                                             timestamp_ns,
                                         )
-                                        .with_exposure(exposure_s * 1000.0);
+                                        .with_exposure(exposure_s * 1000.0)
+                                        .with_temperature(current_temp)
+                                        .with_binning((1, 1));
                                         for (_, observer) in observers_guard.iter() {
                                             observer.on_frame(&frame_view);
                                         }
@@ -622,7 +736,28 @@ impl MockCamera {
                                 }
 
                                 // Legacy paths: Arc<Frame> for broadcast and reliable channels
-                                let frame = Arc::new(Frame::from_u16(w, h, &buffer));
+                                let frame_metadata = common::data::FrameMetadata {
+                                    temperature_c: Some(current_temp),
+                                    gain_mode: Some(gain_mode.clone()),
+                                    readout_speed: Some(readout_speed.clone()),
+                                    binning: Some((1, 1)),
+                                    trigger_mode: Some(trigger_mode.clone()),
+                                    extra: [
+                                        ("bit_depth".to_string(), "16".to_string()),
+                                        (
+                                            "readout_time_ms".to_string(),
+                                            format!("{}", timing.frame_readout_ms),
+                                        ),
+                                    ]
+                                    .into_iter()
+                                    .collect(),
+                                };
+
+                                let mut frame_obj = Frame::from_u16(w, h, &buffer);
+                                frame_obj.exposure_ms = Some(exposure_s * 1000.0);
+                                frame_obj.frame_number = frame_num;
+                                frame_obj.metadata = Some(Box::new(frame_metadata));
+                                let frame = Arc::new(frame_obj);
 
                                 if let Some(ref r_tx) = reliable_tx_for_task {
                                     let _ = r_tx.send(frame.clone()).await;
@@ -700,10 +835,27 @@ impl MockCamera {
             });
         }
 
+        // Observable sensor temperature parameter (bd-34gs)
+        let mut sensor_temperature = Parameter::new("sensor_temperature", initial_temperature)
+            .with_description("Sensor temperature")
+            .with_unit("°C")
+            .with_range(-40.0, 50.0);
+        {
+            let temp_sim_read = temperature.clone();
+            sensor_temperature.connect_to_hardware_read(move || {
+                let temp_sim = temp_sim_read.clone();
+                Box::pin(async move {
+                    let sim = temp_sim.lock().await;
+                    Ok(sim.current())
+                })
+            });
+        }
+
         params.register(exposure.clone());
         params.register(armed.clone());
         params.register(streaming.clone());
         params.register(staged.clone());
+        params.register(sensor_temperature.clone());
 
         Self {
             resolution: (config.width, config.height),
@@ -733,6 +885,11 @@ impl MockCamera {
             statistics,
             rng,
             max_fps,
+            device_state: Arc::new(AtomicU8::new(CameraDeviceState::Ready as u8)),
+            sensor_temperature,
+            gain_mode,
+            readout_speed,
+            trigger_mode,
         }
     }
 
@@ -748,6 +905,9 @@ impl MockCamera {
             0,
             20.0,
             30.0,
+            "Normal".to_string(),
+            "100 MHz".to_string(),
+            "Internal".to_string(),
         )
     }
 
@@ -779,6 +939,64 @@ impl MockCamera {
     /// Set temperature setpoint (bd-1gdn.2)
     pub async fn set_temperature_setpoint(&self, temp: f64) {
         self.temperature.lock().await.set_setpoint(temp);
+    }
+
+    /// Start background temperature simulation task (bd-34gs).
+    ///
+    /// Spawns a 1Hz task that updates the temperature parameter, simulating
+    /// sensor cooling/warming. Returns a JoinHandle for cleanup. Only runs in
+    /// Realistic or Chaos mode.
+    pub fn start_temperature_stream(&self) -> Option<tokio::task::JoinHandle<()>> {
+        if !matches!(self.mode, MockMode::Realistic | MockMode::Chaos) {
+            return None;
+        }
+
+        let temp_sim = self.temperature.clone();
+        let temp_param = self.sensor_temperature.clone();
+        let error_cfg = self.error_config.clone();
+
+        Some(tokio::spawn(async move {
+            loop {
+                sleep(Duration::from_secs(1)).await;
+
+                // Error injection in observable stream (bd-9550)
+                if error_cfg
+                    .check_operation("mock_camera", "temperature_read")
+                    .is_err()
+                {
+                    tracing::warn!("MockCamera: temperature stream error injection");
+                    continue; // Skip this update, simulating sensor dropout
+                }
+
+                // Update temperature with 1s timestep
+                let current = {
+                    let mut sim = temp_sim.lock().await;
+                    sim.update(1.0);
+                    sim.current()
+                };
+
+                // Update the parameter so observers see the change
+                let _ = temp_param.set(current).await;
+            }
+        }))
+    }
+
+    /// Get current device state (bd-wn20)
+    pub fn device_state(&self) -> CameraDeviceState {
+        CameraDeviceState::from_u8(self.device_state.load(Ordering::SeqCst))
+    }
+
+    /// Transition to a new device state (bd-wn20)
+    fn set_device_state(&self, state: CameraDeviceState) {
+        let prev =
+            CameraDeviceState::from_u8(self.device_state.swap(state as u8, Ordering::SeqCst));
+        if prev != state {
+            tracing::info!(
+                "MockCamera: state transition {} -> {}",
+                prev.as_str(),
+                state.as_str()
+            );
+        }
     }
 }
 
@@ -819,7 +1037,22 @@ impl Triggerable for MockCamera {
 
         let (w, h) = self.resolution;
         let buffer = generate_test_pattern(w, h, count);
-        let frame = Arc::new(Frame::from_u16(w, h, &buffer));
+        let exposure_s = self.exposure_s.get();
+        let current_temp = self.temperature.lock().await.current();
+
+        let frame_metadata = common::data::FrameMetadata {
+            temperature_c: Some(current_temp),
+            gain_mode: Some(self.gain_mode.clone()),
+            binning: Some((1, 1)),
+            trigger_mode: Some("Software".to_string()), // Always Software for trigger()
+            ..Default::default()
+        };
+
+        let mut frame_obj = Frame::from_u16(w, h, &buffer);
+        frame_obj.exposure_ms = Some(exposure_s * 1000.0);
+        frame_obj.frame_number = count;
+        frame_obj.metadata = Some(Box::new(frame_metadata));
+        let frame = Arc::new(frame_obj);
 
         let _ = self.frame_tx.send(frame);
 
@@ -855,6 +1088,15 @@ impl FrameProducer for MockCamera {
             anyhow::bail!("MockCamera: Already streaming");
         }
 
+        // In Realistic/Chaos mode, simulate hardware initialization sequence (bd-4u2p)
+        if matches!(self.mode, MockMode::Realistic | MockMode::Chaos) {
+            self.set_device_state(CameraDeviceState::Initializing);
+            sleep(Duration::from_millis(50)).await;
+            self.set_device_state(CameraDeviceState::Cooling);
+            sleep(Duration::from_millis(150)).await;
+        }
+
+        self.set_device_state(CameraDeviceState::Acquiring);
         self.streaming.set(true).await
     }
 
@@ -866,6 +1108,7 @@ impl FrameProducer for MockCamera {
             tracing::debug!("MockCamera: Stream stopped");
         }
 
+        self.set_device_state(CameraDeviceState::Ready);
         self.streaming.set(false).await
     }
 
@@ -1464,6 +1707,71 @@ mod tests {
             camera.get_frame_count(),
             0,
             "Frame count should reset on stage"
+        );
+    }
+
+    // =============================================================================
+    // Tests for bd-wn20: Device State Machine
+    // =============================================================================
+
+    #[tokio::test]
+    async fn test_device_state_transitions() {
+        let camera = MockCamera::new(64, 64);
+
+        // Initial state should be Ready
+        assert_eq!(camera.device_state(), CameraDeviceState::Ready);
+
+        // Start streaming → Acquiring
+        camera.start_stream().await.unwrap();
+        assert_eq!(camera.device_state(), CameraDeviceState::Acquiring);
+
+        // Stop streaming → Ready
+        camera.stop_stream().await.unwrap();
+        assert_eq!(camera.device_state(), CameraDeviceState::Ready);
+    }
+
+    // =============================================================================
+    // Tests for bd-34gs: Observable Parameter Streams
+    // =============================================================================
+
+    #[tokio::test]
+    async fn test_temperature_stream_updates_parameter() {
+        let camera = MockCamera::builder()
+            .initial_temperature(20.0)
+            .mode(MockMode::Realistic)
+            .build();
+
+        // Set a warmer setpoint so temperature drifts
+        camera.set_temperature_setpoint(30.0).await;
+
+        // Start the temperature stream
+        let handle = camera
+            .start_temperature_stream()
+            .expect("Should start in Realistic mode");
+
+        // Wait for a few updates (1Hz stream, wait ~2.5s)
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+
+        // Read temperature via the observable parameter
+        let param_value = camera.sensor_temperature.get();
+
+        // Temperature should have drifted toward 30.0 from 20.0
+        assert!(
+            param_value > 20.5,
+            "Temperature parameter should update from stream (got {}, started at 20.0)",
+            param_value
+        );
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_temperature_stream_skipped_in_instant_mode() {
+        let camera = MockCamera::builder().mode(MockMode::Instant).build();
+
+        assert!(
+            camera.start_temperature_stream().is_none(),
+            "Instant mode should not start temperature stream"
         );
     }
 }

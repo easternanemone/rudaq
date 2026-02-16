@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 
-use crate::common::{ErrorConfig, MockMode};
+use crate::common::{ErrorConfig, MockMode, MockRng};
 
 // =============================================================================
 // MockStageFactory - DriverFactory implementation
@@ -274,6 +274,8 @@ pub struct MockStage {
     error_config: ErrorConfig,
     /// Parameter set
     params: ParameterSet,
+    /// RNG for position noise (sub-micron encoder noise)
+    rng: Arc<MockRng>,
 }
 
 impl Clone for MockStage {
@@ -293,6 +295,7 @@ impl Clone for MockStage {
                 params.register(self.position.clone());
                 params
             },
+            rng: self.rng.clone(),
         }
     }
 }
@@ -485,7 +488,14 @@ impl Movable for MockStage {
     }
 
     async fn position(&self) -> Result<f64> {
-        Ok(self.position.get())
+        let pos = self.position.get();
+        // In Realistic mode, add sub-micron encoder noise (±0.1 µm = ±0.0001 mm)
+        if matches!(self.mode, MockMode::Realistic | MockMode::Chaos) {
+            let noise = self.rng.gen_range(-0.0001..0.0001);
+            Ok(pos + noise)
+        } else {
+            Ok(pos)
+        }
     }
 
     async fn wait_settled(&self) -> Result<()> {
@@ -608,6 +618,7 @@ impl MockStageBuilder {
             mode: self.mode,
             error_config: self.error_config,
             params,
+            rng: Arc::new(MockRng::new(None)),
         }
     }
 }
@@ -867,7 +878,12 @@ mod tests {
             .mode(MockMode::Realistic)
             .build();
 
-        assert_eq!(stage.position().await.unwrap(), 5.0);
+        // In Realistic mode, position has sub-micron encoder noise (±0.0001 mm)
+        let pos = stage.position().await.unwrap();
+        assert!(
+            (pos - 5.0).abs() < 0.001,
+            "Position should be ~5.0 (got {pos})"
+        );
     }
 
     #[tokio::test]

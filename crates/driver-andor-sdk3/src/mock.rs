@@ -22,7 +22,7 @@ use common::capabilities::{
     ExposureControl, FrameObserver, FrameProducer, ObserverHandle, Parameterized, ShutterControl,
     Triggerable, WavelengthTunable,
 };
-use common::data::Frame;
+use common::data::{Frame, FrameView};
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -105,20 +105,33 @@ impl MockCamera {
             data.extend_from_slice(&pixel.to_le_bytes());
         }
 
+        let timestamp_ns = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_nanos() as u64;
+
         Frame {
             width,
             height,
             bit_depth: 16,
             data: Bytes::from(data),
-            timestamp_ns: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-                .as_nanos() as u64,
+            timestamp_ns,
             frame_number: frame_number as u64,
-            exposure_ms: None,
+            exposure_ms: Some(self.inner.exposure_s.get() * 1000.0),
             roi_x: 0,
             roi_y: 0,
             metadata: None,
+        }
+    }
+
+    /// Notify registered observers with a FrameView of the given frame.
+    async fn notify_observers(&self, frame: &Frame) {
+        let observers = self.inner.observers.lock().await;
+        if !observers.is_empty() {
+            let frame_view = FrameView::from_frame(frame);
+            for (_, observer) in observers.iter() {
+                observer.on_frame(&frame_view);
+            }
         }
     }
 }
@@ -129,23 +142,17 @@ impl FrameProducer for MockCamera {
         self.inner.streaming.store(true, Ordering::Relaxed);
 
         // Spawn frame generation task
-        let inner = self.inner.clone();
+        let camera = self.clone();
         tokio::spawn(async move {
             let mut frame_number = 0u32;
 
-            while inner.streaming.load(Ordering::Relaxed) {
-                let exposure = inner.exposure_s.get();
+            while camera.inner.streaming.load(Ordering::Relaxed) {
+                let exposure = camera.inner.exposure_s.get();
                 tokio::time::sleep(Duration::from_secs_f64(exposure)).await;
 
-                let _frame = MockCamera {
-                    inner: inner.clone(),
-                }
-                .generate_frame(2048, 2048, frame_number);
+                let frame = camera.generate_frame(2048, 2048, frame_number);
+                camera.notify_observers(&frame).await;
                 frame_number += 1;
-
-                // TODO: Notify observers with FrameView
-                // The observer API changed to use FrameView instead of Frame
-                // which requires borrowing the frame data. Skipping for mock mode.
             }
         });
 
@@ -187,10 +194,8 @@ impl Triggerable for MockCamera {
         }
 
         let frame_number = self.inner.frame_count.fetch_add(1, Ordering::Relaxed);
-        let _frame = self.generate_frame(2048, 2048, frame_number);
-
-        // TODO: Notify observers with FrameView
-        // Skipping for mock mode
+        let frame = self.generate_frame(2048, 2048, frame_number);
+        self.notify_observers(&frame).await;
 
         Ok(())
     }

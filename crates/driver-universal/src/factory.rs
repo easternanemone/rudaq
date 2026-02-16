@@ -7,7 +7,10 @@ use crate::config::validated::DeviceManifest;
 use crate::config::{parse_manifest, RawManifest};
 use crate::driver::UniversalDriver;
 use anyhow::{anyhow, Context, Result};
-use common::driver::{Capability as CoreCapability, DeviceComponents, DriverFactory};
+use common::capabilities::DeviceCategory;
+use common::driver::{
+    Capability as CoreCapability, DeviceComponents, DeviceMetadata, DriverFactory,
+};
 use futures::future::BoxFuture;
 use std::path::Path;
 use std::sync::Arc;
@@ -68,9 +71,10 @@ impl UniversalDriverFactory {
                 "WavelengthTunable" => Some(CoreCapability::WavelengthTunable),
                 "ShutterControl" => Some(CoreCapability::ShutterControl),
                 "EmissionControl" => Some(CoreCapability::EmissionControl),
-                // Commandable and Parameterized are not implemented by UniversalDriver;
-                // skip them to avoid advertising unsupported capabilities.
-                "Commandable" | "Parameterized" => None,
+                "Commandable" => Some(CoreCapability::Commandable),
+                // Parameterized is not implemented by UniversalDriver;
+                // skip it to avoid advertising unsupported capabilities.
+                "Parameterized" => None,
                 _ => None,
             })
             .collect();
@@ -268,6 +272,71 @@ impl DriverFactory for UniversalDriverFactory {
                     driver_arc.clone() as Arc<dyn common::capabilities::EmissionControl>
                 );
             }
+
+            // Commandable: expose all manifest commands as executable operations.
+            // Any device with commands in its manifest can support this.
+            if manifest
+                .device
+                .capability_names
+                .iter()
+                .any(|c| c == "Commandable")
+            {
+                components = components.with_commandable(
+                    driver_arc.clone() as Arc<dyn common::capabilities::Commandable>
+                );
+            }
+
+            // Populate DeviceMetadata from manifest fields
+            let category = manifest
+                .device
+                .category
+                .as_deref()
+                .and_then(|c| match c {
+                    "camera" => Some(DeviceCategory::Camera),
+                    "stage" | "motion" => Some(DeviceCategory::Stage),
+                    "detector" | "sensor" => Some(DeviceCategory::Detector),
+                    "laser" => Some(DeviceCategory::Laser),
+                    "power_meter" => Some(DeviceCategory::PowerMeter),
+                    _ => None,
+                })
+                .or_else(|| {
+                    // Infer category from capabilities
+                    let caps = &manifest.device.capability_names;
+                    if caps.iter().any(|c| c == "EmissionControl") {
+                        Some(DeviceCategory::Laser)
+                    } else if caps.iter().any(|c| c == "Movable") {
+                        Some(DeviceCategory::Stage)
+                    } else if caps.iter().any(|c| c == "Readable") {
+                        Some(DeviceCategory::Detector)
+                    } else {
+                        None
+                    }
+                });
+
+            if let Some(cat) = category {
+                components = components.with_category(cat);
+            }
+
+            components.metadata = DeviceMetadata {
+                category,
+                position_units: manifest.capabilities.movable.as_ref().and_then(|m| {
+                    m.position.as_ref().map(|_| {
+                        // Use manifest parameters to infer units
+                        if manifest.parameters.contains_key("pulses_per_degree") {
+                            "degrees".to_string()
+                        } else {
+                            "mm".to_string()
+                        }
+                    })
+                }),
+                min_position: manifest.parameters.get("min_position").copied(),
+                max_position: manifest.parameters.get("max_position").copied(),
+                // Units are not yet represented in the manifest schema; leave unset.
+                measurement_units: None,
+                min_wavelength_nm: manifest.parameters.get("min_wavelength").copied(),
+                max_wavelength_nm: manifest.parameters.get("max_wavelength").copied(),
+                ..DeviceMetadata::default()
+            };
 
             Ok(components)
         })

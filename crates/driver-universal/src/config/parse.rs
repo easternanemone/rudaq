@@ -105,6 +105,10 @@ pub fn parse_manifest(raw: RawManifest) -> Result<DeviceManifest, Vec<ConfigErro
         device: DeviceInfo {
             name: raw.device.name,
             capability_names: raw.device.capabilities,
+            manufacturer: raw.device.manufacturer,
+            model: raw.device.model,
+            category: raw.device.category,
+            description: raw.device.description,
         },
         connection,
         commands,

@@ -47,6 +47,10 @@ pub struct DeviceManifest {
 pub struct DeviceInfo {
     pub name: String,
     pub capability_names: Vec<String>,
+    pub manufacturer: Option<String>,
+    pub model: Option<String>,
+    pub category: Option<String>,
+    pub description: Option<String>,
 }
 
 /// Validated parity mode.

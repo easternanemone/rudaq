@@ -1,0 +1,18 @@
+# Mock MaiTai HP Ti:Sapphire Laser Profile
+#
+# Simulates a Spectra-Physics MaiTai HP laser using the universal driver
+# emulator. Matches real hardware specs:
+#   - Tuning range: 690-1040 nm
+#   - Max power: ~3.5W at 800nm
+#   - Warmup time: ~30 minutes (simulated as ~30s in mock)
+#
+# Usage:
+#   rust-daq-daemon daemon --hardware-config config/profiles/mock_maitai_hp.toml
+
+[[devices]]
+id = "mock_maitai_hp"
+name = "MaiTai HP Ti:Sapphire Laser (Mock)"
+[devices.driver]
+type = "universal_spectra-physics_maitai"
+mock = true
+address = "0"

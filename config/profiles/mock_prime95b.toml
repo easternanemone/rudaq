@@ -1,0 +1,26 @@
+# Mock Photometrics Prime 95B Camera Profile
+#
+# Simulates a Photometrics Prime 95B sCMOS camera using the mock camera
+# driver with realistic parameters. Matches real hardware specs:
+#   - Resolution: 1200 x 1200 pixels
+#   - Bit depth: 16-bit
+#   - Sensor cooling: -25C target (thermoelectric)
+#   - Pixel size: 11 um
+#   - Max frame rate: 82 fps (full frame)
+#   - Read noise: 1.6e- (CMS mode)
+#
+# Note: Uses mock_camera driver (not universal driver) since cameras use
+# native SDK APIs, not SCPI/serial protocols.
+#
+# Usage:
+#   rust-daq-daemon daemon --hardware-config config/profiles/mock_prime95b.toml
+
+[[devices]]
+id = "mock_prime95b"
+name = "Prime 95B sCMOS Camera (Mock)"
+[devices.driver]
+type = "mock_camera"
+[devices.config]
+width = 1200
+height = 1200
+exposure_s = 0.01

@@ -382,6 +382,10 @@ impl Movable for MockRotator {
             ));
         }
 
+        // Quantize target to encoder resolution (simulates real hardware behavior)
+        let encoder_step = 1.0 / self.pulses_per_degree;
+        let position = (position / encoder_step).round() * encoder_step;
+
         let current = *self.position_degrees.read().await;
         let distance = (position - current).abs();
 
@@ -389,7 +393,7 @@ impl Movable for MockRotator {
         let duration = self.calculate_duration(distance);
         sleep(duration).await;
 
-        // Update position
+        // Update position (already quantized)
         *self.position_degrees.write().await = position;
 
         self.status

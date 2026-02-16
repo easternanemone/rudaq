@@ -1,0 +1,18 @@
+# Mock Thorlabs PM400 Power Meter Profile
+#
+# Simulates a Thorlabs PM400 optical power meter using the universal driver
+# emulator. Matches real hardware specs:
+#   - Measurement range: 1nW - 500mW (auto-ranging)
+#   - Wavelength range: 185-25000 nm
+#   - Resolution: 0.001 nW (lowest range)
+#
+# Usage:
+#   rust-daq-daemon daemon --hardware-config config/profiles/mock_pm400.toml
+
+[[devices]]
+id = "mock_pm400"
+name = "Thorlabs PM400 Power Meter (Mock)"
+[devices.driver]
+type = "universal_thorlabs_pm400"
+mock = true
+host = "127.0.0.1"

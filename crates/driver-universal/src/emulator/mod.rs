@@ -49,6 +49,33 @@ struct SetterRoute {
     fixed_values: Vec<(String, Value)>,
 }
 
+/// Device lifecycle state for the emulator (bd-wn20).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmulatorDeviceState {
+    /// Initializing (firmware load, self-test)
+    Initializing,
+    /// Warming up (laser warmup, sensor cooling, etc.)
+    WarmingUp,
+    /// Ready for operation
+    Ready,
+    /// Actively operating (acquiring, moving, etc.)
+    Operating,
+    /// Error state
+    Error,
+}
+
+impl EmulatorDeviceState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Initializing => "initializing",
+            Self::WarmingUp => "warming_up",
+            Self::Ready => "ready",
+            Self::Operating => "operating",
+            Self::Error => "error",
+        }
+    }
+}
+
 /// Manifest-driven stateful device emulator.
 ///
 /// ONE implementation for ALL devices — mirrors the universality of `UniversalDriver`.
@@ -64,6 +91,8 @@ pub struct ManifestEmulator {
     setter_routes: HashMap<String, Vec<SetterRoute>>,
     /// Buffered response from the last command.
     pending_response: Option<String>,
+    /// Device lifecycle state (bd-wn20).
+    device_state: EmulatorDeviceState,
 }
 
 /// Transport wrapper around `ManifestEmulator`.
@@ -119,7 +148,26 @@ impl ManifestEmulator {
             commands: compiled_commands,
             setter_routes,
             pending_response: None,
+            device_state: EmulatorDeviceState::Ready,
         })
+    }
+
+    /// Get the current device lifecycle state.
+    pub fn device_state(&self) -> EmulatorDeviceState {
+        self.device_state
+    }
+
+    /// Transition the device state.
+    pub fn set_device_state(&mut self, state: EmulatorDeviceState) {
+        if self.device_state != state {
+            tracing::info!(
+                device = %self.device_name,
+                from = %self.device_state.as_str(),
+                to = %state.as_str(),
+                "Emulator state transition"
+            );
+            self.device_state = state;
+        }
     }
 
     /// Process an incoming command string.
@@ -243,6 +291,16 @@ impl Transport for EmulatorTransport {
         emu.pending_response
             .take()
             .ok_or_else(|| anyhow!("EmulatorTransport: command did not generate a response"))
+    }
+}
+
+impl EmulatorTransport {
+    /// Get the current device state.
+    pub fn device_state(&self) -> EmulatorDeviceState {
+        self.emulator
+            .lock()
+            .map(|e| e.device_state())
+            .unwrap_or(EmulatorDeviceState::Error)
     }
 }
 

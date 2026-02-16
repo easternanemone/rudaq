@@ -1,0 +1,35 @@
+# Mock Newport ESP300 Motion Controller Profile
+#
+# Simulates a Newport ESP300 3-axis motion controller using the universal
+# driver emulator. Matches real hardware specs:
+#   - Travel range: 25mm per axis
+#   - Resolution: 0.1 um (100nm)
+#   - Max velocity: 100 mm/s
+#   - Settling time: axis-dependent
+#
+# Usage:
+#   rust-daq-daemon daemon --hardware-config config/profiles/mock_esp300.toml
+
+[[devices]]
+id = "mock_esp300_axis1"
+name = "ESP300 Axis 1 (Mock)"
+[devices.driver]
+type = "universal_newport_esp300"
+mock = true
+address = "1"
+
+[[devices]]
+id = "mock_esp300_axis2"
+name = "ESP300 Axis 2 (Mock)"
+[devices.driver]
+type = "universal_newport_esp300"
+mock = true
+address = "2"
+
+[[devices]]
+id = "mock_esp300_axis3"
+name = "ESP300 Axis 3 (Mock)"
+[devices.driver]
+type = "universal_newport_esp300"
+mock = true
+address = "3"

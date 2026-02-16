@@ -36,6 +36,7 @@ use common::parameter::Parameter;
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use std::sync::Arc;
+use tokio::time::{sleep, Duration};
 
 // =============================================================================
 // MockPowerMeterFactory - DriverFactory implementation
@@ -334,6 +335,8 @@ impl Default for SpectralResponse {
 /// ```
 pub struct MockPowerMeter {
     base_power: Parameter<f64>,
+    /// Live power reading updated by background stream (bd-34gs)
+    power_reading: Parameter<f64>,
     params: ParameterSet,
 
     // Advanced features
@@ -365,10 +368,16 @@ impl MockPowerMeter {
             .with_unit("W")
             .with_range_introspectable(0.0, 10.0); // 0 to 10W range
 
+        let reading_param = Parameter::new("power_reading", base_power)
+            .with_description("Live power reading with noise")
+            .with_unit("W");
+
         params.register(power_param.clone());
+        params.register(reading_param.clone());
 
         Self {
             base_power: power_param,
+            power_reading: reading_param,
             params,
             unit: PowerUnit::Watts,
             wavelength_nm: 800.0,
@@ -435,6 +444,53 @@ impl MockPowerMeter {
     /// Get current attenuator
     pub fn get_attenuator(&self) -> Attenuator {
         self.attenuator
+    }
+
+    /// Start background power reading stream (bd-34gs).
+    ///
+    /// Spawns a 10Hz task that generates noisy power readings and updates
+    /// the `power_reading` parameter. Only runs in Realistic or Chaos mode.
+    pub fn start_reading_stream(&self) -> Option<tokio::task::JoinHandle<()>> {
+        if !matches!(self.mode, MockMode::Realistic | MockMode::Chaos) {
+            return None;
+        }
+
+        let base_power = self.base_power.clone();
+        let reading_param = self.power_reading.clone();
+        let noise_model = self.noise_model.clone();
+        let rng = self.rng.clone();
+        let spectral_response = self.spectral_response.clone();
+        let wavelength_nm = self.wavelength_nm;
+        let attenuator_factor = self.attenuator.factor();
+        let error_cfg = self.error_config.clone();
+
+        Some(tokio::spawn(async move {
+            loop {
+                sleep(Duration::from_millis(100)).await; // 10Hz
+
+                // Error injection in observable stream (bd-9550)
+                if error_cfg
+                    .check_operation("mock_power_meter", "power_read")
+                    .is_err()
+                {
+                    tracing::warn!("MockPowerMeter: reading stream error injection");
+                    continue; // Skip this update, simulating sensor dropout
+                }
+
+                let base = base_power.get();
+                let correction = spectral_response.correction_factor(wavelength_nm);
+                let corrected = base * correction;
+                let noisy = noise_model.apply_noise(corrected, &rng);
+                let reading = noisy * attenuator_factor;
+
+                let _ = reading_param.set(reading).await;
+            }
+        }))
+    }
+
+    /// Get the current live power reading.
+    pub fn get_power_reading(&self) -> f64 {
+        self.power_reading.get()
     }
 
     /// Convert watts to selected unit
@@ -622,10 +678,16 @@ impl MockPowerMeterBuilder {
             .with_unit("W")
             .with_range_introspectable(0.0, 10.0);
 
+        let reading_param = Parameter::new("power_reading", self.base_power)
+            .with_description("Live power reading with noise")
+            .with_unit("W");
+
         params.register(power_param.clone());
+        params.register(reading_param.clone());
 
         MockPowerMeter {
             base_power: power_param,
+            power_reading: reading_param,
             params,
             unit: self.unit,
             wavelength_nm: self.wavelength_nm,
@@ -1049,5 +1111,49 @@ mod tests {
         assert_eq!(Attenuator::Db10.factor(), 0.1);
         assert_eq!(Attenuator::Db20.factor(), 0.01);
         assert_eq!(Attenuator::Db30.factor(), 0.001);
+    }
+
+    // =============================================================================
+    // Tests for bd-34gs: Observable Parameter Streams
+    // =============================================================================
+
+    #[tokio::test]
+    async fn test_reading_stream_updates_parameter() {
+        let meter = MockPowerMeter::builder()
+            .base_power(1.0)
+            .mode(MockMode::Realistic)
+            .noise_model(NoiseModel::default_noise())
+            .rng_seed(42)
+            .build();
+
+        let handle = meter
+            .start_reading_stream()
+            .expect("Should start in Realistic mode");
+
+        // Wait for a few updates (10Hz, wait ~500ms for ~5 updates)
+        sleep(Duration::from_millis(500)).await;
+
+        let reading = meter.get_power_reading();
+
+        // Reading should be near 1.0 W (with noise)
+        assert!(
+            reading > 0.5 && reading < 1.5,
+            "Power reading should be near 1.0 W (got {})",
+            reading
+        );
+
+        // Reading should have changed from initial (unlikely to stay exactly 1.0)
+        // Due to noise model, readings vary
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_reading_stream_skipped_in_instant_mode() {
+        let meter = MockPowerMeter::builder().mode(MockMode::Instant).build();
+
+        assert!(
+            meter.start_reading_stream().is_none(),
+            "Instant mode should not start reading stream"
+        );
     }
 }

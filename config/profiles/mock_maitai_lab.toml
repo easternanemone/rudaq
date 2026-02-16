@@ -1,0 +1,110 @@
+# Mock Maitai Lab Full Hardware Profile
+#
+# Simulates the complete maitai lab hardware inventory using mock/emulator
+# transports. No physical hardware required.
+#
+# This profile mirrors config/maitai_hardware.toml but uses mock = true for
+# all universal driver devices and mock_camera for the camera.
+#
+# Hardware emulated:
+#   - Prime 95B Camera (1200x1200, 16-bit, mock_camera driver)
+#   - 3x ELL14 Rotators at addresses 2, 3, 8 (universal driver emulator)
+#   - MaiTai HP Laser (universal driver emulator)
+#   - Newport 1830-C Power Meter (universal driver emulator)
+#   - ESP300 Motion Controller, 3 axes (universal driver emulator)
+#
+# Usage:
+#   rust-daq-daemon daemon --hardware-config config/profiles/mock_maitai_lab.toml
+
+# ============================================================================
+# Camera (mock_camera driver — uses native API, not SCPI)
+# ============================================================================
+
+[[devices]]
+id = "prime_bsi"
+name = "Photometrics Prime BSI Camera (Mock)"
+[devices.driver]
+type = "mock_camera"
+[devices.config]
+width = 1200
+height = 1200
+exposure_s = 0.01
+
+# ============================================================================
+# ELL14 Rotation Mounts (universal driver emulator)
+# ============================================================================
+
+[[devices]]
+id = "rotator_2"
+name = "ELL14 Rotator Address 2 (Mock)"
+[devices.driver]
+type = "universal_thorlabs_ell14"
+mock = true
+address = "2"
+
+[[devices]]
+id = "rotator_3"
+name = "ELL14 Rotator Address 3 (Mock)"
+[devices.driver]
+type = "universal_thorlabs_ell14"
+mock = true
+address = "3"
+
+[[devices]]
+id = "rotator_8"
+name = "ELL14 Rotator Address 8 (Mock)"
+[devices.driver]
+type = "universal_thorlabs_ell14"
+mock = true
+address = "8"
+
+# ============================================================================
+# MaiTai Ti:Sapphire Laser (universal driver emulator)
+# ============================================================================
+
+[[devices]]
+id = "maitai"
+name = "MaiTai Ti:Sapphire Laser (Mock)"
+[devices.driver]
+type = "universal_spectra-physics_maitai"
+mock = true
+address = "0"
+
+# ============================================================================
+# Newport 1830-C Power Meter (universal driver emulator)
+# ============================================================================
+
+[[devices]]
+id = "power_meter"
+name = "Newport 1830-C Power Meter (Mock)"
+[devices.driver]
+type = "universal_newport_1830-c"
+mock = true
+
+# ============================================================================
+# ESP300 Motion Controller (universal driver emulator)
+# ============================================================================
+
+[[devices]]
+id = "esp300_axis1"
+name = "ESP300 Axis 1 (Mock)"
+[devices.driver]
+type = "universal_newport_esp300"
+mock = true
+address = "1"
+
+[[devices]]
+id = "esp300_axis2"
+name = "ESP300 Axis 2 (Mock)"
+[devices.driver]
+type = "universal_newport_esp300"
+mock = true
+address = "2"
+
+[[devices]]
+id = "esp300_axis3"
+name = "ESP300 Axis 3 (Mock)"
+[devices.driver]
+type = "universal_newport_esp300"
+mock = true
+address = "3"
