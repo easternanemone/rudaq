@@ -62,7 +62,7 @@ impl DetectorPanel {
 /// # Examples
 ///
 /// ```
-/// use daq_egui::panels::{MultiDetectorGrid, DetectorPanel};
+/// use ui::panels::{MultiDetectorGrid, DetectorPanel};
 ///
 /// let mut grid = MultiDetectorGrid::new();
 /// grid.add_panel(DetectorPanel::camera("cam0", "Camera 0"));
