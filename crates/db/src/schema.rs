@@ -1,0 +1,245 @@
+//! Schema definitions and migrations for the DAQ database.
+//!
+//! The database models these record types:
+//!
+//! - **`driver`** — Static driver definitions (imported from TOML plugin files).
+//! - **`instrument`** — Physical device instances, each linked to a driver.
+//! - **`experiment`** — Named containers for experiment runs (Phase 4).
+//!
+//! Relationships (graph edges):
+//!
+//! - `instance_of` — instrument → driver
+//! - `connects_to` — instrument → instrument (physical cabling)
+
+/// Current schema version. Bump this when adding migrations.
+pub const SCHEMA_VERSION: u32 = 3;
+
+/// A single schema migration step.
+#[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
+struct Migration {
+    /// Version this migration upgrades TO.
+    version: u32,
+    /// SurrealQL to execute for this migration.
+    sql: &'static str,
+}
+
+/// All migrations in order. Each is only applied if current_version < migration.version.
+#[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        sql: SCHEMA_V1,
+    },
+    Migration {
+        version: 2,
+        sql: SCHEMA_V2,
+    },
+    Migration {
+        version: 3,
+        sql: SCHEMA_V3,
+    },
+];
+
+/// SurrealQL statements that define the v1 schema.
+///
+/// These are idempotent — safe to re-run on an existing database.
+pub const SCHEMA_V1: &str = r"
+-- Schema version tracking
+DEFINE TABLE IF NOT EXISTS schema_version SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS version ON schema_version TYPE int;
+DEFINE FIELD IF NOT EXISTS applied_at ON schema_version TYPE datetime;
+
+-- Driver definitions (imported from TOML device configs)
+DEFINE TABLE IF NOT EXISTS driver SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS driver_type ON driver TYPE string;
+DEFINE FIELD IF NOT EXISTS name ON driver TYPE string;
+DEFINE FIELD IF NOT EXISTS capabilities ON driver FLEXIBLE TYPE array;
+DEFINE FIELD IF NOT EXISTS config_schema ON driver FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS created_at ON driver TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_driver_type ON driver FIELDS driver_type UNIQUE;
+
+-- Instrument instances (physical devices)
+DEFINE TABLE IF NOT EXISTS instrument SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS device_id ON instrument TYPE string;
+DEFINE FIELD IF NOT EXISTS name ON instrument TYPE string;
+DEFINE FIELD IF NOT EXISTS driver_type ON instrument TYPE string;
+DEFINE FIELD IF NOT EXISTS config ON instrument FLEXIBLE TYPE object;
+DEFINE FIELD IF NOT EXISTS enabled ON instrument TYPE bool DEFAULT true;
+DEFINE FIELD IF NOT EXISTS status ON instrument TYPE string DEFAULT 'offline';
+DEFINE FIELD IF NOT EXISTS created_at ON instrument TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated_at ON instrument TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_device_id ON instrument FIELDS device_id UNIQUE;
+
+-- Experiment containers (Phase 4 — placeholder)
+DEFINE TABLE IF NOT EXISTS experiment SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS name ON experiment TYPE string;
+DEFINE FIELD IF NOT EXISTS description ON experiment TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created_at ON experiment TYPE datetime DEFAULT time::now();
+
+-- Graph edges: instrument -> driver
+DEFINE TABLE IF NOT EXISTS instance_of TYPE RELATION
+    FROM instrument TO driver;
+
+-- Graph edges: instrument -> instrument (physical cabling)
+DEFINE TABLE IF NOT EXISTS connects_to TYPE RELATION
+    FROM instrument TO instrument;
+";
+
+/// v1→v2 migration: no-op structural migration to establish the chain pattern.
+#[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
+const SCHEMA_V2: &str = "";
+
+/// v2→v3 migration: extend experiment table. Topology tables (process, stream)
+/// were removed as dead code — the version number is preserved for RocksDB
+/// database compatibility (existing databases already record version 3).
+#[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
+const SCHEMA_V3: &str = r"
+-- Extend experiment table with experiment_id key
+DEFINE FIELD IF NOT EXISTS experiment_id ON experiment TYPE string;
+DEFINE INDEX IF NOT EXISTS idx_experiment_id ON experiment FIELDS experiment_id UNIQUE;
+";
+
+/// Apply the schema to the database.
+///
+/// This is called once during [`DaqDb::init`] and is idempotent.
+/// Iterates through [`MIGRATIONS`] and applies only those with
+/// `version > current_version`.
+#[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
+pub(crate) async fn apply_schema(
+    db: &surrealdb::Surreal<surrealdb::engine::any::Any>,
+) -> crate::error::Result<()> {
+    use tracing::info;
+
+    // Check current version using a fixed record ID to avoid accumulation.
+    let mut response = db
+        .query("SELECT version FROM schema_version:current")
+        .await?;
+    let existing: Vec<serde_json::Value> = response.take(0)?;
+    let current_version = existing
+        .first()
+        .and_then(|v| v.get("version"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0) as u32;
+
+    if current_version >= SCHEMA_VERSION {
+        info!(current_version, "schema is up to date");
+        return Ok(());
+    }
+
+    info!(
+        from = current_version,
+        to = SCHEMA_VERSION,
+        "applying schema migrations"
+    );
+
+    // Apply each pending migration in order.
+    for migration in MIGRATIONS {
+        if migration.version <= current_version {
+            continue;
+        }
+        if !migration.sql.is_empty() {
+            db.query(migration.sql).await?;
+        }
+        info!(version = migration.version, "applied migration");
+    }
+
+    // Record the final version using UPSERT with a fixed record ID.
+    // This ensures only one schema_version record ever exists.
+    db.query("UPSERT schema_version:current SET version = $version, applied_at = time::now()")
+        .bind(("version", SCHEMA_VERSION))
+        .await?;
+
+    info!(version = SCHEMA_VERSION, "schema migrations complete");
+    Ok(())
+}
+
+#[cfg(test)]
+#[cfg(feature = "kv-mem")]
+mod tests {
+    use super::*;
+
+    /// Create a fresh in-memory SurrealDB client for testing.
+    async fn test_db() -> surrealdb::Surreal<surrealdb::engine::any::Any> {
+        let db = surrealdb::engine::any::connect("mem://")
+            .await
+            .expect("connect should succeed");
+        db.use_ns("test").use_db("test").await.expect("use_ns/db");
+        db
+    }
+
+    #[tokio::test]
+    async fn test_migration_chain_fresh() {
+        let db = test_db().await;
+        apply_schema(&db)
+            .await
+            .expect("apply_schema should succeed");
+
+        // Verify version matches current SCHEMA_VERSION.
+        let mut response = db
+            .query("SELECT version FROM schema_version:current")
+            .await
+            .expect("query should succeed");
+        let rows: Vec<serde_json::Value> = response.take(0).expect("take");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["version"], serde_json::json!(SCHEMA_VERSION));
+
+        // Verify DDL tables exist by querying INFO FOR DB.
+        let mut response = db.query("INFO FOR DB").await.expect("info query");
+        let info: Vec<serde_json::Value> = response.take(0).expect("take");
+        let info_str = serde_json::to_string(&info).expect("serialize");
+        for table in &[
+            "driver",
+            "instrument",
+            "experiment",
+            "instance_of",
+            "connects_to",
+        ] {
+            assert!(
+                info_str.contains(table),
+                "table {table} should exist in DB info"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_migration_chain_idempotent() {
+        let db = test_db().await;
+        apply_schema(&db).await.expect("first apply");
+        apply_schema(&db).await.expect("second apply");
+
+        // Only one schema_version record should exist.
+        let mut response = db
+            .query("SELECT version FROM schema_version")
+            .await
+            .expect("query");
+        let rows: Vec<serde_json::Value> = response.take(0).expect("take");
+        assert_eq!(
+            rows.len(),
+            1,
+            "should have exactly one schema_version record"
+        );
+        assert_eq!(rows[0]["version"], serde_json::json!(SCHEMA_VERSION));
+    }
+
+    #[tokio::test]
+    async fn test_migration_no_version_accumulation() {
+        let db = test_db().await;
+
+        // Simulate multiple restarts.
+        for _ in 0..5 {
+            apply_schema(&db).await.expect("apply_schema");
+        }
+
+        let mut response = db
+            .query("SELECT version FROM schema_version")
+            .await
+            .expect("query");
+        let rows: Vec<serde_json::Value> = response.take(0).expect("take");
+        assert_eq!(
+            rows.len(),
+            1,
+            "should have exactly ONE schema_version record after multiple inits, got {}",
+            rows.len()
+        );
+    }
+}

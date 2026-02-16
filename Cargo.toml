@@ -30,6 +30,7 @@ members = [
     "crates/ui",
     "crates/daq-modules",
     "crates/integration-tests",
+    "crates/db",
 ]
 exclude = []
 

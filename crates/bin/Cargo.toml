@@ -16,7 +16,11 @@ storage = { path = "../storage" }
 scripting = { path = "../scripting" }
 daq-modules = { path = "../daq-modules", optional = true }
 driver-mock = { path = "../driver-mock" }
+db = { path = "../db", optional = true }
+prometheus = { version = "0.14", optional = true }
+toml.workspace = true
 anyhow.workspace = true
+futures.workspace = true
 tokio-util = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
@@ -52,6 +56,19 @@ modules = ["dep:daq-modules"]
 all_hardware = ["hardware/all_hardware"]
 scripting_python = ["scripting/python"]
 serial = ["hardware/serial"]
+
+# ============================================================================
+# DATABASE (SurrealDB persistence layer)
+# ============================================================================
+# Base feature — activates the db crate (use one of the engine features below)
+db-surreal = ["dep:db", "server/db-surreal"]
+# In-memory engine (fast compile, for dev/test)
+db-surreal-mem = ["db-surreal", "db/kv-mem", "server/db-surreal-mem"]
+# RocksDB engine (persistent, for production)
+db-surreal-rocksdb = ["db-surreal", "db/kv-rocksdb", "server/db-surreal-rocksdb"]
+
+# Prometheus metrics (reconciler observability)
+metrics = ["dep:prometheus", "server/metrics"]
 
 # ============================================================================
 # MAITAI LAB PROFILE - COMPLETE HARDWARE STACK

@@ -83,6 +83,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
+use common::state_cache::{NodeValue, SystemStateSnapshot};
+
 /// Default application ID - must match the Python blueprint generator
 pub const APP_ID: &str = "rust-daq";
 
@@ -377,6 +379,57 @@ impl RerunSink {
                 Self::log_measurement(&rec, recording.as_deref(), meas);
             }
         });
+    }
+
+    /// Subscribe to the system state broadcast and log node values to Rerun.
+    ///
+    /// Each node in the snapshot is logged to `system_state/{device_id}`.
+    /// Analog and digital values become `Scalars`, vectors become `Tensor`.
+    pub fn monitor_system_state(
+        &self,
+        mut rx: tokio::sync::broadcast::Receiver<SystemStateSnapshot>,
+    ) {
+        let rec = self.rec.clone();
+        let recording = self.recording_stream.clone();
+        tokio::spawn(async move {
+            while let Ok(snapshot) = rx.recv().await {
+                Self::log_snapshot_to_stream(&rec, &snapshot);
+                if let Some(file_rec) = &recording {
+                    Self::log_snapshot_to_stream(file_rec, &snapshot);
+                }
+            }
+        });
+    }
+
+    /// Log a single system state snapshot to a RecordingStream.
+    fn log_snapshot_to_stream(rec: &RecordingStream, snapshot: &SystemStateSnapshot) {
+        for node in &snapshot.nodes {
+            let entity_path = format!("system_state/{}", node.device_id);
+
+            rec.set_time(
+                "stable_time",
+                rerun::TimeCell::from_timestamp_nanos_since_epoch(node.timestamp_ns),
+            );
+
+            match &node.value {
+                NodeValue::Analog(v) => {
+                    let _ = rec.log(&entity_path, &Scalars::new([*v]));
+                }
+                NodeValue::Digital(b) => {
+                    let _ = rec.log(&entity_path, &Scalars::new([if *b { 1.0 } else { 0.0 }]));
+                }
+                NodeValue::Text(_) => {
+                    // Text values not representable as scalars or tensors — skip.
+                }
+                NodeValue::Vector(v) => {
+                    let tensor_data = rerun::TensorData::new(
+                        vec![v.len() as u64],
+                        rerun::TensorBuffer::F64(v.clone().into()),
+                    );
+                    let _ = rec.log(&entity_path, &Tensor::new(tensor_data));
+                }
+            }
+        }
     }
 
     /// Log a measurement to a single RecordingStream.

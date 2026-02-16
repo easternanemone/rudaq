@@ -31,7 +31,15 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod daemon_manager;
+#[cfg(feature = "db-surreal")]
+mod db_bridge;
+#[cfg(feature = "db-surreal")]
+mod reconciler;
+#[cfg(all(feature = "db-surreal", feature = "metrics"))]
+mod reconciler_metrics;
 mod safety_sentinel;
+#[cfg(feature = "db-surreal")]
+mod watch_reconciler;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -85,6 +93,40 @@ enum Commands {
     #[cfg(feature = "networking")]
     #[command(subcommand)]
     Client(ClientCommands),
+
+    /// Database configuration management (SurrealDB)
+    #[cfg(feature = "db-surreal")]
+    #[command(subcommand)]
+    Config(ConfigCommands),
+}
+
+/// Subcommands for `rust-daq config ...`
+#[cfg(feature = "db-surreal")]
+#[derive(Subcommand)]
+enum ConfigCommands {
+    /// Import a TOML hardware config into the database
+    Import {
+        /// Path to hardware config file (TOML)
+        file: PathBuf,
+
+        /// Database path (RocksDB). Omit for in-memory.
+        #[arg(long)]
+        db_path: Option<PathBuf>,
+    },
+
+    /// Export database contents as TOML (to stdout)
+    Export {
+        /// Database path (RocksDB). Omit for in-memory.
+        #[arg(long)]
+        db_path: Option<PathBuf>,
+    },
+
+    /// List instruments stored in the database
+    List {
+        /// Database path (RocksDB). Omit for in-memory.
+        #[arg(long)]
+        db_path: Option<PathBuf>,
+    },
 }
 
 #[cfg(feature = "networking")]
@@ -152,6 +194,68 @@ enum ClientCommands {
         #[arg(long, default_value = "http://localhost:50051")]
         addr: String,
     },
+
+    /// List instruments in the running daemon's database
+    #[cfg(feature = "db-surreal")]
+    ConfigList {
+        /// Daemon address
+        #[arg(long, default_value = "http://localhost:50051")]
+        addr: String,
+    },
+
+    /// Get a specific instrument from the running daemon
+    #[cfg(feature = "db-surreal")]
+    ConfigGet {
+        /// Device ID to look up
+        device_id: String,
+        /// Daemon address
+        #[arg(long, default_value = "http://localhost:50051")]
+        addr: String,
+    },
+
+    /// Import a TOML hardware config into the running daemon's database
+    #[cfg(feature = "db-surreal")]
+    ConfigImport {
+        /// Path to hardware config file (TOML)
+        file: PathBuf,
+        /// Daemon address
+        #[arg(long, default_value = "http://localhost:50051")]
+        addr: String,
+    },
+
+    /// Export the running daemon's database as TOML
+    #[cfg(feature = "db-surreal")]
+    ConfigExport {
+        /// Daemon address
+        #[arg(long, default_value = "http://localhost:50051")]
+        addr: String,
+    },
+
+    /// Delete an instrument from the running daemon's database
+    #[cfg(feature = "db-surreal")]
+    ConfigDelete {
+        /// Device ID to delete
+        device_id: String,
+        /// Daemon address
+        #[arg(long, default_value = "http://localhost:50051")]
+        addr: String,
+    },
+
+    /// Show database info from the running daemon
+    #[cfg(feature = "db-surreal")]
+    ConfigInfo {
+        /// Daemon address
+        #[arg(long, default_value = "http://localhost:50051")]
+        addr: String,
+    },
+
+    /// Stream live config changes from the running daemon
+    #[cfg(feature = "db-surreal")]
+    ConfigWatch {
+        /// Daemon address
+        #[arg(long, default_value = "http://localhost:50051")]
+        addr: String,
+    },
 }
 
 #[tokio::main]
@@ -180,6 +284,8 @@ async fn main() -> Result<()> {
         } => start_daemon(port, hardware_config, lab_hardware).await,
         #[cfg(feature = "networking")]
         Commands::Client(cmd) => handle_client_command(cmd).await,
+        #[cfg(feature = "db-surreal")]
+        Commands::Config(cmd) => handle_config_command(cmd).await,
     }
 }
 
@@ -250,6 +356,8 @@ async fn start_daemon(
         port,
         hardware_config,
         lab_hardware,
+        #[cfg(feature = "db-surreal")]
+        db_path: None,
     };
 
     let instance = DaemonInstance::start(config).await?;
@@ -404,5 +512,298 @@ async fn handle_client_command(cmd: ClientCommands) -> Result<()> {
             println!("✅ Move command accepted");
             Ok(())
         }
+
+        #[cfg(feature = "db-surreal")]
+        ClientCommands::ConfigList { addr } => client_config_list(addr).await,
+
+        #[cfg(feature = "db-surreal")]
+        ClientCommands::ConfigGet { device_id, addr } => client_config_get(device_id, addr).await,
+
+        #[cfg(feature = "db-surreal")]
+        ClientCommands::ConfigImport { file, addr } => client_config_import(file, addr).await,
+
+        #[cfg(feature = "db-surreal")]
+        ClientCommands::ConfigExport { addr } => client_config_export(addr).await,
+
+        #[cfg(feature = "db-surreal")]
+        ClientCommands::ConfigDelete { device_id, addr } => {
+            client_config_delete(device_id, addr).await
+        }
+
+        #[cfg(feature = "db-surreal")]
+        ClientCommands::ConfigInfo { addr } => client_config_info(addr).await,
+
+        #[cfg(feature = "db-surreal")]
+        ClientCommands::ConfigWatch { addr } => client_config_watch(addr).await,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Config subcommands (db-surreal feature)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "db-surreal")]
+async fn handle_config_command(cmd: ConfigCommands) -> Result<()> {
+    match cmd {
+        ConfigCommands::Import { file, db_path } => config_import(file, db_path).await,
+        ConfigCommands::Export { db_path } => config_export(db_path).await,
+        ConfigCommands::List { db_path } => config_list(db_path).await,
+    }
+}
+
+/// Helper: open a DB connection from an optional path.
+#[cfg(feature = "db-surreal")]
+async fn open_db(db_path: Option<PathBuf>) -> Result<db::DaqDb> {
+    let db_config = match db_path {
+        Some(ref path) => db::DbConfig::rocksdb(path),
+        None => db::DbConfig::in_memory(),
+    };
+    db::DaqDb::init(db_config)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to open database: {e}"))
+}
+
+/// `rust-daq config import <file>` — load TOML hardware config into DB.
+#[cfg(feature = "db-surreal")]
+async fn config_import(file: PathBuf, db_path: Option<PathBuf>) -> Result<()> {
+    use hardware::registry::HardwareConfig;
+
+    let hw_config = HardwareConfig::from_file(&file)
+        .map_err(|e| anyhow::anyhow!("Failed to parse {}: {e}", file.display()))?;
+
+    let db = open_db(db_path).await?;
+
+    let (drivers, instruments) = db_bridge::shadow_write(&db, &hw_config)
+        .await
+        .map_err(|e| anyhow::anyhow!("Import failed: {e}"))?;
+
+    println!(
+        "Imported {} driver(s), {} instrument(s)",
+        drivers, instruments
+    );
+    Ok(())
+}
+
+/// `rust-daq config export` — dump DB instruments as TOML to stdout.
+#[cfg(feature = "db-surreal")]
+async fn config_export(db_path: Option<PathBuf>) -> Result<()> {
+    let db = open_db(db_path).await?;
+    let instruments = db
+        .get_all_instruments()
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    if instruments.is_empty() {
+        eprintln!("No instruments in database.");
+        return Ok(());
+    }
+
+    let toml_str = db_bridge::db_to_hardware_toml(&instruments)
+        .map_err(|e| anyhow::anyhow!("TOML serialization failed: {e}"))?;
+    print!("{toml_str}");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Online config commands (talk to running daemon via gRPC)
+// ---------------------------------------------------------------------------
+
+#[cfg(all(feature = "networking", feature = "db-surreal"))]
+async fn config_client(
+    addr: &str,
+) -> Result<protocol::daq::config_service_client::ConfigServiceClient<tonic::transport::Channel>> {
+    protocol::daq::config_service_client::ConfigServiceClient::connect(addr.to_string())
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to daemon at {addr}: {e}"))
+}
+
+#[cfg(all(feature = "networking", feature = "db-surreal"))]
+async fn client_config_list(addr: String) -> Result<()> {
+    let mut client = config_client(&addr).await?;
+    let resp = client
+        .list_instruments(protocol::daq::ListInstrumentsRequest {})
+        .await?
+        .into_inner();
+
+    if resp.instruments.is_empty() {
+        println!("No instruments in database.");
+        return Ok(());
+    }
+
+    println!(
+        "{:<20} {:<30} {:<15} ENABLED",
+        "DEVICE_ID", "NAME", "DRIVER"
+    );
+    println!("{}", "-".repeat(75));
+    for inst in &resp.instruments {
+        println!(
+            "{:<20} {:<30} {:<15} {}",
+            inst.device_id,
+            inst.name,
+            inst.driver_type,
+            if inst.enabled { "yes" } else { "no" },
+        );
+    }
+    println!("\n{} instrument(s) total", resp.instruments.len());
+    Ok(())
+}
+
+#[cfg(all(feature = "networking", feature = "db-surreal"))]
+async fn client_config_get(device_id: String, addr: String) -> Result<()> {
+    let mut client = config_client(&addr).await?;
+    let resp = client
+        .get_instrument(protocol::daq::GetInstrumentRequest { device_id })
+        .await?
+        .into_inner();
+
+    println!("Device ID:    {}", resp.device_id);
+    println!("Name:         {}", resp.name);
+    println!("Driver Type:  {}", resp.driver_type);
+    println!("Enabled:      {}", resp.enabled);
+    println!("Config (JSON): {}", resp.config_json);
+    Ok(())
+}
+
+#[cfg(all(feature = "networking", feature = "db-surreal"))]
+async fn client_config_import(file: PathBuf, addr: String) -> Result<()> {
+    let toml_content = tokio::fs::read_to_string(&file).await?;
+    let mut client = config_client(&addr).await?;
+    let resp = client
+        .import_config(protocol::daq::ImportConfigRequest { toml_content })
+        .await?
+        .into_inner();
+
+    if resp.success {
+        println!(
+            "Imported {} driver(s), {} instrument(s)",
+            resp.drivers_imported, resp.instruments_imported
+        );
+    } else {
+        eprintln!("Import failed: {}", resp.message);
+    }
+    Ok(())
+}
+
+#[cfg(all(feature = "networking", feature = "db-surreal"))]
+async fn client_config_export(addr: String) -> Result<()> {
+    let mut client = config_client(&addr).await?;
+    let resp = client
+        .export_config(protocol::daq::ExportConfigRequest {})
+        .await?
+        .into_inner();
+
+    if resp.toml_content.is_empty() {
+        println!("No instruments in database.");
+    } else {
+        print!("{}", resp.toml_content);
+    }
+    Ok(())
+}
+
+#[cfg(all(feature = "networking", feature = "db-surreal"))]
+async fn client_config_delete(device_id: String, addr: String) -> Result<()> {
+    let mut client = config_client(&addr).await?;
+    let resp = client
+        .delete_instrument(protocol::daq::DeleteInstrumentRequest {
+            device_id: device_id.clone(),
+        })
+        .await?
+        .into_inner();
+
+    if resp.success {
+        println!("Deleted '{device_id}'");
+    } else {
+        eprintln!("Delete failed: {}", resp.message);
+    }
+    Ok(())
+}
+
+#[cfg(all(feature = "networking", feature = "db-surreal"))]
+async fn client_config_watch(addr: String) -> Result<()> {
+    let mut client = config_client(&addr).await?;
+    println!("Watching config changes on {}... (Ctrl+C to stop)", addr);
+    println!();
+
+    let mut stream = client
+        .subscribe_config_changes(protocol::daq::SubscribeConfigRequest {})
+        .await?
+        .into_inner();
+
+    while let Some(event) = stream.message().await? {
+        let ts = event.timestamp_ns / 1_000_000_000;
+        match event.change_type.as_str() {
+            "delete" => {
+                println!("[{ts}s] DELETE {}", event.device_id);
+            }
+            _ => {
+                if let Some(inst) = &event.instrument {
+                    println!(
+                        "[{ts}s] {} {} (driver={}, enabled={})",
+                        event.change_type.to_uppercase(),
+                        inst.device_id,
+                        inst.driver_type,
+                        inst.enabled,
+                    );
+                } else {
+                    println!(
+                        "[{ts}s] {} {}",
+                        event.change_type.to_uppercase(),
+                        event.device_id,
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(all(feature = "networking", feature = "db-surreal"))]
+async fn client_config_info(addr: String) -> Result<()> {
+    let mut client = config_client(&addr).await?;
+    let resp = client
+        .get_db_info(protocol::daq::GetDbInfoRequest {})
+        .await?
+        .into_inner();
+
+    println!("Engine:           {}", resp.engine);
+    println!("Namespace:        {}", resp.namespace);
+    println!("Database:         {}", resp.database);
+    println!("Schema Version:   {}", resp.schema_version);
+    println!("Uptime:           {}s", resp.uptime_secs);
+    println!("Healthy:          {}", resp.healthy);
+    println!("Drivers:          {}", resp.driver_count);
+    println!("Instruments:      {}", resp.instrument_count);
+    Ok(())
+}
+
+/// `rust-daq config list` — list instruments in the database.
+#[cfg(feature = "db-surreal")]
+async fn config_list(db_path: Option<PathBuf>) -> Result<()> {
+    let db = open_db(db_path).await?;
+    let instruments = db
+        .list_instruments()
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    if instruments.is_empty() {
+        println!("No instruments in database.");
+        return Ok(());
+    }
+
+    println!(
+        "{:<20} {:<30} {:<15} ENABLED",
+        "DEVICE_ID", "NAME", "DRIVER"
+    );
+    println!("{}", "-".repeat(75));
+    for inst in &instruments {
+        println!(
+            "{:<20} {:<30} {:<15} {}",
+            inst.device_id,
+            inst.name,
+            inst.driver_type,
+            if inst.enabled { "yes" } else { "no" },
+        );
+    }
+    println!("\n{} instrument(s) total", instruments.len());
+    Ok(())
 }

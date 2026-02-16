@@ -68,8 +68,9 @@
 
 use crate::capabilities::{
     Commandable, DeviceCategory, EmissionControl, ExposureControl, FrameProducer, GatedCamera,
-    Movable, Parameterized, PulseGenerator, Readable, SafetyInterlock, Settable, ShutterControl,
-    SpectrometerControl, Stageable, TriggerOnPosition, Triggerable, WavelengthTunable,
+    Movable, Parameterized, PulseGenerator, Readable, Reconfigurable, SafetyInterlock, Settable,
+    ShutterControl, SpectrometerControl, Stageable, TriggerOnPosition, Triggerable,
+    WavelengthTunable,
 };
 use crate::data::Frame;
 use crate::pipeline::MeasurementSource;
@@ -168,6 +169,10 @@ pub enum Capability {
     /// Safety interlock monitoring
     /// Corresponds to [`crate::capabilities::SafetyInterlock`]
     SafetyInterlock,
+
+    /// Runtime reconfiguration without full restart
+    /// Corresponds to [`crate::capabilities::Reconfigurable`]
+    Reconfigurable,
 }
 
 impl Capability {
@@ -191,6 +196,7 @@ impl Capability {
             Self::TriggerOnPosition => "Trigger On Position",
             Self::PulseGenerator => "Pulse Generator",
             Self::SafetyInterlock => "Safety Interlock",
+            Self::Reconfigurable => "Reconfigurable",
         }
     }
 
@@ -214,6 +220,7 @@ impl Capability {
             Self::TriggerOnPosition => "trigger_on_position",
             Self::PulseGenerator => "pulse_generator",
             Self::SafetyInterlock => "safety_interlock",
+            Self::Reconfigurable => "reconfigurable",
         }
     }
 }
@@ -307,6 +314,9 @@ pub struct DeviceComponents {
 
     /// SafetyInterlock implementation (interlock monitoring)
     pub safety_interlock: Option<Arc<dyn SafetyInterlock>>,
+
+    /// Reconfigurable implementation (runtime config changes)
+    pub reconfigurable: Option<Arc<dyn Reconfigurable>>,
 
     /// Optional lifecycle hooks for device registration/shutdown
     pub lifecycle: Option<Arc<dyn DeviceLifecycle>>,
@@ -499,6 +509,12 @@ impl DeviceComponents {
         self
     }
 
+    /// Set Reconfigurable implementation
+    pub fn with_reconfigurable(mut self, r: Arc<dyn Reconfigurable>) -> Self {
+        self.reconfigurable = Some(r);
+        self
+    }
+
     /// Set device lifecycle hooks
     pub fn with_lifecycle(mut self, lifecycle: Arc<dyn DeviceLifecycle>) -> Self {
         self.lifecycle = Some(lifecycle);
@@ -652,6 +668,15 @@ pub trait DriverFactory: Send + Sync + 'static {
     /// 2. Open connections to hardware (serial ports, USB, etc.)
     /// 3. Optionally validate device identity (query version strings)
     /// 4. Return DeviceComponents with all implemented capabilities
+    ///
+    /// # Blocking I/O
+    ///
+    /// If your implementation performs synchronous / blocking I/O (e.g.,
+    /// opening serial ports via `serialport::new(...)`, USB initialization,
+    /// or SCPI socket connects), wrap those calls in
+    /// [`tokio::task::spawn_blocking`] to avoid stalling the async runtime.
+    /// The reconciler already spawns `build()` on a separate task as a safety
+    /// net, but factory implementations should not rely on that.
     ///
     /// # Arguments
     ///

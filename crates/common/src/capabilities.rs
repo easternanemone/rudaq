@@ -1542,6 +1542,58 @@ pub trait SafetyInterlock: Send + Sync {
     async fn interlock_status(&self) -> Result<InterlockStatus>;
 }
 
+// =============================================================================
+// Runtime Reconfiguration (Phase 5 — Hot-Swap)
+// =============================================================================
+
+/// Capability: Runtime Reconfiguration
+///
+/// Devices that support applying new configuration without a full restart.
+/// The reconciler calls `reconfigure()` when a config change is detected
+/// in the database and the device is not actively measuring.
+///
+/// # Contract
+/// - Validate config before applying (reject invalid configs gracefully)
+/// - Preserve state where possible (don't reset counters, cached data, etc.)
+/// - Return `Err` if the change requires a full restart (caller will
+///   fall back to unregister + register)
+/// - Implementations should be idempotent: applying the same config twice is a no-op
+#[async_trait]
+pub trait Reconfigurable: Send + Sync {
+    /// Apply new configuration values at runtime.
+    ///
+    /// # Returns
+    /// - `Ok(())` if the config was applied successfully
+    /// - `Err` if the change requires a full driver restart
+    async fn reconfigure(&self, config: toml::Value) -> Result<()>;
+}
+
+/// State machine for safe runtime reconfiguration.
+///
+/// Prevents config changes while a device is actively measuring.
+/// The reconciler checks the lock state before calling `reconfigure()`.
+///
+/// ```text
+/// Idle ──start_measurement()──► Measuring
+///  ▲                              │
+///  └──finish_measurement()────────┘
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MeasurementLock {
+    /// Device is idle — safe to reconfigure.
+    #[default]
+    Idle,
+    /// Device is actively measuring — reconfiguration must wait.
+    Measuring,
+}
+
+impl MeasurementLock {
+    /// Returns `true` if the device is idle and safe to reconfigure.
+    pub fn is_idle(&self) -> bool {
+        *self == Self::Idle
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::float_cmp)]
 mod tests {

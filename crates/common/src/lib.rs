@@ -72,5 +72,8 @@ pub mod driver;
 #[cfg(feature = "serial")]
 pub mod serial;
 
+// Game loop state broadcasting (Phase 4)
+pub mod state_cache;
+
 // Arrow extension metadata helpers for Python interop
 pub mod arrow_metadata;

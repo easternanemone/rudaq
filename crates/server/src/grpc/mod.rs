@@ -1,3 +1,5 @@
+#[cfg(feature = "db-surreal")]
+pub mod config_service;
 pub mod custom_health_service;
 pub mod error_mapping;
 #[cfg(test)]
@@ -325,6 +327,22 @@ pub use proto::{
     // Plugin instance management
     SpawnPluginRequest,
     SpawnPluginResponse,
+};
+
+// Re-export ConfigService types (bd-3gvx)
+#[cfg(feature = "db-surreal")]
+pub use config_service::ConfigServiceImpl;
+#[cfg(feature = "db-surreal")]
+pub use proto::config_service_client::ConfigServiceClient;
+#[cfg(feature = "db-surreal")]
+pub use proto::config_service_server::{ConfigService, ConfigServiceServer};
+#[cfg(feature = "db-surreal")]
+pub use proto::{
+    ConfigChangeEvent, DbInfoResponse, DeleteInstrumentRequest, DeleteInstrumentResponse,
+    DriverConfig, ExportConfigRequest, ExportConfigResponse, GetDbInfoRequest,
+    GetInstrumentRequest, ImportConfigRequest, ImportConfigResponse, InstrumentConfig,
+    ListDriversRequest, ListDriversResponse, ListInstrumentsRequest, ListInstrumentsResponse,
+    SubscribeConfigRequest, UpsertInstrumentRequest, UpsertInstrumentResponse,
 };
 
 // Re-export NI DAQ Service types (bd-czem)

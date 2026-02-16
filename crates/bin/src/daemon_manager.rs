@@ -25,7 +25,9 @@ use server::health::sys_monitor::SystemMetricsCollector;
 use server::health::{HealthMonitorConfig, SystemHealthMonitor};
 
 #[cfg(feature = "networking")]
-use hardware::registry::{create_mock_registry, create_registry_from_file, register_all_factories};
+use hardware::registry::{
+    create_mock_registry, create_registry_from_config, register_all_factories, HardwareConfig,
+};
 #[cfg(feature = "networking")]
 use server::grpc::start_server_with_hardware;
 
@@ -35,6 +37,10 @@ pub struct DaemonConfig {
     pub port: u16,
     pub hardware_config: Option<PathBuf>,
     pub lab_hardware: bool,
+    /// Path for the SurrealDB database. Only used when `db-surreal-rocksdb` is
+    /// enabled. `None` = use in-memory engine (default for `db-surreal-mem`).
+    #[cfg(feature = "db-surreal")]
+    pub db_path: Option<PathBuf>,
 }
 
 /// Tracks the daemon's current lifecycle phase.
@@ -43,6 +49,7 @@ pub struct DaemonConfig {
 pub enum DaemonPhase {
     Initializing,
     HealthMonitor,
+    Database,
     Storage,
     Hardware,
     Server,
@@ -56,6 +63,7 @@ impl std::fmt::Display for DaemonPhase {
         match self {
             Self::Initializing => write!(f, "Initializing"),
             Self::HealthMonitor => write!(f, "HealthMonitor"),
+            Self::Database => write!(f, "Database"),
             Self::Storage => write!(f, "Storage"),
             Self::Hardware => write!(f, "Hardware"),
             Self::Server => write!(f, "Server"),
@@ -105,6 +113,14 @@ pub struct DaemonInstance {
     /// Safety sentinel — RAII emergency shutter close on abnormal exit.
     /// Armed on start, disarmed only after successful shutdown.
     sentinel: SafetySentinel,
+    /// Embedded SurrealDB instance (control plane persistence).
+    /// Kept alive for connection lifetime; will be read by gRPC ConfigService (Phase 2).
+    #[cfg(feature = "db-surreal")]
+    #[allow(dead_code)] // Ownership anchor + used by ConfigService in Phase 2
+    db: Option<db::DaqDb>,
+    /// Background task running the watch reconciler (LIVE SELECT → reconcile loop).
+    #[cfg(feature = "db-surreal")]
+    watch_reconciler_task: Option<JoinHandle<()>>,
     /// Records which shutdown phases have been executed, in order.
     /// Used by contract tests to verify the shutdown sequence.
     #[cfg(test)]
@@ -135,6 +151,38 @@ impl DaemonInstance {
         let metrics_task = tokio::spawn(async move {
             metrics_collector.run().await;
         });
+
+        // --- Phase: Database (feature-gated: db-surreal) ---
+        #[cfg(feature = "db-surreal")]
+        let db = {
+            println!("🗄️  Initializing database (SurrealDB)...");
+            let db_config = if let Some(ref path) = config.db_path {
+                println!("   Engine: RocksDB ({})", path.display());
+                db::DbConfig::rocksdb(path)
+            } else {
+                println!("   Engine: in-memory (no persistence)");
+                db::DbConfig::in_memory()
+            };
+            match db::DaqDb::init(db_config).await {
+                Ok(db) => {
+                    let info = db.info().await;
+                    println!(
+                        "   ✓ Database ready (schema v{}, {} drivers, {} instruments)",
+                        info.schema_version, info.driver_count, info.instrument_count
+                    );
+                    println!();
+                    Some(db)
+                }
+                Err(e) => {
+                    // DB failure is non-fatal — the daemon can still run from TOML config.
+                    // Log the error and continue without persistence.
+                    eprintln!("   ⚠️  Database initialization failed: {}", e);
+                    eprintln!("   Continuing without database persistence.");
+                    println!();
+                    None
+                }
+            }
+        };
 
         // --- Phase: Storage (feature-gated) ---
         #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
@@ -173,25 +221,42 @@ impl DaemonInstance {
         };
 
         // --- Phase: Hardware Registry ---
+        // Parse HardwareConfig once and reuse for both registry creation and DB shadow write.
         #[cfg(feature = "networking")]
-        let registry = {
+        #[allow(unused_variables)] // hw_config used only with db-surreal feature
+        let (registry, hw_config) = {
             println!("🔧 Initializing hardware registry...");
-            let registry = if let Some(ref config_path) = config.hardware_config {
+            let (registry, hw_config) = if let Some(ref config_path) = config.hardware_config {
                 println!("   Loading from config: {}", config_path.display());
-                create_registry_from_file(config_path)
+                let hw = HardwareConfig::from_file(config_path)
+                    .context("Failed to parse hardware config")?;
+                let config_dir = config_path
+                    .parent()
+                    .map(|p| p.join("devices"))
+                    .filter(|p| p.exists());
+                let reg = create_registry_from_config(&hw, config_dir.as_deref())
                     .await
-                    .context("Failed to create hardware registry from config")?
+                    .context("Failed to create hardware registry from config")?;
+                (reg, Some(hw))
             } else if config.lab_hardware {
                 println!("   Using lab hardware configuration (maitai@100.117.5.12)");
-                let default_config = std::path::Path::new("config/maitai_hardware.toml");
-                create_registry_from_file(default_config)
+                let default_path = std::path::Path::new("config/maitai_hardware.toml");
+                let hw = HardwareConfig::from_file(default_path)
+                    .context("Failed to parse lab hardware config")?;
+                let config_dir = default_path
+                    .parent()
+                    .map(|p| p.join("devices"))
+                    .filter(|p| p.exists());
+                let reg = create_registry_from_config(&hw, config_dir.as_deref())
                     .await
-                    .context("Failed to create lab hardware registry")?
+                    .context("Failed to create lab hardware registry")?;
+                (reg, Some(hw))
             } else {
                 println!("   Using mock devices (no hardware config specified)");
-                create_mock_registry()
+                let reg = create_mock_registry()
                     .await
-                    .context("Failed to create mock registry")?
+                    .context("Failed to create mock registry")?;
+                (reg, None)
             };
 
             // Register driver factories for plugin-based device creation
@@ -207,6 +272,8 @@ impl DaemonInstance {
             let device_count = registry.len();
             println!("   Registered {} device(s)", device_count);
             for info in registry.list_devices() {
+                registry.set_config_source(&info.id, "toml");
+                tracing::info!(device_id = %info.id, config_source = "toml", "device config source tagged");
                 println!(
                     "     - {}: {} ({:?})",
                     info.id, info.name, info.capabilities
@@ -214,11 +281,75 @@ impl DaemonInstance {
             }
             println!();
 
-            Arc::new(registry)
+            (Arc::new(registry), hw_config)
         };
 
         #[cfg(not(feature = "networking"))]
         let registry = Arc::new(DeviceRegistry::new());
+
+        // --- Phase: Shadow Write to Database ---
+        // Mirror the parsed hardware config into SurrealDB (write-only shadow copy).
+        // Reuses the HardwareConfig already parsed above — no redundant file I/O.
+        // Non-fatal: if anything fails, log a warning and continue.
+        #[cfg(all(feature = "db-surreal", feature = "networking"))]
+        if let (Some(ref db), Some(ref hw_config)) = (&db, &hw_config) {
+            use crate::db_bridge;
+            match db_bridge::shadow_write(db, hw_config).await {
+                Ok((drivers, instruments)) => {
+                    println!(
+                        "   🗄️  Shadowed config to DB ({} drivers, {} instruments)",
+                        drivers, instruments
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Shadow DB write failed — continuing without persistence");
+                }
+            }
+        }
+
+        // --- Phase: Reconciler Metrics (feature-gated) ---
+        #[cfg(all(feature = "db-surreal", feature = "metrics"))]
+        {
+            crate::reconciler_metrics::init();
+            println!("   📊 Reconciler Prometheus metrics registered");
+        }
+
+        // --- Phase: Reconcile DB → Registry ---
+        // After shadow-writing config to DB, run one reconciliation pass to
+        // converge the registry if the DB has instruments the TOML didn't include
+        // (e.g., added via CLI between restarts).  Non-fatal.
+        #[cfg(feature = "db-surreal")]
+        if let Some(ref db) = db {
+            use crate::reconciler;
+
+            #[cfg(feature = "metrics")]
+            let start = std::time::Instant::now();
+
+            match reconciler::reconcile_once(db, &registry).await {
+                Ok(report) => {
+                    #[cfg(feature = "metrics")]
+                    if let Some(m) = crate::reconciler_metrics::get() {
+                        m.reconcile_duration.observe(start.elapsed().as_secs_f64());
+                        m.record_report(&report);
+                    }
+                    if !report.added.is_empty() || !report.removed.is_empty() {
+                        println!(
+                            "   🔄 Reconciled: +{} added, -{} removed",
+                            report.added.len(),
+                            report.removed.len()
+                        );
+                    }
+                }
+                Err(e) => {
+                    #[cfg(feature = "metrics")]
+                    if let Some(m) = crate::reconciler_metrics::get() {
+                        m.reconcile_duration.observe(start.elapsed().as_secs_f64());
+                        m.reconcile_errors.inc();
+                    }
+                    tracing::warn!(error = %e, "Initial reconciliation failed — continuing with TOML-only state");
+                }
+            }
+        }
 
         // --- Phase: Safety Hooks (CRITICAL) ---
         println!("🛡️  Installing hardware safety panic hook...");
@@ -271,6 +402,28 @@ impl DaemonInstance {
             run_device_supervisor(sup_registry, SupervisorConfig::default(), sup_token).await;
         });
 
+        // --- Phase: Watch Reconciler (LIVE SELECT → debounce → reconcile) ---
+        // Continuously watches SurrealDB for config changes and reconciles the
+        // hardware registry.  Uses CancellationToken for graceful shutdown.
+        #[cfg(feature = "db-surreal")]
+        let watch_reconciler_task = if let Some(ref db) = db {
+            let wr_db = db.clone();
+            let wr_registry = registry.clone();
+            let wr_token = shutdown_token.clone();
+            println!("👁️  Starting watch reconciler (LIVE SELECT → registry sync)...");
+            Some(tokio::spawn(async move {
+                crate::watch_reconciler::start_watch_reconciler(
+                    wr_db,
+                    wr_registry,
+                    crate::watch_reconciler::WatchConfig::default(),
+                    wr_token,
+                )
+                .await;
+            }))
+        } else {
+            None
+        };
+
         // --- Phase: gRPC Server ---
         #[cfg(feature = "networking")]
         let server_task = {
@@ -292,10 +445,19 @@ impl DaemonInstance {
             let srv_registry = registry.clone();
             let srv_health = health.clone();
             let srv_token = shutdown_token.clone();
+            #[cfg(feature = "db-surreal")]
+            let srv_db = db.clone();
             tokio::spawn(async move {
-                start_server_with_hardware(addr, srv_registry, srv_health, srv_token)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{}", e))
+                start_server_with_hardware(
+                    addr,
+                    srv_registry,
+                    srv_health,
+                    srv_token,
+                    #[cfg(feature = "db-surreal")]
+                    srv_db,
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!("{}", e))
             })
         };
 
@@ -313,6 +475,10 @@ impl DaemonInstance {
             #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
             storage,
             sentinel,
+            #[cfg(feature = "db-surreal")]
+            db,
+            #[cfg(feature = "db-surreal")]
+            watch_reconciler_task,
             #[cfg(test)]
             shutdown_log: Arc::new(std::sync::Mutex::new(Vec::new())),
         })
@@ -434,6 +600,11 @@ impl DaemonInstance {
         self.supervisor_task.abort();
         self.registry_monitor_task.abort();
         self.metrics_task.abort();
+        // Watch reconciler listens on the same CancellationToken, but abort as safety net
+        #[cfg(feature = "db-surreal")]
+        if let Some(task) = self.watch_reconciler_task {
+            task.abort();
+        }
 
         // Disarm safety sentinel — shutdown completed successfully.
         // Only reached after hardware is confirmed safe-stated.
@@ -462,6 +633,8 @@ mod tests {
             port: 50051,
             hardware_config: None,
             lab_hardware: false,
+            #[cfg(feature = "db-surreal")]
+            db_path: None,
         };
         let debug = format!("{:?}", config);
         assert!(debug.contains("50051"));
@@ -489,6 +662,7 @@ mod tests {
         let lifecycle = [
             DaemonPhase::Initializing,
             DaemonPhase::HealthMonitor,
+            DaemonPhase::Database,
             DaemonPhase::Storage,
             DaemonPhase::Hardware,
             DaemonPhase::Server,
@@ -514,6 +688,8 @@ mod tests {
             port: 0,
             hardware_config: None,
             lab_hardware: false,
+            #[cfg(feature = "db-surreal")]
+            db_path: None,
         };
 
         let instance = DaemonInstance::start(config)
@@ -537,6 +713,8 @@ mod tests {
             port: 0,
             hardware_config: None,
             lab_hardware: false,
+            #[cfg(feature = "db-surreal")]
+            db_path: None,
         };
 
         let instance = DaemonInstance::start(config)

@@ -287,6 +287,7 @@ pub(super) fn device_info_to_proto(info: &hardware::registry::DeviceInfo) -> Dev
             // Wavelength limits for tunable lasers (bd-pwjo)
             min_wavelength_nm: info.metadata.min_wavelength_nm,
             max_wavelength_nm: info.metadata.max_wavelength_nm,
+            config_source: info.metadata.config_source.clone(),
         }),
         // Dynamic capability list - canonical source of truth (bd-4myc.3)
         capabilities: info

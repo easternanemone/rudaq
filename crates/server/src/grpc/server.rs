@@ -1244,6 +1244,7 @@ pub async fn start_server_with_hardware(
     registry: std::sync::Arc<hardware::registry::DeviceRegistry>,
     health_monitor: std::sync::Arc<common::health::SystemHealthMonitor>,
     shutdown_token: CancellationToken,
+    #[cfg(feature = "db-surreal")] _db: Option<db::DaqDb>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::grpc::hardware_service::HardwareServiceImpl;
     use crate::grpc::module_service::ModuleServiceImpl;
@@ -1450,6 +1451,11 @@ pub async fn start_server_with_hardware(
         }
     }
 
+    // Game loop broadcast channel — created early so Rerun can subscribe (Phase 6).
+    // Drivers → mpsc → game loop → broadcast → { gRPC StreamSystemState, Rerun }
+    let (state_broadcast_tx, _) =
+        tokio::sync::broadcast::channel::<common::state_cache::SystemStateSnapshot>(64);
+
     // Setup Rerun Visualization (gRPC server mode for remote GUI clients)
     #[cfg(feature = "rerun_sink")]
     {
@@ -1495,6 +1501,7 @@ pub async fn start_server_with_hardware(
                 }
 
                 rerun.monitor_broadcast(control_server.data_sender().subscribe());
+                rerun.monitor_system_state(state_broadcast_tx.subscribe());
             }
             Err(e) => {
                 eprintln!("Warning: Failed to start Rerun visualization: {}", e);
@@ -1505,7 +1512,50 @@ pub async fn start_server_with_hardware(
     // RunEngine was already created above (bd-si2c) - shared between RunEngineService and scripts
     let run_engine_server = RunEngineServiceImpl::new(run_engine.clone());
 
-    let hardware_server = HardwareServiceImpl::new(registry.clone());
+    // Game loop for system state broadcasting (Phase 4)
+    //
+    // Drivers → mpsc → game loop → broadcast → { gRPC StreamSystemState, Rerun }
+    // The state poller reads all Readable devices at 10 Hz and feeds the game loop.
+    let (state_update_tx, state_update_rx) = tokio::sync::mpsc::channel(256);
+
+    let shutdown_gl = shutdown_token.clone();
+    tokio::spawn(common::state_cache::run_game_loop(
+        state_update_rx,
+        state_broadcast_tx.clone(),
+        common::state_cache::GameLoopConfig::default(),
+        shutdown_gl,
+    ));
+
+    // State poller: reads all Readable devices and pushes updates to the game loop.
+    let poller_registry = registry.clone();
+    let poller_shutdown = shutdown_token.clone();
+    tokio::spawn(async move {
+        use common::state_cache::{NodeStateUpdate, NodeValue, now_ns};
+
+        let mut tick = tokio::time::interval(std::time::Duration::from_millis(100));
+        loop {
+            tokio::select! {
+                () = poller_shutdown.cancelled() => break,
+                _ = tick.tick() => {
+                    for device_info in poller_registry.list_devices() {
+                        if let Some(readable) = poller_registry.get_readable(&device_info.id)
+                            && let Ok(value) = readable.read().await
+                        {
+                            let _ = state_update_tx.try_send(NodeStateUpdate {
+                                device_id: device_info.id.clone(),
+                                timestamp_ns: now_ns(),
+                                value: NodeValue::Analog(value),
+                                metadata: std::collections::HashMap::new(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let hardware_server =
+        HardwareServiceImpl::new(registry.clone()).with_state_broadcast(state_broadcast_tx);
     let module_server = ModuleServiceImpl::new(registry.clone());
     let ni_daq_server = NiDaqServiceImpl::new(registry.clone());
 
@@ -1618,6 +1668,18 @@ pub async fn start_server_with_hardware(
         .add_service(tonic_web::enable(PresetServiceServer::new(preset_server)))
         .add_service(tonic_web::enable(StorageServiceServer::new(storage_server)));
 
+    // ConfigService — SurrealDB config management (bd-itsc)
+    #[cfg(all(feature = "serial", feature = "db-surreal"))]
+    let server_builder = if let Some(ref db) = _db {
+        server_builder.add_service(tonic_web::enable(
+            crate::grpc::proto::config_service_server::ConfigServiceServer::new(
+                crate::grpc::config_service::ConfigServiceImpl::new(db.clone()),
+            ),
+        ))
+    } else {
+        server_builder
+    };
+
     #[cfg(not(feature = "serial"))]
     let mut server_builder = {
         let auth_settings = grpc_settings.clone();
@@ -1659,6 +1721,18 @@ pub async fn start_server_with_hardware(
         .add_service(tonic_web::enable(ScanServiceServer::new(scan_server)))
         .add_service(tonic_web::enable(PresetServiceServer::new(preset_server)))
         .add_service(tonic_web::enable(StorageServiceServer::new(storage_server)));
+
+    // ConfigService — SurrealDB config management (bd-itsc)
+    #[cfg(all(not(feature = "serial"), feature = "db-surreal"))]
+    let server_builder = if let Some(ref db) = _db {
+        server_builder.add_service(tonic_web::enable(
+            crate::grpc::proto::config_service_server::ConfigServiceServer::new(
+                crate::grpc::config_service::ConfigServiceImpl::new(db.clone()),
+            ),
+        ))
+    } else {
+        server_builder
+    };
 
     // Start Prometheus metrics server if enabled (bd-v299)
     #[cfg(feature = "metrics")]

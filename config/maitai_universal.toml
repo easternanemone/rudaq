@@ -1,0 +1,106 @@
+# Maitai Lab - Universal TOML-Based Drivers
+#
+# Hardware config that uses universal (config-driven) driver types instead of
+# native hand-coded drivers. Same device IDs, ports, and addressing as
+# maitai_hardware.toml so the GUI and experiment scripts work unchanged.
+#
+# Usage:
+#   rust-daq-daemon daemon --hardware-config config/maitai_universal.toml
+#
+# Excluded devices:
+#   - Prime BSI Camera (PVCAM) — no universal driver, requires C SDK
+#   - ESP300 Motion Controller — physically not responding (timeout errors)
+
+# ============================================================================
+# Thorlabs ELL14 Rotation Mounts (RS-485 Multidrop Bus)
+# ============================================================================
+# Three rotators share one serial connection (FT230X)
+# Addresses: 2, 3, 8 (set via Thorlabs software)
+
+[[devices]]
+id = "rotator_2"
+name = "ELL14 Rotator (Address 2)"
+[devices.driver]
+type = "universal_thorlabs_ell14"
+port = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0"
+address = "2"
+
+[[devices]]
+id = "rotator_3"
+name = "ELL14 Rotator (Address 3)"
+[devices.driver]
+type = "universal_thorlabs_ell14"
+port = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0"
+address = "3"
+
+[[devices]]
+id = "rotator_8"
+name = "ELL14 Rotator (Address 8)"
+[devices.driver]
+type = "universal_thorlabs_ell14"
+port = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0"
+address = "8"
+
+# ============================================================================
+# Spectra-Physics MaiTai Ti:Sapphire Laser
+# ============================================================================
+# USB-to-USB connection requires 115200 baud (TOML default is 9600 per manual)
+
+[[devices]]
+id = "maitai"
+name = "MaiTai Ti:Sapphire Laser"
+[devices.driver]
+type = "universal_spectra-physics_maitai"
+port = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0"
+baud_rate = 115200
+
+# ============================================================================
+# Newport 1830-C Optical Power Meter
+# ============================================================================
+# Connected via built-in serial port (RS-232)
+
+[[devices]]
+id = "power_meter"
+name = "Newport 1830-C Power Meter"
+[devices.driver]
+type = "universal_newport_1830-c"
+port = "/dev/ttyS0"
+
+# ============================================================================
+# Comedi DAQ Card (NI PCI-MIO-16XE-10)
+# ============================================================================
+# No universal driver — keep native comedi types
+# Hardware connections (verified 2026-01-23):
+#   DAC1-OUT → ACH0 (loopback test, ~50mV error)
+#   DAC0-OUT → EOM amplifier (for laser power control)
+
+[[devices]]
+id = "photodiode"
+name = "Photodiode Signal (ACH0)"
+[devices.driver]
+type = "comedi_analog_input"
+device = "/dev/comedi0"
+channel = 0
+range_index = 0
+input_mode = "rse"
+units = "V"
+
+[[devices]]
+id = "ni_daq_ao0"
+name = "NI DAQ Analog Output 0 (EOM Control)"
+[devices.driver]
+type = "comedi_analog_output"
+device = "/dev/comedi0"
+channel = 0
+range_index = 0
+units = "V"
+
+[[devices]]
+id = "ni_daq_ao1"
+name = "NI DAQ Analog Output 1 (Loopback Test)"
+[devices.driver]
+type = "comedi_analog_output"
+device = "/dev/comedi0"
+channel = 1
+range_index = 0
+units = "V"

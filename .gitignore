@@ -156,3 +156,4 @@ whats-next.md
 !Cargo.lock
 __pycache__/
 .serena/
+.perles/

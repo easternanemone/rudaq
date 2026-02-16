@@ -7,12 +7,19 @@
 #
 # Reference: MaiTai HP/MaiTai XF User's Manual
 #
-# Protocol Notes:
-# - Format: ASCII command/response over RS-232
-# - Baud: 9600, 8N1, software flow control (XON/XOFF)
-# - Command terminator: CR+LF (\r\n)
-# - Response terminator: LF (\n)
-# - Response format: "820nm" for wavelength, "0"/"1" for shutter
+# Protocol Notes (from MaiTai HP/XF User's Manual, Ch. 6):
+# - Format: ASCII SCPI over RS-232 (or USB-to-USB at higher baud)
+# - Baud: 9600 at power-up (default), 8N1, XON/XOFF flow control
+# - Command terminator: CR, LF, or both (manual §6: "terminated by CR, LF, or both")
+# - Response terminator: LF
+# - Commands have short/long forms: WAV/WAVelength, SHUT/SHUTter, ON, OFF
+# - Queries end with ?; read-only queries prefixed with READ (e.g., READ:POW?)
+# - Parameters separated from commands by spaces
+# - Device is case-insensitive (verified on hardware 2026-02-15)
+# - Response format: "820nm" for wavelength, "0"/"1" for shutter, "3.00W" for power
+#
+# Instance config notes:
+#   USB-to-USB connections require baud_rate = 115200 override
 
 schema_version = 3
 
@@ -31,14 +38,14 @@ capabilities = ["Readable", "WavelengthTunable", "ShutterControl", "Parameterize
 
 [connection]
 type = "serial"
-baud_rate = 9600
+baud_rate = 9600              # Manual default at power-up; override to 115200 for USB-to-USB
 data_bits = 8
 parity = "none"
 stop_bits = 1
-flow_control = "software"     # XON/XOFF required for MaiTai
+flow_control = "software"     # XON/XOFF per manual (do NOT use hardware RTS/CTS)
 timeout_ms = 5000
-terminator_tx = "\r\n"        # CR+LF for commands
-terminator_rx = "\n"          # LF for responses
+terminator_tx = "\r\n"        # Manual: "terminated by CR, LF, or both"
+terminator_rx = "\n"          # Manual: "responses terminated by LF"
 
 # ==============================================================================
 # Device Parameters
@@ -82,57 +89,57 @@ description = "Laser emission state"
 # --- Wavelength Commands ---
 
 [commands.set_wavelength]
-template = "WAVELENGTH:{{ wavelength }}"
-description = "Set output wavelength (nm)"
+template = "WAV {{ wavelength }}"
+description = "Set output wavelength in nm (manual: WAVelength xxx)"
 parameters = { wavelength = "float" }
 expects_response = false
 
 [commands.get_wavelength]
-template = "WAVELENGTH?"
-description = "Query current wavelength"
+template = "WAV?"
+description = "Query current wavelength (manual: WAVelength?)"
 response = "wavelength"
 
 # --- Shutter Commands ---
 
 [commands.open_shutter]
-template = "SHUTter:1"
-description = "Open the beam shutter"
+template = "SHUT 1"
+description = "Open the beam shutter (manual: SHUTter 1)"
 expects_response = false
 
 [commands.close_shutter]
-template = "SHUTter:0"
-description = "Close the beam shutter"
+template = "SHUT 0"
+description = "Close the beam shutter (manual: SHUTter 0)"
 expects_response = false
 
 [commands.get_shutter]
-template = "SHUTTER?"
-description = "Query shutter state"
+template = "SHUT?"
+description = "Query shutter state (manual: SHUTter?)"
 response = "shutter_state"
 
 # --- Emission Commands ---
 
 [commands.emission_on]
 template = "ON"
-description = "Enable laser emission"
+description = "Enable laser emission (manual: ON)"
 expects_response = false
 
 [commands.emission_off]
 template = "OFF"
-description = "Disable laser emission"
+description = "Disable laser emission (manual: OFF)"
 expects_response = false
 
 # --- Power Query ---
 
 [commands.get_power]
-template = "POWER?"
-description = "Query laser output power"
+template = "READ:POW?"
+description = "Query laser output power (manual: READ:POWer?)"
 response = "power"
 
 # --- Identity Query ---
 
 [commands.identify]
 template = "*IDN?"
-description = "Query device identity"
+description = "Query device identity (SCPI standard)"
 response = "identity"
 
 # ==============================================================================
@@ -148,9 +155,9 @@ transform = ["trim", "remove_suffix('nm')", "remove_suffix('NM')", "to_float"]
 [responses.shutter_state]
 transform = ["trim", "to_int"]
 
-# Power response: MaiTai returns bare numeric values (e.g., "3.00")
+# Power response: MaiTai returns "3.00W" (value with W suffix)
 [responses.power]
-transform = ["trim", "to_float"]
+transform = ["trim", "remove_suffix('W')", "remove_suffix('w')", "to_float"]
 
 # Identity response: free-form string
 [responses.identity]

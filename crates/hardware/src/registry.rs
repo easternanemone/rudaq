@@ -74,7 +74,7 @@
 use anyhow::{anyhow, Result};
 use common::capabilities::{
     Commandable, EmissionControl, ExposureControl, FrameProducer, Movable, Parameterized, Readable,
-    Settable, ShutterControl, Stageable, Triggerable, WavelengthTunable,
+    Reconfigurable, Settable, ShutterControl, Stageable, Triggerable, WavelengthTunable,
 };
 use common::data::Frame;
 use common::driver::{Capability, DeviceComponents, DeviceLifecycle, DriverFactory};
@@ -251,6 +251,8 @@ pub struct DeviceMetadata {
     pub min_wavelength_nm: Option<f64>,
     /// For WavelengthTunable devices: maximum wavelength in nm (bd-pwjo)
     pub max_wavelength_nm: Option<f64>,
+    /// Config origin: "toml" (startup), "db" (reconciler), etc.
+    pub config_source: Option<String>,
 }
 
 // =============================================================================
@@ -294,10 +296,14 @@ struct RegisteredDevice {
     emission_control: Option<Arc<dyn EmissionControl>>,
     /// WavelengthTunable implementation (if supported) - tunable laser wavelength (bd-pwjo)
     wavelength_tunable: Option<Arc<dyn WavelengthTunable>>,
+    /// Reconfigurable implementation (if supported) - runtime config changes
+    reconfigurable: Option<Arc<dyn Reconfigurable>>,
     /// Optional lifecycle hooks for registration/shutdown
     lifecycle: Option<Arc<dyn DeviceLifecycle>>,
     /// Device metadata (units, ranges, etc.)
     metadata: DeviceMetadata,
+    /// Hash of the config used to create this device (for change detection)
+    config_hash: u64,
 }
 
 impl RegisteredDevice {
@@ -353,6 +359,9 @@ impl RegisteredDevice {
         }
         if self.wavelength_tunable.is_some() {
             caps.push(Capability::WavelengthTunable);
+        }
+        if self.reconfigurable.is_some() {
+            caps.push(Capability::Reconfigurable);
         }
 
         caps
@@ -418,6 +427,13 @@ pub struct DeviceRegistry {
     /// Consecutive failures before transitioning to Faulted (default: 3).
     /// Configurable via [`set_fault_threshold`](DeviceRegistry::set_fault_threshold).
     fault_threshold: AtomicU32,
+
+    /// Per-device measurement lock state for safe reconfiguration.
+    ///
+    /// Drivers call `set_measurement_lock` when starting/stopping measurements.
+    /// The reconciler checks this before calling `reconfigure()` to avoid
+    /// changing hardware config mid-measurement (safety-critical for lasers).
+    measurement_locks: DashMap<DeviceId, common::capabilities::MeasurementLock>,
 }
 
 /// Information about a failed device registration
@@ -496,6 +512,7 @@ impl DeviceRegistry {
             registration_failures: DashMap::new(),
             device_health: DashMap::new(),
             fault_threshold: AtomicU32::new(3),
+            measurement_locks: DashMap::new(),
         }
     }
 
@@ -511,6 +528,7 @@ impl DeviceRegistry {
             registration_failures: DashMap::new(),
             device_health: DashMap::new(),
             fault_threshold: AtomicU32::new(3),
+            measurement_locks: DashMap::new(),
         }
     }
 
@@ -708,16 +726,34 @@ impl DeviceRegistry {
             "Building device from factory"
         );
 
-        let components = factory.build(config).await.map_err(|e| {
-            DaqError::Driver(common::error::DriverError::new(
-                driver_type,
-                common::error::DriverErrorKind::Initialization,
-                format!(
-                    "Factory build failed for device '{}' ({}): {}",
-                    device_id, driver_type, e
-                ),
-            ))
-        })?;
+        // Spawn the build on a separate task to isolate potentially blocking
+        // hardware initialization (serial port open, USB enumeration, etc.)
+        // from the caller's task.  If the factory's build future contains
+        // synchronous I/O, this prevents it from stalling the reconciler.
+        let build_future = factory.build(config);
+        drop(factory); // Release DashMap ref before spawning.
+        let components = tokio::task::spawn(build_future)
+            .await
+            .map_err(|join_err| {
+                DaqError::Driver(common::error::DriverError::new(
+                    driver_type,
+                    common::error::DriverErrorKind::Initialization,
+                    format!(
+                        "Factory build task panicked for device '{}' ({}): {}",
+                        device_id, driver_type, join_err
+                    ),
+                ))
+            })?
+            .map_err(|e| {
+                DaqError::Driver(common::error::DriverError::new(
+                    driver_type,
+                    common::error::DriverErrorKind::Initialization,
+                    format!(
+                        "Factory build failed for device '{}' ({}): {}",
+                        device_id, driver_type, e
+                    ),
+                ))
+            })?;
 
         if let Err(err) = self
             .run_on_register(device_id, driver_type, components.lifecycle.as_ref())
@@ -778,6 +814,7 @@ impl DeviceRegistry {
             max_exposure_ms: components.metadata.max_exposure_ms,
             min_wavelength_nm: components.metadata.min_wavelength_nm,
             max_wavelength_nm: components.metadata.max_wavelength_nm,
+            config_source: None, // Caller sets after registration
         };
 
         let parameter_metadata =
@@ -807,8 +844,10 @@ impl DeviceRegistry {
             shutter_control: components.shutter_control,
             emission_control: components.emission_control,
             wavelength_tunable: components.wavelength_tunable,
+            reconfigurable: components.reconfigurable,
             lifecycle: components.lifecycle,
             metadata,
+            config_hash: 0, // Default — set by reconciler when registering from DB
         }
     }
 
@@ -903,6 +942,7 @@ impl DeviceRegistry {
     pub async fn unregister(&self, id: &str) -> Result<bool, DaqError> {
         if let Some((_, device)) = self.devices.remove(id) {
             self.device_health.remove(id);
+            self.measurement_locks.remove(id);
             let driver_type = device.driver_type.clone();
             self.run_on_unregister(&device.config.id, &driver_type, device.lifecycle.as_ref())
                 .await?;
@@ -1186,8 +1226,10 @@ impl DeviceRegistry {
                         shutter_control: None,
                         emission_control: None,
                         wavelength_tunable: None,
+                        reconfigurable: None,
                         lifecycle: None,
                         metadata: old_metadata,
+                        config_hash: 0,
                     },
                 );
 
@@ -1328,6 +1370,49 @@ impl DeviceRegistry {
         self.devices.get(id).and_then(|d| d.commandable.clone())
     }
 
+    /// Get a device as Reconfigurable (if it supports runtime config changes)
+    pub fn get_reconfigurable(&self, id: &str) -> Option<Arc<dyn Reconfigurable>> {
+        self.devices.get(id).and_then(|d| d.reconfigurable.clone())
+    }
+
+    /// Get the config hash for a registered device (for change detection).
+    pub fn config_hash(&self, id: &str) -> Option<u64> {
+        self.devices.get(id).map(|d| d.config_hash)
+    }
+
+    /// Update the config hash after a successful reconfiguration.
+    pub fn set_config_hash(&self, id: &str, hash: u64) {
+        if let Some(mut entry) = self.devices.get_mut(id) {
+            entry.config_hash = hash;
+        }
+    }
+
+    /// Set the config source for a device (e.g., "toml", "db").
+    pub fn set_config_source(&self, id: &str, source: &str) {
+        if let Some(mut entry) = self.devices.get_mut(id) {
+            entry.metadata.config_source = Some(source.to_string());
+        }
+    }
+
+    /// Set the measurement lock state for a device.
+    ///
+    /// Drivers should call this with `Measuring` when starting a measurement
+    /// and `Idle` when done. The reconciler checks this before calling
+    /// `reconfigure()` to avoid changing hardware config mid-measurement.
+    pub fn set_measurement_lock(&self, id: &str, lock: common::capabilities::MeasurementLock) {
+        self.measurement_locks.insert(id.to_string(), lock);
+    }
+
+    /// Check whether a device is idle (safe to reconfigure).
+    ///
+    /// Returns `true` if the device has no lock or the lock is `Idle`.
+    /// Returns `false` if the device is actively measuring.
+    pub fn is_device_idle(&self, id: &str) -> bool {
+        self.measurement_locks
+            .get(id)
+            .is_none_or(|lock| lock.is_idle())
+    }
+
     /// Get all devices that support a specific capability
     ///
     /// # Thread Safety (bd-pf31)
@@ -1450,8 +1535,10 @@ impl DeviceRegistry {
             shutter_control: None,
             emission_control: None,
             wavelength_tunable: None,
+            reconfigurable: None,
             lifecycle: None,
             metadata,
+            config_hash: 0,
         })
     }
 

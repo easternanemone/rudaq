@@ -4,6 +4,7 @@
 //! bypassing the scripting layer. It connects to the DeviceRegistry for
 //! capability-based access to hardware devices.
 
+use crate::grpc::proto::node_state::Value as ProtoNodeValue;
 use crate::grpc::{
     map_daq_error_to_status,
     proto::{
@@ -34,6 +35,7 @@ use crate::grpc::{
         ListParametersResponse,
         MoveRequest,
         MoveResponse,
+        NodeState as ProtoNodeState,
         ObservableValue,
         ParameterChange,
         ParameterDescriptor,
@@ -67,13 +69,16 @@ use crate::grpc::{
         StreamObservablesRequest,
         StreamParameterChangesRequest,
         StreamPositionRequest,
+        StreamSystemStateRequest,
         StreamValuesRequest,
         StreamingMetrics,
+        SystemState as ProtoSystemState,
         TriggerRequest,
         TriggerResponse,
         UnstageDeviceRequest,
         UnstageDeviceResponse,
         ValueUpdate,
+        VectorValue,
         WaitSettledRequest,
         WaitSettledResponse,
         hardware_service_server::HardwareService,
@@ -85,6 +90,7 @@ use common::error::DaqError;
 use common::limits::{FPS_WINDOW, RPC_TIMEOUT};
 use common::observable::{Observable, ParameterMetadata as CommonParameterMetadata};
 use common::parameter::Parameter;
+use common::state_cache::{NodeValue, SystemStateSnapshot};
 use hardware::registry::DeviceRegistry;
 use serde_json;
 use std::collections::{HashMap, VecDeque};
@@ -118,6 +124,8 @@ pub struct HardwareServiceImpl {
     stream_limiter: Arc<StreamLimiter>,
     /// Broadcast sender for parameter changes (enables real-time GUI synchronization)
     param_change_tx: tokio::sync::broadcast::Sender<ParameterChange>,
+    /// Broadcast sender for system state snapshots (game loop output)
+    state_broadcast_tx: Option<tokio::sync::broadcast::Sender<SystemStateSnapshot>>,
 }
 
 impl HardwareServiceImpl {
@@ -245,6 +253,7 @@ impl HardwareServiceImpl {
             registry,
             stream_limiter: Arc::new(StreamLimiter::new()),
             param_change_tx,
+            state_broadcast_tx: None,
         }
     }
 
@@ -258,7 +267,17 @@ impl HardwareServiceImpl {
             registry,
             stream_limiter: Arc::new(StreamLimiter::new()),
             param_change_tx,
+            state_broadcast_tx: None,
         }
+    }
+
+    /// Attach a system state broadcast sender (from the game loop) for StreamSystemState.
+    pub fn with_state_broadcast(
+        mut self,
+        tx: tokio::sync::broadcast::Sender<SystemStateSnapshot>,
+    ) -> Self {
+        self.state_broadcast_tx = Some(tx);
+        self
     }
 
     /// Get a clone of the parameter change broadcast sender for external notification
@@ -970,6 +989,10 @@ impl HardwareService for HardwareServiceImpl {
             let interval = std::time::Duration::from_secs_f64(1.0 / rate_hz as f64);
             let mut ticker = tokio::time::interval(interval);
 
+            // Mark device as actively streaming (prevents hot-swap reconfiguration).
+            registry
+                .set_measurement_lock(&device_id, common::capabilities::MeasurementLock::Measuring);
+
             loop {
                 ticker.tick().await;
 
@@ -1010,6 +1033,9 @@ impl HardwareService for HardwareServiceImpl {
                     break;
                 }
             }
+
+            // Release lock when streaming ends (client disconnect or device removed).
+            registry.set_measurement_lock(&device_id, common::capabilities::MeasurementLock::Idle);
         });
 
         Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
@@ -2494,6 +2520,80 @@ impl HardwareService for HardwareServiceImpl {
         Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
             rx,
         )))
+    }
+
+    // =========================================================================
+    // System State Streaming (Phase 4 — Game Loop)
+    //
+    // Broadcasts aggregated device state snapshots at the game loop tick rate.
+    // Drivers write NodeStateUpdate → mpsc → game loop → broadcast.
+    // Each gRPC client subscribes to the broadcast channel here.
+    // =========================================================================
+
+    type StreamSystemStateStream =
+        tokio_stream::wrappers::ReceiverStream<Result<ProtoSystemState, Status>>;
+
+    async fn stream_system_state(
+        &self,
+        _request: Request<StreamSystemStateRequest>,
+    ) -> Result<Response<Self::StreamSystemStateStream>, Status> {
+        let broadcast_tx = self.state_broadcast_tx.as_ref().ok_or_else(|| {
+            Status::unavailable("System state streaming not configured (game loop not started)")
+        })?;
+
+        let mut rx = broadcast_tx.subscribe();
+        let (tx, stream_rx) = tokio::sync::mpsc::channel(32);
+
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(snapshot) => {
+                        let proto = snapshot_to_proto(snapshot);
+                        if tx.send(Ok(proto)).await.is_err() {
+                            break; // client disconnected
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!("StreamSystemState: lagged, dropped {} snapshots", n);
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        break;
+                    }
+                }
+            }
+        });
+
+        Ok(Response::new(ReceiverStream::new(stream_rx)))
+    }
+}
+
+/// Convert a game-loop snapshot to the proto SystemState message.
+fn snapshot_to_proto(snapshot: SystemStateSnapshot) -> ProtoSystemState {
+    let nodes = snapshot
+        .nodes
+        .into_iter()
+        .map(|node| {
+            let value = match node.value {
+                NodeValue::Analog(v) => Some(ProtoNodeValue::AnalogValue(v)),
+                NodeValue::Digital(v) => Some(ProtoNodeValue::DigitalValue(v)),
+                NodeValue::Text(v) => Some(ProtoNodeValue::TextValue(v)),
+                NodeValue::Vector(v) => {
+                    Some(ProtoNodeValue::VectorValue(VectorValue { values: v }))
+                }
+            };
+            ProtoNodeState {
+                device_id: node.device_id,
+                timestamp_ns: node.timestamp_ns,
+                value,
+                metadata: node.metadata,
+            }
+        })
+        .collect();
+
+    ProtoSystemState {
+        nodes,
+        broadcast_timestamp_ns: snapshot.broadcast_timestamp_ns,
+        tick_rate_hz: snapshot.tick_rate_hz,
     }
 }
 

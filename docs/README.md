@@ -58,6 +58,7 @@ Technical deep-dives for extending and maintaining rust-daq.
 
 | Guide | Coverage | Level |
 |-------|----------|-------|
+| [SurrealDB Integration](guides/surrealdb-integration.md) | Embedded database architecture, reconciler, watch system, deployment | Advanced |
 | [Plugin System](plugins/README.md) | Build custom hardware drivers and instrument plugins | Intermediate |
 | [Plugin Quick Start](plugins/QUICK_START.md) | Minimal example for creating your first plugin | Beginner |
 | [Hardware Drivers Guide](guides/hardware-drivers.md) | Implement new serial drivers, handle device communication | Advanced |

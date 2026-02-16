@@ -906,6 +906,11 @@ impl InstrumentManagerPanel {
             response.on_hover_ui(|ui| {
                 ui.label(format!("ID: {}", device.id));
                 ui.label(format!("Driver: {}", device.driver_type));
+                if let Some(ref meta) = device.metadata {
+                    if let Some(ref source) = meta.config_source {
+                        ui.label(format!("Config: {}", source));
+                    }
+                }
 
                 // Capabilities
                 ui.separator();
