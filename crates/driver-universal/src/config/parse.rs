@@ -337,6 +337,22 @@ fn validate_connection(
                 timeout,
             }
         }
+        RawConnectionConfig::Usbtmc {
+            timeout_ms,
+            terminator_tx,
+        } => {
+            let timeout = match Timeout::new(*timeout_ms) {
+                Ok(t) => t,
+                Err(_) => {
+                    errors.push(ConfigError::InvalidTimeout(*timeout_ms));
+                    Timeout::new(1000).unwrap()
+                }
+            };
+            ConnectionConfig::Usbtmc {
+                timeout,
+                terminator: terminator_tx.clone(),
+            }
+        }
     }
 }
 
@@ -1221,6 +1237,41 @@ port = 8080
         let raw: RawManifest = toml::from_str(toml_str).unwrap();
         let manifest = parse_manifest(raw).expect("should parse UDP config");
         assert!(matches!(manifest.connection, ConnectionConfig::Udp { .. }));
+    }
+
+    #[test]
+    fn accept_usbtmc_connection() {
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "USB TMC Device"
+capabilities = ["Readable"]
+
+[connection]
+type = "usbtmc"
+timeout_ms = 5000
+terminator_tx = "\n"
+
+[commands.read]
+template = "MEASure?"
+response_type = "float"
+
+[capabilities.readable]
+read = { command = "read" }
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let manifest = parse_manifest(raw).expect("should parse USB TMC config");
+        match &manifest.connection {
+            ConnectionConfig::Usbtmc {
+                timeout,
+                terminator,
+            } => {
+                assert_eq!(timeout.value(), 5000);
+                assert_eq!(terminator.as_deref(), Some("\n"));
+            }
+            _ => panic!("expected USB TMC connection"),
+        }
     }
 
     #[test]

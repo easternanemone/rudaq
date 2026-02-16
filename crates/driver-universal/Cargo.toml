@@ -17,8 +17,11 @@ evalexpr = "11"
 thiserror.workspace = true
 toml.workspace = true
 futures.workspace = true
-tokio = { workspace = true, features = ["sync", "time", "macros", "io-util", "net"] }
+tokio = { workspace = true, features = ["sync", "time", "macros", "io-util", "net", "fs"] }
 serial2-tokio = { version = "0.1", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "io-util", "sync"] }

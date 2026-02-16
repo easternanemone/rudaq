@@ -326,6 +326,119 @@ impl Transport for TcpTransport {
 }
 
 // ---------------------------------------------------------------------------
+// UsbtmcTransport (Linux only)
+// ---------------------------------------------------------------------------
+
+/// USB TMC transport using the Linux kernel `usbtmc` driver.
+///
+/// On Linux, USB TMC devices appear as `/dev/usbtmcN` character devices.
+/// The kernel handles all USB TMC protocol framing (bulk transfers, headers,
+/// EOM flags), so this transport operates identically to a serial port.
+#[cfg(target_os = "linux")]
+pub struct UsbtmcTransport {
+    file: tokio::sync::Mutex<BufReader<tokio::fs::File>>,
+    terminator: String,
+}
+
+#[cfg(target_os = "linux")]
+impl UsbtmcTransport {
+    /// Open a `/dev/usbtmcN` device for read/write.
+    ///
+    /// The device path must start with `/dev/usbtmc` and must not contain
+    /// path traversal components (`..`). This prevents accidental or
+    /// malicious opening of arbitrary files.
+    pub async fn open(device_path: &str, terminator: Option<&str>) -> Result<Self> {
+        if !device_path.starts_with("/dev/usbtmc") {
+            anyhow::bail!("USB TMC device path must start with /dev/usbtmc (got '{device_path}')");
+        }
+        if device_path.contains("..") {
+            anyhow::bail!("USB TMC device path must not contain '..'");
+        }
+
+        let file = tokio::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(device_path)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to open USB TMC device {device_path}: {e}"))?;
+        Ok(Self {
+            file: tokio::sync::Mutex::new(BufReader::new(file)),
+            terminator: terminator.unwrap_or("").to_string(),
+        })
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[async_trait::async_trait]
+impl Transport for UsbtmcTransport {
+    async fn send(&self, data: &[u8]) -> Result<()> {
+        let mut guard = self.file.lock().await;
+        let writer = guard.get_mut();
+        writer.write_all(data).await?;
+        if !self.terminator.is_empty() {
+            writer.write_all(self.terminator.as_bytes()).await?;
+        }
+        writer.flush().await?;
+        Ok(())
+    }
+
+    async fn receive(&self, timeout: Duration) -> Result<String> {
+        let mut guard = self.file.lock().await;
+        // Drain stale buffered data before reading fresh response
+        let stale = guard.buffer().len();
+        if stale > 0 {
+            guard.consume(stale);
+        }
+        tokio::time::timeout(timeout, read_line_any_eol(&mut *guard))
+            .await
+            .map_err(|_| anyhow::anyhow!("USB TMC receive timed out"))?
+    }
+
+    async fn query(&self, data: &[u8], timeout: Duration) -> Result<String> {
+        let mut guard = self.file.lock().await;
+
+        // Drain stale buffered data
+        let stale = guard.buffer().len();
+        if stale > 0 {
+            guard.consume(stale);
+        }
+
+        // Send command
+        let writer = guard.get_mut();
+        writer.write_all(data).await?;
+        if !self.terminator.is_empty() {
+            writer.write_all(self.terminator.as_bytes()).await?;
+        }
+        writer.flush().await?;
+
+        // Read response, skipping empty lines and echoes
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            let remaining = deadline - tokio::time::Instant::now();
+            if remaining.is_zero() {
+                anyhow::bail!("USB TMC receive timed out");
+            }
+
+            let response = tokio::time::timeout(remaining, read_line_any_eol(&mut *guard))
+                .await
+                .map_err(|_| anyhow::anyhow!("USB TMC receive timed out"))??;
+
+            if response.is_empty() {
+                continue;
+            }
+
+            let cmd_str = String::from_utf8_lossy(data);
+            if response == cmd_str.as_ref() {
+                continue;
+            }
+
+            return Ok(response);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // MockTransport
 // ---------------------------------------------------------------------------
 

@@ -1,0 +1,13 @@
+# Thorlabs PM400 Power Meter - USB TMC permissions
+# Allows non-root access to the PM400 via /dev/usbtmcN.
+#
+# Install:
+#   sudo cp config/udev/99-thorlabs-pm400.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger
+#
+# Thorlabs USB vendor ID: 0x1313
+# PM400 product ID: 0x8075 (confirmed via lsusb on leabs-dev)
+# Uses ATTRS (with trailing 's') to walk parent device attributes,
+# and GROUP-based access instead of world-writable MODE.
+SUBSYSTEM=="usbtmc", ATTRS{idVendor}=="1313", ATTRS{idProduct}=="8075", GROUP="plugdev", MODE="0660"

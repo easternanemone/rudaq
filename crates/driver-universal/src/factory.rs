@@ -23,6 +23,8 @@ pub struct InstanceConfig {
     pub port: Option<String>,
     /// Host address (for TCP/UDP connections).
     pub host: Option<String>,
+    /// Device path (for USB TMC connections, e.g. "/dev/usbtmc0").
+    pub device: Option<String>,
     /// Device address on the bus (e.g., "2" for ELL14 RS-485).
     #[serde(default = "default_address")]
     pub address: String,
@@ -200,6 +202,30 @@ impl DriverFactory for UniversalDriverFactory {
                     }
                     ConnectionConfig::Udp { .. } => {
                         anyhow::bail!("UDP transport not yet implemented")
+                    }
+                    #[cfg(target_os = "linux")]
+                    ConnectionConfig::Usbtmc { terminator, .. } => {
+                        let device_path = instance
+                            .device
+                            .as_deref()
+                            .or(instance.port.as_deref())
+                            .ok_or_else(|| {
+                            anyhow!("USB TMC device requires 'device' in instance config")
+                        })?;
+                        Box::new(
+                            crate::transport::UsbtmcTransport::open(
+                                device_path,
+                                terminator.as_deref(),
+                            )
+                            .await?,
+                        )
+                    }
+                    #[cfg(not(target_os = "linux"))]
+                    ConnectionConfig::Usbtmc { .. } => {
+                        anyhow::bail!(
+                            "USB TMC transport is only supported on Linux \
+                             (requires /dev/usbtmc kernel driver)"
+                        )
                     }
                 }
             };
@@ -404,6 +430,122 @@ read = { command = "read" }
         assert!(result.is_err());
         let err = result.err().unwrap().to_string();
         assert!(err.contains("port"), "expected 'port' in error: {err}");
+    }
+
+    #[test]
+    fn factory_from_usbtmc_config() {
+        let factory = UniversalDriverFactory::from_toml_str(
+            r#"
+schema_version = 3
+
+[device]
+name = "Thorlabs PM400"
+capabilities = ["Readable", "WavelengthTunable"]
+
+[connection]
+type = "usbtmc"
+timeout_ms = 5000
+terminator_tx = "\n"
+
+[commands.read_power]
+template = "MEASure:SCALar:POWer?"
+response_type = "float"
+
+[commands.get_wavelength]
+template = "SENSe:CORRection:WAVelength?"
+response_type = "float"
+
+[commands.set_wavelength]
+template = "SENSe:CORRection:WAVelength {{ value }}"
+parameters = { value = "float" }
+expects_response = false
+
+[capabilities.readable]
+read = { command = "read_power" }
+
+[capabilities.wavelength_tunable]
+set_wavelength = { command = "set_wavelength", from_param = "value" }
+get_wavelength = { command = "get_wavelength", output_field = "value" }
+"#,
+        )
+        .expect("should parse USB TMC config");
+
+        assert!(factory.driver_type().contains("pm400"));
+        assert_eq!(factory.name(), "Thorlabs PM400");
+        assert!(factory.capabilities().contains(&CoreCapability::Readable));
+        assert!(factory
+            .capabilities()
+            .contains(&CoreCapability::WavelengthTunable));
+    }
+
+    #[tokio::test]
+    async fn factory_build_usbtmc_with_mock() {
+        let factory = UniversalDriverFactory::from_toml_str(
+            r#"
+schema_version = 3
+
+[device]
+name = "Thorlabs PM400"
+capabilities = ["Readable"]
+
+[connection]
+type = "usbtmc"
+timeout_ms = 5000
+terminator_tx = "\n"
+
+[commands.read_power]
+template = "MEASure:SCALar:POWer?"
+response_type = "float"
+
+[capabilities.readable]
+read = { command = "read_power" }
+"#,
+        )
+        .unwrap();
+
+        // Mock transport bypasses the real USB TMC path
+        let config = toml::toml! {
+            device = "/dev/usbtmc0"
+            mock = true
+        };
+
+        let components = factory.build(config.into()).await.unwrap();
+        assert!(components.readable.is_some());
+    }
+
+    #[tokio::test]
+    async fn factory_build_usbtmc_requires_device() {
+        let factory = UniversalDriverFactory::from_toml_str(
+            r#"
+schema_version = 3
+
+[device]
+name = "Thorlabs PM400"
+capabilities = ["Readable"]
+
+[connection]
+type = "usbtmc"
+timeout_ms = 5000
+
+[commands.read_power]
+template = "MEASure:SCALar:POWer?"
+response_type = "float"
+
+[capabilities.readable]
+read = { command = "read_power" }
+"#,
+        )
+        .unwrap();
+
+        // No device path and not mock — should fail
+        let config = toml::toml! {
+            address = "0"
+        };
+
+        let result = factory.build(config.into()).await;
+        // On macOS this fails with "only supported on Linux"; on Linux it fails
+        // with "requires 'device'". Either way, it should fail.
+        assert!(result.is_err());
     }
 
     #[test]

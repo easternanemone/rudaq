@@ -111,6 +111,11 @@ pub enum ConnectionConfig {
         port: u16,
         timeout: Timeout,
     },
+    /// USB TMC transport (Linux `/dev/usbtmcN`).
+    Usbtmc {
+        timeout: Timeout,
+        terminator: Option<String>,
+    },
 }
 
 impl ConnectionConfig {
@@ -120,6 +125,7 @@ impl ConnectionConfig {
             Self::Serial { timeout, .. } => *timeout,
             Self::Tcp { timeout, .. } => *timeout,
             Self::Udp { timeout, .. } => *timeout,
+            Self::Usbtmc { timeout, .. } => *timeout,
         }
     }
 }

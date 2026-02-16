@@ -3,7 +3,7 @@
 # Instruments:
 #   - IPG YLPP-200-1-50-R fiber laser (TCP control on port 10001)
 #   - Andor iStar sCMOS detector (mock mode; real SDK on Linux later)
-#   - Thorlabs PM400 power meter (TCP/VISA bridge)
+#   - Thorlabs PM400 power meter (USB TMC via /dev/usbtmc)
 #
 # Usage:
 #   rust-daq-daemon daemon --hardware-config config/leabs_hardware.toml
@@ -36,12 +36,13 @@ camera_index = 0
 # ============================================================================
 # Thorlabs PM400 Power Meter
 # ============================================================================
-# SCPI power meter via TCP/VISA bridge on the LEABS subnet.
+# SCPI power meter via USB TMC (kernel /dev/usbtmc driver).
 # Config-driven driver from config/devices/thorlabs_pm400.toml.
+# Requires: `usbtmc` kernel module loaded, udev rule for non-root access.
 
 [[devices]]
 id = "power_meter"
 name = "Thorlabs PM400 Power Meter"
 [devices.driver]
 type = "universal_thorlabs_pm400"
-host = "10.0.0.16"
+device = "/dev/usbtmc0"

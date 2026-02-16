@@ -158,6 +158,18 @@ pub enum RawConnectionConfig {
         #[serde(default = "default_timeout_ms")]
         timeout_ms: u32,
     },
+    /// USB TMC (Test & Measurement Class) connection.
+    ///
+    /// On Linux, USB TMC devices appear as `/dev/usbtmcN` character devices
+    /// via the kernel `usbtmc` module. The device path is specified in the
+    /// instance config (not the manifest), since it varies per host.
+    Usbtmc {
+        #[serde(default = "default_timeout_ms")]
+        timeout_ms: u32,
+        /// TX terminator appended to commands (e.g. "\n" for SCPI).
+        #[serde(default)]
+        terminator_tx: Option<String>,
+    },
 }
 
 fn default_timeout_ms() -> u32 {
@@ -497,6 +509,70 @@ baud_rate = 9600
         }
     }
 
+    #[test]
+    fn deserialize_usbtmc_config() {
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Thorlabs PM400"
+capabilities = ["Readable"]
+
+[connection]
+type = "usbtmc"
+timeout_ms = 5000
+terminator_tx = "\n"
+
+[commands.read_power]
+template = "MEASure:SCALar:POWer?"
+response_type = "float"
+
+[capabilities.readable]
+read = { command = "read_power" }
+"#;
+
+        let raw: RawManifest = toml::from_str(toml_str).expect("should parse USB TMC config");
+        assert_eq!(raw.schema_version, 3);
+        assert_eq!(raw.device.name, "Thorlabs PM400");
+        match &raw.connection {
+            RawConnectionConfig::Usbtmc {
+                timeout_ms,
+                terminator_tx,
+            } => {
+                assert_eq!(*timeout_ms, 5000);
+                assert_eq!(terminator_tx.as_deref(), Some("\n"));
+            }
+            _ => panic!("expected USB TMC connection"),
+        }
+    }
+
+    #[test]
+    fn deserialize_usbtmc_defaults() {
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Test"
+capabilities = []
+
+[connection]
+type = "usbtmc"
+"#;
+
+        let raw: RawManifest =
+            toml::from_str(toml_str).expect("should parse minimal USB TMC config");
+        match &raw.connection {
+            RawConnectionConfig::Usbtmc {
+                timeout_ms,
+                terminator_tx,
+            } => {
+                assert_eq!(*timeout_ms, 1000, "default timeout should be 1000ms");
+                assert!(terminator_tx.is_none());
+            }
+            _ => panic!("expected USB TMC connection"),
+        }
+    }
+
     /// Returns the path to the config/devices directory relative to the crate root.
     fn config_devices_dir() -> std::path::PathBuf {
         let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -606,5 +682,17 @@ baud_rate = 9600
         assert_eq!(raw.schema_version, 3);
         assert_eq!(raw.device.name, "IPG YLPP-200-1-50-R");
         assert!(raw.capabilities.readable.is_some());
+    }
+
+    #[test]
+    fn load_thorlabs_pm400_toml_from_disk() {
+        let path = config_devices_dir().join("thorlabs_pm400.toml");
+        let contents = std::fs::read_to_string(&path).expect("should read thorlabs_pm400.toml");
+        let raw: RawManifest = toml::from_str(&contents).expect("should parse thorlabs_pm400.toml");
+        assert_eq!(raw.schema_version, 3);
+        assert_eq!(raw.device.name, "Thorlabs PM400");
+        assert!(matches!(raw.connection, RawConnectionConfig::Usbtmc { .. }));
+        assert!(raw.capabilities.readable.is_some());
+        assert!(raw.capabilities.wavelength_tunable.is_some());
     }
 }

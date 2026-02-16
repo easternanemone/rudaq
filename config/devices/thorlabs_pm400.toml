@@ -1,10 +1,9 @@
 # config/devices/thorlabs_pm400.toml
 # Thorlabs PM400 Power Meter - Protocol Definition
 #
-# Standard SCPI power meter with USB-TMC/VISA interface.
-# The PM400 natively uses USB-TMC, but can be accessed over TCP via a
-# VISA server bridge or virtual serial port. This config uses TCP as a
-# transport-agnostic placeholder; set host/port at the instance level.
+# Standard SCPI power meter with USB TMC (Test & Measurement Class) interface.
+# On Linux, the kernel `usbtmc` module presents the device as /dev/usbtmcN.
+# The device path is specified in the hardware instance config, not here.
 
 schema_version = 3
 
@@ -18,11 +17,9 @@ category = "sensor"
 capabilities = ["Readable", "WavelengthTunable"]
 
 [connection]
-type = "tcp"
-host = "127.0.0.1"
-port = 5025
-timeout_ms = 2000
-terminator = "\n"
+type = "usbtmc"
+timeout_ms = 5000
+terminator_tx = "\n"
 
 # ==============================================================================
 # Response Definitions

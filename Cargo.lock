@@ -3555,6 +3555,7 @@ dependencies = [
  "driver-universal",
  "evalexpr",
  "futures",
+ "libc",
  "minijinja",
  "regex",
  "serde",
