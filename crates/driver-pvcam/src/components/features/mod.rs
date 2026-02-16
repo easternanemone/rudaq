@@ -2885,12 +2885,14 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let addr = _script_addr as uns16;
-            let cmd = _script_cmd as uns16;
+            let state = f64::from(_script_cmd);
+            // location = 0 for default script location (SCR_PRE_OPEN_SHTR).
+            let location: uns32 = 0;
             // SAFETY: h is a valid camera handle from a successful pl_cam_open().
-            // addr and cmd are value types passed by value. pl_io_script_control
+            // All arguments are value types passed by value. pl_io_script_control
             // does not write to any caller-provided buffers.
             unsafe {
-                if pl_io_script_control(h, addr, cmd) == 0 {
+                if pl_io_script_control(h, addr, state, location) == 0 {
                     return Err(anyhow!(
                         "Failed to execute I/O script control (addr={}, cmd={}): {}",
                         _script_addr,
