@@ -12,8 +12,70 @@ use common::driver::{
     Capability as CoreCapability, DeviceComponents, DeviceMetadata, DriverFactory,
 };
 use futures::future::BoxFuture;
+use parking_lot::RwLock;
+use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use tokio::sync::Mutex;
+
+/// A shared, mutex-guarded transport handle.
+type SharedTransport = Arc<Mutex<Box<dyn crate::transport::Transport>>>;
+
+/// Registry mapping serial port paths to their shared transports.
+type TransportRegistry = RwLock<HashMap<String, SharedTransport>>;
+
+/// Metadata about how a shared transport was opened, for mismatch detection.
+#[derive(Debug, Clone)]
+struct TransportMeta {
+    baud_rate: u32,
+    terminator: Option<String>,
+}
+
+type TransportMetaRegistry = RwLock<HashMap<String, TransportMeta>>;
+
+static TRANSPORT_META: OnceLock<TransportMetaRegistry> = OnceLock::new();
+
+fn transport_meta_registry() -> &'static TransportMetaRegistry {
+    TRANSPORT_META.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+/// Global registry for shared serial transports on RS-485 multidrop buses.
+///
+/// When multiple devices share the same serial port (e.g., 3 ELL14 rotators
+/// on one RS-485 bus), each `build()` call checks this registry. If a transport
+/// already exists for that port path, it clones the `Arc` so all devices
+/// coordinate through the same `Mutex`. This prevents interleaved I/O on
+/// shared buses.
+///
+/// **Lifetime**: Entries persist for the process lifetime. This is intentional —
+/// the daemon runs with a static hardware config. Shared transports are never
+/// removed because new devices on the same port could be registered later.
+///
+/// Modeled after `crates/driver-thorlabs/src/shared_ports.rs`.
+static SHARED_TRANSPORTS: OnceLock<TransportRegistry> = OnceLock::new();
+
+fn transport_registry() -> &'static TransportRegistry {
+    SHARED_TRANSPORTS.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+/// Atomically claim a port path for transport creation.
+///
+/// Uses a write lock to prevent the check-then-act race: if two `build()`
+/// calls for the same port run concurrently, only the first caller creates
+/// a transport. The second caller finds the placeholder and waits.
+///
+/// Returns `Some(transport)` if another caller already registered the port,
+/// or `None` if this caller should create and register the transport.
+fn claim_or_get_transport(port_path: &str) -> Option<SharedTransport> {
+    transport_registry().read().get(port_path).cloned()
+}
+
+/// Register a newly created transport in the shared registry.
+fn register_shared_transport(port_path: &str, transport: &SharedTransport) {
+    transport_registry()
+        .write()
+        .insert(port_path.to_string(), transport.clone());
+}
 
 /// Instance configuration passed via the hardware TOML config
 /// (e.g., `maitai_hardware.toml`).
@@ -153,17 +215,22 @@ impl DriverFactory for UniversalDriverFactory {
             let instance: InstanceConfig = config.try_into()?;
 
             use crate::config::validated::ConnectionConfig;
-            let transport: Box<dyn crate::transport::Transport> = if instance.mock {
+            let transport: SharedTransport = if instance.mock {
                 #[cfg(feature = "emulator")]
                 {
-                    Box::new(crate::emulator::create_emulator_transport(
-                        &manifest,
-                        &instance.address,
-                    )?)
+                    Arc::new(Mutex::new(
+                        Box::new(crate::emulator::create_emulator_transport(
+                            &manifest,
+                            &instance.address,
+                        )?) as Box<dyn crate::transport::Transport>,
+                    ))
                 }
                 #[cfg(not(feature = "emulator"))]
                 {
-                    Box::new(crate::transport::MockTransport::new(vec![]))
+                    Arc::new(Mutex::new(
+                        Box::new(crate::transport::MockTransport::new(vec![]))
+                            as Box<dyn crate::transport::Transport>,
+                    ))
                 }
             } else {
                 match &manifest.connection {
@@ -177,15 +244,72 @@ impl DriverFactory for UniversalDriverFactory {
                             anyhow!("serial device requires 'port' in instance config")
                         })?;
                         let baud = instance.baud_rate.unwrap_or_else(|| baud_rate.value());
-                        Box::new(
-                            crate::transport::SerialTransport::open(
+
+                        // Atomically check if a transport already exists for this port.
+                        // Uses write lock to prevent the check-then-act race where
+                        // two concurrent build() calls could both open the same port.
+                        let existing = claim_or_get_transport(port_path);
+
+                        if let Some(shared) = existing {
+                            // Detect serial config mismatches between devices sharing a port
+                            if let Some(meta) = transport_meta_registry().read().get(port_path) {
+                                if meta.baud_rate != baud {
+                                    tracing::warn!(
+                                        port = port_path,
+                                        address = %instance.address,
+                                        expected_baud = baud,
+                                        actual_baud = meta.baud_rate,
+                                        "RS-485 baud rate mismatch: device expects {} but shared transport was opened at {}",
+                                        baud, meta.baud_rate
+                                    );
+                                }
+                                let expected_term = terminator.as_deref();
+                                let actual_term = meta.terminator.as_deref();
+                                if expected_term != actual_term {
+                                    tracing::warn!(
+                                        port = port_path,
+                                        address = %instance.address,
+                                        expected = ?expected_term,
+                                        actual = ?actual_term,
+                                        "RS-485 terminator mismatch on shared transport"
+                                    );
+                                }
+                            }
+                            tracing::info!(
+                                port = port_path,
+                                address = %instance.address,
+                                baud = baud,
+                                "Reusing shared serial transport for RS-485 bus"
+                            );
+                            shared
+                        } else {
+                            // No existing transport — we claimed the slot, now create.
+                            let transport = crate::transport::SerialTransport::open(
                                 port_path,
                                 baud,
                                 terminator.as_deref(),
                                 serial_config,
                             )
-                            .await?,
-                        )
+                            .await?;
+                            let shared: SharedTransport = Arc::new(Mutex::new(Box::new(transport)));
+
+                            // Register for future devices on the same bus
+                            register_shared_transport(port_path, &shared);
+                            transport_meta_registry().write().insert(
+                                port_path.to_string(),
+                                TransportMeta {
+                                    baud_rate: baud,
+                                    terminator: terminator.clone(),
+                                },
+                            );
+                            tracing::info!(
+                                port = port_path,
+                                baud = baud,
+                                "Registered new shared serial transport"
+                            );
+
+                            shared
+                        }
                     }
                     ConnectionConfig::Tcp {
                         host,
@@ -194,7 +318,7 @@ impl DriverFactory for UniversalDriverFactory {
                         terminator,
                     } => {
                         let host = instance.host.as_deref().unwrap_or(host.as_str());
-                        Box::new(
+                        Arc::new(Mutex::new(Box::new(
                             crate::transport::TcpTransport::connect(
                                 host,
                                 *port,
@@ -203,6 +327,7 @@ impl DriverFactory for UniversalDriverFactory {
                             )
                             .await?,
                         )
+                            as Box<dyn crate::transport::Transport>))
                     }
                     ConnectionConfig::Udp { .. } => {
                         anyhow::bail!("UDP transport not yet implemented")
@@ -216,13 +341,14 @@ impl DriverFactory for UniversalDriverFactory {
                             .ok_or_else(|| {
                             anyhow!("USB TMC device requires 'device' in instance config")
                         })?;
-                        Box::new(
+                        Arc::new(Mutex::new(Box::new(
                             crate::transport::UsbtmcTransport::open(
                                 device_path,
                                 terminator.as_deref(),
                             )
                             .await?,
                         )
+                            as Box<dyn crate::transport::Transport>))
                     }
                     #[cfg(not(target_os = "linux"))]
                     ConnectionConfig::Usbtmc { .. } => {
@@ -234,7 +360,8 @@ impl DriverFactory for UniversalDriverFactory {
                 }
             };
 
-            let driver = UniversalDriver::new(manifest.clone(), transport, &instance.address);
+            let driver =
+                UniversalDriver::new_shared(manifest.clone(), transport, &instance.address);
 
             // Run initialization sequence before advertising capabilities
             if !manifest.init_sequence.is_empty() {
@@ -295,7 +422,7 @@ impl DriverFactory for UniversalDriverFactory {
                     "camera" => Some(DeviceCategory::Camera),
                     "stage" | "motion" => Some(DeviceCategory::Stage),
                     "detector" | "sensor" => Some(DeviceCategory::Detector),
-                    "laser" => Some(DeviceCategory::Laser),
+                    "laser" | "source" => Some(DeviceCategory::Laser),
                     "power_meter" => Some(DeviceCategory::PowerMeter),
                     _ => None,
                 })
@@ -693,5 +820,46 @@ read = { command = "read" }
         let factories = load_all_factories(dir.path()).unwrap();
         assert_eq!(factories.len(), 1);
         assert!(factories[0].name().contains("Compact"));
+    }
+
+    #[test]
+    fn transport_registry_stores_and_retrieves() {
+        let port = format!("/dev/test_registry_{}", std::process::id());
+        let transport: SharedTransport = Arc::new(Mutex::new(Box::new(
+            crate::transport::MockTransport::new(vec![]),
+        )
+            as Box<dyn crate::transport::Transport>));
+
+        // Should be empty initially
+        assert!(claim_or_get_transport(&port).is_none());
+
+        // Register and retrieve
+        register_shared_transport(&port, &transport);
+        let retrieved = claim_or_get_transport(&port);
+        assert!(retrieved.is_some(), "should retrieve registered transport");
+
+        // Should be the same Arc
+        assert!(Arc::ptr_eq(&transport, &retrieved.unwrap()));
+    }
+
+    #[test]
+    fn transport_meta_mismatch_detection() {
+        let port = format!("/dev/test_meta_{}", std::process::id());
+
+        // Register metadata
+        transport_meta_registry().write().insert(
+            port.clone(),
+            TransportMeta {
+                baud_rate: 9600,
+                terminator: Some("\r".to_string()),
+            },
+        );
+
+        // Read back and verify
+        let meta = transport_meta_registry().read().get(&port).cloned();
+        assert!(meta.is_some());
+        let meta = meta.unwrap();
+        assert_eq!(meta.baud_rate, 9600);
+        assert_eq!(meta.terminator.as_deref(), Some("\r"));
     }
 }

@@ -59,7 +59,6 @@ Configured in `.claude/settings.json`.
 
 - `PreToolUse`:
 - Bash commands are routed by `.claude/hooks/pretool-dispatch.sh` to run only relevant checks (`bd close`, `git push`).
-- Read operations run `.claude/hooks/check-file-size.sh`.
 - `SessionStart`:
 - `.claude/hooks/session-start.sh` shows task context and tool health.
 

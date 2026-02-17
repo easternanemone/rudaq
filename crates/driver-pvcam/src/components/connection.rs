@@ -401,24 +401,12 @@ impl PvcamConnection {
         Ok(())
     }
 
-    /// Run camera diagnostics via `pl_cam_get_diags` (bd-lcqv).
+    /// Run post-open camera diagnostics (bd-lcqv).
     ///
-    /// # Deprecation Notice
-    ///
-    /// `pl_cam_get_diags` is a PVCAM 2.x legacy function. In PVCAM 3.x,
-    /// camera diagnostics should use `PARAM_DD_INFO` parameter queries instead.
-    /// This function is retained for backward compatibility with PVCAM 2.x
-    /// installations but should be migrated when PVCAM 3.x is the minimum
-    /// supported version.
-    ///
-    /// PVCAM documentation recommends calling this immediately after
-    /// `pl_cam_open()` to detect critical hardware problems such as:
-    /// - Communication failures
-    /// - Firmware issues
-    /// - Sensor problems
-    ///
-    /// A failure here does not prevent camera use but indicates potential
-    /// reliability issues that should be investigated.
+    /// The PVCAM 2.x `pl_cam_get_diags` function was removed in PVCAM 3.x.
+    /// Since our minimum SDK is 3.10+, this performs a lightweight check
+    /// by reading `PARAM_DD_INFO` (driver/device info string) to confirm
+    /// the camera is communicating after `pl_cam_open()`.
     #[cfg(feature = "pvcam_sdk")]
     pub fn run_diagnostics(&self) {
         let Some(hcam) = self.handle else {
@@ -426,25 +414,54 @@ impl PvcamConnection {
             return;
         };
 
-        // SAFETY: pl_cam_get_diags() is safe because:
-        // 1. `hcam` is a valid camera handle from a successful pl_cam_open()
-        // 2. The function performs read-only hardware queries
-        // 3. It does not modify camera state
-        // Ref: PVCAM SDK Manual, "pl_cam_get_diags" section
+        // Read PARAM_DD_INFO as a lightweight post-open sanity check.
+        // This parameter returns a driver/device info string and confirms
+        // the camera handle is valid and communicating.
+        //
+        // We query ATTR_COUNT first to determine the required buffer size,
+        // then allocate dynamically to avoid fixed-size buffer overflows.
         unsafe {
-            tracing::debug!("Running pl_cam_get_diags(hcam={})...", hcam);
-            let result = pl_cam_get_diags(hcam);
+            // Step 1: Query the string length via ATTR_COUNT.
+            let mut str_len: uns32 = 0;
+            let count_result = pl_get_param(
+                hcam,
+                PARAM_DD_INFO as uns32,
+                ATTR_COUNT as i16,
+                &mut str_len as *mut _ as *mut _,
+            );
+
+            // If ATTR_COUNT fails or returns 0, fall back to a safe default.
+            let buf_size = if count_result != 0 && str_len > 0 {
+                str_len as usize
+            } else {
+                256 // Safe default; PARAM_DD_INFO is typically short.
+            };
+
+            // Step 2: Allocate buffer and query ATTR_CURRENT.
+            let mut buf: Vec<i8> = vec![0i8; buf_size];
+            let result = pl_get_param(
+                hcam,
+                PARAM_DD_INFO as uns32,
+                ATTR_CURRENT as i16,
+                buf.as_mut_ptr() as *mut _,
+            );
             if result == 0 {
                 let err = get_pvcam_error();
                 tracing::warn!(
-                    "pl_cam_get_diags FAILED (hcam={}): {} — camera may have hardware issues",
+                    "Post-open diagnostics FAILED (hcam={}): {} — camera may have issues",
                     hcam,
                     err
                 );
             } else {
+                // Ensure NUL termination before parsing as CStr.
+                if let Some(last) = buf.last_mut() {
+                    *last = 0;
+                }
+                let info = std::ffi::CStr::from_ptr(buf.as_ptr()).to_string_lossy();
                 tracing::info!(
-                    "pl_cam_get_diags passed (hcam={}) — camera hardware OK",
-                    hcam
+                    "Post-open diagnostics passed (hcam={}): DD_INFO={}",
+                    hcam,
+                    info
                 );
             }
         }

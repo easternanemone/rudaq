@@ -17,6 +17,7 @@ evalexpr = "11"
 thiserror.workspace = true
 toml.workspace = true
 futures.workspace = true
+parking_lot = "0.12"
 tokio = { workspace = true, features = ["sync", "time", "macros", "io-util", "net", "fs"] }
 serial2-tokio = { version = "0.1", optional = true }
 

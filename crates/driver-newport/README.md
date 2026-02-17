@@ -7,6 +7,17 @@ Rust drivers for Newport precision optical instruments: the ESP300 motion contro
 - **Newport ESP300 Universal Motion Controller** - 3-axis programmable motion controller with RS-232 communication
 - **Newport 1830-C Optical Power Meter** - High-precision optical power measurement instrument
 
+## Driver Modes
+
+Both Newport devices are available in two driver modes:
+
+| Device | Native (Legacy) | Universal (TOML) | Status |
+|--------|-----------------|------------------|--------|
+| **ESP300** | `type = "esp300"` | `type = "universal_newport_esp300"` | Both available |
+| **1830-C** | `type = "newport_1830c"` | `type = "universal_newport_1830-c"` | Both available |
+
+The universal drivers are defined in `config/devices/esp300.toml` and `config/devices/newport_1830c.toml`. Native drivers will be sunsetted in a future release.
+
 ## Quick Start
 
 ### ESP300 Motion Controller
@@ -20,6 +31,8 @@ Rust drivers for Newport precision optical instruments: the ESP300 motion contro
 
 #### Configuration Example
 
+**Native Driver (Legacy):**
+
 ```toml
 [[devices]]
 id = "esp300_axis1"
@@ -30,6 +43,21 @@ enabled = true
 port = "/dev/ttyUSB0"
 axis = 1  # Axis 1, 2, or 3
 ```
+
+**Universal Driver (Recommended):**
+
+```toml
+[[devices]]
+id = "esp300_axis1"
+type = "universal_newport_esp300"
+enabled = true
+
+[devices.config]
+port = "/dev/ttyUSB0"
+address = "1"  # Axis 1, 2, or 3
+```
+
+See `config/devices/esp300.toml` for the universal driver manifest.
 
 #### Usage in Rust
 
@@ -88,6 +116,8 @@ stage.set_parameter("home_position", 0.0);
 
 #### Configuration Example
 
+**Native Driver (Legacy):**
+
 ```toml
 [[devices]]
 id = "power_meter"
@@ -97,6 +127,20 @@ enabled = true
 [devices.config]
 port = "/dev/ttyS0"
 ```
+
+**Universal Driver (Recommended):**
+
+```toml
+[[devices]]
+id = "power_meter"
+type = "universal_newport_1830-c"
+enabled = true
+
+[devices.config]
+port = "/dev/ttyS0"
+```
+
+See `config/devices/newport_1830c.toml` for the universal driver manifest.
 
 #### Usage in Rust
 
@@ -237,9 +281,15 @@ Common Commands:
 | Device | Axis/Port | Serial Port | Baud Rate | Notes |
 |--------|-----------|-------------|-----------|-------|
 | esp300_axis1 | Axis 1 | `/dev/ttyUSB0` | 19200 | X-axis motion |
+| esp300_axis2 | Axis 2 | `/dev/ttyUSB0` | 19200 | Y-axis motion |
+| esp300_axis3 | Axis 3 | `/dev/ttyUSB0` | 19200 | Z-axis motion |
 | power_meter | N/A | `/dev/ttyS0` | 9600 | Built-in RS-232 (stable) |
 
 **Note:** The power meter uses `/dev/ttyS0` (built-in serial) rather than USB. This port is stable across reboots.
+
+**Known Issues (PR #357):**
+- ESP300 hardware/cabling issue on maitai causes timeouts (same behavior in both native and universal drivers)
+- Firmware communication issue under investigation
 
 ## Configuration Options
 

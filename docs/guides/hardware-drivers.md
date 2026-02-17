@@ -1449,6 +1449,116 @@ async fn main() -> Result<()> {
 
 ---
 
+## Driver Migration Timeline
+
+The rust-daq project is transitioning from **native (hand-coded Rust) drivers** to **universal (TOML-based) drivers** where appropriate.
+
+### Current Status (as of PR #357)
+
+| Device | Native Driver | Universal Driver | Status |
+|--------|---------------|------------------|--------|
+| ELL14 Rotator | `driver-thorlabs` | `universal_thorlabs_ell14` | Both available |
+| MaiTai Laser | `driver-spectra-physics` | `universal_spectra-physics_maitai` | Both available |
+| Newport 1830-C | `driver-newport` | `universal_newport_1830-c` | Both available |
+| Newport ESP300 | `driver-newport` | `universal_newport_esp300` | Both available |
+| PVCAM Camera | `driver-pvcam` | N/A | Native only (complex binary protocol) |
+| Comedi DAQ | `driver-comedi` | N/A | Native only (kernel interface) |
+
+### Migration Path
+
+**Phase 1 (Current):** Dual-mode support
+- Native drivers remain available and fully supported
+- Universal drivers added alongside for testing and validation
+- Users can choose either approach via TOML config
+
+**Phase 2 (Future):** Native driver sunset
+- Once universal drivers are validated in production, native drivers will be deprecated
+- Documentation will be updated to recommend universal drivers
+- Native driver code will be moved to `legacy/` directories
+
+**Phase 3 (Long-term):** Archive native drivers
+- Native drivers archived to `archive/` or removed entirely
+- Only universal drivers remain for simple serial/TCP devices
+
+### When to Use Each Approach
+
+**Use Universal Drivers (TOML) for:**
+- ASCII serial protocols (SCPI, simple command-response)
+- TCP/UDP network instruments
+- Devices without complex state machines or binary protocols
+- Rapid prototyping and config-driven behavior changes
+
+**Use Native Drivers (Rust) for:**
+- Complex binary protocols (cameras, high-bandwidth instruments)
+- Multi-step handshakes or state machines
+- Performance-critical devices (low latency, high throughput)
+- Devices requiring SDK integration (PVCAM, vendor libraries)
+
+**Migration Recommendation:** For new serial/TCP instruments, prefer universal drivers. Only write native drivers when protocol complexity or performance demands it.
+
+## Transport Sharing for RS-485 Multidrop Buses
+
+When multiple devices share a single serial port (e.g., RS-485 multidrop bus), proper transport sharing is critical to prevent interleaved I/O.
+
+### The Problem
+
+Without transport sharing, each device opens its own serial port handle:
+
+```rust
+// WRONG - each device opens separate handle to /dev/ttyUSB0
+let rotator_2 = Ell14Driver::new("/dev/ttyUSB0", "2").await?;
+let rotator_3 = Ell14Driver::new("/dev/ttyUSB0", "3").await?;
+let rotator_8 = Ell14Driver::new("/dev/ttyUSB0", "8").await?;
+
+// Result: Commands interleave, responses go to wrong device
+```
+
+### Solution 1: Native Driver Shared Port Pattern
+
+Native drivers use explicit shared port construction:
+
+```rust
+// CORRECT - share port via Arc<Mutex<Box<dyn Transport>>>
+let bus = Ell14Bus::open("/dev/ttyUSB0").await?;
+let rotator_2 = bus.device("2").await?;
+let rotator_3 = bus.device("3").await?;
+let rotator_8 = bus.device("8").await?;
+```
+
+The `Ell14Bus` wraps the serial port in `Arc<Mutex<>>` and passes it to each driver instance. See `crates/driver-thorlabs/src/shared_ports.rs` for implementation.
+
+### Solution 2: Universal Driver Transport Registry
+
+Universal drivers automatically share transports via a static registry (added in PR #357):
+
+```rust
+// In factory.rs
+static SHARED_TRANSPORTS: OnceLock<RwLock<HashMap<String, SharedTransport>>> = OnceLock::new();
+
+// When building a device
+if let Some(shared) = get_shared_transport(&port_path) {
+    // Reuse existing transport
+    UniversalDriver::new_shared(manifest, shared)
+} else {
+    // Create and register new transport
+    let transport = build_serial_transport(config)?;
+    register_shared_transport(port_path, transport.clone());
+    UniversalDriver::new(manifest, transport)
+}
+```
+
+No manual configuration needed - the factory detects shared ports by path and automatically shares transports.
+
+### Verification Results (PR #357)
+
+**Hardware:** 3 ELL14 rotators on one RS-485 bus at `/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0`
+
+**Test:** 15 concurrent move operations across all 3 devices
+
+**Results:** 13/15 passed (2 failures due to mechanical constraints, not communication errors)
+
+**Conclusion:** Transport sharing prevents command crosstalk and response misrouting.
+
 ## See Also
 
 - [common driver.rs](../../crates/common/src/driver.rs) - DriverFactory trait definition

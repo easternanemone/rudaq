@@ -6,6 +6,17 @@ Rust driver for Thorlabs optical devices, with comprehensive support for the ELL
 
 - **Thorlabs ELL14 Elliptec Rotation Mount** - Compact motorized rotation stage for precision wavelength selection, polarization control, and optical element rotation
 
+## Driver Modes
+
+The ELL14 is available in two driver modes:
+
+| Mode | Type | Config File | When to Use |
+|------|------|-------------|-------------|
+| **Native (Legacy)** | Rust | `type = "ell14"` | Stable, production use (will be sunsetted) |
+| **Universal (TOML)** | Declarative | `type = "universal_thorlabs_ell14"` | Recommended for new deployments |
+
+Both modes implement the same capabilities and protocol. The universal driver is defined in `config/devices/ell14.toml`.
+
 ## Quick Start
 
 ### Hardware Setup
@@ -20,6 +31,8 @@ ELL14 devices communicate via **RS-485 multidrop bus** on a single serial port:
 
 ### Configuration Example
 
+**Native Driver (Legacy):**
+
 ```toml
 [[devices]]
 id = "rotator_2"
@@ -30,6 +43,21 @@ enabled = true
 port = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0"
 address = "2"  # ELL14 device address (0-F)
 ```
+
+**Universal Driver (Recommended):**
+
+```toml
+[[devices]]
+id = "rotator_2"
+type = "universal_thorlabs_ell14"
+enabled = true
+
+[devices.config]
+port = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0"
+address = "2"  # ELL14 device address (0-F)
+```
+
+See `config/devices/ell14.toml` for the universal driver manifest.
 
 ### Usage in Rust
 
@@ -110,14 +138,30 @@ driver.refresh_cached_settings().await?;
 
 ### RS-485 Bus Management
 
-The ELL14 Elliptec protocol uses RS-485 multidrop addressing. Multiple rotators can share a single serial port:
+The ELL14 Elliptec protocol uses RS-485 multidrop addressing. Multiple rotators can share a single serial port.
+
+**Native Driver:** Explicit shared port via `Ell14Bus`:
 
 ```rust
-// Each device specified by its hex address (0-F)
-let rotator_2 = Ell14Driver::with_shared_port_calibrated(port, "2").await?;
-let rotator_3 = Ell14Driver::with_shared_port_calibrated(port, "3").await?;
-let rotator_8 = Ell14Driver::with_shared_port_calibrated(port, "8").await?;
+// Native driver uses Ell14Bus for shared port management
+let bus = Ell14Bus::open("/dev/ttyUSB0").await?;
+let rotator_2 = bus.device("2").await?;
+let rotator_3 = bus.device("3").await?;
+let rotator_8 = bus.device("8").await?;
 ```
+
+See `crates/driver-thorlabs/src/shared_ports.rs` for implementation.
+
+**Universal Driver:** Automatic transport sharing (PR #357):
+
+```rust
+// Universal driver automatically shares transports by port path
+// No manual configuration needed - factory detects shared ports
+```
+
+The universal driver factory maintains a static transport registry. When building a device on a port that's already open, it reuses the existing `Arc<Mutex<Box<dyn Transport>>>` instead of opening a new handle.
+
+**Verification (PR #357):** 3 ELL14 rotators on one RS-485 bus passed 13/15 concurrent move operations (failures due to mechanical constraints, not communication errors).
 
 ### Auto-Calibration
 

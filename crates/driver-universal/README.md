@@ -117,13 +117,67 @@ stop = { command = "stop" }
 
 [capabilities.readable]
 read = { command = "read_value" }
+
+[capabilities.emission_control]
+enable = { command = "emission_on" }
+disable = { command = "emission_off" }
+# is_enabled query omitted if device doesn't support emission state queries
 ```
+
+## Transport Sharing Registry
+
+For RS-485 multidrop buses where multiple devices share a single serial port, the factory uses a static transport registry to prevent interleaved I/O.
+
+### How It Works
+
+When building a serial transport, the factory checks a static registry by port path:
+
+```rust
+// Pseudocode
+if let Some(shared_transport) = get_shared_transport(&port_path) {
+    // Reuse existing transport - prevents interleaved commands
+    return UniversalDriver::new_shared(manifest, shared_transport);
+} else {
+    // Create new transport and register it
+    let transport = build_serial_transport(connection_config)?;
+    register_shared_transport(port_path, transport.clone());
+    return UniversalDriver::new(manifest, transport);
+}
+```
+
+This is critical for RS-485 multidrop buses where multiple devices (e.g., 3 ELL14 rotators) share one serial port at different addresses.
+
+### Benefits
+
+- **Thread-safe:** All commands are serialized through the shared `Arc<Mutex<Box<dyn Transport>>>`
+- **Prevents crosstalk:** Device A's response won't be read by device B
+- **Automatic:** No manual configuration needed - port path matching handles it
+
+### Verification
+
+In PR #357, 3 ELL14 rotators on one RS-485 bus passed 13/15 concurrent move operations (failures due to mechanical constraints, not communication errors).
+
+## Category Mapping
+
+The factory maps device categories to internal `DeviceCategory` enum:
+
+| TOML `category` | `DeviceCategory` |
+|-----------------|------------------|
+| `"laser"` | `DeviceCategory::Laser` |
+| `"source"` | `DeviceCategory::Laser` |
+| `"camera"` | `DeviceCategory::Camera` |
+| `"detector"`, `"sensor"` | `DeviceCategory::Detector` |
+| `"stage"`, `"motion"` | `DeviceCategory::Stage` |
+| `"power_meter"` | `DeviceCategory::PowerMeter` |
+
+**Note:** Both `"laser"` and `"source"` map to `Laser` (fixed in PR #357 - previously `"source"` fell through to capability-based inference).
 
 ## Examples
 
-- [`config/devices/ell14.toml`](../../config/devices/ell14.toml) — Thorlabs ELL14 rotator (RS-485, hex encoding, complex parsing)
+- [`config/devices/ell14.toml`](../../config/devices/ell14.toml) — Thorlabs ELL14 rotator (RS-485, hex encoding, complex parsing, shared transport)
 - [`config/devices/newport_1830c.toml`](../../config/devices/newport_1830c.toml) — Newport power meter (simple ASCII)
 - [`config/devices/esp300.toml`](../../config/devices/esp300.toml) — Newport ESP300 motion controller (multi-axis)
+- [`config/devices/maitai.toml`](../../config/devices/maitai.toml) — Spectra-Physics MaiTai laser (EmissionControl capability)
 - [`config/devices/minimal_device_template.toml`](../../config/devices/minimal_device_template.toml) — Copy-paste starting point
 
 ## Further Reading

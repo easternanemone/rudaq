@@ -30,7 +30,7 @@ manufacturer = "Spectra-Physics"
 model = "MaiTai"
 protocol = "maitai"
 category = "source"
-capabilities = ["Readable", "WavelengthTunable", "ShutterControl", "Parameterized"]
+capabilities = ["Readable", "WavelengthTunable", "ShutterControl", "EmissionControl", "Parameterized"]
 
 # ==============================================================================
 # Connection Settings
@@ -195,6 +195,17 @@ get_wavelength = { command = "get_wavelength", output_field = "value" }
 open = { command = "open_shutter" }
 close = { command = "close_shutter" }
 is_open = { command = "get_shutter", output_field = "value" }
+
+# ==============================================================================
+# Capability Mapping: EmissionControl
+# ==============================================================================
+
+[capabilities.emission_control]
+enable = { command = "emission_on" }
+disable = { command = "emission_off" }
+# Note: is_enabled is intentionally omitted. The MaiTai protocol has no command
+# to query emission state (ON/OFF are fire-and-forget). GetEmission gRPC calls
+# will return an error; enable/disable operations work correctly.
 
 # ==============================================================================
 # Initialization Sequence

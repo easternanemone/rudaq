@@ -64,6 +64,41 @@ let expose_out_modes = PvcamFeatures::list_expose_out_modes(&conn)?;
 | `list_serial_binning()` | `Vec<i32>` | Serial binning factors |
 | `list_parallel_binning()` | `Vec<i32>` | Parallel binning factors |
 
+## SDK Compatibility
+
+### Minimum Supported Version
+
+- **PVCAM SDK:** 3.x or higher
+
+### PVCAM 3.x Compatibility Fixes (PR #357)
+
+The driver includes compatibility fixes for PVCAM 3.x API changes:
+
+**1. `pl_io_script_control` signature change**
+
+```rust
+// PVCAM 2.x (old)
+pl_io_script_control(hcam, addr, state)  // 3 args
+
+// PVCAM 3.x (new, fixed in PR #357)
+pl_io_script_control(hcam, addr, state, location)  // 4 args
+// - state: flt64 (was uns32)
+// - location: uns32 (new parameter)
+```
+
+**2. `pl_cam_get_diags` removed**
+
+```rust
+// PVCAM 2.x (removed in 3.x)
+pl_cam_get_diags(hcam)  // No longer available
+
+// PVCAM 3.x replacement (implemented in PR #357)
+// Query PARAM_DD_INFO via pl_get_param()
+let diag_info = query_param(hcam, PARAM_DD_INFO)?;
+```
+
+These fixes ensure compatibility with the latest PVCAM SDK while maintaining backward compatibility where possible.
+
 ## Environment (hardware)
 
 Set before building or running with `--features pvcam_sdk`:

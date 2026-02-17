@@ -6,6 +6,17 @@ Rust driver for Spectra-Physics laser instruments, with comprehensive support fo
 
 - **Spectra-Physics MaiTai HP/MaiTai XF** - Tunable Ti:Sapphire laser with wavelength selection, shutter control, and emission management
 
+## Driver Modes
+
+The MaiTai is available in two driver modes:
+
+| Mode | Type | Config File | When to Use |
+|------|------|-------------|-------------|
+| **Native (Legacy)** | Rust | `type = "maitai"` | Stable, production use (will be sunsetted) |
+| **Universal (TOML)** | Declarative | `type = "universal_spectra-physics_maitai"` | Recommended for new deployments |
+
+Both modes implement the same capabilities and protocol. The universal driver is defined in `config/devices/maitai.toml`.
+
 ## Quick Start
 
 ### Hardware Setup
@@ -26,6 +37,8 @@ MaiTai communicates via serial using either USB-to-USB or RS-232:
 
 ### Configuration Example
 
+**Native Driver (Legacy):**
+
 ```toml
 [[devices]]
 id = "maitai"
@@ -37,6 +50,21 @@ port = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_
 baud_rate = 115200  # USB connection: 115200, RS-232: 9600
 wavelength_nm = 800  # Optional: initial wavelength
 ```
+
+**Universal Driver (Recommended):**
+
+```toml
+[[devices]]
+id = "maitai"
+type = "universal_spectra-physics_maitai"
+enabled = true
+
+[devices.config]
+port = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0"
+baud_rate = 115200  # Override default 9600 for USB
+```
+
+See `config/devices/maitai.toml` for the universal driver manifest.
 
 ### Usage in Rust
 
@@ -136,10 +164,10 @@ let shutter = components.shutter_control.unwrap();
 shutter.open_shutter().await?;    // Open beam path
 shutter.close_shutter().await?;   // Block beam
 
-// Emission control (laser on/off)
+// Emission control (laser on/off) - added in PR #357
 let emission = components.emission_control.unwrap();
-emission.enable_emission().await?;   // Turn laser on
-emission.disable_emission().await?;  // Turn laser off
+emission.enable_emission().await?;   // Turn laser on (ON command)
+emission.disable_emission().await?;  // Turn laser off (OFF command)
 
 // Safe sequence: Check shutter before enabling emission
 if !shutter.is_open().await? {
@@ -147,6 +175,8 @@ if !shutter.is_open().await? {
 }
 emission.enable_emission().await?;
 ```
+
+**Note:** The MaiTai protocol does not provide a command to query emission state (`is_enabled()`). The driver implements `enable` and `disable` methods only. State tracking must be done at the application level if needed.
 
 ### Power Monitoring
 
@@ -196,16 +226,16 @@ Example: "820nm\n" or "3.00W\n"
 | Open Shutter | `shut 1` | None | Open beam path |
 | Close Shutter | `shut 0` | None | Close beam path |
 | Query Shutter | `shut?` | `0` or `1` | 0=closed, 1=open |
-| Enable Emission | `on` | None | Turn laser on |
-| Disable Emission | `off` | None | Turn laser off |
-| Query Emission | `read:pow?` | `{W}W` | Get output power |
-| Query Status Byte | `*stb?` | `{byte}` | Bit 0: emission status |
+| Enable Emission | `on` | None | Turn laser on (added PR #357) |
+| Disable Emission | `off` | None | Turn laser off (added PR #357) |
+| Query Power | `read:pow?` | `{W}W` | Get output power |
 
 ### Capabilities Implemented
 
 - **WavelengthTunable:** `set_wavelength(nm)`, `get_wavelength()`
 - **ShutterControl:** `open_shutter()`, `close_shutter()`, `is_open()`
-- **EmissionControl:** `enable_emission()`, `disable_emission()`
+- **EmissionControl:** `enable_emission()`, `disable_emission()` (added PR #357)
+  - **Note:** `is_enabled()` not implemented - MaiTai protocol has no emission state query command
 - **Readable:** `read_value()` → Watts
 - **Parameterized:** Wavelength, shutter, emission parameters
 
