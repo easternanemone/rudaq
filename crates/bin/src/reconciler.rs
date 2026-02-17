@@ -27,7 +27,7 @@ use crate::db_bridge;
 /// independent of key insertion order, then hashes with `DefaultHasher`.
 /// Note: `DefaultHasher` is not stable across Rust versions, but that's
 /// acceptable here — hashes are only compared within a single process run.
-fn config_hash(config: &serde_json::Value) -> u64 {
+pub(crate) fn config_hash(config: &serde_json::Value) -> u64 {
     let s = canonical_json(config);
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     s.hash(&mut hasher);
