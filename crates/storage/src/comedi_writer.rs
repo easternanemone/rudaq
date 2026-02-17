@@ -52,13 +52,17 @@
 //! }
 //! ```
 
-use anyhow::{anyhow, Result};
+use anyhow::anyhow; // For internal error construction until full migration
+use common::error::{DaqError, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+#[cfg(feature = "storage_hdf5")]
+use crate::map_hdf5_err;
 
 #[cfg(feature = "storage_arrow")]
 use arrow::array::{ArrayRef, Float64Array};
@@ -68,6 +72,8 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 
 use super::ring_buffer::RingBuffer;
+
+type Result<T> = std::result::Result<T, DaqError>;
 
 /// Compression algorithm for storage
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -299,7 +305,9 @@ impl ComediStreamWriterBuilder {
     /// Build the ComediStreamWriter
     pub fn build(self) -> Result<ComediStreamWriter> {
         if self.channels.is_empty() {
-            return Err(anyhow!("At least one channel must be configured"));
+            return Err(DaqError::Configuration(
+                "At least one channel must be configured".to_string(),
+            ));
         }
 
         let ring_buffer = if let Some(mb) = self.ring_buffer_mb {
@@ -408,7 +416,7 @@ impl ComediStreamWriter {
                     &metadata
                         .hardware_id
                         .parse::<VarLenUnicode>()
-                        .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
+                        .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
                 )?;
             meta_group
                 .new_attr::<VarLenUnicode>()
@@ -417,7 +425,7 @@ impl ComediStreamWriter {
                     &metadata
                         .device_path
                         .parse::<VarLenUnicode>()
-                        .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
+                        .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
                 )?;
             meta_group
                 .new_attr::<u32>()
@@ -434,7 +442,7 @@ impl ComediStreamWriter {
                         .write_scalar(
                             &value
                                 .parse::<VarLenUnicode>()
-                                .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
+                                .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
                         )?;
                 }
             }
@@ -485,7 +493,7 @@ impl ComediStreamWriter {
                     .write_scalar(
                         &ch.units
                             .parse::<VarLenUnicode>()
-                            .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
+                            .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
                     )?;
 
                 if let Some(ref desc) = ch.description {
@@ -495,7 +503,7 @@ impl ComediStreamWriter {
                         .write_scalar(
                             &desc
                                 .parse::<VarLenUnicode>()
-                                .map_err(|e| anyhow!("VarLenUnicode parse: {}", e))?,
+                                .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
                         )?;
                 }
 
@@ -532,11 +540,10 @@ impl ComediStreamWriter {
 
         let num_channels = self.channels.len();
         if !samples.len().is_multiple_of(num_channels) {
-            return Err(anyhow!(
+            return Err(DaqError::Processing(format!(
                 "Sample count {} is not divisible by channel count {}",
-                samples.len(),
-                num_channels
-            ));
+                samples.len(), num_channels
+            )));
         }
 
         // Add to buffer
@@ -570,17 +577,19 @@ impl ComediStreamWriter {
     /// Write de-interleaved samples (all channel0, then all channel1, ...)
     pub async fn write_samples_by_channel(&self, channel_data: &[Vec<f64>]) -> Result<()> {
         if channel_data.len() != self.channels.len() {
-            return Err(anyhow!(
+            return Err(DaqError::Processing(format!(
                 "Channel data count {} does not match configured channels {}",
                 channel_data.len(),
                 self.channels.len()
-            ));
+            )));
         }
 
         // Verify all channels have same number of samples
         let num_samples = channel_data.first().map(|v| v.len()).unwrap_or(0);
         if !channel_data.iter().all(|v| v.len() == num_samples) {
-            return Err(anyhow!("All channels must have the same number of samples"));
+            return Err(DaqError::Processing(
+                "All channels must have the same number of samples".to_string(),
+            ));
         }
 
         // Interleave for standard write path
@@ -792,9 +801,10 @@ impl ComediStreamWriter {
         if let Some(ref rb) = self.ring_buffer {
             rb.register_tap(id, nth_frame)
         } else {
-            Err(anyhow!(
-                "Ring buffer not enabled. Use builder.enable_ring_buffer()"
-            ))
+            Err(DaqError::Storage(StorageError::new(
+                StorageErrorKind::RingBuffer,
+                "Ring buffer not enabled. Use builder.enable_ring_buffer()".to_string(),
+            )))
         }
     }
 
@@ -803,7 +813,10 @@ impl ComediStreamWriter {
         if let Some(ref rb) = self.ring_buffer {
             rb.unregister_tap(id)
         } else {
-            Err(anyhow!("Ring buffer not enabled"))
+            Err(DaqError::Storage(StorageError::new(
+                StorageErrorKind::RingBuffer,
+                "Ring buffer not enabled".to_string(),
+            )))
         }
     }
 }

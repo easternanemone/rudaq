@@ -31,6 +31,52 @@
 use thiserror::Error;
 
 // =============================================================================
+// Storage Errors
+// =============================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StorageErrorKind {
+    Hdf5,
+    Arrow,
+    RingBuffer,
+    Io,
+    Configuration,
+    Serialization,
+    Other,
+}
+
+impl std::fmt::Display for StorageErrorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            StorageErrorKind::Hdf5 => "hdf5",
+            StorageErrorKind::Arrow => "arrow",
+            StorageErrorKind::RingBuffer => "ring_buffer",
+            StorageErrorKind::Io => "io",
+            StorageErrorKind::Configuration => "configuration",
+            StorageErrorKind::Serialization => "serialization",
+            StorageErrorKind::Other => "other",
+        };
+        write!(f, "{}", label)
+    }
+}
+
+#[derive(Error, Debug, Clone)]
+#[error("Storage {kind} error: {message}")]
+pub struct StorageError {
+    pub kind: StorageErrorKind,
+    pub message: String,
+}
+
+impl StorageError {
+    pub fn new(kind: StorageErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+        }
+    }
+}
+
+// =============================================================================
 // Driver Errors
 // =============================================================================
 
@@ -209,6 +255,10 @@ pub enum DaqError {
     #[error("Tokio runtime error: {0}")]
     Tokio(std::io::Error),
 
+    /// Tokio task join error.
+    #[error("Task join error: {0}")]
+    TaskJoin(#[from] tokio::task::JoinError),
+
     /// Instrument hardware error.
     ///
     /// Occurs when communicating with hardware instruments (cameras, stages, lasers).
@@ -246,6 +296,20 @@ pub enum DaqError {
     /// Structured driver error with category
     #[error("{0}")]
     Driver(DriverError),
+
+    /// Structured storage error
+    #[error("{0}")]
+    Storage(#[from] StorageError),
+
+    /// HDF5 error.
+    #[cfg(feature = "storage_hdf5")]
+    #[error("HDF5 error: {0}")]
+    Hdf5(#[from] hdf5::Error),
+
+    /// Arrow error.
+    #[cfg(feature = "storage_arrow")]
+    #[error("Arrow error: {0}")]
+    Arrow(#[from] arrow::error::ArrowError),
 
     /// Serial port is not connected.
     ///
@@ -468,6 +532,10 @@ pub enum DaqError {
     /// Validate user input against parameter constraints.
     #[error("Invalid choice for parameter")]
     ParameterInvalidChoice,
+
+    /// Serialization error.
+    #[error("Serialization error: {0}")]
+    Serde(#[from] serde_json::Error),
 
     /// No hardware reader connected for parameter.
     ///

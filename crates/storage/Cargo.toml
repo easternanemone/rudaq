@@ -42,8 +42,8 @@ proptest.workspace = true
 
 [features]
 default = []
-storage_hdf5 = ["dep:hdf5"]
-storage_arrow = ["dep:arrow"]
+storage_hdf5 = ["dep:hdf5", "common/storage_hdf5"]
+storage_arrow = ["dep:arrow", "common/storage_arrow"]
 storage_parquet = ["dep:parquet", "dep:arrow"]
 storage_tiff = ["dep:image"]
 storage_zarr = ["dep:zarrs"]

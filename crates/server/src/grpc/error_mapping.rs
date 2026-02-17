@@ -237,6 +237,26 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
         DaqError::Processing(msg) => {
             Status::new(Code::Internal, format!("Processing error: {}", msg))
         }
+
+        // Storage errors
+        DaqError::Storage(e) => match e.kind {
+            common::error::StorageErrorKind::Configuration => {
+                Status::new(Code::InvalidArgument, format!("Storage configuration error: {}", e.message))
+            }
+            common::error::StorageErrorKind::Io => {
+                Status::new(Code::Internal, format!("Storage I/O error: {}", e.message))
+            }
+            _ => Status::new(Code::Internal, format!("Storage error: {}", e.message)),
+        },
+
+        // Feature-specific errors
+        #[cfg(feature = "storage_hdf5")]
+        DaqError::Hdf5(e) => Status::new(Code::Internal, format!("HDF5 error: {}", e)),
+        #[cfg(feature = "storage_arrow")]
+        DaqError::Arrow(e) => Status::new(Code::Internal, format!("Arrow error: {}", e)),
+
+        DaqError::Serde(e) => Status::new(Code::Internal, format!("Serialization error: {}", e)),
+        DaqError::TaskJoin(e) => Status::new(Code::Internal, format!("Task join error: {}", e)),
     }
 }
 

@@ -93,3 +93,8 @@ pub use arrow_writer::ParquetDocumentWriter;
 pub use tiff_writer::{LoanedFrame, TiffWriter};
 #[cfg(feature = "storage_zarr")]
 pub use zarr_writer::{ZarrArrayBuilder, ZarrWriter};
+
+#[cfg(feature = "storage_hdf5")]
+pub(crate) fn map_hdf5_err(e: hdf5::Error) -> common::error::DaqError {
+    common::error::DaqError::Hdf5(e)
+}

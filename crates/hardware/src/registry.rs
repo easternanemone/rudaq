@@ -71,7 +71,8 @@
 //! }
 //! ```
 
-use anyhow::{anyhow, Result};
+// use anyhow::{anyhow, Result}; // Removed
+// use anyhow::anyhow; // Removed
 use common::capabilities::{
     Commandable, EmissionControl, ExposureControl, FrameProducer, Movable, Parameterized, Readable,
     Reconfigurable, Settable, ShutterControl, Stageable, Triggerable, WavelengthTunable,
@@ -1435,19 +1436,19 @@ impl DeviceRegistry {
         &self,
         config: DeviceConfig,
         driver: Arc<GenericDriver>,
-    ) -> Result<RegisteredDevice> {
+    ) -> Result<RegisteredDevice, DaqError> {
         if config.driver.driver_type != "plugin" {
-            return Err(anyhow!(
+            return Err(DaqError::Configuration(format!(
                 "Invalid driver type for create_registered_plugin: expected 'plugin', got '{}'",
                 config.driver.driver_type
-            ));
+            )));
         }
         let plugin_id = config
             .driver
             .config
             .get("plugin_id")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing 'plugin_id' in plugin driver config"))?
+            .ok_or_else(|| DaqError::Configuration("Missing 'plugin_id' in plugin driver config".into()))?
             .to_string();
         let driver_type_name = config.driver.driver_type.clone();
 
@@ -1455,7 +1456,7 @@ impl DeviceRegistry {
         let factory = self.plugin_factory.read().await;
         let plugin_config = factory
             .get_config(&plugin_id)
-            .ok_or_else(|| anyhow!("Plugin '{}' not found in factory", plugin_id))?;
+            .ok_or_else(|| DaqError::Configuration(format!("Plugin '{}' not found in factory", plugin_id)))?;
 
         let mut metadata = DeviceMetadata::default();
 
@@ -1951,6 +1952,8 @@ pub async fn register_all_factories(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::{anyhow, Result};
+
     #[tokio::test]
     async fn test_register_mock_devices() {
         let registry = create_mock_registry().await.unwrap();
