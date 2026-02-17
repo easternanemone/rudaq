@@ -11,7 +11,7 @@
 //! - Error resilience (DB init failure, clean shutdown)
 //! - Concurrent operations and MeasurementLock safety
 //!
-//! Run with: cargo nextest run -p integration-tests --features db-surreal-mem -E 'test(surrealdb)'
+//! Run with: cargo nextest run -p integration-tests --features db-surreal-mem --test surrealdb_daemon_e2e
 #![cfg(feature = "db-surreal-mem")]
 #![allow(
     clippy::unwrap_used,
@@ -629,14 +629,20 @@ mod watch_reconciler_tests {
                                     continue;
                                 }
                                 let config_toml = db::config_store::json_to_toml(&inst.config);
-                                let _ = reg2
+                                if reg2
                                     .register_from_toml(
                                         id,
                                         &inst.name,
                                         &inst.driver_type,
                                         config_toml,
                                     )
-                                    .await;
+                                    .await
+                                    .is_ok()
+                                {
+                                    let new_hash = config_hash(&inst.config);
+                                    reg2.set_config_hash(id, new_hash);
+                                    reg2.set_config_source(id, "db");
+                                }
                             } else {
                                 // Check config hash for updates
                                 let new_hash = config_hash(&inst.config);

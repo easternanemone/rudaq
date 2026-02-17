@@ -63,8 +63,8 @@ newport = ["hardware/newport"]
 newport_power_meter = ["hardware/newport_power_meter"]
 modules = ["daq-modules"]
 universal = ["dep:driver-universal"]
-db-surreal-mem = ["dep:db", "db/kv-mem", "server/db-surreal-mem"]
-db-surreal-rocksdb = ["dep:db", "db/kv-rocksdb", "server/db-surreal-rocksdb"]
+db-surreal-mem = ["dep:db", "db/kv-mem", "dep:server", "server/db-surreal-mem"]
+db-surreal-rocksdb = ["dep:db", "db/kv-rocksdb", "dep:server", "server/db-surreal-rocksdb"]
 
 [lints]
 workspace = true
