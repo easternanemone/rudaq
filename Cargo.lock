@@ -2466,6 +2466,7 @@ dependencies = [
  "chrono",
  "futures",
  "getrandom 0.2.17",
+ "hdf5-metno",
  "hostname",
  "parking_lot 0.12.5",
  "pool",
@@ -5158,6 +5159,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "generator"
+version = "0.8.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52f04ae4152da20c76fe800fa48659201d5cf627c5149ca0b707b69d7eef6cf9"
+dependencies = [
+ "cc",
+ "cfg-if",
+ "libc",
+ "log",
+ "rustversion",
+ "windows-link 0.2.1",
+ "windows-result 0.4.1",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6984,6 +7000,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6d8a05e3879b317b1b6dbf353e5bba7062bedcc59815267bb23eaa0c576cebf0"
 dependencies = [
  "log",
+]
+
+[[package]]
+name = "loom"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "419e0dc8046cb947daa77eb95ae174acfbddb7673b4151f56d1eed8e93fbfaca"
+dependencies = [
+ "cfg-if",
+ "generator",
+ "scoped-tls",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -8923,6 +8952,7 @@ dependencies = [
  "bytes",
  "crossbeam-queue",
  "lazy_static",
+ "loom",
  "parking_lot 0.12.5",
  "prometheus",
  "tokio",

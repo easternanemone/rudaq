@@ -20,6 +20,7 @@ futures.workspace = true
 tracing.workspace = true
 schemars = { version = "0.8", optional = true } # If needed for schema generation
 arrow = { version = "57", optional = true, features = ["ipc"] }
+hdf5 = { package = "hdf5-metno", version = "0.11.0", optional = true }
 pool = { path = "../pool" }
 sha2 = "0.10"  # For graph file hashing
 regex-lite = "0.1"  # Lightweight regex for log scrubbing
@@ -49,6 +50,7 @@ tokio = { workspace = true, features = ["rt", "macros", "test-util"] }
 
 [features]
 storage_arrow = ["dep:arrow"]
+storage_hdf5 = ["dep:hdf5"]
 serial = ["dep:serial2-tokio"]  # Serial port support for driver crates
 
 [lints]

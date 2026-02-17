@@ -214,7 +214,7 @@ impl DaemonInstance {
             let writer_clone = writer_arc.clone();
 
             let writer_task = tokio::spawn(async move {
-                writer_clone.run().await;
+                writer_clone.run_shared().await;
             });
 
             println!("✅ Data plane ready");

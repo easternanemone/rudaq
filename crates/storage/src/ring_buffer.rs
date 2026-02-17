@@ -35,7 +35,8 @@
 //!   not provided because the tap registry and mutexes are process-local.
 //! - **Taps**: Non-blocking send with automatic frame dropping on backpressure.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::Context;
+use common::error::{DaqError, StorageError, StorageErrorKind};
 use memmap2::{MmapMut, MmapOptions};
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
@@ -245,22 +246,25 @@ impl RingBuffer {
     ///
     /// let rb = RingBuffer::create(Path::new("/tmp/my_ring_buffer"), 100).unwrap();
     /// ```
-    pub fn create(path: &Path, capacity_mb: usize) -> Result<Self> {
+    pub fn create(path: &Path, capacity_mb: usize) -> Result<Self, DaqError> {
         // Validate capacity_mb is not zero
         if capacity_mb == 0 {
-            return Err(anyhow!(
-                "Ring buffer capacity must be at least 1 MB, got 0 MB"
-            ));
+            return Err(DaqError::Storage(StorageError::new(
+                StorageErrorKind::Configuration,
+                "Ring buffer capacity must be at least 1 MB, got 0 MB",
+            )));
         }
 
         // Upper bounds check: maximum 16 GB to prevent allocation failures
         const MAX_CAPACITY_MB: usize = 16 * 1024; // 16 GB
         if capacity_mb > MAX_CAPACITY_MB {
-            return Err(anyhow!(
-                "Ring buffer capacity exceeds maximum ({}), got {} MB",
-                MAX_CAPACITY_MB,
-                capacity_mb
-            ));
+            return Err(DaqError::Storage(StorageError::new(
+                StorageErrorKind::Configuration,
+                format!(
+                    "Ring buffer capacity exceeds maximum ({}), got {} MB",
+                    MAX_CAPACITY_MB, capacity_mb
+                ),
+            )));
         }
 
         // Safely compute capacity_bytes with overflow detection
@@ -268,17 +272,23 @@ impl RingBuffer {
             .checked_mul(1024)
             .and_then(|v| v.checked_mul(1024))
             .ok_or_else(|| {
-                anyhow!(
-                    "Capacity calculation overflowed: {} MB exceeds maximum allocatable size",
-                    capacity_mb
-                )
+                DaqError::Storage(StorageError::new(
+                    StorageErrorKind::Configuration,
+                    format!(
+                        "Capacity calculation overflowed: {} MB exceeds maximum allocatable size",
+                        capacity_mb
+                    ),
+                ))
             })?;
 
         let total_size = capacity_bytes.checked_add(HEADER_SIZE).ok_or_else(|| {
-            anyhow!(
-                "Total size calculation overflowed after adding header ({} bytes)",
-                HEADER_SIZE
-            )
+            DaqError::Storage(StorageError::new(
+                StorageErrorKind::Configuration,
+                format!(
+                    "Total size calculation overflowed after adding header ({} bytes)",
+                    HEADER_SIZE
+                ),
+            ))
         })?;
 
         // Create or open the backing file
@@ -297,36 +307,40 @@ impl RingBuffer {
             opts.truncate(true);
         }
 
-        let file = opts
-            .open(path)
-            .with_context(|| format!("Failed to create/open ring buffer file: {:?}", path))?;
+        let file = opts.open(path).map_err(|e| {
+            DaqError::Storage(StorageError::new(
+                StorageErrorKind::Io,
+                format!("Failed to create/open ring buffer file {:?}: {}", path, e),
+            ))
+        })?;
 
         // Validate existing file size or set for new file
-        let existing_size = file
-            .metadata()
-            .context("Failed to get file metadata")?
-            .len();
+        let existing_size = file.metadata().map_err(DaqError::Io)?.len();
 
         if is_new_file || existing_size == 0 {
             // Set file size for new buffer or empty file
-            file.set_len(total_size as u64)
-                .context("Failed to set ring buffer file size")?;
+            file.set_len(total_size as u64).map_err(DaqError::Io)?;
         } else if existing_size != total_size as u64 {
             // Existing buffer with data has different capacity - this would corrupt data
-            return Err(anyhow!(
-                "Ring buffer capacity mismatch: file has {} bytes but requested {} bytes. \
+            return Err(DaqError::Storage(StorageError::new(
+                StorageErrorKind::Configuration,
+                format!(
+                    "Ring buffer capacity mismatch: file has {} bytes but requested {} bytes. \
                  Delete the existing file or use matching capacity.",
-                existing_size,
-                total_size
-            ));
+                    existing_size, total_size
+                ),
+            )));
         }
 
         // Create memory mapping
         // SAFETY: We just created the file and set its size, so mapping is safe
         let mut mmap = unsafe {
-            MmapOptions::new()
-                .map_mut(&file)
-                .context("Failed to create memory mapping")?
+            MmapOptions::new().map_mut(&file).map_err(|e| {
+                DaqError::Storage(StorageError::new(
+                    StorageErrorKind::Io,
+                    format!("Failed to create memory mapping: {}", e),
+                ))
+            })?
         };
         debug_assert!(mmap.len() >= total_size, "mmap shorter than requested size");
 
@@ -385,44 +399,50 @@ impl RingBuffer {
     /// # Safety
     /// This function validates the file size and magic number BEFORE accessing
     /// header fields to prevent undefined behavior from corrupted files.
-    pub fn open(path: &Path) -> Result<Self> {
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(path)
-            .with_context(|| format!("Failed to open ring buffer file: {:?}", path))?;
+    pub fn open(path: &Path) -> Result<Self, DaqError> {
+        let file = OpenOptions::new().read(true).write(true).open(path).map_err(|e| {
+            DaqError::Storage(StorageError::new(
+                StorageErrorKind::Io,
+                format!("Failed to open ring buffer file {:?}: {}", path, e),
+            ))
+        })?;
 
         // CRITICAL: Validate file size BEFORE memory mapping to prevent
         // accessing invalid memory if the file was truncated or corrupted
-        let file_size = file
-            .metadata()
-            .context("Failed to get file metadata")?
-            .len() as usize;
+        let file_size = file.metadata().map_err(DaqError::Io)?.len() as usize;
 
         if file_size < HEADER_SIZE {
-            return Err(anyhow!(
-                "Ring buffer file too small: {} bytes, minimum {} bytes required for header",
-                file_size,
-                HEADER_SIZE
-            ));
+            return Err(DaqError::Storage(StorageError::new(
+                StorageErrorKind::Configuration,
+                format!(
+                    "Ring buffer file too small: {} bytes, minimum {} bytes required for header",
+                    file_size, HEADER_SIZE
+                ),
+            )));
         }
 
         // Create memory mapping
         // SAFETY: We verified file_size >= HEADER_SIZE, so the mmap will be at least
         // HEADER_SIZE bytes and header access will be within bounds
         let mut mmap = unsafe {
-            MmapOptions::new()
-                .map_mut(&file)
-                .context("Failed to map ring buffer file")?
+            MmapOptions::new().map_mut(&file).map_err(|e| {
+                DaqError::Storage(StorageError::new(
+                    StorageErrorKind::Io,
+                    format!("Failed to map ring buffer file: {}", e),
+                ))
+            })?
         };
 
         // Double-check mmap size matches file size (defensive programming)
         if mmap.len() < HEADER_SIZE {
-            return Err(anyhow!(
-                "Memory map too small: {} bytes, expected at least {} bytes",
-                mmap.len(),
-                HEADER_SIZE
-            ));
+            return Err(DaqError::Storage(StorageError::new(
+                StorageErrorKind::Configuration,
+                format!(
+                    "Memory map too small: {} bytes, expected at least {} bytes",
+                    mmap.len(),
+                    HEADER_SIZE
+                ),
+            )));
         }
 
         // SAFETY: We verified mmap.len() >= HEADER_SIZE above, so casting to
@@ -432,24 +452,27 @@ impl RingBuffer {
 
         // Validate magic number to detect corrupted files
         if magic != MAGIC {
-            return Err(anyhow!(
-                "Invalid ring buffer magic number: expected 0x{:016X}, got 0x{:016X}. \
+            return Err(DaqError::Storage(StorageError::new(
+                StorageErrorKind::Configuration,
+                format!(
+                    "Invalid ring buffer magic number: expected 0x{:016X}, got 0x{:016X}. \
                  File may be corrupted or not a valid ring buffer.",
-                MAGIC,
-                magic
-            ));
+                    MAGIC, magic
+                ),
+            )));
         }
 
         // Validate that file size matches expected size (header + capacity)
         let expected_size = HEADER_SIZE + capacity as usize;
         if file_size != expected_size {
-            return Err(anyhow!(
-                "Ring buffer file size mismatch: file is {} bytes but header indicates \
+            return Err(DaqError::Storage(StorageError::new(
+                StorageErrorKind::Configuration,
+                format!(
+                    "Ring buffer file size mismatch: file is {} bytes but header indicates \
                  {} bytes capacity (expected {} total bytes). File may be truncated or corrupted.",
-                file_size,
-                capacity,
-                expected_size
-            ));
+                    file_size, capacity, expected_size
+                ),
+            )));
         }
 
         // SAFETY: We verified mmap.len() == expected_size == HEADER_SIZE + capacity,
@@ -489,21 +512,23 @@ impl RingBuffer {
     ///
     /// # Thread Safety
     /// Multiple concurrent writers are safe - the internal lock serializes writes.
-    pub fn write(&self, data: &[u8]) -> Result<()> {
+    pub fn write(&self, data: &[u8]) -> Result<(), DaqError> {
         // Acquire exclusive write lock to prevent concurrent reads/writes (bd-t17q)
         let _guard = self
             .data_lock
             .write()
-            .map_err(|_| anyhow!("Data lock poisoned"))?;
+            .map_err(|_| DaqError::Storage(StorageError::new(StorageErrorKind::Other, "Data lock poisoned")))?;
 
         let len = data.len() as u64;
 
         if len > self.capacity {
-            return Err(anyhow!(
-                "Data size ({} bytes) exceeds ring buffer capacity ({} bytes)",
-                len,
-                self.capacity
-            ));
+            return Err(DaqError::Storage(StorageError::new(
+                StorageErrorKind::RingBuffer,
+                format!(
+                    "Data size ({} bytes) exceeds ring buffer capacity ({} bytes)",
+                    len, self.capacity
+                ),
+            )));
         }
 
         // SAFETY: header is valid for the lifetime of self, and data_ptr points to a
@@ -601,8 +626,17 @@ impl RingBuffer {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn register_tap(&self, id: String, nth_frame: usize) -> Result<mpsc::Receiver<Vec<u8>>> {
-        let rx = self.taps.register(id.clone(), nth_frame)?;
+    pub fn register_tap(
+        &self,
+        id: String,
+        nth_frame: usize,
+    ) -> Result<mpsc::Receiver<Vec<u8>>, DaqError> {
+        let rx = self.taps.register(id.clone(), nth_frame).map_err(|e| {
+            DaqError::Storage(StorageError::new(
+                StorageErrorKind::RingBuffer,
+                format!("Failed to register tap '{}': {}", id, e),
+            ))
+        })?;
 
         tracing::info!("Registered tap '{}' (every {}th frame)", id, nth_frame);
 
@@ -645,8 +679,13 @@ impl RingBuffer {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn unregister_tap(&self, id: &str) -> Result<bool> {
-        let removed = self.taps.unregister(id)?;
+    pub fn unregister_tap(&self, id: &str) -> Result<bool, DaqError> {
+        let removed = self.taps.unregister(id).map_err(|e| {
+            DaqError::Storage(StorageError::new(
+                StorageErrorKind::RingBuffer,
+                format!("Failed to unregister tap '{}': {}", id, e),
+            ))
+        })?;
 
         if removed {
             tracing::info!("Unregistered tap '{}'", id);
@@ -1184,11 +1223,16 @@ impl AsyncRingBuffer {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn read_snapshot(&self) -> Result<Vec<u8>> {
+    pub async fn read_snapshot(&self) -> Result<Vec<u8>, DaqError> {
         let rb = self.inner.clone();
         tokio::task::spawn_blocking(move || rb.read_snapshot())
             .await
-            .map_err(|e| anyhow::anyhow!("spawn_blocking failed during read_snapshot: {e}"))
+            .map_err(|e| {
+                DaqError::Storage(StorageError::new(
+                    StorageErrorKind::RingBuffer,
+                    format!("spawn_blocking failed during read_snapshot: {e}"),
+                ))
+            })
     }
 
     /// Write data to the ring buffer (async-safe).
@@ -1216,12 +1260,17 @@ impl AsyncRingBuffer {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn write(&self, data: &[u8]) -> Result<()> {
+    pub async fn write(&self, data: &[u8]) -> Result<(), DaqError> {
         let rb = self.inner.clone();
         let data = data.to_vec();
         tokio::task::spawn_blocking(move || rb.write(&data))
             .await
-            .map_err(|e| anyhow::anyhow!("spawn_blocking failed during write: {e}"))??;
+            .map_err(|e| {
+                DaqError::Storage(StorageError::new(
+                    StorageErrorKind::RingBuffer,
+                    format!("spawn_blocking failed during write: {e}"),
+                ))
+            })??;
         Ok(())
     }
 
@@ -1235,7 +1284,11 @@ impl AsyncRingBuffer {
     ///
     /// # Returns
     /// A receiver that will receive frame data, or an error if tap already exists
-    pub fn register_tap(&self, id: String, nth_frame: usize) -> Result<mpsc::Receiver<Vec<u8>>> {
+    pub fn register_tap(
+        &self,
+        id: String,
+        nth_frame: usize,
+    ) -> Result<mpsc::Receiver<Vec<u8>>, DaqError> {
         self.inner.register_tap(id, nth_frame)
     }
 
@@ -1246,7 +1299,7 @@ impl AsyncRingBuffer {
     ///
     /// # Returns
     /// Ok(true) if tap was found and removed, Ok(false) if tap didn't exist
-    pub fn unregister_tap(&self, id: &str) -> Result<bool> {
+    pub fn unregister_tap(&self, id: &str) -> Result<bool, DaqError> {
         self.inner.unregister_tap(id)
     }
 
@@ -1347,13 +1400,16 @@ impl AsyncRingBuffer {
     ///
     /// # Returns
     /// Ok(()) on success, Err on serialization or write failure
-    pub async fn write_arrow_batch(&self, batch: &RecordBatch) -> Result<()> {
+    pub async fn write_arrow_batch(&self, batch: &RecordBatch) -> Result<(), DaqError> {
         let rb = self.inner.clone();
         let batch = batch.clone();
         tokio::task::spawn_blocking(move || rb.write_arrow_batch(&batch))
             .await
             .map_err(|e| {
-                anyhow::anyhow!("spawn_blocking failed during write_arrow_batch: {e}")
+                DaqError::Storage(StorageError::new(
+                    StorageErrorKind::RingBuffer,
+                    format!("spawn_blocking failed during write_arrow_batch: {e}"),
+                ))
             })??;
         Ok(())
     }
@@ -1382,18 +1438,32 @@ impl RingBuffer {
     ///
     /// # Returns
     /// Ok(()) on success, Err on serialization or write failure
-    pub fn write_arrow_batch(&self, batch: &RecordBatch) -> Result<()> {
+    pub fn write_arrow_batch(&self, batch: &RecordBatch) -> Result<(), DaqError> {
         use arrow::ipc::writer::FileWriter;
 
         // Store schema on first write (bd-1il7)
         self.store_schema_if_needed(&batch.schema());
 
         let mut buffer = Vec::new();
-        let mut writer = FileWriter::try_new(&mut buffer, &batch.schema())
-            .context("Failed to create Arrow IPC writer")?;
+        let mut writer = FileWriter::try_new(&mut buffer, &batch.schema()).map_err(|e| {
+            DaqError::Storage(StorageError::new(
+                StorageErrorKind::Arrow,
+                format!("Failed to create Arrow IPC writer: {}", e),
+            ))
+        })?;
 
-        writer.write(batch).context("Failed to write Arrow batch")?;
-        writer.finish().context("Failed to finish Arrow writer")?;
+        writer.write(batch).map_err(|e| {
+            DaqError::Storage(StorageError::new(
+                StorageErrorKind::Arrow,
+                format!("Failed to write Arrow batch: {}", e),
+            ))
+        })?;
+        writer.finish().map_err(|e| {
+            DaqError::Storage(StorageError::new(
+                StorageErrorKind::Arrow,
+                format!("Failed to finish Arrow writer: {}", e),
+            ))
+        })?;
 
         // Prepend 4-byte little-endian length for cross-process readers
         let len = buffer.len() as u32;
@@ -1401,8 +1471,12 @@ impl RingBuffer {
         framed.extend_from_slice(&len.to_le_bytes());
         framed.extend_from_slice(&buffer);
 
-        self.write(&framed)
-            .context("Failed to write Arrow IPC data to ring buffer")
+        self.write(&framed).map_err(|e| {
+            DaqError::Storage(StorageError::new(
+                StorageErrorKind::RingBuffer,
+                format!("Failed to write Arrow IPC data to ring buffer: {}", e),
+            ))
+        })
     }
 
     /// Store Arrow schema JSON on first write (bd-1il7).
