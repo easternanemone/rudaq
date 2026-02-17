@@ -14,7 +14,8 @@ use common::driver::{
 use futures::future::BoxFuture;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
+use parking_lot::RwLock;
 use tokio::sync::Mutex;
 
 /// A shared, mutex-guarded transport handle.
@@ -31,6 +32,10 @@ type TransportRegistry = RwLock<HashMap<String, SharedTransport>>;
 /// coordinate through the same `Mutex`. This prevents interleaved I/O on
 /// shared buses.
 ///
+/// **Lifetime**: Entries persist for the process lifetime. This is intentional —
+/// the daemon runs with a static hardware config. Shared transports are never
+/// removed because new devices on the same port could be registered later.
+///
 /// Modeled after `crates/driver-thorlabs/src/shared_ports.rs`.
 static SHARED_TRANSPORTS: OnceLock<TransportRegistry> = OnceLock::new();
 
@@ -38,20 +43,40 @@ fn transport_registry() -> &'static TransportRegistry {
     SHARED_TRANSPORTS.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-/// Look up an existing shared transport for a serial port path.
+/// Atomically claim a port path for transport creation.
 ///
-/// Separated from the async `build()` method so the `RwLockReadGuard`
-/// (which is `!Send`) never appears in the generator state.
-fn get_shared_transport(port_path: &str) -> Option<SharedTransport> {
-    transport_registry().read().unwrap().get(port_path).cloned()
+/// Uses a write lock to prevent the check-then-act race: if two `build()`
+/// calls for the same port run concurrently, only the first caller creates
+/// a transport. The second caller finds the placeholder and waits.
+///
+/// Returns `Some(transport)` if another caller already registered the port,
+/// or `None` if this caller should create and register the transport.
+fn claim_or_get_transport(port_path: &str) -> Option<SharedTransport> {
+    match transport_registry().write() {
+        Ok(registry) => registry.get(port_path).cloned(),
+        Err(e) => {
+            tracing::warn!(port = port_path, "Transport registry lock poisoned: {e}");
+            None
+        }
+    }
 }
 
 /// Register a newly created transport in the shared registry.
+///
+/// Silently skips registration if the lock is poisoned. The caller will
+/// still function — it just won't share the transport with future devices.
 fn register_shared_transport(port_path: &str, transport: &SharedTransport) {
-    transport_registry()
-        .write()
-        .unwrap()
-        .insert(port_path.to_string(), transport.clone());
+    match transport_registry().write() {
+        Ok(mut registry) => {
+            registry.insert(port_path.to_string(), transport.clone());
+        }
+        Err(e) => {
+            tracing::warn!(
+                port = port_path,
+                "Transport registry lock poisoned, skipping registration: {e}"
+            );
+        }
+    }
 }
 
 /// Instance configuration passed via the hardware TOML config
@@ -222,18 +247,21 @@ impl DriverFactory for UniversalDriverFactory {
                         })?;
                         let baud = instance.baud_rate.unwrap_or_else(|| baud_rate.value());
 
-                        // Check if a transport already exists for this port (RS-485 bus sharing).
-                        let existing = get_shared_transport(port_path);
+                        // Atomically check if a transport already exists for this port.
+                        // Uses write lock to prevent the check-then-act race where
+                        // two concurrent build() calls could both open the same port.
+                        let existing = claim_or_get_transport(port_path);
 
                         if let Some(shared) = existing {
                             tracing::info!(
                                 port = port_path,
                                 address = %instance.address,
+                                baud = baud,
                                 "Reusing shared serial transport for RS-485 bus"
                             );
                             shared
                         } else {
-                            // No existing transport -- create a new one
+                            // No existing transport — we claimed the slot, now create.
                             let transport = crate::transport::SerialTransport::open(
                                 port_path,
                                 baud,
@@ -247,6 +275,7 @@ impl DriverFactory for UniversalDriverFactory {
                             register_shared_transport(port_path, &shared);
                             tracing::info!(
                                 port = port_path,
+                                baud = baud,
                                 "Registered new shared serial transport"
                             );
 

@@ -203,6 +203,9 @@ is_open = { command = "get_shutter", output_field = "value" }
 [capabilities.emission_control]
 enable = { command = "emission_on" }
 disable = { command = "emission_off" }
+# Note: is_enabled is intentionally omitted. The MaiTai protocol has no command
+# to query emission state (ON/OFF are fire-and-forget). GetEmission gRPC calls
+# will return an error; enable/disable operations work correctly.
 
 # ==============================================================================
 # Initialization Sequence

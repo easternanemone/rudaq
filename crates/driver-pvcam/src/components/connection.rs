@@ -417,16 +417,33 @@ impl PvcamConnection {
         // Read PARAM_DD_INFO as a lightweight post-open sanity check.
         // This parameter returns a driver/device info string and confirms
         // the camera handle is valid and communicating.
-        let mut buf = [0i8; 256];
-        // SAFETY: hcam is a valid handle from a successful pl_cam_open().
-        // buf is a stack-allocated array with known size. ATTR_CURRENT is
-        // a read-only attribute. pl_get_param does not modify camera state.
+        //
+        // We query ATTR_COUNT first to determine the required buffer size,
+        // then allocate dynamically to avoid fixed-size buffer overflows.
         unsafe {
+            // Step 1: Query the string length via ATTR_COUNT.
+            let mut str_len: uns32 = 0;
+            let count_result = pl_get_param(
+                hcam,
+                PARAM_DD_INFO as uns32,
+                ATTR_COUNT as i16,
+                &mut str_len as *mut _ as *mut _,
+            );
+
+            // If ATTR_COUNT fails or returns 0, fall back to a safe default.
+            let buf_size = if count_result != 0 && str_len > 0 {
+                str_len as usize
+            } else {
+                256 // Safe default; PARAM_DD_INFO is typically short.
+            };
+
+            // Step 2: Allocate buffer and query ATTR_CURRENT.
+            let mut buf: Vec<i8> = vec![0i8; buf_size];
             let result = pl_get_param(
                 hcam,
                 PARAM_DD_INFO as uns32,
                 ATTR_CURRENT as i16,
-                &mut buf as *mut _ as *mut _,
+                buf.as_mut_ptr() as *mut _,
             );
             if result == 0 {
                 let err = get_pvcam_error();
@@ -436,8 +453,11 @@ impl PvcamConnection {
                     err
                 );
             } else {
-                let info = std::ffi::CStr::from_ptr(buf.as_ptr())
-                    .to_string_lossy();
+                // Ensure NUL termination before parsing as CStr.
+                if let Some(last) = buf.last_mut() {
+                    *last = 0;
+                }
+                let info = std::ffi::CStr::from_ptr(buf.as_ptr()).to_string_lossy();
                 tracing::info!(
                     "Post-open diagnostics passed (hcam={}): DD_INFO={}",
                     hcam,
