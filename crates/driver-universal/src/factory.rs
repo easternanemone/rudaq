@@ -12,10 +12,10 @@ use common::driver::{
     Capability as CoreCapability, DeviceComponents, DeviceMetadata, DriverFactory,
 };
 use futures::future::BoxFuture;
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
-use parking_lot::RwLock;
 use tokio::sync::Mutex;
 
 /// A shared, mutex-guarded transport handle.
@@ -23,6 +23,21 @@ type SharedTransport = Arc<Mutex<Box<dyn crate::transport::Transport>>>;
 
 /// Registry mapping serial port paths to their shared transports.
 type TransportRegistry = RwLock<HashMap<String, SharedTransport>>;
+
+/// Metadata about how a shared transport was opened, for mismatch detection.
+#[derive(Debug, Clone)]
+struct TransportMeta {
+    baud_rate: u32,
+    terminator: Option<String>,
+}
+
+type TransportMetaRegistry = RwLock<HashMap<String, TransportMeta>>;
+
+static TRANSPORT_META: OnceLock<TransportMetaRegistry> = OnceLock::new();
+
+fn transport_meta_registry() -> &'static TransportMetaRegistry {
+    TRANSPORT_META.get_or_init(|| RwLock::new(HashMap::new()))
+}
 
 /// Global registry for shared serial transports on RS-485 multidrop buses.
 ///
@@ -52,31 +67,14 @@ fn transport_registry() -> &'static TransportRegistry {
 /// Returns `Some(transport)` if another caller already registered the port,
 /// or `None` if this caller should create and register the transport.
 fn claim_or_get_transport(port_path: &str) -> Option<SharedTransport> {
-    match transport_registry().write() {
-        Ok(registry) => registry.get(port_path).cloned(),
-        Err(e) => {
-            tracing::warn!(port = port_path, "Transport registry lock poisoned: {e}");
-            None
-        }
-    }
+    transport_registry().read().get(port_path).cloned()
 }
 
 /// Register a newly created transport in the shared registry.
-///
-/// Silently skips registration if the lock is poisoned. The caller will
-/// still function — it just won't share the transport with future devices.
 fn register_shared_transport(port_path: &str, transport: &SharedTransport) {
-    match transport_registry().write() {
-        Ok(mut registry) => {
-            registry.insert(port_path.to_string(), transport.clone());
-        }
-        Err(e) => {
-            tracing::warn!(
-                port = port_path,
-                "Transport registry lock poisoned, skipping registration: {e}"
-            );
-        }
-    }
+    transport_registry()
+        .write()
+        .insert(port_path.to_string(), transport.clone());
 }
 
 /// Instance configuration passed via the hardware TOML config
@@ -253,6 +251,30 @@ impl DriverFactory for UniversalDriverFactory {
                         let existing = claim_or_get_transport(port_path);
 
                         if let Some(shared) = existing {
+                            // Detect serial config mismatches between devices sharing a port
+                            if let Some(meta) = transport_meta_registry().read().get(port_path) {
+                                if meta.baud_rate != baud {
+                                    tracing::warn!(
+                                        port = port_path,
+                                        address = %instance.address,
+                                        expected_baud = baud,
+                                        actual_baud = meta.baud_rate,
+                                        "RS-485 baud rate mismatch: device expects {} but shared transport was opened at {}",
+                                        baud, meta.baud_rate
+                                    );
+                                }
+                                let expected_term = terminator.as_deref();
+                                let actual_term = meta.terminator.as_deref();
+                                if expected_term != actual_term {
+                                    tracing::warn!(
+                                        port = port_path,
+                                        address = %instance.address,
+                                        expected = ?expected_term,
+                                        actual = ?actual_term,
+                                        "RS-485 terminator mismatch on shared transport"
+                                    );
+                                }
+                            }
                             tracing::info!(
                                 port = port_path,
                                 address = %instance.address,
@@ -273,6 +295,13 @@ impl DriverFactory for UniversalDriverFactory {
 
                             // Register for future devices on the same bus
                             register_shared_transport(port_path, &shared);
+                            transport_meta_registry().write().insert(
+                                port_path.to_string(),
+                                TransportMeta {
+                                    baud_rate: baud,
+                                    terminator: terminator.clone(),
+                                },
+                            );
                             tracing::info!(
                                 port = port_path,
                                 baud = baud,
@@ -791,5 +820,46 @@ read = { command = "read" }
         let factories = load_all_factories(dir.path()).unwrap();
         assert_eq!(factories.len(), 1);
         assert!(factories[0].name().contains("Compact"));
+    }
+
+    #[test]
+    fn transport_registry_stores_and_retrieves() {
+        let port = format!("/dev/test_registry_{}", std::process::id());
+        let transport: SharedTransport = Arc::new(Mutex::new(Box::new(
+            crate::transport::MockTransport::new(vec![]),
+        )
+            as Box<dyn crate::transport::Transport>));
+
+        // Should be empty initially
+        assert!(claim_or_get_transport(&port).is_none());
+
+        // Register and retrieve
+        register_shared_transport(&port, &transport);
+        let retrieved = claim_or_get_transport(&port);
+        assert!(retrieved.is_some(), "should retrieve registered transport");
+
+        // Should be the same Arc
+        assert!(Arc::ptr_eq(&transport, &retrieved.unwrap()));
+    }
+
+    #[test]
+    fn transport_meta_mismatch_detection() {
+        let port = format!("/dev/test_meta_{}", std::process::id());
+
+        // Register metadata
+        transport_meta_registry().write().insert(
+            port.clone(),
+            TransportMeta {
+                baud_rate: 9600,
+                terminator: Some("\r".to_string()),
+            },
+        );
+
+        // Read back and verify
+        let meta = transport_meta_registry().read().get(&port).cloned();
+        assert!(meta.is_some());
+        let meta = meta.unwrap();
+        assert_eq!(meta.baud_rate, 9600);
+        assert_eq!(meta.terminator.as_deref(), Some("\r"));
     }
 }
