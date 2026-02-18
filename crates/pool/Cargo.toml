@@ -15,6 +15,7 @@ prometheus = { version = "0.14", optional = true }
 lazy_static = { version = "1.4", optional = true }
 
 [dev-dependencies]
+loom = "0.7"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 tokio-test = "0.4"
 
