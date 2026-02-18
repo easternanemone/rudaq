@@ -96,7 +96,7 @@ use async_trait::async_trait;
 use rhai::{Dynamic, Engine, EvalAltResult, Scope};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use crate::traits::{ScriptEngine, ScriptError, ScriptValue};
 
@@ -115,13 +115,25 @@ use crate::traits::{ScriptEngine, ScriptError, ScriptValue};
 ///
 /// The engine enforces a maximum of 10,000 operations per script execution
 /// to prevent infinite loops from hanging the application.
+/// RAII guard that resets the deadline atomic to 0 on drop, ensuring
+/// the deadline is cleared even if `execute_script` panics.
+struct DeadlineGuard(Arc<AtomicU64>);
+
+impl Drop for DeadlineGuard {
+    fn drop(&mut self) {
+        self.0.store(0, Ordering::Relaxed);
+    }
+}
+
 pub struct RhaiEngine {
     /// Rhai script engine
     engine: Arc<Engine>,
     /// Global scope for variables (shared across executions)
     scope: Arc<Mutex<Scope<'static>>>,
-    /// Execution deadline (UNIX timestamp in millis), 0 = no deadline
-    deadline: Arc<AtomicU64>,
+    /// Monotonic baseline for deadline computation (millis offset from this instant)
+    baseline: Arc<Instant>,
+    /// Execution deadline (millis elapsed from baseline), 0 = no deadline
+    deadline_offset_ms: Arc<AtomicU64>,
 }
 
 impl RhaiEngine {
@@ -140,8 +152,10 @@ impl RhaiEngine {
     /// Create a new RhaiEngine with a specific operations limit.
     pub fn with_limit(max_operations: u64) -> Result<Self, ScriptError> {
         let mut engine = Engine::new();
-        let deadline = Arc::new(AtomicU64::new(0));
-        let deadline_clone = deadline.clone();
+        let baseline = Arc::new(Instant::now());
+        let deadline_offset_ms = Arc::new(AtomicU64::new(0));
+        let deadline_clone = deadline_offset_ms.clone();
+        let baseline_clone = baseline.clone();
 
         // Safety: Limit operations to prevent infinite loops
         engine.on_progress(move |count| {
@@ -155,15 +169,14 @@ impl RhaiEngine {
                 );
             }
 
-            // Check timeout
-            let dl = deadline_clone.load(Ordering::Relaxed);
-            if dl > 0 {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                if now > dl {
-                    return Some("Script execution timed out".into());
+            // Check timeout every 1024 ops to avoid syscall overhead
+            if count.trailing_zeros() >= 10 {
+                let dl = deadline_clone.load(Ordering::Relaxed);
+                if dl > 0 {
+                    let now = baseline_clone.elapsed().as_millis() as u64;
+                    if now > dl {
+                        return Some("Script execution timed out".into());
+                    }
                 }
             }
 
@@ -173,7 +186,8 @@ impl RhaiEngine {
         Ok(Self {
             engine: Arc::new(engine),
             scope: Arc::new(Mutex::new(Scope::new())),
-            deadline,
+            baseline,
+            deadline_offset_ms,
         })
     }
 
@@ -203,8 +217,10 @@ impl RhaiEngine {
     /// ```
     pub fn with_yield_support() -> Result<Self, ScriptError> {
         let mut engine = Engine::new();
-        let deadline = Arc::new(AtomicU64::new(0));
-        let deadline_clone = deadline.clone();
+        let baseline = Arc::new(Instant::now());
+        let deadline_offset_ms = Arc::new(AtomicU64::new(0));
+        let deadline_clone = deadline_offset_ms.clone();
+        let baseline_clone = baseline.clone();
 
         // Safety: Limit operations to prevent infinite loops
         engine.on_progress(move |count| {
@@ -213,15 +229,14 @@ impl RhaiEngine {
                 return Some("Safety limit exceeded: maximum 100,000 operations".into());
             }
 
-            // Check timeout
-            let dl = deadline_clone.load(Ordering::Relaxed);
-            if dl > 0 {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                if now > dl {
-                    return Some("Script execution timed out".into());
+            // Check timeout every 1024 ops to avoid syscall overhead
+            if count.trailing_zeros() >= 10 {
+                let dl = deadline_clone.load(Ordering::Relaxed);
+                if dl > 0 {
+                    let now = baseline_clone.elapsed().as_millis() as u64;
+                    if now > dl {
+                        return Some("Script execution timed out".into());
+                    }
                 }
             }
 
@@ -243,7 +258,8 @@ impl RhaiEngine {
         Ok(Self {
             engine: Arc::new(engine),
             scope: Arc::new(Mutex::new(Scope::new())),
-            deadline,
+            baseline,
+            deadline_offset_ms,
         })
     }
 
@@ -315,8 +331,10 @@ impl RhaiEngine {
     /// ```
     pub fn with_hardware_and_limit(max_operations: u64) -> Result<Self, ScriptError> {
         let mut engine = Engine::new();
-        let deadline = Arc::new(AtomicU64::new(0));
-        let deadline_clone = deadline.clone();
+        let baseline = Arc::new(Instant::now());
+        let deadline_offset_ms = Arc::new(AtomicU64::new(0));
+        let deadline_clone = deadline_offset_ms.clone();
+        let baseline_clone = baseline.clone();
 
         // Safety: Limit operations to prevent infinite loops
         engine.on_progress(move |count| {
@@ -330,15 +348,14 @@ impl RhaiEngine {
                 );
             }
 
-            // Check timeout
-            let dl = deadline_clone.load(Ordering::Relaxed);
-            if dl > 0 {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                if now > dl {
-                    return Some("Script execution timed out".into());
+            // Check timeout every 1024 ops to avoid syscall overhead
+            if count.trailing_zeros() >= 10 {
+                let dl = deadline_clone.load(Ordering::Relaxed);
+                if dl > 0 {
+                    let now = baseline_clone.elapsed().as_millis() as u64;
+                    if now > dl {
+                        return Some("Script execution timed out".into());
+                    }
                 }
             }
 
@@ -357,7 +374,8 @@ impl RhaiEngine {
         Ok(Self {
             engine: Arc::new(engine),
             scope: Arc::new(Mutex::new(Scope::new())),
-            deadline,
+            baseline,
+            deadline_offset_ms,
         })
     }
 
@@ -409,27 +427,21 @@ impl RhaiEngine {
 
     /// Execute a script with a timeout (wall clock time).
     ///
-    /// This sets a deadline that checks against system time during execution.
-    /// Rhai's `on_progress` callback verifies this deadline periodically.
+    /// Uses a monotonic `Instant` baseline to avoid NTP clock jumps.
+    /// A `DeadlineGuard` ensures the deadline is reset even if `execute_script` panics.
+    /// The `on_progress` callback checks the deadline every 1024 operations.
     pub async fn execute_script_with_timeout(
         &mut self,
         script: &str,
         timeout: Duration,
     ) -> Result<ScriptValue, ScriptError> {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        let deadline_ms = now + timeout.as_millis() as u64;
+        let deadline_ms = (self.baseline.elapsed() + timeout).as_millis() as u64;
 
-        self.deadline.store(deadline_ms, Ordering::Relaxed);
+        self.deadline_offset_ms
+            .store(deadline_ms, Ordering::Relaxed);
+        let _guard = DeadlineGuard(self.deadline_offset_ms.clone());
 
-        let result = self.execute_script(script).await;
-
-        // Reset deadline
-        self.deadline.store(0, Ordering::Relaxed);
-
-        result
+        self.execute_script(script).await
     }
 
     /// Synchronous evaluation (for use in spawn_blocking)
@@ -770,24 +782,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_rhai_timeout() {
-        // Script that loops for a long time (but check count is large enough)
-        // 100ms timeout
+        // Infinite loop — only the timeout can stop it.
         let script = r"
             let x = 0;
-            // Loop enough to exceed 100ms but stay under 10000 ops?
-            // Actually, we can use 'sleep' if available, but sleep is only in 'with_hardware'.
-            // Busy loop
-            while x < 1000000 {
-                x = x + 1;
-            }
+            loop { x += 1; }
             x
         ";
 
-        // Create engine with large op limit to ensure timeout hits first
-        let mut engine = RhaiEngine::with_limit(1_000_000).unwrap();
+        // Large op limit so timeout fires first, not the safety limit.
+        let mut engine = RhaiEngine::with_limit(u64::MAX).unwrap();
 
         let result = engine
-            .execute_script_with_timeout(script, Duration::from_millis(50))
+            .execute_script_with_timeout(script, Duration::from_millis(100))
             .await;
 
         assert!(result.is_err(), "Expected timeout error");

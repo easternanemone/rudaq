@@ -126,8 +126,19 @@ impl HDF5Writer {
     }
 
     /// Set poll interval for adaptive flushing.
-    pub fn set_poll_interval(&mut self, interval: Duration) {
+    ///
+    /// # Errors
+    ///
+    /// Returns `DaqError::Configuration` if `interval` is zero
+    /// (`tokio::time::interval(Duration::ZERO)` panics).
+    pub fn set_poll_interval(&mut self, interval: Duration) -> Result<()> {
+        if interval.is_zero() {
+            return Err(DaqError::Configuration(
+                "poll_interval must be non-zero".into(),
+            ));
+        }
         self.poll_interval = interval;
+        Ok(())
     }
 
     /// Inject a snapshot of all parameters into the HDF5 file as attributes.
@@ -222,8 +233,7 @@ impl HDF5Writer {
 
             Ok(())
         })
-        .await
-        .map_err(|e| DaqError::Tokio(std::io::Error::other(e)))??;
+        .await??;
 
         Ok(())
     }
@@ -558,8 +568,7 @@ impl HDF5Writer {
 
             Ok(snapshot_len)
         })
-        .await
-        .map_err(|e| DaqError::Tokio(std::io::Error::other(e)))??;
+        .await??;
 
         // Early return if no data was written
         if snapshot_len == 0 {
@@ -1053,45 +1062,57 @@ mod tests {
         // Configure for adaptive flush test
         writer.set_flush_interval(Duration::from_secs(10)); // Long interval
         writer.set_adaptive_threshold(1024); // 1 KB threshold
-        writer.set_poll_interval(Duration::from_millis(10)); // Fast polling
+        writer.set_poll_interval(Duration::from_millis(10)).unwrap(); // Fast polling
 
         // Write small data (below threshold)
         ring.write(&[0u8; 500]).unwrap();
 
-        // Run loop briefly in background
+        // Start background writer
         let writer_arc = Arc::new(writer);
         let writer_clone = writer_arc.clone();
         let handle = tokio::spawn(async move {
-            // Run loop for 50ms
-            tokio::select! {
-                _ = writer_clone.run_shared() => {},
-                _ = tokio::time::sleep(Duration::from_millis(50)) => {}
-            }
+            writer_clone.run_shared().await;
         });
 
-        handle.await.unwrap();
-
-        // Should NOT have flushed (below threshold, time < 10s)
+        // Poll until we confirm no flush happened for the small write.
+        // 200ms is well above the 10ms poll interval — if a flush were going
+        // to happen it would have by now.
+        tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(writer_arc.batch_count(), 0, "Should not flush small batch");
 
         // Write more data (exceeds 1KB threshold total)
         ring.write(&[0u8; 600]).unwrap(); // Total 1100 bytes
 
-        // Run loop again
-        let writer_clone = writer_arc.clone();
-        let handle = tokio::spawn(async move {
-            tokio::select! {
-                _ = writer_clone.run_shared() => {},
-                _ = tokio::time::sleep(Duration::from_millis(50)) => {}
-            }
-        });
+        // Poll batch_count until it advances (bounded by 2s deadline)
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        while writer_arc.batch_count() == 0 {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "Timed out waiting for adaptive flush"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
 
-        handle.await.unwrap();
-
-        // Should HAVE flushed (exceeded threshold)
         assert!(
             writer_arc.batch_count() > 0,
             "Should flush when threshold exceeded"
         );
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_set_poll_interval_rejects_zero() {
+        let ring_temp = NamedTempFile::new().unwrap();
+        let hdf5_temp = NamedTempFile::new().unwrap();
+
+        let ring = Arc::new(RingBuffer::create(ring_temp.path(), 1).unwrap());
+        let mut writer = HDF5Writer::new(hdf5_temp.path(), ring).unwrap();
+
+        let result = writer.set_poll_interval(Duration::ZERO);
+        assert!(result.is_err(), "Duration::ZERO should be rejected");
+
+        // Non-zero should succeed
+        writer.set_poll_interval(Duration::from_millis(1)).unwrap();
     }
 }

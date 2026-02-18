@@ -1,9 +1,48 @@
+//! Loom concurrency model for the pool's acquire-access-release algorithm.
+//!
+//! # Why a model instead of testing the real API?
+//!
+//! The production pool (`crates/pool/src/lib.rs`) uses:
+//!
+//! | Real primitive               | Loom model                    |
+//! |------------------------------|-------------------------------|
+//! | `tokio::sync::Semaphore`     | `SimpleSemaphore` (Condvar)   |
+//! | `crossbeam_queue::SegQueue`  | `SimpleQueue` (Mutex<Vec>)    |
+//! | `parking_lot::RwLock`        | `loom::cell::UnsafeCell`      |
+//!
+//! None of these real primitives have loom-compatible replacements.
+//! `loom` instruments `std::sync` and `std::thread` but not Tokio,
+//! crossbeam, or parking_lot.
+//!
+//! This model faithfully mirrors the **algorithm** (semaphore → pop index →
+//! access slot → push index → release semaphore) using loom primitives,
+//! so loom can exhaustively check all thread interleavings for data races.
+//!
+//! # What this covers
+//!
+//! - No two threads access the same slot concurrently (UnsafeCell detects this)
+//! - Semaphore correctly bounds concurrency to pool size
+//! - Queue indices are never duplicated or lost
+//!
+//! # What this does NOT cover
+//!
+//! - Tokio async cancellation and task scheduling
+//! - Real `SegQueue` lock-free behavior
+//! - `parking_lot::RwLock` fairness
+//!
+//! For runtime concurrency coverage, see the integration tests in
+//! `crates/pool/src/lib.rs` (e.g., `test_concurrent_checkout`).
+
 #![allow(unsafe_code)] // loom's UnsafeCell requires unsafe for with_mut
 
 use loom::sync::{Arc, Condvar, Mutex};
 use loom::thread;
 
-// Simplified Semaphore for Loom model
+/// Models `tokio::sync::Semaphore` using loom's Condvar+Mutex.
+///
+/// The real semaphore is async and uses Tokio's intrusive linked list.
+/// This model preserves the blocking acquire/release semantics so loom
+/// can enumerate all interleavings.
 struct SimpleSemaphore {
     permits: Mutex<usize>,
     cond: Condvar,
@@ -32,8 +71,10 @@ impl SimpleSemaphore {
     }
 }
 
-// Queue using Mutex for simplicity in model
-// (Real implementation uses crossbeam_queue::SegQueue which is also correct)
+/// Models `crossbeam_queue::SegQueue` using loom's Mutex<Vec>.
+///
+/// The real queue is lock-free; this model serializes access so loom
+/// can track all orderings. The push/pop semantics are identical.
 struct SimpleQueue {
     items: Mutex<Vec<usize>>,
 }
