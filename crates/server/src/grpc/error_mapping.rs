@@ -240,9 +240,10 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
 
         // Storage errors
         DaqError::Storage(e) => match e.kind {
-            common::error::StorageErrorKind::Configuration => {
-                Status::new(Code::InvalidArgument, format!("Storage configuration error: {}", e.message))
-            }
+            common::error::StorageErrorKind::Configuration => Status::new(
+                Code::InvalidArgument,
+                format!("Storage configuration error: {}", e.message),
+            ),
             common::error::StorageErrorKind::Io => {
                 Status::new(Code::Internal, format!("Storage I/O error: {}", e.message))
             }

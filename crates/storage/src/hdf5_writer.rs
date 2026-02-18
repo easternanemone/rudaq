@@ -148,9 +148,12 @@ impl HDF5Writer {
         let snapshot: Vec<ParamSnapshotEntry> = params
             .iter()
             .map(|(name, param)| {
-                let value = param
-                    .get_json()
-                    .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Serialization, e.to_string())))?;
+                let value = param.get_json().map_err(|e| {
+                    DaqError::Storage(StorageError::new(
+                        StorageErrorKind::Serialization,
+                        e.to_string(),
+                    ))
+                })?;
                 let meta = param.metadata();
                 Ok((
                     name.to_string(),
@@ -193,21 +196,26 @@ impl HDF5Writer {
 
                 // Overwrite existing attribute if present
                 if params_group.attr(name).is_ok() {
-                    params_group.attr(name)?.write_scalar(
-                        &json_str
-                            .parse::<VarLenUnicode>()
-                            .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
-                    ).map_err(map_hdf5_err)?;
+                    params_group
+                        .attr(name)?
+                        .write_scalar(&json_str.parse::<VarLenUnicode>().map_err(|e| {
+                            DaqError::Storage(StorageError::new(
+                                StorageErrorKind::Hdf5,
+                                format!("VarLenUnicode parse: {}", e),
+                            ))
+                        })?)
+                        .map_err(map_hdf5_err)?;
                 } else {
                     params_group
                         .new_attr::<VarLenUnicode>()
                         .create(&name[..])
                         .map_err(map_hdf5_err)?
-                        .write_scalar(
-                            &json_str
-                                .parse::<VarLenUnicode>()
-                                .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
-                        )
+                        .write_scalar(&json_str.parse::<VarLenUnicode>().map_err(|e| {
+                            DaqError::Storage(StorageError::new(
+                                StorageErrorKind::Hdf5,
+                                format!("VarLenUnicode parse: {}", e),
+                            ))
+                        })?)
                         .map_err(map_hdf5_err)?;
                 }
             }
@@ -215,7 +223,7 @@ impl HDF5Writer {
             Ok(())
         })
         .await
-        .map_err(|e| DaqError::Tokio(std::io::Error::new(std::io::ErrorKind::Other, e)))??;
+        .map_err(|e| DaqError::Tokio(std::io::Error::other(e)))??;
 
         Ok(())
     }
@@ -309,7 +317,9 @@ impl HDF5Writer {
 
             // Create batch group with unique name
             let batch_name = format!("batch_{:06}", batch_id);
-            let batch_group = measurements.create_group(&batch_name).map_err(map_hdf5_err)?;
+            let batch_group = measurements
+                .create_group(&batch_name)
+                .map_err(map_hdf5_err)?;
 
             // Decode and write Protobuf ScanProgress messages
             // Returns bytes successfully processed to handle partial messages
@@ -447,10 +457,12 @@ impl HDF5Writer {
                 .new_attr::<hdf5::types::VarLenUnicode>()
                 .create("scan_id")
                 .map_err(map_hdf5_err)?
-                .write_scalar(
-                    &id.parse::<hdf5::types::VarLenUnicode>()
-                        .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
-                )
+                .write_scalar(&id.parse::<hdf5::types::VarLenUnicode>().map_err(|e| {
+                    DaqError::Storage(StorageError::new(
+                        StorageErrorKind::Hdf5,
+                        format!("VarLenUnicode parse: {}", e),
+                    ))
+                })?)
                 .map_err(map_hdf5_err)?;
         }
 
@@ -547,7 +559,7 @@ impl HDF5Writer {
             Ok(snapshot_len)
         })
         .await
-        .map_err(|e| DaqError::Tokio(std::io::Error::new(std::io::ErrorKind::Other, e)))??;
+        .map_err(|e| DaqError::Tokio(std::io::Error::other(e)))??;
 
         // Early return if no data was written
         if snapshot_len == 0 {
@@ -623,7 +635,12 @@ impl HDF5Writer {
                     &manifest
                         .run_uid
                         .parse::<hdf5::types::VarLenUnicode>()
-                        .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
+                        .map_err(|e| {
+                            DaqError::Storage(StorageError::new(
+                                StorageErrorKind::Hdf5,
+                                format!("VarLenUnicode parse: {}", e),
+                            ))
+                        })?,
                 )
                 .map_err(map_hdf5_err)?;
 
@@ -636,7 +653,12 @@ impl HDF5Writer {
                         .plan_type
                         .as_str()
                         .parse::<hdf5::types::VarLenUnicode>()
-                        .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
+                        .map_err(|e| {
+                            DaqError::Storage(StorageError::new(
+                                StorageErrorKind::Hdf5,
+                                format!("VarLenUnicode parse: {}", e),
+                            ))
+                        })?,
                 )
                 .map_err(map_hdf5_err)?;
 
@@ -649,7 +671,12 @@ impl HDF5Writer {
                         .plan_name
                         .as_str()
                         .parse::<hdf5::types::VarLenUnicode>()
-                        .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
+                        .map_err(|e| {
+                            DaqError::Storage(StorageError::new(
+                                StorageErrorKind::Hdf5,
+                                format!("VarLenUnicode parse: {}", e),
+                            ))
+                        })?,
                 )
                 .map_err(map_hdf5_err)?;
 
@@ -657,7 +684,9 @@ impl HDF5Writer {
             let params_group = if manifest_group.group("parameters").is_ok() {
                 manifest_group.group("parameters").map_err(map_hdf5_err)?
             } else {
-                manifest_group.create_group("parameters").map_err(map_hdf5_err)?
+                manifest_group
+                    .create_group("parameters")
+                    .map_err(map_hdf5_err)?
             };
 
             // Write device parameters as JSON attributes
@@ -670,16 +699,24 @@ impl HDF5Writer {
 
                 for (param_name, param_value) in params {
                     // Serialize JSON value to string for HDF5 storage
-                    let json_str = serde_json::to_string(param_value).map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Serialization, e.to_string())))?;
+                    let json_str = serde_json::to_string(param_value).map_err(|e| {
+                        DaqError::Storage(StorageError::new(
+                            StorageErrorKind::Serialization,
+                            e.to_string(),
+                        ))
+                    })?;
                     device_group
                         .new_attr::<hdf5::types::VarLenUnicode>()
                         .create(&param_name[..])
                         .map_err(map_hdf5_err)?
-                        .write_scalar(
-                            &json_str
-                                .parse::<hdf5::types::VarLenUnicode>()
-                                .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
-                        )
+                        .write_scalar(&json_str.parse::<hdf5::types::VarLenUnicode>().map_err(
+                            |e| {
+                                DaqError::Storage(StorageError::new(
+                                    StorageErrorKind::Hdf5,
+                                    format!("VarLenUnicode parse: {}", e),
+                                ))
+                            },
+                        )?)
                         .map_err(map_hdf5_err)?;
                 }
             }
@@ -688,7 +725,9 @@ impl HDF5Writer {
             let system_group = if manifest_group.group("system").is_ok() {
                 manifest_group.group("system").map_err(map_hdf5_err)?
             } else {
-                manifest_group.create_group("system").map_err(map_hdf5_err)?
+                manifest_group
+                    .create_group("system")
+                    .map_err(map_hdf5_err)?
             };
 
             for (key, value) in &manifest.system_info {
@@ -696,11 +735,12 @@ impl HDF5Writer {
                     .new_attr::<hdf5::types::VarLenUnicode>()
                     .create(&key[..])
                     .map_err(map_hdf5_err)?
-                    .write_scalar(
-                        &value
-                            .parse::<hdf5::types::VarLenUnicode>()
-                            .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
-                    )
+                    .write_scalar(&value.parse::<hdf5::types::VarLenUnicode>().map_err(|e| {
+                        DaqError::Storage(StorageError::new(
+                            StorageErrorKind::Hdf5,
+                            format!("VarLenUnicode parse: {}", e),
+                        ))
+                    })?)
                     .map_err(map_hdf5_err)?;
             }
 
@@ -708,7 +748,9 @@ impl HDF5Writer {
             let metadata_group = if manifest_group.group("metadata").is_ok() {
                 manifest_group.group("metadata").map_err(map_hdf5_err)?
             } else {
-                manifest_group.create_group("metadata").map_err(map_hdf5_err)?
+                manifest_group
+                    .create_group("metadata")
+                    .map_err(map_hdf5_err)?
             };
 
             for (key, value) in &manifest.metadata {
@@ -716,11 +758,12 @@ impl HDF5Writer {
                     .new_attr::<hdf5::types::VarLenUnicode>()
                     .create(&key[..])
                     .map_err(map_hdf5_err)?
-                    .write_scalar(
-                        &value
-                            .parse::<hdf5::types::VarLenUnicode>()
-                            .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
-                    )
+                    .write_scalar(&value.parse::<hdf5::types::VarLenUnicode>().map_err(|e| {
+                        DaqError::Storage(StorageError::new(
+                            StorageErrorKind::Hdf5,
+                            format!("VarLenUnicode parse: {}", e),
+                        ))
+                    })?)
                     .map_err(map_hdf5_err)?;
             }
 
@@ -749,11 +792,12 @@ impl HDF5Writer {
             .new_attr::<VarLenUnicode>()
             .create(name)
             .map_err(map_hdf5_err)?
-            .write_scalar(
-                &value
-                    .parse::<VarLenUnicode>()
-                    .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
-            )
+            .write_scalar(&value.parse::<VarLenUnicode>().map_err(|e| {
+                DaqError::Storage(StorageError::new(
+                    StorageErrorKind::Hdf5,
+                    format!("VarLenUnicode parse: {}", e),
+                ))
+            })?)
             .map_err(map_hdf5_err)?;
         Ok(())
     }
@@ -793,12 +837,16 @@ impl HDF5Writer {
                 match column.data_type() {
                     arrow::datatypes::DataType::Float64 => {
                         use arrow::array::Float64Array;
-                        let array = column.as_any().downcast_ref::<Float64Array>().ok_or_else(|| {
-                            DaqError::Storage(StorageError::new(
-                                StorageErrorKind::Arrow,
-                                "Failed to downcast Float64Array".to_string(),
-                            ))
-                        })?;
+                        let array =
+                            column
+                                .as_any()
+                                .downcast_ref::<Float64Array>()
+                                .ok_or_else(|| {
+                                    DaqError::Storage(StorageError::new(
+                                        StorageErrorKind::Arrow,
+                                        "Failed to downcast Float64Array".to_string(),
+                                    ))
+                                })?;
 
                         let values: Vec<f64> = (0..array.len()).map(|i| array.value(i)).collect();
 
@@ -821,12 +869,16 @@ impl HDF5Writer {
                     }
                     arrow::datatypes::DataType::Int64 => {
                         use arrow::array::Int64Array;
-                        let array = column.as_any().downcast_ref::<Int64Array>().ok_or_else(|| {
-                            DaqError::Storage(StorageError::new(
-                                StorageErrorKind::Arrow,
-                                "Failed to downcast Int64Array".to_string(),
-                            ))
-                        })?;
+                        let array =
+                            column
+                                .as_any()
+                                .downcast_ref::<Int64Array>()
+                                .ok_or_else(|| {
+                                    DaqError::Storage(StorageError::new(
+                                        StorageErrorKind::Arrow,
+                                        "Failed to downcast Int64Array".to_string(),
+                                    ))
+                                })?;
 
                         let values: Vec<i64> = (0..array.len()).map(|i| array.value(i)).collect();
 
@@ -1037,6 +1089,9 @@ mod tests {
         handle.await.unwrap();
 
         // Should HAVE flushed (exceeded threshold)
-        assert!(writer_arc.batch_count() > 0, "Should flush when threshold exceeded");
+        assert!(
+            writer_arc.batch_count() > 0,
+            "Should flush when threshold exceeded"
+        );
     }
 }

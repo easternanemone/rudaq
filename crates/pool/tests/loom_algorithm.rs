@@ -1,3 +1,5 @@
+#![allow(unsafe_code)] // loom's UnsafeCell requires unsafe for with_mut
+
 use loom::sync::{Arc, Condvar, Mutex};
 use loom::thread;
 

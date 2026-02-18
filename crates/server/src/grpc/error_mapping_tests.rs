@@ -304,13 +304,13 @@ mod tests {
 
         #[test]
         fn io_error_maps_to_internal() {
-            let err = DaqError::Io(std::io::Error::new(std::io::ErrorKind::Other, "io"));
+            let err = DaqError::Io(std::io::Error::other("io"));
             assert_status_code(err, Code::Internal);
         }
 
         #[test]
         fn tokio_error_maps_to_internal() {
-            let err = DaqError::Tokio(std::io::Error::new(std::io::ErrorKind::Other, "tokio"));
+            let err = DaqError::Tokio(std::io::Error::other("tokio"));
             assert_status_code(err, Code::Internal);
         }
     }

@@ -107,7 +107,7 @@ mod mock_driver {
     }
 
     #[tokio::test]
-    #[allow(deprecated)] // subscribe_frames() still works; register_primary_output() not yet wired
+    #[allow(deprecated)] // subscribe_frames() still works but register_primary_output() is preferred
     async fn driver_streaming_mock() {
         let driver = PvcamDriver::new_async("MockCamera".to_string())
             .await
@@ -267,7 +267,7 @@ mod hardware_driver {
     }
 
     #[tokio::test]
-    #[allow(deprecated)] // subscribe_frames() still works; register_primary_output() not yet wired
+    #[allow(deprecated)] // subscribe_frames() still works but register_primary_output() is preferred
     async fn hardware_stream_frames() {
         let _lock = CAMERA_LOCK.lock().unwrap();
 
@@ -278,16 +278,16 @@ mod hardware_driver {
         // Set short exposure
         driver.set_exposure(0.010).await.unwrap();
 
-        // Start streaming
-        driver.start_stream().await.unwrap();
-        println!("Streaming started");
-
-        // Register output and receive frames
+        // Register output BEFORE starting stream (primary_tx is captured at stream start)
         let (tx, mut rx) = tokio::sync::mpsc::channel(32);
         driver
             .register_primary_output(tx)
             .await
             .expect("Failed to register output");
+
+        // Start streaming
+        driver.start_stream().await.unwrap();
+        println!("Streaming started");
 
         let mut received = 0;
         let start = std::time::Instant::now();
@@ -321,7 +321,7 @@ mod hardware_driver {
     /// If this fails at ~19 frames while isolation tests pass, the issue is in
     /// something unique to the full driver path.
     #[tokio::test]
-    #[allow(deprecated)] // subscribe_frames() still works; register_primary_output() not yet wired
+    #[allow(deprecated)] // subscribe_frames() still works but register_primary_output() is preferred
     async fn hardware_stream_200_frames() {
         let _lock = CAMERA_LOCK.lock().unwrap();
         let _ = *LOG_INIT;
@@ -353,12 +353,20 @@ mod hardware_driver {
             println!("[OK] Trigger mode set to Timed");
         }
 
+        // Register output BEFORE starting stream (primary_tx is captured at stream start)
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        driver
+            .register_primary_output(tx)
+            .await
+            .expect("Failed to register output");
+        println!("[OK] Primary output registered");
+
         // Start streaming
         println!("[SETUP] Starting stream...");
         driver.start_stream().await.unwrap();
         println!("[OK] Stream started");
 
-        // Subscribe and receive frames
+        // Receive frames
         println!(
             "\n=== FRAME ACQUISITION (target: {} frames) ===\n",
             TARGET_FRAMES
@@ -367,12 +375,6 @@ mod hardware_driver {
         let mut received = 0usize;
         let start = std::time::Instant::now();
         let timeout = Duration::from_secs(60); // 60 seconds should be plenty for 200 frames at 100ms
-
-        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
-        driver
-            .register_primary_output(tx)
-            .await
-            .expect("Failed to register output");
 
         while received < TARGET_FRAMES && start.elapsed() < timeout {
             tokio::select! {

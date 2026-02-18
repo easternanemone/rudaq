@@ -1206,6 +1206,29 @@ impl PvcamAcquisition {
             // bd-0dax.4: Clone tap registry for frame observers
             let tap_registry = self.tap_registry.clone();
 
+            // bd-r8ux: Capture primary_tx for LoanedFrame delivery in hardware path
+            let primary_tx = self.primary_tx.lock().await.clone();
+
+            // bd-r8ux: Create Pool<FrameData> if primary_tx is registered
+            let primary_frame_pool: Option<Arc<Pool<FrameData>>> = if primary_tx.is_some() {
+                let pool = Pool::new_with_reset(
+                    pool_size,
+                    {
+                        let frame_cap = actual_frame_bytes;
+                        move || FrameData::with_capacity(frame_cap)
+                    },
+                    FrameData::reset,
+                );
+                tracing::info!(
+                    pool_size,
+                    frame_bytes = actual_frame_bytes,
+                    "Created Pool<FrameData> for primary_tx delivery (bd-r8ux)"
+                );
+                Some(pool)
+            } else {
+                None
+            };
+
             // bd-g6pr: Create completion channel for poll thread synchronization.
             // Drop will wait on this receiver before calling FFI cleanup functions,
             // preventing the race where pl_exp_stop_cont is called while
@@ -1253,8 +1276,10 @@ impl PvcamAcquisition {
                     circ_ptr_restored, // bd-3gnv: Pass buffer for auto-restart
                     circ_size_bytes,   // bd-3gnv: Pass size for auto-restart
                     circ_overwrite,
-                    buffer_pool,  // bd-0dax.4: Buffer pool for true zero-allocation
-                    tap_registry, // bd-0dax.4: For synchronous tap observers
+                    buffer_pool,        // bd-0dax.4: Buffer pool for true zero-allocation
+                    tap_registry,       // bd-0dax.4: For synchronous tap observers
+                    primary_tx,         // bd-r8ux: Primary output for LoanedFrame delivery
+                    primary_frame_pool, // bd-r8ux: Pool<FrameData> for primary_tx
                 );
             });
 
@@ -1915,6 +1940,8 @@ impl PvcamAcquisition {
         circ_overwrite: bool,
         buffer_pool: BufferPool, // bd-0dax.4: Buffer pool for true zero-allocation
         tap_registry: Arc<TapRegistry>, // bd-0dax.4: For synchronous tap observers
+        primary_tx: Option<tokio::sync::mpsc::Sender<common::capabilities::LoanedFrame>>, // bd-r8ux
+        primary_frame_pool: Option<Arc<Pool<FrameData>>>, // bd-r8ux
     ) {
         let loop_span = tracing::debug_span!(
             "pvcam_frame_loop",
@@ -2780,8 +2807,10 @@ impl PvcamAcquisition {
                 // bd-fix-2026-01-17: Check BOTH broadcast subscribers AND tap observers
                 // The gRPC streaming uses tap observers, not the broadcast channel, so we must
                 // count observers to avoid stopping streaming when GUI is connected via gRPC.
+                // bd-r8ux: Also count primary_tx as a consumer to prevent early exit.
                 let has_observers = tap_registry.has_taps();
-                let has_consumers = receiver_count > 0 || has_observers;
+                let has_primary = primary_tx.is_some();
+                let has_consumers = receiver_count > 0 || has_observers || has_primary;
 
                 if monotonic_frame_count <= 10 || monotonic_frame_count % 30 == 1 {
                     tracing::info!(
@@ -2844,13 +2873,65 @@ impl PvcamAcquisition {
                 // bd-0dax.4: Run taps SYNCHRONOUSLY before broadcast (observers get &Frame)
                 tap_registry.apply_frame_with_pixels(&*frame_arc);
 
-                // TODO(bd-5oss): Wire primary_tx for LoanedFrame delivery
-                // Current architecture uses BufferPool -> Bytes -> Arc<Frame>, but primary_tx
-                // expects LoanedFrame (Loaned<FrameData>). Full integration requires either:
-                // 1. Replacing BufferPool with Pool<FrameData> in the SDK frame loop
-                // 2. Creating a conversion layer (defeats zero-allocation goal)
-                // For now, primary_tx is wired in mock mode only. SDK mode continues to use
-                // broadcast (frame_tx) and reliable (reliable_tx) channels.
+                // bd-r8ux: Deliver through primary_tx if a consumer is registered.
+                // Copies pixel data from the already-built frame_arc into a pooled
+                // LoanedFrame for zero-allocation downstream consumption (HDF5, measurement).
+                if let (Some(ref p_tx), Some(ref pool)) = (&primary_tx, &primary_frame_pool) {
+                    if let Some(mut loaned) = pool.try_acquire() {
+                        let fd = loaned.get_mut();
+                        let src = frame_arc.data.as_ref();
+                        let len = src.len();
+                        if len > fd.pixels.capacity() {
+                            // Frame size mismatch — pool was created with a different
+                            // frame capacity than the SDK is now producing. Log and skip.
+                            if monotonic_frame_count <= 5 || monotonic_frame_count % 100 == 0 {
+                                tracing::warn!(
+                                    frame_len = len,
+                                    pool_capacity = fd.pixels.capacity(),
+                                    "primary_tx: frame exceeds pool buffer capacity, skipping (bd-r8ux)"
+                                );
+                            }
+                        } else {
+                            fd.width = width;
+                            fd.height = height;
+                            fd.bit_depth = frame_bit_depth;
+                            fd.frame_number = monotonic_frame_count;
+                            fd.hw_frame_nr = current_frame_nr;
+                            fd.roi_x = roi_x;
+                            fd.roi_y = roi_y;
+                            fd.binning = Some(binning);
+                            if let Some(ref md) = frame_metadata {
+                                fd.timestamp_ns = md.timestamp_bof_ns;
+                                fd.exposure_ms = md.exposure_time_ns as f64 / 1_000_000.0;
+                            } else {
+                                fd.timestamp_ns = common::data::Frame::timestamp_now();
+                                fd.exposure_ms = exposure_ms;
+                            }
+                            // SAFETY: src points to valid frame_arc.data bytes.
+                            // fd.pixels has sufficient capacity (checked above).
+                            // src and fd.pixels don't overlap (Bytes heap vs pool allocation).
+                            unsafe {
+                                std::ptr::copy_nonoverlapping(
+                                    src.as_ptr(),
+                                    fd.pixels.as_mut_ptr(),
+                                    len,
+                                );
+                            }
+                            fd.actual_len = len;
+                            if p_tx.try_send(loaned).is_err() && monotonic_frame_count % 100 == 0 {
+                                tracing::warn!(
+                                    "PVCAM primary channel full at frame {} (bd-r8ux)",
+                                    monotonic_frame_count
+                                );
+                            }
+                        }
+                    } else if monotonic_frame_count % 100 == 0 {
+                        tracing::warn!(
+                            "PVCAM primary frame pool exhausted at frame {} (bd-r8ux)",
+                            monotonic_frame_count
+                        );
+                    }
+                }
 
                 let _ = frame_tx.send(frame_arc.clone());
 
