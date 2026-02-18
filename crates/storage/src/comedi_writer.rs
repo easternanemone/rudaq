@@ -52,7 +52,6 @@
 //! }
 //! ```
 
-use anyhow::anyhow; // For internal error construction until full migration
 use common::error::{DaqError, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -73,7 +72,7 @@ use arrow::record_batch::RecordBatch;
 
 use super::ring_buffer::RingBuffer;
 
-type Result<T> = std::result::Result<T, DaqError>;
+use common::error::AppResult as Result;
 
 /// Compression algorithm for storage
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

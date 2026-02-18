@@ -11,9 +11,7 @@
     clippy::manual_let_else,
     clippy::unused_async,
     clippy::doc_overindented_list_items,
-    clippy::float_cmp,
-    unused_imports,
-    dead_code
+    clippy::float_cmp
 )]
 
 //! # daq-storage

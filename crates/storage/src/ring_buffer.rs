@@ -35,7 +35,6 @@
 //!   not provided because the tap registry and mutexes are process-local.
 //! - **Taps**: Non-blocking send with automatic frame dropping on backpressure.
 
-use anyhow::Context;
 use common::error::{DaqError, StorageError, StorageErrorKind};
 use memmap2::{MmapMut, MmapOptions};
 use std::fs::OpenOptions;

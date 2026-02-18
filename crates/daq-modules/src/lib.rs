@@ -403,41 +403,19 @@ impl ModuleInstance {
 
     /// Stage the module (Bluesky pattern - prepare resources before start)
     pub async fn stage(&mut self, registry: Arc<DeviceRegistry>) -> Result<()> {
-        let ctx = ModuleContext::new(
-            self.id.clone(),
-            self.assignments.clone(),
-            registry,
-            self.event_tx.clone(),
-            self.data_tx.clone(),
-            self.shutdown_tx.subscribe(),
-        );
+        let ctx = self.create_context(registry);
         self.module.stage(&ctx).await
     }
 
     /// Unstage the module (Bluesky pattern - release resources after stop)
     pub async fn unstage(&mut self, registry: Arc<DeviceRegistry>) -> Result<()> {
-        let ctx = ModuleContext::new(
-            self.id.clone(),
-            self.assignments.clone(),
-            registry,
-            self.event_tx.clone(),
-            self.data_tx.clone(),
-            self.shutdown_tx.subscribe(),
-        );
+        let ctx = self.create_context(registry);
         self.module.unstage(&ctx).await
     }
 
     /// Start the module
     pub async fn start(&mut self, registry: Arc<DeviceRegistry>) -> Result<()> {
-        let ctx = ModuleContext::new(
-            self.id.clone(),
-            self.assignments.clone(),
-            registry,
-            self.event_tx.clone(),
-            self.data_tx.clone(),
-            self.shutdown_tx.subscribe(),
-        );
-
+        let ctx = self.create_context(registry);
         self.start_time_ns = Some(current_time_ns());
         self.module.start(ctx).await
     }
@@ -467,6 +445,18 @@ impl ModuleInstance {
     /// Take the data receiver (for streaming)
     pub fn take_data_rx(&mut self) -> Option<mpsc::Receiver<ModuleDataPoint>> {
         self.data_rx.take()
+    }
+
+    /// Create a `ModuleContext` for this instance.
+    fn create_context(&self, registry: Arc<DeviceRegistry>) -> ModuleContext {
+        ModuleContext::new(
+            self.id.clone(),
+            self.assignments.clone(),
+            registry,
+            self.event_tx.clone(),
+            self.data_tx.clone(),
+            self.shutdown_tx.subscribe(),
+        )
     }
 }
 

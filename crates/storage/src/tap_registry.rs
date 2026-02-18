@@ -17,7 +17,9 @@ use prometheus::{register_gauge_vec, register_int_counter_vec, GaugeVec, IntCoun
 /// Default channel capacity for tap consumers (number of frames buffered)
 const DEFAULT_TAP_CHANNEL_SIZE: usize = 32;
 const DROP_LOG_INTERVAL_SECS: u64 = 1;
+#[cfg(feature = "metrics")]
 const MAX_TAP_METRICS_LABELS: usize = 100;
+#[cfg(feature = "metrics")]
 const TAP_METRICS_OTHER_LABEL: &str = "other";
 
 #[cfg(feature = "metrics")]
@@ -62,6 +64,7 @@ pub struct TapConsumer {
     /// Last time we logged a drop (epoch seconds)
     last_drop_log_secs: AtomicU64,
     /// Metrics label for this tap (bounded to avoid cardinality blowups)
+    #[allow(dead_code)] // read only when `metrics` feature is enabled
     metrics_label: String,
 }
 

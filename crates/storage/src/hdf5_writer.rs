@@ -8,8 +8,9 @@
 //! The background writer translates Protobuf → HDF5 at 1 Hz without blocking
 //! the hardware loop.
 
-use anyhow::anyhow; // For error macros, but ideally use DaqError
-use common::error::{DaqError, StorageError, StorageErrorKind};
+use common::error::DaqError;
+#[cfg(any(feature = "storage_hdf5", feature = "storage_arrow"))]
+use common::error::{StorageError, StorageErrorKind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -22,7 +23,7 @@ use super::ring_buffer::RingBuffer;
 #[cfg(feature = "storage_hdf5")]
 use common::observable::ParameterSet;
 
-type Result<T> = std::result::Result<T, DaqError>;
+use common::error::AppResult as Result;
 
 /// Background HDF5 writer that persists ring buffer data
 ///
