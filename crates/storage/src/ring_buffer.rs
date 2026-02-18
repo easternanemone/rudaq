@@ -400,12 +400,16 @@ impl RingBuffer {
     /// This function validates the file size and magic number BEFORE accessing
     /// header fields to prevent undefined behavior from corrupted files.
     pub fn open(path: &Path) -> Result<Self, DaqError> {
-        let file = OpenOptions::new().read(true).write(true).open(path).map_err(|e| {
-            DaqError::Storage(StorageError::new(
-                StorageErrorKind::Io,
-                format!("Failed to open ring buffer file {:?}: {}", path, e),
-            ))
-        })?;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .map_err(|e| {
+                DaqError::Storage(StorageError::new(
+                    StorageErrorKind::Io,
+                    format!("Failed to open ring buffer file {:?}: {}", path, e),
+                ))
+            })?;
 
         // CRITICAL: Validate file size BEFORE memory mapping to prevent
         // accessing invalid memory if the file was truncated or corrupted
@@ -514,10 +518,12 @@ impl RingBuffer {
     /// Multiple concurrent writers are safe - the internal lock serializes writes.
     pub fn write(&self, data: &[u8]) -> Result<(), DaqError> {
         // Acquire exclusive write lock to prevent concurrent reads/writes (bd-t17q)
-        let _guard = self
-            .data_lock
-            .write()
-            .map_err(|_| DaqError::Storage(StorageError::new(StorageErrorKind::Other, "Data lock poisoned")))?;
+        let _guard = self.data_lock.write().map_err(|_| {
+            DaqError::Storage(StorageError::new(
+                StorageErrorKind::Other,
+                "Data lock poisoned",
+            ))
+        })?;
 
         let len = data.len() as u64;
 
@@ -1225,14 +1231,7 @@ impl AsyncRingBuffer {
     /// ```
     pub async fn read_snapshot(&self) -> Result<Vec<u8>, DaqError> {
         let rb = self.inner.clone();
-        tokio::task::spawn_blocking(move || rb.read_snapshot())
-            .await
-            .map_err(|e| {
-                DaqError::Storage(StorageError::new(
-                    StorageErrorKind::RingBuffer,
-                    format!("spawn_blocking failed during read_snapshot: {e}"),
-                ))
-            })
+        Ok(tokio::task::spawn_blocking(move || rb.read_snapshot()).await?)
     }
 
     /// Write data to the ring buffer (async-safe).
@@ -1263,14 +1262,7 @@ impl AsyncRingBuffer {
     pub async fn write(&self, data: &[u8]) -> Result<(), DaqError> {
         let rb = self.inner.clone();
         let data = data.to_vec();
-        tokio::task::spawn_blocking(move || rb.write(&data))
-            .await
-            .map_err(|e| {
-                DaqError::Storage(StorageError::new(
-                    StorageErrorKind::RingBuffer,
-                    format!("spawn_blocking failed during write: {e}"),
-                ))
-            })??;
+        tokio::task::spawn_blocking(move || rb.write(&data)).await??;
         Ok(())
     }
 
@@ -1403,14 +1395,7 @@ impl AsyncRingBuffer {
     pub async fn write_arrow_batch(&self, batch: &RecordBatch) -> Result<(), DaqError> {
         let rb = self.inner.clone();
         let batch = batch.clone();
-        tokio::task::spawn_blocking(move || rb.write_arrow_batch(&batch))
-            .await
-            .map_err(|e| {
-                DaqError::Storage(StorageError::new(
-                    StorageErrorKind::RingBuffer,
-                    format!("spawn_blocking failed during write_arrow_batch: {e}"),
-                ))
-            })??;
+        tokio::task::spawn_blocking(move || rb.write_arrow_batch(&batch)).await??;
         Ok(())
     }
 }

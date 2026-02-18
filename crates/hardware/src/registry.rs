@@ -1448,15 +1448,17 @@ impl DeviceRegistry {
             .config
             .get("plugin_id")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| DaqError::Configuration("Missing 'plugin_id' in plugin driver config".into()))?
+            .ok_or_else(|| {
+                DaqError::Configuration("Missing 'plugin_id' in plugin driver config".into())
+            })?
             .to_string();
         let driver_type_name = config.driver.driver_type.clone();
 
         // Introspect capabilities from the plugin configuration
         let factory = self.plugin_factory.read().await;
-        let plugin_config = factory
-            .get_config(&plugin_id)
-            .ok_or_else(|| DaqError::Configuration(format!("Plugin '{}' not found in factory", plugin_id)))?;
+        let plugin_config = factory.get_config(&plugin_id).ok_or_else(|| {
+            DaqError::Configuration(format!("Plugin '{}' not found in factory", plugin_id))
+        })?;
 
         let mut metadata = DeviceMetadata::default();
 
