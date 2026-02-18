@@ -22,7 +22,6 @@ use protocol::ni_daq::ni_daq_service_server::NiDaqService;
 use protocol::ni_daq::*;
 use std::future::Future;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tonic::{Request, Response, Status};
 use tracing::instrument;
 
@@ -66,10 +65,7 @@ impl NiDaqServiceImpl {
 /// Get current timestamp in nanoseconds since UNIX epoch.
 #[allow(dead_code)]
 fn now_ns() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64
+    common::time::now_ns()
 }
 
 #[tonic::async_trait]

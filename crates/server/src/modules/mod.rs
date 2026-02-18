@@ -37,7 +37,6 @@ use hardware::capabilities::Readable;
 use hardware::registry::DeviceRegistry;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, mpsc};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -772,10 +771,7 @@ impl ModuleRegistry {
 ///
 /// Returns 0 if system clock is before Unix epoch (bd-21yj).
 fn current_time_ns() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64
+    common::time::now_ns()
 }
 
 // =============================================================================

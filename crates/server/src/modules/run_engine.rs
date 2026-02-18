@@ -33,7 +33,7 @@ use super::document::{Document, StopReason};
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::sync::{RwLock, mpsc};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -402,10 +402,7 @@ impl RunEngine {
 ///
 /// Returns 0 if system clock is before Unix epoch (bd-21yj).
 fn now_ns() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64
+    common::time::now_ns()
 }
 
 // =============================================================================

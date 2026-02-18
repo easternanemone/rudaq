@@ -25,21 +25,12 @@ const DRIVER_TYPE_HEADER: &str = "x-daq-driver-type";
 const DRIVER_KIND_HEADER: &str = "x-daq-driver-kind";
 
 fn sanitize_metadata_value(value: &str) -> String {
-    if value.is_ascii() {
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            "unknown".to_string()
-        } else {
-            trimmed.to_string()
-        }
+    let sanitized: String = value.chars().filter(|c| c.is_ascii()).collect();
+    let trimmed = sanitized.trim();
+    if trimmed.is_empty() {
+        "unknown".to_string()
     } else {
-        let ascii: String = value.chars().filter(|c| c.is_ascii()).collect();
-        let trimmed = ascii.trim();
-        if trimmed.is_empty() {
-            "unknown".to_string()
-        } else {
-            trimmed.to_string()
-        }
+        trimmed.to_string()
     }
 }
 

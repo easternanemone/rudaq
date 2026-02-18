@@ -4,7 +4,6 @@ use super::*;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(super) async fn fetch_device_state(
     registry: &Arc<DeviceRegistry>,
@@ -85,10 +84,7 @@ pub(super) fn device_state_to_fields_json(state: &DeviceStateResponse) -> HashMa
 }
 
 pub(super) fn now_ns() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64
+    common::time::now_ns()
 }
 
 pub(super) fn proto_parameter_metadata(meta: &CommonParameterMetadata) -> ProtoParameterMetadata {

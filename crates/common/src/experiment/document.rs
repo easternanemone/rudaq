@@ -35,22 +35,14 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
+
+// Re-export from canonical location for backwards compatibility
+pub use crate::time::now_ns;
 
 /// Generate a new unique document ID
 pub fn new_uid() -> String {
     Uuid::new_v4().to_string()
-}
-
-/// Current timestamp in nanoseconds since Unix epoch.
-///
-/// Returns 0 if system clock is before Unix epoch (bd-21yj).
-pub fn now_ns() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64
 }
 
 /// Document types for experiment data

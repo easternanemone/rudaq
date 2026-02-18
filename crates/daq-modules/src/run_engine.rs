@@ -33,7 +33,7 @@ use super::ModuleState;
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -409,10 +409,7 @@ impl RunEngine {
 
 /// Get current time in nanoseconds since epoch.
 fn now_ns() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64
+    common::time::now_ns()
 }
 
 // =============================================================================
