@@ -275,6 +275,71 @@ pub fn json_to_toml(v: &serde_json::Value) -> toml::Value {
 }
 
 // ---------------------------------------------------------------------------
+// Config Hashing (for change detection)
+// ---------------------------------------------------------------------------
+
+/// Compute a deterministic hash of a JSON config for change detection.
+///
+/// Uses canonical JSON serialization (sorted keys) to ensure the hash is
+/// independent of key insertion order, then hashes with `DefaultHasher`.
+///
+/// # Stability
+///
+/// Note: `DefaultHasher` is not stable across Rust versions, but that's
+/// acceptable here — hashes are only compared within a single process run
+/// (used by the reconciler to detect config changes).
+///
+/// # Example
+///
+/// ```rust
+/// use db::config_store::config_hash;
+/// use serde_json::json;
+///
+/// let config1 = json!({"port": "/dev/ttyS0", "address": "2"});
+/// let config2 = json!({"address": "2", "port": "/dev/ttyS0"});
+/// assert_eq!(config_hash(&config1), config_hash(&config2));
+/// ```
+pub fn config_hash(config: &serde_json::Value) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let s = canonical_json(config);
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Produce a canonical JSON string with sorted object keys.
+///
+/// Ensures deterministic serialization regardless of `serde_json` map backend
+/// (BTreeMap vs IndexMap with `preserve_order` feature).
+///
+/// This function recursively sorts all object keys to produce a consistent
+/// string representation that can be hashed for change detection.
+fn canonical_json(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Object(map) => {
+            let mut pairs: Vec<(&String, &serde_json::Value)> = map.iter().collect();
+            pairs.sort_by_key(|(k, _)| *k);
+            let inner: String = pairs
+                .into_iter()
+                .map(|(k, v)| {
+                    // Use serde_json for proper key escaping (handles quotes,
+                    // backslashes, control chars in keys).
+                    let key = serde_json::to_string(k).expect("String serialization is infallible");
+                    format!("{}:{}", key, canonical_json(v))
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("{{{inner}}}")
+        }
+        serde_json::Value::Array(arr) => {
+            let inner: String = arr.iter().map(canonical_json).collect::<Vec<_>>().join(",");
+            format!("[{inner}]")
+        }
+        _ => v.to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -588,5 +653,35 @@ mod tests {
             let found = db.get_instrument(&format!("concurrent_{i}")).await.unwrap();
             assert!(found.is_some(), "instrument concurrent_{i} should exist");
         }
+    }
+
+    #[test]
+    fn test_config_hash_deterministic() {
+        // Same config with different key order should produce same hash
+        let config1 = serde_json::json!({
+            "port": "/dev/ttyS0",
+            "address": "2",
+            "enabled": true
+        });
+        let config2 = serde_json::json!({
+            "enabled": true,
+            "address": "2",
+            "port": "/dev/ttyS0"
+        });
+        assert_eq!(config_hash(&config1), config_hash(&config2));
+    }
+
+    #[test]
+    fn test_config_hash_detects_changes() {
+        let config1 = serde_json::json!({"port": "/dev/ttyS0", "address": "2"});
+        let config2 = serde_json::json!({"port": "/dev/ttyS1", "address": "2"});
+        assert_ne!(config_hash(&config1), config_hash(&config2));
+    }
+
+    #[test]
+    fn test_config_hash_nonzero() {
+        // Hash should be non-zero for non-empty configs
+        let config = serde_json::json!({"port": "/dev/ttyS0"});
+        assert_ne!(config_hash(&config), 0);
     }
 }

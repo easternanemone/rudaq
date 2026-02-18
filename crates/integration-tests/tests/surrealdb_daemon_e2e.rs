@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use db::config_store::{toml_to_json, DbDriver, DbInstrument};
+use db::config_store::{config_hash, toml_to_json, DbDriver, DbInstrument};
 use db::{DaqDb, DbConfig};
 use hardware::registry::{
     create_registry_from_config, register_all_factories, DeviceRegistry, HardwareConfig,
@@ -128,40 +128,6 @@ async fn shadow_write(
     let driver_count = db.upsert_drivers(&drivers).await?;
     let report = db.upsert_instruments(&instruments).await?;
     Ok((driver_count, report.instruments_upserted))
-}
-
-/// Compute config hash using the same algorithm as the reconciler.
-///
-/// Mirrors `reconciler::config_hash` (canonical JSON → DefaultHasher).
-fn config_hash(config: &serde_json::Value) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let s = canonical_json(config);
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    s.hash(&mut hasher);
-    hasher.finish()
-}
-
-fn canonical_json(v: &serde_json::Value) -> String {
-    match v {
-        serde_json::Value::Object(map) => {
-            let mut pairs: Vec<(&String, &serde_json::Value)> = map.iter().collect();
-            pairs.sort_by_key(|(k, _)| *k);
-            let inner: String = pairs
-                .into_iter()
-                .map(|(k, v)| {
-                    let key = serde_json::to_string(k).expect("String serialization is infallible");
-                    format!("{}:{}", key, canonical_json(v))
-                })
-                .collect::<Vec<_>>()
-                .join(",");
-            format!("{{{inner}}}")
-        }
-        serde_json::Value::Array(arr) => {
-            let inner: String = arr.iter().map(canonical_json).collect::<Vec<_>>().join(",");
-            format!("[{inner}]")
-        }
-        _ => v.to_string(),
-    }
 }
 
 // ============================================================================

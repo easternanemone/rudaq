@@ -320,7 +320,7 @@ impl DaemonInstance {
                     // registry defaults config_hash to 0.
                     let db_instruments = db_bridge::devices_to_db(hw_config);
                     for inst in &db_instruments {
-                        let hash = crate::reconciler::config_hash(&inst.config);
+                        let hash = db::config_store::config_hash(&inst.config);
                         registry.set_config_hash(&inst.device_id, hash);
                     }
                 }

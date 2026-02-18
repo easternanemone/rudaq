@@ -10,58 +10,15 @@
 //! A polling loop (`start_polling_reconciler`) can run in the background.
 
 use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use common::error::DaqError;
-use db::config_store::{json_to_toml, DbInstrument};
+use db::config_store::{config_hash, json_to_toml, DbInstrument};
 use db::DaqDb;
 use hardware::registry::DeviceRegistry;
 use tracing::{info, warn};
 
 use crate::db_bridge;
-
-/// Compute a deterministic hash of a JSON config for change detection.
-///
-/// Uses canonical JSON serialization (sorted keys) to ensure the hash is
-/// independent of key insertion order, then hashes with `DefaultHasher`.
-/// Note: `DefaultHasher` is not stable across Rust versions, but that's
-/// acceptable here — hashes are only compared within a single process run.
-pub(crate) fn config_hash(config: &serde_json::Value) -> u64 {
-    let s = canonical_json(config);
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    s.hash(&mut hasher);
-    hasher.finish()
-}
-
-/// Produce a canonical JSON string with sorted object keys.
-///
-/// Ensures deterministic serialization regardless of `serde_json` map backend
-/// (BTreeMap vs IndexMap with `preserve_order` feature).
-fn canonical_json(v: &serde_json::Value) -> String {
-    match v {
-        serde_json::Value::Object(map) => {
-            let mut pairs: Vec<(&String, &serde_json::Value)> = map.iter().collect();
-            pairs.sort_by_key(|(k, _)| *k);
-            let inner: String = pairs
-                .into_iter()
-                .map(|(k, v)| {
-                    // Use serde_json for proper key escaping (handles quotes,
-                    // backslashes, control chars in keys).
-                    let key = serde_json::to_string(k).expect("String serialization is infallible");
-                    format!("{}:{}", key, canonical_json(v))
-                })
-                .collect::<Vec<_>>()
-                .join(",");
-            format!("{{{inner}}}")
-        }
-        serde_json::Value::Array(arr) => {
-            let inner: String = arr.iter().map(canonical_json).collect::<Vec<_>>().join(",");
-            format!("[{inner}]")
-        }
-        _ => v.to_string(),
-    }
-}
 
 /// Summary of changes applied during a single reconciliation pass.
 #[derive(Debug, Default)]
