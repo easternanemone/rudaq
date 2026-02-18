@@ -1018,6 +1018,10 @@ impl DaqApp {
                         self.ui_actions.push(UiAction::FocusTab(Panel::Devices));
                         ui.close();
                     }
+                    if ui.button("Image Viewer").clicked() {
+                        self.ui_actions.push(UiAction::FocusTab(Panel::ImageViewer));
+                        ui.close();
+                    }
                     if ui.button("Scripts").clicked() {
                         self.ui_actions.push(UiAction::FocusTab(Panel::Scripts));
                         ui.close();

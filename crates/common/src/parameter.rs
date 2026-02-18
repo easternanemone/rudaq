@@ -401,6 +401,14 @@ where
 
         let value = reader().await?;
 
+        self.set_from_hardware(value).await
+    }
+
+    /// Update parameter from a hardware-originated value.
+    ///
+    /// This bypasses read-only and validation checks by design because the
+    /// hardware is the source of truth for telemetry/status fields.
+    pub async fn set_from_hardware(&self, value: T) -> Result<()> {
         // Update Observable without validation (hardware is source of truth)
         self.inner.set_unchecked(value.clone());
 
@@ -877,6 +885,19 @@ mod tests {
 
         assert!(param.set(100.0).await.is_err());
         assert_eq!(param.get(), 42.0); // Unchanged
+    }
+
+    #[tokio::test]
+    async fn test_parameter_set_from_hardware_bypasses_read_only() {
+        let param = Parameter::new("readonly_hw", 10.0).read_only();
+
+        // User-originated write should fail
+        assert!(param.set(20.0).await.is_err());
+        assert_eq!(param.get(), 10.0);
+
+        // Hardware-originated update should succeed
+        param.set_from_hardware(20.0).await.unwrap();
+        assert_eq!(param.get(), 20.0);
     }
 
     #[tokio::test]

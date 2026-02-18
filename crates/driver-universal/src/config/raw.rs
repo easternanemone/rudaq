@@ -635,7 +635,15 @@ type = "usbtmc"
         let raw: RawManifest = toml::from_str(&contents).expect("should parse ell14.toml");
         assert_eq!(raw.schema_version, 3);
         assert_eq!(raw.device.name, "Thorlabs ELL14");
-        assert!(raw.capabilities.movable.is_some());
+        let movable = raw
+            .capabilities
+            .movable
+            .as_ref()
+            .expect("ELL14 should define movable capability mappings");
+        assert!(
+            movable.move_rel.is_some(),
+            "ELL14 should define capabilities.movable.move_rel mapping"
+        );
         assert!(!raw.commands.is_empty());
         assert!(!raw.responses.is_empty());
         assert!(!raw.conversions.is_empty());

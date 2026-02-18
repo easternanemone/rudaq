@@ -456,11 +456,13 @@ impl PvcamDriver {
         let binning =
             Parameter::new("acquisition.binning", (1u16, 1u16)).with_description("Binning (x, y)");
 
-        let armed =
-            Parameter::new("acquisition.armed", false).with_description("Camera armed for trigger");
+        let armed = Parameter::new("acquisition.armed", false)
+            .with_description("Camera armed for trigger")
+            .read_only();
 
         let streaming = Parameter::new("acquisition.streaming", false)
-            .with_description("Camera streaming state");
+            .with_description("Camera streaming state")
+            .read_only();
 
         // Thermal Group
         let temperature = Parameter::new("thermal.temperature", 0.0)
@@ -810,34 +812,38 @@ impl PvcamDriver {
 
                 // Poll Temperature
                 if let Ok(temp) = PvcamFeatures::get_temperature(&conn_guard) {
-                    let _ = temperature_param.set(temp).await;
+                    let _ = temperature_param.set_from_hardware(temp).await;
                 }
 
                 // Poll Shutter Status
                 if let Ok(status) = PvcamFeatures::get_shutter_status(&conn_guard) {
-                    let _ = shutter_status_param.set(status.as_str().to_string()).await;
+                    let _ = shutter_status_param
+                        .set_from_hardware(status.as_str().to_string())
+                        .await;
                 }
 
                 // Poll Readout Timing (updates when ROI/Binning/Speed changes)
                 if let Ok(val) = PvcamFeatures::get_readout_time_us(&conn_guard) {
-                    let _ = readout_time_param.set(val).await;
+                    let _ = readout_time_param.set_from_hardware(val).await;
                     // Update frame time (Exposure + Readout)
                     // Exposure is ms, readout is us.
                     let exp_ms = exposure_param.get();
                     let readout_us = val as f64;
-                    let _ = frame_time_param.set(exp_ms * 1000.0 + readout_us).await;
+                    let _ = frame_time_param
+                        .set_from_hardware(exp_ms * 1000.0 + readout_us)
+                        .await;
                 }
 
                 if let Ok(val) = PvcamFeatures::get_clearing_time_us(&conn_guard) {
-                    let _ = clearing_time_param.set(val).await;
+                    let _ = clearing_time_param.set_from_hardware(val).await;
                 }
 
                 if let Ok(val) = PvcamFeatures::get_pre_trigger_delay_us(&conn_guard) {
-                    let _ = pre_trigger_param.set(val).await;
+                    let _ = pre_trigger_param.set_from_hardware(val).await;
                 }
 
                 if let Ok(val) = PvcamFeatures::get_post_trigger_delay_us(&conn_guard) {
-                    let _ = post_trigger_param.set(val).await;
+                    let _ = post_trigger_param.set_from_hardware(val).await;
                 }
 
                 // Pixel time is driven by cached speed table listeners; no periodic polling needed here.
@@ -1526,8 +1532,10 @@ impl PvcamDriver {
                                     }
                                 }
 
-                                let _ = bit_depth.set(speed.bit_depth as u16).await;
-                                let _ = pixel_time_ns.set(speed.pix_time_ns as u32).await;
+                                let _ = bit_depth.set_from_hardware(speed.bit_depth as u16).await;
+                                let _ = pixel_time_ns
+                                    .set_from_hardware(speed.pix_time_ns as u32)
+                                    .await;
                             }
                         }
                     });
@@ -1566,8 +1574,10 @@ impl PvcamDriver {
                                 }
                             }
 
-                            let _ = bit_depth.set(speed.bit_depth as u16).await;
-                            let _ = pixel_time_ns.set(speed.pix_time_ns as u32).await;
+                            let _ = bit_depth.set_from_hardware(speed.bit_depth as u16).await;
+                            let _ = pixel_time_ns
+                                .set_from_hardware(speed.pix_time_ns as u32)
+                                .await;
                         }
                     }
                 });
@@ -1624,8 +1634,11 @@ impl PvcamDriver {
                     }
 
                     // Update read-only info parameters when available
-                    let _ = self.bit_depth.set(speed.bit_depth as u16).await;
-                    let _ = self.pixel_time_ns.set(speed.pix_time_ns as u32).await;
+                    let _ = self.bit_depth.set_from_hardware(speed.bit_depth as u16).await;
+                    let _ = self
+                        .pixel_time_ns
+                        .set_from_hardware(speed.pix_time_ns as u32)
+                        .await;
                 }
             }
 
@@ -1860,7 +1873,7 @@ impl PvcamDriver {
         // 4. Reload camera info (temperature, etc. may have changed)
         let conn = self.connection.lock().await;
         if let Ok(temp) = PvcamFeatures::get_temperature(&conn) {
-            let _ = self.temperature.set(temp).await;
+            let _ = self.temperature.set_from_hardware(temp).await;
         }
 
         tracing::info!("PVCAM driver reinitialized successfully");
@@ -1897,7 +1910,7 @@ impl ExposureControl for PvcamDriver {
 #[async_trait]
 impl Triggerable for PvcamDriver {
     async fn arm(&self) -> Result<()> {
-        self.armed.set(true).await
+        self.armed.set_from_hardware(true).await
     }
     async fn trigger(&self) -> Result<()> {
         // If not streaming, emulate a software trigger by acquiring a single frame.

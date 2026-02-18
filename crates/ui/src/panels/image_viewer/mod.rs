@@ -858,8 +858,14 @@ impl ImageViewerPanel {
                         .insert(buffer_key.clone(), val.to_string());
                 }
 
-                // Commit on release or focus lost
-                if (response.drag_stopped() || response.lost_focus())
+                // Commit on drag stop, focus loss, Enter, or step-button click.
+                let commit_now = (response.changed()
+                    && !response.dragged()
+                    && ui.input(|i| i.pointer.any_released() || i.key_pressed(egui::Key::Enter)))
+                    || response.drag_stopped()
+                    || response.lost_focus();
+
+                if commit_now
                     && val != param.current_value.parse().unwrap_or(0)
                 {
                     pending_update = Some(val.to_string());
@@ -921,8 +927,14 @@ impl ImageViewerPanel {
                     }
                 }
 
-                // Always send on drag stop or focus lost (for all floats, including exposure)
-                if (response.drag_stopped() || response.lost_focus()) && value_changed {
+                // Always send on drag stop/focus loss, and also on Enter/step-button changes.
+                let commit_now = (response.changed()
+                    && !response.dragged()
+                    && ui.input(|i| i.pointer.any_released() || i.key_pressed(egui::Key::Enter)))
+                    || response.drag_stopped()
+                    || response.lost_focus();
+
+                if commit_now && value_changed {
                     pending_update = Some(val.to_string());
                     if is_exposure {
                         self.exposure_last_sent = Some(Instant::now());
@@ -2574,11 +2586,19 @@ impl ImageViewerPanel {
                                 if ui
                                     .button("Apply as Hardware ROI")
                                     .on_hover_text(
-                                        "Update camera acquisition ROI (restarts stream)",
+                                        "Update camera acquisition ROI (requires stream stopped)",
                                     )
                                     .clicked()
                                 {
-                                    if let Some(roi) = self.roi_selector.roi() {
+                                    if self.subscription.is_some() {
+                                        if let Some(dev_id) = self.device_id.clone() {
+                                            self.param_errors.insert(
+                                                (dev_id, "acquisition.roi".to_string()),
+                                                "Stop streaming before applying hardware ROI"
+                                                    .to_string(),
+                                            );
+                                        }
+                                    } else if let Some(roi) = self.roi_selector.roi() {
                                         if let Some(dev_id) = self.device_id.clone() {
                                             use crate::widgets::roi_selector::RoiShape;
                                             let roi_json = match roi {
@@ -2611,7 +2631,7 @@ impl ImageViewerPanel {
                                             };
                                             self.pending_param_updates.push((
                                                 dev_id,
-                                                "roi".to_string(),
+                                                "acquisition.roi".to_string(),
                                                 roi_json.to_string(),
                                             ));
                                         }

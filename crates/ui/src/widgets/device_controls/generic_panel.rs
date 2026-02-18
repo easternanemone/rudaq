@@ -276,7 +276,10 @@ impl GenericDevicePanel {
                         m.moving = false;
                     }
                     match res {
-                        Ok(()) => self.status = Some("Move completed".to_string()),
+                        Ok(()) => {
+                            self.status = Some("Move completed".to_string());
+                            self.error = None;
+                        }
                         Err(e) => self.error = Some(format!("Move failed: {}", e)),
                     }
                 }

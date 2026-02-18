@@ -334,6 +334,7 @@ impl InstrumentManagerPanel {
                                 if online {
                                     self.status =
                                         Some(format!("{}: Connection successful", device_name));
+                                    self.error = None;
                                 } else {
                                     self.error =
                                         Some(format!("{}: Device is offline", device_name));
@@ -379,6 +380,7 @@ impl InstrumentManagerPanel {
                                     "Set {} = {} successfully",
                                     param_name, actual_value
                                 ));
+                                self.error = None;
                                 // Update the cached value
                                 if let Some(p) = self
                                     .params_viewer_params
@@ -399,6 +401,7 @@ impl InstrumentManagerPanel {
                             match result {
                                 Ok(()) => {
                                     self.status = Some("Move completed".to_string());
+                                    self.error = None;
                                     // Refresh device state after move
                                     should_fetch_device_states = true;
                                 }
@@ -414,6 +417,7 @@ impl InstrumentManagerPanel {
                                     self.last_reading
                                         .insert(device_id, (value, std::time::Instant::now()));
                                     self.status = Some(format!("Read: {:.4}", value));
+                                    self.error = None;
                                 }
                                 Err(e) => {
                                     self.error = Some(format!("Read failed: {}", e));
@@ -425,6 +429,7 @@ impl InstrumentManagerPanel {
                             match result {
                                 Ok(()) => {
                                     self.status = Some("Streaming started".to_string());
+                                    self.error = None;
                                     should_fetch_device_states = true;
                                 }
                                 Err(e) => {
@@ -437,6 +442,7 @@ impl InstrumentManagerPanel {
                             match result {
                                 Ok(()) => {
                                     self.status = Some("Streaming stopped".to_string());
+                                    self.error = None;
                                     should_fetch_device_states = true;
                                 }
                                 Err(e) => {
@@ -1480,18 +1486,7 @@ impl InstrumentManagerPanel {
             }
         }
 
-        // Generic capability-based panel (replaces per-device panels)
-        let panel = self
-            .generic_panels
-            .entry(device_id.clone())
-            .or_insert_with(|| GenericDevicePanel::from_device_info(&device));
-        ui.push_id(("instr_mgr", &device_id), |ui| {
-            panel.ui(ui, &device, client.as_deref_mut(), runtime);
-        });
-        return;
-
-        // TODO(bd-rgnx.7): remove legacy per-device panels once GenericDevicePanel is validated
-        #[allow(unreachable_code)]
+        // Per-device specialized panels provide richer controls for hardware bring-up.
         let driver_lower = device.driver_type.to_lowercase();
 
         // Check for MaiTai laser

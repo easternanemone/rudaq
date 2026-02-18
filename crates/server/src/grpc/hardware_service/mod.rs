@@ -2045,15 +2045,14 @@ impl HardwareService for HardwareServiceImpl {
             for param_name in param_set.names() {
                 if let Some(param) = param_set.get(param_name) {
                     let observable_metadata = param.metadata();
-                    let cached_metadata = self
-                        .registry
-                        .get_parameter_metadata(&req.device_id, param_name)
-                        .unwrap_or_else(|| CommonParameterMetadata::from(&observable_metadata));
+                    // Use live metadata from the parameter itself. Registry metadata is a
+                    // registration-time snapshot and can be stale for dynamic choices.
+                    let live_metadata = CommonParameterMetadata::from(&observable_metadata);
 
                     // Use introspectable dtype from metadata if available,
                     // otherwise infer from current value (best-effort fallback)
-                    let dtype = if !cached_metadata.dtype.is_empty() {
-                        cached_metadata.dtype.clone()
+                    let dtype = if !live_metadata.dtype.is_empty() {
+                        live_metadata.dtype.clone()
                     } else {
                         // Fallback: infer dtype from current value
                         match param.get_json() {
@@ -2072,19 +2071,19 @@ impl HardwareService for HardwareServiceImpl {
                         }
                     };
 
-                    let proto_metadata = proto_parameter_metadata(&cached_metadata);
+                    let proto_metadata = proto_parameter_metadata(&live_metadata);
 
                     parameters.push(ParameterDescriptor {
                         device_id: req.device_id.clone(),
                         name: observable_metadata.name.clone(),
-                        description: cached_metadata.description.clone().unwrap_or_default(),
+                        description: live_metadata.description.clone().unwrap_or_default(),
                         dtype,
-                        units: cached_metadata.units.clone().unwrap_or_default(),
+                        units: live_metadata.units.clone().unwrap_or_default(),
                         readable: true,
-                        writable: !cached_metadata.read_only,
-                        min_value: cached_metadata.min_value,
-                        max_value: cached_metadata.max_value,
-                        enum_values: cached_metadata.enum_values.clone(),
+                        writable: !live_metadata.read_only,
+                        min_value: live_metadata.min_value,
+                        max_value: live_metadata.max_value,
+                        enum_values: live_metadata.enum_values.clone(),
                         metadata: Some(proto_metadata),
                     });
                 }
@@ -2112,10 +2111,8 @@ impl HardwareService for HardwareServiceImpl {
                 let value = param.get_json().map_err(|e| {
                     map_hardware_error_to_status(&format!("Failed to get parameter: {}", e))
                 })?;
-                let units = self
-                    .registry
-                    .get_parameter_metadata(&req.device_id, &req.parameter_name)
-                    .and_then(|meta| meta.units)
+                let units = CommonParameterMetadata::from(&param.metadata())
+                    .units
                     .unwrap_or_default();
                 let timestamp_ns = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -2211,10 +2208,10 @@ impl HardwareService for HardwareServiceImpl {
                 .set_value(&req.parameter_name, json_value)
                 .await
                 .map_err(|e| {
-                    let err_msg = format!("Failed to set parameter: {}", e);
+                    let err_msg = format!("Failed to set parameter: {e}");
                     self.registry
                         .report_device_failure(&req.device_id, &err_msg);
-                    Status::invalid_argument(err_msg)
+                    map_hardware_error_to_status(&err_msg)
                 })?;
             self.registry.report_device_success(&req.device_id);
 
@@ -2259,12 +2256,10 @@ impl HardwareService for HardwareServiceImpl {
         // New path - use Parameterized trait
         if let Some(parameterized) = self.registry.get_parameterized(&req.device_id) {
             tracing::debug!(device_id = %req.device_id, param = %req.parameter_name, "set_parameter: using Parameterized path");
-            let metadata = self
-                .registry
-                .get_parameter_metadata(&req.device_id, &req.parameter_name);
             let params = parameterized.parameters();
 
             if let Some(param) = params.get(&req.parameter_name) {
+                let metadata = CommonParameterMetadata::from(&param.metadata());
                 let old_value = param.get_json().map(|v| v.to_string()).unwrap_or_default();
 
                 // Parse the value string to JSON
@@ -2277,11 +2272,11 @@ impl HardwareService for HardwareServiceImpl {
                         Status::invalid_argument(format!("Invalid value format: {}", e))
                     })?;
 
-                validate_parameter_value(&req.parameter_name, metadata.as_ref(), &json_value)?;
+                validate_parameter_value(&req.parameter_name, Some(&metadata), &json_value)?;
 
                 // Set the parameter (synchronous call, no await needed)
                 param.set_json(json_value).map_err(|e| {
-                    Status::invalid_argument(format!("Failed to set parameter: {}", e))
+                    map_anyhow_error_to_status(e)
                 })?;
 
                 let actual_value = param
@@ -2289,10 +2284,7 @@ impl HardwareService for HardwareServiceImpl {
                     .map(|v| v.to_string())
                     .unwrap_or_else(|_| req.value.clone());
 
-                let units = metadata
-                    .as_ref()
-                    .and_then(|meta| meta.units.clone())
-                    .unwrap_or_default();
+                let units = metadata.units.clone().unwrap_or_default();
 
                 tracing::debug!(
                     device_id = %req.device_id,
@@ -3070,6 +3062,50 @@ mod tests {
         assert!(p.readable);
         assert_eq!(p.units, "mm");
         assert!(p.metadata.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_parameterized_uses_live_metadata_not_registry_snapshot() {
+        let registry = create_mock_registry().await.unwrap();
+
+        // Mutate live parameter metadata after registration. Registry metadata is a snapshot
+        // and should remain stale; hardware_service must read live metadata from Parameterized.
+        let parameterized = registry
+            .get_parameterized("mock_stage")
+            .expect("mock_stage should be parameterized");
+        let position = parameterized
+            .parameters()
+            .get_typed::<Parameter<f64>>("position")
+            .expect("mock_stage.position should exist");
+        position.with_metadata(|m| m.units = Some("cm".to_string()));
+
+        let cached_units = registry
+            .get_parameter_metadata("mock_stage", "position")
+            .and_then(|m| m.units)
+            .unwrap_or_default();
+        assert_eq!(cached_units, "mm", "registry snapshot should remain stale");
+
+        let service = HardwareServiceImpl::new(Arc::new(registry));
+
+        // list_parameters should return live units
+        let list_request = Request::new(ListParametersRequest {
+            device_id: "mock_stage".to_string(),
+        });
+        let list_response = service.list_parameters(list_request).await.unwrap();
+        let listed = list_response.into_inner().parameters;
+        let listed_position = listed
+            .iter()
+            .find(|p| p.name == "position")
+            .expect("position parameter should be listed");
+        assert_eq!(listed_position.units, "cm");
+
+        // get_parameter should also return live units
+        let get_request = Request::new(GetParameterRequest {
+            device_id: "mock_stage".to_string(),
+            parameter_name: "position".to_string(),
+        });
+        let get_response = service.get_parameter(get_request).await.unwrap();
+        assert_eq!(get_response.into_inner().units, "cm");
     }
 
     #[tokio::test]
