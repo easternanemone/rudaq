@@ -290,8 +290,8 @@ To create your own plugin, copy this crate and:
 ## Related Documentation
 
 - [plugin-api](../plugin-api) - Plugin API reference
-- [Module System Design](../../docs/architecture/) - Architecture decisions
-- [Scripting Guide](../../docs/guides/rhai-scripting.md) - Alternative to native plugins
+- [Module System Design](../../docs/adr/) - Architecture decisions
+- [Scripting Guide](../../docs/how-to/scripting.md) - Alternative to native plugins
 
 ## See Also
 

@@ -295,8 +295,8 @@ let plugin = manager.load_plugin("./target/release/libmy_plugin.so")?;
 ## Related Documentation
 
 - [plugin-example](../plugin-example) - Complete working example
-- [Module System Design](../../docs/architecture/adr-module-system.md)
-- [Scripting Guide](../../docs/guides/rhai-scripting.md)
+- [Module System Design](../../docs/adr/)
+- [Scripting Guide](../../docs/how-to/scripting.md)
 
 ## See Also
 

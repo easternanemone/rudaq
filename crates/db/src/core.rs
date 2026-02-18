@@ -359,7 +359,7 @@ mod rocksdb_tests {
     /// process-global static set, so reopening the same path within the
     /// same process is impossible.
     #[tokio::test]
-    #[ignore] // only invoked as a subprocess
+    #[ignore = "only invoked as a subprocess"]
     async fn rocksdb_writer_helper() {
         let db_path = std::env::var("ROCKSDB_TEST_PATH").expect("ROCKSDB_TEST_PATH must be set");
         let db = DaqDb::init(DbConfig::rocksdb(&db_path)).await.unwrap();

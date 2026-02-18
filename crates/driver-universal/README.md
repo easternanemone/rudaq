@@ -182,5 +182,5 @@ The factory maps device categories to internal `DeviceCategory` enum:
 
 ## Further Reading
 
-- [Hardware Drivers Guide](../../docs/guides/hardware-drivers.md) — full guide including declarative driver patterns
-- [NEWCOMER_GUIDE.md](../../docs/architecture/NEWCOMER_GUIDE.md) — system architecture overview
+- [Hardware Drivers Guide](../../docs/how-to/hardware-drivers.md) — full guide including declarative driver patterns
+- [NEWCOMER_GUIDE.md](../../docs/explanation/newcomer-guide.md) — system architecture overview

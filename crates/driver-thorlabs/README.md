@@ -288,4 +288,4 @@ assert_eq!(actual, 50);
 
 - [CLAUDE.md - Hardware Drivers](../../CLAUDE.md#serial-driver-conventions) - Serial driver patterns and conventions
 - [CLAUDE.md - ELL14 Specifics](../../CLAUDE.md#ell14-rotator-rs-485-bus) - Velocity control and calibration
-- [Hardware Drivers Guide](../../docs/guides/hardware-drivers.md) - General driver development
+- [Hardware Drivers Guide](../../docs/how-to/hardware-drivers.md) - General driver development

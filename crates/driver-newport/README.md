@@ -380,4 +380,4 @@ dmesg | grep ttyUSB
 
 - [CLAUDE.md - Serial Driver Conventions](../../CLAUDE.md#serial-driver-conventions) - General serial driver patterns
 - [CLAUDE.md - Hardware Inventory](../../CLAUDE.md#hardware-inventory-maitai) - Device port mappings
-- [Hardware Drivers Guide](../../docs/guides/hardware-drivers.md) - General driver development
+- [Hardware Drivers Guide](../../docs/how-to/hardware-drivers.md) - General driver development

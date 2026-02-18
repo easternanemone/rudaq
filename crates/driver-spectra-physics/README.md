@@ -374,4 +374,4 @@ emission.enable_emission().await?;
 
 - [CLAUDE.md - MaiTai Hardware Specifics](../../CLAUDE.md#spectra-physics-setup) - Serial configuration and protocol details
 - [CLAUDE.md - Serial Driver Conventions](../../CLAUDE.md#serial-driver-conventions) - General serial driver patterns
-- [Hardware Drivers Guide](../../docs/guides/hardware-drivers.md) - General driver development
+- [Hardware Drivers Guide](../../docs/how-to/hardware-drivers.md) - General driver development

@@ -2,7 +2,7 @@
 
 **A modular, high-performance Data Acquisition system for scientific research.**
 
-[![Architecture Status](https://img.shields.io/badge/Architecture-V6_In_Progress-blue)](docs/architecture/ARCHITECTURE.md)
+[![Architecture Status](https://img.shields.io/badge/Architecture-V6_In_Progress-blue)](docs/explanation/architecture.md)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#building)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](#license)
 [![Rust 1.75+](https://img.shields.io/badge/Rust-1.75%2B-orange)](#prerequisites)
@@ -25,7 +25,7 @@ cargo run --bin rust-daq-daemon -- daemon --hardware-config config/demo.toml
 cargo run --bin rust-daq-daemon -- run examples/demo_scan.rhai
 ```
 
-**That's it!** You just executed an automated scan with mock motion stage, power meter, and camera. Ready for real hardware? See the [Demo Mode Guide](DEMO.md).
+**That's it!** You just executed an automated scan with mock motion stage, power meter, and camera. Ready for real hardware? See the [Demo Mode Guide](docs/tutorials/demo-mode.md).
 
 ---
 
@@ -88,7 +88,7 @@ cargo run --bin rust-daq-daemon -- run examples/demo_scan.rhai
 | **Interfaces** | `server`, `ui`, `protocol` | gRPC, GUI, and network protocol |
 | **Data** | `storage`, `pool` | Persistence and high-performance buffers |
 
-Full architecture docs: [System Architecture](docs/architecture/ARCHITECTURE.md)
+Full architecture docs: [System Architecture](docs/explanation/architecture.md)
 
 ---
 
@@ -104,7 +104,7 @@ Full architecture docs: [System Architecture](docs/architecture/ARCHITECTURE.md)
 | **DAQ** | NI PCI-MIO-16XE-10 | Readable, Settable (Comedi) | Production | `comedi_hardware` |
 | **Simulation** | Mock Stage, Mock Camera, Mock Sensors | All traits | Production | Built-in |
 
-**Maitai Lab Configuration:** All 9+ devices integrated and tested. See [Maitai Setup Guide](docs/MAITAI_SETUP.md).
+**Maitai Lab Configuration:** All 9+ devices integrated and tested. See [Maitai Setup Guide](docs/how-to/hardware-setup.md).
 
 ---
 
@@ -310,7 +310,7 @@ cargo test --doc
 source scripts/env-check.sh && cargo nextest run --features hardware_tests
 ```
 
-See [Testing Guide](docs/guides/testing.md) for comprehensive testing documentation.
+See [Testing Guide](docs/how-to/testing.md) for comprehensive testing documentation.
 
 ---
 
@@ -320,13 +320,13 @@ See [Testing Guide](docs/guides/testing.md) for comprehensive testing documentat
 
 | Document | Purpose |
 |----------|---------|
-| **[Demo Mode Guide](DEMO.md)** | Try rust-daq without hardware in 2 minutes |
-| **[System Architecture](docs/architecture/ARCHITECTURE.md)** | Deep dive into design and component interaction |
-| **[Scripting Guide](docs/guides/scripting.md)** | Write Rhai scripts to control hardware |
-| **[Hardware Drivers Guide](docs/guides/hardware-drivers.md)** | Implement drivers for new instruments |
-| **[Storage Formats Guide](docs/guides/storage-formats.md)** | Choose data format (HDF5, Arrow, CSV) |
-| **[Testing Guide](docs/guides/testing.md)** | Run and write tests |
-| **[Maitai Hardware Setup](docs/MAITAI_SETUP.md)** | Configure real hardware on maitai machine |
+| **[Demo Mode Guide](docs/tutorials/demo-mode.md)** | Try rust-daq without hardware in 2 minutes |
+| **[System Architecture](docs/explanation/architecture.md)** | Deep dive into design and component interaction |
+| **[Scripting Guide](docs/how-to/scripting.md)** | Write Rhai scripts to control hardware |
+| **[Hardware Drivers Guide](docs/how-to/hardware-drivers.md)** | Implement drivers for new instruments |
+| **[Storage Formats Guide](docs/how-to/storage-formats.md)** | Choose data format (HDF5, Arrow, CSV) |
+| **[Testing Guide](docs/how-to/testing.md)** | Run and write tests |
+| **[Maitai Hardware Setup](docs/how-to/hardware-setup.md)** | Configure real hardware on maitai machine |
 
 ### Complete Documentation Hub
 
@@ -347,14 +347,14 @@ Each crate has detailed README with API examples:
 
 ## Architecture Decision Records (ADRs)
 
-Major design decisions are documented in [docs/architecture/](docs/architecture/):
+Major design decisions are documented in [docs/adr/](docs/adr/):
 
-- **[ADR: PVCAM Continuous Acquisition](docs/architecture/adr-pvcam-continuous-acquisition.md)** - Camera buffering strategies
-- **[ADR: PVCAM Driver Architecture](docs/architecture/adr-pvcam-driver-architecture.md)** - Multi-layer driver patterns
-- **[ADR: Connection Reliability](docs/architecture/adr-connection-reliability.md)** - Serial device robustness
-- **[ADR: gRPC Validation Layer](docs/architecture/adr-grpc-validation-layer.md)** - Protocol validation strategy
+- **[ADR: PVCAM Continuous Acquisition](docs/adr/008-pvcam-continuous-acquisition.md)** - Camera buffering strategies
+- **[ADR: PVCAM Driver Architecture](docs/adr/009-pvcam-driver-architecture.md)** - Multi-layer driver patterns
+- **[ADR: Connection Reliability](docs/adr/002-connection-reliability.md)** - Serial device robustness
+- **[ADR: gRPC Validation Layer](docs/adr/003-grpc-validation-layer.md)** - Protocol validation strategy
 
-See [Feature Matrix](docs/architecture/FEATURE_MATRIX.md) for implementation status of all major features.
+See [Feature Matrix](docs/reference/feature-matrix.md) for implementation status of all major features.
 
 ---
 
@@ -366,7 +366,7 @@ See [Feature Matrix](docs/architecture/FEATURE_MATRIX.md) for implementation sta
 - **Parallel Testing**: Nextest runs tests in parallel with optimized scheduling
 - **Adaptive Quality Modes**: Stream quality selection (Full/Preview/Fast) for bandwidth control
 
-See [Performance Analysis](docs/architecture/analysis-pvcam-performance-gap.md) for benchmarking results.
+See [Performance Analysis](docs/adr/analysis-pvcam-performance-gap.md) for benchmarking results.
 
 ---
 
@@ -399,7 +399,7 @@ impl DriverFactory for MyDriverFactory {
 registry.register_factory(Box::new(MyDriverFactory));
 ```
 
-See [Hardware Drivers Guide](docs/guides/hardware-drivers.md) for patterns and examples.
+See [Hardware Drivers Guide](docs/how-to/hardware-drivers.md) for patterns and examples.
 
 ### Use the Plugin System
 
@@ -414,7 +414,7 @@ pub fn create_plugin() -> Box<dyn Plugin> {
 }
 ```
 
-See [Plugin Quick Start](docs/plugins/QUICK_START.md).
+See [Plugin Quick Start](docs/how-to/plugins.md).
 
 ---
 
@@ -494,7 +494,7 @@ See [Troubleshooting Guide](docs/README.md#troubleshooting--reference) for more 
 We welcome contributions! Start here:
 
 1. **Report Issues**: Use GitHub issues with detailed reproduction steps
-2. **Write Tests**: All new features require tests. See [Testing Guide](docs/guides/testing.md)
+2. **Write Tests**: All new features require tests. See [Testing Guide](docs/how-to/testing.md)
 3. **Follow Style**: Run `cargo fmt --all` and `cargo clippy --all-targets`
 4. **Document Changes**: Update relevant README and ADR docs
 5. **Read CLAUDE.md**: Project-specific development guidelines in [CLAUDE.md](CLAUDE.md)
@@ -518,17 +518,17 @@ Both are compatible with most commercial and open-source projects.
 
 ## Getting Help
 
-- **Quick Question?** Check [Documentation Hub](docs/README.md) or [Demo Guide](DEMO.md)
-- **Build Problem?** See [Build Verification](docs/BUILD_VERIFICATION.md)
-- **Hardware Issue?** Check [Maitai Setup](docs/MAITAI_SETUP.md) or [Troubleshooting](docs/README.md#troubleshooting--reference)
-- **Want to Extend?** Read [Hardware Drivers Guide](docs/guides/hardware-drivers.md) or [Plugin Quick Start](docs/plugins/QUICK_START.md)
+- **Quick Question?** Check [Documentation Hub](docs/README.md) or [Demo Guide](docs/tutorials/demo-mode.md)
+- **Build Problem?** See [Build Verification](docs/how-to/build-and-run.md)
+- **Hardware Issue?** Check [Maitai Setup](docs/how-to/hardware-setup.md) or [Platform Notes](docs/how-to/platform-notes.md)
+- **Want to Extend?** Read [Hardware Drivers Guide](docs/how-to/hardware-drivers.md) or [Plugin Quick Start](docs/how-to/plugins.md)
 - **Found a Bug?** Open an issue with reproduction steps
 
 ---
 
 ## Project Status
 
-- **V6 Architecture**: In progress — V5 stable, V6 usability improvements underway (See [ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md))
+- **V6 Architecture**: In progress — V5 stable, V6 usability improvements underway (See [ARCHITECTURE.md](docs/explanation/architecture.md))
 - **Core Features**: Production-ready (scripting, drivers, storage, gRPC)
 - **Hardware Support**: 9+ devices tested and verified on maitai machine (camera, laser, power meter, 3 rotators, motion controller, 2 Comedi channels)
 - **Documentation**: Comprehensive with ADRs for all major design decisions
@@ -538,4 +538,4 @@ Both are compatible with most commercial and open-source projects.
 
 **Built with ❤️ for scientific research.**
 
-For the latest updates, see the [Architecture Status](docs/architecture/FEATURE_MATRIX.md).
+For the latest updates, see the [Architecture Status](docs/reference/feature-matrix.md).

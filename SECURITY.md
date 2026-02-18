@@ -122,5 +122,5 @@ If you discover a security vulnerability in rust-daq, please report it responsib
 ## Related Documentation
 
 - [CLAUDE.md](CLAUDE.md) - Development guidelines and architecture overview
-- [docs/architecture/](docs/architecture/) - Architecture Decision Records
+- [docs/adr/](docs/adr/) - Architecture Decision Records
 - Plugin API: `crates/plugin-api/`

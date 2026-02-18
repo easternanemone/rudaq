@@ -18,7 +18,7 @@ Comedi supports a wide variety of data acquisition devices:
 - **ADDI-DATA** - APCIexx, APCxx series
 - Many others via the Linux kernel comedi driver framework
 
-For hardware inventory and setup, see `CLAUDE.md` or `docs/guides/comedi-setup.md`.
+For hardware inventory and setup, see `CLAUDE.md` or `docs/how-to/comedi-setup.md`.
 
 ## Key Features
 
@@ -167,9 +167,9 @@ For safer abstractions, see the `driver-comedi` crate.
 
 ## Related Documentation
 
-- [Comedi Setup Guide](../../docs/guides/comedi-setup.md) - Full hardware setup
+- [Comedi Setup Guide](../../docs/how-to/comedi-setup.md) - Full hardware setup
 - [driver-comedi](../driver-comedi) - Safe Rust wrapper
-- [Testing Guide](../../docs/guides/testing.md)
+- [Testing Guide](../../docs/how-to/testing.md)
 
 ## See Also
 

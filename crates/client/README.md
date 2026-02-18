@@ -179,8 +179,8 @@ async fn example() -> Result<String> {
 ## Related Documentation
 
 - [Main README](../../README.md) - Project overview
-- [gRPC API Documentation](../../docs/api/grpc.md) - Full API specification
-- [Testing Guide](../../docs/guides/testing.md) - Test patterns
+- [gRPC API Documentation](../../docs/reference/grpc-api.md) - Full API specification
+- [Testing Guide](../../docs/how-to/testing.md) - Test patterns
 
 ## See Also
 

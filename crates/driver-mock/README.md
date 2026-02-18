@@ -216,5 +216,5 @@ cargo run --bin rust-daq-daemon -- daemon --hardware-config config/demo_mock_all
 
 ## See Also
 
-- [DEMO.md](../../DEMO.md) - Quick start with mock devices
-- [Testing Guide](../../docs/guides/testing.md) - Testing patterns
+- [DEMO.md](../../docs/tutorials/demo-mode.md) - Quick start with mock devices
+- [Testing Guide](../../docs/how-to/testing.md) - Testing patterns

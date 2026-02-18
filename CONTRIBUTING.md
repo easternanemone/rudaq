@@ -194,7 +194,7 @@ the suppression is necessary. See `bd-m5fh.4.2` for the audit that added these.
 
 - All deprecated items must include a `note` with replacement guidance
 - Items with zero external callers should be removed immediately
-- Items with callers carry `Sunset: v1.0` and are tracked in `docs/architecture/ARCHITECTURE.md`
+- Items with callers carry `Sunset: v1.0` and are tracked in `docs/explanation/architecture.md`
 - New code must not call deprecated items
 
 ## Pull Request Process
@@ -318,7 +318,7 @@ rust-daq/
 
 ### Adding a New Driver
 
-See `docs/architecture/NEWCOMER_GUIDE.md` for detailed instructions.
+See `docs/explanation/newcomer-guide.md` for detailed instructions.
 
 Quick summary:
 1. Create a new crate `driver-mydevice`

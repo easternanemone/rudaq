@@ -161,10 +161,19 @@ pub struct RunStartDoc {
 impl RunStartDoc {
     /// Add metadata to this run start.
     pub fn with_metadata(mut self, key: impl Into<String>, value: impl Serialize) -> Self {
-        self.metadata.insert(
-            key.into(),
-            serde_json::to_value(value).expect("Metadata value should be JSON-serializable"),
-        );
+        let key = key.into();
+        match serde_json::to_value(&value) {
+            Ok(v) => {
+                self.metadata.insert(key, v);
+            }
+            Err(e) => {
+                tracing::warn!(key = %key, error = %e, "Failed to serialize metadata value, storing as error string");
+                self.metadata.insert(
+                    key,
+                    serde_json::Value::String(format!("<serialization error: {e}>")),
+                );
+            }
+        }
         self
     }
 }

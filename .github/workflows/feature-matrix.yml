@@ -1,0 +1,92 @@
+name: Feature Matrix
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "history/**"
+      - ".beads/**"
+  push:
+    branches: ["main"]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "history/**"
+      - ".beads/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: feature-matrix-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  feature-matrix:
+    name: "${{ matrix.name }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "storage / hdf5"
+            package: storage
+            features: storage_hdf5
+          - name: "storage / arrow"
+            package: storage
+            features: storage_arrow
+          - name: "daq-modules / native_plugins"
+            package: daq-modules
+            features: native_plugins
+          - name: "db / rocksdb"
+            package: db
+            features: kv-rocksdb
+          - name: "server / all_hardware mock"
+            package: server
+            features: all_hardware
+          - name: "server / full stack"
+            package: server
+            features: modules,scripting,storage_hdf5,storage_arrow
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup environment
+        uses: ./.github/actions/setup-daq
+        with:
+          dependency-profile: minimal
+          components: clippy
+          cache-key: feature-matrix-${{ matrix.package }}-${{ matrix.features }}
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Clippy (${{ matrix.name }})
+        run: |
+          cargo clippy -p ${{ matrix.package }} \
+            --features ${{ matrix.features }} \
+            --all-targets \
+            -- -D warnings
+
+      - name: Tests (${{ matrix.name }})
+        run: |
+          cargo nextest run -p ${{ matrix.package }} \
+            --features ${{ matrix.features }} \
+            --profile ci

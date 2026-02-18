@@ -32,6 +32,10 @@ tokio = { workspace = true, features = ["full"] }
 mimalloc = { version = "0.1", default-features = false }
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 
+[dev-dependencies]
+libc = "0.2"
+tempfile.workspace = true
+
 [features]
 default = ["networking", "server"]
 networking = []

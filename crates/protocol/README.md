@@ -309,7 +309,7 @@ use protocol::daq::{ListPluginsRequest, PluginInfo, SpawnPluginRequest};
 
 ## Related Documentation
 
-- [gRPC API Reference](../../docs/api/grpc.md) - Full API documentation
+- [gRPC API Reference](../../docs/reference/grpc-api.md) - Full API documentation
 - [Server Implementation](../server) - Uses protocol definitions
 - [Client Library](../client) - Consumes protocol definitions
 

@@ -6,7 +6,7 @@
 //! - `FrameValidator`: Frame data integrity validation
 //! - Assertion helpers with tolerance support for performance tests
 //!
-//! See: `docs/architecture/adr-pvcam-continuous-acquisition.md` for background.
+//! See: `docs/adr/008-pvcam-continuous-acquisition.md` for background.
 
 #![allow(dead_code)] // Utilities may not all be used in every test file
 

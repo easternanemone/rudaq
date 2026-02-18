@@ -41,7 +41,7 @@ The Navigation panel acts as the command center:
 
 ## Connection Management
 
-The GUI implements robust connection handling with auto-reconnect, health monitoring, and graceful offline degradation. See [ADR: Connection Reliability](../../docs/architecture/adr-connection-reliability.md) for architectural details.
+The GUI implements robust connection handling with auto-reconnect, health monitoring, and graceful offline degradation. See [ADR: Connection Reliability](../../docs/adr/002-connection-reliability.md) for architectural details.
 
 ### Connection States
 

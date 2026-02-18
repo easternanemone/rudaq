@@ -556,10 +556,16 @@ impl ModuleRegistry {
 
     /// Create a new module instance
     pub fn create_module(&mut self, type_id: &str, name: &str) -> Result<String> {
-        let factory = self
-            .module_types
-            .get(type_id)
-            .ok_or_else(|| anyhow!("Unknown module type: {}", type_id))?;
+        let factory = self.module_types.get(type_id).ok_or_else(|| {
+            if self.type_info_cache.contains_key(type_id) {
+                anyhow!(
+                    "Module type '{}' is a plugin type. Use create_plugin_module() instead.",
+                    type_id
+                )
+            } else {
+                anyhow!("Unknown module type: {}", type_id)
+            }
+        })?;
 
         let module = factory();
         let id = Uuid::new_v4().to_string();
@@ -833,18 +839,11 @@ impl ModuleRegistry {
             self.type_info_cache
                 .insert(type_id.clone(), factory.type_info().clone());
 
-            // Note: We can't store a traditional factory function because plugin
-            // modules require the PluginManager to create instances. Instead,
-            // create_module() will need to check for plugin types specially.
-            // For now, store a marker factory that panics (real creation happens
-            // via create_plugin_module)
-            let panic_factory: ModuleFactory = || {
-                panic!(
-                    "Plugin module factory should not be called directly. \
-                     Use create_plugin_module() instead."
-                )
-            };
-            self.module_types.insert(type_id.clone(), panic_factory);
+            // Note: We intentionally do NOT store a factory in module_types for
+            // plugin types. Plugin modules require the PluginManager to create
+            // instances, so they must use create_plugin_module() instead.
+            // create_module() checks type_info_cache to provide a helpful error
+            // if someone tries to create a plugin type through the wrong path.
 
             info!(
                 "Registered plugin module type: {} (from {})",

@@ -869,7 +869,7 @@ mod trait_compatibility {
 
     async fn exercise_wavelength_tunable(wt: &impl WavelengthTunable) {
         let (min, max) = wt.wavelength_range();
-        let mid = (min + max) / 2.0;
+        let mid = f64::midpoint(min, max);
 
         wt.set_wavelength(mid).await.unwrap();
         let actual = wt.get_wavelength().await.unwrap();

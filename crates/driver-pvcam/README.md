@@ -126,7 +126,7 @@ export LIBRARY_PATH=/opt/pvcam/library/x86_64:$LIBRARY_PATH
 export LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:/opt/pvcam/drivers/user-mode:$LD_LIBRARY_PATH
 ```
 
-For deeper setup and debugging, see [PVCAM Setup & Troubleshooting](../../docs/troubleshooting/PVCAM_SETUP.md).
+For deeper setup and debugging, see [PVCAM Setup & Troubleshooting](../../docs/how-to/pvcam-setup.md).
 
 ## Running PVCAM SDK examples (remote helper)
 

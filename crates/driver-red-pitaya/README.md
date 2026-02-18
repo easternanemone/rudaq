@@ -361,7 +361,7 @@ async fn stabilize_laser() -> anyhow::Result<()> {
 ## Related Documentation
 
 - [CLAUDE.md - Red Pitaya Setup](../../CLAUDE.md#red-pitaya) - Detailed hardware configuration
-- [Hardware Drivers Guide](../../docs/guides/hardware-drivers.md) - General driver patterns
+- [Hardware Drivers Guide](../../docs/how-to/hardware-drivers.md) - General driver patterns
 
 ## See Also
 

@@ -103,4 +103,4 @@ let count = registry.register_plugin_types(&plugin_manager);
 
 - [`common`](../common/README.md) — Capability traits and observable parameters
 - [`hardware`](../hardware/README.md) — Device registry
-- [Scripting Guide](../../docs/guides/scripting.md) — Rhai-based automation (alternative to modules)
+- [Scripting Guide](../../docs/how-to/scripting.md) — Rhai-based automation (alternative to modules)

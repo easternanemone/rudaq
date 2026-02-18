@@ -25,7 +25,6 @@
 
 use common::capabilities::{ExposureControl, FrameProducer, Triggerable};
 use driver_andor_sdk3::{AndorCamera, AndorSpectrograph, FilterPosition, SlitPort};
-use std::env;
 
 // =============================================================================
 // Test Configuration (used by feature-gated hardware tests)

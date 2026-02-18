@@ -220,4 +220,4 @@ WantedBy=multi-user.target
 - [`server`](../server/) - gRPC service implementations
 - [`hardware`](../hardware/) - Device registry and drivers
 - [`scripting`](../scripting/) - Script execution engine
-- [DEMO.md](../../DEMO.md) - Getting started guide
+- [DEMO.md](../../docs/tutorials/demo-mode.md) - Getting started guide

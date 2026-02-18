@@ -181,7 +181,20 @@ impl Module for FfiModuleWrapper {
     where
         Self: Sized,
     {
-        panic!("FfiModuleWrapper::type_info() should not be called - use instance type_info")
+        // FfiModuleWrapper is never registered via register_type<T>(), so this
+        // static method should not be called. Return a placeholder instead of
+        // panicking to avoid crashing if it is reached unexpectedly.
+        ModuleTypeInfo {
+            type_id: "ffi_wrapper_placeholder".to_string(),
+            display_name: "FFI Module Wrapper".to_string(),
+            description: "Placeholder — use instance type_info() instead".to_string(),
+            version: "0.0.0".to_string(),
+            parameters: vec![],
+            event_types: vec![],
+            data_types: vec![],
+            required_roles: vec![],
+            optional_roles: vec![],
+        }
     }
 
     fn type_id(&self) -> &str {

@@ -89,5 +89,5 @@ Rust LSP is enabled in `.claude/settings.json`:
 ## References
 
 - Canonical agent policy: `AGENTS.md`
-- Testing details: `docs/guides/testing.md`
+- Testing details: `docs/how-to/testing.md`
 - Feature flags: `config/feature_flags.toml`

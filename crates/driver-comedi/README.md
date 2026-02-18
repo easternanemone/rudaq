@@ -448,4 +448,4 @@ let rate = 10000.0 * n_channels as f64;  // 10 kS/s per channel
 
 - [CLAUDE.md - Comedi DAQ](../../CLAUDE.md#comedi-daq-ni-pci-mio-16xe-10) - Hardware specifics and channel mapping
 - [CLAUDE.md - Hardware Inventory](../../CLAUDE.md#hardware-inventory-maitai) - maitai device configuration
-- [Hardware Drivers Guide](../../docs/guides/hardware-drivers.md) - General driver development
+- [Hardware Drivers Guide](../../docs/how-to/hardware-drivers.md) - General driver development

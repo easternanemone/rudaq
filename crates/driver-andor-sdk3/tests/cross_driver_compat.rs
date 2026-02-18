@@ -152,7 +152,7 @@ impl FrameObserver for CapturingObserverWrapper {
         self.state
             .pixel_len
             .store(frame.pixels().len() as u64, Ordering::Relaxed);
-        let has_exp = if frame.exposure_ms.is_some() { 1 } else { 0 };
+        let has_exp = u64::from(frame.exposure_ms.is_some());
         self.state.has_exposure.store(has_exp, Ordering::Relaxed);
     }
 

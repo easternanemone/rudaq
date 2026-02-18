@@ -1104,7 +1104,7 @@ impl NiDaqService for NiDaqServiceImpl {
                                 unit: match r.unit {
                                     0 => "V".to_string(),
                                     1 => "mA".to_string(),
-                                    _ => "".to_string(),
+                                    _ => String::new(),
                                 },
                             })
                             .collect()
@@ -1124,7 +1124,7 @@ impl NiDaqService for NiDaqServiceImpl {
                                     unit: match r.unit {
                                         0 => "V".to_string(),
                                         1 => "mA".to_string(),
-                                        _ => "".to_string(),
+                                        _ => String::new(),
                                     },
                                 })
                                 .collect()

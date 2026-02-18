@@ -5,7 +5,6 @@
 //! controls based on plugin YAML definitions.
 
 #[cfg(feature = "serial")]
-#[cfg(feature = "serial")]
 use hardware::plugin::driver::GenericDriver;
 #[cfg(feature = "serial")]
 use hardware::plugin::registry::PluginFactory;
@@ -203,10 +202,10 @@ impl PluginService for PluginServiceImpl {
                     let driver_type = driver_type_to_string(&config.metadata.driver_type);
 
                     // Apply filter if provided
-                    if let Some(ref filter) = req.driver_type_filter {
-                        if &driver_type != filter {
-                            continue;
-                        }
+                    if let Some(ref filter) = req.driver_type_filter
+                        && &driver_type != filter
+                    {
+                        continue;
                     }
 
                     let caps = &config.capabilities;
@@ -617,39 +616,39 @@ impl PluginService for PluginServiceImpl {
         if let Some(instance) = instances.remove(&req.instance_id) {
             // Execute on_disconnect sequence if requested
             #[cfg(feature = "serial")]
-            if req.run_disconnect_sequence {
-                if let Some(driver) = &instance.driver {
-                    let disconnect_sequence = &driver.config.on_disconnect;
-                    if !disconnect_sequence.is_empty() {
-                        tracing::info!(
-                            "Executing on_disconnect sequence for instance '{}' ({} commands)",
-                            req.instance_id,
-                            disconnect_sequence.len()
-                        );
+            if req.run_disconnect_sequence
+                && let Some(driver) = &instance.driver
+            {
+                let disconnect_sequence = &driver.config.on_disconnect;
+                if !disconnect_sequence.is_empty() {
+                    tracing::info!(
+                        "Executing on_disconnect sequence for instance '{}' ({} commands)",
+                        req.instance_id,
+                        disconnect_sequence.len()
+                    );
 
-                        match driver.execute_command_sequence(disconnect_sequence).await {
-                            Ok(()) => {
-                                tracing::info!(
-                                    "Successfully executed on_disconnect sequence for instance '{}'",
-                                    req.instance_id
-                                );
-                            }
-                            Err(e) => {
-                                // Log the error but don't fail the destroy operation
-                                tracing::warn!(
-                                    "Error executing on_disconnect sequence for instance '{}': {}. \
-                                     Continuing with instance destruction.",
-                                    req.instance_id,
-                                    e
-                                );
-                            }
+                    match driver.execute_command_sequence(disconnect_sequence).await {
+                        Ok(()) => {
+                            tracing::info!(
+                                "Successfully executed on_disconnect sequence for instance '{}'",
+                                req.instance_id
+                            );
                         }
-                    } else {
-                        tracing::debug!(
-                            "No on_disconnect commands defined for instance '{}'",
-                            req.instance_id
-                        );
+                        Err(e) => {
+                            // Log the error but don't fail the destroy operation
+                            tracing::warn!(
+                                "Error executing on_disconnect sequence for instance '{}': {}. \
+                                 Continuing with instance destruction.",
+                                req.instance_id,
+                                e
+                            );
+                        }
                     }
+                } else {
+                    tracing::debug!(
+                        "No on_disconnect commands defined for instance '{}'",
+                        req.instance_id
+                    );
                 }
             }
 

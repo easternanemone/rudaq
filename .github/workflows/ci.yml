@@ -59,14 +59,10 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
 
-      - name: Clippy (Linux-safe workspace scope)
+      - name: Clippy (workspace scope)
         run: |
           cargo clippy --workspace --all-targets \
             --exclude ui \
-            --exclude driver-dover-motion \
-            --exclude driver-andor-sdk3 \
-            --exclude dover-motion-sys \
-            --exclude andor-sdk3-sys \
             --exclude comedi-sys \
             --exclude driver-comedi \
             -- -D warnings
@@ -96,9 +92,5 @@ jobs:
           cargo nextest run --workspace --profile ci \
             --exclude ui \
             --exclude driver-generic \
-            --exclude driver-dover-motion \
-            --exclude driver-andor-sdk3 \
-            --exclude dover-motion-sys \
-            --exclude andor-sdk3-sys \
             --exclude comedi-sys \
             --exclude driver-comedi

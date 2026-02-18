@@ -459,7 +459,7 @@ async fn test_stress_sustained_streaming() {
                 tracker.record(frame.frame_number);
 
                 // Progress every 25 frames
-                if tracker.frame_count % 25 == 0 {
+                if tracker.frame_count.is_multiple_of(25) {
                     let elapsed = start.elapsed();
                     let fps = tracker.frame_count as f64 / elapsed.as_secs_f64();
                     println!(
@@ -475,12 +475,11 @@ async fn test_stress_sustained_streaming() {
             }
             Err(_) => {
                 timeout_errors += 1;
-                if timeout_errors > 5 {
-                    panic!(
-                        "Too many timeouts ({}) at frame {}",
-                        timeout_errors, tracker.frame_count
-                    );
-                }
+                assert!(
+                    timeout_errors <= 5,
+                    "Too many timeouts ({timeout_errors}) at frame {}",
+                    tracker.frame_count
+                );
             }
         }
     }

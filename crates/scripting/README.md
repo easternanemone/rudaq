@@ -778,8 +778,8 @@ This ensures:
 
 - [hardware README](../hardware/README.md) - Hardware abstraction and driver patterns
 - [experiment README](../experiment/README.md) - Plan definitions and experiment execution
-- [docs/guides/scripting.md](../../docs/guides/scripting.md) - Scripting guide with examples
-- [Architecture: Script Execution Model](../../docs/architecture/adr-script-execution.md)
+- [Scripting Guide](../../docs/how-to/scripting.md) - Scripting guide with examples
+- [Architecture: Script Execution Model](../../docs/adr/)
 
 ## Contributing
 

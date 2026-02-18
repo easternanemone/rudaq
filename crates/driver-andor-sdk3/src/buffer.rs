@@ -169,7 +169,7 @@ mod tests {
     fn test_aligned_buffer_allocation() {
         let buf = AlignedBuffer::new(4096);
         assert_eq!(buf.size(), 4096);
-        assert!(buf.as_ptr() as usize % SDK3_BUFFER_ALIGNMENT == 0);
+        assert!((buf.as_ptr() as usize).is_multiple_of(SDK3_BUFFER_ALIGNMENT));
     }
 
     #[test]
@@ -214,7 +214,7 @@ mod tests {
         let set = SdkBufferSet::new(5, 1024);
         for buf in set.iter() {
             assert!(
-                buf.as_ptr() as usize % SDK3_BUFFER_ALIGNMENT == 0,
+                (buf.as_ptr() as usize).is_multiple_of(SDK3_BUFFER_ALIGNMENT),
                 "buffer not 8-byte aligned"
             );
         }
