@@ -313,6 +313,16 @@ impl DaemonInstance {
                         "   🗄️  Shadowed config to DB ({} drivers, {} instruments)",
                         drivers, instruments
                     );
+
+                    // Set config_hash for each TOML-registered device so the
+                    // initial reconcile sees old_hash == new_hash (unchanged).
+                    // Without this, all devices appear "changed" because
+                    // registry defaults config_hash to 0.
+                    let db_instruments = db_bridge::devices_to_db(hw_config);
+                    for inst in &db_instruments {
+                        let hash = crate::reconciler::config_hash(&inst.config);
+                        registry.set_config_hash(&inst.device_id, hash);
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "Shadow DB write failed — continuing without persistence");

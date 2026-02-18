@@ -6424,6 +6424,7 @@ dependencies = [
  "chrono",
  "common",
  "daq-modules",
+ "db",
  "driver-mock",
  "driver-pvcam",
  "driver-universal",

@@ -412,21 +412,21 @@ impl ComediStreamWriter {
             meta_group
                 .new_attr::<VarLenUnicode>()
                 .create("hardware_id")?
-                .write_scalar(
-                    &metadata
-                        .hardware_id
-                        .parse::<VarLenUnicode>()
-                        .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
-                )?;
+                .write_scalar(&metadata.hardware_id.parse::<VarLenUnicode>().map_err(|e| {
+                    DaqError::Storage(StorageError::new(
+                        StorageErrorKind::Hdf5,
+                        format!("VarLenUnicode parse: {}", e),
+                    ))
+                })?)?;
             meta_group
                 .new_attr::<VarLenUnicode>()
                 .create("device_path")?
-                .write_scalar(
-                    &metadata
-                        .device_path
-                        .parse::<VarLenUnicode>()
-                        .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
-                )?;
+                .write_scalar(&metadata.device_path.parse::<VarLenUnicode>().map_err(|e| {
+                    DaqError::Storage(StorageError::new(
+                        StorageErrorKind::Hdf5,
+                        format!("VarLenUnicode parse: {}", e),
+                    ))
+                })?)?;
             meta_group
                 .new_attr::<u32>()
                 .create("subdevice")?
@@ -439,11 +439,12 @@ impl ComediStreamWriter {
                     user_group
                         .new_attr::<VarLenUnicode>()
                         .create(&key[..])?
-                        .write_scalar(
-                            &value
-                                .parse::<VarLenUnicode>()
-                                .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
-                        )?;
+                        .write_scalar(&value.parse::<VarLenUnicode>().map_err(|e| {
+                            DaqError::Storage(StorageError::new(
+                                StorageErrorKind::Hdf5,
+                                format!("VarLenUnicode parse: {}", e),
+                            ))
+                        })?)?;
                 }
             }
 
@@ -490,21 +491,23 @@ impl ComediStreamWriter {
                 ch_group
                     .new_attr::<VarLenUnicode>()
                     .create("units")?
-                    .write_scalar(
-                        &ch.units
-                            .parse::<VarLenUnicode>()
-                            .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
-                    )?;
+                    .write_scalar(&ch.units.parse::<VarLenUnicode>().map_err(|e| {
+                        DaqError::Storage(StorageError::new(
+                            StorageErrorKind::Hdf5,
+                            format!("VarLenUnicode parse: {}", e),
+                        ))
+                    })?)?;
 
                 if let Some(ref desc) = ch.description {
                     ch_group
                         .new_attr::<VarLenUnicode>()
                         .create("description")?
-                        .write_scalar(
-                            &desc
-                                .parse::<VarLenUnicode>()
-                                .map_err(|e| DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, format!("VarLenUnicode parse: {}", e))))?,
-                        )?;
+                        .write_scalar(&desc.parse::<VarLenUnicode>().map_err(|e| {
+                            DaqError::Storage(StorageError::new(
+                                StorageErrorKind::Hdf5,
+                                format!("VarLenUnicode parse: {}", e),
+                            ))
+                        })?)?;
                 }
 
                 // Create data dataset for this channel
@@ -542,7 +545,8 @@ impl ComediStreamWriter {
         if !samples.len().is_multiple_of(num_channels) {
             return Err(DaqError::Processing(format!(
                 "Sample count {} is not divisible by channel count {}",
-                samples.len(), num_channels
+                samples.len(),
+                num_channels
             )));
         }
 

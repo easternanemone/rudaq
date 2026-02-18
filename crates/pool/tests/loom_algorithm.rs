@@ -33,6 +33,8 @@
 //! For runtime concurrency coverage, see the integration tests in
 //! `crates/pool/src/lib.rs` (e.g., `test_concurrent_checkout`).
 
+#![allow(unsafe_code)] // loom's UnsafeCell requires unsafe for with_mut
+
 use loom::sync::{Arc, Condvar, Mutex};
 use loom::thread;
 
