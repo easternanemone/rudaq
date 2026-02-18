@@ -782,24 +782,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_rhai_timeout() {
-        // Script that loops for a long time (but check count is large enough)
-        // 100ms timeout
+        // Infinite loop — only the timeout can stop it.
         let script = r"
             let x = 0;
-            // Loop enough to exceed 100ms but stay under 10000 ops?
-            // Actually, we can use 'sleep' if available, but sleep is only in 'with_hardware'.
-            // Busy loop
-            while x < 1000000 {
-                x = x + 1;
-            }
+            loop { x += 1; }
             x
         ";
 
-        // Create engine with large op limit to ensure timeout hits first
-        let mut engine = RhaiEngine::with_limit(1_000_000).unwrap();
+        // Large op limit so timeout fires first, not the safety limit.
+        let mut engine = RhaiEngine::with_limit(u64::MAX).unwrap();
 
         let result = engine
-            .execute_script_with_timeout(script, Duration::from_millis(50))
+            .execute_script_with_timeout(script, Duration::from_millis(100))
             .await;
 
         assert!(result.is_err(), "Expected timeout error");

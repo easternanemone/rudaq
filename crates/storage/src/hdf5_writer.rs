@@ -1067,41 +1067,38 @@ mod tests {
         // Write small data (below threshold)
         ring.write(&[0u8; 500]).unwrap();
 
-        // Run loop briefly in background
+        // Start background writer
         let writer_arc = Arc::new(writer);
         let writer_clone = writer_arc.clone();
         let handle = tokio::spawn(async move {
-            // Run loop for 50ms
-            tokio::select! {
-                _ = writer_clone.run_shared() => {},
-                _ = tokio::time::sleep(Duration::from_millis(50)) => {}
-            }
+            writer_clone.run_shared().await;
         });
 
-        handle.await.unwrap();
-
-        // Should NOT have flushed (below threshold, time < 10s)
+        // Poll until we confirm no flush happened for the small write.
+        // 200ms is well above the 10ms poll interval — if a flush were going
+        // to happen it would have by now.
+        tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(writer_arc.batch_count(), 0, "Should not flush small batch");
 
         // Write more data (exceeds 1KB threshold total)
         ring.write(&[0u8; 600]).unwrap(); // Total 1100 bytes
 
-        // Run loop again
-        let writer_clone = writer_arc.clone();
-        let handle = tokio::spawn(async move {
-            tokio::select! {
-                _ = writer_clone.run_shared() => {},
-                _ = tokio::time::sleep(Duration::from_millis(50)) => {}
-            }
-        });
+        // Poll batch_count until it advances (bounded by 2s deadline)
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        while writer_arc.batch_count() == 0 {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "Timed out waiting for adaptive flush"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
 
-        handle.await.unwrap();
-
-        // Should HAVE flushed (exceeded threshold)
         assert!(
             writer_arc.batch_count() > 0,
             "Should flush when threshold exceeded"
         );
+
+        handle.abort();
     }
 
     #[tokio::test]
