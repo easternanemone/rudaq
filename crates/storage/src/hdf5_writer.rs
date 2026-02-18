@@ -126,8 +126,19 @@ impl HDF5Writer {
     }
 
     /// Set poll interval for adaptive flushing.
-    pub fn set_poll_interval(&mut self, interval: Duration) {
+    ///
+    /// # Errors
+    ///
+    /// Returns `DaqError::Configuration` if `interval` is zero
+    /// (`tokio::time::interval(Duration::ZERO)` panics).
+    pub fn set_poll_interval(&mut self, interval: Duration) -> Result<()> {
+        if interval.is_zero() {
+            return Err(DaqError::Configuration(
+                "poll_interval must be non-zero".into(),
+            ));
+        }
         self.poll_interval = interval;
+        Ok(())
     }
 
     /// Inject a snapshot of all parameters into the HDF5 file as attributes.
@@ -1051,7 +1062,7 @@ mod tests {
         // Configure for adaptive flush test
         writer.set_flush_interval(Duration::from_secs(10)); // Long interval
         writer.set_adaptive_threshold(1024); // 1 KB threshold
-        writer.set_poll_interval(Duration::from_millis(10)); // Fast polling
+        writer.set_poll_interval(Duration::from_millis(10)).unwrap(); // Fast polling
 
         // Write small data (below threshold)
         ring.write(&[0u8; 500]).unwrap();
@@ -1091,5 +1102,20 @@ mod tests {
             writer_arc.batch_count() > 0,
             "Should flush when threshold exceeded"
         );
+    }
+
+    #[tokio::test]
+    async fn test_set_poll_interval_rejects_zero() {
+        let ring_temp = NamedTempFile::new().unwrap();
+        let hdf5_temp = NamedTempFile::new().unwrap();
+
+        let ring = Arc::new(RingBuffer::create(ring_temp.path(), 1).unwrap());
+        let mut writer = HDF5Writer::new(hdf5_temp.path(), ring).unwrap();
+
+        let result = writer.set_poll_interval(Duration::ZERO);
+        assert!(result.is_err(), "Duration::ZERO should be rejected");
+
+        // Non-zero should succeed
+        writer.set_poll_interval(Duration::from_millis(1)).unwrap();
     }
 }
