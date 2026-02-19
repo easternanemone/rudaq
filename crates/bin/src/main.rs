@@ -115,6 +115,12 @@ enum Commands {
         /// Mutually exclusive with --hardware-config
         #[arg(long, conflicts_with = "hardware_config")]
         lab_hardware: bool,
+
+        /// Database path for SurrealDB RocksDB engine (daemon mode).
+        /// Omit to use in-memory engine (db-surreal-mem builds).
+        #[cfg(feature = "db-surreal")]
+        #[arg(long)]
+        db_path: Option<PathBuf>,
     },
 
     /// Remote control commands (connect to daemon)
@@ -310,7 +316,21 @@ async fn main() -> Result<()> {
             runtime_mode,
             hardware_config,
             lab_hardware,
-        } => start_daemon(port, runtime_mode, hardware_config, lab_hardware).await,
+            #[cfg(feature = "db-surreal")]
+            db_path,
+        } => {
+            start_daemon(
+                port,
+                runtime_mode,
+                hardware_config,
+                lab_hardware,
+                #[cfg(feature = "db-surreal")]
+                db_path,
+                #[cfg(not(feature = "db-surreal"))]
+                None,
+            )
+            .await
+        }
         #[cfg(feature = "networking")]
         Commands::Client(cmd) => handle_client_command(cmd).await,
         #[cfg(feature = "db-surreal")]
@@ -379,6 +399,7 @@ async fn start_daemon(
     runtime_mode: Option<RuntimeMode>,
     hardware_config: Option<PathBuf>,
     lab_hardware: bool,
+    db_path: Option<PathBuf>,
 ) -> Result<()> {
     use daemon_manager::{DaemonConfig, DaemonInstance};
 
@@ -417,19 +438,25 @@ async fn start_daemon(
     }
 
     println!("🧭 Runtime mode: {}", resolved_runtime_mode);
+    #[cfg(feature = "db-surreal")]
+    if let Some(path) = db_path.as_ref() {
+        println!("🗃️  Database path: {}", path.display());
+    }
     #[cfg(not(feature = "db-surreal"))]
     if matches!(runtime_mode, Some(RuntimeMode::HybridDb)) {
         eprintln!(
             "⚠️  hybrid-db selected but this daemon build has no db-surreal feature; running universal TOML without DB persistence."
         );
     }
+    #[cfg(not(feature = "db-surreal"))]
+    let _ = db_path;
 
     let config = DaemonConfig {
         port,
         hardware_config: resolved_hardware_config,
         lab_hardware: resolved_lab_hardware,
         #[cfg(feature = "db-surreal")]
-        db_path: None,
+        db_path,
     };
 
     let instance = DaemonInstance::start(config).await?;

@@ -19,10 +19,14 @@ source config/hosts/maitai.env
 cargo clean
 cargo build --release -p bin --features "maitai,db-surreal-rocksdb,metrics"
 
+# Ensure RocksDB directory exists
+mkdir -p data/surrealdb-maitai
+
 # Start daemon in explicit hybrid mode
 ./target/release/rust-daq-daemon daemon \
   --port 50051 \
-  --runtime-mode hybrid-db
+  --runtime-mode hybrid-db \
+  --db-path data/surrealdb-maitai
 ```
 
 Expected startup indicators:
@@ -37,7 +41,7 @@ Expected startup indicators:
 1. Device inventory:
 
 ```bash
-rust-daq client config-list --addr http://127.0.0.1:50051
+./target/release/rust-daq-daemon client config-list --addr http://127.0.0.1:50051
 ```
 
 Expected:
@@ -47,7 +51,7 @@ Expected:
 2. Metadata integrity:
 
 ```bash
-rust-daq client config-export --addr http://127.0.0.1:50051 | rg "type|id"
+./target/release/rust-daq-daemon client config-export --addr http://127.0.0.1:50051 | rg "type|id"
 ```
 
 Expected:

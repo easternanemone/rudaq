@@ -48,7 +48,7 @@ Use `--runtime-mode` for deterministic launcher/profile selection:
 ./target/release/rust-daq daemon --runtime-mode universal
 
 # Universal + SurrealDB control-plane expectations
-./target/release/rust-daq daemon --runtime-mode hybrid-db
+./target/release/rust-daq daemon --runtime-mode hybrid-db --db-path ./data/surrealdb
 ```
 
 ### CLI reference
@@ -57,6 +57,7 @@ Use `--runtime-mode` for deterministic launcher/profile selection:
 |------|---------|-------------|
 | `--port` | `50051` | gRPC listen port |
 | `--runtime-mode <mock\|native\|universal\|hybrid-db>` | unset | Explicit runtime profile selector |
+| `--db-path <path>` | none | SurrealDB RocksDB path in daemon mode (`db-surreal` builds) |
 | `--hardware-config <path>` | none | Path to a TOML hardware config |
 | `--lab-hardware` | off | Backward-compatible alias for native maitai profile |
 
