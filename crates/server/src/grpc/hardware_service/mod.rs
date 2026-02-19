@@ -2277,7 +2277,7 @@ impl HardwareService for HardwareServiceImpl {
                 // Set the parameter (synchronous call, no await needed)
                 param
                     .set_json(json_value)
-                    .map_err(|e| map_anyhow_error_to_status(e))?;
+                    .map_err(map_anyhow_error_to_status)?;
 
                 let actual_value = param
                     .get_json()
