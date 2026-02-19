@@ -276,7 +276,10 @@ impl GenericDevicePanel {
                         m.moving = false;
                     }
                     match res {
-                        Ok(()) => self.status = Some("Move completed".to_string()),
+                        Ok(()) => {
+                            self.status = Some("Move completed".to_string());
+                            self.error = None;
+                        }
                         Err(e) => self.error = Some(format!("Move failed: {}", e)),
                     }
                 }
@@ -594,6 +597,9 @@ impl GenericDevicePanel {
         mut client: Option<&mut DaqClient>,
         runtime: &Runtime,
     ) {
+        // Keep all control rows constrained to the panel width.
+        ui.set_max_width(ui.available_width());
+
         self.poll_results();
 
         let device_id = device.id.clone();
@@ -651,7 +657,7 @@ impl GenericDevicePanel {
 
         // --- Emission + Shutter row (compact, same line) ---
         if self.emission.is_some() || self.shutter.is_some() {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if let Some(ref emission) = self.emission {
                     let is_on = emission.value.unwrap_or(false);
                     ui.label("Em:");
@@ -701,7 +707,7 @@ impl GenericDevicePanel {
             let mut wl = self.wavelength.take().unwrap();
             let wl_min = wl.min_nm;
             let wl_max = wl.max_nm;
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label("\u{03bb}:");
                 let slider_resp = ui.add(
                     egui::Slider::new(&mut wl.slider_value, wl_min..=wl_max)
@@ -760,7 +766,7 @@ impl GenericDevicePanel {
             let motion_busy = motion.moving || is_busy;
             let pos_units = motion.position_units.as_str();
 
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 // Position display
                 if let Some(pos) = motion.position {
                     let text = if pos_units.is_empty() {
@@ -856,7 +862,7 @@ impl GenericDevicePanel {
         if self.settable.is_some() {
             let mut settable = self.settable.take().unwrap();
 
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(egui::RichText::new(format!("{:.3}V", settable.voltage)).monospace());
 
                 let mut voltage = settable.voltage;
@@ -927,7 +933,7 @@ impl GenericDevicePanel {
 // ---------------------------------------------------------------------------
 
 fn render_reading_row(ui: &mut Ui, reading: &ReadingState) {
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         let raw = reading.raw_value.unwrap_or(0.0);
         let units = &reading.raw_units;
 

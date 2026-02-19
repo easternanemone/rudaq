@@ -573,6 +573,16 @@ pub struct DeviceMetadata {
 
     /// For WavelengthTunable devices: maximum wavelength in nm
     pub max_wavelength_nm: Option<f64>,
+
+    /// Available command names for command-capable devices.
+    ///
+    /// For universal TOML drivers, this is populated from manifest commands.
+    pub available_commands: Vec<String>,
+
+    /// Optional serialized UI schema/configuration for metadata-driven control panels.
+    ///
+    /// For universal TOML drivers this is sourced from the `[ui]` manifest section.
+    pub ui_schema_json: Option<String>,
 }
 
 // =============================================================================
@@ -644,6 +654,14 @@ pub trait DriverFactory: Send + Sync + 'static {
     /// are determined by what's returned in `DeviceComponents::build()`.
     fn capabilities(&self) -> &'static [Capability] {
         &[]
+    }
+
+    /// List available command names exposed by this driver type.
+    ///
+    /// Factories that do not support command introspection can return an empty
+    /// list. This is used for metadata publication (DB/UI), not execution.
+    fn available_commands(&self) -> Vec<String> {
+        Vec::new()
     }
 
     /// Validate configuration without instantiating.

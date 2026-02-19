@@ -13,7 +13,7 @@
 //!
 //! ## Device Panel Routing
 //! Devices are routed to panels in this priority order:
-//! 1. Config-driven rendering (from device TOML `ui.control_panel` section)
+//! 1. Specialized per-device panels for known hardware classes
 //! 2. [`GenericDevicePanel`] — auto-composes compact widgets from capabilities:
 //!    - `readable` → gauge + value display with auto-refresh
 //!    - `movable` → position + jog buttons + go-to + home
@@ -22,10 +22,12 @@
 //!    - `wavelength_tunable` → slider + text input
 //!    - `settable` → voltage slider + quick-set presets
 //!
-//! Legacy per-device panels (MaiTai, PowerMeter, Rotator, Stage, AnalogOutput)
-//! remain in the codebase but are no longer dispatched to.
+//! The deprecated schema-driven panel renderer is intentionally not used in the
+//! active runtime path.
 
+#[cfg(test)]
 mod config_loader;
+#[cfg(test)]
 mod config_renderer;
 #[cfg(test)]
 mod config_tests;
@@ -33,8 +35,7 @@ mod dispatch;
 mod types;
 
 // Note: dispatch module contains PanelType and determine_panel_type for future panel routing
-// Currently the panel selection logic is inline in render_device_control_panel
-use config_loader::DeviceConfigCache;
+// Currently the panel selection logic is inline in render_device_control_panel.
 pub use types::{DeviceCategory, DeviceGroup, ParameterInfo, PopOutRequest};
 
 use eframe::egui;
@@ -179,9 +180,6 @@ pub struct InstrumentManagerPanel {
     /// Pending request to navigate to the Image Viewer for a specific device
     /// Checked by DaqApp after each ui() call to switch tabs and start streaming
     pending_image_viewer_device: Option<String>,
-
-    /// Device configuration cache for UI config loading
-    device_config_cache: DeviceConfigCache,
 }
 
 /// Context menu actions
@@ -243,7 +241,6 @@ impl Default for InstrumentManagerPanel {
             smart_stream_editors: HashMap::new(),
             pending_pop_out: None,
             pending_image_viewer_device: None,
-            device_config_cache: DeviceConfigCache::new(),
         }
     }
 }
@@ -334,6 +331,7 @@ impl InstrumentManagerPanel {
                                 if online {
                                     self.status =
                                         Some(format!("{}: Connection successful", device_name));
+                                    self.error = None;
                                 } else {
                                     self.error =
                                         Some(format!("{}: Device is offline", device_name));
@@ -379,6 +377,7 @@ impl InstrumentManagerPanel {
                                     "Set {} = {} successfully",
                                     param_name, actual_value
                                 ));
+                                self.error = None;
                                 // Update the cached value
                                 if let Some(p) = self
                                     .params_viewer_params
@@ -399,6 +398,7 @@ impl InstrumentManagerPanel {
                             match result {
                                 Ok(()) => {
                                     self.status = Some("Move completed".to_string());
+                                    self.error = None;
                                     // Refresh device state after move
                                     should_fetch_device_states = true;
                                 }
@@ -414,6 +414,7 @@ impl InstrumentManagerPanel {
                                     self.last_reading
                                         .insert(device_id, (value, std::time::Instant::now()));
                                     self.status = Some(format!("Read: {:.4}", value));
+                                    self.error = None;
                                 }
                                 Err(e) => {
                                     self.error = Some(format!("Read failed: {}", e));
@@ -425,6 +426,7 @@ impl InstrumentManagerPanel {
                             match result {
                                 Ok(()) => {
                                     self.status = Some("Streaming started".to_string());
+                                    self.error = None;
                                     should_fetch_device_states = true;
                                 }
                                 Err(e) => {
@@ -437,6 +439,7 @@ impl InstrumentManagerPanel {
                             match result {
                                 Ok(()) => {
                                     self.status = Some("Streaming stopped".to_string());
+                                    self.error = None;
                                     should_fetch_device_states = true;
                                 }
                                 Err(e) => {
@@ -651,13 +654,6 @@ impl InstrumentManagerPanel {
 
     /// Render the instrument manager panel
     pub fn ui(&mut self, ui: &mut egui::Ui, mut client: Option<&mut DaqClient>, runtime: &Runtime) {
-        // Load device configs on first run
-        if !self.device_config_cache.load_attempted() {
-            if let Err(e) = self.device_config_cache.load_all() {
-                tracing::warn!("Failed to load device configs: {}", e);
-            }
-        }
-
         let should_fetch_states = self.poll_async_results(ui.ctx(), client.as_deref_mut(), runtime);
 
         // Fetch device states if refresh completed
@@ -755,7 +751,8 @@ impl InstrumentManagerPanel {
                         } else {
                             egui::ScrollArea::vertical()
                                 .id_salt("instrument_tree")
-                                .auto_shrink([false, false])
+                                .scroll([false, true])
+                                .auto_shrink([true, false])
                                 .show(ui, |ui| {
                                     self.render_tree(ui);
                                 });
@@ -777,7 +774,8 @@ impl InstrumentManagerPanel {
 
                         egui::ScrollArea::vertical()
                             .id_salt("control_panel")
-                            .auto_shrink([false, false])
+                            .scroll([false, true])
+                            .auto_shrink([true, false])
                             .show(ui, |ui| {
                                 self.render_device_control_panel(ui, client, runtime);
                             });
@@ -813,12 +811,13 @@ impl InstrumentManagerPanel {
 
     /// Render a single device row with status, capabilities, and context menu
     fn render_device_row(&mut self, ui: &mut egui::Ui, device: &DeviceInfo) {
+        ui.set_max_width(ui.available_width());
         let selected = self.selected_device.as_ref() == Some(&device.id);
 
         // Get device state from cache
         let state = self.device_states.get(&device.id);
 
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             // Status indicator - green if online, gray if offline/unknown
             let status_color = if state.map(|s| s.online).unwrap_or(false) {
                 egui::Color32::GREEN
@@ -1465,33 +1464,7 @@ impl InstrumentManagerPanel {
 
         ui.separator();
 
-        // Try config-driven rendering first
-        #[allow(deprecated)]
-        if let Some(device_config) = self
-            .device_config_cache
-            .get_by_driver_type(&device.driver_type)
-        {
-            if let Some(ui_config) = &device_config.ui {
-                if let Some(control_panel_config) = &ui_config.control_panel {
-                    // Use config-driven rendering
-                    config_renderer::render_config_panel(ui, &device, control_panel_config);
-                    return;
-                }
-            }
-        }
-
-        // Generic capability-based panel (replaces per-device panels)
-        let panel = self
-            .generic_panels
-            .entry(device_id.clone())
-            .or_insert_with(|| GenericDevicePanel::from_device_info(&device));
-        ui.push_id(("instr_mgr", &device_id), |ui| {
-            panel.ui(ui, &device, client.as_deref_mut(), runtime);
-        });
-        return;
-
-        // TODO(bd-rgnx.7): remove legacy per-device panels once GenericDevicePanel is validated
-        #[allow(unreachable_code)]
+        // Per-device specialized panels provide richer controls for hardware bring-up.
         let driver_lower = device.driver_type.to_lowercase();
 
         // Check for MaiTai laser

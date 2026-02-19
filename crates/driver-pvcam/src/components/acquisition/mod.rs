@@ -576,7 +576,7 @@ impl PvcamAcquisition {
         }
 
         tracing::debug!("Setting streaming=true, resetting frame counters");
-        self.streaming.set(true).await?;
+        self.streaming.set_from_hardware(true).await?;
         self.frame_count.store(0, Ordering::SeqCst);
         // Reset frame loss metrics for this acquisition (bd-ek9n.3)
         self.reset_frame_loss_metrics();
@@ -879,7 +879,7 @@ impl PvcamAcquisition {
                     ) == 0
                     {
                         let err_msg = get_pvcam_error();
-                        let _ = self.streaming.set(false).await;
+                        let _ = self.streaming.set_from_hardware(false).await;
                         return Err(anyhow!(
                             "Failed to setup continuous acquisition (both modes): {}",
                             err_msg
@@ -1058,7 +1058,7 @@ impl PvcamAcquisition {
                                 self.callback_registered.store(false, Ordering::Release);
                             }
                             self.active_hcam.store(-1, Ordering::Release);
-                            let _ = self.streaming.set(false).await;
+                            let _ = self.streaming.set_from_hardware(false).await;
                             return Err(anyhow!(
                                 "Fallback setup with CIRC_NO_OVERWRITE also failed: {}",
                                 setup_err
@@ -1119,7 +1119,7 @@ impl PvcamAcquisition {
                                 self.callback_registered.store(false, Ordering::Release);
                             }
                             self.active_hcam.store(-1, Ordering::Release);
-                            let _ = self.streaming.set(false).await;
+                            let _ = self.streaming.set_from_hardware(false).await;
                             return Err(anyhow!(
                                 "Fallback start with CIRC_NO_OVERWRITE also failed: {}",
                                 start_err
@@ -1136,7 +1136,7 @@ impl PvcamAcquisition {
                             self.callback_registered.store(false, Ordering::Release);
                         }
                         self.active_hcam.store(-1, Ordering::Release);
-                        let _ = self.streaming.set(false).await;
+                        let _ = self.streaming.set_from_hardware(false).await;
                         return Err(anyhow!(
                             "Failed to start continuous acquisition: {}",
                             err_msg
@@ -1301,7 +1301,7 @@ impl PvcamAcquisition {
                     }
 
                     // Update streaming state to reflect the involuntary stop
-                    if let Err(e) = streaming_for_watcher.set(false).await {
+                    if let Err(e) = streaming_for_watcher.set_from_hardware(false).await {
                         tracing::error!("Failed to update streaming state after error: {}", e);
                     }
                 }
@@ -1515,7 +1515,7 @@ impl PvcamAcquisition {
             return Ok(());
         }
         tracing::debug!("stop_stream: setting streaming=false");
-        self.streaming.set(false).await?;
+        self.streaming.set_from_hardware(false).await?;
 
         #[cfg(feature = "pvcam_sdk")]
         {
@@ -1618,7 +1618,7 @@ impl PvcamAcquisition {
 
         if setup_result == 0 {
             let err_msg = get_pvcam_error();
-            let _ = self.streaming.set(false).await;
+            let _ = self.streaming.set_from_hardware(false).await;
             return Err(anyhow!("pl_exp_setup_seq failed: {}", err_msg));
         }
 

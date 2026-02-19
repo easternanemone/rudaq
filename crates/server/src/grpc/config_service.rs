@@ -6,6 +6,9 @@
 
 use db::DaqDb;
 use db::config_store::{DbDriver, DbInstrument};
+use hardware::registry::DeviceRegistry;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::instrument;
 
@@ -21,11 +24,59 @@ use crate::grpc::proto::{
 /// ConfigService gRPC handler backed by SurrealDB.
 pub struct ConfigServiceImpl {
     db: DaqDb,
+    registry: Option<Arc<DeviceRegistry>>,
 }
 
 impl ConfigServiceImpl {
-    pub fn new(db: DaqDb) -> Self {
-        Self { db }
+    pub fn new(db: DaqDb, registry: Option<Arc<DeviceRegistry>>) -> Self {
+        Self { db, registry }
+    }
+
+    async fn drivers_from_config(
+        &self,
+        hw_config: &hardware::registry::HardwareConfig,
+    ) -> Result<Vec<DbDriver>, Status> {
+        let existing_by_driver_type: HashMap<String, DbDriver> = self
+            .db
+            .get_all_drivers()
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .into_iter()
+            .map(|driver| (driver.driver_type.clone(), driver))
+            .collect();
+
+        let mut seen = HashSet::new();
+        let drivers = hw_config
+            .devices
+            .iter()
+            .filter(|device| seen.insert(device.driver.driver_type.clone()))
+            .map(|device| {
+                let driver_type = device.driver.driver_type.clone();
+                if let Some(info) = self
+                    .registry
+                    .as_ref()
+                    .and_then(|registry| registry.factory_info(&driver_type))
+                {
+                    DbDriver {
+                        driver_type,
+                        name: info.name,
+                        capabilities: info.capabilities,
+                        commands: info.available_commands,
+                    }
+                } else if let Some(existing) = existing_by_driver_type.get(&driver_type) {
+                    existing.clone()
+                } else {
+                    DbDriver {
+                        driver_type: driver_type.clone(),
+                        name: driver_type,
+                        capabilities: vec![],
+                        commands: vec![],
+                    }
+                }
+            })
+            .collect();
+
+        Ok(drivers)
     }
 }
 
@@ -65,6 +116,7 @@ fn db_driver_to_proto(drv: &DbDriver) -> DriverConfig {
         driver_type: drv.driver_type.clone(),
         name: drv.name.clone(),
         capabilities: drv.capabilities.clone(),
+        commands: drv.commands.clone(),
     }
 }
 
@@ -210,17 +262,7 @@ impl ConfigService for ConfigServiceImpl {
             })
             .collect();
 
-        let mut seen = std::collections::HashSet::new();
-        let drivers: Vec<DbDriver> = hw_config
-            .devices
-            .iter()
-            .filter(|d| seen.insert(d.driver.driver_type.clone()))
-            .map(|d| DbDriver {
-                driver_type: d.driver.driver_type.clone(),
-                name: d.driver.driver_type.clone(),
-                capabilities: vec![],
-            })
-            .collect();
+        let drivers = self.drivers_from_config(&hw_config).await?;
 
         let driver_count = self
             .db
@@ -383,7 +425,7 @@ mod tests {
 
     async fn test_service() -> ConfigServiceImpl {
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
-        ConfigServiceImpl::new(db)
+        ConfigServiceImpl::new(db, None)
     }
 
     fn sample_instrument() -> InstrumentConfig {
@@ -637,6 +679,45 @@ mod tests {
         let drivers = resp.into_inner().drivers;
         assert!(!drivers.is_empty());
         assert_eq!(drivers[0].driver_type, "mock");
+    }
+
+    #[tokio::test]
+    async fn test_import_preserves_existing_driver_metadata() {
+        let svc = test_service().await;
+
+        svc.db
+            .upsert_drivers(&[DbDriver {
+                driver_type: "mock".into(),
+                name: "Mock Driver".into(),
+                capabilities: vec!["readable".into(), "commandable".into()],
+                commands: vec!["self_test".into(), "reset".into()],
+            }])
+            .await
+            .unwrap();
+
+        let toml_content = r#"
+            [[devices]]
+            id = "dev1"
+            name = "Dev 1"
+            [devices.driver]
+            type = "mock"
+        "#;
+
+        svc.import_config(Request::new(ImportConfigRequest {
+            toml_content: toml_content.into(),
+        }))
+        .await
+        .unwrap();
+
+        let drivers = svc.db.get_all_drivers().await.unwrap();
+        let mock = drivers
+            .iter()
+            .find(|driver| driver.driver_type == "mock")
+            .expect("mock driver row missing after import");
+
+        assert_eq!(mock.name, "Mock Driver");
+        assert_eq!(mock.capabilities, vec!["readable", "commandable"]);
+        assert_eq!(mock.commands, vec!["self_test", "reset"]);
     }
 
     #[tokio::test]

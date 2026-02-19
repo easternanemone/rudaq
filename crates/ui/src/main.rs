@@ -11,7 +11,10 @@
 //! # Connect to a remote daemon (skip auto-start)
 //! rust-daq-gui --daemon-url http://192.168.1.100:50051
 //!
-//! # Use lab hardware (auto-starts daemon with --lab-hardware flag)
+//! # Explicit local runtime mode
+//! rust-daq-gui --runtime-mode universal
+//!
+//! # Backward-compatible alias for native lab mode
 //! rust-daq-gui --lab-hardware
 //! ```
 
@@ -58,6 +61,28 @@ use tracing_subscriber::layer::SubscriberExt;
 #[cfg(feature = "standalone")]
 use tracing_subscriber::util::SubscriberInitExt;
 
+/// Explicit local runtime mode for daemon auto-start.
+#[cfg(feature = "standalone")]
+#[derive(clap::ValueEnum, Debug, Clone)]
+enum RuntimeModeArg {
+    Mock,
+    Native,
+    Universal,
+    HybridDb,
+}
+
+#[cfg(feature = "standalone")]
+impl RuntimeModeArg {
+    fn to_daemon_mode(&self, port: u16) -> DaemonMode {
+        match self {
+            Self::Mock => DaemonMode::LocalAuto { port },
+            Self::Native => DaemonMode::LabHardware { port },
+            Self::Universal => DaemonMode::LabUniversal { port },
+            Self::HybridDb => DaemonMode::LabHybridDb { port },
+        }
+    }
+}
+
 /// DAQ Control Panel - GUI for controlling the rust-daq daemon
 #[cfg(feature = "standalone")]
 #[derive(Parser)]
@@ -77,6 +102,21 @@ struct Cli {
     /// lab setup (see config/maitai_hardware.toml)
     #[arg(long)]
     lab_hardware: bool,
+
+    /// Explicit local runtime mode for auto-started daemon.
+    ///
+    /// Modes:
+    /// - mock: local mock devices
+    /// - native: native maitai hardware config
+    /// - universal: universal TOML maitai profile
+    /// - hybrid-db: universal profile with SurrealDB control-plane expectations
+    #[arg(
+        long,
+        value_enum,
+        value_name = "MODE",
+        conflicts_with_all = ["daemon_url", "preset", "lab_hardware"]
+    )]
+    runtime_mode: Option<RuntimeModeArg>,
 
     /// Use a named connection preset from gui.toml
     ///
@@ -132,6 +172,8 @@ fn main() -> eframe::Result<()> {
                 std::process::exit(1);
             }
         }
+    } else if let Some(runtime_mode) = cli.runtime_mode {
+        runtime_mode.to_daemon_mode(cli.port)
     } else if cli.lab_hardware {
         DaemonMode::LabHardware { port: cli.port }
     } else {

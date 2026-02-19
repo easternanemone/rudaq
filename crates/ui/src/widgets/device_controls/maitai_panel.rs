@@ -20,6 +20,20 @@ use protocol::daq::DeviceInfo;
 /// Polling interval for state updates (1 second)
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 
+/// Optional diagnostics queried via Commandable passthrough commands.
+#[derive(Debug, Clone, Default)]
+struct LaserDiagnostics {
+    warmup_percent: Option<f64>,
+    pump_power_w: Option<f64>,
+    pump_current_percent: Option<f64>,
+    diode1_temp_c: Option<f64>,
+    diode2_temp_c: Option<f64>,
+    diode1_current_percent: Option<f64>,
+    diode2_current_percent: Option<f64>,
+    shg_status: Option<i64>,
+    commandable_supported: Option<bool>,
+}
+
 /// MaiTai laser state cached from the daemon
 #[derive(Debug, Clone, Default)]
 struct LaserState {
@@ -27,6 +41,7 @@ struct LaserState {
     shutter_open: Option<bool>,
     wavelength_nm: Option<f64>,
     power_mw: Option<f64>,
+    diagnostics: LaserDiagnostics,
     /// True if a fetch is in progress
     loading: bool,
 }
@@ -38,6 +53,7 @@ enum ActionResult {
         shutter: Option<bool>,
         wavelength: Option<f64>,
         power: Option<f64>,
+        diagnostics: LaserDiagnostics,
     },
     SetEmission(Result<bool, String>),
     SetShutter(Result<bool, String>),
@@ -92,6 +108,87 @@ impl Default for MaiTaiControlPanel {
 }
 
 impl MaiTaiControlPanel {
+    fn command_not_supported(error: &str) -> bool {
+        let lower = error.to_lowercase();
+        lower.contains("does not support commands")
+            || lower.contains("unimplemented")
+            || lower.contains("not implemented")
+    }
+
+    fn parse_command_f64(results_json: &str) -> Result<f64, String> {
+        let parsed: serde_json::Value = serde_json::from_str(results_json)
+            .map_err(|e| format!("invalid JSON command result: {e}"))?;
+        let value = parsed.get("value").unwrap_or(&parsed);
+        if let Some(v) = value.as_f64() {
+            return Ok(v);
+        }
+        if let Some(v) = value.as_i64() {
+            return Ok(v as f64);
+        }
+        if let Some(v) = value.as_u64() {
+            return Ok(v as f64);
+        }
+        if let Some(s) = value.as_str() {
+            return s
+                .trim()
+                .parse::<f64>()
+                .map_err(|e| format!("failed to parse numeric value '{s}': {e}"));
+        }
+        Err(format!("unexpected command result payload: {parsed}"))
+    }
+
+    fn parse_command_i64(results_json: &str) -> Result<i64, String> {
+        let parsed: serde_json::Value = serde_json::from_str(results_json)
+            .map_err(|e| format!("invalid JSON command result: {e}"))?;
+        let value = parsed.get("value").unwrap_or(&parsed);
+        if let Some(v) = value.as_i64() {
+            return Ok(v);
+        }
+        if let Some(v) = value.as_u64() {
+            return Ok(v as i64);
+        }
+        if let Some(v) = value.as_f64() {
+            return Ok(v.round() as i64);
+        }
+        if let Some(s) = value.as_str() {
+            return s
+                .trim()
+                .parse::<i64>()
+                .map_err(|e| format!("failed to parse integer value '{s}': {e}"));
+        }
+        Err(format!("unexpected command result payload: {parsed}"))
+    }
+
+    async fn query_command_f64(
+        client: &mut DaqClient,
+        device_id: &str,
+        command: &str,
+    ) -> Result<f64, String> {
+        let resp = client
+            .execute_device_command(device_id, command, "{}")
+            .await
+            .map_err(|e| e.to_string())?;
+        if !resp.success {
+            return Err(resp.error_message);
+        }
+        Self::parse_command_f64(&resp.results)
+    }
+
+    async fn query_command_i64(
+        client: &mut DaqClient,
+        device_id: &str,
+        command: &str,
+    ) -> Result<i64, String> {
+        let resp = client
+            .execute_device_command(device_id, command, "{}")
+            .await
+            .map_err(|e| e.to_string())?;
+        if !resp.success {
+            return Err(resp.error_message);
+        }
+        Self::parse_command_i64(&resp.results)
+    }
+
     /// Poll for async results
     fn poll_results(&mut self) {
         while let Ok(result) = self.action_rx.try_recv() {
@@ -103,6 +200,7 @@ impl MaiTaiControlPanel {
                     shutter,
                     wavelength,
                     power,
+                    diagnostics,
                 } => {
                     self.state.emission_enabled = emission;
                     self.state.shutter_open = shutter;
@@ -114,6 +212,7 @@ impl MaiTaiControlPanel {
                         }
                     }
                     self.state.power_mw = power;
+                    self.state.diagnostics = diagnostics;
                     self.state.loading = false;
                 }
                 ActionResult::SetEmission(result) => match result {
@@ -183,6 +282,79 @@ impl MaiTaiControlPanel {
             let shutter = client.get_shutter(&device_id).await.ok();
             let wavelength = client.get_wavelength(&device_id).await.ok();
             let power = client.read_value(&device_id).await.ok().map(|r| r.value);
+            let mut diagnostics = LaserDiagnostics::default();
+
+            // Extended telemetry is available on commandable drivers (e.g. universal MaiTai).
+            let warmup = MaiTaiControlPanel::query_command_f64(
+                &mut client,
+                &device_id,
+                "get_warmup_percent",
+            )
+            .await;
+            match warmup {
+                Ok(v) => {
+                    diagnostics.commandable_supported = Some(true);
+                    diagnostics.warmup_percent = Some(v);
+                }
+                Err(e) if MaiTaiControlPanel::command_not_supported(&e) => {
+                    diagnostics.commandable_supported = Some(false);
+                }
+                Err(_) => {
+                    diagnostics.commandable_supported = Some(true);
+                }
+            }
+
+            if diagnostics.commandable_supported != Some(false) {
+                diagnostics.pump_power_w = MaiTaiControlPanel::query_command_f64(
+                    &mut client,
+                    &device_id,
+                    "get_pump_power",
+                )
+                .await
+                .ok();
+                diagnostics.pump_current_percent = MaiTaiControlPanel::query_command_f64(
+                    &mut client,
+                    &device_id,
+                    "get_pump_current",
+                )
+                .await
+                .ok();
+                diagnostics.diode1_temp_c = MaiTaiControlPanel::query_command_f64(
+                    &mut client,
+                    &device_id,
+                    "get_diode1_temp_c",
+                )
+                .await
+                .ok();
+                diagnostics.diode2_temp_c = MaiTaiControlPanel::query_command_f64(
+                    &mut client,
+                    &device_id,
+                    "get_diode2_temp_c",
+                )
+                .await
+                .ok();
+                diagnostics.diode1_current_percent = MaiTaiControlPanel::query_command_f64(
+                    &mut client,
+                    &device_id,
+                    "get_diode1_current_pct",
+                )
+                .await
+                .ok();
+                diagnostics.diode2_current_percent = MaiTaiControlPanel::query_command_f64(
+                    &mut client,
+                    &device_id,
+                    "get_diode2_current_pct",
+                )
+                .await
+                .ok();
+                diagnostics.shg_status = MaiTaiControlPanel::query_command_i64(
+                    &mut client,
+                    &device_id,
+                    "get_shg_status",
+                )
+                .await
+                .ok();
+            }
 
             let _ = tx
                 .send(ActionResult::FetchState {
@@ -190,6 +362,7 @@ impl MaiTaiControlPanel {
                     shutter,
                     wavelength,
                     power,
+                    diagnostics,
                 })
                 .await;
         });
@@ -483,6 +656,105 @@ impl DeviceControlWidget for MaiTaiControlPanel {
                 );
             });
         }
+
+        ui.add_space(8.0);
+
+        ui.collapsing("▶ Live Telemetry", |ui| {
+            match self.state.diagnostics.commandable_supported {
+                Some(false) => {
+                    ui.colored_label(
+                        egui::Color32::YELLOW,
+                        "Extended telemetry unavailable on this driver.",
+                    );
+                }
+                _ => {
+                    egui::Grid::new("maitai_live_telemetry")
+                        .num_columns(2)
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.label("Warmup:");
+                            ui.label(
+                                self.state
+                                    .diagnostics
+                                    .warmup_percent
+                                    .map(|v| format!("{:.1}%", v))
+                                    .unwrap_or_else(|| "-".to_string()),
+                            );
+                            ui.end_row();
+
+                            ui.label("Pump Power:");
+                            ui.label(
+                                self.state
+                                    .diagnostics
+                                    .pump_power_w
+                                    .map(|v| format!("{:.2} W", v))
+                                    .unwrap_or_else(|| "-".to_string()),
+                            );
+                            ui.end_row();
+
+                            ui.label("Pump Current:");
+                            ui.label(
+                                self.state
+                                    .diagnostics
+                                    .pump_current_percent
+                                    .map(|v| format!("{:.1}%", v))
+                                    .unwrap_or_else(|| "-".to_string()),
+                            );
+                            ui.end_row();
+
+                            ui.label("Diode 1 Temp:");
+                            ui.label(
+                                self.state
+                                    .diagnostics
+                                    .diode1_temp_c
+                                    .map(|v| format!("{:.2} C", v))
+                                    .unwrap_or_else(|| "-".to_string()),
+                            );
+                            ui.end_row();
+
+                            ui.label("Diode 2 Temp:");
+                            ui.label(
+                                self.state
+                                    .diagnostics
+                                    .diode2_temp_c
+                                    .map(|v| format!("{:.2} C", v))
+                                    .unwrap_or_else(|| "-".to_string()),
+                            );
+                            ui.end_row();
+
+                            ui.label("Diode 1 Current:");
+                            ui.label(
+                                self.state
+                                    .diagnostics
+                                    .diode1_current_percent
+                                    .map(|v| format!("{:.1}%", v))
+                                    .unwrap_or_else(|| "-".to_string()),
+                            );
+                            ui.end_row();
+
+                            ui.label("Diode 2 Current:");
+                            ui.label(
+                                self.state
+                                    .diagnostics
+                                    .diode2_current_percent
+                                    .map(|v| format!("{:.1}%", v))
+                                    .unwrap_or_else(|| "-".to_string()),
+                            );
+                            ui.end_row();
+
+                            ui.label("SHG Status:");
+                            ui.label(
+                                self.state
+                                    .diagnostics
+                                    .shg_status
+                                    .map(|v| v.to_string())
+                                    .unwrap_or_else(|| "-".to_string()),
+                            );
+                            ui.end_row();
+                        });
+                }
+            }
+        });
 
         ui.add_space(8.0);
 

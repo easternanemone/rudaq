@@ -40,6 +40,9 @@ pub struct DeviceManifest {
 
     /// Initialization sequence to run when the driver connects.
     pub init_sequence: Vec<InitCommand>,
+
+    /// Optional UI schema/configuration from `[ui]`.
+    pub ui: Option<toml::Value>,
 }
 
 /// Device metadata.

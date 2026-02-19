@@ -1,7 +1,7 @@
 //! Main application state and UI logic.
 
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use eframe::egui;
 use egui_dock::tab_viewer::OnCloseResponse;
@@ -18,14 +18,17 @@ use crate::device_ext::DeviceInfoExt;
 use crate::icons;
 use crate::layout;
 use crate::panels::{
-    ConnectionDiagnostics, ConnectionStatus as LogConnectionStatus, DevicesPanel,
+    ComediPanel, ConnectionDiagnostics, ConnectionStatus as LogConnectionStatus, DevicesPanel,
     DocumentViewerPanel, ExperimentDesignerPanel, GettingStartedPanel, ImageViewerPanel,
     InstrumentManagerPanel, LoggingPanel, ModulesPanel, PlanRunnerPanel, RunComparisonPanel,
     RunHistoryPanel, ScanBuilderPanel, ScansPanel, ScriptsPanel, SignalPlotterPanel, StoragePanel,
 };
 use crate::shortcuts::{CheatSheetPanel, ShortcutAction, ShortcutContext, ShortcutManager};
 use crate::theme::{self, ThemePreference};
-use crate::widgets::{GenericDevicePanel, StatusBar};
+use crate::widgets::{
+    DeviceControlWidget, GenericDevicePanel, MaiTaiControlPanel, PowerMeterControlPanel,
+    RotatorControlPanel, StageControlPanel, StatusBar,
+};
 use client::reconnect::{friendly_error_message, ConnectionManager, ConnectionState};
 use client::DaqClient;
 use protocol::daq::DeviceInfo;
@@ -197,6 +200,519 @@ enum DeviceReconcileMsg {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CommandWidgetKind {
+    Action,
+    Status,
+}
+
+impl CommandWidgetKind {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Action => "Action",
+            Self::Status => "Status",
+        }
+    }
+}
+
+enum CommandWidgetResult {
+    Completed {
+        widget_id: usize,
+        result: Result<String, String>,
+    },
+}
+
+struct CommandWidget {
+    id: usize,
+    kind: CommandWidgetKind,
+    command: String,
+    label: String,
+    args_json: String,
+    auto_refresh: bool,
+    refresh_interval_ms: u64,
+    last_refresh: Option<Instant>,
+    pending: bool,
+    last_result: Option<String>,
+    last_error: Option<String>,
+}
+
+impl CommandWidget {
+    fn new(
+        id: usize,
+        kind: CommandWidgetKind,
+        command: String,
+        label: String,
+        args_json: String,
+    ) -> Self {
+        Self {
+            id,
+            kind,
+            command,
+            label,
+            args_json,
+            auto_refresh: matches!(kind, CommandWidgetKind::Status),
+            refresh_interval_ms: 1500,
+            last_refresh: None,
+            pending: false,
+            last_result: None,
+            last_error: None,
+        }
+    }
+}
+
+struct CommandWidgetPalette {
+    widgets: Vec<CommandWidget>,
+    next_widget_id: usize,
+    selected_command_idx: usize,
+    add_kind: CommandWidgetKind,
+    add_label: String,
+    add_args_json: String,
+    action_tx: mpsc::Sender<CommandWidgetResult>,
+    action_rx: mpsc::Receiver<CommandWidgetResult>,
+}
+
+impl Default for CommandWidgetPalette {
+    fn default() -> Self {
+        let (action_tx, action_rx) = mpsc::channel(32);
+        Self {
+            widgets: Vec::new(),
+            next_widget_id: 0,
+            selected_command_idx: 0,
+            add_kind: CommandWidgetKind::Action,
+            add_label: String::new(),
+            add_args_json: "{}".to_string(),
+            action_tx,
+            action_rx,
+        }
+    }
+}
+
+impl CommandWidgetPalette {
+    fn add_widget(
+        &mut self,
+        kind: CommandWidgetKind,
+        command: String,
+        label: String,
+        args_json: String,
+    ) {
+        let widget = CommandWidget::new(self.next_widget_id, kind, command, label, args_json);
+        self.next_widget_id = self.next_widget_id.saturating_add(1);
+        self.widgets.push(widget);
+    }
+
+    fn command_catalog(device: &DeviceInfo) -> Vec<String> {
+        let mut commands = device
+            .metadata
+            .as_ref()
+            .map(|m| m.available_commands.clone())
+            .unwrap_or_default();
+        commands.sort();
+        commands.dedup();
+        commands
+    }
+
+    fn manifest_summary_params(device: &DeviceInfo) -> Vec<String> {
+        let Some(ui_json) = device
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.ui_schema_json.as_ref())
+        else {
+            return Vec::new();
+        };
+
+        let Ok(parsed) = serde_json::from_str::<serde_json::Value>(ui_json) else {
+            return Vec::new();
+        };
+
+        let mut summary_params: Vec<String> = parsed
+            .get("status_display")
+            .and_then(|status| status.get("summary_params"))
+            .and_then(serde_json::Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(ToString::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        summary_params.sort();
+        summary_params.dedup();
+        summary_params
+    }
+
+    fn infer_status_command(param: &str, commands: &[String]) -> Option<String> {
+        let normalized = param.trim().to_lowercase();
+        if normalized.is_empty() {
+            return None;
+        }
+
+        let mut candidates = vec![
+            normalized.clone(),
+            format!("get_{normalized}"),
+            format!("read_{normalized}"),
+            format!("query_{normalized}"),
+        ];
+
+        for suffix in ["_nm", "_ms", "_degrees", "_deg", "_value"] {
+            if let Some(stripped) = normalized.strip_suffix(suffix) {
+                candidates.push(stripped.to_string());
+                candidates.push(format!("get_{stripped}"));
+                candidates.push(format!("read_{stripped}"));
+                candidates.push(format!("query_{stripped}"));
+            }
+        }
+
+        for candidate in &candidates {
+            if let Some(found) = commands.iter().find(|cmd| cmd.to_lowercase() == *candidate) {
+                return Some(found.clone());
+            }
+        }
+
+        commands
+            .iter()
+            .find(|cmd| {
+                let lower = cmd.to_lowercase();
+                (lower.starts_with("get_")
+                    || lower.starts_with("read_")
+                    || lower.starts_with("query_"))
+                    && lower.contains(&normalized)
+            })
+            .cloned()
+    }
+
+    fn format_results(payload: &str) -> String {
+        let trimmed = payload.trim();
+        if trimmed.is_empty() {
+            return "ok".to_string();
+        }
+        match serde_json::from_str::<serde_json::Value>(trimmed) {
+            Ok(v) => serde_json::to_string_pretty(&v).unwrap_or_else(|_| trimmed.to_string()),
+            Err(_) => trimmed.to_string(),
+        }
+    }
+
+    fn summarize(value: &str, max_chars: usize) -> String {
+        let total = value.chars().count();
+        if total <= max_chars {
+            return value.to_string();
+        }
+        let mut out: String = value.chars().take(max_chars).collect();
+        out.push('…');
+        out
+    }
+
+    fn poll_results(&mut self) {
+        while let Ok(CommandWidgetResult::Completed { widget_id, result }) =
+            self.action_rx.try_recv()
+        {
+            let Some(widget) = self.widgets.iter_mut().find(|w| w.id == widget_id) else {
+                continue;
+            };
+            widget.pending = false;
+            match result {
+                Ok(value) => {
+                    widget.last_result = Some(value);
+                    widget.last_error = None;
+                }
+                Err(err) => {
+                    widget.last_error = Some(err);
+                }
+            }
+        }
+    }
+
+    fn execute_widget_command(
+        &mut self,
+        widget_id: usize,
+        device_id: &str,
+        command: &str,
+        args_json: &str,
+        client: Option<&mut DaqClient>,
+        runtime: &tokio::runtime::Runtime,
+    ) {
+        let Some(widget) = self.widgets.iter_mut().find(|w| w.id == widget_id) else {
+            return;
+        };
+
+        if let Err(e) = serde_json::from_str::<serde_json::Value>(args_json) {
+            widget.pending = false;
+            widget.last_error = Some(format!("args must be valid JSON: {}", e));
+            return;
+        }
+
+        let Some(client) = client else {
+            widget.pending = false;
+            widget.last_error = Some("Not connected to daemon".to_string());
+            return;
+        };
+
+        widget.pending = true;
+        widget.last_refresh = Some(Instant::now());
+        widget.last_error = None;
+
+        let mut client = client.clone();
+        let tx = self.action_tx.clone();
+        let device_id = device_id.to_string();
+        let command = command.to_string();
+        let args_json = args_json.to_string();
+
+        runtime.spawn(async move {
+            let result = match client
+                .execute_device_command(&device_id, &command, &args_json)
+                .await
+            {
+                Ok(resp) => {
+                    if resp.success {
+                        Ok(Self::format_results(&resp.results))
+                    } else if !resp.error_message.is_empty() {
+                        Err(resp.error_message)
+                    } else {
+                        Err("command failed".to_string())
+                    }
+                }
+                Err(e) => Err(e.to_string()),
+            };
+            let _ = tx
+                .send(CommandWidgetResult::Completed { widget_id, result })
+                .await;
+        });
+    }
+
+    fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        device: &DeviceInfo,
+        mut client: Option<&mut DaqClient>,
+        runtime: &tokio::runtime::Runtime,
+    ) {
+        self.poll_results();
+
+        let commands = Self::command_catalog(device);
+        let supports_commandable = device.has_capability("commandable");
+        let show_widget_panel = supports_commandable || !self.widgets.is_empty();
+        if !show_widget_panel {
+            return;
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
+
+        ui.collapsing("Command Widgets", |ui| {
+            ui.set_max_width(ui.available_width());
+
+            if !supports_commandable {
+                ui.weak("Command widgets require the device to advertise `commandable`.");
+                ui.weak("Existing widgets are shown read-only in this mode.");
+            } else if commands.is_empty() {
+                ui.weak("No command catalog published for this device.");
+            } else {
+                if self.selected_command_idx >= commands.len() {
+                    self.selected_command_idx = 0;
+                }
+
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Command:");
+                    egui::ComboBox::from_id_salt(("cmd_widget_add_command", device.id.as_str()))
+                        .selected_text(commands[self.selected_command_idx].as_str())
+                        .show_ui(ui, |ui| {
+                            for (idx, cmd) in commands.iter().enumerate() {
+                                ui.selectable_value(&mut self.selected_command_idx, idx, cmd);
+                            }
+                        });
+
+                    ui.label("Type:");
+                    egui::ComboBox::from_id_salt(("cmd_widget_add_kind", device.id.as_str()))
+                        .selected_text(self.add_kind.label())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.add_kind,
+                                CommandWidgetKind::Action,
+                                CommandWidgetKind::Action.label(),
+                            );
+                            ui.selectable_value(
+                                &mut self.add_kind,
+                                CommandWidgetKind::Status,
+                                CommandWidgetKind::Status.label(),
+                            );
+                        });
+                });
+
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Label:");
+                    ui.add(egui::TextEdit::singleline(&mut self.add_label).desired_width(150.0));
+                    ui.label("Args:");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.add_args_json)
+                            .desired_width(210.0)
+                            .hint_text("{\"key\": 1}"),
+                    );
+                    if ui.button("Add Widget").clicked() {
+                        let command = commands[self.selected_command_idx].clone();
+                        let label = if self.add_label.trim().is_empty() {
+                            match self.add_kind {
+                                CommandWidgetKind::Action => format!("Run {}", command),
+                                CommandWidgetKind::Status => format!("Status {}", command),
+                            }
+                        } else {
+                            self.add_label.trim().to_string()
+                        };
+                        let args_json = if self.add_args_json.trim().is_empty() {
+                            "{}".to_string()
+                        } else {
+                            self.add_args_json.clone()
+                        };
+                        self.add_widget(self.add_kind, command, label, args_json);
+                    }
+                });
+
+                let summary_params = Self::manifest_summary_params(device);
+                if !summary_params.is_empty() {
+                    ui.separator();
+                    ui.label("Quick Add From Manifest");
+                    ui.horizontal_wrapped(|ui| {
+                        for param in &summary_params {
+                            if let Some(command) = Self::infer_status_command(param, &commands) {
+                                let label = format!("Status {param}");
+                                if ui.button(label.as_str()).clicked() {
+                                    self.add_widget(
+                                        CommandWidgetKind::Status,
+                                        command.clone(),
+                                        label,
+                                        "{}".to_string(),
+                                    );
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+
+            if self.widgets.is_empty() {
+                ui.weak("No custom command widgets added.");
+                return;
+            }
+
+            let mut run_requests: Vec<(usize, String, String)> = Vec::new();
+            let mut remove_ids = Vec::new();
+
+            for widget in &mut self.widgets {
+                ui.group(|ui| {
+                    ui.set_max_width(ui.available_width());
+
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(match widget.kind {
+                            CommandWidgetKind::Action => "Action",
+                            CommandWidgetKind::Status => "Status",
+                        });
+                        ui.separator();
+                        ui.label(widget.command.as_str());
+                        ui.separator();
+                        ui.add(
+                            egui::TextEdit::singleline(&mut widget.label)
+                                .desired_width(180.0)
+                                .hint_text("Widget label"),
+                        );
+
+                        let run_text = match widget.kind {
+                            CommandWidgetKind::Action => "Run",
+                            CommandWidgetKind::Status => "Refresh",
+                        };
+                        if ui
+                            .add_enabled(
+                                supports_commandable && !widget.pending,
+                                egui::Button::new(run_text),
+                            )
+                            .clicked()
+                        {
+                            run_requests.push((
+                                widget.id,
+                                widget.command.clone(),
+                                widget.args_json.clone(),
+                            ));
+                        }
+
+                        if widget.kind == CommandWidgetKind::Status {
+                            ui.checkbox(&mut widget.auto_refresh, "Auto");
+                            ui.label("Every");
+                            ui.add(
+                                egui::DragValue::new(&mut widget.refresh_interval_ms)
+                                    .range(200..=60_000)
+                                    .speed(10),
+                            );
+                            ui.label("ms");
+                        }
+
+                        if ui.button("Remove").clicked() {
+                            remove_ids.push(widget.id);
+                        }
+                    });
+
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("Args:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut widget.args_json)
+                                .desired_width(ui.available_width().min(420.0)),
+                        );
+                    });
+
+                    if widget.pending {
+                        ui.spinner();
+                    } else if !supports_commandable {
+                        ui.weak("Execution disabled: device is not commandable.");
+                    }
+
+                    if let Some(err) = &widget.last_error {
+                        ui.colored_label(egui::Color32::RED, err);
+                    } else if let Some(value) = &widget.last_result {
+                        let short = Self::summarize(value, 180);
+                        ui.label(egui::RichText::new(short.clone()).monospace())
+                            .on_hover_text(value);
+                    } else {
+                        ui.weak("No result yet.");
+                    }
+                });
+
+                let should_auto_refresh = widget.kind == CommandWidgetKind::Status
+                    && widget.auto_refresh
+                    && supports_commandable
+                    && !widget.pending
+                    && widget
+                        .last_refresh
+                        .map(|t| t.elapsed() >= Duration::from_millis(widget.refresh_interval_ms))
+                        .unwrap_or(true);
+
+                if should_auto_refresh {
+                    run_requests.push((
+                        widget.id,
+                        widget.command.clone(),
+                        widget.args_json.clone(),
+                    ));
+                }
+            }
+
+            if !remove_ids.is_empty() {
+                self.widgets.retain(|w| !remove_ids.contains(&w.id));
+            }
+
+            for (widget_id, command, args_json) in run_requests {
+                self.execute_widget_command(
+                    widget_id,
+                    &device.id,
+                    &command,
+                    &args_json,
+                    client.as_deref_mut(),
+                    runtime,
+                );
+            }
+
+            if self.widgets.iter().any(|w| w.pending || w.auto_refresh) {
+                ui.ctx().request_repaint_after(Duration::from_millis(100));
+            }
+        });
+    }
+}
+
 /// Main application state
 pub struct DaqApp {
     /// gRPC client (wrapped in Option for lazy initialization)
@@ -264,7 +780,7 @@ pub struct DaqApp {
     /// Daemon mode configuration (local auto-start, remote, or lab hardware)
     daemon_mode: DaemonMode,
 
-    /// Daemon process launcher (for LocalAuto mode)
+    /// Daemon process launcher (for auto-start local modes)
     daemon_launcher: Option<DaemonLauncher>,
 
     /// Auto-connect lifecycle state
@@ -287,6 +803,20 @@ pub struct DaqApp {
 
     /// Docked device control panels using GenericDevicePanel (keyed by panel ID)
     docked_panels: HashMap<usize, GenericDevicePanel>,
+    /// Docked MaiTai panels (advanced layout mode)
+    docked_maitai_panels: HashMap<usize, MaiTaiControlPanel>,
+    /// Docked power meter panels (advanced layout mode)
+    docked_power_meter_panels: HashMap<usize, PowerMeterControlPanel>,
+    /// Docked rotator panels (advanced layout mode)
+    docked_rotator_panels: HashMap<usize, RotatorControlPanel>,
+    /// Docked stage panels (advanced layout mode)
+    docked_stage_panels: HashMap<usize, StageControlPanel>,
+    /// Docked Comedi panels (advanced layout mode)
+    docked_comedi_panels: HashMap<usize, ComediPanel>,
+    /// User-added command widgets for advanced control panels (keyed by panel ID)
+    docked_command_widgets: HashMap<usize, CommandWidgetPalette>,
+    /// Preferred control-panel layout mode for docked pop-outs
+    control_panel_layout_mode: ControlPanelLayoutMode,
 
     /// Settings window state
     settings_window: crate::settings::SettingsWindow,
@@ -331,6 +861,25 @@ enum UiAction {
     },
 }
 
+/// Layout mode for docked pop-out control panels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+pub enum ControlPanelLayoutMode {
+    /// Compact capability-driven controls.
+    #[default]
+    Simple,
+    /// Rich device-specific controls (matches Instruments panel behavior).
+    Advanced,
+}
+
+impl ControlPanelLayoutMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Simple => "Simple",
+            Self::Advanced => "Advanced",
+        }
+    }
+}
+
 /// Device availability state after reconciliation with daemon
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DeviceAvailability {
@@ -348,6 +897,45 @@ pub enum DevicePanelKind {
     Rotator,
     Stage,
     AnalogOutput,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DockedAdvancedPanelKind {
+    Generic,
+    MaiTai,
+    Comedi,
+    PowerMeter,
+    Rotator,
+    Stage,
+}
+
+fn docked_advanced_panel_kind_for_device(device: &DeviceInfo) -> DockedAdvancedPanelKind {
+    let driver_lower = device.driver_type.to_lowercase();
+
+    if driver_lower.contains("maitai")
+        || driver_lower.contains("mai_tai")
+        || (device.is_wavelength_tunable() && device.is_emission_controllable())
+    {
+        DockedAdvancedPanelKind::MaiTai
+    } else if driver_lower.contains("comedi")
+        || driver_lower.contains("ni_daq")
+        || driver_lower.contains("nidaq")
+        || driver_lower.contains("pci-mio")
+        || driver_lower.contains("pcimio")
+    {
+        DockedAdvancedPanelKind::Comedi
+    } else if driver_lower.contains("1830")
+        || driver_lower.contains("power_meter")
+        || (device.is_readable() && !device.is_movable() && !device.is_frame_producer())
+    {
+        DockedAdvancedPanelKind::PowerMeter
+    } else if driver_lower.contains("ell14") || driver_lower.contains("thorlabs") {
+        DockedAdvancedPanelKind::Rotator
+    } else if device.is_movable() {
+        DockedAdvancedPanelKind::Stage
+    } else {
+        DockedAdvancedPanelKind::Generic
+    }
 }
 
 /// Determine panel kind from device capabilities
@@ -533,7 +1121,7 @@ impl DaqApp {
             .enable_all()
             .build()
             .expect("Failed to create tokio runtime");
-        // Start daemon launcher if in LocalAuto or LabHardware mode
+        // Start daemon launcher if in an auto-start local mode
         let daemon_launcher = if daemon_mode.should_auto_start() {
             let port = daemon_mode.port().unwrap_or(50051);
             let mut launcher = DaemonLauncher::new(port);
@@ -560,6 +1148,10 @@ impl DaqApp {
             .storage
             .and_then(|s| eframe::get_value(s, "app_settings"))
             .unwrap_or_default();
+        let control_panel_layout_mode: ControlPanelLayoutMode = cc
+            .storage
+            .and_then(|s| eframe::get_value(s, "control_panel_layout_mode"))
+            .unwrap_or(ControlPanelLayoutMode::Simple);
 
         // Migrate legacy "daemon_address" key → AppSettings (one-time)
         if let Some(storage) = cc.storage {
@@ -769,6 +1361,13 @@ impl DaqApp {
             device_panel_info,
             next_device_panel_id,
             docked_panels: HashMap::new(),
+            docked_maitai_panels: HashMap::new(),
+            docked_power_meter_panels: HashMap::new(),
+            docked_rotator_panels: HashMap::new(),
+            docked_stage_panels: HashMap::new(),
+            docked_comedi_panels: HashMap::new(),
+            docked_command_widgets: HashMap::new(),
+            control_panel_layout_mode,
             settings_window: crate::settings::SettingsWindow::default(),
             app_settings,
             gui_presets,
@@ -846,7 +1445,7 @@ impl DaqApp {
     fn switch_daemon_mode(&mut self, mode: DaemonMode) {
         tracing::info!("Switching daemon mode to: {}", mode.label());
 
-        // Stop existing daemon if we're switching away from LocalAuto
+        // Stop existing daemon before switching modes.
         if let Some(ref mut launcher) = self.daemon_launcher {
             launcher.stop();
         }
@@ -917,6 +1516,21 @@ impl DaqApp {
                         ui.close();
                     }
 
+                    if ui.button("Lab Native").clicked() {
+                        self.switch_daemon_mode(DaemonMode::LabHardware { port: 50051 });
+                        ui.close();
+                    }
+
+                    if ui.button("Lab Universal").clicked() {
+                        self.switch_daemon_mode(DaemonMode::LabUniversal { port: 50051 });
+                        ui.close();
+                    }
+
+                    if ui.button("Lab Hybrid+DB").clicked() {
+                        self.switch_daemon_mode(DaemonMode::LabHybridDb { port: 50051 });
+                        ui.close();
+                    }
+
                     // Remote connection - use the address input
                     if ui.button("Use Remote Address").clicked() {
                         // Parse current address input as remote URL
@@ -930,11 +1544,7 @@ impl DaqApp {
                         ui.close();
                     }
 
-                    // Lab Hardware - auto-start daemon with real hardware config
-                    if ui.button("Lab Hardware").clicked() {
-                        self.switch_daemon_mode(DaemonMode::LabHardware { port: 50051 });
-                        ui.close();
-                    }
+                    ui.small("Hybrid+DB requires daemon build with db-surreal feature flags.");
 
                     // Connection presets from gui.toml
                     if !self.gui_presets.is_empty() {
@@ -1008,6 +1618,28 @@ impl DaqApp {
                         ui.close();
                     }
                     ui.separator();
+                    ui.label("Control Panels");
+                    if ui
+                        .selectable_label(
+                            self.control_panel_layout_mode == ControlPanelLayoutMode::Simple,
+                            "Simple",
+                        )
+                        .clicked()
+                    {
+                        self.set_control_panel_layout_mode(ControlPanelLayoutMode::Simple);
+                        ui.close();
+                    }
+                    if ui
+                        .selectable_label(
+                            self.control_panel_layout_mode == ControlPanelLayoutMode::Advanced,
+                            "Advanced",
+                        )
+                        .clicked()
+                    {
+                        self.set_control_panel_layout_mode(ControlPanelLayoutMode::Advanced);
+                        ui.close();
+                    }
+                    ui.separator();
 
                     if ui.button("Getting Started").clicked() {
                         self.ui_actions
@@ -1016,6 +1648,10 @@ impl DaqApp {
                     }
                     if ui.button("Devices").clicked() {
                         self.ui_actions.push(UiAction::FocusTab(Panel::Devices));
+                        ui.close();
+                    }
+                    if ui.button("Image Viewer").clicked() {
+                        self.ui_actions.push(UiAction::FocusTab(Panel::ImageViewer));
                         ui.close();
                     }
                     if ui.button("Scripts").clicked() {
@@ -1366,12 +2002,40 @@ impl DaqApp {
 
 /// Additional DaqApp methods in a separate impl block (split for helper functions)
 impl DaqApp {
+    fn set_control_panel_layout_mode(&mut self, mode: ControlPanelLayoutMode) {
+        if self.control_panel_layout_mode == mode {
+            return;
+        }
+        self.control_panel_layout_mode = mode;
+        self.invalidate_all_panel_widgets();
+        self.logging_panel.info(
+            "UI",
+            &format!("Control panel layout set to {}", mode.label()),
+        );
+    }
+
+    fn invalidate_all_panel_widgets(&mut self) {
+        self.docked_panels.clear();
+        self.docked_maitai_panels.clear();
+        self.docked_power_meter_panels.clear();
+        self.docked_rotator_panels.clear();
+        self.docked_stage_panels.clear();
+        self.docked_comedi_panels.clear();
+        self.docked_command_widgets.clear();
+    }
+
     /// Remove all state associated with a device control panel.
     ///
     /// Returns the removed DevicePanelInfo if the panel existed, None otherwise.
     /// Used for cleanup when panels are closed or during app shutdown.
     pub(crate) fn remove_panel_data(&mut self, id: usize) -> Option<DevicePanelInfo> {
         self.docked_panels.remove(&id);
+        self.docked_maitai_panels.remove(&id);
+        self.docked_power_meter_panels.remove(&id);
+        self.docked_rotator_panels.remove(&id);
+        self.docked_stage_panels.remove(&id);
+        self.docked_comedi_panels.remove(&id);
+        self.docked_command_widgets.remove(&id);
         self.device_panel_info.remove(&id)
     }
 
@@ -1741,6 +2405,12 @@ impl DaqApp {
     /// Invalidate a panel widget so it will be lazily recreated with updated capabilities.
     fn invalidate_panel_widget(&mut self, panel_id: usize) {
         self.docked_panels.remove(&panel_id);
+        self.docked_maitai_panels.remove(&panel_id);
+        self.docked_power_meter_panels.remove(&panel_id);
+        self.docked_rotator_panels.remove(&panel_id);
+        self.docked_stage_panels.remove(&panel_id);
+        self.docked_comedi_panels.remove(&panel_id);
+        self.docked_command_widgets.remove(&panel_id);
     }
 
     /// Detect connection state transitions and handle them
@@ -1823,6 +2493,10 @@ impl TabViewer for DaqTabViewer<'_> {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
+        // Constrain each dock tab to its own available width to avoid
+        // content driving slight horizontal overflow.
+        ui.set_max_width(ui.available_width());
+
         match tab {
             Panel::Nav => self.render_nav(ui),
             Panel::GettingStarted => self.app.getting_started_panel.ui(ui),
@@ -2074,16 +2748,61 @@ impl DaqTabViewer<'_> {
             }
         }
 
-        // Lazily create GenericDevicePanel if not yet present
-        let panel = self
-            .app
-            .docked_panels
-            .entry(panel_id)
-            .or_insert_with(|| GenericDevicePanel::from_device_info(device_info));
+        let layout_mode = self.app.control_panel_layout_mode;
+        ui.push_id(("docked", panel_id), |ui| match layout_mode {
+            ControlPanelLayoutMode::Simple => {
+                let panel = self
+                    .app
+                    .docked_panels
+                    .entry(panel_id)
+                    .or_insert_with(|| GenericDevicePanel::from_device_info(device_info));
+                panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
+            }
+            ControlPanelLayoutMode::Advanced => {
+                match docked_advanced_panel_kind_for_device(device_info) {
+                    DockedAdvancedPanelKind::MaiTai => {
+                        let panel = self.app.docked_maitai_panels.entry(panel_id).or_default();
+                        panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
+                    }
+                    DockedAdvancedPanelKind::Comedi => {
+                        let panel = self.app.docked_comedi_panels.entry(panel_id).or_default();
+                        panel.ui(ui, self.app.client.as_mut(), &self.app.runtime);
+                    }
+                    DockedAdvancedPanelKind::PowerMeter => {
+                        let panel = self
+                            .app
+                            .docked_power_meter_panels
+                            .entry(panel_id)
+                            .or_default();
+                        panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
+                    }
+                    DockedAdvancedPanelKind::Rotator => {
+                        let panel = self.app.docked_rotator_panels.entry(panel_id).or_default();
+                        panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
+                    }
+                    DockedAdvancedPanelKind::Stage => {
+                        let panel = self.app.docked_stage_panels.entry(panel_id).or_default();
+                        panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
+                    }
+                    DockedAdvancedPanelKind::Generic => {
+                        let panel =
+                            self.app.docked_panels.entry(panel_id).or_insert_with(|| {
+                                GenericDevicePanel::from_device_info(device_info)
+                            });
+                        panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
+                    }
+                }
 
-        // Use push_id to avoid widget ID collisions with instrument manager panels
-        ui.push_id(("docked", panel_id), |ui| {
-            panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
+                let mut command_widgets = self
+                    .app
+                    .docked_command_widgets
+                    .remove(&panel_id)
+                    .unwrap_or_default();
+                command_widgets.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
+                self.app
+                    .docked_command_widgets
+                    .insert(panel_id, command_widgets);
+            }
         });
     }
 }
@@ -2279,6 +2998,11 @@ impl eframe::App for DaqApp {
 
         // Persist keyboard shortcuts
         eframe::set_value(storage, "shortcut_manager", &self.shortcut_manager);
+        eframe::set_value(
+            storage,
+            "control_panel_layout_mode",
+            &self.control_panel_layout_mode,
+        );
 
         // Persist device panel info for layout restoration
         let persisted_panels: HashMap<usize, PersistedPanelInfo> = self
@@ -2357,6 +3081,47 @@ mod tests {
         assert!(
             found_image_viewer,
             "Image Viewer panel missing from default layout"
+        );
+    }
+
+    #[test]
+    fn test_command_widget_infer_status_command() {
+        let commands = vec![
+            "get_wavelength".to_string(),
+            "read_power".to_string(),
+            "close_shutter".to_string(),
+        ];
+
+        let inferred_wavelength =
+            CommandWidgetPalette::infer_status_command("wavelength_nm", &commands)
+                .expect("should infer wavelength getter command");
+        let inferred_power = CommandWidgetPalette::infer_status_command("power", &commands)
+            .expect("should infer power read command");
+
+        assert_eq!(inferred_wavelength, "get_wavelength");
+        assert_eq!(inferred_power, "read_power");
+    }
+
+    #[test]
+    fn test_command_widget_manifest_summary_params() {
+        let device = DeviceInfo {
+            id: "laser".to_string(),
+            name: "Laser".to_string(),
+            driver_type: "maitai".to_string(),
+            metadata: Some(protocol::daq::DeviceMetadata {
+                ui_schema_json: Some(
+                    r#"{"status_display":{"summary_params":["wavelength_nm","power_mw"]}}"#
+                        .to_string(),
+                ),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let summary_params = CommandWidgetPalette::manifest_summary_params(&device);
+        assert_eq!(
+            summary_params,
+            vec!["power_mw".to_string(), "wavelength_nm".to_string()]
         );
     }
 

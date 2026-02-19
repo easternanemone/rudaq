@@ -467,7 +467,8 @@ impl PvcamFeatures {
                     if pl_set_param(h, PARAM_SPDTAB_INDEX, &idx as *const _ as *mut _) != 0 {
                         modes.push(SpeedMode {
                             index: i as u16,
-                            name: Self::get_enum_string_impl(h, PARAM_SPDTAB_INDEX)
+                            name: Self::get_enum_item_by_index_impl(h, PARAM_SPDTAB_INDEX, i)
+                                .map(|(_, name)| name)
                                 .unwrap_or_else(|_| format!("Speed {}", i)),
                             pixel_time_ns: Self::get_pixel_time_impl(h).unwrap_or(0),
                             bit_depth: Self::get_bit_depth_impl(h).unwrap_or(16),
@@ -534,7 +535,8 @@ impl PvcamFeatures {
                     if pl_set_param(h, PARAM_READOUT_PORT, &idx as *const _ as *mut _) != 0 {
                         ports.push(ReadoutPort {
                             index: i as u16,
-                            name: Self::get_enum_string_impl(h, PARAM_READOUT_PORT)
+                            name: Self::get_enum_item_by_index_impl(h, PARAM_READOUT_PORT, i)
+                                .map(|(_, name)| name)
                                 .unwrap_or_else(|_| format!("Port {}", i)),
                         });
                     }
@@ -642,7 +644,8 @@ impl PvcamFeatures {
                     if pl_set_param(h, PARAM_GAIN_INDEX, &idx as *const _ as *mut _) != 0 {
                         modes.push(GainMode {
                             index: i as u16,
-                            name: Self::get_enum_string_impl(h, PARAM_GAIN_INDEX)
+                            name: Self::get_enum_item_by_index_impl(h, PARAM_GAIN_INDEX, i)
+                                .map(|(_, name)| name)
                                 .unwrap_or_else(|_| format!("Gain {}", i)),
                         });
                     }
@@ -682,6 +685,24 @@ impl PvcamFeatures {
     /// Checks PARAM_EXPOSURE_MODE availability before access.
     pub fn get_exposure_mode(_conn: &PvcamConnection) -> Result<ExposureMode> {
         #[cfg(feature = "pvcam_sdk")]
+        {
+            return Ok(ExposureMode::from_pvcam(Self::get_exposure_mode_raw(
+                _conn,
+            )?));
+        }
+        #[cfg(not(feature = "pvcam_sdk"))]
+        {
+            let state = _conn.mock_state.lock().unwrap();
+            Ok(ExposureMode::from_pvcam(state.exposure_mode))
+        }
+    }
+
+    /// Get current exposure mode as raw PVCAM integer value.
+    ///
+    /// Useful when the camera reports extended exposure modes outside the legacy
+    /// enum range, e.g. `EXT_TRIG_*` values.
+    pub fn get_exposure_mode_raw(_conn: &PvcamConnection) -> Result<i32> {
+        #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             // SDK Pattern: Check availability before access
             if !Self::is_param_available(h, PARAM_EXPOSURE_MODE) {
@@ -706,16 +727,16 @@ impl PvcamFeatures {
                     ));
                 }
             }
-            return Ok(ExposureMode::from_pvcam(value));
+            return Ok(value);
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
             let state = _conn.mock_state.lock().unwrap();
-            Ok(ExposureMode::from_pvcam(state.exposure_mode))
+            Ok(state.exposure_mode)
         }
 
         #[cfg(feature = "pvcam_sdk")]
-        Ok(ExposureMode::Timed)
+        Ok(0)
     }
 
     /// Set exposure mode (bd-iai9)
@@ -723,6 +744,11 @@ impl PvcamFeatures {
     /// # SDK Pattern (bd-smn3)
     /// Checks PARAM_EXPOSURE_MODE availability before access.
     pub fn set_exposure_mode(_conn: &PvcamConnection, _mode: ExposureMode) -> Result<()> {
+        Self::set_exposure_mode_raw(_conn, _mode.to_pvcam())
+    }
+
+    /// Set exposure mode using raw PVCAM integer value.
+    pub fn set_exposure_mode_raw(_conn: &PvcamConnection, _mode_raw: i32) -> Result<()> {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             // SDK Pattern: Check availability before access
@@ -731,11 +757,10 @@ impl PvcamFeatures {
                     "PARAM_EXPOSURE_MODE is not available on this camera"
                 ));
             }
-            let value = _mode.to_pvcam();
             // SAFETY: h is valid handle; value pointer valid for duration of call.
             unsafe {
                 // SAFETY: h is valid handle; value pointer valid for duration of call.
-                if pl_set_param(h, PARAM_EXPOSURE_MODE, &value as *const _ as *mut _) == 0 {
+                if pl_set_param(h, PARAM_EXPOSURE_MODE, &_mode_raw as *const _ as *mut _) == 0 {
                     return Err(anyhow!(
                         "Failed to set exposure mode: {}",
                         get_pvcam_error()
@@ -746,7 +771,7 @@ impl PvcamFeatures {
         #[cfg(not(feature = "pvcam_sdk"))]
         {
             let mut state = _conn.mock_state.lock().unwrap();
-            state.exposure_mode = _mode.to_pvcam();
+            state.exposure_mode = _mode_raw;
         }
         Ok(())
     }
@@ -771,30 +796,10 @@ impl PvcamFeatures {
             let mut modes = Vec::with_capacity(count as usize);
 
             for idx in 0..count {
-                // SAFETY: h is a valid camera handle. idx is within 0..count from prior
-                // enumeration. name buffer is stack-allocated [0i8; 256] with sufficient size.
-                unsafe {
-                    let mut value: i32 = 0;
-                    let mut name = [0i8; 256];
-                    let mut name_len: uns32 = 256;
-
-                    // Get string length first
-                    if pl_enum_str_length(h, PARAM_EXPOSURE_MODE, idx, &mut name_len) != 0 {
-                        // Get the enum entry with value and name
-                        if pl_get_enum_param(
-                            h,
-                            PARAM_EXPOSURE_MODE,
-                            idx,
-                            &mut value,
-                            name.as_mut_ptr(),
-                            name_len.min(256),
-                        ) != 0
-                        {
-                            let name_str =
-                                CStr::from_ptr(name.as_ptr()).to_string_lossy().into_owned();
-                            modes.push((value, name_str));
-                        }
-                    }
+                if let Ok((value, name)) =
+                    Self::get_enum_item_by_index_impl(h, PARAM_EXPOSURE_MODE, idx)
+                {
+                    modes.push((value, name));
                 }
             }
             return Ok(modes);
@@ -3177,8 +3182,56 @@ impl PvcamFeatures {
     }
 
     #[cfg(feature = "pvcam_sdk")]
+    pub(crate) fn get_enum_item_by_index_impl(
+        h: i16,
+        param: u32,
+        index: u32,
+    ) -> Result<(i32, String)> {
+        let mut name_len: uns32 = 0;
+        // SAFETY: h is valid; name_len is a writable uns32 on stack.
+        unsafe {
+            if pl_enum_str_length(h, param, index, &mut name_len) == 0 {
+                return Err(anyhow!(
+                    "Failed to get enum string length for {}[{}]: {}",
+                    param,
+                    index,
+                    get_pvcam_error()
+                ));
+            }
+        }
+
+        let mut value: i32 = 0;
+        let mut name = vec![0i8; (name_len.max(2) as usize).min(1024)];
+        // SAFETY: h is valid; value/name are writable and size is bounded.
+        unsafe {
+            if pl_get_enum_param(
+                h,
+                param,
+                index,
+                &mut value,
+                name.as_mut_ptr(),
+                name.len() as uns32,
+            ) == 0
+            {
+                return Err(anyhow!(
+                    "Failed to get enum value/string for {}[{}]: {}",
+                    param,
+                    index,
+                    get_pvcam_error()
+                ));
+            }
+        }
+
+        // SAFETY: PVCAM writes a NUL-terminated enum string to `name`.
+        let name = unsafe { CStr::from_ptr(name.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
+        Ok((value, name))
+    }
+
+    #[cfg(feature = "pvcam_sdk")]
     pub(crate) fn get_enum_string_impl(h: i16, param: u32) -> Result<String> {
-        // Get current value first
+        // Get current enum value first (note: value != index for many PVCAM enums).
         let mut value: i32 = 0;
         // SAFETY: h is valid; value is writable i32 on stack.
         unsafe {
@@ -3188,25 +3241,17 @@ impl PvcamFeatures {
             }
         }
 
-        // Get string for this enum value
-        let mut buf = [0i8; 256];
-        unsafe {
-            // SAFETY: h is valid; buf is writable; value is the enum index.
-            if pl_enum_str_length(h, param, value as u32, std::ptr::null_mut()) != 0 {
-                if pl_get_enum_param(
-                    h,
-                    param,
-                    value as u32,
-                    std::ptr::null_mut(),
-                    buf.as_mut_ptr(),
-                    256,
-                ) != 0
-                {
-                    return Ok(CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned());
+        let count = Self::get_enum_count_impl(h, param).unwrap_or(0);
+        for idx in 0..count {
+            if let Ok((entry_value, entry_name)) = Self::get_enum_item_by_index_impl(h, param, idx)
+            {
+                if entry_value == value {
+                    return Ok(entry_name);
                 }
             }
         }
-        // Fallback: return value as string
+
+        // Fallback: return raw enum value when we cannot resolve a display string.
         Ok(format!("{}", value))
     }
 

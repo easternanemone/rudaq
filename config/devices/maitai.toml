@@ -30,7 +30,7 @@ manufacturer = "Spectra-Physics"
 model = "MaiTai"
 protocol = "maitai"
 category = "source"
-capabilities = ["Readable", "WavelengthTunable", "ShutterControl", "EmissionControl", "Parameterized"]
+capabilities = ["Readable", "WavelengthTunable", "ShutterControl", "EmissionControl", "Parameterized", "Commandable"]
 
 # ==============================================================================
 # Connection Settings
@@ -135,6 +135,48 @@ template = "READ:POW?"
 description = "Query laser output power (manual: READ:POWer?)"
 response = "power"
 
+# --- Diagnostics / Telemetry Queries ---
+
+[commands.get_warmup_percent]
+template = "READ:PCTWARMEDUP?"
+description = "Query laser warmup completion percent"
+response = "percent"
+
+[commands.get_pump_power]
+template = "READ:PLASER:POWER?"
+description = "Query pump laser power (W)"
+response = "power"
+
+[commands.get_pump_current]
+template = "READ:PLASER:PCURRENT?"
+description = "Query pump current (% of max)"
+response = "percent"
+
+[commands.get_diode1_temp_c]
+template = "READ:PLASER:DIODE1:TEMPERATURE?"
+description = "Query pump diode 1 temperature (C)"
+response = "temperature_c"
+
+[commands.get_diode2_temp_c]
+template = "READ:PLASER:DIODE2:TEMPERATURE?"
+description = "Query pump diode 2 temperature (C)"
+response = "temperature_c"
+
+[commands.get_diode1_current_pct]
+template = "READ:PLASER:DIODE1:CURRENT?"
+description = "Query pump diode 1 current (% of max)"
+response = "percent"
+
+[commands.get_diode2_current_pct]
+template = "READ:PLASER:DIODE2:CURRENT?"
+description = "Query pump diode 2 current (% of max)"
+response = "percent"
+
+[commands.get_shg_status]
+template = "READ:PLASER:SHGS?"
+description = "Query SHG crystal health/status code"
+response = "status_code"
+
 # --- Identity Query ---
 
 [commands.identify]
@@ -158,6 +200,15 @@ transform = ["trim", "to_int"]
 # Power response: MaiTai returns "3.00W" (value with W suffix)
 [responses.power]
 transform = ["trim", "remove_suffix('W')", "remove_suffix('w')", "to_float"]
+
+[responses.percent]
+transform = ["trim", "regex_extract('([-+]?\\d+(?:\\.\\d+)?)', 1)", "to_float"]
+
+[responses.temperature_c]
+transform = ["trim", "regex_extract('([-+]?\\d+(?:\\.\\d+)?)', 1)", "to_float"]
+
+[responses.status_code]
+transform = ["trim", "regex_extract('(-?\\d+)', 1)", "to_int"]
 
 # Identity response: free-form string
 [responses.identity]

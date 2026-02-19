@@ -378,6 +378,7 @@ mod rocksdb_tests {
             driver_type: "mock".into(),
             name: "Mock".into(),
             capabilities: vec!["readable".into()],
+            commands: vec![],
         }];
         db.upsert_drivers(&drivers).await.unwrap();
 

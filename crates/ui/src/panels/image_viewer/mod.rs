@@ -86,6 +86,8 @@ pub struct ImageViewerPanel {
     histogram_position: HistogramPosition,
     /// Available camera devices
     available_cameras: Vec<String>,
+    /// Full sensor dimensions by camera ID (from device metadata)
+    camera_full_frame_dims: std::collections::HashMap<String, (u32, u32)>,
     /// Display minimum (0.0-1.0 normalized) - pixels at or below this are black
     display_min: f32,
     /// Display maximum (0.0-1.0 normalized) - pixels at or above this are white
@@ -227,6 +229,7 @@ impl Default for ImageViewerPanel {
             histogram: Histogram::new(),
             histogram_position: HistogramPosition::SidePanel,
             available_cameras: Vec::new(),
+            camera_full_frame_dims: std::collections::HashMap::new(),
             display_min: 0.0,
             display_max: 1.0,
             auto_contrast: true,
@@ -455,8 +458,12 @@ impl ImageViewerPanel {
     fn poll_actions(&mut self) {
         while let Ok(action) = self.action_rx.try_recv() {
             match action {
-                ImageViewerAction::CamerasLoaded(cameras) => {
-                    self.available_cameras = cameras;
+                ImageViewerAction::CamerasLoaded {
+                    ids,
+                    full_frame_dims,
+                } => {
+                    self.available_cameras = ids;
+                    self.camera_full_frame_dims = full_frame_dims;
                     self.status = Some(format!("Found {} camera(s)", self.available_cameras.len()));
                 }
                 ImageViewerAction::Error(msg) => {
@@ -528,16 +535,30 @@ impl ImageViewerPanel {
             match client.list_devices().await {
                 Ok(devices) => {
                     // Filter for camera devices (FrameProducer capability)
-                    let cameras: Vec<String> = devices
-                        .into_iter()
-                        .filter(|d| {
-                            // Check is_frame_producer flag or camera category
-                            d.is_frame_producer()
-                                || d.category == protocol::daq::DeviceCategory::Camera as i32
-                        })
-                        .map(|d| d.id)
-                        .collect();
-                    let _ = action_tx.send(ImageViewerAction::CamerasLoaded(cameras));
+                    let mut cameras: Vec<String> = Vec::new();
+                    let mut full_frame_dims: std::collections::HashMap<String, (u32, u32)> =
+                        std::collections::HashMap::new();
+
+                    for d in devices.into_iter().filter(|d| {
+                        // Check is_frame_producer flag or camera category
+                        d.is_frame_producer()
+                            || d.category == protocol::daq::DeviceCategory::Camera as i32
+                    }) {
+                        let id = d.id.clone();
+                        if let Some(meta) = d.metadata {
+                            if let (Some(w), Some(h)) = (meta.frame_width, meta.frame_height) {
+                                if w > 0 && h > 0 {
+                                    full_frame_dims.insert(id.clone(), (w, h));
+                                }
+                            }
+                        }
+                        cameras.push(id);
+                    }
+
+                    let _ = action_tx.send(ImageViewerAction::CamerasLoaded {
+                        ids: cameras,
+                        full_frame_dims,
+                    });
                 }
                 Err(e) => {
                     let _ = action_tx.send(ImageViewerAction::Error(format!(
@@ -770,6 +791,8 @@ impl ImageViewerPanel {
 
     /// Render a single camera parameter control
     fn render_camera_control(&mut self, ui: &mut egui::Ui, device_id: &str, param_idx: usize) {
+        ui.set_max_width(ui.available_width());
+
         // Safe access to parameter to avoid borrowing self for the whole method
         let param = &self.camera_params[param_idx];
         let desc = &param.descriptor;
@@ -777,7 +800,7 @@ impl ImageViewerPanel {
 
         // Check if setting
         if self.setting_params.contains(&buffer_key) {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.spinner();
                 ui.label(&desc.name);
             });
@@ -786,12 +809,14 @@ impl ImageViewerPanel {
 
         // Read-only
         if !desc.writable {
-            ui.horizontal(|ui| {
+            ui.vertical(|ui| {
                 ui.label(&desc.name);
-                ui.label(format!(": {}", param.current_value));
+                let mut value = param.current_value.clone();
                 if !desc.units.is_empty() {
-                    ui.weak(&desc.units);
+                    value.push(' ');
+                    value.push_str(&desc.units);
                 }
+                ui.add(egui::Label::new(value).wrap());
             });
             return;
         }
@@ -803,7 +828,7 @@ impl ImageViewerPanel {
             let current = param.current_value.trim_matches('"').to_string();
             let mut selected = current.clone();
 
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(&desc.name);
                 let id = egui::Id::new("cam_ctrl").with(device_id).with(&desc.name);
                 egui::ComboBox::from_id_salt(id)
@@ -837,7 +862,7 @@ impl ImageViewerPanel {
             let mut val: i64 = buffer.parse().unwrap_or(0);
             let original = val;
 
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(&desc.name);
                 let mut drag = egui::DragValue::new(&mut val).speed(1);
                 if let Some(min) = desc.min_value {
@@ -858,10 +883,14 @@ impl ImageViewerPanel {
                         .insert(buffer_key.clone(), val.to_string());
                 }
 
-                // Commit on release or focus lost
-                if (response.drag_stopped() || response.lost_focus())
-                    && val != param.current_value.parse().unwrap_or(0)
-                {
+                // Commit on drag stop, focus loss, Enter, or step-button click.
+                let commit_now = (response.changed()
+                    && !response.dragged()
+                    && ui.input(|i| i.pointer.any_released() || i.key_pressed(egui::Key::Enter)))
+                    || response.drag_stopped()
+                    || response.lost_focus();
+
+                if commit_now && val != param.current_value.parse().unwrap_or(0) {
                     pending_update = Some(val.to_string());
                 }
             });
@@ -879,7 +908,7 @@ impl ImageViewerPanel {
             // Check if this is an exposure parameter
             let is_exposure = desc.name.to_lowercase().contains("exposure");
 
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(&desc.name);
                 let mut drag = egui::DragValue::new(&mut val).speed(0.1);
                 if let Some(min) = desc.min_value {
@@ -921,8 +950,14 @@ impl ImageViewerPanel {
                     }
                 }
 
-                // Always send on drag stop or focus lost (for all floats, including exposure)
-                if (response.drag_stopped() || response.lost_focus()) && value_changed {
+                // Always send on drag stop/focus loss, and also on Enter/step-button changes.
+                let commit_now = (response.changed()
+                    && !response.dragged()
+                    && ui.input(|i| i.pointer.any_released() || i.key_pressed(egui::Key::Enter)))
+                    || response.drag_stopped()
+                    || response.lost_focus();
+
+                if commit_now && value_changed {
                     pending_update = Some(val.to_string());
                     if is_exposure {
                         self.exposure_last_sent = Some(Instant::now());
@@ -937,7 +972,7 @@ impl ImageViewerPanel {
                 .entry(buffer_key.clone())
                 .or_insert_with(|| param.current_value.clone());
 
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(&desc.name);
                 let response = ui.text_edit_singleline(buffer);
 
@@ -948,7 +983,7 @@ impl ImageViewerPanel {
         }
         // Fallback
         else {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(&desc.name);
                 ui.label(&param.current_value);
             });
@@ -1899,6 +1934,16 @@ impl ImageViewerPanel {
                     self.roi_selector.clear_all();
                 }
 
+                if ui
+                    .add_enabled(self.device_id.is_some(), egui::Button::new("Clear HW ROI"))
+                    .on_hover_text(
+                        "Reset camera acquisition ROI to full sensor (requires stream stopped)",
+                    )
+                    .clicked()
+                {
+                    self.queue_clear_hardware_roi();
+                }
+
                 ui.separator();
 
                 // === Crosshair Toggle (bd-pgcb) ===
@@ -2170,6 +2215,9 @@ impl ImageViewerPanel {
                             strip.cell(|ui| {
                                 // Scrollable/pannable area for image
                                 egui::ScrollArea::both()
+                                    .scroll_bar_visibility(
+                                        egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
+                                    )
                                     .id_salt("image_scroll")
                                     .show(ui, |ui| {
                                         let (rect, response) = ui.allocate_exact_size(
@@ -2530,6 +2578,39 @@ impl ImageViewerPanel {
             });
     }
 
+    /// Queue a parameter update to reset hardware ROI to the full sensor.
+    fn queue_clear_hardware_roi(&mut self) {
+        if let Some(dev_id) = self.device_id.clone() {
+            if self.subscription.is_some() {
+                self.param_errors.insert(
+                    (dev_id, "acquisition.roi".to_string()),
+                    "Stop streaming before clearing hardware ROI".to_string(),
+                );
+            } else if let Some((full_w, full_h)) = self.camera_full_frame_dims.get(&dev_id).copied()
+            {
+                let roi_json = serde_json::json!({
+                    "type": "rectangle",
+                    "x": 0,
+                    "y": 0,
+                    "width": full_w,
+                    "height": full_h
+                });
+                self.pending_param_updates.push((
+                    dev_id.clone(),
+                    "acquisition.roi".to_string(),
+                    roi_json.to_string(),
+                ));
+                self.param_errors
+                    .remove(&(dev_id, "acquisition.roi".to_string()));
+            } else {
+                self.param_errors.insert(
+                    (dev_id, "acquisition.roi".to_string()),
+                    "Unknown full-frame size; refresh camera list and retry".to_string(),
+                );
+            }
+        }
+    }
+
     /// Render the stats/controls side panel content (Camera Settings, ROI, Histogram, Calibration)
     fn render_stats_side_panel(
         &mut self,
@@ -2538,7 +2619,10 @@ impl ImageViewerPanel {
         has_roi_panel: bool,
         has_histogram_panel: bool,
     ) {
+        ui.set_max_width(ui.available_width());
         egui::ScrollArea::vertical()
+            .scroll([false, true])
+            .auto_shrink([true, false])
             .id_salt("side_panel_scroll")
             .show(ui, |ui| {
                 if has_controls_panel {
@@ -2571,52 +2655,72 @@ impl ImageViewerPanel {
                                 self.roi_selector.show_statistics_panel(ui);
 
                                 ui.add_space(4.0);
-                                if ui
-                                    .button("Apply as Hardware ROI")
-                                    .on_hover_text(
-                                        "Update camera acquisition ROI (restarts stream)",
-                                    )
-                                    .clicked()
-                                {
-                                    if let Some(roi) = self.roi_selector.roi() {
-                                        if let Some(dev_id) = self.device_id.clone() {
-                                            use crate::widgets::roi_selector::RoiShape;
-                                            let roi_json = match roi {
-                                                RoiShape::Rectangle {
-                                                    x,
-                                                    y,
-                                                    width,
-                                                    height,
-                                                } => {
-                                                    serde_json::json!({
-                                                        "type": "rectangle",
-                                                        "x": x,
-                                                        "y": y,
-                                                        "width": width,
-                                                        "height": height
-                                                    })
-                                                }
-                                                RoiShape::Polygon { .. } => {
-                                                    // For hardware ROI, convert polygon to bounding box
-                                                    let (min_x, min_y, max_x, max_y) =
-                                                        roi.bounding_box();
-                                                    serde_json::json!({
-                                                        "type": "rectangle",
-                                                        "x": min_x,
-                                                        "y": min_y,
-                                                        "width": max_x.saturating_sub(min_x),
-                                                        "height": max_y.saturating_sub(min_y)
-                                                    })
-                                                }
-                                            };
-                                            self.pending_param_updates.push((
-                                                dev_id,
-                                                "roi".to_string(),
-                                                roi_json.to_string(),
-                                            ));
+                                ui.horizontal(|ui| {
+                                    if ui
+                                        .button("Apply as Hardware ROI")
+                                        .on_hover_text(
+                                            "Update camera acquisition ROI (requires stream stopped)",
+                                        )
+                                        .clicked()
+                                    {
+                                        if self.subscription.is_some() {
+                                            if let Some(dev_id) = self.device_id.clone() {
+                                                self.param_errors.insert(
+                                                    (dev_id, "acquisition.roi".to_string()),
+                                                    "Stop streaming before applying hardware ROI"
+                                                        .to_string(),
+                                                );
+                                            }
+                                        } else if let Some(roi) = self.roi_selector.roi() {
+                                            if let Some(dev_id) = self.device_id.clone() {
+                                                use crate::widgets::roi_selector::RoiShape;
+                                                let roi_json = match roi {
+                                                    RoiShape::Rectangle {
+                                                        x,
+                                                        y,
+                                                        width,
+                                                        height,
+                                                    } => {
+                                                        serde_json::json!({
+                                                            "type": "rectangle",
+                                                            "x": x,
+                                                            "y": y,
+                                                            "width": width,
+                                                            "height": height
+                                                        })
+                                                    }
+                                                    RoiShape::Polygon { .. } => {
+                                                        // For hardware ROI, convert polygon to bounding box
+                                                        let (min_x, min_y, max_x, max_y) =
+                                                            roi.bounding_box();
+                                                        serde_json::json!({
+                                                            "type": "rectangle",
+                                                            "x": min_x,
+                                                            "y": min_y,
+                                                            "width": max_x.saturating_sub(min_x),
+                                                            "height": max_y.saturating_sub(min_y)
+                                                        })
+                                                    }
+                                                };
+                                                self.pending_param_updates.push((
+                                                    dev_id,
+                                                    "acquisition.roi".to_string(),
+                                                    roi_json.to_string(),
+                                                ));
+                                            }
                                         }
                                     }
-                                }
+
+                                    if ui
+                                        .button("Clear Hardware ROI")
+                                        .on_hover_text(
+                                            "Reset hardware ROI to full sensor (requires stream stopped)",
+                                        )
+                                        .clicked()
+                                    {
+                                        self.queue_clear_hardware_roi();
+                                    }
+                                });
                             });
                     });
                     ui.add_space(layout::SECTION_SPACING);

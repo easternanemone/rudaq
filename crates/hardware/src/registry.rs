@@ -252,6 +252,10 @@ pub struct DeviceMetadata {
     pub min_wavelength_nm: Option<f64>,
     /// For WavelengthTunable devices: maximum wavelength in nm (bd-pwjo)
     pub max_wavelength_nm: Option<f64>,
+    /// Available command names for command-capable devices.
+    pub available_commands: Vec<String>,
+    /// Optional serialized UI schema/configuration for metadata-driven control panels.
+    pub ui_schema_json: Option<String>,
     /// Config origin: "toml" (startup), "db" (reconciler), etc.
     pub config_source: Option<String>,
 }
@@ -351,6 +355,9 @@ impl RegisteredDevice {
         }
         if self.parameterized.is_some() {
             caps.push(Capability::Parameterized);
+        }
+        if self.commandable.is_some() {
+            caps.push(Capability::Commandable);
         }
         if self.shutter_control.is_some() {
             caps.push(Capability::ShutterControl);
@@ -459,6 +466,8 @@ pub struct FactoryInfo {
     pub name: String,
     /// List of capabilities this driver provides
     pub capabilities: Vec<String>,
+    /// Available command names this driver advertises.
+    pub available_commands: Vec<String>,
 }
 
 impl DeviceRegistry {
@@ -638,8 +647,9 @@ impl DeviceRegistry {
                 capabilities: factory
                     .capabilities()
                     .iter()
-                    .map(|c| format!("{:?}", c))
+                    .map(|c| c.as_str().to_string())
                     .collect(),
+                available_commands: factory.available_commands(),
             }
         })
     }
@@ -815,6 +825,8 @@ impl DeviceRegistry {
             max_exposure_ms: components.metadata.max_exposure_ms,
             min_wavelength_nm: components.metadata.min_wavelength_nm,
             max_wavelength_nm: components.metadata.max_wavelength_nm,
+            available_commands: components.metadata.available_commands.clone(),
+            ui_schema_json: components.metadata.ui_schema_json.clone(),
             config_source: None, // Caller sets after registration
         };
 

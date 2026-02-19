@@ -1,7 +1,8 @@
 //! MiniJinja template engine with custom filters for device commands.
 //!
 //! Provides a template engine with filters useful for instrument protocols:
-//! - `hex(width)` - format integer as uppercase hex with zero-padding
+//! - `hex(width)` - format integer as uppercase hex with zero-padding and
+//!   width-specific two's-complement masking for signed protocol fields
 //! - `pad(width, char)` - pad a string to a given width
 
 use crate::config::error::ConfigError;
@@ -34,7 +35,16 @@ fn get_env() -> &'static Environment<'static> {
 ///
 /// MiniJinja automatically converts the Value to i64 for us.
 fn hex_filter(value: i64, width: usize) -> String {
-    format!("{:0>width$X}", value, width = width)
+    // Many instrument protocols encode signed values as fixed-width two's
+    // complement hex (e.g. ELL14 relative moves use 8-hex-digit int32 fields).
+    // Without masking, negative i64 values render as 16 hex digits.
+    let masked: u64 = match width {
+        2 => (value as u8) as u64,
+        4 => (value as u16) as u64,
+        8 => (value as u32) as u64,
+        _ => value as u64,
+    };
+    format!("{:0>width$X}", masked, width = width)
 }
 
 /// MiniJinja filter: pad string to given width with a fill character.
@@ -223,5 +233,17 @@ mod tests {
         );
         let result = render_command(&tmpl, &params).unwrap();
         assert_eq!(result, "0FFFFFFF");
+    }
+
+    #[test]
+    fn hex_filter_negative_twos_complement_8() {
+        let tmpl = validate_template("test", "{{ v | hex(8) }}").unwrap();
+        let mut params = HashMap::new();
+        params.insert(
+            "v".to_string(),
+            JsonValue::Number(serde_json::Number::from(-1_i64)),
+        );
+        let result = render_command(&tmpl, &params).unwrap();
+        assert_eq!(result, "FFFFFFFF");
     }
 }

@@ -13,8 +13,12 @@ pub enum DaemonMode {
     LocalAuto { port: u16 },
     /// Connect to a remote daemon at the specified URL (no auto-start)
     Remote { url: String },
-    /// Auto-start a local daemon with lab hardware configuration
+    /// Auto-start a local daemon with native maitai hardware config
     LabHardware { port: u16 },
+    /// Auto-start a local daemon with universal (TOML-driven) maitai profile
+    LabUniversal { port: u16 },
+    /// Auto-start a local daemon with universal profile + SurrealDB control plane
+    LabHybridDb { port: u16 },
 }
 
 impl Default for DaemonMode {
@@ -24,10 +28,24 @@ impl Default for DaemonMode {
 }
 
 impl DaemonMode {
+    /// Runtime mode string passed to rust-daq-daemon.
+    pub fn runtime_mode(&self) -> Option<&'static str> {
+        match self {
+            Self::LocalAuto { .. } => Some("mock"),
+            Self::LabHardware { .. } => Some("native"),
+            Self::LabUniversal { .. } => Some("universal"),
+            Self::LabHybridDb { .. } => Some("hybrid-db"),
+            Self::Remote { .. } => None,
+        }
+    }
+
     /// Get the daemon URL for this mode
     pub fn daemon_url(&self) -> String {
         match self {
-            Self::LocalAuto { port } | Self::LabHardware { port } => {
+            Self::LocalAuto { port }
+            | Self::LabHardware { port }
+            | Self::LabUniversal { port }
+            | Self::LabHybridDb { port } => {
                 format!("http://127.0.0.1:{}", port)
             }
             Self::Remote { url } => url.clone(),
@@ -36,7 +54,13 @@ impl DaemonMode {
 
     /// Check if this mode requires auto-starting a local daemon
     pub fn should_auto_start(&self) -> bool {
-        matches!(self, Self::LocalAuto { .. } | Self::LabHardware { .. })
+        matches!(
+            self,
+            Self::LocalAuto { .. }
+                | Self::LabHardware { .. }
+                | Self::LabUniversal { .. }
+                | Self::LabHybridDb { .. }
+        )
     }
 
     /// Get a human-readable label for this mode
@@ -44,14 +68,19 @@ impl DaemonMode {
         match self {
             Self::LocalAuto { .. } => "Local (Mock)",
             Self::Remote { .. } => "Remote",
-            Self::LabHardware { .. } => "Lab Hardware",
+            Self::LabHardware { .. } => "Lab Native",
+            Self::LabUniversal { .. } => "Lab Universal",
+            Self::LabHybridDb { .. } => "Lab Hybrid+DB",
         }
     }
 
     /// Get the port number if applicable
     pub fn port(&self) -> Option<u16> {
         match self {
-            Self::LocalAuto { port } | Self::LabHardware { port } => Some(*port),
+            Self::LocalAuto { port }
+            | Self::LabHardware { port }
+            | Self::LabUniversal { port }
+            | Self::LabHybridDb { port } => Some(*port),
             Self::Remote { .. } => None,
         }
     }
@@ -114,8 +143,15 @@ impl DaemonLauncher {
     /// Start the daemon process based on the specified mode
     pub fn start_with_mode(&mut self, mode: &DaemonMode) -> Result<(), String> {
         match mode {
-            DaemonMode::LocalAuto { .. } => self.start(),
-            DaemonMode::LabHardware { .. } => self.start_with_lab_hardware(),
+            DaemonMode::LocalAuto { .. }
+            | DaemonMode::LabHardware { .. }
+            | DaemonMode::LabUniversal { .. }
+            | DaemonMode::LabHybridDb { .. } => {
+                let runtime_mode = mode
+                    .runtime_mode()
+                    .ok_or_else(|| "Local mode missing runtime selector".to_string())?;
+                self.start_with_runtime_mode(runtime_mode)
+            }
             DaemonMode::Remote { .. } => Err(
                 "Cannot start daemon in Remote mode (should connect to existing daemon)"
                     .to_string(),
@@ -123,8 +159,8 @@ impl DaemonLauncher {
         }
     }
 
-    /// Start the daemon process with mock hardware (default)
-    pub fn start(&mut self) -> Result<(), String> {
+    /// Start the daemon process with an explicit runtime mode.
+    fn start_with_runtime_mode(&mut self, runtime_mode: &str) -> Result<(), String> {
         if self.is_running() {
             tracing::debug!("Daemon already running on port {}", self.port);
             return Ok(());
@@ -133,15 +169,18 @@ impl DaemonLauncher {
         let daemon_bin = Self::find_daemon_binary()?;
 
         tracing::info!(
-            "Starting daemon: {} daemon --port {}",
+            "Starting daemon: {} daemon --port {} --runtime-mode {}",
             daemon_bin.display(),
-            self.port
+            self.port,
+            runtime_mode
         );
 
         let child = Command::new(&daemon_bin)
             .arg("daemon")
             .arg("--port")
             .arg(self.port.to_string())
+            .arg("--runtime-mode")
+            .arg(runtime_mode)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -152,45 +191,6 @@ impl DaemonLauncher {
         self.last_error = None;
 
         tracing::info!("Started local daemon on port {}", self.port);
-        Ok(())
-    }
-
-    /// Start the daemon with lab hardware configuration
-    pub fn start_with_lab_hardware(&mut self) -> Result<(), String> {
-        if self.is_running() {
-            tracing::debug!(
-                "Daemon already running on port {} (lab hardware mode)",
-                self.port
-            );
-            return Ok(());
-        }
-
-        let daemon_bin = Self::find_daemon_binary()?;
-
-        tracing::info!(
-            "Starting daemon with lab hardware: {} daemon --port {} --lab-hardware",
-            daemon_bin.display(),
-            self.port
-        );
-
-        let child = Command::new(&daemon_bin)
-            .arg("daemon")
-            .arg("--port")
-            .arg(self.port.to_string())
-            .arg("--lab-hardware")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| format!("Failed to start daemon with lab hardware: {}", e))?;
-
-        self.child = Some(child);
-        self.started_at = Some(Instant::now());
-        self.last_error = None;
-
-        tracing::info!(
-            "Started local daemon on port {} with lab hardware configuration",
-            self.port
-        );
         Ok(())
     }
 
@@ -326,11 +326,32 @@ mod tests {
     #[test]
     fn test_daemon_mode_lab_hardware() {
         let mode = DaemonMode::LabHardware { port: 50052 };
-        // Lab hardware mode should auto-start with --lab-hardware flag
+        // Lab native mode should auto-start with runtime selector.
         assert!(mode.should_auto_start());
         assert_eq!(mode.daemon_url(), "http://127.0.0.1:50052");
-        assert_eq!(mode.label(), "Lab Hardware");
+        assert_eq!(mode.label(), "Lab Native");
+        assert_eq!(mode.runtime_mode(), Some("native"));
         assert_eq!(mode.port(), Some(50052));
+    }
+
+    #[test]
+    fn test_daemon_mode_lab_universal() {
+        let mode = DaemonMode::LabUniversal { port: 50053 };
+        assert!(mode.should_auto_start());
+        assert_eq!(mode.daemon_url(), "http://127.0.0.1:50053");
+        assert_eq!(mode.label(), "Lab Universal");
+        assert_eq!(mode.runtime_mode(), Some("universal"));
+        assert_eq!(mode.port(), Some(50053));
+    }
+
+    #[test]
+    fn test_daemon_mode_lab_hybrid_db() {
+        let mode = DaemonMode::LabHybridDb { port: 50054 };
+        assert!(mode.should_auto_start());
+        assert_eq!(mode.daemon_url(), "http://127.0.0.1:50054");
+        assert_eq!(mode.label(), "Lab Hybrid+DB");
+        assert_eq!(mode.runtime_mode(), Some("hybrid-db"));
+        assert_eq!(mode.port(), Some(50054));
     }
 
     #[test]

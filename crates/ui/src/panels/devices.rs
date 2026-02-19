@@ -961,8 +961,16 @@ impl DevicesPanel {
                     self.param_edit_buffers
                         .insert(buffer_key.clone(), value.to_string());
 
-                    // Commit on focus lost or drag stopped
-                    if (response.lost_focus() || response.drag_stopped()) && value != original {
+                    // Commit on drag stop/focus loss and also Enter/step-button changes.
+                    let commit_now = (response.changed()
+                        && !response.dragged()
+                        && ui.input(|i| {
+                            i.pointer.any_released() || i.key_pressed(egui::Key::Enter)
+                        }))
+                        || response.lost_focus()
+                        || response.drag_stopped();
+
+                    if commit_now && value != original {
                         self.pending_action = Some(PendingAction::SetParameter {
                             device_id: device_id.to_string(),
                             name: desc.name.clone(),
@@ -1004,10 +1012,16 @@ impl DevicesPanel {
                     self.param_edit_buffers
                         .insert(buffer_key.clone(), value.to_string());
 
-                    // Commit on focus lost or drag stopped
-                    if (response.lost_focus() || response.drag_stopped())
-                        && (value - original).abs() > f64::EPSILON
-                    {
+                    // Commit on drag stop/focus loss and also Enter/step-button changes.
+                    let commit_now = (response.changed()
+                        && !response.dragged()
+                        && ui.input(|i| {
+                            i.pointer.any_released() || i.key_pressed(egui::Key::Enter)
+                        }))
+                        || response.lost_focus()
+                        || response.drag_stopped();
+
+                    if commit_now && (value - original).abs() > f64::EPSILON {
                         self.pending_action = Some(PendingAction::SetParameter {
                             device_id: device_id.to_string(),
                             name: desc.name.clone(),

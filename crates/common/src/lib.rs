@@ -75,5 +75,8 @@ pub mod serial;
 // Game loop state broadcasting (Phase 4)
 pub mod state_cache;
 
+// Timestamp utilities
+pub mod time;
+
 // Arrow extension metadata helpers for Python interop
 pub mod arrow_metadata;

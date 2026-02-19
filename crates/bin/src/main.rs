@@ -60,6 +60,19 @@ struct Cli {
     command: Commands,
 }
 
+/// Explicit runtime selection for daemon launch behavior.
+#[derive(clap::ValueEnum, Debug, Clone)]
+enum RuntimeMode {
+    /// Mock-only local runtime (no hardware config).
+    Mock,
+    /// Native maitai profile (`config/maitai_hardware.toml`).
+    Native,
+    /// Universal TOML profile (`config/maitai_universal.toml`).
+    Universal,
+    /// Universal profile with SurrealDB control-plane expectations.
+    HybridDb,
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Run a Rhai script once (for testing/development)
@@ -78,6 +91,21 @@ enum Commands {
         #[arg(long, default_value = "50051")]
         port: u16,
 
+        /// Explicit runtime mode.
+        ///
+        /// Overrides profile selection logic and maps to built-in configs:
+        /// - mock: no hardware config
+        /// - native: config/maitai_hardware.toml
+        /// - universal: config/maitai_universal.toml
+        /// - hybrid-db: config/maitai_universal.toml (+ db-surreal recommended)
+        #[arg(
+            long,
+            value_enum,
+            value_name = "MODE",
+            conflicts_with_all = ["hardware_config", "lab_hardware"]
+        )]
+        runtime_mode: Option<RuntimeMode>,
+
         /// Hardware configuration file (TOML format)
         /// If not provided, uses mock devices only
         #[arg(long)]
@@ -87,6 +115,12 @@ enum Commands {
         /// Mutually exclusive with --hardware-config
         #[arg(long, conflicts_with = "hardware_config")]
         lab_hardware: bool,
+
+        /// Database path for SurrealDB RocksDB engine (daemon mode).
+        /// Omit to use in-memory engine (db-surreal-mem builds).
+        #[cfg(feature = "db-surreal")]
+        #[arg(long)]
+        db_path: Option<PathBuf>,
     },
 
     /// Remote control commands (connect to daemon)
@@ -279,9 +313,24 @@ async fn main() -> Result<()> {
         Commands::Run { script, config } => run_script_once(script, config).await,
         Commands::Daemon {
             port,
+            runtime_mode,
             hardware_config,
             lab_hardware,
-        } => start_daemon(port, hardware_config, lab_hardware).await,
+            #[cfg(feature = "db-surreal")]
+            db_path,
+        } => {
+            start_daemon(
+                port,
+                runtime_mode,
+                hardware_config,
+                lab_hardware,
+                #[cfg(feature = "db-surreal")]
+                db_path,
+                #[cfg(not(feature = "db-surreal"))]
+                None,
+            )
+            .await
+        }
         #[cfg(feature = "networking")]
         Commands::Client(cmd) => handle_client_command(cmd).await,
         #[cfg(feature = "db-surreal")]
@@ -347,17 +396,67 @@ async fn run_script_once(script_path: PathBuf, config: Option<PathBuf>) -> Resul
 
 async fn start_daemon(
     port: u16,
+    runtime_mode: Option<RuntimeMode>,
     hardware_config: Option<PathBuf>,
     lab_hardware: bool,
+    db_path: Option<PathBuf>,
 ) -> Result<()> {
     use daemon_manager::{DaemonConfig, DaemonInstance};
 
+    let mut resolved_runtime_mode = "mock";
+    let mut resolved_hardware_config = hardware_config;
+    let mut resolved_lab_hardware = lab_hardware;
+
+    if let Some(mode) = runtime_mode.clone() {
+        match mode {
+            RuntimeMode::Mock => {
+                resolved_runtime_mode = "mock";
+                resolved_hardware_config = None;
+                resolved_lab_hardware = false;
+            }
+            RuntimeMode::Native => {
+                resolved_runtime_mode = "native";
+                resolved_hardware_config = Some(PathBuf::from("config/maitai_hardware.toml"));
+                resolved_lab_hardware = false;
+            }
+            RuntimeMode::Universal => {
+                resolved_runtime_mode = "universal";
+                resolved_hardware_config = Some(PathBuf::from("config/maitai_universal.toml"));
+                resolved_lab_hardware = false;
+            }
+            RuntimeMode::HybridDb => {
+                resolved_runtime_mode = "hybrid-db";
+                resolved_hardware_config = Some(PathBuf::from("config/maitai_universal.toml"));
+                resolved_lab_hardware = false;
+            }
+        }
+    } else if lab_hardware {
+        resolved_runtime_mode = "native";
+    } else if resolved_hardware_config.is_some() {
+        resolved_runtime_mode = "custom";
+        resolved_lab_hardware = false;
+    }
+
+    println!("🧭 Runtime mode: {}", resolved_runtime_mode);
+    #[cfg(feature = "db-surreal")]
+    if let Some(path) = db_path.as_ref() {
+        println!("🗃️  Database path: {}", path.display());
+    }
+    #[cfg(not(feature = "db-surreal"))]
+    if matches!(runtime_mode, Some(RuntimeMode::HybridDb)) {
+        eprintln!(
+            "⚠️  hybrid-db selected but this daemon build has no db-surreal feature; running universal TOML without DB persistence."
+        );
+    }
+    #[cfg(not(feature = "db-surreal"))]
+    let _ = db_path;
+
     let config = DaemonConfig {
         port,
-        hardware_config,
-        lab_hardware,
+        hardware_config: resolved_hardware_config,
+        lab_hardware: resolved_lab_hardware,
         #[cfg(feature = "db-surreal")]
-        db_path: None,
+        db_path,
     };
 
     let instance = DaemonInstance::start(config).await?;
@@ -566,14 +665,32 @@ async fn open_db(db_path: Option<PathBuf>) -> Result<db::DaqDb> {
 /// `rust-daq config import <file>` — load TOML hardware config into DB.
 #[cfg(feature = "db-surreal")]
 async fn config_import(file: PathBuf, db_path: Option<PathBuf>) -> Result<()> {
-    use hardware::registry::HardwareConfig;
+    use hardware::registry::{register_all_factories, DeviceRegistry, HardwareConfig};
 
     let hw_config = HardwareConfig::from_file(&file)
         .map_err(|e| anyhow::anyhow!("Failed to parse {}: {e}", file.display()))?;
 
     let db = open_db(db_path).await?;
+    let registry = DeviceRegistry::new();
 
-    let (drivers, instruments) = db_bridge::shadow_write(&db, &hw_config)
+    let config_dir = file
+        .parent()
+        .map(|parent| parent.join("devices"))
+        .filter(|path| path.exists())
+        .or_else(|| {
+            let default = PathBuf::from("config/devices");
+            default.exists().then_some(default)
+        });
+
+    if let Err(e) = register_all_factories(&registry, config_dir.as_deref()).await {
+        tracing::warn!(
+            error = %e,
+            config_dir = ?config_dir,
+            "Factory registration failed during config import; preserving existing driver metadata"
+        );
+    }
+
+    let (drivers, instruments) = db_bridge::shadow_write_with_registry(&db, &hw_config, &registry)
         .await
         .map_err(|e| anyhow::anyhow!("Import failed: {e}"))?;
 

@@ -33,13 +33,33 @@ The `--lab-hardware` flag selects the built-in maitai lab profile
 ./target/release/rust-daq daemon --port 50051 --lab-hardware
 ```
 
+### Explicit runtime modes
+
+Use `--runtime-mode` for deterministic launcher/profile selection:
+
+```bash
+# Mock-only local runtime
+./target/release/rust-daq daemon --runtime-mode mock
+
+# Native maitai profile (legacy/native SCPI path + native camera)
+./target/release/rust-daq daemon --runtime-mode native
+
+# Universal TOML profile
+./target/release/rust-daq daemon --runtime-mode universal
+
+# Universal + SurrealDB control-plane expectations
+./target/release/rust-daq daemon --runtime-mode hybrid-db --db-path ./data/surrealdb
+```
+
 ### CLI reference
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--port` | `50051` | gRPC listen port |
+| `--runtime-mode <mock\|native\|universal\|hybrid-db>` | unset | Explicit runtime profile selector |
+| `--db-path <path>` | none | SurrealDB RocksDB path in daemon mode (`db-surreal` builds) |
 | `--hardware-config <path>` | none | Path to a TOML hardware config |
-| `--lab-hardware` | off | Use the default maitai lab config |
+| `--lab-hardware` | off | Backward-compatible alias for native maitai profile |
 
 ## Daemon Shutdown
 
@@ -125,6 +145,9 @@ The registered devices should include: `prime_bsi`, `maitai`, `power_meter`,
 
 If the log shows `using mock mode`, the build is incorrect -- re-run
 `build-maitai.sh`.
+
+If startup logs show legacy SCPI/TCP deprecation warnings, migrate to universal
+driver types per `docs/how-to/legacy-scpi-deprecation.md`.
 
 ## Feature Flags (Runtime)
 

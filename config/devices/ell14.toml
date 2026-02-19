@@ -386,6 +386,12 @@ input_conversion = "degrees_to_pulses"
 input_param = "position_pulses"
 from_param = "degrees"
 
+[capabilities.movable.move_rel]
+command = "move_relative"
+input_conversion = "degrees_to_pulses"
+input_param = "distance_pulses"
+from_param = "degrees"
+
 [capabilities.movable.position]
 command = "get_position"
 output_conversion = "pulses_to_degrees"

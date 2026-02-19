@@ -14,6 +14,14 @@ use crate::DaqDb;
 // DB-native types
 // ---------------------------------------------------------------------------
 
+fn deserialize_vec_or_default<'de, D>(deserializer: D) -> std::result::Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let values = Option::<Vec<String>>::deserialize(deserializer)?;
+    Ok(values.unwrap_or_default())
+}
+
 /// A driver definition stored in SurrealDB.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DbDriver {
@@ -22,7 +30,11 @@ pub struct DbDriver {
     /// Human-readable name.
     pub name: String,
     /// Capability strings (e.g., `["movable", "readable"]`).
+    #[serde(default, deserialize_with = "deserialize_vec_or_default")]
     pub capabilities: Vec<String>,
+    /// Available command names (primarily for universal TOML drivers).
+    #[serde(default, deserialize_with = "deserialize_vec_or_default")]
+    pub commands: Vec<String>,
 }
 
 /// An instrument (device instance) stored in SurrealDB.
@@ -177,12 +189,14 @@ impl DaqDb {
                     "UPSERT driver SET \
                      driver_type = $driver_type, \
                      name = $name, \
-                     capabilities = $capabilities \
+                     capabilities = $capabilities, \
+                     commands = $commands \
                      WHERE driver_type = $driver_type",
                 )
                 .bind(("driver_type", drv.driver_type.clone()))
                 .bind(("name", drv.name.clone()))
                 .bind(("capabilities", drv.capabilities.clone()))
+                .bind(("commands", drv.commands.clone()))
                 .await?;
             count += 1;
         }
@@ -213,7 +227,9 @@ impl DaqDb {
     pub async fn get_all_drivers(&self) -> Result<Vec<DbDriver>> {
         let mut response = self
             .client()
-            .query("SELECT driver_type, name, capabilities FROM driver ORDER BY driver_type")
+            .query(
+                "SELECT driver_type, name, capabilities, commands FROM driver ORDER BY driver_type",
+            )
             .await?;
         let rows: Vec<DbDriver> = response.take(0)?;
         Ok(rows)
@@ -379,11 +395,13 @@ mod tests {
                 driver_type: "ell14".into(),
                 name: "Thorlabs ELL14".into(),
                 capabilities: vec!["movable".into()],
+                commands: vec![],
             },
             DbDriver {
                 driver_type: "newport1830_c".into(),
                 name: "Newport 1830-C".into(),
                 capabilities: vec!["readable".into()],
+                commands: vec![],
             },
         ]
     }
@@ -456,6 +474,7 @@ mod tests {
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].driver_type, "ell14");
         assert_eq!(all[0].capabilities, vec!["movable"]);
+        assert!(all[0].commands.is_empty());
     }
 
     #[tokio::test]
@@ -600,6 +619,7 @@ mod tests {
             driver_type: "mock".into(),
             name: "Mock Driver".into(),
             capabilities: vec!["readable".into()],
+            commands: vec![],
         }];
         db.upsert_drivers(&drivers).await.unwrap();
 
@@ -608,6 +628,7 @@ mod tests {
             driver_type: "mock".into(),
             name: "Mock Driver v2".into(),
             capabilities: vec!["readable".into(), "movable".into(), "configurable".into()],
+            commands: vec!["self_test".into(), "reset".into()],
         }];
         db.upsert_drivers(&drivers).await.unwrap();
 
@@ -615,6 +636,7 @@ mod tests {
         assert_eq!(all.len(), 1, "should not duplicate driver");
         assert_eq!(all[0].name, "Mock Driver v2");
         assert_eq!(all[0].capabilities.len(), 3);
+        assert_eq!(all[0].commands, vec!["self_test", "reset"]);
     }
 
     #[tokio::test]

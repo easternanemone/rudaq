@@ -4,7 +4,6 @@ use super::*;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(super) async fn fetch_device_state(
     registry: &Arc<DeviceRegistry>,
@@ -85,10 +84,7 @@ pub(super) fn device_state_to_fields_json(state: &DeviceStateResponse) -> HashMa
 }
 
 pub(super) fn now_ns() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64
+    common::time::now_ns()
 }
 
 pub(super) fn proto_parameter_metadata(meta: &CommonParameterMetadata) -> ProtoParameterMetadata {
@@ -288,6 +284,8 @@ pub(super) fn device_info_to_proto(info: &hardware::registry::DeviceInfo) -> Dev
             min_wavelength_nm: info.metadata.min_wavelength_nm,
             max_wavelength_nm: info.metadata.max_wavelength_nm,
             config_source: info.metadata.config_source.clone(),
+            available_commands: info.metadata.available_commands.clone(),
+            ui_schema_json: info.metadata.ui_schema_json.clone(),
         }),
         // Dynamic capability list - canonical source of truth (bd-4myc.3)
         capabilities: info

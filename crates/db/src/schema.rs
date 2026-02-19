@@ -12,7 +12,7 @@
 //! - `connects_to` — instrument → instrument (physical cabling)
 
 /// Current schema version. Bump this when adding migrations.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// A single schema migration step.
 #[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
@@ -37,6 +37,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 3,
         sql: SCHEMA_V3,
+    },
+    Migration {
+        version: 4,
+        sql: SCHEMA_V4,
     },
 ];
 
@@ -97,6 +101,13 @@ const SCHEMA_V3: &str = r"
 -- Extend experiment table with experiment_id key
 DEFINE FIELD IF NOT EXISTS experiment_id ON experiment TYPE string;
 DEFINE INDEX IF NOT EXISTS idx_experiment_id ON experiment FIELDS experiment_id UNIQUE;
+";
+
+/// v3→v4 migration: add driver command catalog field for DB-backed command
+/// introspection in universal/TOML drivers.
+#[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
+const SCHEMA_V4: &str = r"
+DEFINE FIELD IF NOT EXISTS commands ON driver FLEXIBLE TYPE array;
 ";
 
 /// Apply the schema to the database.

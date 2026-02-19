@@ -11,6 +11,8 @@
 //! 4. Cleanup auxiliary tasks
 
 use anyhow::{Context, Result};
+#[cfg(feature = "networking")]
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -42,6 +44,82 @@ pub struct DaemonConfig {
     /// enabled. `None` = use in-memory engine (default for `db-surreal-mem`).
     #[cfg(feature = "db-surreal")]
     pub db_path: Option<PathBuf>,
+}
+
+#[cfg(feature = "networking")]
+const LEGACY_SCPI_DRIVER_REPLACEMENTS: &[(&str, &str)] = &[
+    ("ell14", "universal_thorlabs_ell14"),
+    ("maitai", "universal_spectra-physics_maitai"),
+    ("newport1830_c", "universal_newport_1830-c"),
+    ("esp300", "universal_newport_esp300"),
+    ("thorlabs_pm400", "universal_thorlabs_pm400"),
+];
+
+#[cfg(feature = "networking")]
+fn legacy_scpi_replacement(driver_type: &str) -> Option<&'static str> {
+    LEGACY_SCPI_DRIVER_REPLACEMENTS
+        .iter()
+        .find_map(|(legacy, replacement)| (*legacy == driver_type).then_some(*replacement))
+}
+
+#[cfg(feature = "networking")]
+fn is_native_camera_driver(driver_type: &str) -> bool {
+    matches!(
+        driver_type,
+        "pvcam" | "mock_camera" | "andor_camera" | "andor_spectrograph"
+    )
+}
+
+#[cfg(feature = "networking")]
+fn log_runtime_policy_for_config(source: &str, hw: &HardwareConfig) {
+    let mut universal_count = 0usize;
+    let mut native_camera_count = 0usize;
+    let mut native_other_count = 0usize;
+    let mut warned_driver_types = HashSet::new();
+
+    for device in &hw.devices {
+        let driver_type = device.driver.driver_type.as_str();
+        if driver_type.starts_with("universal_") {
+            universal_count += 1;
+            continue;
+        }
+        if is_native_camera_driver(driver_type) {
+            native_camera_count += 1;
+            continue;
+        }
+
+        native_other_count += 1;
+        if let Some(replacement) = legacy_scpi_replacement(driver_type) {
+            if warned_driver_types.insert(driver_type.to_string()) {
+                tracing::warn!(
+                    driver_type = %driver_type,
+                    replacement = %replacement,
+                    "Legacy native SCPI/TCP driver path detected; migrate to universal driver"
+                );
+                println!(
+                    "   ⚠ Legacy SCPI/TCP driver '{}' in '{}'; prefer '{}'",
+                    driver_type, source, replacement
+                );
+            }
+        }
+    }
+
+    tracing::info!(
+        config_source = source,
+        universal_count,
+        native_camera_count,
+        native_other_count,
+        "Runtime policy summary: universal TOML for SCPI/TCP, native for camera drivers"
+    );
+    println!(
+        "   Runtime policy [{}]: universal={}, native_camera={}, native_other={}",
+        source, universal_count, native_camera_count, native_other_count
+    );
+    if native_other_count > 0 {
+        println!(
+            "   ⚠ Native non-camera drivers detected. Native SCPI/TCP paths are deprecated; see docs."
+        );
+    }
 }
 
 /// Tracks the daemon's current lifecycle phase.
@@ -237,6 +315,8 @@ impl DaemonInstance {
                 println!("   Loading from config: {}", config_path.display());
                 let hw = HardwareConfig::from_file(config_path)
                     .context("Failed to parse hardware config")?;
+                let source = config_path.display().to_string();
+                log_runtime_policy_for_config(&source, &hw);
                 let config_dir = config_path
                     .parent()
                     .map(|p| p.join("devices"))
@@ -256,6 +336,8 @@ impl DaemonInstance {
                 println!("   Loading lab hardware from: {}", default_path.display());
                 let hw = HardwareConfig::from_file(default_path)
                     .context("Failed to parse lab hardware config")?;
+                let source = default_path.display().to_string();
+                log_runtime_policy_for_config(&source, &hw);
                 let config_dir = default_path
                     .parent()
                     .map(|p| p.join("devices"))
@@ -266,6 +348,7 @@ impl DaemonInstance {
                 (reg, Some(hw))
             } else {
                 println!("   Using mock devices (no hardware config specified)");
+                println!("   Runtime policy [mock]: universal=0, native_camera=0, native_other=0");
                 let reg = create_mock_registry()
                     .await
                     .context("Failed to create mock registry")?;
@@ -307,7 +390,7 @@ impl DaemonInstance {
         #[cfg(all(feature = "db-surreal", feature = "networking"))]
         if let (Some(ref db), Some(ref hw_config)) = (&db, &hw_config) {
             use crate::db_bridge;
-            match db_bridge::shadow_write(db, hw_config).await {
+            match db_bridge::shadow_write_with_registry(db, hw_config, &registry).await {
                 Ok((drivers, instruments)) => {
                     println!(
                         "   🗄️  Shadowed config to DB ({} drivers, {} instruments)",

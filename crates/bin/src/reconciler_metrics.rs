@@ -38,6 +38,12 @@ pub struct ReconcilerMetrics {
 
     /// Total LIVE SELECT reconnections (indicates watch instability).
     pub watch_reconnections: IntCounter,
+
+    /// Total driver metadata drift detections.
+    pub metadata_drifts: IntCounter,
+
+    /// Total driver metadata repairs written back to DB.
+    pub metadata_repairs: IntCounter,
 }
 
 impl ReconcilerMetrics {
@@ -80,11 +86,27 @@ impl ReconcilerMetrics {
         )
         .expect("Failed to create daq_watch_reconnections_total counter");
 
+        let metadata_drifts = register_int_counter_with_registry!(
+            "daq_reconcile_metadata_drifts_total",
+            "Total driver metadata drift detections",
+            registry
+        )
+        .expect("Failed to create daq_reconcile_metadata_drifts_total counter");
+
+        let metadata_repairs = register_int_counter_with_registry!(
+            "daq_reconcile_metadata_repairs_total",
+            "Total driver metadata repairs",
+            registry
+        )
+        .expect("Failed to create daq_reconcile_metadata_repairs_total counter");
+
         Self {
             config_changes,
             reconcile_duration,
             reconcile_errors,
             watch_reconnections,
+            metadata_drifts,
+            metadata_repairs,
         }
     }
 
@@ -111,6 +133,14 @@ impl ReconcilerMetrics {
         let errors = report.errors.len() as u64;
         if errors > 0 {
             self.reconcile_errors.inc_by(errors);
+        }
+        let drifts = report.metadata_drifts.len() as u64;
+        if drifts > 0 {
+            self.metadata_drifts.inc_by(drifts);
+        }
+        let repairs = report.metadata_repairs.len() as u64;
+        if repairs > 0 {
+            self.metadata_repairs.inc_by(repairs);
         }
     }
 }
@@ -142,6 +172,8 @@ mod tests {
         assert_eq!(m.config_changes.with_label_values(&["add"]).get(), 0);
         assert_eq!(m.reconcile_errors.get(), 0);
         assert_eq!(m.watch_reconnections.get(), 0);
+        assert_eq!(m.metadata_drifts.get(), 0);
+        assert_eq!(m.metadata_repairs.get(), 0);
 
         // Simulate a reconcile report.
         let report = crate::reconciler::ReconcileReport {
@@ -149,6 +181,8 @@ mod tests {
             removed: vec!["c".into()],
             updated: vec![],
             errors: vec!["oops".into()],
+            metadata_drifts: vec!["mock_driver".into()],
+            metadata_repairs: vec!["mock_driver".into()],
             unchanged: 5,
         };
         m.record_report(&report);
@@ -157,6 +191,8 @@ mod tests {
         assert_eq!(m.config_changes.with_label_values(&["remove"]).get(), 1);
         assert_eq!(m.config_changes.with_label_values(&["update"]).get(), 0);
         assert_eq!(m.reconcile_errors.get(), 1);
+        assert_eq!(m.metadata_drifts.get(), 1);
+        assert_eq!(m.metadata_repairs.get(), 1);
 
         // Watch reconnection counter.
         m.watch_reconnections.inc();

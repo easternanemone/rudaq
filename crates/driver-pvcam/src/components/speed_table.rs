@@ -1,9 +1,9 @@
-#[cfg(feature = "pvcam_hardware")]
+#[cfg(any(feature = "pvcam_sdk", feature = "pvcam_hardware"))]
 use crate::components::connection::get_pvcam_error;
 use anyhow::Result;
-#[cfg(feature = "pvcam_hardware")]
+#[cfg(any(feature = "pvcam_sdk", feature = "pvcam_hardware"))]
 use pvcam_sys::*;
-#[cfg(feature = "pvcam_hardware")]
+#[cfg(any(feature = "pvcam_sdk", feature = "pvcam_hardware"))]
 use std::ffi::CStr;
 
 #[derive(Debug, Clone)]
@@ -66,7 +66,8 @@ impl SpeedTable {
                         continue; // Skip invalid ports
                     }
                 }
-                let p_name = get_enum_name(h, PARAM_READOUT_PORT, p_idx)?;
+                let p_name = get_enum_name(h, PARAM_READOUT_PORT, p_idx)
+                    .unwrap_or_else(|_| format!("Port {}", p_idx));
 
                 let mut speeds = Vec::new();
                 // 3. Iterate Speeds for this Port
@@ -84,7 +85,9 @@ impl SpeedTable {
                                 continue;
                             }
                         }
-                        let s_name = get_enum_name(h, PARAM_SPDTAB_INDEX, s_idx)?;
+                        let s_name = get_current_string_param(h, PARAM_SPDTAB_NAME)
+                            .or_else(|| get_enum_name(h, PARAM_SPDTAB_INDEX, s_idx).ok())
+                            .unwrap_or_else(|| format!("Speed {}", s_idx));
                         let pix_time = PvcamFeatures::get_u32_param_impl(h, PARAM_PIX_TIME)
                             .unwrap_or(0) as u16;
                         let bit_depth = PvcamFeatures::get_u16_param_impl(h, PARAM_BIT_DEPTH)
@@ -96,7 +99,19 @@ impl SpeedTable {
                             PvcamFeatures::get_enum_count_impl(h, PARAM_GAIN_INDEX)
                         {
                             for g_idx in 0..gain_count {
-                                let g_name = get_enum_name(h, PARAM_GAIN_INDEX, g_idx)?;
+                                let g_val = g_idx as i32;
+                                // SAFETY: h is valid and g_val points to a stack i32 for this call.
+                                let set_ok = unsafe {
+                                    pl_set_param(h, PARAM_GAIN_INDEX, &g_val as *const _ as *mut _)
+                                        != 0
+                                };
+                                if !set_ok {
+                                    continue;
+                                }
+
+                                let g_name = get_current_string_param(h, PARAM_GAIN_NAME)
+                                    .or_else(|| get_enum_name(h, PARAM_GAIN_INDEX, g_idx).ok())
+                                    .unwrap_or_else(|| format!("Gain {}", g_idx));
                                 gains.push(GainEntry {
                                     index: g_idx as i16,
                                     name: g_name,
@@ -200,10 +215,10 @@ impl SpeedTable {
 }
 
 // Helper to get enum name by index
-#[cfg(feature = "pvcam_hardware")]
+#[cfg(any(feature = "pvcam_sdk", feature = "pvcam_hardware"))]
 fn get_enum_name(h: i16, param: u32, index: u32) -> Result<String> {
     let mut name = [0i8; 256];
-    let mut name_len: u32 = 256;
+    let mut name_len: u32 = 0;
     let mut value: i32 = 0;
     // SAFETY: `h` is a valid camera handle. `param` and `index` are validated
     // by the caller (iterating 0..count from SDK). `name` is a stack-allocated
@@ -218,13 +233,37 @@ fn get_enum_name(h: i16, param: u32, index: u32) -> Result<String> {
                 index,
                 &mut value,
                 name.as_mut_ptr(),
-                name_len.min(256),
+                name_len.max(2).min(256),
             ) != 0
             {
                 return Ok(CStr::from_ptr(name.as_ptr()).to_string_lossy().into_owned());
             }
         }
     }
-    // Fallback if SDK call fails (shouldn't happen for valid indices)
-    Ok(format!("Index {}", index))
+    Err(anyhow::anyhow!(
+        "Failed to get enum name for param {} index {}: {}",
+        param,
+        index,
+        get_pvcam_error()
+    ))
+}
+
+#[cfg(any(feature = "pvcam_sdk", feature = "pvcam_hardware"))]
+fn get_current_string_param(h: i16, param: u32) -> Option<String> {
+    let mut buf = [0i8; 256];
+    // SAFETY: h is valid and buf is a writable stack buffer for ATTR_CURRENT string params.
+    let ok = unsafe { pl_get_param(h, param, ATTR_CURRENT, buf.as_mut_ptr() as *mut _) != 0 };
+    if !ok {
+        return None;
+    }
+    // SAFETY: PVCAM string params are NUL-terminated.
+    let s = unsafe { CStr::from_ptr(buf.as_ptr()) }
+        .to_string_lossy()
+        .trim()
+        .to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
 }
