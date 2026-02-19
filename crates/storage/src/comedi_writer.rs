@@ -60,7 +60,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-#[cfg(feature = "storage_hdf5")]
 #[cfg(feature = "storage_arrow")]
 use arrow::array::{ArrayRef, Float64Array};
 #[cfg(feature = "storage_arrow")]

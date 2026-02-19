@@ -9,7 +9,7 @@
 //! the hardware loop.
 
 use common::error::DaqError;
-#[cfg(any(feature = "storage_hdf5", feature = "storage_arrow"))]
+#[cfg(feature = "storage_hdf5")]
 use common::error::{StorageError, StorageErrorKind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
