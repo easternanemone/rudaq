@@ -780,7 +780,7 @@ pub struct DaqApp {
     /// Daemon mode configuration (local auto-start, remote, or lab hardware)
     daemon_mode: DaemonMode,
 
-    /// Daemon process launcher (for LocalAuto mode)
+    /// Daemon process launcher (for auto-start local modes)
     daemon_launcher: Option<DaemonLauncher>,
 
     /// Auto-connect lifecycle state
@@ -1121,7 +1121,7 @@ impl DaqApp {
             .enable_all()
             .build()
             .expect("Failed to create tokio runtime");
-        // Start daemon launcher if in LocalAuto or LabHardware mode
+        // Start daemon launcher if in an auto-start local mode
         let daemon_launcher = if daemon_mode.should_auto_start() {
             let port = daemon_mode.port().unwrap_or(50051);
             let mut launcher = DaemonLauncher::new(port);
@@ -1445,7 +1445,7 @@ impl DaqApp {
     fn switch_daemon_mode(&mut self, mode: DaemonMode) {
         tracing::info!("Switching daemon mode to: {}", mode.label());
 
-        // Stop existing daemon if we're switching away from LocalAuto
+        // Stop existing daemon before switching modes.
         if let Some(ref mut launcher) = self.daemon_launcher {
             launcher.stop();
         }
@@ -1516,6 +1516,21 @@ impl DaqApp {
                         ui.close();
                     }
 
+                    if ui.button("Lab Native").clicked() {
+                        self.switch_daemon_mode(DaemonMode::LabHardware { port: 50051 });
+                        ui.close();
+                    }
+
+                    if ui.button("Lab Universal").clicked() {
+                        self.switch_daemon_mode(DaemonMode::LabUniversal { port: 50051 });
+                        ui.close();
+                    }
+
+                    if ui.button("Lab Hybrid+DB").clicked() {
+                        self.switch_daemon_mode(DaemonMode::LabHybridDb { port: 50051 });
+                        ui.close();
+                    }
+
                     // Remote connection - use the address input
                     if ui.button("Use Remote Address").clicked() {
                         // Parse current address input as remote URL
@@ -1529,11 +1544,7 @@ impl DaqApp {
                         ui.close();
                     }
 
-                    // Lab Hardware - auto-start daemon with real hardware config
-                    if ui.button("Lab Hardware").clicked() {
-                        self.switch_daemon_mode(DaemonMode::LabHardware { port: 50051 });
-                        ui.close();
-                    }
+                    ui.small("Hybrid+DB requires daemon build with db-surreal feature flags.");
 
                     // Connection presets from gui.toml
                     if !self.gui_presets.is_empty() {

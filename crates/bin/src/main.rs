@@ -60,6 +60,19 @@ struct Cli {
     command: Commands,
 }
 
+/// Explicit runtime selection for daemon launch behavior.
+#[derive(clap::ValueEnum, Debug, Clone)]
+enum RuntimeMode {
+    /// Mock-only local runtime (no hardware config).
+    Mock,
+    /// Native maitai profile (`config/maitai_hardware.toml`).
+    Native,
+    /// Universal TOML profile (`config/maitai_universal.toml`).
+    Universal,
+    /// Universal profile with SurrealDB control-plane expectations.
+    HybridDb,
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Run a Rhai script once (for testing/development)
@@ -77,6 +90,21 @@ enum Commands {
         /// gRPC port
         #[arg(long, default_value = "50051")]
         port: u16,
+
+        /// Explicit runtime mode.
+        ///
+        /// Overrides profile selection logic and maps to built-in configs:
+        /// - mock: no hardware config
+        /// - native: config/maitai_hardware.toml
+        /// - universal: config/maitai_universal.toml
+        /// - hybrid-db: config/maitai_universal.toml (+ db-surreal recommended)
+        #[arg(
+            long,
+            value_enum,
+            value_name = "MODE",
+            conflicts_with_all = ["hardware_config", "lab_hardware"]
+        )]
+        runtime_mode: Option<RuntimeMode>,
 
         /// Hardware configuration file (TOML format)
         /// If not provided, uses mock devices only
@@ -279,9 +307,10 @@ async fn main() -> Result<()> {
         Commands::Run { script, config } => run_script_once(script, config).await,
         Commands::Daemon {
             port,
+            runtime_mode,
             hardware_config,
             lab_hardware,
-        } => start_daemon(port, hardware_config, lab_hardware).await,
+        } => start_daemon(port, runtime_mode, hardware_config, lab_hardware).await,
         #[cfg(feature = "networking")]
         Commands::Client(cmd) => handle_client_command(cmd).await,
         #[cfg(feature = "db-surreal")]
@@ -347,15 +376,58 @@ async fn run_script_once(script_path: PathBuf, config: Option<PathBuf>) -> Resul
 
 async fn start_daemon(
     port: u16,
+    runtime_mode: Option<RuntimeMode>,
     hardware_config: Option<PathBuf>,
     lab_hardware: bool,
 ) -> Result<()> {
     use daemon_manager::{DaemonConfig, DaemonInstance};
 
+    let mut resolved_runtime_mode = "mock";
+    let mut resolved_hardware_config = hardware_config;
+    let mut resolved_lab_hardware = lab_hardware;
+
+    if let Some(mode) = runtime_mode.clone() {
+        match mode {
+            RuntimeMode::Mock => {
+                resolved_runtime_mode = "mock";
+                resolved_hardware_config = None;
+                resolved_lab_hardware = false;
+            }
+            RuntimeMode::Native => {
+                resolved_runtime_mode = "native";
+                resolved_hardware_config = Some(PathBuf::from("config/maitai_hardware.toml"));
+                resolved_lab_hardware = false;
+            }
+            RuntimeMode::Universal => {
+                resolved_runtime_mode = "universal";
+                resolved_hardware_config = Some(PathBuf::from("config/maitai_universal.toml"));
+                resolved_lab_hardware = false;
+            }
+            RuntimeMode::HybridDb => {
+                resolved_runtime_mode = "hybrid-db";
+                resolved_hardware_config = Some(PathBuf::from("config/maitai_universal.toml"));
+                resolved_lab_hardware = false;
+            }
+        }
+    } else if lab_hardware {
+        resolved_runtime_mode = "native";
+    } else if resolved_hardware_config.is_some() {
+        resolved_runtime_mode = "custom";
+        resolved_lab_hardware = false;
+    }
+
+    println!("🧭 Runtime mode: {}", resolved_runtime_mode);
+    #[cfg(not(feature = "db-surreal"))]
+    if matches!(runtime_mode, Some(RuntimeMode::HybridDb)) {
+        eprintln!(
+            "⚠️  hybrid-db selected but this daemon build has no db-surreal feature; running universal TOML without DB persistence."
+        );
+    }
+
     let config = DaemonConfig {
         port,
-        hardware_config,
-        lab_hardware,
+        hardware_config: resolved_hardware_config,
+        lab_hardware: resolved_lab_hardware,
         #[cfg(feature = "db-surreal")]
         db_path: None,
     };
