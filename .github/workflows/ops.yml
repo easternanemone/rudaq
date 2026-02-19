@@ -160,6 +160,7 @@ jobs:
         uses: ./.github/actions/setup-daq
         with:
           dependency-profile: minimal
+          toolchain: stable
           cache-key: ops-bench
 
       - name: Run benchmarks

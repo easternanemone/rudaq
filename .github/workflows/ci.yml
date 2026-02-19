@@ -48,6 +48,7 @@ jobs:
         uses: ./.github/actions/setup-daq
         with:
           dependency-profile: minimal
+          toolchain: stable
           components: clippy,rustfmt
           cache-key: ci-ubuntu-lean
 

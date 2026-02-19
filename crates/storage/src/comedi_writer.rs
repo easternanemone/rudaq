@@ -61,8 +61,6 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[cfg(feature = "storage_hdf5")]
-use crate::map_hdf5_err;
-
 #[cfg(feature = "storage_arrow")]
 use arrow::array::{ArrayRef, Float64Array};
 #[cfg(feature = "storage_arrow")]

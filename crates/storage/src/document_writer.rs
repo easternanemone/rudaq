@@ -20,9 +20,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-#[cfg(feature = "storage_hdf5")]
-use common::experiment::document::{EventDoc, StartDoc};
-
 /// HDF5 Writer for RunEngine Documents
 pub struct DocumentWriter {
     #[allow(dead_code)]
@@ -324,7 +321,7 @@ mod tests {
     #[allow(unused_imports)]
     use super::*;
     #[allow(unused_imports)]
-    use common::experiment::document::{DescriptorDoc, StopDoc};
+    use common::experiment::document::{DescriptorDoc, EventDoc, StartDoc, StopDoc};
     #[allow(unused_imports)]
     use tempfile::TempDir;
 

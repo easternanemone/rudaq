@@ -2325,7 +2325,6 @@ mod tests {
     mod property_tests {
         use super::*;
         use proptest::prelude::*;
-        use std::sync::Arc;
 
         /// Strategy: generate a write payload between 1 byte and 64 KB.
         fn write_payload() -> impl Strategy<Value = Vec<u8>> {
