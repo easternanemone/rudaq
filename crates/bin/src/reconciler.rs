@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use common::error::DaqError;
-use db::config_store::{config_hash, json_to_toml, DbInstrument};
+use db::config_store::{config_hash, json_to_toml, DbDriver, DbInstrument};
 use db::DaqDb;
 use hardware::registry::DeviceRegistry;
 use tracing::{info, warn};
@@ -31,6 +31,10 @@ pub struct ReconcileReport {
     pub updated: Vec<String>,
     /// Errors encountered during reconciliation.
     pub errors: Vec<String>,
+    /// Driver types where DB metadata diverged from factory metadata.
+    pub metadata_drifts: Vec<String>,
+    /// Driver types repaired by writing canonical metadata back to DB.
+    pub metadata_repairs: Vec<String>,
     /// Number of devices unchanged.
     pub unchanged: usize,
 }
@@ -39,14 +43,147 @@ impl std::fmt::Display for ReconcileReport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "reconcile: +{} added, -{} removed, ~{} updated, {} unchanged, {} errors",
+            "reconcile: +{} added, -{} removed, ~{} updated, {} unchanged, {} errors, ^{} metadata drift, *{} metadata repairs",
             self.added.len(),
             self.removed.len(),
             self.updated.len(),
             self.unchanged,
-            self.errors.len()
+            self.errors.len(),
+            self.metadata_drifts.len(),
+            self.metadata_repairs.len()
         )
     }
+}
+
+fn normalized(mut values: Vec<String>) -> Vec<String> {
+    values.sort();
+    values.dedup();
+    values
+}
+
+fn driver_from_factory(
+    driver_type: String,
+    factory_name: String,
+    capabilities: Vec<String>,
+    available_commands: Vec<String>,
+) -> DbDriver {
+    DbDriver {
+        driver_type,
+        name: factory_name,
+        capabilities: normalized(capabilities),
+        commands: normalized(available_commands),
+    }
+}
+
+fn metadata_needs_repair(existing: &DbDriver, canonical: &DbDriver) -> bool {
+    existing.name != canonical.name
+        || normalized(existing.capabilities.clone()) != canonical.capabilities
+        || normalized(existing.commands.clone()) != canonical.commands
+}
+
+/// Ensure DB driver metadata is present and complete for desired instruments.
+///
+/// Returns driver types that are blocked because metadata was incomplete and
+/// could not be repaired.
+async fn repair_driver_metadata(
+    db: &DaqDb,
+    registry: &DeviceRegistry,
+    desired: &HashMap<String, &DbInstrument>,
+    report: &mut ReconcileReport,
+) -> Result<HashSet<String>, DaqError> {
+    let mut blocked = HashSet::new();
+    let mut to_upsert: Vec<DbDriver> = Vec::new();
+
+    let existing_drivers: HashMap<String, DbDriver> = db
+        .get_all_drivers()
+        .await
+        .map_err(|e| DaqError::Configuration(format!("DB driver read failed: {e}")))?
+        .into_iter()
+        .map(|driver| (driver.driver_type.clone(), driver))
+        .collect();
+
+    let mut desired_driver_types: Vec<String> = desired
+        .values()
+        .map(|instrument| instrument.driver_type.clone())
+        .collect();
+    desired_driver_types.sort();
+    desired_driver_types.dedup();
+
+    for driver_type in desired_driver_types {
+        let factory_info = registry.factory_info(&driver_type);
+        let existing = existing_drivers.get(&driver_type);
+
+        match (existing, factory_info) {
+            (Some(existing_driver), Some(factory)) => {
+                let canonical = driver_from_factory(
+                    driver_type.clone(),
+                    factory.name,
+                    factory.capabilities,
+                    factory.available_commands,
+                );
+                if metadata_needs_repair(existing_driver, &canonical) {
+                    warn!(
+                        driver_type = %driver_type,
+                        existing_capabilities = ?existing_driver.capabilities,
+                        canonical_capabilities = ?canonical.capabilities,
+                        existing_commands = ?existing_driver.commands,
+                        canonical_commands = ?canonical.commands,
+                        "reconciler: driver metadata drift detected"
+                    );
+                    report.metadata_drifts.push(driver_type.clone());
+                    to_upsert.push(canonical);
+                }
+            }
+            (None, Some(factory)) => {
+                warn!(
+                    driver_type = %driver_type,
+                    "reconciler: missing driver metadata record, recovering from factory"
+                );
+                report.metadata_drifts.push(driver_type.clone());
+                to_upsert.push(driver_from_factory(
+                    driver_type.clone(),
+                    factory.name,
+                    factory.capabilities,
+                    factory.available_commands,
+                ));
+            }
+            (Some(existing_driver), None) => {
+                if existing_driver.capabilities.is_empty() && existing_driver.commands.is_empty() {
+                    let msg = format!(
+                        "metadata '{}': no factory and metadata is empty",
+                        driver_type
+                    );
+                    warn!(driver_type = %driver_type, "reconciler: {}", msg);
+                    report.errors.push(msg);
+                    blocked.insert(driver_type);
+                }
+            }
+            (None, None) => {
+                let msg = format!(
+                    "metadata '{}': missing driver record and factory",
+                    driver_type
+                );
+                warn!(driver_type = %driver_type, "reconciler: {}", msg);
+                report.errors.push(msg);
+                blocked.insert(driver_type);
+            }
+        }
+    }
+
+    for driver in to_upsert {
+        let driver_type = driver.driver_type.clone();
+        if let Err(err) = db.upsert_drivers(&[driver]).await {
+            let msg = format!("metadata '{}': repair failed: {err}", driver_type);
+            warn!(driver_type = %driver_type, error = %err, "reconciler: metadata repair failed");
+            report.errors.push(msg);
+            blocked.insert(driver_type);
+            continue;
+        }
+        info!(driver_type = %driver_type, "reconciler: metadata repaired");
+        report.metadata_repairs.push(driver_type);
+    }
+
+    Ok(blocked)
 }
 
 /// Perform a single reconciliation pass.
@@ -100,8 +237,14 @@ pub async fn reconcile_once(
         }
     }
 
+    let blocked_driver_types = repair_driver_metadata(db, registry, &desired, &mut report).await?;
+
     // 3b. Add or update: desired but not in registry → add; config changed → update.
     for (id, inst) in &desired {
+        if blocked_driver_types.contains(&inst.driver_type) {
+            continue;
+        }
+
         if current_ids.contains(id) {
             // Device exists — check for config changes via hash.
             let new_hash = config_hash(&inst.config);
@@ -364,7 +507,59 @@ mod tests {
         let report = reconcile_once(&db, &registry).await.unwrap();
         assert!(report.added.is_empty());
         assert_eq!(report.errors.len(), 1);
-        assert!(report.errors[0].contains("no factory"));
+        assert!(report.errors[0].contains("missing driver record and factory"));
+    }
+
+    #[tokio::test]
+    async fn test_reconcile_repairs_incomplete_driver_metadata() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+        let registry = test_registry();
+
+        db.upsert_drivers(&[DbDriver {
+            driver_type: "mock_power_meter".to_string(),
+            name: "mock_power_meter".to_string(),
+            capabilities: vec![],
+            commands: vec![],
+        }])
+        .await
+        .unwrap();
+        db.upsert_instruments(&[sample_instrument("pm_1")])
+            .await
+            .unwrap();
+
+        let report = reconcile_once(&db, &registry).await.unwrap();
+        assert!(report.errors.is_empty());
+        assert_eq!(report.metadata_drifts, vec!["mock_power_meter"]);
+        assert_eq!(report.metadata_repairs, vec!["mock_power_meter"]);
+
+        let repaired = db
+            .get_all_drivers()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|driver| driver.driver_type == "mock_power_meter")
+            .expect("mock_power_meter driver metadata should exist");
+        assert!(
+            !repaired.capabilities.is_empty(),
+            "metadata repair should restore capabilities from factory"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_reconcile_blocks_unrepairable_metadata() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+        let registry = DeviceRegistry::new(); // no factory + no driver metadata
+
+        let unknown = DbInstrument {
+            driver_type: "unknown_driver".to_string(),
+            ..sample_instrument("unknown_1")
+        };
+        db.upsert_instruments(&[unknown]).await.unwrap();
+
+        let report = reconcile_once(&db, &registry).await.unwrap();
+        assert!(report.added.is_empty());
+        assert_eq!(report.errors.len(), 1);
+        assert!(report.errors[0].contains("missing driver record and factory"));
     }
 
     #[tokio::test]
