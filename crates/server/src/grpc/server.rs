@@ -1673,7 +1673,10 @@ pub async fn start_server_with_hardware(
     let server_builder = if let Some(ref db) = _db {
         server_builder.add_service(tonic_web::enable(
             crate::grpc::proto::config_service_server::ConfigServiceServer::new(
-                crate::grpc::config_service::ConfigServiceImpl::new(db.clone()),
+                crate::grpc::config_service::ConfigServiceImpl::new(
+                    db.clone(),
+                    Some(registry.clone()),
+                ),
             ),
         ))
     } else {
@@ -1727,7 +1730,10 @@ pub async fn start_server_with_hardware(
     let server_builder = if let Some(ref db) = _db {
         server_builder.add_service(tonic_web::enable(
             crate::grpc::proto::config_service_server::ConfigServiceServer::new(
-                crate::grpc::config_service::ConfigServiceImpl::new(db.clone()),
+                crate::grpc::config_service::ConfigServiceImpl::new(
+                    db.clone(),
+                    Some(registry.clone()),
+                ),
             ),
         ))
     } else {

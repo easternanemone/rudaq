@@ -8,6 +8,7 @@
 
 use db::config_store::{json_to_toml, toml_to_json, DbDriver, DbInstrument};
 use hardware::registry::{DeviceConfig, DeviceRegistry, DriverConfig, HardwareConfig};
+use std::collections::{HashMap, HashSet};
 
 // ---------------------------------------------------------------------------
 // Import direction: HardwareConfig → DB records
@@ -34,18 +35,7 @@ pub fn devices_to_db(config: &HardwareConfig) -> Vec<DbInstrument> {
 /// we use the driver_type as a placeholder name. Driver records are later
 /// enriched by the plugin/factory system.
 pub fn drivers_from_config(config: &HardwareConfig) -> Vec<DbDriver> {
-    let mut seen = std::collections::HashSet::new();
-    config
-        .devices
-        .iter()
-        .filter(|d| seen.insert(d.driver.driver_type.clone()))
-        .map(|d| DbDriver {
-            driver_type: d.driver.driver_type.clone(),
-            name: d.driver.driver_type.clone(),
-            capabilities: vec![],
-            commands: vec![],
-        })
-        .collect()
+    drivers_from_config_with_sources(config, None, &HashMap::new())
 }
 
 /// Extract driver definitions from config, enriched by registered factory
@@ -58,19 +48,36 @@ pub fn drivers_from_config_with_registry(
     config: &HardwareConfig,
     registry: &DeviceRegistry,
 ) -> Vec<DbDriver> {
-    let mut seen = std::collections::HashSet::new();
+    drivers_from_config_with_sources(config, Some(registry), &HashMap::new())
+}
+
+/// Build driver rows from TOML config with optional factory enrichment and
+/// fallback to existing DB metadata.
+///
+/// Precedence:
+/// 1. Factory metadata (if registry/factory exists)
+/// 2. Existing DB metadata for that driver_type
+/// 3. Placeholder TOML fallback (driver_type only)
+pub fn drivers_from_config_with_sources(
+    config: &HardwareConfig,
+    registry: Option<&DeviceRegistry>,
+    existing_by_driver_type: &HashMap<String, DbDriver>,
+) -> Vec<DbDriver> {
+    let mut seen = HashSet::new();
     config
         .devices
         .iter()
         .filter(|d| seen.insert(d.driver.driver_type.clone()))
         .map(|d| {
-            if let Some(info) = registry.factory_info(&d.driver.driver_type) {
+            if let Some(info) = registry.and_then(|r| r.factory_info(&d.driver.driver_type)) {
                 DbDriver {
                     driver_type: d.driver.driver_type.clone(),
                     name: info.name,
                     capabilities: info.capabilities,
                     commands: info.available_commands,
                 }
+            } else if let Some(existing) = existing_by_driver_type.get(&d.driver.driver_type) {
+                existing.clone()
             } else {
                 DbDriver {
                     driver_type: d.driver.driver_type.clone(),
@@ -124,7 +131,13 @@ pub async fn shadow_write(
     config: &HardwareConfig,
 ) -> Result<(usize, usize), db::error::DbError> {
     let instruments = devices_to_db(config);
-    let drivers = drivers_from_config(config);
+    let existing_by_driver_type: HashMap<String, DbDriver> = db
+        .get_all_drivers()
+        .await?
+        .into_iter()
+        .map(|driver| (driver.driver_type.clone(), driver))
+        .collect();
+    let drivers = drivers_from_config_with_sources(config, None, &existing_by_driver_type);
 
     let driver_count = db.upsert_drivers(&drivers).await?;
     let report = db.upsert_instruments(&instruments).await?;
@@ -140,7 +153,14 @@ pub async fn shadow_write_with_registry(
     registry: &DeviceRegistry,
 ) -> Result<(usize, usize), db::error::DbError> {
     let instruments = devices_to_db(config);
-    let drivers = drivers_from_config_with_registry(config, registry);
+    let existing_by_driver_type: HashMap<String, DbDriver> = db
+        .get_all_drivers()
+        .await?
+        .into_iter()
+        .map(|driver| (driver.driver_type.clone(), driver))
+        .collect();
+    let drivers =
+        drivers_from_config_with_sources(config, Some(registry), &existing_by_driver_type);
 
     let driver_count = db.upsert_drivers(&drivers).await?;
     let report = db.upsert_instruments(&instruments).await?;
@@ -155,6 +175,7 @@ pub async fn shadow_write_with_registry(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use db::DbConfig;
 
     fn sample_hardware_config() -> HardwareConfig {
         let toml_str = r#"
@@ -209,6 +230,37 @@ mod tests {
     }
 
     #[test]
+    fn test_drivers_from_config_preserves_existing_metadata_without_registry() {
+        let config = sample_hardware_config();
+        let mut existing = HashMap::new();
+        existing.insert(
+            "ell14".to_string(),
+            DbDriver {
+                driver_type: "ell14".to_string(),
+                name: "ELL14 Rotator".to_string(),
+                capabilities: vec!["movable".to_string()],
+                commands: vec!["home".to_string(), "stop".to_string()],
+            },
+        );
+
+        let drivers = drivers_from_config_with_sources(&config, None, &existing);
+        let ell14 = drivers
+            .iter()
+            .find(|driver| driver.driver_type == "ell14")
+            .expect("ell14 driver missing");
+        let newport = drivers
+            .iter()
+            .find(|driver| driver.driver_type == "newport1830_c")
+            .expect("newport1830_c driver missing");
+
+        assert_eq!(ell14.name, "ELL14 Rotator");
+        assert_eq!(ell14.capabilities, vec!["movable"]);
+        assert_eq!(ell14.commands, vec!["home", "stop"]);
+        assert!(newport.capabilities.is_empty());
+        assert!(newport.commands.is_empty());
+    }
+
+    #[test]
     fn test_round_trip_toml_to_db_to_toml() {
         let config = sample_hardware_config();
         let instruments = devices_to_db(&config);
@@ -234,5 +286,30 @@ mod tests {
         assert_eq!(reparsed.devices.len(), 2);
         assert_eq!(reparsed.devices[0].id, "rotator_2");
         assert_eq!(reparsed.devices[0].driver.driver_type, "ell14");
+    }
+
+    #[tokio::test]
+    async fn test_shadow_write_preserves_existing_driver_metadata() {
+        let db = db::DaqDb::init(DbConfig::in_memory()).await.unwrap();
+        db.upsert_drivers(&[DbDriver {
+            driver_type: "ell14".to_string(),
+            name: "ELL14 Rotator".to_string(),
+            capabilities: vec!["movable".to_string(), "homable".to_string()],
+            commands: vec!["home".to_string(), "stop".to_string()],
+        }])
+        .await
+        .unwrap();
+
+        let config = sample_hardware_config();
+        shadow_write(&db, &config).await.unwrap();
+
+        let drivers = db.get_all_drivers().await.unwrap();
+        let ell14 = drivers
+            .iter()
+            .find(|driver| driver.driver_type == "ell14")
+            .expect("ell14 row missing after shadow_write");
+        assert_eq!(ell14.name, "ELL14 Rotator");
+        assert_eq!(ell14.capabilities, vec!["movable", "homable"]);
+        assert_eq!(ell14.commands, vec!["home", "stop"]);
     }
 }

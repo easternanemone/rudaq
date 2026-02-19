@@ -566,14 +566,32 @@ async fn open_db(db_path: Option<PathBuf>) -> Result<db::DaqDb> {
 /// `rust-daq config import <file>` — load TOML hardware config into DB.
 #[cfg(feature = "db-surreal")]
 async fn config_import(file: PathBuf, db_path: Option<PathBuf>) -> Result<()> {
-    use hardware::registry::HardwareConfig;
+    use hardware::registry::{register_all_factories, DeviceRegistry, HardwareConfig};
 
     let hw_config = HardwareConfig::from_file(&file)
         .map_err(|e| anyhow::anyhow!("Failed to parse {}: {e}", file.display()))?;
 
     let db = open_db(db_path).await?;
+    let registry = DeviceRegistry::new();
 
-    let (drivers, instruments) = db_bridge::shadow_write(&db, &hw_config)
+    let config_dir = file
+        .parent()
+        .map(|parent| parent.join("devices"))
+        .filter(|path| path.exists())
+        .or_else(|| {
+            let default = PathBuf::from("config/devices");
+            default.exists().then_some(default)
+        });
+
+    if let Err(e) = register_all_factories(&registry, config_dir.as_deref()).await {
+        tracing::warn!(
+            error = %e,
+            config_dir = ?config_dir,
+            "Factory registration failed during config import; preserving existing driver metadata"
+        );
+    }
+
+    let (drivers, instruments) = db_bridge::shadow_write_with_registry(&db, &hw_config, &registry)
         .await
         .map_err(|e| anyhow::anyhow!("Import failed: {e}"))?;
 
