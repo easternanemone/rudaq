@@ -35,7 +35,6 @@
 //!   not provided because the tap registry and mutexes are process-local.
 //! - **Taps**: Non-blocking send with automatic frame dropping on backpressure.
 
-use anyhow::Context;
 use common::error::{DaqError, StorageError, StorageErrorKind};
 use memmap2::{MmapMut, MmapOptions};
 use std::fs::OpenOptions;
@@ -2326,7 +2325,6 @@ mod tests {
     mod property_tests {
         use super::*;
         use proptest::prelude::*;
-        use std::sync::Arc;
 
         /// Strategy: generate a write payload between 1 byte and 64 KB.
         fn write_payload() -> impl Strategy<Value = Vec<u8>> {

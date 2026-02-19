@@ -15,6 +15,8 @@
 //! - **Without `modules` feature**: Stub mode with in-memory state only
 //! - **With `modules` feature**: Full integration with ModuleRegistry
 
+#[cfg(feature = "modules")]
+use crate::grpc::map_daq_error_to_status;
 use crate::grpc::proto::{
     AssignDeviceRequest, AssignDeviceResponse, ConfigureModuleRequest, ConfigureModuleResponse,
     CreateModuleRequest, CreateModuleResponse, DeleteModuleRequest, DeleteModuleResponse,
@@ -30,7 +32,9 @@ use crate::grpc::proto::{
 #[cfg(not(feature = "modules"))]
 use crate::grpc::proto::{ModuleParameter, ModuleRole};
 #[cfg(feature = "modules")]
-use crate::modules::ModuleRegistry;
+use common::error::{DaqError, DriverError, DriverErrorKind};
+#[cfg(feature = "modules")]
+use daq_modules::ModuleRegistry;
 use hardware::registry::DeviceRegistry;
 #[cfg(not(feature = "modules"))]
 use std::collections::HashMap;
@@ -38,6 +42,39 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
+
+// =============================================================================
+// Error Mapping (with modules feature)
+// =============================================================================
+
+/// Map an `anyhow::Error` from the module registry to a gRPC `Status`.
+///
+/// Attempts to downcast to `DaqError` for structured mapping via
+/// `map_daq_error_to_status`. Falls back to `Status::internal` for
+/// unstructured errors.
+#[cfg(feature = "modules")]
+fn map_module_error_to_status(err: anyhow::Error) -> Status {
+    match err.downcast::<DaqError>() {
+        Ok(daq_err) => map_daq_error_to_status(daq_err),
+        Err(err) => Status::internal(err.to_string()),
+    }
+}
+
+/// Create a gRPC `Status` for a module not found by ID.
+///
+/// Routes through the structured `DaqError::Driver(NotFound)` → `map_daq_error_to_status`
+/// pipeline so that gRPC metadata headers (`x-daq-error-kind`, `x-daq-driver-type`) are set.
+#[cfg(feature = "modules")]
+fn module_not_found_status(module_id: &str) -> Status {
+    map_module_error_to_status(
+        DaqError::Driver(DriverError::new(
+            "module_registry",
+            DriverErrorKind::NotFound,
+            format!("Module not found: {}", module_id),
+        ))
+        .into(),
+    )
+}
 
 // =============================================================================
 // Stub Mode (without modules feature)
@@ -585,7 +622,7 @@ impl ModuleService for ModuleServiceImpl {
 
         let instance = registry
             .get_module(&req.module_id)
-            .ok_or_else(|| Status::not_found(format!("Module not found: {}", req.module_id)))?;
+            .ok_or_else(|| module_not_found_status(&req.module_id))?;
 
         let assignments = instance.get_assignments();
         let type_info = registry.get_type_info(instance.type_id());
@@ -645,7 +682,7 @@ impl ModuleService for ModuleServiceImpl {
         let params = if req.partial {
             let instance = registry
                 .get_module(&req.module_id)
-                .ok_or_else(|| Status::not_found(format!("Module not found: {}", req.module_id)))?;
+                .ok_or_else(|| module_not_found_status(&req.module_id))?;
             let mut current = instance.get_config();
             for (k, v) in req.parameters {
                 current.insert(k, v);
@@ -678,7 +715,7 @@ impl ModuleService for ModuleServiceImpl {
 
         let instance = registry
             .get_module(&req.module_id)
-            .ok_or_else(|| Status::not_found(format!("Module not found: {}", req.module_id)))?;
+            .ok_or_else(|| module_not_found_status(&req.module_id))?;
 
         let assignments: Vec<DeviceAssignment> = instance
             .get_assignments()
@@ -777,7 +814,7 @@ impl ModuleService for ModuleServiceImpl {
 
         let instance = registry
             .get_module(&req.module_id)
-            .ok_or_else(|| Status::not_found(format!("Module not found: {}", req.module_id)))?;
+            .ok_or_else(|| module_not_found_status(&req.module_id))?;
 
         let assignments: Vec<DeviceAssignment> = instance
             .get_assignments()
@@ -902,7 +939,7 @@ impl ModuleService for ModuleServiceImpl {
         // Get the module's event receiver
         let instance = registry
             .get_module_mut(&req.module_id)
-            .ok_or_else(|| Status::not_found(format!("Module not found: {}", req.module_id)))?;
+            .ok_or_else(|| module_not_found_status(&req.module_id))?;
 
         let event_rx = instance.take_event_rx().ok_or_else(|| {
             Status::resource_exhausted("Event stream already taken for this module")
@@ -944,7 +981,7 @@ impl ModuleService for ModuleServiceImpl {
         // Get the module's data receiver
         let instance = registry
             .get_module_mut(&req.module_id)
-            .ok_or_else(|| Status::not_found(format!("Module not found: {}", req.module_id)))?;
+            .ok_or_else(|| module_not_found_status(&req.module_id))?;
 
         let data_rx = instance.take_data_rx().ok_or_else(|| {
             Status::resource_exhausted("Data stream already taken for this module")
@@ -1758,5 +1795,60 @@ mod tests {
         });
         let stop_resp = service.stop_module(stop_req).await.unwrap().into_inner();
         assert!(stop_resp.success);
+    }
+
+    // =========================================================================
+    // Error Mapping Tests (modules feature enabled)
+    // =========================================================================
+
+    #[cfg(feature = "modules")]
+    mod error_mapping {
+        use super::*;
+        use common::error::{DaqError, DriverError, DriverErrorKind};
+        use tonic::Code;
+
+        #[test]
+        fn test_downcast_driver_not_found() {
+            let err: anyhow::Error = DaqError::Driver(DriverError::new(
+                "module_registry",
+                DriverErrorKind::NotFound,
+                "Module not found: abc-123",
+            ))
+            .into();
+
+            let status = map_module_error_to_status(err);
+            assert_eq!(status.code(), Code::NotFound);
+            assert!(status.message().contains("Module not found"));
+        }
+
+        #[test]
+        fn test_downcast_module_busy() {
+            let err: anyhow::Error = DaqError::ModuleBusyDuringOperation.into();
+            let status = map_module_error_to_status(err);
+            assert_eq!(status.code(), Code::Unavailable);
+        }
+
+        #[test]
+        fn test_downcast_configuration_error() {
+            let err: anyhow::Error =
+                DaqError::Configuration("Invalid role 'foo'".to_string()).into();
+            let status = map_module_error_to_status(err);
+            assert_eq!(status.code(), Code::InvalidArgument);
+        }
+
+        #[test]
+        fn test_fallback_for_unstructured_error() {
+            let err = anyhow::anyhow!("some unknown error");
+            let status = map_module_error_to_status(err);
+            assert_eq!(status.code(), Code::Internal);
+            assert!(status.message().contains("some unknown error"));
+        }
+
+        #[test]
+        fn test_module_not_found_status_helper() {
+            let status = module_not_found_status("test-module-id");
+            assert_eq!(status.code(), Code::NotFound);
+            assert!(status.message().contains("test-module-id"));
+        }
     }
 }

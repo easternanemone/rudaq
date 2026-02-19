@@ -38,7 +38,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 // =============================================================================
@@ -312,10 +311,7 @@ pub enum StopReason {
 
 /// Get current time in nanoseconds since epoch.
 fn now_ns() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64
+    common::time::now_ns()
 }
 
 // =============================================================================

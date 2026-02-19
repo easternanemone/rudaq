@@ -60,10 +60,7 @@ fn instant_to_ns(instant: std::time::Instant) -> u64 {
 
 /// Get current timestamp in nanoseconds
 fn now_ns() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64
+    common::time::now_ns()
 }
 
 /// Convert SystemHealth to proto enum

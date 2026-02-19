@@ -8,8 +8,9 @@
 //! The background writer translates Protobuf → HDF5 at 1 Hz without blocking
 //! the hardware loop.
 
-use anyhow::anyhow; // For error macros, but ideally use DaqError
-use common::error::{DaqError, StorageError, StorageErrorKind};
+use common::error::DaqError;
+#[cfg(feature = "storage_hdf5")]
+use common::error::{StorageError, StorageErrorKind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -22,7 +23,7 @@ use super::ring_buffer::RingBuffer;
 #[cfg(feature = "storage_hdf5")]
 use common::observable::ParameterSet;
 
-type Result<T> = std::result::Result<T, DaqError>;
+use common::error::AppResult as Result;
 
 /// Background HDF5 writer that persists ring buffer data
 ///
@@ -795,6 +796,7 @@ impl HDF5Writer {
 
     /// Helper to write a string as a VarLenUnicode attribute
     #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
+    #[allow(dead_code)] // reserved for Arrow->HDF5 bridge path
     fn write_string_attr(container: &hdf5::Container, name: &str, value: &str) -> Result<()> {
         use hdf5::types::VarLenUnicode;
         container
@@ -816,6 +818,7 @@ impl HDF5Writer {
     /// Converts Arrow columns to HDF5 datasets for compatibility with
     /// Python/MATLAB/Igor analysis tools.
     #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
+    #[allow(dead_code)] // reserved for Arrow->HDF5 bridge path
     fn write_arrow_to_hdf5(&self, group: &hdf5::Group, data: &[u8]) -> Result<()> {
         use arrow::ipc::reader::FileReader;
         use std::io::Cursor;

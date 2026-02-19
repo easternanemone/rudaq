@@ -70,6 +70,7 @@ jobs:
         uses: ./.github/actions/setup-daq
         with:
           dependency-profile: minimal
+          toolchain: 1.92.0
           components: clippy
           cache-key: feature-matrix-${{ matrix.package }}-${{ matrix.features }}
 

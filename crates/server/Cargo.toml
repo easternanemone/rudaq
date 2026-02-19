@@ -27,6 +27,7 @@ common = { path = "../common" }
 hardware = { path = "../hardware", default-features = false }
 storage = { path = "../storage" }
 scripting = { path = "../scripting", optional = true }
+daq-modules = { path = "../daq-modules", optional = true, default-features = false }
 protocol = { path = "../protocol" }
 driver-comedi = { path = "../driver-comedi", optional = true }
 
@@ -53,7 +54,9 @@ hyper = { version = "0.14", features = ["server", "http1", "tcp"], optional = tr
 # Simplified feature flags (bd-0aqw)
 default = ["modules", "server", "networking", "scripting"]
 server = ["dep:tonic-web", "dep:tower-http"]
-modules = []
+modules = ["dep:daq-modules"]
+modules_scripting = ["modules", "daq-modules/scripting"]
+modules_native_plugins = ["modules", "daq-modules/native_plugins"]
 networking = []
 scripting = ["dep:scripting"]
 metrics = ["dep:prometheus", "dep:lazy_static", "dep:hyper", "storage/metrics"]

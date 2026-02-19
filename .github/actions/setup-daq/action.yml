@@ -1,6 +1,10 @@
 name: 'Setup Rust DAQ Environment'
 description: 'Sets up Rust toolchain and system dependencies for rust-daq'
 inputs:
+  toolchain:
+    description: 'Rust toolchain to install (stable/nightly/etc)'
+    required: false
+    default: ''
   dependency-profile:
     description: 'System dependency profile: minimal, full, or none'
     required: false
@@ -69,7 +73,7 @@ runs:
     - name: Set up Rust toolchain
       uses: dtolnay/rust-toolchain@master
       with:
-        toolchain: ${{ inputs.rust-toolchain }}
+        toolchain: ${{ inputs.toolchain || inputs['rust-toolchain'] }}
         components: ${{ inputs.components }}
 
     - name: Cache cargo build

@@ -11,7 +11,6 @@
 //! ```
 
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A state update from a hardware driver.
 #[derive(Debug, Clone)]
@@ -53,10 +52,7 @@ pub struct SystemStateSnapshot {
 
 /// Returns the current time as nanoseconds since Unix epoch.
 pub fn now_ns() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as i64
+    crate::time::now_ns_i64()
 }
 
 /// Configuration for the game loop.
