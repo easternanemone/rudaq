@@ -288,6 +288,18 @@ impl Default for CommandWidgetPalette {
 }
 
 impl CommandWidgetPalette {
+    fn add_widget(
+        &mut self,
+        kind: CommandWidgetKind,
+        command: String,
+        label: String,
+        args_json: String,
+    ) {
+        let widget = CommandWidget::new(self.next_widget_id, kind, command, label, args_json);
+        self.next_widget_id = self.next_widget_id.saturating_add(1);
+        self.widgets.push(widget);
+    }
+
     fn command_catalog(device: &DeviceInfo) -> Vec<String> {
         let mut commands = device
             .metadata
@@ -297,6 +309,76 @@ impl CommandWidgetPalette {
         commands.sort();
         commands.dedup();
         commands
+    }
+
+    fn manifest_summary_params(device: &DeviceInfo) -> Vec<String> {
+        let Some(ui_json) = device
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.ui_schema_json.as_ref())
+        else {
+            return Vec::new();
+        };
+
+        let Ok(parsed) = serde_json::from_str::<serde_json::Value>(ui_json) else {
+            return Vec::new();
+        };
+
+        let mut summary_params: Vec<String> = parsed
+            .get("status_display")
+            .and_then(|status| status.get("summary_params"))
+            .and_then(serde_json::Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(ToString::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        summary_params.sort();
+        summary_params.dedup();
+        summary_params
+    }
+
+    fn infer_status_command(param: &str, commands: &[String]) -> Option<String> {
+        let normalized = param.trim().to_lowercase();
+        if normalized.is_empty() {
+            return None;
+        }
+
+        let mut candidates = vec![
+            normalized.clone(),
+            format!("get_{normalized}"),
+            format!("read_{normalized}"),
+            format!("query_{normalized}"),
+        ];
+
+        for suffix in ["_nm", "_ms", "_degrees", "_deg", "_value"] {
+            if let Some(stripped) = normalized.strip_suffix(suffix) {
+                candidates.push(stripped.to_string());
+                candidates.push(format!("get_{stripped}"));
+                candidates.push(format!("read_{stripped}"));
+                candidates.push(format!("query_{stripped}"));
+            }
+        }
+
+        for candidate in &candidates {
+            if let Some(found) = commands.iter().find(|cmd| cmd.to_lowercase() == *candidate) {
+                return Some(found.clone());
+            }
+        }
+
+        commands
+            .iter()
+            .find(|cmd| {
+                let lower = cmd.to_lowercase();
+                (lower.starts_with("get_")
+                    || lower.starts_with("read_")
+                    || lower.starts_with("query_"))
+                    && lower.contains(&normalized)
+            })
+            .cloned()
     }
 
     fn format_results(payload: &str) -> String {
@@ -408,8 +490,7 @@ impl CommandWidgetPalette {
 
         let commands = Self::command_catalog(device);
         let supports_commandable = device.has_capability("commandable");
-        let show_widget_panel =
-            supports_commandable || !commands.is_empty() || !self.widgets.is_empty();
+        let show_widget_panel = supports_commandable || !self.widgets.is_empty();
         if !show_widget_panel {
             return;
         }
@@ -420,11 +501,11 @@ impl CommandWidgetPalette {
         ui.collapsing("Command Widgets", |ui| {
             ui.set_max_width(ui.available_width());
 
-            if commands.is_empty() {
+            if !supports_commandable {
+                ui.weak("Command widgets require the device to advertise `commandable`.");
+                ui.weak("Existing widgets are shown read-only in this mode.");
+            } else if commands.is_empty() {
                 ui.weak("No command catalog published for this device.");
-                if !supports_commandable {
-                    ui.weak("Device does not advertise commandable capability.");
-                }
             } else {
                 if self.selected_command_idx >= commands.len() {
                     self.selected_command_idx = 0;
@@ -481,17 +562,30 @@ impl CommandWidgetPalette {
                         } else {
                             self.add_args_json.clone()
                         };
-                        let widget = CommandWidget::new(
-                            self.next_widget_id,
-                            self.add_kind,
-                            command,
-                            label,
-                            args_json,
-                        );
-                        self.next_widget_id = self.next_widget_id.saturating_add(1);
-                        self.widgets.push(widget);
+                        self.add_widget(self.add_kind, command, label, args_json);
                     }
                 });
+
+                let summary_params = Self::manifest_summary_params(device);
+                if !summary_params.is_empty() {
+                    ui.separator();
+                    ui.label("Quick Add From Manifest");
+                    ui.horizontal_wrapped(|ui| {
+                        for param in &summary_params {
+                            if let Some(command) = Self::infer_status_command(param, &commands) {
+                                let label = format!("Status {param}");
+                                if ui.button(label.as_str()).clicked() {
+                                    self.add_widget(
+                                        CommandWidgetKind::Status,
+                                        command.clone(),
+                                        label,
+                                        "{}".to_string(),
+                                    );
+                                }
+                            }
+                        }
+                    });
+                }
             }
 
             if self.widgets.is_empty() {
@@ -525,7 +619,10 @@ impl CommandWidgetPalette {
                             CommandWidgetKind::Status => "Refresh",
                         };
                         if ui
-                            .add_enabled(!widget.pending, egui::Button::new(run_text))
+                            .add_enabled(
+                                supports_commandable && !widget.pending,
+                                egui::Button::new(run_text),
+                            )
                             .clicked()
                         {
                             run_requests.push((
@@ -561,6 +658,8 @@ impl CommandWidgetPalette {
 
                     if widget.pending {
                         ui.spinner();
+                    } else if !supports_commandable {
+                        ui.weak("Execution disabled: device is not commandable.");
                     }
 
                     if let Some(err) = &widget.last_error {
@@ -576,6 +675,7 @@ impl CommandWidgetPalette {
 
                 let should_auto_refresh = widget.kind == CommandWidgetKind::Status
                     && widget.auto_refresh
+                    && supports_commandable
                     && !widget.pending
                     && widget
                         .last_refresh
@@ -2970,6 +3070,47 @@ mod tests {
         assert!(
             found_image_viewer,
             "Image Viewer panel missing from default layout"
+        );
+    }
+
+    #[test]
+    fn test_command_widget_infer_status_command() {
+        let commands = vec![
+            "get_wavelength".to_string(),
+            "read_power".to_string(),
+            "close_shutter".to_string(),
+        ];
+
+        let inferred_wavelength =
+            CommandWidgetPalette::infer_status_command("wavelength_nm", &commands)
+                .expect("should infer wavelength getter command");
+        let inferred_power = CommandWidgetPalette::infer_status_command("power", &commands)
+            .expect("should infer power read command");
+
+        assert_eq!(inferred_wavelength, "get_wavelength");
+        assert_eq!(inferred_power, "read_power");
+    }
+
+    #[test]
+    fn test_command_widget_manifest_summary_params() {
+        let device = DeviceInfo {
+            id: "laser".to_string(),
+            name: "Laser".to_string(),
+            driver_type: "maitai".to_string(),
+            metadata: Some(protocol::daq::DeviceMetadata {
+                ui_schema_json: Some(
+                    r#"{"status_display":{"summary_params":["wavelength_nm","power_mw"]}}"#
+                        .to_string(),
+                ),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let summary_params = CommandWidgetPalette::manifest_summary_params(&device);
+        assert_eq!(
+            summary_params,
+            vec!["power_mw".to_string(), "wavelength_nm".to_string()]
         );
     }
 
