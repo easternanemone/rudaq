@@ -305,10 +305,13 @@ impl MaiTaiControlPanel {
             }
 
             if diagnostics.commandable_supported != Some(false) {
-                diagnostics.pump_power_w =
-                    MaiTaiControlPanel::query_command_f64(&mut client, &device_id, "get_pump_power")
-                        .await
-                        .ok();
+                diagnostics.pump_power_w = MaiTaiControlPanel::query_command_f64(
+                    &mut client,
+                    &device_id,
+                    "get_pump_power",
+                )
+                .await
+                .ok();
                 diagnostics.pump_current_percent = MaiTaiControlPanel::query_command_f64(
                     &mut client,
                     &device_id,
@@ -344,10 +347,13 @@ impl MaiTaiControlPanel {
                 )
                 .await
                 .ok();
-                diagnostics.shg_status =
-                    MaiTaiControlPanel::query_command_i64(&mut client, &device_id, "get_shg_status")
-                        .await
-                        .ok();
+                diagnostics.shg_status = MaiTaiControlPanel::query_command_i64(
+                    &mut client,
+                    &device_id,
+                    "get_shg_status",
+                )
+                .await
+                .ok();
             }
 
             let _ = tx

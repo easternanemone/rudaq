@@ -939,11 +939,31 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     tracing::debug!(param = "trigger_mode", %val, "PVCAM hw_write called");
-                    let mode = ExposureMode::from_str(&val);
                     let conn_guard = conn.lock_owned().await;
+                    let requested_name = val.clone();
                     let result = tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_exposure_mode(&conn_guard, mode)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
+                        let modes = PvcamFeatures::list_exposure_modes(&conn_guard)
+                            .map_err(|e| DaqError::Instrument(e.to_string()))?;
+
+                        if let Some((raw, _)) =
+                            modes.iter().find(|(_, name)| name == &requested_name)
+                        {
+                            return PvcamFeatures::set_exposure_mode_raw(&conn_guard, *raw)
+                                .map_err(|e| DaqError::Instrument(e.to_string()));
+                        }
+
+                        // Backward compatibility with legacy static trigger strings.
+                        let legacy_mode = ExposureMode::from_str(&requested_name);
+                        let requested_trimmed = requested_name.trim();
+                        if legacy_mode.as_str().eq_ignore_ascii_case(requested_trimmed) {
+                            return PvcamFeatures::set_exposure_mode(&conn_guard, legacy_mode)
+                                .map_err(|e| DaqError::Instrument(e.to_string()));
+                        }
+
+                        Err(DaqError::Instrument(format!(
+                            "Invalid trigger mode: {}",
+                            requested_name
+                        )))
                     })
                     .await
                     .map_err(|e| DaqError::Instrument(e.to_string()))?;
@@ -1634,61 +1654,81 @@ impl PvcamDriver {
                     }
 
                     // Update read-only info parameters when available
-                    let _ = self.bit_depth.set_from_hardware(speed.bit_depth as u16).await;
+                    let _ = self
+                        .bit_depth
+                        .set_from_hardware(speed.bit_depth as u16)
+                        .await;
                     let _ = self
                         .pixel_time_ns
                         .set_from_hardware(speed.pix_time_ns as u32)
                         .await;
                 }
             }
+        } else {
+            let conn_guard = self.connection.lock().await;
 
-            return;
-        }
+            // Populate readout port choices
+            match PvcamFeatures::list_readout_ports(&conn_guard) {
+                Ok(ports) => {
+                    let names: Vec<String> = ports.iter().map(|p| p.name.clone()).collect();
+                    tracing::debug!("Populating readout port choices: {:?}", names);
+                    self.readout_port.inner().update_choices(names);
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to query readout ports: {}", e);
+                }
+            }
 
-        let conn_guard = self.connection.lock().await;
+            // Populate speed mode choices
+            match PvcamFeatures::list_speed_modes(&conn_guard) {
+                Ok(modes) => {
+                    let names: Vec<String> = modes.iter().map(|m| m.name.clone()).collect();
+                    tracing::debug!("Populating speed mode choices: {:?}", names);
+                    self.speed_mode.inner().update_choices(names);
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to query speed modes: {}", e);
+                }
+            }
 
-        // Populate readout port choices
-        match PvcamFeatures::list_readout_ports(&conn_guard) {
-            Ok(ports) => {
-                let names: Vec<String> = ports.iter().map(|p| p.name.clone()).collect();
-                tracing::debug!("Populating readout port choices: {:?}", names);
-                self.readout_port.inner().update_choices(names);
-            }
-            Err(e) => {
-                tracing::warn!("Failed to query readout ports: {}", e);
-            }
-        }
-
-        // Populate speed mode choices
-        match PvcamFeatures::list_speed_modes(&conn_guard) {
-            Ok(modes) => {
-                let names: Vec<String> = modes.iter().map(|m| m.name.clone()).collect();
-                tracing::debug!("Populating speed mode choices: {:?}", names);
-                self.speed_mode.inner().update_choices(names);
-            }
-            Err(e) => {
-                tracing::warn!("Failed to query speed modes: {}", e);
-            }
-        }
-
-        // Populate gain mode choices
-        match PvcamFeatures::list_gain_modes(&conn_guard) {
-            Ok(modes) => {
-                let names: Vec<String> = modes.iter().map(|m| m.name.clone()).collect();
-                tracing::debug!("Populating gain mode choices: {:?}", names);
-                self.gain_mode.inner().update_choices(names);
-            }
-            Err(e) => {
-                tracing::warn!("Failed to query gain modes: {}", e);
+            // Populate gain mode choices
+            match PvcamFeatures::list_gain_modes(&conn_guard) {
+                Ok(modes) => {
+                    let names: Vec<String> = modes.iter().map(|m| m.name.clone()).collect();
+                    tracing::debug!("Populating gain mode choices: {:?}", names);
+                    self.gain_mode.inner().update_choices(names);
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to query gain modes: {}", e);
+                }
             }
         }
 
-        // Populate trigger mode (exposure mode) choices
-        match PvcamFeatures::list_exposure_modes(&conn_guard) {
+        // Trigger modes are always queried from hardware (independent of SpeedTable cache).
+        let trigger_snapshot = {
+            let conn_guard = self.connection.lock().await;
+            let modes = PvcamFeatures::list_exposure_modes(&conn_guard);
+            let current_raw = PvcamFeatures::get_exposure_mode_raw(&conn_guard);
+            (modes, current_raw)
+        };
+
+        let (modes_result, current_raw_result) = trigger_snapshot;
+        match modes_result {
             Ok(modes) => {
                 let names: Vec<String> = modes.iter().map(|(_, name)| name.clone()).collect();
                 tracing::debug!("Populating trigger mode choices: {:?}", names);
-                self.trigger_mode.inner().update_choices(names);
+                self.trigger_mode.inner().update_choices(names.clone());
+
+                if let Ok(current_raw) = current_raw_result {
+                    if let Some((_, current_name)) =
+                        modes.iter().find(|(raw, _)| *raw == current_raw)
+                    {
+                        let _ = self
+                            .trigger_mode
+                            .set_from_hardware(current_name.clone())
+                            .await;
+                    }
+                }
             }
             Err(e) => {
                 tracing::warn!("Failed to query exposure modes: {}", e);

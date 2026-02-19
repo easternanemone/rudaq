@@ -761,7 +761,8 @@ impl InstrumentManagerPanel {
                         } else {
                             egui::ScrollArea::vertical()
                                 .id_salt("instrument_tree")
-                                .auto_shrink([false, false])
+                                .scroll([false, true])
+                                .auto_shrink([true, false])
                                 .show(ui, |ui| {
                                     self.render_tree(ui);
                                 });
@@ -783,7 +784,8 @@ impl InstrumentManagerPanel {
 
                         egui::ScrollArea::vertical()
                             .id_salt("control_panel")
-                            .auto_shrink([false, false])
+                            .scroll([false, true])
+                            .auto_shrink([true, false])
                             .show(ui, |ui| {
                                 self.render_device_control_panel(ui, client, runtime);
                             });
@@ -819,12 +821,13 @@ impl InstrumentManagerPanel {
 
     /// Render a single device row with status, capabilities, and context menu
     fn render_device_row(&mut self, ui: &mut egui::Ui, device: &DeviceInfo) {
+        ui.set_max_width(ui.available_width());
         let selected = self.selected_device.as_ref() == Some(&device.id);
 
         // Get device state from cache
         let state = self.device_states.get(&device.id);
 
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             // Status indicator - green if online, gray if offline/unknown
             let status_color = if state.map(|s| s.online).unwrap_or(false) {
                 egui::Color32::GREEN

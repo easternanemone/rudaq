@@ -7,7 +7,7 @@
 //! by CLI subcommands (`rust-daq config export`).
 
 use db::config_store::{json_to_toml, toml_to_json, DbDriver, DbInstrument};
-use hardware::registry::{DeviceConfig, DriverConfig, HardwareConfig};
+use hardware::registry::{DeviceConfig, DeviceRegistry, DriverConfig, HardwareConfig};
 
 // ---------------------------------------------------------------------------
 // Import direction: HardwareConfig → DB records
@@ -43,6 +43,42 @@ pub fn drivers_from_config(config: &HardwareConfig) -> Vec<DbDriver> {
             driver_type: d.driver.driver_type.clone(),
             name: d.driver.driver_type.clone(),
             capabilities: vec![],
+            commands: vec![],
+        })
+        .collect()
+}
+
+/// Extract driver definitions from config, enriched by registered factory
+/// introspection when available.
+///
+/// Enrichment source precedence:
+/// 1. Factory metadata (`name`, `capabilities`, `available_commands`)
+/// 2. TOML fallback (`driver_type` placeholders with empty lists)
+pub fn drivers_from_config_with_registry(
+    config: &HardwareConfig,
+    registry: &DeviceRegistry,
+) -> Vec<DbDriver> {
+    let mut seen = std::collections::HashSet::new();
+    config
+        .devices
+        .iter()
+        .filter(|d| seen.insert(d.driver.driver_type.clone()))
+        .map(|d| {
+            if let Some(info) = registry.factory_info(&d.driver.driver_type) {
+                DbDriver {
+                    driver_type: d.driver.driver_type.clone(),
+                    name: info.name,
+                    capabilities: info.capabilities,
+                    commands: info.available_commands,
+                }
+            } else {
+                DbDriver {
+                    driver_type: d.driver.driver_type.clone(),
+                    name: d.driver.driver_type.clone(),
+                    capabilities: vec![],
+                    commands: vec![],
+                }
+            }
         })
         .collect()
 }
@@ -89,6 +125,22 @@ pub async fn shadow_write(
 ) -> Result<(usize, usize), db::error::DbError> {
     let instruments = devices_to_db(config);
     let drivers = drivers_from_config(config);
+
+    let driver_count = db.upsert_drivers(&drivers).await?;
+    let report = db.upsert_instruments(&instruments).await?;
+
+    Ok((driver_count, report.instruments_upserted))
+}
+
+/// Shadow-write a parsed hardware config into the database, enriching drivers
+/// from registered factory metadata when possible.
+pub async fn shadow_write_with_registry(
+    db: &db::DaqDb,
+    config: &HardwareConfig,
+    registry: &DeviceRegistry,
+) -> Result<(usize, usize), db::error::DbError> {
+    let instruments = devices_to_db(config);
+    let drivers = drivers_from_config_with_registry(config, registry);
 
     let driver_count = db.upsert_drivers(&drivers).await?;
     let report = db.upsert_instruments(&instruments).await?;

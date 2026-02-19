@@ -65,6 +65,7 @@ fn db_driver_to_proto(drv: &DbDriver) -> DriverConfig {
         driver_type: drv.driver_type.clone(),
         name: drv.name.clone(),
         capabilities: drv.capabilities.clone(),
+        commands: drv.commands.clone(),
     }
 }
 
@@ -219,6 +220,7 @@ impl ConfigService for ConfigServiceImpl {
                 driver_type: d.driver.driver_type.clone(),
                 name: d.driver.driver_type.clone(),
                 capabilities: vec![],
+                commands: vec![],
             })
             .collect();
 

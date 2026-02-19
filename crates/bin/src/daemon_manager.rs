@@ -307,7 +307,7 @@ impl DaemonInstance {
         #[cfg(all(feature = "db-surreal", feature = "networking"))]
         if let (Some(ref db), Some(ref hw_config)) = (&db, &hw_config) {
             use crate::db_bridge;
-            match db_bridge::shadow_write(db, hw_config).await {
+            match db_bridge::shadow_write_with_registry(db, hw_config, &registry).await {
                 Ok((drivers, instruments)) => {
                     println!(
                         "   🗄️  Shadowed config to DB ({} drivers, {} instruments)",

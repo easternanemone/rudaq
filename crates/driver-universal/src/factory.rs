@@ -203,6 +203,12 @@ impl DriverFactory for UniversalDriverFactory {
         self.capabilities
     }
 
+    fn available_commands(&self) -> Vec<String> {
+        let mut commands: Vec<String> = self.manifest.commands.keys().cloned().collect();
+        commands.sort();
+        commands
+    }
+
     fn validate(&self, config: &toml::Value) -> Result<()> {
         let _: InstanceConfig = config.clone().try_into()?;
         Ok(())
@@ -444,6 +450,9 @@ impl DriverFactory for UniversalDriverFactory {
                 components = components.with_category(cat);
             }
 
+            let mut available_commands: Vec<String> = manifest.commands.keys().cloned().collect();
+            available_commands.sort();
+
             components.metadata = DeviceMetadata {
                 category,
                 position_units: manifest.capabilities.movable.as_ref().and_then(|m| {
@@ -462,6 +471,7 @@ impl DriverFactory for UniversalDriverFactory {
                 measurement_units: None,
                 min_wavelength_nm: manifest.parameters.get("min_wavelength").copied(),
                 max_wavelength_nm: manifest.parameters.get("max_wavelength").copied(),
+                available_commands,
                 ..DeviceMetadata::default()
             };
 

@@ -319,6 +319,9 @@ message DeviceMetadata {
 
   // Config source tracking (toml, db, etc.)
   optional string config_source = 40;
+
+  // Available command names for command-capable devices.
+  repeated string available_commands = 41;
 }
 
 message DeviceStateRequest {
@@ -2526,6 +2529,7 @@ message DriverConfig {
   string driver_type = 1;
   string name = 2;
   repeated string capabilities = 3;
+  repeated string commands = 4;
 }
 
 // --- Instrument CRUD ---

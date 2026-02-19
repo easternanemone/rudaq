@@ -3,6 +3,7 @@
 //! Contains supporting types, enums, and channel helpers used by the
 //! image viewer panel and its submodules.
 
+use std::collections::HashMap;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Instant;
@@ -169,7 +170,10 @@ impl FpsCounter {
 /// Async action result for ImageViewerPanel
 pub(super) enum ImageViewerAction {
     /// List of available camera devices
-    CamerasLoaded(Vec<String>),
+    CamerasLoaded {
+        ids: Vec<String>,
+        full_frame_dims: HashMap<String, (u32, u32)>,
+    },
     /// Error from async operation
     Error(String),
     /// Reconnection attempt result (bd-12qt) - construction TODO

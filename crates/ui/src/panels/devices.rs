@@ -1021,9 +1021,7 @@ impl DevicesPanel {
                         || response.lost_focus()
                         || response.drag_stopped();
 
-                    if commit_now
-                        && (value - original).abs() > f64::EPSILON
-                    {
+                    if commit_now && (value - original).abs() > f64::EPSILON {
                         self.pending_action = Some(PendingAction::SetParameter {
                             device_id: device_id.to_string(),
                             name: desc.name.clone(),

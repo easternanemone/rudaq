@@ -2275,9 +2275,9 @@ impl HardwareService for HardwareServiceImpl {
                 validate_parameter_value(&req.parameter_name, Some(&metadata), &json_value)?;
 
                 // Set the parameter (synchronous call, no await needed)
-                param.set_json(json_value).map_err(|e| {
-                    map_anyhow_error_to_status(e)
-                })?;
+                param
+                    .set_json(json_value)
+                    .map_err(|e| map_anyhow_error_to_status(e))?;
 
                 let actual_value = param
                     .get_json()
