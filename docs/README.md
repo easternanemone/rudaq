@@ -56,6 +56,7 @@ Organized using the [Diataxis](https://diataxis.fr/) framework.
 | Reference | Description |
 |-----------|-------------|
 | [gRPC API](reference/grpc-api.md) | Protocol and service definitions |
+| [Device Metadata Contract](reference/device-metadata-contract.md) | Capability/command/UI metadata contract for advanced panels |
 | [PVCAM SDK](reference/pvcam-sdk.md) | PVCAM API reference and error codes |
 | [Dover Motion API](reference/dover-motion-api.md) | MotionSynergyAPI reference |
 | [Feature Matrix](reference/feature-matrix.md) | Implementation status for all features |

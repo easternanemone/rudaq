@@ -79,6 +79,8 @@ struct PvcamConfig {
 /// Registers as driver_type `"pvcam"` and builds `PvcamDriver` instances.
 pub struct PvcamFactory;
 
+const PVCAM_COMMAND_CATALOG: &[&str] = &["reset_pp", "upload_smart_stream"];
+
 impl DriverFactory for PvcamFactory {
     fn driver_type(&self) -> &'static str {
         "pvcam"
@@ -98,6 +100,13 @@ impl DriverFactory for PvcamFactory {
         ]
     }
 
+    fn available_commands(&self) -> Vec<String> {
+        PVCAM_COMMAND_CATALOG
+            .iter()
+            .map(|command| (*command).to_string())
+            .collect()
+    }
+
     fn validate(&self, config: &toml::Value) -> Result<()> {
         let _: PvcamConfig = config.clone().try_into()?;
         if cfg!(feature = "pvcam_sdk") && std::env::var("PVCAM_VERSION").is_err() {
@@ -113,6 +122,10 @@ impl DriverFactory for PvcamFactory {
             let cfg: PvcamConfig = config.try_into()?;
             let driver = Arc::new(PvcamDriver::new_async(cfg.camera_name).await?);
             let (w, h) = driver.resolution();
+            let available_commands = PVCAM_COMMAND_CATALOG
+                .iter()
+                .map(|command| (*command).to_string())
+                .collect();
             Ok(DeviceComponents {
                 triggerable: Some(driver.clone()),
                 frame_producer: Some(driver.clone()),
@@ -124,6 +137,7 @@ impl DriverFactory for PvcamFactory {
                     category: Some(DeviceCategory::Camera),
                     frame_width: Some(w),
                     frame_height: Some(h),
+                    available_commands,
                     ..Default::default()
                 },
                 ..Default::default()
@@ -2139,5 +2153,22 @@ impl Drop for PvcamDriver {
             // 3. Abort poll handle
             // This is non-blocking and safe from any context.
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pvcam_factory_exposes_command_catalog() {
+        let factory = PvcamFactory;
+        let mut commands = factory.available_commands();
+        commands.sort();
+
+        assert_eq!(
+            commands,
+            vec!["reset_pp".to_string(), "upload_smart_stream".to_string()]
+        );
     }
 }
