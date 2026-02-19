@@ -13,7 +13,7 @@
 //!
 //! ## Device Panel Routing
 //! Devices are routed to panels in this priority order:
-//! 1. Config-driven rendering (from device TOML `ui.control_panel` section)
+//! 1. Specialized per-device panels for known hardware classes
 //! 2. [`GenericDevicePanel`] — auto-composes compact widgets from capabilities:
 //!    - `readable` → gauge + value display with auto-refresh
 //!    - `movable` → position + jog buttons + go-to + home
@@ -22,10 +22,12 @@
 //!    - `wavelength_tunable` → slider + text input
 //!    - `settable` → voltage slider + quick-set presets
 //!
-//! Legacy per-device panels (MaiTai, PowerMeter, Rotator, Stage, AnalogOutput)
-//! remain in the codebase but are no longer dispatched to.
+//! The deprecated schema-driven panel renderer is intentionally not used in the
+//! active runtime path.
 
+#[cfg(test)]
 mod config_loader;
+#[cfg(test)]
 mod config_renderer;
 #[cfg(test)]
 mod config_tests;
@@ -33,8 +35,7 @@ mod dispatch;
 mod types;
 
 // Note: dispatch module contains PanelType and determine_panel_type for future panel routing
-// Currently the panel selection logic is inline in render_device_control_panel
-use config_loader::DeviceConfigCache;
+// Currently the panel selection logic is inline in render_device_control_panel.
 pub use types::{DeviceCategory, DeviceGroup, ParameterInfo, PopOutRequest};
 
 use eframe::egui;
@@ -179,9 +180,6 @@ pub struct InstrumentManagerPanel {
     /// Pending request to navigate to the Image Viewer for a specific device
     /// Checked by DaqApp after each ui() call to switch tabs and start streaming
     pending_image_viewer_device: Option<String>,
-
-    /// Device configuration cache for UI config loading
-    device_config_cache: DeviceConfigCache,
 }
 
 /// Context menu actions
@@ -243,7 +241,6 @@ impl Default for InstrumentManagerPanel {
             smart_stream_editors: HashMap::new(),
             pending_pop_out: None,
             pending_image_viewer_device: None,
-            device_config_cache: DeviceConfigCache::new(),
         }
     }
 }
@@ -657,13 +654,6 @@ impl InstrumentManagerPanel {
 
     /// Render the instrument manager panel
     pub fn ui(&mut self, ui: &mut egui::Ui, mut client: Option<&mut DaqClient>, runtime: &Runtime) {
-        // Load device configs on first run
-        if !self.device_config_cache.load_attempted() {
-            if let Err(e) = self.device_config_cache.load_all() {
-                tracing::warn!("Failed to load device configs: {}", e);
-            }
-        }
-
         let should_fetch_states = self.poll_async_results(ui.ctx(), client.as_deref_mut(), runtime);
 
         // Fetch device states if refresh completed
@@ -1473,21 +1463,6 @@ impl InstrumentManagerPanel {
         });
 
         ui.separator();
-
-        // Try config-driven rendering first
-        #[allow(deprecated)]
-        if let Some(device_config) = self
-            .device_config_cache
-            .get_by_driver_type(&device.driver_type)
-        {
-            if let Some(ui_config) = &device_config.ui {
-                if let Some(control_panel_config) = &ui_config.control_panel {
-                    // Use config-driven rendering
-                    config_renderer::render_config_panel(ui, &device, control_panel_config);
-                    return;
-                }
-            }
-        }
 
         // Per-device specialized panels provide richer controls for hardware bring-up.
         let driver_lower = device.driver_type.to_lowercase();
