@@ -55,8 +55,6 @@
 pub mod config;
 pub mod grpc;
 pub mod health;
-#[cfg(feature = "modules")]
-pub mod modules;
 #[cfg(feature = "rerun_sink")]
 pub mod rerun_sink;
 #[cfg(feature = "scripting")]

@@ -31,8 +31,11 @@ pub mod run_engine;
 #[cfg(any(feature = "native_plugins", feature = "scripting"))]
 pub mod plugins;
 
-use anyhow::{anyhow, Result};
+#[cfg(feature = "native_plugins")]
+use anyhow::anyhow;
+use anyhow::Result;
 use async_trait::async_trait;
+use common::error::{DaqError, DriverError, DriverErrorKind};
 use common::modules::{
     ModuleDataPoint, ModuleEvent, ModuleEventSeverity, ModuleState, ModuleTypeInfo,
 };
@@ -547,12 +550,16 @@ impl ModuleRegistry {
     pub fn create_module(&mut self, type_id: &str, name: &str) -> Result<String> {
         let factory = self.module_types.get(type_id).ok_or_else(|| {
             if self.type_info_cache.contains_key(type_id) {
-                anyhow!(
+                anyhow::Error::from(DaqError::Configuration(format!(
                     "Module type '{}' is a plugin type. Use create_plugin_module() instead.",
                     type_id
-                )
+                )))
             } else {
-                anyhow!("Unknown module type: {}", type_id)
+                anyhow::Error::from(DaqError::Driver(DriverError::new(
+                    "module_registry",
+                    DriverErrorKind::NotFound,
+                    format!("Unknown module type: {}", type_id),
+                )))
             }
         })?;
 
@@ -570,12 +577,15 @@ impl ModuleRegistry {
         if let Some(instance) = self.instances.get(module_id) {
             let state = instance.state();
             if state == ModuleState::Running && !force {
-                return Err(anyhow!(
-                    "Module is running. Stop it first or use force=true"
-                ));
+                return Err(DaqError::ModuleBusyDuringOperation.into());
             }
         } else {
-            return Err(anyhow!("Module not found: {}", module_id));
+            return Err(DaqError::Driver(DriverError::new(
+                "module_registry",
+                DriverErrorKind::NotFound,
+                format!("Module not found: {}", module_id),
+            ))
+            .into());
         }
 
         // Stop if running
@@ -612,13 +622,16 @@ impl ModuleRegistry {
         module_id: &str,
         params: HashMap<String, String>,
     ) -> Result<Vec<String>> {
-        let instance = self
-            .instances
-            .get_mut(module_id)
-            .ok_or_else(|| anyhow!("Module not found: {}", module_id))?;
+        let instance = self.instances.get_mut(module_id).ok_or_else(|| {
+            DaqError::Driver(DriverError::new(
+                "module_registry",
+                DriverErrorKind::NotFound,
+                format!("Module not found: {}", module_id),
+            ))
+        })?;
 
         if instance.state() == ModuleState::Running {
-            return Err(anyhow!("Cannot configure a running module"));
+            return Err(DaqError::ModuleBusyDuringOperation.into());
         }
 
         instance.configure(params)
@@ -628,20 +641,31 @@ impl ModuleRegistry {
     pub fn assign_device(&mut self, module_id: &str, role_id: &str, device_id: &str) -> Result<()> {
         // Verify device exists
         if self.device_registry.get_device_info(device_id).is_none() {
-            return Err(anyhow!("Device not found: {}", device_id));
+            return Err(DaqError::Driver(DriverError::new(
+                "module_registry",
+                DriverErrorKind::NotFound,
+                format!("Device not found: {}", device_id),
+            ))
+            .into());
         }
 
-        let instance = self
-            .instances
-            .get_mut(module_id)
-            .ok_or_else(|| anyhow!("Module not found: {}", module_id))?;
+        let instance = self.instances.get_mut(module_id).ok_or_else(|| {
+            DaqError::Driver(DriverError::new(
+                "module_registry",
+                DriverErrorKind::NotFound,
+                format!("Module not found: {}", module_id),
+            ))
+        })?;
 
         // Validate role exists for this module type
         let type_id = instance.type_id();
-        let type_info = self
-            .type_info_cache
-            .get(type_id)
-            .ok_or_else(|| anyhow!("Module type info not found: {}", type_id))?;
+        let type_info = self.type_info_cache.get(type_id).ok_or_else(|| {
+            DaqError::Driver(DriverError::new(
+                "module_registry",
+                DriverErrorKind::NotFound,
+                format!("Module type info not found: {}", type_id),
+            ))
+        })?;
 
         // Check if role exists in required or optional roles
         let role_exists = type_info
@@ -666,12 +690,11 @@ impl ModuleRegistry {
                 valid_roles.join(", ")
             };
 
-            return Err(anyhow!(
+            return Err(DaqError::Configuration(format!(
                 "Invalid role '{}' for module type '{}'. Valid roles: {}",
-                role_id,
-                type_id,
-                valid_roles_str
-            ));
+                role_id, type_id, valid_roles_str
+            ))
+            .into());
         }
 
         instance.assign_device(role_id.to_string(), device_id.to_string());
@@ -684,13 +707,16 @@ impl ModuleRegistry {
 
     /// Unassign a device from a module role
     pub fn unassign_device(&mut self, module_id: &str, role_id: &str) -> Result<()> {
-        let instance = self
-            .instances
-            .get_mut(module_id)
-            .ok_or_else(|| anyhow!("Module not found: {}", module_id))?;
+        let instance = self.instances.get_mut(module_id).ok_or_else(|| {
+            DaqError::Driver(DriverError::new(
+                "module_registry",
+                DriverErrorKind::NotFound,
+                format!("Module not found: {}", module_id),
+            ))
+        })?;
 
         if instance.state() == ModuleState::Running {
-            return Err(anyhow!("Cannot unassign device from a running module"));
+            return Err(DaqError::ModuleBusyDuringOperation.into());
         }
 
         instance.unassign_device(role_id);
@@ -703,7 +729,7 @@ impl ModuleRegistry {
         let instance = self
             .instances
             .get_mut(module_id)
-            .ok_or_else(|| anyhow!("Module not found: {}", module_id))?;
+            .ok_or_else(|| module_not_found(module_id))?;
 
         instance.start(registry).await?;
         Ok(instance.start_time_ns.unwrap_or(0))
@@ -714,7 +740,7 @@ impl ModuleRegistry {
         let instance = self
             .instances
             .get_mut(module_id)
-            .ok_or_else(|| anyhow!("Module not found: {}", module_id))?;
+            .ok_or_else(|| module_not_found(module_id))?;
 
         instance.pause().await
     }
@@ -724,7 +750,7 @@ impl ModuleRegistry {
         let instance = self
             .instances
             .get_mut(module_id)
-            .ok_or_else(|| anyhow!("Module not found: {}", module_id))?;
+            .ok_or_else(|| module_not_found(module_id))?;
 
         instance.resume().await
     }
@@ -734,7 +760,7 @@ impl ModuleRegistry {
         let instance = self
             .instances
             .get_mut(module_id)
-            .ok_or_else(|| anyhow!("Module not found: {}", module_id))?;
+            .ok_or_else(|| module_not_found(module_id))?;
 
         instance.stop().await?;
 
@@ -757,7 +783,7 @@ impl ModuleRegistry {
         let instance = self
             .instances
             .get_mut(module_id)
-            .ok_or_else(|| anyhow!("Module not found: {}", module_id))?;
+            .ok_or_else(|| module_not_found(module_id))?;
 
         instance.stage(registry).await
     }
@@ -768,7 +794,7 @@ impl ModuleRegistry {
         let instance = self
             .instances
             .get_mut(module_id)
-            .ok_or_else(|| anyhow!("Module not found: {}", module_id))?;
+            .ok_or_else(|| module_not_found(module_id))?;
 
         instance.unstage(registry).await
     }
@@ -906,6 +932,15 @@ impl ModuleRegistry {
 /// Get current time in nanoseconds since Unix epoch
 fn current_time_ns() -> u64 {
     common::time::now_ns()
+}
+
+/// Create a `DaqError` for a module not found by ID.
+fn module_not_found(module_id: &str) -> DaqError {
+    DaqError::Driver(DriverError::new(
+        "module_registry",
+        DriverErrorKind::NotFound,
+        format!("Module not found: {}", module_id),
+    ))
 }
 
 // =============================================================================
