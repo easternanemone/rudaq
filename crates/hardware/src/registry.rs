@@ -254,6 +254,8 @@ pub struct DeviceMetadata {
     pub max_wavelength_nm: Option<f64>,
     /// Available command names for command-capable devices.
     pub available_commands: Vec<String>,
+    /// Optional serialized UI schema/configuration for metadata-driven control panels.
+    pub ui_schema_json: Option<String>,
     /// Config origin: "toml" (startup), "db" (reconciler), etc.
     pub config_source: Option<String>,
 }
@@ -824,6 +826,7 @@ impl DeviceRegistry {
             min_wavelength_nm: components.metadata.min_wavelength_nm,
             max_wavelength_nm: components.metadata.max_wavelength_nm,
             available_commands: components.metadata.available_commands.clone(),
+            ui_schema_json: components.metadata.ui_schema_json.clone(),
             config_source: None, // Caller sets after registration
         };
 

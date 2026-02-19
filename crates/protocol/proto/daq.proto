@@ -322,6 +322,9 @@ message DeviceMetadata {
 
   // Available command names for command-capable devices.
   repeated string available_commands = 41;
+
+  // Optional serialized UI schema/configuration for metadata-driven panels.
+  optional string ui_schema_json = 42;
 }
 
 message DeviceStateRequest {

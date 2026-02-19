@@ -117,6 +117,7 @@ pub fn parse_manifest(raw: RawManifest) -> Result<DeviceManifest, Vec<ConfigErro
         capabilities,
         parameters,
         init_sequence,
+        ui: raw.ui,
     })
 }
 
@@ -908,6 +909,51 @@ set = { command = "set_voltage", from_param = "value" }
         // Check that the measure_voltage command has a response_type
         let measure = manifest.commands.get("measure_voltage").unwrap();
         assert_eq!(measure.response_type, Some(ScpiResponseType::Float));
+    }
+
+    #[test]
+    fn parse_preserves_ui_section() {
+        let toml_str = r##"
+schema_version = 3
+
+[device]
+name = "UI Device"
+capabilities = ["Readable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.read]
+template = "READ?"
+response_type = "float"
+
+[capabilities.readable]
+read = { command = "read" }
+
+[ui]
+icon = "meter"
+color = "#00AA88"
+
+[ui.control_panel]
+layout = "vertical"
+"##;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let manifest = parse_manifest(raw).expect("manifest with [ui] should parse");
+
+        let ui = manifest.ui.as_ref().expect("[ui] should be preserved");
+        let icon = ui
+            .get("icon")
+            .and_then(|value| value.as_str())
+            .expect("ui.icon should exist");
+        let layout = ui
+            .get("control_panel")
+            .and_then(|value| value.get("layout"))
+            .and_then(|value| value.as_str())
+            .expect("ui.control_panel.layout should exist");
+
+        assert_eq!(icon, "meter");
+        assert_eq!(layout, "vertical");
     }
 
     #[test]

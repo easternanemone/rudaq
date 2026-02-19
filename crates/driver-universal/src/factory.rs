@@ -452,6 +452,10 @@ impl DriverFactory for UniversalDriverFactory {
 
             let mut available_commands: Vec<String> = manifest.commands.keys().cloned().collect();
             available_commands.sort();
+            let ui_schema_json = manifest
+                .ui
+                .as_ref()
+                .and_then(|ui_config| serde_json::to_string(ui_config).ok());
 
             components.metadata = DeviceMetadata {
                 category,
@@ -472,6 +476,7 @@ impl DriverFactory for UniversalDriverFactory {
                 min_wavelength_nm: manifest.parameters.get("min_wavelength").copied(),
                 max_wavelength_nm: manifest.parameters.get("max_wavelength").copied(),
                 available_commands,
+                ui_schema_json,
                 ..DeviceMetadata::default()
             };
 
@@ -601,6 +606,55 @@ read = { command = "read" }
         let components = factory.build(config.into()).await.unwrap();
         assert!(components.readable.is_some());
         assert!(components.movable.is_none());
+    }
+
+    #[tokio::test]
+    async fn factory_build_exposes_ui_schema_in_metadata() {
+        let factory = UniversalDriverFactory::from_toml_str(
+            r##"
+schema_version = 3
+
+[device]
+name = "UI Metadata Device"
+capabilities = ["Readable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.read]
+template = "READ?"
+response_type = "float"
+
+[capabilities.readable]
+read = { command = "read" }
+
+[ui]
+icon = "meter"
+color = "#00AA88"
+
+[ui.control_panel]
+layout = "vertical"
+"##,
+        )
+        .unwrap();
+
+        let config = toml::toml! {
+            port = "/dev/ttyUSB0"
+            mock = true
+        };
+
+        let components = factory.build(config.into()).await.unwrap();
+        let ui_schema_json = components
+            .metadata
+            .ui_schema_json
+            .as_ref()
+            .expect("ui schema JSON should be present in metadata");
+        let parsed: serde_json::Value =
+            serde_json::from_str(ui_schema_json).expect("ui schema should be valid JSON");
+
+        assert_eq!(parsed["icon"], "meter");
+        assert_eq!(parsed["control_panel"]["layout"], "vertical");
     }
 
     #[tokio::test]

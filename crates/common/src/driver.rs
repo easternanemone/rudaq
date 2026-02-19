@@ -578,6 +578,11 @@ pub struct DeviceMetadata {
     ///
     /// For universal TOML drivers, this is populated from manifest commands.
     pub available_commands: Vec<String>,
+
+    /// Optional serialized UI schema/configuration for metadata-driven control panels.
+    ///
+    /// For universal TOML drivers this is sourced from the `[ui]` manifest section.
+    pub ui_schema_json: Option<String>,
 }
 
 // =============================================================================
