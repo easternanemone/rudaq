@@ -18,6 +18,8 @@ Organized using the [Diataxis](https://diataxis.fr/) framework.
 | [Windows Build](how-to/build-and-run-windows.md) | Windows-specific build instructions |
 | [Hardware Setup (Maitai)](how-to/hardware-setup.md) | Real hardware configuration |
 | [Operations](how-to/operations.md) | Daemon startup, deployment, monitoring |
+| [Maitai Universal+DB Signoff](how-to/maitai-universal-db-signoff.md) | Hardware validation runbook for hybrid-db mode |
+| [Legacy SCPI Deprecation](how-to/legacy-scpi-deprecation.md) | Migration and rollback policy for legacy native SCPI/TCP paths |
 | [Platform Notes](how-to/platform-notes.md) | OS-specific considerations |
 
 ### Hardware Drivers
@@ -74,3 +76,9 @@ Organized using the [Diataxis](https://diataxis.fr/) framework.
 ## Architecture Decision Records
 
 See [ADR Index](adr/README.md) for all decisions with status and summaries.
+
+## Architecture Policies
+
+| Policy | Description |
+|--------|-------------|
+| [Runtime Driver Policy](architecture/runtime-driver-policy.md) | Universal vs native boundaries and SurrealDB role by runtime mode |
