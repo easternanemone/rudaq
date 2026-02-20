@@ -149,6 +149,7 @@ whats-next.md
 # Local AI tool config
 .agents/
 .factory/
+.cocoindex_code/
 
 # Git worktrees
 .worktrees/
