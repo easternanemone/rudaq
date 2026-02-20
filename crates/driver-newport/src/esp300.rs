@@ -4,7 +4,7 @@
 //!
 //! Protocol Overview:
 //! - Format: ASCII command/response over RS-232
-//! - Baud: 19200, 8N1, no flow control
+//! - Baud: 19200, 8N1, RTS/CTS hardware flow control
 //! - Commands: {Axis}{Command}{Value}
 //! - Example: "1PA5.0" (axis 1, position absolute, 5.0mm)
 //!
@@ -32,7 +32,7 @@ use common::driver::{Capability, DeviceComponents, DriverFactory};
 use common::error::DaqError;
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
-use common::serial::{open_serial_async, wrap_shared, SharedPort};
+use common::serial::{open_serial_async_with_flow_control, wrap_shared, FlowControl, SharedPort};
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -163,14 +163,16 @@ impl Esp300Driver {
             return Err(anyhow!("ESP300 axis must be 1-3, got {}", axis));
         }
 
-        // Use shared serial port opening utility
-        let port = open_serial_async(port_path, 19200, "ESP300").await?;
+        // ESP300 requires RTS/CTS hardware flow control (per manual section 6.3)
+        let port =
+            open_serial_async_with_flow_control(port_path, 19200, FlowControl::RtsCts, "ESP300")
+                .await?;
         let shared = wrap_shared(Box::new(port));
 
         let driver = Self::build(shared, axis, timeout);
 
-        // Validate device identity by querying version
-        match driver.query("VE").await {
+        // Validate device identity by querying version (VE? per manual)
+        match driver.query("VE?").await {
             Ok(version) => {
                 if !version.to_uppercase().contains("ESP") {
                     return Err(anyhow!(
@@ -182,7 +184,7 @@ impl Esp300Driver {
             }
             Err(e) => {
                 return Err(anyhow!(
-                    "ESP300 validation failed: no response to version query (VE). Error: {}",
+                    "ESP300 validation failed: no response to version query (VE?). Error: {}",
                     e
                 ));
             }
@@ -218,7 +220,7 @@ impl Esp300Driver {
             let port = port.clone();
             Box::pin(async move {
                 let mut guard = port.lock().await;
-                let cmd = format!("{}PA{:.6}\r\n", axis, target);
+                let cmd = format!("{}PA{:.6}\r", axis, target);
                 let writer = guard.get_mut();
                 writer
                     .write_all(cmd.as_bytes())
@@ -272,7 +274,7 @@ impl Esp300Driver {
     async fn query(&self, command: &str) -> Result<String> {
         let mut port = self.port.lock().await;
 
-        let cmd = format!("{}\r\n", command);
+        let cmd = format!("{}\r", command);
         let writer = port.get_mut();
         writer
             .write_all(cmd.as_bytes())
@@ -293,7 +295,7 @@ impl Esp300Driver {
     async fn send_command(&self, command: &str) -> Result<()> {
         let mut port = self.port.lock().await;
 
-        let cmd = format!("{}\r\n", command);
+        let cmd = format!("{}\r", command);
         let writer = port.get_mut();
         writer
             .write_all(cmd.as_bytes())
@@ -426,7 +428,7 @@ mod tests {
         let n = host.read(&mut buf).await?;
         let sent = String::from_utf8_lossy(&buf[..n]);
 
-        assert!(sent.contains("1PA12.500000\r\n"));
+        assert!(sent.contains("1PA12.500000\r"));
 
         Ok(())
     }

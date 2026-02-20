@@ -276,13 +276,13 @@ fn validate_connection(
             }
             let validated_flow_control = flow_control
                 .as_ref()
-                .map(|fc| match fc.as_str() {
+                .map(|fc| match fc.to_lowercase().as_str() {
                     "none" => Ok(SerialFlowControl::None),
-                    "software" => Ok(SerialFlowControl::Software),
-                    "hardware" => Ok(SerialFlowControl::Hardware),
+                    "software" | "xon/xoff" | "xonxoff" => Ok(SerialFlowControl::Software),
+                    "hardware" | "rts/cts" | "rtscts" => Ok(SerialFlowControl::Hardware),
                     _ => {
                         errors.push(ConfigError::Other(format!(
-                            "flow_control must be 'none', 'software', or 'hardware' (got '{fc}')"
+                            "flow_control must be 'none', 'software'/'xon/xoff', or 'hardware'/'rts/cts' (got '{fc}')"
                         )));
                         Err(())
                     }

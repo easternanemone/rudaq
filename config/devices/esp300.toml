@@ -28,10 +28,10 @@ baud_rate = 19200
 data_bits = 8
 parity = "none"
 stop_bits = 1
-flow_control = "none"
+flow_control = "hardware"
 timeout_ms = 5000
-terminator_tx = "\r\n"        # ESP300 uses CR+LF
-terminator_rx = "\r\n"
+terminator_tx = "\r"           # ESP300 accepts CR-only commands
+terminator_rx = "\r\n"         # ESP300 responds with CR+LF
 
 # ==============================================================================
 # Device Parameters

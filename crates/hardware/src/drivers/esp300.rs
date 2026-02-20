@@ -38,7 +38,9 @@ use common::error::DaqError;
 use common::error_recovery::RetryPolicy;
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
-use common::serial::{open_serial_async, open_serial_sync, wrap_shared};
+use common::serial::{
+    open_serial_async_with_flow_control, open_serial_sync, wrap_shared, FlowControl,
+};
 use futures::future::BoxFuture;
 use std::future::Future;
 use std::time::Duration;
@@ -137,14 +139,16 @@ impl Esp300Driver {
             return Err(anyhow!("ESP300 axis must be 1-3, got {}", axis));
         }
 
-        let dyn_port = open_serial_async(port_path, 19200, "ESP300").await?;
+        let dyn_port =
+            open_serial_async_with_flow_control(port_path, 19200, FlowControl::RtsCts, "ESP300")
+                .await?;
         let shared: common::serial::SharedPort = wrap_shared(dyn_port);
 
         let driver = Self::build(shared, axis);
 
         // Validate device identity by querying version
         // ESP300 responds with something like "ESP300 Version 3.04"
-        match driver.query("VE").await {
+        match driver.query("VE?").await {
             Ok(version) => {
                 if !version.to_uppercase().contains("ESP") {
                     return Err(anyhow!(
@@ -284,8 +288,8 @@ impl Esp300Driver {
         let mut port: tokio::sync::MutexGuard<'_, tokio::io::BufReader<common::serial::DynSerial>> =
             self.port.lock().await;
 
-        // Write command with terminator
-        let cmd = format!("{}\r\n", command);
+        // Write command with CR terminator (per ESP300 manual)
+        let cmd = format!("{}\r", command);
         port.get_mut()
             .write_all(cmd.as_bytes())
             .await

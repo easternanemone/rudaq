@@ -293,7 +293,7 @@ if ! $GUI_ONLY; then
     # Wait for daemon to start listening
     info "Waiting for daemon to start (port ${DAEMON_PORT})..."
     DAEMON_READY=false
-    for i in $(seq 1 15); do
+    for i in $(seq 1 60); do
         if remote "ss -tlnp 2>/dev/null | grep -q ':${DAEMON_PORT}'" 2>/dev/null; then
             DAEMON_READY=true
             break
@@ -306,7 +306,7 @@ if ! $GUI_ONLY; then
     if $DAEMON_READY; then
         ok "Daemon listening on port ${DAEMON_PORT}"
     else
-        fail "Daemon failed to start within 15s. Check logs: ssh ${MAITAI_SSH} 'tail -50 ${REMOTE_LOG}'"
+        fail "Daemon failed to start within 60s. Check logs: ssh ${MAITAI_SSH} 'tail -50 ${REMOTE_LOG}'"
     fi
 
     # Show startup log

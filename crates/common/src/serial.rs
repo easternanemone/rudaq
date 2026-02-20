@@ -43,6 +43,9 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader};
 use tokio::sync::Mutex;
 
+// Re-export serial port configuration types for driver crates
+pub use serial2_tokio::{FlowControl, Settings};
+
 // =============================================================================
 // Serial Port Trait
 // =============================================================================
@@ -238,6 +241,42 @@ pub async fn open_serial_async(
             "Failed to open {} serial port: {}",
             device_name_owned, port_path_owned
         ))
+    })
+    .await
+    .context("spawn_blocking for serial port opening failed")??;
+
+    Ok(Box::new(port))
+}
+
+/// Open a serial port asynchronously with explicit flow control.
+///
+/// Same as [`open_serial_async`] but allows setting flow control mode
+/// (e.g., `FlowControl::RtsCts` for hardware handshaking).
+pub async fn open_serial_async_with_flow_control(
+    port_path: &str,
+    baud_rate: u32,
+    flow_control: FlowControl,
+    device_name: &str,
+) -> anyhow::Result<DynSerial> {
+    use anyhow::Context;
+    use tokio::task::spawn_blocking;
+
+    let port_path_owned = port_path.to_string();
+    let device_name_owned = device_name.to_string();
+
+    let port = spawn_blocking(move || {
+        let mut port =
+            serial2_tokio::SerialPort::open(&port_path_owned, baud_rate).context(format!(
+                "Failed to open {} serial port: {}",
+                device_name_owned, port_path_owned
+            ))?;
+        let mut settings = port
+            .get_configuration()
+            .context("Failed to read serial settings")?;
+        settings.set_flow_control(flow_control);
+        port.set_configuration(&settings)
+            .context("Failed to apply serial settings")?;
+        Ok::<_, anyhow::Error>(port)
     })
     .await
     .context("spawn_blocking for serial port opening failed")??;
