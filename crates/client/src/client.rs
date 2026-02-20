@@ -827,6 +827,7 @@ impl DaqClient {
                 parameters,
                 device_mapping,
                 metadata,
+                plan_id: None,
             })
             .await?;
         Ok(response.into_inner())
@@ -893,6 +894,81 @@ impl DaqClient {
             .get_engine_status(GetEngineStatusRequest {})
             .await?;
         Ok(response.into_inner())
+    }
+
+    // =========================================================================
+    // Stored Plan Management (bd-yz1w)
+    // =========================================================================
+
+    /// Save a plan to persistent storage on the daemon.
+    pub async fn save_plan(
+        &mut self,
+        request: protocol::daq::SavePlanRequest,
+    ) -> Result<protocol::daq::SavePlanResponse> {
+        let response = self.run_engine.save_plan(request).await?;
+        Ok(response.into_inner())
+    }
+
+    /// Load a stored plan from the daemon.
+    pub async fn load_plan(&mut self, plan_id: &str) -> Result<protocol::daq::LoadPlanResponse> {
+        let response = self
+            .run_engine
+            .load_plan(protocol::daq::LoadPlanRequest {
+                plan_id: plan_id.to_string(),
+            })
+            .await?;
+        Ok(response.into_inner())
+    }
+
+    /// List all saved plans on the daemon.
+    pub async fn list_saved_plans(&mut self) -> Result<Vec<protocol::daq::SavedPlanSummary>> {
+        let response = self
+            .run_engine
+            .list_saved_plans(protocol::daq::ListSavedPlansRequest {})
+            .await?;
+        Ok(response.into_inner().plans)
+    }
+
+    /// Delete a saved plan.
+    pub async fn delete_saved_plan(
+        &mut self,
+        plan_id: &str,
+    ) -> Result<protocol::daq::DeleteSavedPlanResponse> {
+        let response = self
+            .run_engine
+            .delete_saved_plan(protocol::daq::DeleteSavedPlanRequest {
+                plan_id: plan_id.to_string(),
+            })
+            .await?;
+        Ok(response.into_inner())
+    }
+
+    /// Queue a stored plan for execution by its plan_id.
+    pub async fn queue_stored_plan(
+        &mut self,
+        plan_id: &str,
+        metadata: std::collections::HashMap<String, String>,
+    ) -> Result<QueuePlanResponse> {
+        let response = self
+            .run_engine
+            .queue_plan(QueuePlanRequest {
+                plan_type: String::new(),
+                parameters: Default::default(),
+                device_mapping: Default::default(),
+                metadata,
+                plan_id: Some(plan_id.to_string()),
+            })
+            .await?;
+        Ok(response.into_inner())
+    }
+
+    /// List recent run records.
+    pub async fn list_runs(&mut self, limit: Option<u32>) -> Result<Vec<protocol::daq::RunRecord>> {
+        let response = self
+            .run_engine
+            .list_runs(protocol::daq::ListRunsRequest { limit })
+            .await?;
+        Ok(response.into_inner().runs)
     }
 
     // =========================================================================

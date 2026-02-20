@@ -12,7 +12,7 @@
 //! - `connects_to` — instrument → instrument (physical cabling)
 
 /// Current schema version. Bump this when adding migrations.
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
 /// A single schema migration step.
 #[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
@@ -41,6 +41,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 4,
         sql: SCHEMA_V4,
+    },
+    Migration {
+        version: 5,
+        sql: SCHEMA_V5,
     },
 ];
 
@@ -108,6 +112,53 @@ DEFINE INDEX IF NOT EXISTS idx_experiment_id ON experiment FIELDS experiment_id 
 #[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
 const SCHEMA_V4: &str = r"
 DEFINE FIELD IF NOT EXISTS commands ON driver FLEXIBLE TYPE array;
+";
+
+/// v4→v5 migration: experiment plan storage and run history.
+///
+/// Adds `experiment_plan` (persistent plan definitions with pre-translated commands
+/// and graph data) and `run_record` (execution history linked to plans).
+/// Graph edges: `executed_from` (run→plan) and `uses_instrument` (plan→instrument).
+#[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
+const SCHEMA_V5: &str = r"
+-- Experiment plan definitions
+DEFINE TABLE IF NOT EXISTS experiment_plan SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS plan_id      ON experiment_plan TYPE string;
+DEFINE FIELD IF NOT EXISTS name         ON experiment_plan TYPE string;
+DEFINE FIELD IF NOT EXISTS description  ON experiment_plan TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS plan_type    ON experiment_plan TYPE string;
+DEFINE FIELD IF NOT EXISTS commands     ON experiment_plan FLEXIBLE TYPE option<array>;
+DEFINE FIELD IF NOT EXISTS movers       ON experiment_plan FLEXIBLE TYPE option<array>;
+DEFINE FIELD IF NOT EXISTS detectors    ON experiment_plan FLEXIBLE TYPE option<array>;
+DEFINE FIELD IF NOT EXISTS num_points   ON experiment_plan TYPE option<int>;
+DEFINE FIELD IF NOT EXISTS graph_data   ON experiment_plan FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS parameters   ON experiment_plan FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS device_mapping ON experiment_plan FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS created_at   ON experiment_plan TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated_at   ON experiment_plan TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_plan_id  ON experiment_plan FIELDS plan_id UNIQUE;
+
+-- Run execution history
+DEFINE TABLE IF NOT EXISTS run_record SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS run_uid      ON run_record TYPE string;
+DEFINE FIELD IF NOT EXISTS plan_id      ON run_record TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS plan_type    ON run_record TYPE string;
+DEFINE FIELD IF NOT EXISTS plan_name    ON run_record TYPE string;
+DEFINE FIELD IF NOT EXISTS status       ON run_record TYPE string DEFAULT 'queued';
+DEFINE FIELD IF NOT EXISTS num_events   ON run_record TYPE option<int>;
+DEFINE FIELD IF NOT EXISTS metadata     ON run_record FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS started_at   ON run_record TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS finished_at  ON run_record TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS exit_reason  ON run_record TYPE option<string>;
+DEFINE INDEX IF NOT EXISTS idx_run_uid  ON run_record FIELDS run_uid UNIQUE;
+
+-- Graph edges: run_record -> experiment_plan (which plan spawned this run)
+DEFINE TABLE IF NOT EXISTS executed_from TYPE RELATION
+    FROM run_record TO experiment_plan;
+
+-- Graph edges: experiment_plan -> instrument (which instruments a plan uses)
+DEFINE TABLE IF NOT EXISTS uses_instrument TYPE RELATION
+    FROM experiment_plan TO instrument;
 ";
 
 /// Apply the schema to the database.
@@ -204,6 +255,10 @@ mod tests {
             "experiment",
             "instance_of",
             "connects_to",
+            "experiment_plan",
+            "run_record",
+            "executed_from",
+            "uses_instrument",
         ] {
             assert!(
                 info_str.contains(table),

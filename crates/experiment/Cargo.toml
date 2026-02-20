@@ -9,6 +9,7 @@ hardware = { path = "../hardware" }
 anyhow.workspace = true
 tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
 tracing.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 # async-recursion might be needed for nested plans if we implement them
 # futures = "0.3"

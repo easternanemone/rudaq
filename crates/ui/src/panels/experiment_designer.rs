@@ -1220,14 +1220,13 @@ impl ExperimentDesignerPanel {
         let runtime = runtime.unwrap();
         self.start_visualization(client, runtime);
 
-        // TODO(06-01): Queue plan via gRPC with metadata
-        // Extract metadata from editor + add graph provenance
-        let mut _metadata = self.metadata_editor.to_metadata_map();
-        _metadata.insert(
+        // Save plan to SurrealDB and queue by plan_id (bd-yz1w)
+        let mut metadata = self.metadata_editor.to_metadata_map();
+        metadata.insert(
             "graph_node_count".to_string(),
             self.snarl.node_ids().count().to_string(),
         );
-        _metadata.insert(
+        metadata.insert(
             "graph_file".to_string(),
             self.current_file
                 .as_ref()
@@ -1236,14 +1235,119 @@ impl ExperimentDesignerPanel {
                 .to_string(),
         );
 
-        // For full implementation, need to either:
-        // 1. Serialize GraphPlan and send via QueuePlan with plan_type="graph_plan"
-        // 2. Or convert to an existing plan type the server understands
-        //
-        // For now, the UI shows execution state for demo purposes.
-        // Full server integration would require:
-        // - Server accepting GraphPlan or serialized commands
-        // - Or translating to LineScan/GridScan based on graph content
+        // Generate a plan_id from graph name or file, falling back to a timestamp
+        let plan_id = self
+            .current_file
+            .as_ref()
+            .and_then(|p| p.file_stem().and_then(|s| s.to_str()))
+            .map(|s| format!("graph_{s}"))
+            .unwrap_or_else(|| format!("graph_{}", common::time::now_ns() / 1_000_000_000));
+
+        // Serialize commands and graph data for DB storage
+        let commands_json = match serde_json::to_string(plan.commands()) {
+            Ok(json) => json,
+            Err(e) => {
+                self.last_error = Some(format!("Failed to serialize commands: {e}"));
+                return;
+            }
+        };
+
+        let graph_data_json = {
+            let graph_file = crate::graph::serialization::GraphFile::new(self.snarl.clone());
+            match serde_json::to_string(&graph_file) {
+                Ok(json) => json,
+                Err(e) => {
+                    self.last_error = Some(format!("Failed to serialize graph: {e}"));
+                    return;
+                }
+            }
+        };
+
+        let plan_name = self
+            .current_file
+            .as_ref()
+            .and_then(|p| p.file_stem().and_then(|s| s.to_str()))
+            .unwrap_or("Untitled Graph")
+            .to_string();
+
+        // Build SavePlanRequest
+        let save_request = protocol::daq::SavePlanRequest {
+            plan_id: plan_id.clone(),
+            name: plan_name,
+            description: None,
+            plan_type: "graph_plan".to_string(),
+            commands_json: Some(commands_json),
+            movers: plan.movers(),
+            detectors: plan.detectors(),
+            num_points: Some(total_events),
+            graph_data_json: Some(graph_data_json),
+            parameters: Default::default(),
+            device_mapping: Default::default(),
+        };
+
+        // Spawn async task to save plan, then queue and start
+        let tx = self.action_tx.clone();
+        let mut client = client.clone();
+        runtime.spawn(async move {
+            // 1. Save plan to DB
+            match client.save_plan(save_request).await {
+                Ok(resp) if !resp.success => {
+                    let _ = tx
+                        .send(ExecutionAction::Error(format!(
+                            "Failed to save plan: {}",
+                            resp.error_message
+                        )))
+                        .await;
+                    return;
+                }
+                Err(e) => {
+                    let _ = tx
+                        .send(ExecutionAction::Error(format!("Failed to save plan: {e}")))
+                        .await;
+                    return;
+                }
+                Ok(_) => {}
+            }
+
+            // 2. Queue the stored plan
+            let run_uid = match client.queue_stored_plan(&plan_id, metadata).await {
+                Ok(resp) if resp.success => resp.run_uid,
+                Ok(resp) => {
+                    let _ = tx
+                        .send(ExecutionAction::Error(format!(
+                            "Failed to queue plan: {}",
+                            resp.error_message
+                        )))
+                        .await;
+                    return;
+                }
+                Err(e) => {
+                    let _ = tx
+                        .send(ExecutionAction::Error(format!("Failed to queue plan: {e}")))
+                        .await;
+                    return;
+                }
+            };
+
+            // 3. Start the engine
+            match client.start_engine().await {
+                Ok(_) => {
+                    let _ = tx
+                        .send(ExecutionAction::Started {
+                            run_uid,
+                            total_events,
+                        })
+                        .await;
+                }
+                Err(e) => {
+                    let _ = tx
+                        .send(ExecutionAction::Error(format!(
+                            "Failed to start engine: {e}"
+                        )))
+                        .await;
+                }
+            }
+        });
     }
 
     fn pause_experiment(&mut self, client: Option<&DaqClient>, runtime: Option<&Runtime>) {

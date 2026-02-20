@@ -33,8 +33,10 @@
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 /// Commands that plans yield for the RunEngine to execute
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PlanCommand {
     /// Move a device to an absolute position
     MoveTo {
@@ -1042,6 +1044,85 @@ impl PlanRegistry {
     }
 }
 
+/// A plan that replays a pre-translated sequence of `PlanCommand`s.
+///
+/// Used when plans are loaded from SurrealDB storage. The graph-to-command
+/// translation happens at save time (in the UI), and this struct simply
+/// plays back the resulting commands at execution time.
+#[derive(Debug, Clone)]
+pub struct CommandReplayPlan {
+    commands: Vec<PlanCommand>,
+    current_idx: usize,
+    plan_name: String,
+    movers: Vec<String>,
+    detectors: Vec<String>,
+}
+
+impl CommandReplayPlan {
+    /// Create a new replay plan from pre-translated commands.
+    pub fn new(
+        commands: Vec<PlanCommand>,
+        plan_name: String,
+        movers: Vec<String>,
+        detectors: Vec<String>,
+    ) -> Self {
+        Self {
+            commands,
+            current_idx: 0,
+            plan_name,
+            movers,
+            detectors,
+        }
+    }
+}
+
+impl Plan for CommandReplayPlan {
+    fn plan_type(&self) -> &str {
+        "command_replay"
+    }
+
+    fn plan_name(&self) -> &str {
+        &self.plan_name
+    }
+
+    fn plan_args(&self) -> HashMap<String, String> {
+        let mut args = HashMap::new();
+        args.insert(
+            "total_commands".to_string(),
+            self.commands.len().to_string(),
+        );
+        args
+    }
+
+    fn movers(&self) -> Vec<String> {
+        self.movers.clone()
+    }
+
+    fn detectors(&self) -> Vec<String> {
+        self.detectors.clone()
+    }
+
+    fn num_points(&self) -> usize {
+        self.commands
+            .iter()
+            .filter(|cmd| matches!(cmd, PlanCommand::EmitEvent { .. }))
+            .count()
+    }
+
+    fn next_command(&mut self) -> Option<PlanCommand> {
+        if self.current_idx >= self.commands.len() {
+            return None;
+        }
+        let cmd = self.commands[self.current_idx].clone();
+        self.current_idx += 1;
+        Some(cmd)
+    }
+
+    fn reset(&mut self) {
+        self.current_idx = 0;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1108,6 +1189,45 @@ mod tests {
     }
 
     #[test]
+    fn test_plan_command_serde_round_trip() {
+        let commands = vec![
+            PlanCommand::MoveTo {
+                device_id: "stage_x".to_string(),
+                position: 42.5,
+            },
+            PlanCommand::Read {
+                device_id: "power_meter".to_string(),
+            },
+            PlanCommand::Trigger {
+                device_id: "camera".to_string(),
+            },
+            PlanCommand::Wait { seconds: 0.1 },
+            PlanCommand::Checkpoint {
+                label: "point_0".to_string(),
+            },
+            PlanCommand::EmitEvent {
+                stream: "primary".to_string(),
+                data: [("power".to_string(), 0.042)].into_iter().collect(),
+                positions: [("stage_x".to_string(), 42.5)].into_iter().collect(),
+            },
+            PlanCommand::Set {
+                device_id: "laser".to_string(),
+                parameter: "wavelength".to_string(),
+                value: "800.0".to_string(),
+            },
+        ];
+
+        for cmd in &commands {
+            let json = serde_json::to_value(cmd).expect("serialize");
+            let deserialized: PlanCommand =
+                serde_json::from_value(json.clone()).expect("deserialize");
+            // Verify round-trip by re-serializing
+            let json2 = serde_json::to_value(&deserialized).expect("re-serialize");
+            assert_eq!(json, json2, "PlanCommand should round-trip through serde");
+        }
+    }
+
+    #[test]
     fn test_plan_reset() {
         let mut plan = Count::new(3);
 
@@ -1124,5 +1244,75 @@ mod tests {
         }
 
         assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_command_replay_plan() {
+        let commands = vec![
+            PlanCommand::MoveTo {
+                device_id: "stage".to_string(),
+                position: 5.0,
+            },
+            PlanCommand::Checkpoint {
+                label: "pt_0".to_string(),
+            },
+            PlanCommand::Trigger {
+                device_id: "det".to_string(),
+            },
+            PlanCommand::Read {
+                device_id: "det".to_string(),
+            },
+            PlanCommand::EmitEvent {
+                stream: "primary".to_string(),
+                data: HashMap::new(),
+                positions: [("stage".to_string(), 5.0)].into_iter().collect(),
+            },
+            PlanCommand::MoveTo {
+                device_id: "stage".to_string(),
+                position: 10.0,
+            },
+            PlanCommand::EmitEvent {
+                stream: "primary".to_string(),
+                data: HashMap::new(),
+                positions: [("stage".to_string(), 10.0)].into_iter().collect(),
+            },
+        ];
+
+        let mut plan = CommandReplayPlan::new(
+            commands.clone(),
+            "Test Replay".to_string(),
+            vec!["stage".to_string()],
+            vec!["det".to_string()],
+        );
+
+        assert_eq!(plan.plan_type(), "command_replay");
+        assert_eq!(plan.plan_name(), "Test Replay");
+        assert_eq!(plan.num_points(), 2); // 2 EmitEvent commands
+        assert_eq!(plan.movers(), vec!["stage"]);
+        assert_eq!(plan.detectors(), vec!["det"]);
+
+        // Exhaust all commands
+        let mut collected = Vec::new();
+        while let Some(cmd) = plan.next_command() {
+            collected.push(cmd);
+        }
+        assert_eq!(collected.len(), commands.len());
+        assert!(plan.next_command().is_none());
+
+        // Reset and replay
+        plan.reset();
+        let mut count = 0;
+        while plan.next_command().is_some() {
+            count += 1;
+        }
+        assert_eq!(count, commands.len());
+    }
+
+    #[test]
+    fn test_command_replay_plan_empty() {
+        let mut plan =
+            CommandReplayPlan::new(Vec::new(), "Empty".to_string(), Vec::new(), Vec::new());
+        assert_eq!(plan.num_points(), 0);
+        assert!(plan.next_command().is_none());
     }
 }

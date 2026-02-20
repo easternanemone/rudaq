@@ -169,7 +169,13 @@ impl DaqDb {
     async fn count_table(&self, table: &str) -> Result<u64> {
         // Validate table name against allow-list to prevent SurrealQL injection.
         // SurrealDB does not support parameterized table names.
-        const ALLOWED_TABLES: &[&str] = &["driver", "instrument", "experiment"];
+        const ALLOWED_TABLES: &[&str] = &[
+            "driver",
+            "instrument",
+            "experiment",
+            "experiment_plan",
+            "run_record",
+        ];
         if !ALLOWED_TABLES.contains(&table) {
             return Err(crate::error::DbError::Database(format!(
                 "count_table: unknown table '{table}'"

@@ -4,13 +4,20 @@
 //! Enables declarative plan execution with pause/resume/abort capabilities.
 
 use crate::grpc::proto::{
-    AbortPlanRequest, AbortPlanResponse, EngineStatus, GetEngineStatusRequest, HaltEngineRequest,
-    HaltEngineResponse, ListPlanTypesRequest, ListPlanTypesResponse, PauseEngineRequest,
-    PauseEngineResponse, PlanTypeInfo, QueuePlanRequest, QueuePlanResponse, ResumeEngineRequest,
-    ResumeEngineResponse, StartEngineRequest, StartEngineResponse, StreamDocumentsRequest,
+    AbortPlanRequest, AbortPlanResponse, DeleteSavedPlanRequest, DeleteSavedPlanResponse,
+    EngineStatus, GetEngineStatusRequest, HaltEngineRequest, HaltEngineResponse,
+    ListPlanTypesRequest, ListPlanTypesResponse, ListRunsRequest, ListRunsResponse,
+    ListSavedPlansRequest, ListSavedPlansResponse, LoadPlanRequest, LoadPlanResponse,
+    PauseEngineRequest, PauseEngineResponse, PlanTypeInfo, QueuePlanRequest, QueuePlanResponse,
+    ResumeEngineRequest, ResumeEngineResponse, SavePlanRequest, SavePlanResponse,
+    StartEngineRequest, StartEngineResponse, StreamDocumentsRequest,
     run_engine_service_server::RunEngineService,
 };
+#[cfg(feature = "db-surreal")]
+use crate::grpc::proto::{RunRecord as ProtoRunRecord, SavedPlanSummary};
 use experiment::Document; // Re-exported from common
+#[cfg(feature = "db-surreal")]
+use experiment::plans::CommandReplayPlan;
 use experiment::plans::{CountBuilder, GridScanBuilder, LineScanBuilder, PlanRegistry};
 use experiment::run_engine::RunEngine;
 use futures::StreamExt; // For .filter_map() with async
@@ -39,6 +46,9 @@ pub struct RunEngineServiceImpl {
     plan_registry: Arc<PlanRegistry>,
     /// Persists documents to HDF5 (bd-jwsc)
     document_writer: Arc<DocumentWriter>,
+    /// Optional SurrealDB handle for plan storage (bd-yz1w)
+    #[cfg(feature = "db-surreal")]
+    db: Option<db::DaqDb>,
 }
 
 impl RunEngineServiceImpl {
@@ -164,7 +174,16 @@ impl RunEngineServiceImpl {
             active_streams,
             plan_registry,
             document_writer,
+            #[cfg(feature = "db-surreal")]
+            db: None,
         }
+    }
+
+    /// Set the database handle for plan storage.
+    #[cfg(feature = "db-surreal")]
+    pub fn with_db(mut self, db: Option<db::DaqDb>) -> Self {
+        self.db = db;
+        self
     }
 }
 
@@ -176,6 +195,8 @@ impl Clone for RunEngineServiceImpl {
             active_streams: self.active_streams.clone(),
             plan_registry: self.plan_registry.clone(),
             document_writer: self.document_writer.clone(),
+            #[cfg(feature = "db-surreal")]
+            db: self.db.clone(),
         }
     }
 }
@@ -229,11 +250,51 @@ impl RunEngineService for RunEngineServiceImpl {
     ) -> Result<Response<QueuePlanResponse>, Status> {
         let req = request.get_ref();
 
-        // Create plan from request parameters using the registry
-        let plan = self
-            .plan_registry
-            .create_plan(&req.plan_type, &req.parameters, &req.device_mapping)
-            .map_err(|e| Status::invalid_argument(format!("Failed to create plan: {}", e)))?;
+        // Determine plan source: stored plan (by plan_id) or inline (by plan_type)
+        let plan: Box<dyn experiment::plans::Plan> = if let Some(plan_id) = &req.plan_id {
+            // Load stored plan from SurrealDB
+            #[cfg(feature = "db-surreal")]
+            {
+                let db = self.db.as_ref().ok_or_else(|| {
+                    Status::unavailable("Database not configured for stored plan loading")
+                })?;
+
+                let stored = db
+                    .get_experiment_plan(plan_id)
+                    .await
+                    .map_err(|e| Status::internal(format!("DB error: {e}")))?
+                    .ok_or_else(|| Status::not_found(format!("Plan '{plan_id}' not found")))?;
+
+                let commands: Vec<experiment::plans::PlanCommand> = stored
+                    .commands
+                    .ok_or_else(|| Status::internal("Plan has no commands"))?
+                    .into_iter()
+                    .map(serde_json::from_value)
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| {
+                        Status::internal(format!("Command deserialization failed: {e}"))
+                    })?;
+
+                Box::new(CommandReplayPlan::new(
+                    commands,
+                    stored.name,
+                    stored.movers.unwrap_or_default(),
+                    stored.detectors.unwrap_or_default(),
+                ))
+            }
+            #[cfg(not(feature = "db-surreal"))]
+            {
+                let _ = plan_id;
+                return Err(Status::unimplemented(
+                    "Stored plan loading requires db-surreal feature",
+                ));
+            }
+        } else {
+            // Inline path: create plan from registry parameters
+            self.plan_registry
+                .create_plan(&req.plan_type, &req.parameters, &req.device_mapping)
+                .map_err(|e| Status::invalid_argument(format!("Failed to create plan: {e}")))?
+        };
 
         // Queue the plan
         let run_uid = if req.metadata.is_empty() {
@@ -377,6 +438,262 @@ impl RunEngineService for RunEngineServiceImpl {
             elapsed_ns,
         }))
     }
+
+    // =========================================================================
+    // Stored Plan Management (bd-yz1w)
+    // =========================================================================
+
+    async fn save_plan(
+        &self,
+        request: Request<SavePlanRequest>,
+    ) -> Result<Response<SavePlanResponse>, Status> {
+        #[cfg(feature = "db-surreal")]
+        {
+            let db = self
+                .db
+                .as_ref()
+                .ok_or_else(|| Status::unavailable("Database not configured"))?;
+
+            let req = request.into_inner();
+
+            let commands: Option<Vec<serde_json::Value>> = req
+                .commands_json
+                .filter(|s| !s.is_empty())
+                .map(|s| serde_json::from_str(&s))
+                .transpose()
+                .map_err(|e| Status::invalid_argument(format!("Invalid commands JSON: {e}")))?;
+
+            let graph_data: Option<serde_json::Value> = req
+                .graph_data_json
+                .filter(|s| !s.is_empty())
+                .map(|s| serde_json::from_str(&s))
+                .transpose()
+                .map_err(|e| Status::invalid_argument(format!("Invalid graph_data JSON: {e}")))?;
+
+            let parameters = if req.parameters.is_empty() {
+                None
+            } else {
+                Some(serde_json::to_value(&req.parameters).map_err(|e| {
+                    Status::internal(format!("Failed to serialize parameters: {e}"))
+                })?)
+            };
+
+            let device_mapping = if req.device_mapping.is_empty() {
+                None
+            } else {
+                Some(serde_json::to_value(&req.device_mapping).map_err(|e| {
+                    Status::internal(format!("Failed to serialize device_mapping: {e}"))
+                })?)
+            };
+
+            let plan = db::experiment_store::DbExperimentPlan {
+                plan_id: req.plan_id.clone(),
+                name: req.name,
+                description: req.description,
+                plan_type: req.plan_type,
+                commands,
+                movers: Some(req.movers),
+                detectors: Some(req.detectors),
+                num_points: req.num_points.map(|n| n as i64),
+                graph_data,
+                parameters,
+                device_mapping,
+            };
+
+            db.upsert_experiment_plan(&plan)
+                .await
+                .map_err(|e| Status::internal(format!("Failed to save plan: {e}")))?;
+
+            Ok(Response::new(SavePlanResponse {
+                success: true,
+                plan_id: req.plan_id,
+                error_message: String::new(),
+            }))
+        }
+        #[cfg(not(feature = "db-surreal"))]
+        {
+            let _ = request;
+            Err(Status::unimplemented(
+                "Plan storage requires db-surreal feature",
+            ))
+        }
+    }
+
+    async fn load_plan(
+        &self,
+        request: Request<LoadPlanRequest>,
+    ) -> Result<Response<LoadPlanResponse>, Status> {
+        #[cfg(feature = "db-surreal")]
+        {
+            let db = self
+                .db
+                .as_ref()
+                .ok_or_else(|| Status::unavailable("Database not configured"))?;
+
+            let plan_id = &request.get_ref().plan_id;
+            let stored = db
+                .get_experiment_plan(plan_id)
+                .await
+                .map_err(|e| Status::internal(format!("DB error: {e}")))?;
+
+            match stored {
+                Some(plan) => {
+                    let commands_json = match plan.commands {
+                        Some(c) => serde_json::to_string(&c).map_err(|e| {
+                            Status::internal(format!("Failed to serialize commands: {e}"))
+                        })?,
+                        None => String::new(),
+                    };
+                    let graph_data_json = match plan.graph_data {
+                        Some(g) => serde_json::to_string(&g).map_err(|e| {
+                            Status::internal(format!("Failed to serialize graph_data: {e}"))
+                        })?,
+                        None => String::new(),
+                    };
+
+                    Ok(Response::new(LoadPlanResponse {
+                        found: true,
+                        plan_id: plan.plan_id,
+                        name: plan.name,
+                        description: plan.description.unwrap_or_default(),
+                        plan_type: plan.plan_type,
+                        commands_json,
+                        movers: plan.movers.unwrap_or_default(),
+                        detectors: plan.detectors.unwrap_or_default(),
+                        num_points: plan.num_points.unwrap_or(0) as u32,
+                        graph_data_json,
+                        parameters: Default::default(),
+                        device_mapping: Default::default(),
+                    }))
+                }
+                None => Ok(Response::new(LoadPlanResponse {
+                    found: false,
+                    plan_id: plan_id.clone(),
+                    ..Default::default()
+                })),
+            }
+        }
+        #[cfg(not(feature = "db-surreal"))]
+        {
+            let _ = request;
+            Err(Status::unimplemented(
+                "Plan storage requires db-surreal feature",
+            ))
+        }
+    }
+
+    async fn list_saved_plans(
+        &self,
+        _request: Request<ListSavedPlansRequest>,
+    ) -> Result<Response<ListSavedPlansResponse>, Status> {
+        #[cfg(feature = "db-surreal")]
+        {
+            let db = self
+                .db
+                .as_ref()
+                .ok_or_else(|| Status::unavailable("Database not configured"))?;
+
+            let summaries = db
+                .list_experiment_plans()
+                .await
+                .map_err(|e| Status::internal(format!("DB error: {e}")))?;
+
+            let plans = summaries
+                .into_iter()
+                .map(|s| SavedPlanSummary {
+                    plan_id: s.plan_id,
+                    name: s.name,
+                    plan_type: s.plan_type,
+                    num_points: s.num_points.unwrap_or(0) as u32,
+                })
+                .collect();
+
+            Ok(Response::new(ListSavedPlansResponse { plans }))
+        }
+        #[cfg(not(feature = "db-surreal"))]
+        {
+            Err(Status::unimplemented(
+                "Plan storage requires db-surreal feature",
+            ))
+        }
+    }
+
+    async fn delete_saved_plan(
+        &self,
+        request: Request<DeleteSavedPlanRequest>,
+    ) -> Result<Response<DeleteSavedPlanResponse>, Status> {
+        #[cfg(feature = "db-surreal")]
+        {
+            let db = self
+                .db
+                .as_ref()
+                .ok_or_else(|| Status::unavailable("Database not configured"))?;
+
+            let plan_id = &request.get_ref().plan_id;
+            let existed = db
+                .delete_experiment_plan(plan_id)
+                .await
+                .map_err(|e| Status::internal(format!("DB error: {e}")))?;
+
+            Ok(Response::new(DeleteSavedPlanResponse {
+                success: true,
+                existed,
+                error_message: String::new(),
+            }))
+        }
+        #[cfg(not(feature = "db-surreal"))]
+        {
+            let _ = request;
+            Err(Status::unimplemented(
+                "Plan storage requires db-surreal feature",
+            ))
+        }
+    }
+
+    async fn list_runs(
+        &self,
+        request: Request<ListRunsRequest>,
+    ) -> Result<Response<ListRunsResponse>, Status> {
+        #[cfg(feature = "db-surreal")]
+        {
+            let db = self
+                .db
+                .as_ref()
+                .ok_or_else(|| Status::unavailable("Database not configured"))?;
+
+            let limit = request.get_ref().limit;
+            let records = db
+                .list_runs(limit)
+                .await
+                .map_err(|e| Status::internal(format!("DB error: {e}")))?;
+
+            let runs = records
+                .into_iter()
+                .map(|r| ProtoRunRecord {
+                    run_uid: r.run_uid,
+                    plan_id: r.plan_id,
+                    plan_type: r.plan_type,
+                    plan_name: r.plan_name,
+                    status: r.status,
+                    num_events: r.num_events.map(|n| n as u32),
+                    exit_reason: r.exit_reason,
+                })
+                .collect();
+
+            Ok(Response::new(ListRunsResponse { runs }))
+        }
+        #[cfg(not(feature = "db-surreal"))]
+        {
+            let _ = request;
+            Err(Status::unimplemented(
+                "Run history requires db-surreal feature",
+            ))
+        }
+    }
+
+    // =========================================================================
+    // Document Streaming
+    // =========================================================================
 
     type StreamDocumentsStream = std::pin::Pin<
         Box<dyn tokio_stream::Stream<Item = Result<crate::grpc::proto::Document, Status>> + Send>,

@@ -1557,6 +1557,25 @@ service RunEngineService {
   rpc GetEngineStatus(GetEngineStatusRequest) returns (EngineStatus);
 
   // ==========================================================================
+  // Stored Plan Management
+  // ==========================================================================
+
+  // Save a plan to persistent storage
+  rpc SavePlan(SavePlanRequest) returns (SavePlanResponse);
+
+  // Load a stored plan
+  rpc LoadPlan(LoadPlanRequest) returns (LoadPlanResponse);
+
+  // List all saved plans
+  rpc ListSavedPlans(ListSavedPlansRequest) returns (ListSavedPlansResponse);
+
+  // Delete a saved plan
+  rpc DeleteSavedPlan(DeleteSavedPlanRequest) returns (DeleteSavedPlanResponse);
+
+  // List run execution history
+  rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
+
+  // ==========================================================================
   // Document Streaming (Bluesky Pattern)
   // ==========================================================================
 
@@ -1628,6 +1647,7 @@ message QueuePlanRequest {
   map<string, string> parameters = 2;      // Plan configuration
   map<string, string> device_mapping = 3;  // role_id -> device_id
   map<string, string> metadata = 4;        // User-provided metadata
+  optional string plan_id = 5;             // If set, load stored plan from DB (overrides plan_type/parameters)
 }
 
 message QueuePlanResponse {
@@ -1711,6 +1731,92 @@ message EngineStatus {
   // Timing
   uint64 run_start_ns = 30;
   uint64 elapsed_ns = 31;
+}
+
+// --------------------------------------------------------------------------
+// Stored Plan Management Messages
+// --------------------------------------------------------------------------
+
+message SavePlanRequest {
+  string plan_id = 1;                        // Unique plan identifier
+  string name = 2;
+  optional string description = 3;
+  string plan_type = 4;                      // e.g., "graph_plan", "line_scan"
+  optional string commands_json = 5;         // Pre-translated commands as JSON array
+  repeated string movers = 6;
+  repeated string detectors = 7;
+  optional uint32 num_points = 8;
+  optional string graph_data_json = 9;       // GraphFile JSON for visual editor
+  map<string, string> parameters = 10;       // Plan parameters (for parametric plans)
+  map<string, string> device_mapping = 11;   // Device role mappings
+}
+
+message SavePlanResponse {
+  bool success = 1;
+  string plan_id = 2;
+  string error_message = 3;
+}
+
+message LoadPlanRequest {
+  string plan_id = 1;
+}
+
+message LoadPlanResponse {
+  bool found = 1;
+  string plan_id = 2;
+  string name = 3;
+  string description = 4;
+  string plan_type = 5;
+  string commands_json = 6;                  // Pre-translated commands as JSON array
+  repeated string movers = 7;
+  repeated string detectors = 8;
+  uint32 num_points = 9;
+  string graph_data_json = 10;               // GraphFile JSON for visual editor
+  map<string, string> parameters = 11;
+  map<string, string> device_mapping = 12;
+}
+
+message ListSavedPlansRequest {
+  // Empty for now
+}
+
+message ListSavedPlansResponse {
+  repeated SavedPlanSummary plans = 1;
+}
+
+message SavedPlanSummary {
+  string plan_id = 1;
+  string name = 2;
+  string plan_type = 3;
+  uint32 num_points = 4;
+}
+
+message DeleteSavedPlanRequest {
+  string plan_id = 1;
+}
+
+message DeleteSavedPlanResponse {
+  bool success = 1;
+  bool existed = 2;
+  string error_message = 3;
+}
+
+message ListRunsRequest {
+  optional uint32 limit = 1;
+}
+
+message ListRunsResponse {
+  repeated RunRecord runs = 1;
+}
+
+message RunRecord {
+  string run_uid = 1;
+  optional string plan_id = 2;
+  string plan_type = 3;
+  string plan_name = 4;
+  string status = 5;
+  optional uint32 num_events = 6;
+  optional string exit_reason = 7;
 }
 
 // --------------------------------------------------------------------------

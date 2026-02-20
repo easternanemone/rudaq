@@ -84,7 +84,7 @@ dirs = "5.0"  # Standard directory paths for settings defaults
 libc = "0.2"  # For graceful daemon termination (SIGTERM)
 
 # Local PVCAM driver (only needed if running daemon locally, not for gRPC streaming)
-common = { path = "../common", optional = true }
+common = { path = "../common" }
 driver-pvcam = { path = "../driver-pvcam", optional = true }
 hardware = { path = "../hardware" }  # For device UI config schema
 rfd = { version = "0.17.2", optional = true }
@@ -108,7 +108,7 @@ rerun_viewer = ["dep:rerun", "dep:mimalloc", "dep:bytemuck", "dep:egui_dock", "d
 # Local PVCAM driver support (for running daemon locally)
 # - pvcam: enables mock mode (no SDK required)
 # - pvcam_sdk: enables real hardware mode (requires PVCAM SDK)
-pvcam = ["dep:common", "dep:driver-pvcam"]
+pvcam = ["dep:driver-pvcam"]
 pvcam_sdk = ["pvcam", "driver-pvcam/pvcam_sdk"]
 pvcam_hardware = ["pvcam_sdk"]
 

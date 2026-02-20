@@ -39,6 +39,7 @@ impl std::error::Error for TranslationError {}
 type AdjacencyResult = (HashMap<NodeId, Vec<NodeId>>, Vec<NodeId>);
 
 /// Plan generated from a visual node graph
+#[derive(Debug)]
 pub struct GraphPlan {
     commands: Vec<PlanCommand>,
     current_idx: usize,
@@ -48,6 +49,11 @@ pub struct GraphPlan {
 }
 
 impl GraphPlan {
+    /// Get the pre-translated commands (for serialization to DB).
+    pub fn commands(&self) -> &[PlanCommand] {
+        &self.commands
+    }
+
     /// Translate a Snarl graph into an executable GraphPlan
     pub fn from_snarl(snarl: &Snarl<ExperimentNode>) -> Result<Self, TranslationError> {
         if snarl.node_ids().count() == 0 {
@@ -59,6 +65,33 @@ impl GraphPlan {
 
         if roots.is_empty() {
             return Err(TranslationError::NoRootNodes);
+        }
+
+        // Validate loop termination modes before translation.
+        // Condition and Infinite loops are not supported in the runtime MVP —
+        // they require RunEngine-level condition evaluation (deferred to Phase 2).
+        for (node_id, node) in snarl.node_ids() {
+            if let ExperimentNode::Loop(config) = node {
+                match &config.termination {
+                    super::nodes::LoopTermination::Count { .. } => {} // OK
+                    super::nodes::LoopTermination::Condition { .. } => {
+                        return Err(TranslationError::InvalidNode {
+                            node_id,
+                            reason: "Condition-based loops are not supported in the \
+                                    runtime MVP. Use Count termination instead."
+                                .to_string(),
+                        });
+                    }
+                    super::nodes::LoopTermination::Infinite { .. } => {
+                        return Err(TranslationError::InvalidNode {
+                            node_id,
+                            reason: "Infinite loops are not supported in the runtime \
+                                    MVP. Use Count termination instead."
+                                .to_string(),
+                        });
+                    }
+                }
+            }
         }
 
         // Topological sort with cycle detection
@@ -723,7 +756,7 @@ pub fn detect_cycles(snarl: &Snarl<ExperimentNode>) -> Option<String> {
 mod tests {
     use super::*;
     use crate::graph::nodes::{
-        AcquireConfig, LoopConfig, LoopTermination, NestedScanConfig, ScanDimension,
+        AcquireConfig, LoopConfig, LoopTermination, NestedScanConfig, ScanDimension, ThresholdOp,
     };
 
     #[test]
@@ -1120,6 +1153,53 @@ mod tests {
         assert!(
             !has_approval,
             "Should NOT have approval checkpoint when require_approval = false"
+        );
+    }
+
+    #[test]
+    fn test_condition_loop_rejected() {
+        let mut snarl = Snarl::new();
+
+        snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            ExperimentNode::Loop(LoopConfig {
+                termination: LoopTermination::Condition {
+                    device_id: "sensor".to_string(),
+                    operator: ThresholdOp::GreaterThan,
+                    value: 1.0,
+                    max_iterations: 100,
+                },
+            }),
+        );
+
+        let result = GraphPlan::from_snarl(&snarl);
+        assert!(result.is_err(), "Condition loops should be rejected");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Condition-based loops are not supported"),
+            "Error should mention condition loop: {err}"
+        );
+    }
+
+    #[test]
+    fn test_infinite_loop_rejected() {
+        let mut snarl = Snarl::new();
+
+        snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            ExperimentNode::Loop(LoopConfig {
+                termination: LoopTermination::Infinite {
+                    max_iterations: 1000,
+                },
+            }),
+        );
+
+        let result = GraphPlan::from_snarl(&snarl);
+        assert!(result.is_err(), "Infinite loops should be rejected");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Infinite loops are not supported"),
+            "Error should mention infinite loop: {err}"
         );
     }
 }

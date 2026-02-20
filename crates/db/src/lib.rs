@@ -70,6 +70,8 @@ pub use self::core::{DaqDb, DbConfig, DbEngine, DbInfo};
 pub(crate) mod bench;
 #[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
 pub mod config_store;
+#[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
+pub mod experiment_store;
 
 // Re-export surrealdb for downstream crates that need raw access.
 #[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]

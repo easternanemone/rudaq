@@ -1510,7 +1510,12 @@ pub async fn start_server_with_hardware(
     }
 
     // RunEngine was already created above (bd-si2c) - shared between RunEngineService and scripts
-    let run_engine_server = RunEngineServiceImpl::new(run_engine.clone());
+    let run_engine_server = {
+        let svc = RunEngineServiceImpl::new(run_engine.clone());
+        #[cfg(feature = "db-surreal")]
+        let svc = svc.with_db(_db.clone());
+        svc
+    };
 
     // Game loop for system state broadcasting (Phase 4)
     //
