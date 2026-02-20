@@ -63,18 +63,24 @@ fn legacy_scpi_replacement(driver_type: &str) -> Option<&'static str> {
 }
 
 #[cfg(feature = "networking")]
-fn is_native_camera_driver(driver_type: &str) -> bool {
+fn is_native_exception_driver(driver_type: &str) -> bool {
     matches!(
         driver_type,
-        "pvcam" | "mock_camera" | "andor_camera" | "andor_spectrograph"
+        "pvcam"
+            | "mock_camera"
+            | "andor_camera"
+            | "andor_spectrograph"
+            | "comedi_analog_input"
+            | "comedi_analog_output"
+            | "dover_axis"
     )
 }
 
 #[cfg(feature = "networking")]
 fn log_runtime_policy_for_config(source: &str, hw: &HardwareConfig) {
     let mut universal_count = 0usize;
-    let mut native_camera_count = 0usize;
-    let mut native_other_count = 0usize;
+    let mut native_exception_count = 0usize;
+    let mut deprecated_native_count = 0usize;
     let mut warned_driver_types = HashSet::new();
 
     for device in &hw.devices {
@@ -83,12 +89,12 @@ fn log_runtime_policy_for_config(source: &str, hw: &HardwareConfig) {
             universal_count += 1;
             continue;
         }
-        if is_native_camera_driver(driver_type) {
-            native_camera_count += 1;
+        if is_native_exception_driver(driver_type) {
+            native_exception_count += 1;
             continue;
         }
 
-        native_other_count += 1;
+        deprecated_native_count += 1;
         if let Some(replacement) = legacy_scpi_replacement(driver_type) {
             if warned_driver_types.insert(driver_type.to_string()) {
                 tracing::warn!(
@@ -107,17 +113,17 @@ fn log_runtime_policy_for_config(source: &str, hw: &HardwareConfig) {
     tracing::info!(
         config_source = source,
         universal_count,
-        native_camera_count,
-        native_other_count,
-        "Runtime policy summary: universal TOML for SCPI/TCP, native for camera drivers"
+        native_exception_count,
+        deprecated_native_count,
+        "Runtime policy summary: universal TOML for SCPI/TCP, native exceptions for SDK-bound drivers"
     );
     println!(
-        "   Runtime policy [{}]: universal={}, native_camera={}, native_other={}",
-        source, universal_count, native_camera_count, native_other_count
+        "   Runtime policy [{}]: universal={}, native_exception={}, deprecated_native={}",
+        source, universal_count, native_exception_count, deprecated_native_count
     );
-    if native_other_count > 0 {
+    if deprecated_native_count > 0 {
         println!(
-            "   ⚠ Native non-camera drivers detected. Native SCPI/TCP paths are deprecated; see docs."
+            "   ⚠ Deprecated native drivers detected. Native SCPI/TCP paths are deprecated; see docs."
         );
     }
 }
@@ -348,7 +354,7 @@ impl DaemonInstance {
                 (reg, Some(hw))
             } else {
                 println!("   Using mock devices (no hardware config specified)");
-                println!("   Runtime policy [mock]: universal=0, native_camera=0, native_other=0");
+                println!("   Runtime policy [mock]: universal=0, native_exception=0, deprecated_native=0");
                 let reg = create_mock_registry()
                     .await
                     .context("Failed to create mock registry")?;
@@ -784,6 +790,99 @@ mod tests {
                 }
             }
         }
+    }
+
+    // ── Runtime policy classification tests ───────────────────────────
+
+    #[cfg(feature = "networking")]
+    #[test]
+    fn test_legacy_scpi_replacement_known() {
+        assert_eq!(
+            legacy_scpi_replacement("ell14"),
+            Some("universal_thorlabs_ell14")
+        );
+        assert_eq!(
+            legacy_scpi_replacement("maitai"),
+            Some("universal_spectra-physics_maitai")
+        );
+        assert_eq!(
+            legacy_scpi_replacement("newport1830_c"),
+            Some("universal_newport_1830-c")
+        );
+        assert_eq!(
+            legacy_scpi_replacement("esp300"),
+            Some("universal_newport_esp300")
+        );
+        assert_eq!(
+            legacy_scpi_replacement("thorlabs_pm400"),
+            Some("universal_thorlabs_pm400")
+        );
+    }
+
+    #[cfg(feature = "networking")]
+    #[test]
+    fn test_legacy_scpi_replacement_unknown() {
+        assert_eq!(legacy_scpi_replacement("pvcam"), None);
+        assert_eq!(legacy_scpi_replacement("random_driver"), None);
+        assert_eq!(legacy_scpi_replacement("universal_foo"), None);
+    }
+
+    #[cfg(feature = "networking")]
+    #[test]
+    fn test_is_native_exception_driver() {
+        // Camera-class native exceptions
+        assert!(is_native_exception_driver("pvcam"));
+        assert!(is_native_exception_driver("mock_camera"));
+        assert!(is_native_exception_driver("andor_camera"));
+        assert!(is_native_exception_driver("andor_spectrograph"));
+        // DAQ/motion native exceptions (Comedi + Dover)
+        assert!(is_native_exception_driver("comedi_analog_input"));
+        assert!(is_native_exception_driver("comedi_analog_output"));
+        assert!(is_native_exception_driver("dover_axis"));
+    }
+
+    #[cfg(feature = "networking")]
+    #[test]
+    fn test_is_native_exception_driver_rejects() {
+        assert!(!is_native_exception_driver("universal_thorlabs_ell14"));
+        assert!(!is_native_exception_driver("universal_foo"));
+        assert!(!is_native_exception_driver("ell14"));
+        assert!(!is_native_exception_driver("random_driver"));
+    }
+
+    #[cfg(feature = "networking")]
+    #[test]
+    fn test_policy_classification_counts() {
+        use hardware::registry::{DeviceConfig, DriverConfig};
+
+        fn dev(id: &str, driver_type: &str) -> DeviceConfig {
+            DeviceConfig {
+                id: id.to_string(),
+                name: id.to_string(),
+                driver: DriverConfig {
+                    driver_type: driver_type.to_string(),
+                    config: toml::Value::Table(toml::map::Map::new()),
+                },
+                enabled: true,
+            }
+        }
+
+        // Build a HardwareConfig with a mix of driver types
+        let hw = HardwareConfig {
+            plugin_paths: vec![],
+            devices: vec![
+                dev("d1", "universal_thorlabs_ell14"),
+                dev("d2", "universal_newport_esp300"),
+                dev("d3", "pvcam"),
+                dev("d4", "comedi_analog_input"),
+                dev("d5", "dover_axis"),
+                dev("d6", "ell14"),         // legacy → deprecated
+                dev("d7", "random_native"), // unknown → deprecated
+            ],
+        };
+
+        // Smoke test: must not panic
+        log_runtime_policy_for_config("test", &hw);
     }
 
     /// Integration test: verify that a DaemonInstance can be started with
