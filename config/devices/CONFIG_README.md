@@ -42,12 +42,12 @@ label = "X Axis"          # Section header
 show_jog = true           # Show jog increment buttons (default: true)
 jog_steps = [0.1, 1.0, 10.0]  # Jog step sizes
 show_home = true          # Show Home button (default: false)
-show_stop = true          # Show Stop button (default: false)
+show_stop = true          # Show Stop button (default: true)
 precision = 3             # Decimal places for position display
 unit = "mm"               # Unit label
 ```
 
-gRPC: `get_device_state()` for position, `move_absolute()`, `move_relative()`, `execute_device_command("stop"/"home")`
+gRPC: `get_device_state()` for position, `move_absolute()`, `move_relative()`, `move_absolute(..., 0.0)` for Home, `execute_device_command("stop")` for Stop
 
 ### `sensor` — Read-only measurement with optional gauge and trend
 
@@ -82,7 +82,7 @@ type = "wavelength"
 label = "Wavelength"
 show_slider = true        # Show slider control (default: true)
 presets = [700.0, 800.0, 900.0]  # Quick-set preset buttons
-show_color = true         # Show wavelength-to-color indicator (default: false)
+show_color = true         # Show wavelength-to-color indicator (default: true)
 ```
 
 gRPC: `get_wavelength()`, `set_wavelength()`
@@ -109,7 +109,7 @@ gRPC: `move_absolute()` for each preset
 [[ui.control_panel.sections]]
 type = "parameter"
 label = "Gain"
-param_name = "gain"       # Parameter key for gRPC get/set
+parameter = "gain"        # Parameter key for gRPC get/set
 read_only = false
 widget = "slider"         # "auto", "text_input", "slider", "spinner", "toggle", "dropdown"
 ```
@@ -137,7 +137,7 @@ label = "Reset Interlock"
 command = "reset_interlock"
 params = {}               # Optional JSON parameters
 style = "danger"          # "default", "primary", "success", "danger"
-confirm = true            # Require confirmation dialog (default: false)
+confirm = "Are you sure you want to reset the interlock?"  # Confirmation message (omit to skip)
 ```
 
 gRPC: `execute_device_command()`

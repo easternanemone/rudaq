@@ -816,7 +816,7 @@ pub struct DaqApp {
     docked_comedi_panels: HashMap<usize, ComediPanel>,
     /// Docked config-driven panels (from TOML `[ui.control_panel]`)
     docked_config_driven_panels: HashMap<usize, ConfigDrivenPanel>,
-    /// Device config cache for TOML-driven panel dispatch (shared with InstrumentManagerPanel)
+    /// Device config cache for TOML-driven panel dispatch
     config_cache: DeviceConfigCache,
     /// User-added command widgets for advanced control panels (keyed by panel ID)
     docked_command_widgets: HashMap<usize, CommandWidgetPalette>,
@@ -1372,7 +1372,13 @@ impl DaqApp {
             docked_stage_panels: HashMap::new(),
             docked_comedi_panels: HashMap::new(),
             docked_config_driven_panels: HashMap::new(),
-            config_cache: DeviceConfigCache::new(),
+            config_cache: {
+                let mut cache = DeviceConfigCache::new();
+                if let Err(e) = cache.load_all() {
+                    tracing::warn!("Failed to load device configs at startup: {}", e);
+                }
+                cache
+            },
             docked_command_widgets: HashMap::new(),
             control_panel_layout_mode,
             settings_window: crate::settings::SettingsWindow::default(),
@@ -2759,11 +2765,6 @@ impl DaqTabViewer<'_> {
         }
 
         // --- Priority 0: Config-driven panel from TOML ---
-        if !self.app.config_cache.load_attempted() {
-            if let Err(e) = self.app.config_cache.load_all() {
-                tracing::warn!("Failed to load device configs: {}", e);
-            }
-        }
         if let Some(panel_config) = self
             .app
             .config_cache

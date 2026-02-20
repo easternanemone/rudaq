@@ -1,5 +1,3 @@
-// Internal consumer of the deprecated DeviceConfig schema for UI rendering.
-#![allow(deprecated)]
 //! Device configuration loader for UI rendering
 //!
 //! Loads device TOML configurations and provides access to UiConfig
@@ -37,6 +35,7 @@ impl DeviceConfigCache {
     }
 
     /// Whether a load has been attempted (successful or not)
+    #[allow(dead_code)]
     pub fn load_attempted(&self) -> bool {
         self.load_attempted
     }

@@ -242,7 +242,13 @@ impl Default for InstrumentManagerPanel {
             comedi_panels: HashMap::new(),
             generic_panels: HashMap::new(),
             config_driven_panels: HashMap::new(),
-            config_cache: config_loader::DeviceConfigCache::new(),
+            config_cache: {
+                let mut cache = config_loader::DeviceConfigCache::new();
+                if let Err(e) = cache.load_all() {
+                    tracing::warn!("Failed to load device configs at startup: {}", e);
+                }
+                cache
+            },
             smart_stream_editors: HashMap::new(),
             pending_pop_out: None,
             pending_image_viewer_device: None,
@@ -1470,12 +1476,6 @@ impl InstrumentManagerPanel {
         ui.separator();
 
         // --- Priority 0: Config-driven panel from TOML ---
-        // Lazily load config cache on first use
-        if !self.config_cache.load_attempted() {
-            if let Err(e) = self.config_cache.load_all() {
-                tracing::warn!("Failed to load device configs: {}", e);
-            }
-        }
         if let Some(panel_config) = self
             .config_cache
             .get_ui_config_for_driver(&device.driver_type)

@@ -38,9 +38,6 @@ use protocol::daq::DeviceInfo;
 /// Position polling interval for motion sections.
 const POSITION_REFRESH_INTERVAL: Duration = Duration::from_millis(500);
 
-/// Default auto-refresh interval for sensor polling.
-const DEFAULT_REFRESH_INTERVAL: Duration = Duration::from_millis(1000);
-
 /// Command debounce interval (prevents rapid-fire commands to serial devices).
 const COMMAND_DEBOUNCE: Duration = Duration::from_millis(250);
 
@@ -67,7 +64,7 @@ enum ConfigPanelAction {
         result: Result<Vec<(String, String)>, String>,
     },
     CommandExecuted {
-        idx: usize,
+        _idx: usize,
         result: Result<String, String>,
     },
     Stopped(Result<(), String>),
@@ -91,6 +88,7 @@ enum SectionState {
     Custom,
 }
 
+#[derive(Default)]
 struct MotionSectionState {
     position: Option<f64>,
     moving: bool,
@@ -99,26 +97,9 @@ struct MotionSectionState {
     last_position_refresh: Option<Instant>,
 }
 
-impl Default for MotionSectionState {
-    fn default() -> Self {
-        Self {
-            position: None,
-            moving: false,
-            position_input: String::new(),
-            last_command_time: None,
-            last_position_refresh: None,
-        }
-    }
-}
-
+#[derive(Default)]
 struct CustomActionState {
     confirming: bool,
-}
-
-impl Default for CustomActionState {
-    fn default() -> Self {
-        Self { confirming: false }
-    }
 }
 
 #[derive(Default)]
@@ -152,6 +133,8 @@ impl Default for WavelengthSectionState {
 struct ParameterSectionState {
     value: Option<String>,
     input: String,
+    /// Last time a command was dispatched (for spinner/DragValue debounce)
+    last_command_time: Option<Instant>,
 }
 
 #[derive(Default)]
@@ -159,24 +142,13 @@ struct StatusDisplaySectionState {
     values: Vec<(String, String)>,
 }
 
+#[derive(Default)]
 struct SensorSectionState {
     value: Option<f64>,
     units: String,
     last_refresh: Option<Instant>,
     trend_data: Vec<(f64, f64)>,
     trend_start: Option<Instant>,
-}
-
-impl Default for SensorSectionState {
-    fn default() -> Self {
-        Self {
-            value: None,
-            units: String::new(),
-            last_refresh: None,
-            trend_data: Vec::new(),
-            trend_start: None,
-        }
-    }
 }
 
 // =============================================================================
@@ -394,13 +366,21 @@ impl ConfigDrivenPanel {
                     }
                     Err(e) => self.error = Some(format!("Command failed: {e}")),
                 },
-                ConfigPanelAction::Stopped(res) => match res {
-                    Ok(()) => {
-                        self.status = Some("Stopped".to_string());
-                        self.error = None;
+                ConfigPanelAction::Stopped(res) => {
+                    // Clear motion state so the UI doesn't remain "busy"
+                    for section in &mut self.sections {
+                        if let SectionState::Motion(ref mut motion_state) = section {
+                            motion_state.moving = false;
+                        }
                     }
-                    Err(e) => self.error = Some(format!("Stop failed: {e}")),
-                },
+                    match res {
+                        Ok(()) => {
+                            self.status = Some("Stopped".to_string());
+                            self.error = None;
+                        }
+                        Err(e) => self.error = Some(format!("Stop failed: {e}")),
+                    }
+                }
             }
         }
     }
@@ -680,7 +660,7 @@ impl ConfigDrivenPanel {
                 .map(|_| "OK".to_string())
                 .map_err(|e| e.to_string());
             let _ = tx
-                .send(ConfigPanelAction::CommandExecuted { idx, result })
+                .send(ConfigPanelAction::CommandExecuted { _idx: idx, result })
                 .await;
         });
     }
@@ -781,6 +761,34 @@ impl ConfigDrivenPanel {
         false
     }
 
+    /// Schedule repaint based on the next due refresh time rather than a flat 100ms.
+    fn request_smart_repaint(&self, ui: &mut Ui) {
+        let mut min_delay = Duration::from_millis(100); // Fallback for actions_in_flight spinner
+
+        for (section, config) in self.sections.iter().zip(self.config.sections.iter()) {
+            match (section, config) {
+                (SectionState::Motion(s), ControlSection::Motion(_)) => {
+                    let remaining = s
+                        .last_position_refresh
+                        .map(|t| POSITION_REFRESH_INTERVAL.saturating_sub(t.elapsed()))
+                        .unwrap_or(Duration::ZERO);
+                    min_delay = min_delay.min(remaining.max(Duration::from_millis(10)));
+                }
+                (SectionState::Sensor(s), ControlSection::Sensor(cfg)) if cfg.refresh_ms > 0 => {
+                    let interval = Duration::from_millis(u64::from(cfg.refresh_ms));
+                    let remaining = s
+                        .last_refresh
+                        .map(|t| interval.saturating_sub(t.elapsed()))
+                        .unwrap_or(Duration::ZERO);
+                    min_delay = min_delay.min(remaining.max(Duration::from_millis(10)));
+                }
+                _ => {}
+            }
+        }
+
+        ui.ctx().request_repaint_after(min_delay);
+    }
+
     fn auto_refresh(
         &mut self,
         client: &mut Option<&mut DaqClient>,
@@ -820,14 +828,15 @@ impl ConfigDrivenPanel {
                 .any(|(state, config)| {
                     if let (SectionState::Sensor(s), ControlSection::Sensor(cfg)) = (state, config)
                     {
-                        let interval = if cfg.refresh_ms > 0 {
-                            Duration::from_millis(u64::from(cfg.refresh_ms))
+                        if cfg.refresh_ms > 0 {
+                            let interval = Duration::from_millis(u64::from(cfg.refresh_ms));
+                            s.last_refresh
+                                .map(|t| t.elapsed() >= interval)
+                                .unwrap_or(true)
                         } else {
-                            DEFAULT_REFRESH_INTERVAL
-                        };
-                        s.last_refresh
-                            .map(|t| t.elapsed() >= interval)
-                            .unwrap_or(true)
+                            // refresh_ms == 0 means manual-only; disable auto-refresh
+                            false
+                        }
                     } else {
                         false
                     }
@@ -946,17 +955,16 @@ impl ConfigDrivenPanel {
                         if ui
                             .add_enabled(!is_busy, egui::Button::new(format!("-{step}")))
                             .clicked()
+                            && can_send_command(state.last_command_time, COMMAND_DEBOUNCE)
                         {
-                            if can_send_command(state.last_command_time, COMMAND_DEBOUNCE) {
-                                state.moving = true;
-                                state.last_command_time = Some(Instant::now());
-                                self.dispatch_move_relative(
-                                    client.as_deref_mut(),
-                                    runtime,
-                                    device_id,
-                                    -step,
-                                );
-                            }
+                            state.moving = true;
+                            state.last_command_time = Some(Instant::now());
+                            self.dispatch_move_relative(
+                                client.as_deref_mut(),
+                                runtime,
+                                device_id,
+                                -step,
+                            );
                         }
                     }
                     ui.separator();
@@ -964,17 +972,16 @@ impl ConfigDrivenPanel {
                         if ui
                             .add_enabled(!is_busy, egui::Button::new(format!("+{step}")))
                             .clicked()
+                            && can_send_command(state.last_command_time, COMMAND_DEBOUNCE)
                         {
-                            if can_send_command(state.last_command_time, COMMAND_DEBOUNCE) {
-                                state.moving = true;
-                                state.last_command_time = Some(Instant::now());
-                                self.dispatch_move_relative(
-                                    client.as_deref_mut(),
-                                    runtime,
-                                    device_id,
-                                    step,
-                                );
-                            }
+                            state.moving = true;
+                            state.last_command_time = Some(Instant::now());
+                            self.dispatch_move_relative(
+                                client.as_deref_mut(),
+                                runtime,
+                                device_id,
+                                step,
+                            );
                         }
                     }
                 });
@@ -1409,7 +1416,7 @@ impl ConfigDrivenPanel {
 
         if cfg.confirm.is_some() && !state.confirming {
             if ui
-                .add_enabled(!is_busy, styled_button(&cfg.label, &cfg.style))
+                .add_enabled(!is_busy, styled_button(&cfg.label, cfg.style))
                 .clicked()
             {
                 state.confirming = true;
@@ -1436,7 +1443,7 @@ impl ConfigDrivenPanel {
                 }
             });
         } else if ui
-            .add_enabled(!is_busy, styled_button(&cfg.label, &cfg.style))
+            .add_enabled(!is_busy, styled_button(&cfg.label, cfg.style))
             .clicked()
         {
             self.dispatch_command(
@@ -1502,7 +1509,8 @@ impl ConfigDrivenPanel {
                         }
                     }
                     ParameterWidget::Slider => {
-                        // Numeric slider — derive range from current value
+                        // Numeric slider — derive range from current value.
+                        // Only dispatch on drag_stopped to avoid spamming serial devices.
                         if let Ok(mut val) = state.input.parse::<f64>() {
                             let max = if val.abs() < 1.0 {
                                 1.0
@@ -1511,9 +1519,11 @@ impl ConfigDrivenPanel {
                             };
                             let min = if val >= 0.0 { 0.0 } else { -max };
                             ui.horizontal(|ui| {
-                                let changed =
-                                    ui.add(egui::Slider::new(&mut val, min..=max)).changed();
-                                if changed {
+                                let resp = ui.add(egui::Slider::new(&mut val, min..=max));
+                                if resp.changed() {
+                                    state.input = format!("{val}");
+                                }
+                                if resp.drag_stopped() {
                                     state.input = format!("{val}");
                                     let param = cfg.parameter.clone();
                                     self.dispatch_set_parameter(
@@ -1534,22 +1544,25 @@ impl ConfigDrivenPanel {
                         }
                     }
                     ParameterWidget::Spinner => {
-                        // Numeric spinner via DragValue
+                        // Numeric spinner via DragValue — debounced to avoid spamming
                         if let Ok(mut val) = state.input.parse::<f64>() {
                             ui.horizontal(|ui| {
                                 let changed =
                                     ui.add(egui::DragValue::new(&mut val).speed(0.1)).changed();
                                 if changed {
                                     state.input = format!("{val}");
-                                    let param = cfg.parameter.clone();
-                                    self.dispatch_set_parameter(
-                                        client.as_deref_mut(),
-                                        runtime,
-                                        device_id,
-                                        idx,
-                                        &param,
-                                        &state.input,
-                                    );
+                                    if can_send_command(state.last_command_time, COMMAND_DEBOUNCE) {
+                                        state.last_command_time = Some(Instant::now());
+                                        let param = cfg.parameter.clone();
+                                        self.dispatch_set_parameter(
+                                            client.as_deref_mut(),
+                                            runtime,
+                                            device_id,
+                                            idx,
+                                            &param,
+                                            &state.input,
+                                        );
+                                    }
                                 }
                             });
                         } else {
@@ -1576,6 +1589,7 @@ impl ConfigDrivenPanel {
 
     /// Shared text-input rendering for Parameter sections (used by TextInput, Auto, Dropdown,
     /// and as fallback when Slider/Spinner can't parse the value).
+    #[allow(clippy::too_many_arguments)]
     fn render_parameter_text_input(
         &mut self,
         ui: &mut Ui,
@@ -1640,40 +1654,52 @@ impl DeviceControlWidget for ConfigDrivenPanel {
 
         self.auto_refresh(&mut client, runtime, &device_id);
 
-        if self.config.show_header {
-            ui.heading(&device.name);
-            ui.separator();
-        }
+        // Closure that renders the panel body (shared between collapsible and non-collapsible)
+        let mut render_body = |panel: &mut Self, ui: &mut Ui| {
+            if let Some(ref err) = panel.error {
+                ui.colored_label(egui::Color32::RED, err);
+            }
+            if let Some(ref status) = panel.status {
+                ui.colored_label(egui::Color32::GREEN, status);
+            }
 
-        if let Some(ref err) = self.error {
-            ui.colored_label(egui::Color32::RED, err);
-        }
-        if let Some(ref status) = self.status {
-            ui.colored_label(egui::Color32::GREEN, status);
-        }
-
-        let section_count = self.config.sections.len();
-        match self.config.layout {
-            PanelLayout::Vertical | PanelLayout::Grid => {
-                for idx in 0..section_count {
-                    self.render_section(ui, idx, &device_id, &mut client, runtime);
+            let section_count = panel.config.sections.len();
+            match panel.config.layout {
+                PanelLayout::Vertical | PanelLayout::Grid => {
+                    for idx in 0..section_count {
+                        panel.render_section(ui, idx, &device_id, &mut client, runtime);
+                    }
+                }
+                PanelLayout::Horizontal => {
+                    ui.horizontal(|ui| {
+                        for idx in 0..section_count {
+                            panel.render_section(ui, idx, &device_id, &mut client, runtime);
+                        }
+                    });
                 }
             }
-            PanelLayout::Horizontal => {
-                ui.horizontal(|ui| {
-                    for idx in 0..section_count {
-                        self.render_section(ui, idx, &device_id, &mut client, runtime);
-                    }
-                });
-            }
-        }
 
-        if self.actions_in_flight > 0 {
-            ui.spinner();
+            if panel.actions_in_flight > 0 {
+                ui.spinner();
+            }
+        };
+
+        if self.config.collapsible {
+            egui::CollapsingHeader::new(&device.name)
+                .default_open(true)
+                .show(ui, |ui| {
+                    render_body(self, ui);
+                });
+        } else {
+            if self.config.show_header {
+                ui.heading(&device.name);
+                ui.separator();
+            }
+            render_body(self, ui);
         }
 
         if self.actions_in_flight > 0 || self.has_auto_refresh() {
-            ui.ctx().request_repaint_after(Duration::from_millis(100));
+            self.request_smart_repaint(ui);
         }
     }
 
@@ -1686,7 +1712,7 @@ impl DeviceControlWidget for ConfigDrivenPanel {
 // Free functions
 // =============================================================================
 
-fn styled_button<'a>(label: &str, style: &ButtonStyle) -> egui::Button<'a> {
+fn styled_button<'a>(label: &str, style: ButtonStyle) -> egui::Button<'a> {
     match style {
         ButtonStyle::Danger => egui::Button::new(
             egui::RichText::new(label.to_string())
@@ -1885,10 +1911,10 @@ mod tests {
     #[test]
     fn test_styled_button_variants() {
         // Just verify they don't panic
-        let _ = styled_button("Danger", &ButtonStyle::Danger);
-        let _ = styled_button("Success", &ButtonStyle::Success);
-        let _ = styled_button("Primary", &ButtonStyle::Primary);
-        let _ = styled_button("Default", &ButtonStyle::Default);
+        let _ = styled_button("Danger", ButtonStyle::Danger);
+        let _ = styled_button("Success", ButtonStyle::Success);
+        let _ = styled_button("Primary", ButtonStyle::Primary);
+        let _ = styled_button("Default", ButtonStyle::Default);
     }
 
     #[test]
