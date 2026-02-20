@@ -22,20 +22,19 @@
 //!    - `wavelength_tunable` → slider + text input
 //!    - `settable` → voltage slider + quick-set presets
 //!
-//! The deprecated schema-driven panel renderer is intentionally not used in the
-//! active runtime path.
+//! ## Config-Driven Panels
+//! When a device's TOML config (`config/devices/*.toml`) contains a `[ui.control_panel]`
+//! section, a [`ConfigDrivenPanel`](config_renderer::ConfigDrivenPanel) is used instead
+//! of hardcoded panels. Config-driven dispatch takes highest priority in the routing chain.
 
-#[cfg(test)]
-mod config_loader;
-#[cfg(test)]
-mod config_renderer;
+#[allow(deprecated)] // DeviceConfigCache uses the deprecated DeviceConfig schema
+pub(crate) mod config_loader;
+pub(crate) mod config_renderer;
 #[cfg(test)]
 mod config_tests;
-mod dispatch;
+pub(crate) mod dispatch;
 mod types;
 
-// Note: dispatch module contains PanelType and determine_panel_type for future panel routing
-// Currently the panel selection logic is inline in render_device_control_panel.
 pub use types::{DeviceCategory, DeviceGroup, ParameterInfo, PopOutRequest};
 
 use eframe::egui;
@@ -170,6 +169,10 @@ pub struct InstrumentManagerPanel {
     comedi_panels: HashMap<String, ComediPanel>,
     /// Generic capability-based control panels (keyed by device_id)
     generic_panels: HashMap<String, GenericDevicePanel>,
+    /// Config-driven control panels (keyed by device_id)
+    config_driven_panels: HashMap<String, config_renderer::ConfigDrivenPanel>,
+    /// TOML device config cache for config-driven panels
+    config_cache: config_loader::DeviceConfigCache,
     /// PVCAM Smart Stream editors (keyed by device_id)
     smart_stream_editors: HashMap<String, SmartStreamEditor>,
 
@@ -238,6 +241,8 @@ impl Default for InstrumentManagerPanel {
             stage_panels: HashMap::new(),
             comedi_panels: HashMap::new(),
             generic_panels: HashMap::new(),
+            config_driven_panels: HashMap::new(),
+            config_cache: config_loader::DeviceConfigCache::new(),
             smart_stream_editors: HashMap::new(),
             pending_pop_out: None,
             pending_image_viewer_device: None,
@@ -1463,6 +1468,28 @@ impl InstrumentManagerPanel {
         });
 
         ui.separator();
+
+        // --- Priority 0: Config-driven panel from TOML ---
+        // Lazily load config cache on first use
+        if !self.config_cache.load_attempted() {
+            if let Err(e) = self.config_cache.load_all() {
+                tracing::warn!("Failed to load device configs: {}", e);
+            }
+        }
+        if let Some(panel_config) = self
+            .config_cache
+            .get_ui_config_for_driver(&device.driver_type)
+        {
+            let panel_config = panel_config.clone();
+            let panel = self
+                .config_driven_panels
+                .entry(device_id.clone())
+                .or_insert_with(|| config_renderer::ConfigDrivenPanel::new(panel_config));
+            ui.push_id(("instr_mgr", &device_id), |ui| {
+                panel.ui(ui, &device, client.as_deref_mut(), runtime);
+            });
+            return;
+        }
 
         // Per-device specialized panels provide richer controls for hardware bring-up.
         let driver_lower = device.driver_type.to_lowercase();

@@ -7,7 +7,7 @@ mod document_viewer;
 mod experiment_designer;
 mod getting_started;
 mod image_viewer;
-mod instrument_manager;
+pub(crate) mod instrument_manager;
 mod live_visualization;
 mod logging;
 mod modules;

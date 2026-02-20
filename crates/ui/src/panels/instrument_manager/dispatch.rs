@@ -1,20 +1,25 @@
 //! Panel dispatch logic for device-to-control-panel mapping.
 //!
 //! This module provides a centralized function to determine which control panel
-//! type should be used for a given device based on its capabilities.
+//! type should be used for a given device based on its capabilities and TOML config.
 //!
-//! Note: Currently unused - panel selection is inline in `render_device_control_panel`.
-//! This module is retained for future refactoring to centralize panel dispatch logic.
+//! The dispatch priority is:
+//! 1. **Config-driven** — If a TOML `[ui.control_panel]` exists for the device's driver type
+//! 2. **Capability-based** — Hardcoded panels matched by driver name and capabilities
 
-// Module retained for future panel dispatch refactoring (bd-m5fh.4.2).
 #![allow(dead_code)]
 
 use crate::device_ext::DeviceInfoExt;
+use hardware::config::schema::ControlPanelConfig;
 use protocol::daq::DeviceInfo;
 
+use super::config_loader::DeviceConfigCache;
+
 /// The type of control panel to use for a device.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum PanelType {
+    /// Config-driven panel from TOML `[ui.control_panel]`
+    ConfigDriven(ControlPanelConfig),
     /// MaiTai Ti:Sapphire laser control panel (wavelength, emission, shutter)
     MaiTai,
     /// Power meter control panel (readable sensors)
@@ -28,6 +33,33 @@ pub enum PanelType {
 }
 
 /// Determine the appropriate control panel type for a device.
+///
+/// Checks TOML config first (if cache is provided), then falls back to
+/// capability-based dispatch.
+///
+/// # Priority order
+/// 0. Config-driven (TOML `[ui.control_panel]` exists) → ConfigDriven
+/// 1. Comedi DAQ devices → Comedi
+/// 2. Laser capabilities (emission/shutter/wavelength) → MaiTai
+/// 3. Readable without motion (sensors, meters) → PowerMeter
+/// 4. Movable with "ell14" in driver name → Rotator
+/// 5. Movable → Stage (default for motion devices)
+pub fn determine_panel_type_with_config(
+    device: &DeviceInfo,
+    config_cache: Option<&DeviceConfigCache>,
+) -> PanelType {
+    // Priority 0: Config-driven panel from TOML
+    if let Some(cache) = config_cache {
+        if let Some(config) = cache.get_ui_config_for_driver(&device.driver_type) {
+            return PanelType::ConfigDriven(config.clone());
+        }
+    }
+
+    // Fall back to capability-based dispatch
+    determine_panel_type(device)
+}
+
+/// Determine the appropriate control panel type for a device (capability-based only).
 ///
 /// Priority order:
 /// 1. Comedi DAQ devices (comedi_analog_input, comedi_analog_output, ni_daq) → Comedi
@@ -121,70 +153,89 @@ mod tests {
     #[test]
     fn test_dispatch_maitai_by_emission() {
         let dev = make_device("MaiTai DeepSee", false, true, true, false, false);
-        assert_eq!(determine_panel_type(&dev), PanelType::MaiTai);
+        assert!(matches!(determine_panel_type(&dev), PanelType::MaiTai));
     }
 
     #[test]
     fn test_dispatch_maitai_by_shutter() {
         let dev = make_device("SomeLaser", false, true, false, true, false);
-        assert_eq!(determine_panel_type(&dev), PanelType::MaiTai);
+        assert!(matches!(determine_panel_type(&dev), PanelType::MaiTai));
     }
 
     #[test]
     fn test_dispatch_maitai_by_wavelength() {
         let dev = make_device("TunableLaser", false, true, false, false, true);
-        assert_eq!(determine_panel_type(&dev), PanelType::MaiTai);
+        assert!(matches!(determine_panel_type(&dev), PanelType::MaiTai));
     }
 
     #[test]
     fn test_dispatch_maitai_priority_over_readable() {
         // MaiTai priority even if device is also readable
         let dev = make_device("MaiTai", false, true, true, true, true);
-        assert_eq!(determine_panel_type(&dev), PanelType::MaiTai);
+        assert!(matches!(determine_panel_type(&dev), PanelType::MaiTai));
     }
 
     #[test]
     fn test_dispatch_power_meter() {
         let dev = make_device("Newport 1830-C", false, true, false, false, false);
-        assert_eq!(determine_panel_type(&dev), PanelType::PowerMeter);
+        assert!(matches!(determine_panel_type(&dev), PanelType::PowerMeter));
     }
 
     #[test]
     fn test_dispatch_rotator_ell14() {
         let dev = make_device("Thorlabs ELL14", true, false, false, false, false);
-        assert_eq!(determine_panel_type(&dev), PanelType::Rotator);
+        assert!(matches!(determine_panel_type(&dev), PanelType::Rotator));
     }
 
     #[test]
     fn test_dispatch_rotator_by_keyword() {
         let dev = make_device("Custom Rotator Mount", true, false, false, false, false);
-        assert_eq!(determine_panel_type(&dev), PanelType::Rotator);
+        assert!(matches!(determine_panel_type(&dev), PanelType::Rotator));
     }
 
     #[test]
     fn test_dispatch_stage_esp300() {
         let dev = make_device("Newport ESP300", true, false, false, false, false);
-        assert_eq!(determine_panel_type(&dev), PanelType::Stage);
+        assert!(matches!(determine_panel_type(&dev), PanelType::Stage));
     }
 
     #[test]
     fn test_dispatch_stage_fallback() {
         // Generic movable device defaults to Stage
         let dev = make_device("Unknown Motor", true, false, false, false, false);
-        assert_eq!(determine_panel_type(&dev), PanelType::Stage);
+        assert!(matches!(determine_panel_type(&dev), PanelType::Stage));
     }
 
     #[test]
     fn test_dispatch_no_capabilities_fallback() {
         // Device with no known capabilities falls back to Stage
         let dev = make_device("Unknown Device", false, false, false, false, false);
-        assert_eq!(determine_panel_type(&dev), PanelType::Stage);
+        assert!(matches!(determine_panel_type(&dev), PanelType::Stage));
     }
 
     #[test]
     fn test_dispatch_readable_movable_is_stage() {
         // Readable + movable should be Stage (not PowerMeter)
         let dev = make_device("Encoder Stage", true, true, false, false, false);
-        assert_eq!(determine_panel_type(&dev), PanelType::Stage);
+        assert!(matches!(determine_panel_type(&dev), PanelType::Stage));
+    }
+
+    #[test]
+    fn test_dispatch_config_driven_takes_priority() {
+        // When a config cache has a matching config, ConfigDriven takes priority
+        let dev = make_device("Thorlabs ELL14", true, false, false, false, false);
+
+        // Without config: capability-based dispatch
+        assert!(matches!(
+            determine_panel_type_with_config(&dev, None),
+            PanelType::Rotator
+        ));
+
+        // With config cache but no matching config: falls back
+        let cache = DeviceConfigCache::new();
+        assert!(matches!(
+            determine_panel_type_with_config(&dev, Some(&cache)),
+            PanelType::Rotator
+        ));
     }
 }

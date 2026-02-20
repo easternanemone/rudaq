@@ -112,6 +112,19 @@ impl DeviceConfigCache {
         self.configs.get(protocol)
     }
 
+    /// Get the UI control panel config for a driver type (fuzzy match).
+    ///
+    /// Convenience method that looks up the device config by driver type
+    /// and extracts the `[ui.control_panel]` section if present.
+    pub fn get_ui_config_for_driver(
+        &self,
+        driver_type: &str,
+    ) -> Option<&hardware::config::schema::ControlPanelConfig> {
+        self.get_by_driver_type(driver_type)
+            .and_then(|dc| dc.ui.as_ref())
+            .and_then(|ui| ui.control_panel.as_ref())
+    }
+
     /// Get a device config by driver type (fuzzy match)
     ///
     /// Tries to match the driver_type string against protocol names.

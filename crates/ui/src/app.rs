@@ -18,6 +18,7 @@ use crate::device_ext::DeviceInfoExt;
 use crate::icons;
 use crate::layout;
 use crate::panels::{
+    instrument_manager::{config_loader::DeviceConfigCache, config_renderer::ConfigDrivenPanel},
     ComediPanel, ConnectionDiagnostics, ConnectionStatus as LogConnectionStatus, DevicesPanel,
     DocumentViewerPanel, ExperimentDesignerPanel, GettingStartedPanel, ImageViewerPanel,
     InstrumentManagerPanel, LoggingPanel, ModulesPanel, PlanRunnerPanel, RunComparisonPanel,
@@ -813,6 +814,10 @@ pub struct DaqApp {
     docked_stage_panels: HashMap<usize, StageControlPanel>,
     /// Docked Comedi panels (advanced layout mode)
     docked_comedi_panels: HashMap<usize, ComediPanel>,
+    /// Docked config-driven panels (from TOML `[ui.control_panel]`)
+    docked_config_driven_panels: HashMap<usize, ConfigDrivenPanel>,
+    /// Device config cache for TOML-driven panel dispatch (shared with InstrumentManagerPanel)
+    config_cache: DeviceConfigCache,
     /// User-added command widgets for advanced control panels (keyed by panel ID)
     docked_command_widgets: HashMap<usize, CommandWidgetPalette>,
     /// Preferred control-panel layout mode for docked pop-outs
@@ -1366,6 +1371,8 @@ impl DaqApp {
             docked_rotator_panels: HashMap::new(),
             docked_stage_panels: HashMap::new(),
             docked_comedi_panels: HashMap::new(),
+            docked_config_driven_panels: HashMap::new(),
+            config_cache: DeviceConfigCache::new(),
             docked_command_widgets: HashMap::new(),
             control_panel_layout_mode,
             settings_window: crate::settings::SettingsWindow::default(),
@@ -2021,6 +2028,7 @@ impl DaqApp {
         self.docked_rotator_panels.clear();
         self.docked_stage_panels.clear();
         self.docked_comedi_panels.clear();
+        self.docked_config_driven_panels.clear();
         self.docked_command_widgets.clear();
     }
 
@@ -2035,6 +2043,7 @@ impl DaqApp {
         self.docked_rotator_panels.remove(&id);
         self.docked_stage_panels.remove(&id);
         self.docked_comedi_panels.remove(&id);
+        self.docked_config_driven_panels.remove(&id);
         self.docked_command_widgets.remove(&id);
         self.device_panel_info.remove(&id)
     }
@@ -2410,6 +2419,7 @@ impl DaqApp {
         self.docked_rotator_panels.remove(&panel_id);
         self.docked_stage_panels.remove(&panel_id);
         self.docked_comedi_panels.remove(&panel_id);
+        self.docked_config_driven_panels.remove(&panel_id);
         self.docked_command_widgets.remove(&panel_id);
     }
 
@@ -2746,6 +2756,29 @@ impl DaqTabViewer<'_> {
             DeviceAvailability::Available => {
                 // Continue to normal rendering below
             }
+        }
+
+        // --- Priority 0: Config-driven panel from TOML ---
+        if !self.app.config_cache.load_attempted() {
+            if let Err(e) = self.app.config_cache.load_all() {
+                tracing::warn!("Failed to load device configs: {}", e);
+            }
+        }
+        if let Some(panel_config) = self
+            .app
+            .config_cache
+            .get_ui_config_for_driver(&device_info.driver_type)
+        {
+            let panel_config: hardware::config::schema::ControlPanelConfig = panel_config.clone();
+            let panel = self
+                .app
+                .docked_config_driven_panels
+                .entry(panel_id)
+                .or_insert_with(|| ConfigDrivenPanel::new(panel_config));
+            ui.push_id(("docked", panel_id), |ui| {
+                panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
+            });
+            return;
         }
 
         let layout_mode = self.app.control_panel_layout_mode;
