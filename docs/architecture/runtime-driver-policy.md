@@ -17,7 +17,7 @@ Without an explicit policy, runtime behavior can drift between launch modes and 
 ## Decision
 
 1. SCPI/TCP/serial instrument classes default to universal TOML drivers.
-2. Camera-class devices remain native drivers (PVCAM/Andor/mock camera path).
+2. Native-exception devices remain native drivers (PVCAM/Andor cameras, Comedi DAQ, Dover Motion stages).
 3. SurrealDB is the control-plane persistence layer when enabled, but startup from TOML remains supported.
 4. Runtime mode is explicit at launch:
    - `mock`
@@ -45,8 +45,8 @@ Daemon startup must log:
 - Config source/path.
 - Counts by runtime policy class:
   - universal driver count
-  - native camera count
-  - native non-camera count
+  - native exception count (PVCAM, Andor, Comedi, Dover Motion)
+  - deprecated native count
 - Legacy SCPI/TCP native driver warnings with universal replacement hints.
 
 ## Backward Compatibility and Rollback
@@ -62,6 +62,6 @@ Daemon startup must log:
 
 - [ ] Runtime policy logs appear in daemon startup output.
 - [ ] UI/CLI mode labels map to expected config profiles.
-- [ ] Camera-native exception path is verified (mock/PVCAM).
+- [ ] Native exception path is verified (mock/PVCAM/Andor/Comedi/Dover).
 - [ ] Legacy driver warnings and migration docs are visible to operators.
 - [ ] SurrealDB mode behavior is covered by integration matrix tests.

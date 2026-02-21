@@ -1,5 +1,3 @@
-// Internal consumer of the deprecated DeviceConfig schema for UI rendering.
-#![allow(deprecated)]
 //! Device configuration loader for UI rendering
 //!
 //! Loads device TOML configurations and provides access to UiConfig
@@ -37,6 +35,7 @@ impl DeviceConfigCache {
     }
 
     /// Whether a load has been attempted (successful or not)
+    #[allow(dead_code)]
     pub fn load_attempted(&self) -> bool {
         self.load_attempted
     }
@@ -110,6 +109,19 @@ impl DeviceConfigCache {
     #[allow(dead_code)]
     pub fn get_by_protocol(&self, protocol: &str) -> Option<&DeviceConfig> {
         self.configs.get(protocol)
+    }
+
+    /// Get the UI control panel config for a driver type (fuzzy match).
+    ///
+    /// Convenience method that looks up the device config by driver type
+    /// and extracts the `[ui.control_panel]` section if present.
+    pub fn get_ui_config_for_driver(
+        &self,
+        driver_type: &str,
+    ) -> Option<&hardware::config::schema::ControlPanelConfig> {
+        self.get_by_driver_type(driver_type)
+            .and_then(|dc| dc.ui.as_ref())
+            .and_then(|ui| ui.control_panel.as_ref())
     }
 
     /// Get a device config by driver type (fuzzy match)
