@@ -66,6 +66,30 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+/// SDK3 feature names already represented by core typed parameters.
+///
+/// Dynamic parameter creation skips these to avoid duplicate registrations.
+/// Core parameters use Rust enum types (`TriggerMode`, `GateMode`, etc.) for
+/// type-safe trait implementations; dynamic parameters use generic types
+/// (`f64`, `i64`, `bool`, `String`) for features that don't need specialized Rust types.
+const CORE_FEATURE_NAMES: &[&str] = &[
+    "ExposureTime",
+    "TriggerMode",
+    "GateMode",
+    "MCPGain",
+    "DDGOutputDelay",
+    "DDGOutputWidth",
+    "AOIWidth",
+    "AOIHeight",
+    "AOILeft",
+    "AOITop",
+    "AOIHBin",
+    "AOIVBin",
+    "SensorTemperature",
+    "TargetSensorTemperature",
+    "ElectronicShutteringMode",
+];
+
 #[cfg(feature = "camera")]
 use crate::error::AndorError;
 #[cfg(feature = "camera")]
@@ -81,6 +105,25 @@ use andor_sdk3_sys::*;
 /// This counter tracks the number of live camera instances to ensure proper cleanup.
 #[cfg(feature = "camera")]
 static LIBRARY_INSTANCE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Bridge between the C FFI callback thread and the async parameter update task.
+///
+/// Passed as the `context` pointer to `AT_RegisterFeatureCallback`. The SDK
+/// callback posts feature names through the sender; a spawned tokio task
+/// receives them and updates Parameters.
+///
+/// # Lifecycle
+/// Owned by `AndorCameraInner` via `callback_bridge` field. A raw pointer to
+/// the heap allocation is given to the SDK via `&*box as *const _ as *mut c_void`.
+/// When the camera is dropped, `Drop` for `AndorCameraInner`:
+///   1. Drops `callback_tx` → closes channel → receiver task exits gracefully
+///   2. Aborts `callback_task_handle` as a backstop
+///   3. `AT_Close(handle)` unregisters all SDK callbacks, invalidating the raw ptr
+///   4. The `Box<FeatureCallbackBridge>` is dropped, freeing the allocation
+#[cfg(feature = "camera")]
+struct FeatureCallbackBridge {
+    tx: tokio::sync::mpsc::UnboundedSender<String>,
+}
 
 /// Andor iStar camera driver
 ///
@@ -153,6 +196,17 @@ struct AndorCameraInner {
     tap_registry: TapRegistry,
     /// Handle to the running acquisition loop task (if any).
     acq_task_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
+
+    // Feature callback lifecycle (bd-joqu / Copilot review)
+    /// Keeps the bridge allocation alive; raw ptr given to SDK via `&*box`.
+    /// Dropped AFTER `AT_Close(handle)` invalidates SDK callbacks.
+    #[cfg(feature = "camera")]
+    _callback_bridge: Mutex<Option<Box<FeatureCallbackBridge>>>,
+    /// Dropped before the bridge to close the channel and signal the receiver.
+    #[cfg(feature = "camera")]
+    callback_tx: Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>,
+    /// Receiver task handle — aborted in Drop as a backstop.
+    callback_task_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
 
     // Parameters
     params: ParameterSet,
@@ -314,6 +368,17 @@ impl AndorCamera {
         params.register(target_temperature_c.clone());
         params.register(electronic_shuttering.clone());
 
+        // Register dynamic parameters from SDK3 feature introspection.
+        // These cover SDK3 features NOT already handled by the 11 core
+        // typed parameters above (see CORE_FEATURE_NAMES).
+        {
+            #[cfg(not(feature = "camera"))]
+            let discovered = crate::introspection::introspect_mock_features();
+            #[cfg(feature = "camera")]
+            let discovered = crate::introspection::introspect_all_features(handle);
+            Self::register_dynamic_features(&discovered, &mut params, handle);
+        }
+
         // Create frame pool sized for full sensor (worst case).
         // Each slot holds sensor_width * sensor_height * 2 bytes (16-bit pixels).
         let frame_capacity = (sensor_width as usize) * (sensor_height as usize) * 2;
@@ -352,6 +417,11 @@ impl AndorCamera {
             frame_pool,
             tap_registry: TapRegistry::new(),
             acq_task_handle: Mutex::new(None),
+            #[cfg(feature = "camera")]
+            _callback_bridge: Mutex::new(None),
+            #[cfg(feature = "camera")]
+            callback_tx: Mutex::new(None),
+            callback_task_handle: Mutex::new(None),
             params,
         });
 
@@ -516,6 +586,186 @@ impl AndorCamera {
                 frame_count: true,
             },
         }
+    }
+
+    /// Register dynamic SDK3 feature parameters from introspection results.
+    ///
+    /// For each discovered feature NOT already covered by core typed parameters
+    /// (see [`CORE_FEATURE_NAMES`]), creates a `Parameter<T>` with the appropriate
+    /// type, introspectable metadata (ranges, enum values), and — in hardware
+    /// mode — an SDK write callback via `spawn_blocking`.
+    ///
+    /// Feature type mapping:
+    /// - `Float` → `Parameter<f64>` with `with_range_introspectable`
+    /// - `Int`   → `Parameter<i64>` with `with_range_introspectable`
+    /// - `Bool`  → `Parameter<bool>` with `dtype = "bool"`
+    /// - `Enum`  → `Parameter<String>` with `with_choices_introspectable`
+    /// - `Str`   → `Parameter<String>` with `dtype = "string"` (typically read-only)
+    /// - `Command` → skipped (handled by `Commandable`/`Triggerable` traits)
+    fn register_dynamic_features(
+        features: &[crate::introspection::DiscoveredFeature],
+        params: &mut ParameterSet,
+        handle: i32,
+    ) {
+        use crate::introspection::FeatureType;
+
+        let mut count = 0u32;
+
+        for feat in features {
+            if !feat.is_displayable() || CORE_FEATURE_NAMES.contains(&feat.name.as_str()) {
+                continue;
+            }
+            if feat.feature_type == FeatureType::Command {
+                continue;
+            }
+
+            match feat.feature_type {
+                FeatureType::Float => {
+                    let mut param = Parameter::new(feat.name.clone(), 0.0f64)
+                        .with_description(format!("SDK3: {}", feat.name));
+                    if let Some((min, max)) = feat.float_range {
+                        param = param.with_range_introspectable(min, max);
+                    } else {
+                        param = param.with_dtype("float");
+                    }
+                    if !feat.writable {
+                        param = param.read_only();
+                    }
+                    #[cfg(feature = "camera")]
+                    {
+                        if feat.writable {
+                            let fname = feat.name.clone();
+                            param.connect_to_hardware_write(move |val: f64| {
+                                let fname = fname.clone();
+                                Box::pin(async move {
+                                    tokio::task::spawn_blocking(move || {
+                                        AndorCamera::set_float_feature(handle, &fname, val)
+                                    })
+                                    .await
+                                    .map_err(|e| {
+                                        DaqError::Instrument(format!("spawn_blocking: {e}"))
+                                    })?
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                                })
+                            });
+                        }
+                    }
+                    params.register(param);
+                }
+
+                FeatureType::Int => {
+                    let mut param = Parameter::new(feat.name.clone(), 0i64)
+                        .with_description(format!("SDK3: {}", feat.name));
+                    if let Some((min, max)) = feat.int_range {
+                        param = param.with_range_introspectable(min, max);
+                    } else {
+                        param = param.with_dtype("int");
+                    }
+                    if !feat.writable {
+                        param = param.read_only();
+                    }
+                    #[cfg(feature = "camera")]
+                    {
+                        if feat.writable {
+                            let fname = feat.name.clone();
+                            param.connect_to_hardware_write(move |val: i64| {
+                                let fname = fname.clone();
+                                Box::pin(async move {
+                                    tokio::task::spawn_blocking(move || {
+                                        AndorCamera::set_int_feature(handle, &fname, val)
+                                    })
+                                    .await
+                                    .map_err(|e| {
+                                        DaqError::Instrument(format!("spawn_blocking: {e}"))
+                                    })?
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                                })
+                            });
+                        }
+                    }
+                    params.register(param);
+                }
+
+                FeatureType::Bool => {
+                    let mut param = Parameter::new(feat.name.clone(), false)
+                        .with_description(format!("SDK3: {}", feat.name))
+                        .with_dtype("bool");
+                    if !feat.writable {
+                        param = param.read_only();
+                    }
+                    #[cfg(feature = "camera")]
+                    {
+                        if feat.writable {
+                            let fname = feat.name.clone();
+                            param.connect_to_hardware_write(move |val: bool| {
+                                let fname = fname.clone();
+                                Box::pin(async move {
+                                    tokio::task::spawn_blocking(move || {
+                                        AndorCamera::set_bool_feature(handle, &fname, val)
+                                    })
+                                    .await
+                                    .map_err(|e| {
+                                        DaqError::Instrument(format!("spawn_blocking: {e}"))
+                                    })?
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                                })
+                            });
+                        }
+                    }
+                    params.register(param);
+                }
+
+                FeatureType::Enum => {
+                    let default_val = feat.enum_values.first().cloned().unwrap_or_default();
+                    let mut param = Parameter::new(feat.name.clone(), default_val)
+                        .with_description(format!("SDK3: {}", feat.name));
+                    if !feat.enum_values.is_empty() {
+                        param = param.with_choices_introspectable(feat.enum_values.clone());
+                    }
+                    if !feat.writable {
+                        param = param.read_only();
+                    }
+                    #[cfg(feature = "camera")]
+                    {
+                        if feat.writable {
+                            let fname = feat.name.clone();
+                            param.connect_to_hardware_write(move |val: String| {
+                                let fname = fname.clone();
+                                Box::pin(async move {
+                                    tokio::task::spawn_blocking(move || {
+                                        AndorCamera::set_enum_feature(handle, &fname, &val)
+                                    })
+                                    .await
+                                    .map_err(|e| {
+                                        DaqError::Instrument(format!("spawn_blocking: {e}"))
+                                    })?
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                                })
+                            });
+                        }
+                    }
+                    params.register(param);
+                }
+
+                FeatureType::Str => {
+                    let mut param = Parameter::new(feat.name.clone(), String::new())
+                        .with_description(format!("SDK3: {}", feat.name))
+                        .with_dtype("string");
+                    if !feat.writable {
+                        param = param.read_only();
+                    }
+                    // SDK3 string features are typically read-only identity fields
+                    // (CameraModel, SerialNumber, etc.) — no hardware write callbacks.
+                    params.register(param);
+                }
+
+                FeatureType::Command => unreachable!("Commands filtered above"),
+            }
+
+            count += 1;
+        }
+
+        tracing::info!(count, "Registered dynamic SDK3 feature parameters");
     }
 
     /// Get camera information
@@ -733,7 +983,7 @@ impl AndorCamera {
     }
 
     #[cfg(feature = "camera")]
-    fn get_float_min(handle: AT_H, feature: &str) -> Result<f64> {
+    pub(crate) fn get_float_min(handle: AT_H, feature: &str) -> Result<f64> {
         use crate::error::sdk_result;
 
         unsafe {
@@ -748,7 +998,7 @@ impl AndorCamera {
     }
 
     #[cfg(feature = "camera")]
-    fn get_float_max(handle: AT_H, feature: &str) -> Result<f64> {
+    pub(crate) fn get_float_max(handle: AT_H, feature: &str) -> Result<f64> {
         use crate::error::sdk_result;
 
         unsafe {
@@ -812,7 +1062,7 @@ impl AndorCamera {
     }
 
     #[cfg(feature = "camera")]
-    fn is_feature_implemented(handle: AT_H, feature: &str) -> Result<bool> {
+    pub(crate) fn is_feature_implemented(handle: AT_H, feature: &str) -> Result<bool> {
         use crate::error::sdk_result;
 
         unsafe {
@@ -827,7 +1077,7 @@ impl AndorCamera {
     }
 
     #[cfg(feature = "camera")]
-    fn is_feature_writable(handle: AT_H, feature: &str) -> Result<bool> {
+    pub(crate) fn is_feature_writable(handle: AT_H, feature: &str) -> Result<bool> {
         use crate::error::sdk_result;
 
         unsafe {
@@ -1242,34 +1492,148 @@ impl AndorCamera {
 
     /// Register SDK feature callbacks for reactive parameter updates.
     ///
-    /// Called after camera initialization to receive notifications when
-    /// the SDK internally changes feature values (e.g., changing binning
-    /// may recalculate exposure limits).
+    /// For each implemented feature in the introspection catalog, registers a
+    /// C callback with `AT_RegisterFeatureCallback`. When the SDK internally
+    /// changes a feature (e.g., changing binning recalculates exposure limits),
+    /// the callback posts the feature name through a channel. A spawned receiver
+    /// task re-reads the SDK value and updates the corresponding `Parameter<T>`.
+    ///
+    /// The bridge architecture avoids async/FFI issues:
+    /// ```text
+    /// SDK thread → C callback → UnboundedSender<String> → tokio task → Parameter::set_json()
+    /// ```
     #[cfg(feature = "camera")]
     pub fn register_feature_callbacks(&self) -> Result<()> {
-        use crate::error::sdk_result;
+        use crate::introspection;
 
-        let features_to_watch = ["ExposureTime", "SensorTemperature", "FrameRate"];
+        let handle = self.inner.handle;
 
-        for feature_name in &features_to_watch {
-            if Self::is_feature_implemented(self.inner.handle, feature_name).unwrap_or(false) {
-                unsafe {
-                    let feature_wide = andor_sdk3_sys::to_wide_string(feature_name);
-                    let ret = andor_sdk3_sys::AT_RegisterFeatureCallback(
-                        self.inner.handle,
-                        feature_wide.as_ptr(),
-                        Some(Self::sdk_feature_callback),
-                        std::ptr::null_mut(), // context — we use tracing for now
+        // Create the callback bridge — owned, not leaked.
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let bridge = Box::new(FeatureCallbackBridge { tx: tx.clone() });
+
+        // Raw pointer for the SDK callback context. The Box stays alive in
+        // `inner._callback_bridge`; the pointer is valid until AT_Close().
+        let bridge_ptr: *mut std::os::raw::c_void =
+            &*bridge as *const FeatureCallbackBridge as *mut std::os::raw::c_void;
+
+        // Only register callbacks for features that have a corresponding
+        // Parameter AND are observable types (skip Command and Str).
+        let known = introspection::known_features();
+        let mut registered = 0u32;
+
+        for (name, ftype, _group) in &known {
+            // Skip types that the receiver ignores anyway.
+            if matches!(
+                ftype,
+                introspection::FeatureType::Command | introspection::FeatureType::Str
+            ) {
+                continue;
+            }
+            // Only register for features that have a Parameter entry.
+            if self.inner.params.get(*name).is_none() {
+                continue;
+            }
+            if !Self::is_feature_implemented(handle, name).unwrap_or(false) {
+                continue;
+            }
+            unsafe {
+                let feature_wide = andor_sdk3_sys::to_wide_string(name);
+                let ret = andor_sdk3_sys::AT_RegisterFeatureCallback(
+                    handle,
+                    feature_wide.as_ptr(),
+                    Some(Self::sdk_feature_callback),
+                    bridge_ptr,
+                );
+                if ret != andor_sdk3_sys::AT_SUCCESS {
+                    tracing::warn!(
+                        feature = name,
+                        "Failed to register feature callback: {}",
+                        crate::error::AndorError::from_code(ret)
                     );
-                    if ret != andor_sdk3_sys::AT_SUCCESS {
-                        tracing::warn!(
-                            feature = feature_name,
-                            "Failed to register feature callback: {}",
-                            crate::error::AndorError::from_code(ret)
-                        );
+                } else {
+                    registered += 1;
+                }
+            }
+        }
+
+        tracing::info!(registered, "SDK feature callbacks registered");
+
+        // Store bridge ownership and sender in Inner so Drop can clean up.
+        {
+            let mut guard = self.inner._callback_bridge.lock().unwrap();
+            *guard = Some(bridge);
+        }
+        {
+            let mut guard = self.inner.callback_tx.lock().unwrap();
+            *guard = Some(tx);
+        }
+
+        // Spawn receiver task that processes feature change notifications.
+        let inner = self.inner.clone();
+        let task_handle = tokio::spawn(async move {
+            // Build a lookup table: feature name → FeatureType for efficient dispatch.
+            let type_map: std::collections::HashMap<&str, introspection::FeatureType> =
+                introspection::known_features()
+                    .into_iter()
+                    .map(|(name, ftype, _)| (name, ftype))
+                    .collect();
+
+            while let Some(feature_name) = rx.recv().await {
+                tracing::debug!(feature = %feature_name, "Processing SDK feature change");
+
+                // Look up the feature type.
+                let Some(&ftype) = type_map.get(feature_name.as_str()) else {
+                    tracing::trace!(feature = %feature_name, "Unknown feature in callback, skipping");
+                    continue;
+                };
+
+                // Re-read the current value from SDK and update the Parameter.
+                let handle = inner.handle;
+                let value = match ftype {
+                    introspection::FeatureType::Float => {
+                        Self::get_float_feature(handle, &feature_name)
+                            .ok()
+                            .map(|v| serde_json::json!(v))
+                    }
+                    introspection::FeatureType::Int => Self::get_int_feature(handle, &feature_name)
+                        .ok()
+                        .map(|v| serde_json::json!(v)),
+                    introspection::FeatureType::Bool => {
+                        Self::get_bool_feature(handle, &feature_name)
+                            .ok()
+                            .map(|v| serde_json::json!(v))
+                    }
+                    introspection::FeatureType::Enum => {
+                        Self::get_enum_string(handle, &feature_name)
+                            .ok()
+                            .map(|v| serde_json::json!(v))
+                    }
+                    introspection::FeatureType::Str | introspection::FeatureType::Command => {
+                        None // Filtered at registration, but defensive.
+                    }
+                };
+
+                if let Some(json_value) = value {
+                    if let Some(param) = inner.params.get(&feature_name) {
+                        if let Err(e) = param.set_json(json_value) {
+                            tracing::trace!(
+                                feature = %feature_name,
+                                error = %e,
+                                "Failed to update parameter from SDK callback"
+                            );
+                        }
                     }
                 }
             }
+
+            tracing::debug!("Feature callback receiver task exited");
+        });
+
+        // Store task handle so Drop can abort it.
+        {
+            let mut guard = self.inner.callback_task_handle.lock().unwrap();
+            *guard = Some(task_handle);
         }
 
         Ok(())
@@ -1277,12 +1641,13 @@ impl AndorCamera {
 
     /// C-compatible callback invoked by the SDK when a feature value changes.
     ///
-    /// Currently logs the change. Future: update the corresponding Parameter<T>.
+    /// Posts the feature name through the `FeatureCallbackBridge` channel.
+    /// The actual value read + Parameter update happens on the receiver task.
     #[cfg(feature = "camera")]
     unsafe extern "C" fn sdk_feature_callback(
         _handle: andor_sdk3_sys::AT_H,
         feature: *const andor_sdk3_sys::AT_WC,
-        _context: *mut std::os::raw::c_void,
+        context: *mut std::os::raw::c_void,
     ) -> std::os::raw::c_int {
         let feature_name = if feature.is_null() {
             "unknown".to_string()
@@ -1296,7 +1661,14 @@ impl AndorCamera {
             String::from_utf16_lossy(slice)
         };
 
-        tracing::debug!(feature = %feature_name, "SDK feature callback fired");
+        // Post to the bridge channel (non-blocking, fire-and-forget).
+        if !context.is_null() {
+            let bridge = &*(context as *const FeatureCallbackBridge);
+            let _ = bridge.tx.send(feature_name);
+        } else {
+            tracing::debug!(feature = %feature_name, "SDK feature callback (no bridge)");
+        }
+
         andor_sdk3_sys::AT_CALLBACK_SUCCESS
     }
 }
@@ -1836,6 +2208,23 @@ impl Drop for AndorCameraInner {
             }
         }
 
+        // Shut down feature callback pipeline:
+        // 1. Drop the sender to close the channel (receiver task will exit)
+        // 2. Abort the receiver task as a backstop
+        // The bridge Box is dropped automatically with the struct fields,
+        // AFTER AT_Close() below unregisters all SDK callbacks.
+        #[cfg(feature = "camera")]
+        {
+            if let Ok(mut guard) = self.callback_tx.try_lock() {
+                guard.take(); // Drop the sender → channel closes
+            }
+        }
+        if let Ok(mut guard) = self.callback_task_handle.try_lock() {
+            if let Some(handle) = guard.take() {
+                handle.abort();
+            }
+        }
+
         #[cfg(feature = "camera")]
         unsafe {
             if self.handle != AT_HANDLE_UNINITIALISED {
@@ -1857,5 +2246,103 @@ impl Drop for AndorCameraInner {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[cfg(not(feature = "camera"))]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_dynamic_features_registered() {
+        let camera = AndorCamera::new_mock().await.unwrap();
+        let param_set = camera.parameters();
+        let names = param_set.names();
+
+        // Core parameters should exist
+        assert!(names.contains(&"exposure_s"));
+        assert!(names.contains(&"trigger_mode"));
+        assert!(names.contains(&"mcp_gain"));
+        assert!(names.contains(&"temperature_c"));
+
+        // Dynamic parameters should also exist
+        assert!(names.contains(&"FrameRate"), "FrameRate missing");
+        assert!(names.contains(&"PixelEncoding"), "PixelEncoding missing");
+        assert!(names.contains(&"SensorCooling"), "SensorCooling missing");
+        assert!(names.contains(&"FanSpeed"), "FanSpeed missing");
+        assert!(names.contains(&"CameraModel"), "CameraModel missing");
+
+        // Total: 11 core + ~50 dynamic
+        assert!(
+            names.len() > 50,
+            "Expected 50+ parameters (11 core + dynamic), got {}",
+            names.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_dynamic_enum_has_choices() {
+        let camera = AndorCamera::new_mock().await.unwrap();
+        let param_set = camera.parameters();
+
+        let param = param_set
+            .get("PixelEncoding")
+            .expect("PixelEncoding should exist");
+        let meta = param.metadata();
+        assert_eq!(meta.dtype, "enum");
+        assert!(!meta.enum_values.is_empty());
+        assert!(meta.enum_values.contains(&"Mono16".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_dynamic_float_has_range() {
+        let camera = AndorCamera::new_mock().await.unwrap();
+        let param_set = camera.parameters();
+
+        let param = param_set.get("FrameRate").expect("FrameRate should exist");
+        let meta = param.metadata();
+        assert_eq!(meta.dtype, "float");
+        assert!(meta.min_value.is_some());
+        assert!(meta.max_value.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_dynamic_readonly_rejects_set() {
+        let camera = AndorCamera::new_mock().await.unwrap();
+        let param_set = camera.parameters();
+
+        let param = param_set.get("FrameRate").expect("FrameRate should exist");
+        assert!(param.metadata().read_only, "FrameRate should be read-only");
+
+        let result = param.set_json(serde_json::json!(100.0));
+        assert!(result.is_err(), "Setting read-only parameter should fail");
+    }
+
+    #[tokio::test]
+    async fn test_no_duplicate_parameter_names() {
+        let camera = AndorCamera::new_mock().await.unwrap();
+        let param_set = camera.parameters();
+        let mut names = param_set.names();
+        let original_len = names.len();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), original_len, "Found duplicate parameter names");
+    }
+
+    #[tokio::test]
+    async fn test_core_features_not_duplicated() {
+        let camera = AndorCamera::new_mock().await.unwrap();
+        let param_set = camera.parameters();
+
+        // SDK3 name should NOT be registered (covered by core Rust-typed parameter)
+        assert!(
+            param_set.get("ExposureTime").is_none(),
+            "ExposureTime should not exist (covered by exposure_s)"
+        );
+        assert!(
+            param_set.get("exposure_s").is_some(),
+            "exposure_s core parameter should exist"
+        );
     }
 }

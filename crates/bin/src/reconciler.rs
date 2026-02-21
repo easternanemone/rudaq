@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use common::error::DaqError;
-use db::config_store::{config_hash, json_to_toml, DbDriver, DbInstrument};
+use db::config_store::{config_hash, json_to_toml, DbDeviceFeature, DbDriver, DbInstrument};
 use db::DaqDb;
 use hardware::registry::DeviceRegistry;
 use tracing::{info, warn};
@@ -186,6 +186,85 @@ async fn repair_driver_metadata(
     Ok(blocked)
 }
 
+/// Convert a device's parameter metadata into `DbDeviceFeature` rows and
+/// persist them to SurrealDB.
+///
+/// Called after successful device registration or reconfiguration. Uses
+/// `DeviceRegistry::get_parameterized()` to access the device's `ParameterSet`,
+/// then maps each parameter's `ObservableMetadata` to a `DbDeviceFeature`.
+///
+/// This is intentionally generic — no driver-specific code. Any device that
+/// implements `Parameterized` will have its features cached.
+async fn persist_device_features(db: &DaqDb, registry: &DeviceRegistry, device_id: &str) {
+    let Some(parameterized) = registry.get_parameterized(device_id) else {
+        return; // Device doesn't implement Parameterized — nothing to cache
+    };
+
+    let params = parameterized.parameters();
+    let features: Vec<DbDeviceFeature> = params
+        .iter()
+        .map(|(name, param)| {
+            let meta = param.metadata();
+            DbDeviceFeature {
+                device_id: device_id.to_owned(),
+                feature_name: name.to_owned(),
+                feature_type: meta.dtype.clone(),
+                readable: true,
+                writable: !meta.read_only,
+                min_value: meta.min_value,
+                max_value: meta.max_value,
+                step: meta.step,
+                enum_values: meta.enum_values.clone(),
+                unit: meta.units.clone(),
+                description: meta.description.clone(),
+                group_name: None, // Populated by C.2 when group metadata is added
+            }
+        })
+        .collect();
+
+    if features.is_empty() {
+        return;
+    }
+
+    match db.upsert_device_features(&features).await {
+        Ok(count) => {
+            info!(
+                device_id,
+                count, "reconciler: persisted device feature metadata"
+            );
+        }
+        Err(e) => {
+            warn!(
+                device_id,
+                error = %e,
+                "reconciler: failed to persist device feature metadata"
+            );
+        }
+    }
+}
+
+/// Remove cached feature metadata for a device from SurrealDB.
+///
+/// Called after successful device removal.
+async fn cleanup_device_features(db: &DaqDb, device_id: &str) {
+    match db.delete_device_features(device_id).await {
+        Ok(count) if count > 0 => {
+            info!(
+                device_id,
+                count, "reconciler: cleaned up device feature metadata"
+            );
+        }
+        Ok(_) => {} // Nothing to clean up
+        Err(e) => {
+            warn!(
+                device_id,
+                error = %e,
+                "reconciler: failed to clean up device feature metadata"
+            );
+        }
+    }
+}
+
 /// Perform a single reconciliation pass.
 ///
 /// Compares the desired state in the database against the current state
@@ -224,6 +303,7 @@ pub async fn reconcile_once(
             match registry.unregister(&device.id).await {
                 Ok(true) => {
                     info!(device_id = device.id, "reconciler: removed device");
+                    cleanup_device_features(db, &device.id).await;
                     report.removed.push(device.id.clone());
                 }
                 Ok(false) => {
@@ -275,6 +355,7 @@ pub async fn reconcile_once(
                             config_source = "db",
                             "reconciler: reconfigured in place"
                         );
+                        persist_device_features(db, registry, id).await;
                         report.updated.push(id.clone());
                         continue;
                     }
@@ -332,6 +413,7 @@ pub async fn reconcile_once(
                     config_source = "db",
                     "reconciler: added device"
                 );
+                persist_device_features(db, registry, id).await;
                 report.added.push(id.clone());
             }
             Err(e) => {
@@ -1291,5 +1373,131 @@ mod tests {
         }
 
         shutdown.cancel();
+    }
+
+    /// Feature persistence: adding a device should cache its parameter metadata
+    /// in the device_feature table.
+    #[tokio::test]
+    async fn test_reconcile_persists_device_features() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+        let registry = test_registry();
+
+        // Add device to DB and reconcile — should trigger persist_device_features.
+        db.upsert_instruments(&[sample_instrument("pm_feat")])
+            .await
+            .unwrap();
+        let report = reconcile_once(&db, &registry).await.unwrap();
+        assert_eq!(report.added, vec!["pm_feat"]);
+
+        // Verify features were persisted in device_feature table.
+        let features = db.get_device_features("pm_feat").await.unwrap();
+        assert!(
+            !features.is_empty(),
+            "device_feature table should have entries after registration"
+        );
+
+        // MockPowerMeter has at least 2 parameters (power, reading).
+        assert!(
+            features.len() >= 2,
+            "expected at least 2 features, got {}",
+            features.len()
+        );
+
+        // Verify fields are populated.
+        for feat in &features {
+            assert_eq!(feat.device_id, "pm_feat");
+            assert!(!feat.feature_name.is_empty());
+            assert!(!feat.feature_type.is_empty());
+        }
+    }
+
+    /// Feature cleanup: removing a device should delete its cached features.
+    #[tokio::test]
+    async fn test_reconcile_cleans_up_features_on_removal() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+        let registry = test_registry();
+
+        // Add and reconcile.
+        db.upsert_instruments(&[sample_instrument("pm_cleanup")])
+            .await
+            .unwrap();
+        reconcile_once(&db, &registry).await.unwrap();
+
+        // Verify features exist.
+        let features = db.get_device_features("pm_cleanup").await.unwrap();
+        assert!(!features.is_empty(), "features should be persisted");
+
+        // Remove from DB — reconcile should clean up features.
+        db.delete_instrument("pm_cleanup").await.unwrap();
+        let report = reconcile_once(&db, &registry).await.unwrap();
+        assert_eq!(report.removed, vec!["pm_cleanup"]);
+
+        // Verify features were cleaned up.
+        let features = db.get_device_features("pm_cleanup").await.unwrap();
+        assert!(
+            features.is_empty(),
+            "device_feature table should be empty after removal"
+        );
+    }
+
+    /// Feature re-persistence: reconfiguring a device should refresh features.
+    #[tokio::test]
+    async fn test_reconcile_repersists_features_on_config_change() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+        let registry = test_registry();
+
+        // Add and reconcile.
+        db.upsert_instruments(&[sample_instrument("pm_reconfig")])
+            .await
+            .unwrap();
+        reconcile_once(&db, &registry).await.unwrap();
+
+        let features_before = db.get_device_features("pm_reconfig").await.unwrap();
+        assert!(!features_before.is_empty());
+
+        // Change config — should trigger re-registration and re-persist features.
+        let mut updated = sample_instrument("pm_reconfig");
+        updated.config = serde_json::json!({"wavelength_nm": 1064});
+        db.upsert_instruments(&[updated]).await.unwrap();
+
+        let report = reconcile_once(&db, &registry).await.unwrap();
+        // MockPowerMeter doesn't support Reconfigurable, so it falls back to
+        // unregister+register — features get re-persisted on the new registration.
+        assert!(
+            report.added.contains(&"pm_reconfig".to_string()),
+            "should re-register, got: {report}"
+        );
+
+        let features_after = db.get_device_features("pm_reconfig").await.unwrap();
+        assert!(
+            !features_after.is_empty(),
+            "features should be re-persisted after reconfig"
+        );
+        assert_eq!(features_before.len(), features_after.len());
+    }
+
+    /// Feature persistence is idempotent — running reconcile twice doesn't
+    /// duplicate features.
+    #[tokio::test]
+    async fn test_reconcile_feature_persistence_idempotent() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+        let registry = test_registry();
+
+        db.upsert_instruments(&[sample_instrument("pm_idem")])
+            .await
+            .unwrap();
+        reconcile_once(&db, &registry).await.unwrap();
+
+        let features_first = db.get_device_features("pm_idem").await.unwrap();
+
+        // Second reconcile — no-op, but should not duplicate features.
+        reconcile_once(&db, &registry).await.unwrap();
+
+        let features_second = db.get_device_features("pm_idem").await.unwrap();
+        assert_eq!(
+            features_first.len(),
+            features_second.len(),
+            "idempotent reconcile should not duplicate features"
+        );
     }
 }

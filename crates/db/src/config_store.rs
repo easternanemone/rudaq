@@ -53,6 +53,46 @@ pub struct DbInstrument {
     pub enabled: bool,
 }
 
+/// A device feature metadata record stored in SurrealDB.
+///
+/// Caches parameter metadata (type, ranges, enum values) discovered at
+/// registration time. Does NOT store live values — only static metadata
+/// for UI pre-rendering and offline feature queries.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DbDeviceFeature {
+    /// Device ID this feature belongs to (e.g., "andor_istar_0").
+    pub device_id: String,
+    /// Feature/parameter name (e.g., "ExposureTime", "mcp_gain").
+    pub feature_name: String,
+    /// Data type: "float", "int", "bool", "enum", "string", "command".
+    pub feature_type: String,
+    /// Whether this feature can be read.
+    pub readable: bool,
+    /// Whether this feature can be written.
+    pub writable: bool,
+    /// Minimum value for numeric features.
+    #[serde(default)]
+    pub min_value: Option<f64>,
+    /// Maximum value for numeric features.
+    #[serde(default)]
+    pub max_value: Option<f64>,
+    /// Step size for numeric features.
+    #[serde(default)]
+    pub step: Option<f64>,
+    /// Allowed values for enum features.
+    #[serde(default)]
+    pub enum_values: Vec<String>,
+    /// Physical unit (e.g., "s", "C", "ps").
+    #[serde(default)]
+    pub unit: Option<String>,
+    /// Human-readable description.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// UI grouping category (e.g., "Intensifier", "Acquisition").
+    #[serde(default)]
+    pub group_name: Option<String>,
+}
+
 /// Summary of a config import operation.
 #[derive(Debug, Clone, Default)]
 pub struct ImportReport {
@@ -233,6 +273,82 @@ impl DaqDb {
             .await?;
         let rows: Vec<DbDriver> = response.take(0)?;
         Ok(rows)
+    }
+
+    // -------------------------------------------------------------------
+    // Device Features
+    // -------------------------------------------------------------------
+
+    /// Upsert device feature metadata in a single atomic transaction.
+    ///
+    /// Uses (device_id, feature_name) as the unique key — existing records
+    /// are updated, new records are created. Batches all features into one
+    /// SurrealQL `FOR` loop inside a transaction for atomicity and performance.
+    pub async fn upsert_device_features(&self, features: &[DbDeviceFeature]) -> Result<usize> {
+        if features.is_empty() {
+            return Ok(0);
+        }
+        let count = features.len();
+        self.client()
+            .query(
+                "BEGIN TRANSACTION; \
+                 FOR $feat IN $features { \
+                     UPSERT device_feature SET \
+                         device_id = $feat.device_id, \
+                         feature_name = $feat.feature_name, \
+                         feature_type = $feat.feature_type, \
+                         readable = $feat.readable, \
+                         writable = $feat.writable, \
+                         min_value = $feat.min_value, \
+                         max_value = $feat.max_value, \
+                         step = $feat.step, \
+                         enum_values = $feat.enum_values, \
+                         unit = $feat.unit, \
+                         description = $feat.description, \
+                         group_name = $feat.group_name, \
+                         discovered_at = time::now() \
+                     WHERE device_id = $feat.device_id \
+                         AND feature_name = $feat.feature_name; \
+                 }; \
+                 COMMIT TRANSACTION;",
+            )
+            .bind(("features", features.to_vec()))
+            .await?;
+        info!(count, "device feature upsert complete");
+        Ok(count)
+    }
+
+    /// Retrieve all feature metadata for a specific device.
+    pub async fn get_device_features(&self, device_id: &str) -> Result<Vec<DbDeviceFeature>> {
+        let mut response = self
+            .client()
+            .query(
+                "SELECT device_id, feature_name, feature_type, readable, writable, \
+                 min_value, max_value, step, enum_values, unit, description, group_name \
+                 FROM device_feature WHERE device_id = $device_id \
+                 ORDER BY feature_name",
+            )
+            .bind(("device_id", device_id.to_owned()))
+            .await?;
+        let rows: Vec<DbDeviceFeature> = response.take(0)?;
+        Ok(rows)
+    }
+
+    /// Delete all feature metadata for a specific device.
+    ///
+    /// Called when a device is unregistered to clean up stale metadata.
+    pub async fn delete_device_features(&self, device_id: &str) -> Result<usize> {
+        let mut response = self
+            .client()
+            .query("DELETE FROM device_feature WHERE device_id = $device_id RETURN BEFORE")
+            .bind(("device_id", device_id.to_owned()))
+            .await?;
+        let deleted: Vec<DbDeviceFeature> = response.take(0)?;
+        let count = deleted.len();
+        if count > 0 {
+            info!(device_id, count, "deleted device features");
+        }
+        Ok(count)
     }
 }
 
@@ -705,5 +821,134 @@ mod tests {
         // Hash should be non-zero for non-empty configs
         let config = serde_json::json!({"port": "/dev/ttyS0"});
         assert_ne!(config_hash(&config), 0);
+    }
+
+    // -------------------------------------------------------------------
+    // Device Feature tests
+    // -------------------------------------------------------------------
+
+    fn sample_device_features() -> Vec<DbDeviceFeature> {
+        vec![
+            DbDeviceFeature {
+                device_id: "andor_istar_0".into(),
+                feature_name: "ExposureTime".into(),
+                feature_type: "float".into(),
+                readable: true,
+                writable: true,
+                min_value: Some(0.0001),
+                max_value: Some(10.0),
+                step: Some(0.0001),
+                enum_values: vec![],
+                unit: Some("s".into()),
+                description: Some("Camera exposure time".into()),
+                group_name: Some("Acquisition".into()),
+            },
+            DbDeviceFeature {
+                device_id: "andor_istar_0".into(),
+                feature_name: "MCPGain".into(),
+                feature_type: "int".into(),
+                readable: true,
+                writable: true,
+                min_value: Some(0.0),
+                max_value: Some(4095.0),
+                step: Some(1.0),
+                enum_values: vec![],
+                unit: None,
+                description: Some("Intensifier MCP gain".into()),
+                group_name: Some("Intensifier".into()),
+            },
+            DbDeviceFeature {
+                device_id: "andor_istar_0".into(),
+                feature_name: "TriggerMode".into(),
+                feature_type: "enum".into(),
+                readable: true,
+                writable: true,
+                min_value: None,
+                max_value: None,
+                step: None,
+                enum_values: vec!["Internal".into(), "External".into(), "Software".into()],
+                unit: None,
+                description: Some("Trigger source selection".into()),
+                group_name: Some("Acquisition".into()),
+            },
+        ]
+    }
+
+    #[tokio::test]
+    async fn test_upsert_and_get_device_features() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        let features = sample_device_features();
+        let count = db.upsert_device_features(&features).await.unwrap();
+        assert_eq!(count, 3);
+
+        let retrieved = db.get_device_features("andor_istar_0").await.unwrap();
+        assert_eq!(retrieved.len(), 3);
+
+        // Results are ordered by feature_name
+        assert_eq!(retrieved[0].feature_name, "ExposureTime");
+        assert_eq!(retrieved[0].feature_type, "float");
+        assert!(retrieved[0].readable);
+        assert!(retrieved[0].writable);
+        assert_eq!(retrieved[0].min_value, Some(0.0001));
+        assert_eq!(retrieved[0].max_value, Some(10.0));
+        assert_eq!(retrieved[0].unit, Some("s".into()));
+        assert_eq!(retrieved[0].group_name, Some("Acquisition".into()));
+
+        assert_eq!(retrieved[1].feature_name, "MCPGain");
+        assert_eq!(retrieved[1].feature_type, "int");
+        assert_eq!(retrieved[1].max_value, Some(4095.0));
+
+        assert_eq!(retrieved[2].feature_name, "TriggerMode");
+        assert_eq!(retrieved[2].feature_type, "enum");
+        assert_eq!(
+            retrieved[2].enum_values,
+            vec!["Internal", "External", "Software"]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_upsert_device_features_idempotent() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        let features = sample_device_features();
+        db.upsert_device_features(&features).await.unwrap();
+        db.upsert_device_features(&features).await.unwrap();
+
+        let retrieved = db.get_device_features("andor_istar_0").await.unwrap();
+        assert_eq!(
+            retrieved.len(),
+            3,
+            "upsert should not duplicate device features"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_delete_device_features() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        let features = sample_device_features();
+        db.upsert_device_features(&features).await.unwrap();
+
+        let deleted = db.delete_device_features("andor_istar_0").await.unwrap();
+        assert_eq!(deleted, 3);
+
+        let remaining = db.get_device_features("andor_istar_0").await.unwrap();
+        assert!(remaining.is_empty(), "all features should be deleted");
+
+        // Deleting again should return 0
+        let deleted_again = db.delete_device_features("andor_istar_0").await.unwrap();
+        assert_eq!(deleted_again, 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_device_features_empty() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        let features = db.get_device_features("nonexistent_device").await.unwrap();
+        assert!(
+            features.is_empty(),
+            "querying non-existent device should return empty vec"
+        );
     }
 }

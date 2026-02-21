@@ -12,7 +12,7 @@
 //! - `connects_to` — instrument → instrument (physical cabling)
 
 /// Current schema version. Bump this when adding migrations.
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 
 /// A single schema migration step.
 #[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
@@ -45,6 +45,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 5,
         sql: SCHEMA_V5,
+    },
+    Migration {
+        version: 6,
+        sql: SCHEMA_V6,
     },
 ];
 
@@ -161,6 +165,31 @@ DEFINE TABLE IF NOT EXISTS uses_instrument TYPE RELATION
     FROM experiment_plan TO instrument;
 ";
 
+/// v5→v6 migration: device feature metadata cache.
+///
+/// Stores discovered parameter metadata (types, ranges, enum values) for each
+/// device. This enables UI pre-rendering and offline feature queries without
+/// requiring the device to be online.
+#[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
+const SCHEMA_V6: &str = r"
+-- Device feature metadata cache (parameter names, types, ranges — not live values)
+DEFINE TABLE IF NOT EXISTS device_feature SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS device_id ON device_feature TYPE string;
+DEFINE FIELD IF NOT EXISTS feature_name ON device_feature TYPE string;
+DEFINE FIELD IF NOT EXISTS feature_type ON device_feature TYPE string;
+DEFINE FIELD IF NOT EXISTS readable ON device_feature TYPE bool DEFAULT true;
+DEFINE FIELD IF NOT EXISTS writable ON device_feature TYPE bool DEFAULT true;
+DEFINE FIELD IF NOT EXISTS min_value ON device_feature TYPE option<float>;
+DEFINE FIELD IF NOT EXISTS max_value ON device_feature TYPE option<float>;
+DEFINE FIELD IF NOT EXISTS step ON device_feature TYPE option<float>;
+DEFINE FIELD IF NOT EXISTS enum_values ON device_feature FLEXIBLE TYPE option<array>;
+DEFINE FIELD IF NOT EXISTS unit ON device_feature TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS description ON device_feature TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS group_name ON device_feature TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS discovered_at ON device_feature TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_device_feature ON device_feature FIELDS device_id, feature_name UNIQUE;
+";
+
 /// Apply the schema to the database.
 ///
 /// This is called once during [`DaqDb::init`] and is idempotent.
@@ -259,6 +288,7 @@ mod tests {
             "run_record",
             "executed_from",
             "uses_instrument",
+            "device_feature",
         ] {
             assert!(
                 info_str.contains(table),

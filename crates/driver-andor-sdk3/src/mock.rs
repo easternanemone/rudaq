@@ -14,6 +14,7 @@
 //! - Realistic parameter ranges
 //! - Async delays to simulate hardware timing
 
+use crate::introspection::{self, DiscoveredFeature, FeatureType};
 use crate::types::{CameraInfo, Grating, SpectrographInfo, WavelengthCalibration};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -29,6 +30,10 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
+
+/// Core parameter names that are explicitly constructed in MockCamera::new().
+/// Dynamic features with these SDK3 names are skipped to avoid duplicates.
+const MOCK_CORE_FEATURES: &[&str] = &["ExposureTime", "MCPGain"];
 
 /// Mock iStar camera for testing
 #[derive(Clone)]
@@ -80,6 +85,11 @@ impl MockCamera {
         let mut params = ParameterSet::new();
         params.register(exposure_s.clone());
         params.register(mcp_gain.clone());
+
+        // Register dynamic features from the mock introspection catalog.
+        // This gives MockCamera 30+ parameters (matching real iStar hardware),
+        // enabling realistic UI development and integration testing.
+        register_mock_dynamic_features(&introspection::introspect_mock_features(), &mut params);
 
         let inner = Arc::new(MockCameraInner {
             info,
@@ -333,5 +343,200 @@ impl ShutterControl for MockSpectrograph {
 impl Parameterized for MockSpectrograph {
     fn parameters(&self) -> &ParameterSet {
         &self.inner.params
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic feature registration for MockCamera
+// ---------------------------------------------------------------------------
+
+/// Register `Parameter<T>` instances from the mock introspection catalog.
+///
+/// Converts each `DiscoveredFeature` into the appropriate typed parameter:
+/// - Float → `Parameter<f64>` with introspectable range
+/// - Int → `Parameter<i64>` with introspectable range
+/// - Bool → `Parameter<bool>`
+/// - Enum → `Parameter<String>` with introspectable choices
+/// - Str → `Parameter<String>` (read-only identity strings)
+/// - Command → skipped (not observable state)
+///
+/// Features whose SDK3 names overlap with `MOCK_CORE_FEATURES` are skipped,
+/// and unimplemented or non-displayable features are skipped.
+fn register_mock_dynamic_features(features: &[DiscoveredFeature], params: &mut ParameterSet) {
+    let mut count = 0u32;
+
+    for feat in features {
+        // Skip unimplemented, non-displayable, and core-overlap features.
+        if !feat.is_displayable() || MOCK_CORE_FEATURES.contains(&feat.name.as_str()) {
+            continue;
+        }
+        // Commands are not observable parameters.
+        if feat.feature_type == FeatureType::Command {
+            continue;
+        }
+
+        match feat.feature_type {
+            FeatureType::Float => {
+                let mut p = Parameter::new(&feat.name, 0.0f64).with_dtype("float");
+                if let Some((min, max)) = feat.float_range {
+                    p = p.with_range_introspectable(min, max);
+                }
+                if !feat.writable {
+                    p = p.read_only();
+                }
+                params.register(p);
+            }
+            FeatureType::Int => {
+                let default = feat.int_range.map_or(0i64, |(min, _)| min);
+                let mut p = Parameter::new(&feat.name, default).with_dtype("int");
+                if let Some((min, max)) = feat.int_range {
+                    p = p.with_range_introspectable(min, max);
+                }
+                if !feat.writable {
+                    p = p.read_only();
+                }
+                params.register(p);
+            }
+            FeatureType::Bool => {
+                let mut p = Parameter::new(&feat.name, false).with_dtype("bool");
+                if !feat.writable {
+                    p = p.read_only();
+                }
+                params.register(p);
+            }
+            FeatureType::Enum => {
+                let default = feat.enum_values.first().cloned().unwrap_or_default();
+                let mut p = Parameter::new(&feat.name, default)
+                    .with_choices_introspectable(feat.enum_values.clone());
+                if !feat.writable {
+                    p = p.read_only();
+                }
+                params.register(p);
+            }
+            FeatureType::Str => {
+                let mut p = Parameter::new(&feat.name, String::new()).with_dtype("string");
+                if !feat.writable {
+                    p = p.read_only();
+                }
+                params.register(p);
+            }
+            FeatureType::Command => unreachable!("Commands filtered above"),
+        }
+
+        count += 1;
+    }
+
+    tracing::debug!(
+        count,
+        "MockCamera: registered dynamic iStar feature parameters"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+#[cfg(not(feature = "camera"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mock_camera_has_30_plus_params() {
+        let camera = MockCamera::new();
+        let params = camera.parameters();
+        let count = params.names().len();
+        assert!(
+            count >= 30,
+            "MockCamera should have 30+ parameters, got {count}"
+        );
+    }
+
+    #[test]
+    fn mock_camera_core_params_not_duplicated() {
+        let camera = MockCamera::new();
+        let params = camera.parameters();
+        let names = params.names();
+        // Should have exposure_s (core) but not ExposureTime (dynamic)
+        assert!(names.contains(&"exposure_s"), "core exposure_s missing");
+        assert!(names.contains(&"mcp_gain"), "core mcp_gain missing");
+        assert!(
+            !names.contains(&"ExposureTime"),
+            "ExposureTime should be skipped (covered by exposure_s)"
+        );
+        assert!(
+            !names.contains(&"MCPGain"),
+            "MCPGain should be skipped (covered by mcp_gain)"
+        );
+    }
+
+    #[test]
+    fn mock_camera_enum_param_has_choices() {
+        let camera = MockCamera::new();
+        let params = camera.parameters();
+        let trigger = params.get("TriggerMode").expect("TriggerMode should exist");
+        let meta = trigger.metadata();
+        assert_eq!(meta.dtype, "enum");
+        assert!(
+            !meta.enum_values.is_empty(),
+            "TriggerMode should have enum values"
+        );
+        assert!(meta.enum_values.contains(&"Internal".to_string()));
+    }
+
+    #[test]
+    fn mock_camera_float_param_has_range() {
+        let camera = MockCamera::new();
+        let params = camera.parameters();
+        let frame_rate = params.get("FrameRate").expect("FrameRate should exist");
+        let meta = frame_rate.metadata();
+        assert_eq!(meta.dtype, "float");
+        assert!(meta.min_value.is_some(), "FrameRate should have min_value");
+        assert!(meta.max_value.is_some(), "FrameRate should have max_value");
+    }
+
+    #[test]
+    fn mock_camera_readonly_params_flagged() {
+        let camera = MockCamera::new();
+        let params = camera.parameters();
+        let sensor_w = params.get("SensorWidth").expect("SensorWidth should exist");
+        assert!(
+            sensor_w.metadata().read_only,
+            "SensorWidth should be read-only"
+        );
+    }
+
+    #[test]
+    fn mock_camera_writable_enum_set_json() {
+        let camera = MockCamera::new();
+        let params = camera.parameters();
+        let trigger = params.get("TriggerMode").expect("TriggerMode");
+        trigger
+            .set_json(serde_json::json!("External"))
+            .expect("setting TriggerMode to valid value should succeed");
+    }
+
+    #[test]
+    fn mock_camera_readonly_rejects_set() {
+        let camera = MockCamera::new();
+        let params = camera.parameters();
+        let sensor_w = params.get("SensorWidth").expect("SensorWidth");
+        let result = sensor_w.set_json(serde_json::json!(1024));
+        assert!(result.is_err(), "SensorWidth is read-only, set should fail");
+    }
+
+    #[test]
+    fn mock_camera_no_duplicate_names() {
+        let camera = MockCamera::new();
+        let params = camera.parameters();
+        let mut names = params.names();
+        let original_len = names.len();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(
+            names.len(),
+            original_len,
+            "MockCamera has duplicate parameter names"
+        );
     }
 }

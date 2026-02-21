@@ -70,6 +70,7 @@ pub mod buffer;
 pub mod camera;
 pub mod error;
 pub mod factory;
+pub mod introspection;
 pub mod mock;
 pub mod spectrograph;
 pub mod types;

@@ -429,7 +429,7 @@ impl PvcamDriver {
         let exposure_ms = Parameter::new("acquisition.exposure_ms", 100.0)
             .with_description("Exposure time")
             .with_unit("ms")
-            .with_range(0.1, 60000.0);
+            .with_range_introspectable(0.1, 60000.0);
 
         let trigger_mode = Parameter::new(
             "acquisition.trigger_mode",
@@ -472,22 +472,25 @@ impl PvcamDriver {
 
         let armed = Parameter::new("acquisition.armed", false)
             .with_description("Camera armed for trigger")
+            .with_dtype("bool")
             .read_only();
 
         let streaming = Parameter::new("acquisition.streaming", false)
             .with_description("Camera streaming state")
+            .with_dtype("bool")
             .read_only();
 
         // Thermal Group
         let temperature = Parameter::new("thermal.temperature", 0.0)
             .with_description("Current sensor temperature")
             .with_unit("C")
+            .with_dtype("float")
             .read_only();
 
         let temperature_setpoint = Parameter::new("thermal.setpoint", -10.0)
             .with_description("Temperature setpoint")
             .with_unit("C")
-            .with_range(-100.0, 50.0);
+            .with_range_introspectable(-100.0, 50.0);
 
         let fan_speed = Parameter::new("thermal.fan_speed", FanSpeed::High.as_str().to_string())
             .with_description("Cooling fan speed")
@@ -577,7 +580,8 @@ impl PvcamDriver {
 
         // Streaming & Metadata Group
         let smart_stream_enabled = Parameter::new("streaming.smart_stream_enabled", false)
-            .with_description("Hardware-timed smart streaming");
+            .with_description("Hardware-timed smart streaming")
+            .with_dtype("bool");
 
         let smart_stream_mode = Parameter::new(
             "streaming.smart_stream_mode",
@@ -587,7 +591,8 @@ impl PvcamDriver {
         .with_choices_introspectable(SmartStreamMode::all_choices());
 
         let metadata_enabled = Parameter::new("processing.metadata_enabled", false)
-            .with_description("Enable per-frame metadata");
+            .with_description("Enable per-frame metadata")
+            .with_dtype("bool");
 
         // Host-Side Processing Group
         let host_rotate = Parameter::new(
@@ -603,11 +608,13 @@ impl PvcamDriver {
                 .with_choices_introspectable(FrameFlip::all_choices());
 
         let host_summing_enabled = Parameter::new("processing.host_summing_enabled", false)
-            .with_description("Enable host-side frame summing");
+            .with_description("Enable host-side frame summing")
+            .with_dtype("bool");
 
         let host_summing_count = Parameter::new("processing.host_summing_count", 1u32)
             .with_description("Number of frames to sum on host")
-            .with_range(1, 1000);
+            .with_range(1, 1000)
+            .with_dtype("int");
 
         // I/O Control (bd-6q0k)
         let io_address = Parameter::new("io.address", 0u16)
@@ -617,7 +624,7 @@ impl PvcamDriver {
             .with_choices_introspectable(vec!["Input".into(), "Output".into()]);
         let io_state = Parameter::new("io.state", 0.0f64)
             .with_description("I/O signal state (0.0 = low, 1.0 = high)")
-            .with_range(0.0, 1.0);
+            .with_range_introspectable(0.0, 1.0);
 
         // Frame Transfer Mode (bd-03s3)
         let frame_transfer_mode =
