@@ -20,7 +20,7 @@ pub use types::*;
 use crate::components::connection::PvcamConnection;
 #[cfg(any(feature = "pvcam_sdk", feature = "pvcam_hardware"))]
 use anyhow::anyhow;
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 
 #[cfg(any(feature = "pvcam_sdk", feature = "pvcam_hardware"))]
 use crate::components::connection::get_pvcam_error;
@@ -2863,6 +2863,27 @@ impl PvcamFeatures {
     // I/O Script Control (bd-ncbd)
     // =========================================================================
 
+    /// High-level I/O control using the PVCAM 3.x parameter-based API (bd-lkci).
+    ///
+    /// Combines `set_io_address`, `set_io_direction`, and `set_io_state` into a
+    /// single call. This replaces the legacy `io_script_control` function.
+    ///
+    /// # Arguments
+    /// - `address`: I/O line number (0, 1, 2, ...)
+    /// - `direction`: "Input" or "Output"
+    /// - `state`: Signal state (0.0 = low, 1.0 = high)
+    pub fn io_control(
+        conn: &PvcamConnection,
+        address: u16,
+        direction: &str,
+        state: f64,
+    ) -> Result<()> {
+        Self::set_io_address(conn, address).context("setting I/O address")?;
+        Self::set_io_direction(conn, address, direction).context("setting I/O direction")?;
+        Self::set_io_state(conn, address, state).context("setting I/O state")?;
+        Ok(())
+    }
+
     /// Control a programmable I/O script on the camera (bd-ncbd).
     ///
     /// # Deprecation Notice
@@ -2882,6 +2903,10 @@ impl PvcamFeatures {
     /// # SDK Reference
     /// Uses `pl_io_script_control` which programs the camera's I/O scripting
     /// engine for automated signal generation during acquisition.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use io_control() or set_io_address/set_io_direction/set_io_state instead (PVCAM 3.x parameter-based API)"
+    )]
     pub fn io_script_control(
         _conn: &PvcamConnection,
         _script_addr: u16,

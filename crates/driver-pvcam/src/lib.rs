@@ -1493,15 +1493,15 @@ impl PvcamDriver {
             move |val| {
                 let conn = conn.clone();
                 Box::pin(async move {
-                    let cmd: u16 = match val.as_str() {
-                        "Start" => 0,
-                        "Reset" => 2,
-                        _ => 1, // Stop
+                    let state: f64 = match val.as_str() {
+                        "Start" => 1.0,
+                        "Reset" => 2.0, // Distinct from Stop; maps to PVCAM reset pulse
+                        _ => 0.0,       // Stop (default)
                     };
                     let conn_guard = conn.lock_owned().await;
                     tokio::task::spawn_blocking(move || {
-                        // Use script address 0 (default); address is fixed for simple use cases
-                        PvcamFeatures::io_script_control(&conn_guard, 0, cmd)
+                        // Use address 0 (default); PVCAM 3.x parameter-based API (bd-lkci)
+                        PvcamFeatures::io_control(&conn_guard, 0, "Output", state)
                             .map_err(|e| DaqError::Instrument(e.to_string()))
                     })
                     .await

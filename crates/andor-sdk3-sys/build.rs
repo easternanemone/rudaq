@@ -246,7 +246,7 @@ fn generate_dummy_bindings() {
 // without the actual Andor SDK3 headers. Enable the `andor-sdk3` feature
 // to generate real bindings.
 
-use std::os::raw::{c_char, c_int, c_double, c_void};
+use std::os::raw::{c_char, c_int, c_uint, c_double, c_void};
 
 /// Andor handle type (opaque)
 pub type AT_H = c_int;
@@ -548,7 +548,7 @@ pub unsafe extern "C" fn AT_WaitBuffer(
     _handle: AT_H,
     _ptr: *mut *mut AT_U8,
     _ptr_size: *mut c_int,
-    _timeout: c_int,
+    _timeout: c_uint,
 ) -> c_int {
     panic!("{}", ANDOR_SDK3_PANIC_MSG);
 }

@@ -648,19 +648,86 @@ impl PvcamAcquisition {
                 y_bin,
                 "Creating PVCAM region (rgn_type)"
             );
+            // Validate ROI dimensions before casting to uns16 (bd-8zcu)
+            if roi.width == 0 || roi.height == 0 {
+                return Err(anyhow!(
+                    "Invalid ROI: width and height must be > 0 (got {}x{})",
+                    roi.width,
+                    roi.height
+                ));
+            }
+            if x_bin == 0 || y_bin == 0 {
+                return Err(anyhow!(
+                    "Invalid binning: x_bin and y_bin must be > 0 (got {}x{})",
+                    x_bin,
+                    y_bin
+                ));
+            }
+            // s2 = roi.x + roi.width - 1 and p2 = roi.y + roi.height - 1 must fit in uns16
+            let s2 = roi
+                .x
+                .checked_add(roi.width)
+                .and_then(|v| v.checked_sub(1))
+                .ok_or_else(|| {
+                    anyhow!(
+                        "ROI serial range overflow: x={} + width={} exceeds bounds",
+                        roi.x,
+                        roi.width
+                    )
+                })?;
+            let p2 = roi
+                .y
+                .checked_add(roi.height)
+                .and_then(|v| v.checked_sub(1))
+                .ok_or_else(|| {
+                    anyhow!(
+                        "ROI parallel range overflow: y={} + height={} exceeds bounds",
+                        roi.y,
+                        roi.height
+                    )
+                })?;
+            if s2 > u16::MAX as u32 {
+                return Err(anyhow!(
+                    "ROI serial endpoint {} exceeds uns16 max ({})",
+                    s2,
+                    u16::MAX
+                ));
+            }
+            if p2 > u16::MAX as u32 {
+                return Err(anyhow!(
+                    "ROI parallel endpoint {} exceeds uns16 max ({})",
+                    p2,
+                    u16::MAX
+                ));
+            }
+            if roi.width % x_bin as u32 != 0 {
+                tracing::warn!(
+                    "ROI width {} not evenly divisible by x_bin {}, PVCAM may round",
+                    roi.width,
+                    x_bin
+                );
+            }
+            if roi.height % y_bin as u32 != 0 {
+                tracing::warn!(
+                    "ROI height {} not evenly divisible by y_bin {}, PVCAM may round",
+                    roi.height,
+                    y_bin
+                );
+            }
             // SAFETY: rgn_type is a plain-old-data (POD) C struct from the PVCAM SDK
             // containing only primitive integer fields (uns16). Zero-initialization
             // followed by explicit assignment of all fields is safe because:
             // 1. The struct has no pointers, references, padding requirements, or drop semantics
             // 2. All fields are primitive integers that accept any bit pattern
             // 3. Every field is explicitly set before the struct is passed to PVCAM
+            // 4. All values validated above to fit within uns16 range (bd-8zcu)
             let region = unsafe {
                 let mut rgn: rgn_type = std::mem::zeroed();
                 rgn.s1 = roi.x as uns16;
-                rgn.s2 = (roi.x + roi.width - 1) as uns16;
+                rgn.s2 = s2 as uns16;
                 rgn.sbin = x_bin;
                 rgn.p1 = roi.y as uns16;
-                rgn.p2 = (roi.y + roi.height - 1) as uns16;
+                rgn.p2 = p2 as uns16;
                 rgn.pbin = y_bin;
                 tracing::debug!(
                     s1 = rgn.s1,
@@ -2076,22 +2143,22 @@ impl PvcamAcquisition {
         // the allocated buffer causing heap corruption and silent crashes (~35 frames in).
         // 16 is the PVCAM SDK maximum for multi-ROI acquisition.
         const MAX_ROIS: u16 = 16;
-        let md_frame_ptr: *mut md_frame = if use_metadata {
-            match ffi_safe::create_md_frame(MAX_ROIS) {
-                Some(ptr) => {
+        let md_frame_guard = if use_metadata {
+            match ffi_safe::MdFrameGuard::new(MAX_ROIS) {
+                Some(guard) => {
                     tracing::debug!(
                         "Created md_frame struct for {} ROIs for metadata decoding",
                         MAX_ROIS
                     );
-                    ptr
+                    guard
                 }
                 None => {
                     tracing::warn!("Failed to create md_frame struct, metadata decoding disabled");
-                    std::ptr::null_mut()
+                    ffi_safe::MdFrameGuard::null()
                 }
             }
         } else {
-            std::ptr::null_mut()
+            ffi_safe::MdFrameGuard::null()
         };
 
         // Track when receiver count became zero for graceful disconnect (bd-cckz)
@@ -2535,18 +2602,18 @@ impl PvcamAcquisition {
             }
 
             // Step 3: Decode metadata (frame_ptr data still valid in NO_OVERWRITE mode)
-            // SAFETY: md_frame_ptr was allocated via Box::into_raw (non-null checked above).
+            // SAFETY: md_frame_guard wraps a valid md_frame pointer (non-null checked above).
             // frame_ptr and frame_bytes come from the SDK's get_oldest_frame call.
             // decode_frame_metadata is an FFI wrapper that reads the frame buffer.
             // The header dereference is safe because decode populates it on success.
-            let frame_metadata = if !md_frame_ptr.is_null() {
+            let frame_metadata = if !md_frame_guard.as_ptr().is_null() {
                 unsafe {
                     if ffi_safe::decode_frame_metadata(
-                        md_frame_ptr,
+                        md_frame_guard.as_ptr(),
                         frame_ptr,
                         frame_bytes as uns32,
                     ) {
-                        let hdr = &*(*md_frame_ptr).header;
+                        let hdr = &*(*md_frame_guard.as_ptr()).header;
                         let ts_res = hdr.timestampResNs as u64;
                         let exp_res = hdr.exposureTimeResNs as u64;
                         Some(FrameMetadata {
@@ -2569,8 +2636,8 @@ impl PvcamAcquisition {
             // Only triggers when metadata reports roiCount > 1 and md_frame is valid.
             // This enables downstream consumers to access individual ROI pixel data.
             if let Some(ref md) = frame_metadata {
-                if md.roi_count > 1 && !md_frame_ptr.is_null() {
-                    match ffi_safe::extract_roi_data(md_frame_ptr) {
+                if md.roi_count > 1 && !md_frame_guard.as_ptr().is_null() {
+                    match ffi_safe::extract_roi_data(md_frame_guard.as_ptr()) {
                         Ok(roi_data) => {
                             // Log per-ROI dimensions on first multi-ROI frame or periodically
                             if loop_iteration <= 5 || loop_iteration % 500 == 0 {
@@ -3034,13 +3101,6 @@ impl PvcamAcquisition {
             streaming.get(),
             shutdown.load(Ordering::Acquire)
         );
-
-        // Gemini SDK review: Release md_frame struct if it was allocated
-        // bd-g9gq: Use FFI safe wrapper with explicit safety contract
-        if !md_frame_ptr.is_null() {
-            ffi_safe::release_md_frame(md_frame_ptr);
-            tracing::debug!("Released md_frame struct");
-        }
 
         // Log acquisition summary with frame loss statistics (bd-ek9n.3, bd-dmbl)
         let total_frames = frame_count.load(Ordering::Relaxed);

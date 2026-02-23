@@ -70,7 +70,7 @@ pub fn restart_acquisition(
 /// # Returns
 /// `Ok(frame_bytes)` on success, `Err(String)` on failure
 #[allow(clippy::too_many_arguments)]
-pub fn full_restart_acquisition(
+pub(crate) fn full_restart_acquisition(
     hcam: i16,
     roi_x: u32,
     roi_y: u32,
@@ -92,6 +92,8 @@ pub fn full_restart_acquisition(
     // SAFETY: rgn_type is a POD C struct with only primitive uns16 fields.
     // Zero-initialization followed by explicit assignment of all fields is safe.
     // See start_stream() for detailed safety justification.
+    // Precondition: ROI values were validated by start_stream (bd-8zcu) before
+    // reaching this function — width/height > 0 and endpoints fit in uns16.
     let region = unsafe {
         let mut rgn: rgn_type = std::mem::zeroed();
         rgn.s1 = roi_x as uns16;
@@ -434,6 +436,53 @@ pub fn release_md_frame(ptr: *mut md_frame) {
         }
     }
 }
+
+/// RAII guard for `md_frame` pointer (bd-u602).
+///
+/// Ensures the md_frame struct is released even if the acquisition loop exits
+/// early via `?`, `return Err(...)`, or panic. Replaces manual
+/// `create_md_frame`/`release_md_frame` pairing with deterministic Drop cleanup.
+pub struct MdFrameGuard {
+    ptr: *mut md_frame,
+}
+
+impl MdFrameGuard {
+    /// Create a new metadata frame guard, or `None` if allocation fails.
+    pub fn new(roi_count: u16) -> Option<Self> {
+        create_md_frame(roi_count).map(|ptr| Self { ptr })
+    }
+
+    /// Create a null (no-op) guard for when metadata is disabled.
+    pub fn null() -> Self {
+        Self {
+            ptr: std::ptr::null_mut(),
+        }
+    }
+
+    /// Get the raw md_frame pointer for FFI calls.
+    pub fn as_ptr(&self) -> *mut md_frame {
+        self.ptr
+    }
+
+    /// Returns true if the guard holds a null pointer (metadata disabled).
+    pub fn is_null(&self) -> bool {
+        self.ptr.is_null()
+    }
+}
+
+impl Drop for MdFrameGuard {
+    fn drop(&mut self) {
+        release_md_frame(self.ptr);
+    }
+}
+
+// SAFETY: MdFrameGuard wraps a *mut md_frame allocated by the PVCAM SDK.
+// Raw pointers are Send in Rust (they have no negative auto-trait impls),
+// so this impl is technically redundant — but we keep it explicit to
+// document the safety invariant: the pointer is only dereferenced within
+// a single spawn_blocking context (the acquisition loop) and is never
+// aliased across threads.
+unsafe impl Send for MdFrameGuard {}
 
 /// Decode metadata from a frame buffer.
 ///

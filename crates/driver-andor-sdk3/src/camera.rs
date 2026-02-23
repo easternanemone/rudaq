@@ -177,6 +177,10 @@ struct AndorCameraInner {
     frames_dropped: AtomicU64,
     last_hw_frame_nr: std::sync::atomic::AtomicI32,
 
+    // Hardware timestamp clock frequency in Hz (bd-z54k)
+    // 0 = not available, use SystemTime fallback
+    hw_timestamp_freq: AtomicU64,
+
     // Error tracking (bd-z95k)
     last_error: std::sync::Mutex<Option<String>>,
 
@@ -207,6 +211,10 @@ struct AndorCameraInner {
     callback_tx: Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>,
     /// Receiver task handle — aborted in Drop as a backstop.
     callback_task_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
+
+    // Registered feature callback names for cleanup (bd-cytq)
+    #[cfg(feature = "camera")]
+    registered_callbacks: std::sync::Mutex<Vec<String>>,
 
     // Parameters
     params: ParameterSet,
@@ -409,6 +417,7 @@ impl AndorCamera {
             electronic_shuttering,
             frames_dropped: AtomicU64::new(0),
             last_hw_frame_nr: std::sync::atomic::AtomicI32::new(-1),
+            hw_timestamp_freq: AtomicU64::new(0),
             last_error: std::sync::Mutex::new(None),
             observers: Mutex::new(Vec::new()),
             next_observer_id: AtomicU64::new(1),
@@ -422,6 +431,8 @@ impl AndorCamera {
             #[cfg(feature = "camera")]
             callback_tx: Mutex::new(None),
             callback_task_handle: Mutex::new(None),
+            #[cfg(feature = "camera")]
+            registered_callbacks: std::sync::Mutex::new(Vec::new()),
             params,
         });
 
@@ -1567,6 +1578,10 @@ impl AndorCamera {
                         crate::error::AndorError::from_code(ret)
                     );
                 } else {
+                    // Track for cleanup in Drop (bd-cytq)
+                    if let Ok(mut cbs) = self.inner.registered_callbacks.lock() {
+                        cbs.push((*name).to_string());
+                    }
                     registered += 1;
                 }
             }
@@ -1750,6 +1765,47 @@ impl FrameProducer for AndorCamera {
                 "SDK3 acquisition parameters"
             );
 
+            // Enable hardware timestamps if supported (bd-z54k)
+            // Read TimestampClockFrequency once — it's constant during acquisition.
+            let hw_ts_freq = {
+                let ts_handle = inner.handle;
+                tokio::task::spawn_blocking(move || -> u64 {
+                    // Try to enable MetadataEnable (if available)
+                    if Self::is_feature_implemented(ts_handle, features::METADATA_ENABLE)
+                        .unwrap_or(false)
+                    {
+                        if let Err(e) =
+                            Self::set_bool_feature(ts_handle, features::METADATA_ENABLE, true)
+                        {
+                            tracing::debug!("Could not enable MetadataEnable: {e}");
+                        }
+                    }
+
+                    // Read clock frequency
+                    if Self::is_feature_implemented(ts_handle, features::TIMESTAMP_CLOCK_FREQUENCY)
+                        .unwrap_or(false)
+                    {
+                        match Self::get_int_feature(ts_handle, features::TIMESTAMP_CLOCK_FREQUENCY)
+                        {
+                            Ok(freq) if freq > 0 => {
+                                tracing::info!(freq, "Hardware timestamp clock frequency (Hz)");
+                                freq as u64
+                            }
+                            Ok(_) => 0,
+                            Err(e) => {
+                                tracing::debug!("Could not read TimestampClockFrequency: {e}");
+                                0
+                            }
+                        }
+                    } else {
+                        0
+                    }
+                })
+                .await
+                .unwrap_or(0)
+            };
+            inner.hw_timestamp_freq.store(hw_ts_freq, Ordering::Relaxed);
+
             // Allocate SDK buffers and queue them
             let buffer_count = crate::buffer::DEFAULT_BUFFER_COUNT;
             let sdk_buffers = Arc::new(crate::buffer::SdkBufferSet::new(buffer_count, image_size));
@@ -1884,7 +1940,7 @@ impl AndorCamera {
         bytes_per_pixel: usize,
     ) {
         let handle = inner.handle;
-        let timeout_ms: std::os::raw::c_int = 10_000; // 10s timeout per frame
+        let timeout_ms: std::os::raw::c_uint = 10_000; // 10s timeout per frame
 
         while inner.streaming.load(Ordering::SeqCst) {
             // Wait for next frame from SDK (blocking FFI call)
@@ -1962,10 +2018,29 @@ impl AndorCamera {
                     loaned.width = aoi_width;
                     loaned.height = aoi_height;
                     loaned.bit_depth = 16;
-                    loaned.timestamp_ns = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_nanos() as u64;
+
+                    // Hardware timestamps (bd-z54k): prefer SDK TimestampClock
+                    // over SystemTime for sub-µs precision and NTP immunity.
+                    let system_time_ns = || -> u64 {
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_nanos() as u64
+                    };
+                    let freq = inner.hw_timestamp_freq.load(Ordering::Relaxed);
+                    loaned.timestamp_ns = if freq > 0 {
+                        Self::get_int_feature(handle, features::TIMESTAMP_CLOCK)
+                            .ok()
+                            .filter(|&ticks| ticks >= 0) // guard: negative ticks would wrap in u128
+                            .map(|ticks| {
+                                // timestamp_ns = ticks * 1_000_000_000 / freq
+                                // Use u128 to avoid overflow for large tick counts
+                                ((ticks as u128) * 1_000_000_000 / (freq as u128)) as u64
+                            })
+                            .unwrap_or_else(|| system_time_ns())
+                    } else {
+                        system_time_ns()
+                    };
                     loaned.exposure_ms = inner.exposure_s.get() * 1000.0;
                     loaned.temperature_c = Some(inner.temperature_c.get());
                     let bin = inner.binning.get();
@@ -1986,7 +2061,12 @@ impl AndorCamera {
                     // Send to primary consumer
                     if let Some(tx) = inner.primary_tx.lock().await.as_ref() {
                         if tx.try_send(loaned).is_err() {
-                            tracing::trace!("Primary output full, frame {frame_nr} dropped");
+                            let dropped = inner.frames_dropped.fetch_add(1, Ordering::Relaxed) + 1;
+                            tracing::debug!(
+                                frame = frame_nr,
+                                total_dropped = dropped,
+                                "Primary output full, frame dropped (backpressure)"
+                            );
                         }
                     }
                 }
@@ -2253,6 +2333,31 @@ impl Drop for AndorCameraInner {
                 // Flush all queued buffers before closing
                 let _ = AT_Flush(self.handle);
 
+                // Explicitly unregister feature callbacks before AT_Close (bd-cytq).
+                // The SDK manual requires explicit unregistration; relying on AT_Close
+                // to clean up callbacks is undocumented behavior.
+                // The context pointer must match what was passed to AT_RegisterFeatureCallback.
+                let bridge_ctx = self._callback_bridge.lock().ok().and_then(|guard| {
+                    guard
+                        .as_ref()
+                        .map(|b| &**b as *const FeatureCallbackBridge as *mut std::os::raw::c_void)
+                });
+                if let Ok(cbs) = self.registered_callbacks.lock() {
+                    let ctx = bridge_ctx.unwrap_or(std::ptr::null_mut());
+                    for name in cbs.iter() {
+                        let feature_wide = andor_sdk3_sys::to_wide_string(name);
+                        let _ = AT_UnregisterFeatureCallback(
+                            self.handle,
+                            feature_wide.as_ptr(),
+                            Some(Self::sdk_feature_callback),
+                            ctx,
+                        );
+                    }
+                    if !cbs.is_empty() {
+                        tracing::debug!(count = cbs.len(), "Unregistered SDK feature callbacks");
+                    }
+                }
+
                 AT_Close(self.handle);
 
                 // Only finalize library when last instance is dropped
@@ -2359,5 +2464,21 @@ mod tests {
             param_set.get("exposure_s").is_some(),
             "exposure_s core parameter should exist"
         );
+    }
+
+    #[test]
+    fn test_wait_buffer_timeout_is_unsigned() {
+        // Type assertion: AT_WaitBuffer's timeout (4th param) must be c_uint.
+        // The SDK3 manual specifies `unsigned int Timeout` — using signed c_int
+        // would cause negative overflow for large timeout values.
+        //
+        // This enforces the FFI signature at compile time by casting the real
+        // AT_WaitBuffer symbol to the expected function pointer type.
+        let _: unsafe extern "C" fn(
+            andor_sdk3_sys::AT_H,
+            *mut *mut u8,
+            *mut std::os::raw::c_int,
+            std::os::raw::c_uint,
+        ) -> std::os::raw::c_int = andor_sdk3_sys::AT_WaitBuffer;
     }
 }
