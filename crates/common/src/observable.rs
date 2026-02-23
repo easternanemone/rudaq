@@ -323,6 +323,17 @@ pub struct ObservableMetadata {
     /// per the proto contract (daq.proto:610).
     #[serde(default)]
     pub enum_values: Vec<String>,
+
+    /// UI grouping category for collapsible panel sections.
+    ///
+    /// When set, the GUI renders this parameter inside a named collapsible
+    /// group (e.g., "Intensifier", "Timing", "Acquisition"). Parameters
+    /// without a group are displayed in a default/ungrouped section.
+    ///
+    /// Populated by drivers (e.g., Andor SDK3 feature groups) and passed
+    /// through gRPC `ListParameters` → `ParameterDescriptor.group_name`.
+    #[serde(default)]
+    pub group_name: Option<String>,
 }
 
 /// Structured parameter metadata for validation and UI hints.
@@ -341,6 +352,8 @@ pub struct ParameterMetadata {
     pub step: Option<f64>,
     #[serde(default)]
     pub enum_values: Vec<String>,
+    #[serde(default)]
+    pub group_name: Option<String>,
 }
 
 impl From<&ObservableMetadata> for ParameterMetadata {
@@ -354,6 +367,7 @@ impl From<&ObservableMetadata> for ParameterMetadata {
             max_value: metadata.max_value,
             step: metadata.step,
             enum_values: metadata.enum_values.clone(),
+            group_name: metadata.group_name.clone(),
         }
     }
 }
@@ -378,6 +392,7 @@ where
                     max_value: None,
                     step: None,
                     enum_values: Vec::new(),
+                    group_name: None,
                 },
                 validator: None,
             })),
@@ -399,6 +414,15 @@ where
     /// Mark this observable as read-only.
     pub fn read_only(self) -> Self {
         self.shared.write().metadata.read_only = true;
+        self
+    }
+
+    /// Set the UI group name for collapsible panel sections.
+    ///
+    /// Parameters with the same group name are rendered together in the UI
+    /// under a collapsible section header (e.g., "Intensifier", "Timing").
+    pub fn with_group(self, group: impl Into<String>) -> Self {
+        self.shared.write().metadata.group_name = Some(group.into());
         self
     }
 

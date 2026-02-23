@@ -220,6 +220,10 @@ service HardwareService {
   // Broadcasts all device states at a fixed tick rate (default 30Hz).
   // Timestamps are acquisition time from drivers, NOT broadcast time.
   rpc StreamSystemState(StreamSystemStateRequest) returns (stream SystemState);
+
+  // Offline device feature query (bd-mmjc)
+  // Returns cached feature metadata when a device is offline.
+  rpc GetDeviceFeatures(GetDeviceFeaturesRequest) returns (GetDeviceFeaturesResponse);
 }
 
 // =============================================================================
@@ -722,6 +726,9 @@ message ParameterDescriptor {
 
   // Structured metadata for validation and UI hints
   optional ParameterMetadata metadata = 13;
+
+  // UI grouping category for collapsible panel sections (e.g., "Intensifier", "Timing")
+  optional string group_name = 14;
 }
 
 // Parameter metadata for validation and UI hints
@@ -734,6 +741,8 @@ message ParameterMetadata {
   string dtype = 6;
   repeated string enum_values = 7;
   string description = 8;
+  // UI grouping category for collapsible panel sections
+  optional string group_name = 9;
 }
 
 message GetParameterRequest {
@@ -836,6 +845,35 @@ message SystemState {
   int64 broadcast_timestamp_ns = 2;
   // Current tick rate in Hz.
   uint32 tick_rate_hz = 3;
+}
+
+// =============================================================================
+// Device Feature Messages (bd-mmjc)
+// =============================================================================
+
+message GetDeviceFeaturesRequest {
+  string device_id = 1;
+  bool include_offline = 2;  // If true, return cached features when device is offline
+}
+
+message GetDeviceFeaturesResponse {
+  repeated DeviceFeature features = 1;
+  bool is_live = 2;  // true if device is online and features are live
+}
+
+message DeviceFeature {
+  string device_id = 1;
+  string feature_name = 2;
+  string feature_type = 3;  // "float", "int", "bool", "enum", "string", "command"
+  bool readable = 4;
+  bool writable = 5;
+  optional double min_value = 6;
+  optional double max_value = 7;
+  optional double step = 8;
+  repeated string enum_values = 9;
+  optional string unit = 10;
+  optional string description = 11;
+  optional string group_name = 12;
 }
 
 // =============================================================================

@@ -100,12 +100,16 @@ pub use proto::{
 pub use proto::hardware_service_client::HardwareServiceClient;
 pub use proto::hardware_service_server::{HardwareService, HardwareServiceServer};
 pub use proto::{
+    DeviceFeature,
     DeviceInfo,
     DeviceMetadata,
     DeviceStateRequest,
     DeviceStateResponse,
     DeviceStateSubscribeRequest,
     DeviceStateUpdate,
+    // Offline device feature query (bd-mmjc)
+    GetDeviceFeaturesRequest,
+    GetDeviceFeaturesResponse,
     GetEmissionRequest,
     GetEmissionResponse,
     GetExposureRequest,

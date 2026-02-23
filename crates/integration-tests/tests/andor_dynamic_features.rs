@@ -79,7 +79,7 @@ fn extract_db_features(registry: &DeviceRegistry, device_id: &str) -> Vec<DbDevi
                 enum_values: meta.enum_values.clone(),
                 unit: meta.units.clone(),
                 description: meta.description.clone(),
-                group_name: None,
+                group_name: meta.group_name.clone(),
             }
         })
         .collect()
@@ -452,4 +452,102 @@ async fn test_andor_feature_persistence_idempotent() {
         second.len(),
         "Idempotent upsert should not duplicate features"
     );
+}
+
+// =============================================================================
+// Test 7: Parameter group assignments via gRPC ListParameters
+// =============================================================================
+
+#[tokio::test]
+async fn test_andor_parameters_have_group_assignments() {
+    let registry = test_registry().await;
+    register_andor_mock(&registry).await;
+
+    let registry = Arc::new(registry);
+    let service = HardwareServiceImpl::new(registry.clone());
+
+    let resp = service
+        .list_parameters(Request::new(ListParametersRequest {
+            device_id: "istar_test".to_string(),
+        }))
+        .await
+        .expect("ListParameters should succeed");
+
+    let params = resp.into_inner().parameters;
+
+    // Build a name -> group_name map for easy lookup.
+    let group_map: HashMap<&str, Option<&str>> = params
+        .iter()
+        .map(|p| (p.name.as_str(), p.group_name.as_deref()))
+        .collect();
+
+    // Verify specific features have the expected group assignments.
+    assert_eq!(
+        group_map.get("TriggerMode").copied().flatten(),
+        Some("Acquisition"),
+        "TriggerMode should be in the Acquisition group"
+    );
+    assert_eq!(
+        group_map.get("DDGOutputDelay").copied().flatten(),
+        Some("Timing"),
+        "DDGOutputDelay should be in the Timing group"
+    );
+    assert_eq!(
+        group_map.get("SensorWidth").copied().flatten(),
+        Some("Sensor"),
+        "SensorWidth should be in the Sensor group"
+    );
+    assert_eq!(
+        group_map.get("InsertionDelay").copied().flatten(),
+        Some("Intensifier"),
+        "InsertionDelay should be in the Intensifier group"
+    );
+    assert_eq!(
+        group_map.get("PixelEncoding").copied().flatten(),
+        Some("Readout"),
+        "PixelEncoding should be in the Readout group"
+    );
+    assert_eq!(
+        group_map.get("AOIWidth").copied().flatten(),
+        Some("ROI"),
+        "AOIWidth should be in the ROI group"
+    );
+    assert_eq!(
+        group_map.get("MetadataEnable").copied().flatten(),
+        Some("Metadata"),
+        "MetadataEnable should be in the Metadata group"
+    );
+    assert_eq!(
+        group_map.get("CameraModel").copied().flatten(),
+        Some("Device"),
+        "CameraModel should be in the Device group"
+    );
+    assert_eq!(
+        group_map.get("GateMode").copied().flatten(),
+        Some("Intensifier"),
+        "GateMode should be in the Intensifier group"
+    );
+    assert_eq!(
+        group_map.get("SensorTemperature").copied().flatten(),
+        Some("Sensor"),
+        "SensorTemperature should be in the Sensor group"
+    );
+
+    // Verify that most dynamic parameters have a group assigned.
+    let dynamic_with_group = params.iter().filter(|p| p.group_name.is_some()).count();
+    assert!(
+        dynamic_with_group >= 30,
+        "Expected at least 30 parameters with group assignments, got {}",
+        dynamic_with_group
+    );
+
+    // Verify the group_name is also present in nested ParameterMetadata.
+    let trigger = params.iter().find(|p| p.name == "TriggerMode").unwrap();
+    if let Some(ref meta) = trigger.metadata {
+        assert_eq!(
+            meta.group_name.as_deref(),
+            Some("Acquisition"),
+            "ParameterMetadata.group_name should also be populated"
+        );
+    }
 }

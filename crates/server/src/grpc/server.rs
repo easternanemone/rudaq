@@ -1559,8 +1559,13 @@ pub async fn start_server_with_hardware(
         }
     });
 
-    let hardware_server =
-        HardwareServiceImpl::new(registry.clone()).with_state_broadcast(state_broadcast_tx);
+    let hardware_server = {
+        let svc =
+            HardwareServiceImpl::new(registry.clone()).with_state_broadcast(state_broadcast_tx);
+        #[cfg(feature = "db-surreal")]
+        let svc = svc.with_db(_db.clone());
+        svc
+    };
     let module_server = ModuleServiceImpl::new(registry.clone());
     let ni_daq_server = NiDaqServiceImpl::new(registry.clone());
 

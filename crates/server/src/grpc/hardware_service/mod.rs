@@ -13,6 +13,7 @@ use crate::grpc::{
         CompressionType,
         DeviceCommandRequest,
         DeviceCommandResponse,
+        DeviceFeature,
         DeviceInfo,
         DeviceMetadata as ProtoDeviceMetadata,
         DeviceStateRequest,
@@ -20,6 +21,8 @@ use crate::grpc::{
         DeviceStateSubscribeRequest,
         DeviceStateUpdate,
         FrameData,
+        GetDeviceFeaturesRequest,
+        GetDeviceFeaturesResponse,
         GetEmissionRequest,
         GetEmissionResponse,
         GetExposureRequest,
@@ -126,6 +129,9 @@ pub struct HardwareServiceImpl {
     param_change_tx: tokio::sync::broadcast::Sender<ParameterChange>,
     /// Broadcast sender for system state snapshots (game loop output)
     state_broadcast_tx: Option<tokio::sync::broadcast::Sender<SystemStateSnapshot>>,
+    /// Optional DB access for offline feature queries (bd-mmjc)
+    #[cfg(feature = "db-surreal")]
+    db: Option<Arc<db::DaqDb>>,
 }
 
 impl HardwareServiceImpl {
@@ -254,6 +260,8 @@ impl HardwareServiceImpl {
             stream_limiter: Arc::new(StreamLimiter::new()),
             param_change_tx,
             state_broadcast_tx: None,
+            #[cfg(feature = "db-surreal")]
+            db: None,
         }
     }
 
@@ -268,6 +276,8 @@ impl HardwareServiceImpl {
             stream_limiter: Arc::new(StreamLimiter::new()),
             param_change_tx,
             state_broadcast_tx: None,
+            #[cfg(feature = "db-surreal")]
+            db: None,
         }
     }
 
@@ -277,6 +287,13 @@ impl HardwareServiceImpl {
         tx: tokio::sync::broadcast::Sender<SystemStateSnapshot>,
     ) -> Self {
         self.state_broadcast_tx = Some(tx);
+        self
+    }
+
+    /// Attach a SurrealDB instance for offline device feature queries (bd-mmjc).
+    #[cfg(feature = "db-surreal")]
+    pub fn with_db(mut self, db: Option<db::DaqDb>) -> Self {
+        self.db = db.map(Arc::new);
         self
     }
 
@@ -2085,6 +2102,7 @@ impl HardwareService for HardwareServiceImpl {
                         max_value: live_metadata.max_value,
                         enum_values: live_metadata.enum_values.clone(),
                         metadata: Some(proto_metadata),
+                        group_name: live_metadata.group_name.clone(),
                     });
                 }
             }
@@ -2556,6 +2574,131 @@ impl HardwareService for HardwareServiceImpl {
         });
 
         Ok(Response::new(ReceiverStream::new(stream_rx)))
+    }
+
+    // =========================================================================
+    // Offline Device Feature Query (bd-mmjc)
+    // =========================================================================
+
+    #[instrument(skip(self, request), fields(method = "get_device_features"))]
+    async fn get_device_features(
+        &self,
+        request: Request<GetDeviceFeaturesRequest>,
+    ) -> Result<Response<GetDeviceFeaturesResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.device_id.is_empty() {
+            return Err(Status::invalid_argument("device_id must not be empty"));
+        }
+
+        // 1. If device is online and implements Parameterized, return live features.
+        if let Some(parameterized) = self.registry.get_parameterized(&req.device_id) {
+            let params = parameterized.parameters();
+            let features: Vec<DeviceFeature> = params
+                .iter()
+                .map(|(name, param)| {
+                    let meta = param.metadata();
+
+                    // Infer dtype from current value when metadata dtype is empty,
+                    // matching the list_parameters handler logic.
+                    let feature_type = if !meta.dtype.is_empty() {
+                        meta.dtype.clone()
+                    } else {
+                        match param.get_json() {
+                            Ok(serde_json::Value::Bool(_)) => "bool".to_string(),
+                            Ok(serde_json::Value::Number(n)) if n.is_i64() || n.is_u64() => {
+                                "int".to_string()
+                            }
+                            Ok(serde_json::Value::Number(_)) => "float".to_string(),
+                            Ok(serde_json::Value::String(_)) => "string".to_string(),
+                            _ => "unknown".to_string(),
+                        }
+                    };
+
+                    DeviceFeature {
+                        device_id: req.device_id.clone(),
+                        feature_name: name.to_owned(),
+                        feature_type,
+                        readable: true,
+                        writable: !meta.read_only,
+                        min_value: meta.min_value,
+                        max_value: meta.max_value,
+                        step: meta.step,
+                        enum_values: meta.enum_values.clone(),
+                        unit: meta.units.clone(),
+                        description: meta.description.clone(),
+                        group_name: meta.group_name.clone(),
+                    }
+                })
+                .collect();
+
+            return Ok(Response::new(GetDeviceFeaturesResponse {
+                features,
+                is_live: true,
+            }));
+        }
+
+        // Device is online but not Parameterized — return empty live result.
+        if self.registry.contains(&req.device_id) {
+            return Ok(Response::new(GetDeviceFeaturesResponse {
+                features: vec![],
+                is_live: true,
+            }));
+        }
+
+        // 2. Device is not in the registry — try offline DB fallback.
+        if !req.include_offline {
+            return Err(Status::not_found(format!(
+                "Device '{}' not found in registry",
+                req.device_id
+            )));
+        }
+
+        // Attempt DB query (feature-gated).
+        #[cfg(feature = "db-surreal")]
+        {
+            if let Some(ref db) = self.db {
+                let db_features = db.get_device_features(&req.device_id).await.map_err(|e| {
+                    Status::internal(format!("Failed to query device features from DB: {e}"))
+                })?;
+
+                if db_features.is_empty() {
+                    return Err(Status::not_found(format!(
+                        "Device '{}' not found in registry or feature cache",
+                        req.device_id
+                    )));
+                }
+
+                let features: Vec<DeviceFeature> = db_features
+                    .into_iter()
+                    .map(|f| DeviceFeature {
+                        device_id: f.device_id,
+                        feature_name: f.feature_name,
+                        feature_type: f.feature_type,
+                        readable: f.readable,
+                        writable: f.writable,
+                        min_value: f.min_value,
+                        max_value: f.max_value,
+                        step: f.step,
+                        enum_values: f.enum_values,
+                        unit: f.unit,
+                        description: f.description,
+                        group_name: f.group_name,
+                    })
+                    .collect();
+
+                return Ok(Response::new(GetDeviceFeaturesResponse {
+                    features,
+                    is_live: false,
+                }));
+            }
+        }
+
+        // No DB configured or feature not enabled — cannot serve offline data.
+        Err(Status::not_found(format!(
+            "Device '{}' not found in registry and offline feature cache is not available",
+            req.device_id
+        )))
     }
 }
 
@@ -3124,6 +3267,110 @@ mod tests {
         let status = result.unwrap_err();
         assert_eq!(status.code(), tonic::Code::InvalidArgument);
         assert!(status.message().contains("exceeds max"));
+    }
+
+    // =========================================================================
+    // StreamLimiter Tests (bd-64hu)
+    // =========================================================================
+
+    // =========================================================================
+    // GetDeviceFeatures Tests (bd-mmjc)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_get_device_features_online_parameterized() {
+        let registry = create_mock_registry().await.unwrap();
+        let service = HardwareServiceImpl::new(Arc::new(registry));
+
+        // mock_power_meter implements Parameterized — should return live features.
+        let request = Request::new(GetDeviceFeaturesRequest {
+            device_id: "mock_power_meter".to_string(),
+            include_offline: false,
+        });
+        let response = service.get_device_features(request).await.unwrap();
+        let resp = response.into_inner();
+
+        assert!(resp.is_live, "online device should return is_live=true");
+        assert!(
+            !resp.features.is_empty(),
+            "parameterized device should return features"
+        );
+
+        // All features should reference the correct device_id.
+        for feature in &resp.features {
+            assert_eq!(feature.device_id, "mock_power_meter");
+            assert!(!feature.feature_name.is_empty());
+            assert!(!feature.feature_type.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_device_features_device_not_found_no_offline() {
+        let registry = create_mock_registry().await.unwrap();
+        let service = HardwareServiceImpl::new(Arc::new(registry));
+
+        // Non-existent device with include_offline=false should return NOT_FOUND.
+        let request = Request::new(GetDeviceFeaturesRequest {
+            device_id: "nonexistent_device".to_string(),
+            include_offline: false,
+        });
+        let result = service.get_device_features(request).await;
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code(), tonic::Code::NotFound);
+    }
+
+    #[tokio::test]
+    async fn test_get_device_features_empty_device_id() {
+        let registry = create_mock_registry().await.unwrap();
+        let service = HardwareServiceImpl::new(Arc::new(registry));
+
+        let request = Request::new(GetDeviceFeaturesRequest {
+            device_id: String::new(),
+            include_offline: false,
+        });
+        let result = service.get_device_features(request).await;
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code(), tonic::Code::InvalidArgument);
+    }
+
+    #[tokio::test]
+    async fn test_get_device_features_device_not_found_include_offline_no_db() {
+        let registry = create_mock_registry().await.unwrap();
+        let service = HardwareServiceImpl::new(Arc::new(registry));
+
+        // Non-existent device with include_offline=true but no DB should return NOT_FOUND.
+        let request = Request::new(GetDeviceFeaturesRequest {
+            device_id: "nonexistent_device".to_string(),
+            include_offline: true,
+        });
+        let result = service.get_device_features(request).await;
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code(), tonic::Code::NotFound);
+    }
+
+    #[tokio::test]
+    async fn test_get_device_features_online_all_devices() {
+        let registry = create_mock_registry().await.unwrap();
+        let service = HardwareServiceImpl::new(Arc::new(registry));
+
+        // All mock devices should be parameterized and return live features.
+        for device_id in &["mock_stage", "mock_power_meter", "mock_camera"] {
+            let request = Request::new(GetDeviceFeaturesRequest {
+                device_id: device_id.to_string(),
+                include_offline: false,
+            });
+            let response = service.get_device_features(request).await.unwrap();
+            let resp = response.into_inner();
+
+            assert!(resp.is_live, "{device_id} should return is_live=true");
+            assert!(
+                !resp.features.is_empty(),
+                "{device_id} should have features"
+            );
+        }
     }
 
     // =========================================================================

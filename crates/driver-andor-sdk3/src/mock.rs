@@ -106,26 +106,91 @@ impl MockCamera {
         Self { inner }
     }
 
-    /// Generate synthetic gradient frame
+    /// Read the current pixel encoding from the dynamic parameter.
+    fn current_encoding(&self) -> &'static str {
+        self.inner
+            .params
+            .get("PixelEncoding")
+            .and_then(|p| {
+                p.get_json().ok().and_then(|v| match v {
+                    serde_json::Value::String(s) => Some(s),
+                    _ => None,
+                })
+            })
+            .map(|s| match s.as_str() {
+                "Mono12" => "Mono12",
+                "Mono12Packed" => "Mono12Packed",
+                "Mono32" => "Mono32",
+                _ => "Mono16",
+            })
+            .unwrap_or("Mono16")
+    }
+
+    /// Generate synthetic gradient frame respecting the current `PixelEncoding`.
     fn generate_frame(&self, width: u32, height: u32, frame_number: u32) -> Frame {
+        let encoding = self.current_encoding();
         let size = (width * height) as usize;
-        let mut pixels = vec![0u16; size];
+        let offset = frame_number % 100;
 
-        // Generate gradient pattern with frame number as offset
-        let offset = (frame_number % 100) as u16;
-        for y in 0..height {
-            for x in 0..width {
-                let idx = (y * width + x) as usize;
-                let value = ((x + y + offset as u32) % 65535) as u16;
-                pixels[idx] = value;
+        let (data, bit_depth) = match encoding {
+            "Mono12" => {
+                // 12-bit values in 16-bit LE containers (2 bytes/pixel)
+                let mut buf = Vec::with_capacity(size * 2);
+                for y in 0..height {
+                    for x in 0..width {
+                        let value = ((x + y + offset) % 4096) as u16;
+                        buf.extend_from_slice(&value.to_le_bytes());
+                    }
+                }
+                (buf, 12u32)
             }
-        }
-
-        // Convert u16 pixels to bytes
-        let mut data = Vec::with_capacity(pixels.len() * 2);
-        for pixel in pixels {
-            data.extend_from_slice(&pixel.to_le_bytes());
-        }
+            "Mono12Packed" => {
+                // Packing format (2 pixels → 3 bytes):
+                // - Byte0      = pixA[7:0]
+                // - Byte1[7:4] = pixB[3:0]
+                // - Byte1[3:0] = pixA[11:8]
+                // - Byte2      = pixB[11:4]
+                let packed_size = (size / 2) * 3 + if !size.is_multiple_of(2) { 2 } else { 0 };
+                let mut buf = Vec::with_capacity(packed_size);
+                let mut i = 0u32;
+                while (i as usize) < size {
+                    let pix_a = ((i + offset) % 4096) as u16;
+                    if (i as usize + 1) < size {
+                        let pix_b = ((i + 1 + offset) % 4096) as u16;
+                        buf.push((pix_a & 0xFF) as u8);
+                        buf.push(((pix_b & 0x0F) << 4 | (pix_a >> 8) & 0x0F) as u8);
+                        buf.push((pix_b >> 4) as u8);
+                    } else {
+                        // Odd trailing pixel
+                        buf.extend_from_slice(&pix_a.to_le_bytes());
+                    }
+                    i += 2;
+                }
+                (buf, 12)
+            }
+            "Mono32" => {
+                // 32-bit pixels (4 bytes/pixel)
+                let mut buf = Vec::with_capacity(size * 4);
+                for y in 0..height {
+                    for x in 0..width {
+                        let value = (x + y + offset) % 1_000_000;
+                        buf.extend_from_slice(&value.to_le_bytes());
+                    }
+                }
+                (buf, 32)
+            }
+            _ => {
+                // Mono16 (default): 16-bit pixels (2 bytes/pixel)
+                let mut buf = Vec::with_capacity(size * 2);
+                for y in 0..height {
+                    for x in 0..width {
+                        let value = ((x + y + offset) % 65535) as u16;
+                        buf.extend_from_slice(&value.to_le_bytes());
+                    }
+                }
+                (buf, 16)
+            }
+        };
 
         let timestamp_ns = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -135,7 +200,7 @@ impl MockCamera {
         Frame {
             width,
             height,
-            bit_depth: 16,
+            bit_depth,
             data: Bytes::from(data),
             timestamp_ns,
             frame_number: frame_number as u64,
@@ -200,6 +265,10 @@ impl FrameProducer for MockCamera {
         let mut observers = self.inner.observers.lock().await;
         observers.retain(|(h, _)| *h != handle);
         Ok(())
+    }
+
+    fn supports_observers(&self) -> bool {
+        true
     }
 }
 
@@ -384,6 +453,9 @@ fn register_mock_dynamic_features(features: &[DiscoveredFeature], params: &mut P
                 if !feat.writable {
                     p = p.read_only();
                 }
+                if let Some(ref group) = feat.group {
+                    p.with_metadata(|m| m.group_name = Some(group.clone()));
+                }
                 params.register(p);
             }
             FeatureType::Int => {
@@ -395,12 +467,18 @@ fn register_mock_dynamic_features(features: &[DiscoveredFeature], params: &mut P
                 if !feat.writable {
                     p = p.read_only();
                 }
+                if let Some(ref group) = feat.group {
+                    p.with_metadata(|m| m.group_name = Some(group.clone()));
+                }
                 params.register(p);
             }
             FeatureType::Bool => {
                 let mut p = Parameter::new(&feat.name, false).with_dtype("bool");
                 if !feat.writable {
                     p = p.read_only();
+                }
+                if let Some(ref group) = feat.group {
+                    p.with_metadata(|m| m.group_name = Some(group.clone()));
                 }
                 params.register(p);
             }
@@ -411,12 +489,18 @@ fn register_mock_dynamic_features(features: &[DiscoveredFeature], params: &mut P
                 if !feat.writable {
                     p = p.read_only();
                 }
+                if let Some(ref group) = feat.group {
+                    p.with_metadata(|m| m.group_name = Some(group.clone()));
+                }
                 params.register(p);
             }
             FeatureType::Str => {
                 let mut p = Parameter::new(&feat.name, String::new()).with_dtype("string");
                 if !feat.writable {
                     p = p.read_only();
+                }
+                if let Some(ref group) = feat.group {
+                    p.with_metadata(|m| m.group_name = Some(group.clone()));
                 }
                 params.register(p);
             }
@@ -538,5 +622,168 @@ mod tests {
             original_len,
             "MockCamera has duplicate parameter names"
         );
+    }
+
+    // === Pixel encoding tests (C.3) ===
+
+    #[test]
+    fn frame_encoding_default_is_mono12() {
+        // Default PixelEncoding is the first enum value: "Mono12"
+        let camera = MockCamera::new();
+        let frame = camera.generate_frame(64, 64, 0);
+        assert_eq!(frame.bit_depth, 12);
+        assert_eq!(
+            frame.data.len(),
+            64 * 64 * 2,
+            "Mono12: 2 bytes/pixel (12-bit in 16-bit container)"
+        );
+    }
+
+    #[test]
+    fn frame_encoding_mono16() {
+        let camera = MockCamera::new();
+        let params = camera.parameters();
+        params
+            .get("PixelEncoding")
+            .expect("PixelEncoding exists")
+            .set_json(serde_json::json!("Mono16"))
+            .expect("set Mono16");
+
+        let frame = camera.generate_frame(64, 64, 0);
+        assert_eq!(frame.bit_depth, 16);
+        assert_eq!(frame.data.len(), 64 * 64 * 2, "Mono16: 2 bytes/pixel");
+    }
+
+    #[test]
+    fn frame_encoding_mono12() {
+        let camera = MockCamera::new();
+        let params = camera.parameters();
+        params
+            .get("PixelEncoding")
+            .expect("PixelEncoding exists")
+            .set_json(serde_json::json!("Mono12"))
+            .expect("set Mono12");
+
+        let frame = camera.generate_frame(64, 64, 0);
+        assert_eq!(frame.bit_depth, 12);
+        assert_eq!(
+            frame.data.len(),
+            64 * 64 * 2,
+            "Mono12: 2 bytes/pixel (12-bit in 16-bit container)"
+        );
+
+        // Verify all pixel values are within 12-bit range
+        for chunk in frame.data.chunks_exact(2) {
+            let val = u16::from_le_bytes([chunk[0], chunk[1]]);
+            assert!(
+                val < 4096,
+                "Mono12 pixel value {} exceeds 12-bit range",
+                val
+            );
+        }
+    }
+
+    #[test]
+    fn frame_encoding_mono12packed() {
+        let camera = MockCamera::new();
+        let params = camera.parameters();
+        params
+            .get("PixelEncoding")
+            .expect("PixelEncoding exists")
+            .set_json(serde_json::json!("Mono12Packed"))
+            .expect("set Mono12Packed");
+
+        let frame = camera.generate_frame(64, 64, 0);
+        assert_eq!(frame.bit_depth, 12);
+        let pixel_count = 64 * 64;
+        let expected_size = (pixel_count / 2) * 3;
+        assert_eq!(
+            frame.data.len(),
+            expected_size,
+            "Mono12Packed: 3 bytes per 2 pixels"
+        );
+    }
+
+    #[test]
+    fn frame_encoding_mono12packed_roundtrip() {
+        let camera = MockCamera::new();
+        let params = camera.parameters();
+        params
+            .get("PixelEncoding")
+            .expect("PixelEncoding exists")
+            .set_json(serde_json::json!("Mono12Packed"))
+            .expect("set Mono12Packed");
+
+        let frame = camera.generate_frame(4, 2, 0);
+        // 8 pixels → 4 pairs → 12 bytes
+        assert_eq!(frame.data.len(), 12);
+
+        // Decode packed bytes and verify pixel values
+        for pair_idx in 0..4 {
+            let base = pair_idx * 3;
+            let b0 = frame.data[base] as u16;
+            let b1 = frame.data[base + 1] as u16;
+            let b2 = frame.data[base + 2] as u16;
+            let pix_a = b0 | ((b1 & 0x0F) << 8);
+            let pix_b = (b1 >> 4) | (b2 << 4);
+            assert!(pix_a < 4096, "Packed pixel A {} out of range", pix_a);
+            assert!(pix_b < 4096, "Packed pixel B {} out of range", pix_b);
+        }
+    }
+
+    #[test]
+    fn frame_encoding_mono32() {
+        let camera = MockCamera::new();
+        let params = camera.parameters();
+        params
+            .get("PixelEncoding")
+            .expect("PixelEncoding exists")
+            .set_json(serde_json::json!("Mono32"))
+            .expect("set Mono32");
+
+        let frame = camera.generate_frame(64, 64, 0);
+        assert_eq!(frame.bit_depth, 32);
+        assert_eq!(frame.data.len(), 64 * 64 * 4, "Mono32: 4 bytes/pixel");
+    }
+
+    #[test]
+    fn frame_encoding_switch_during_operation() {
+        let camera = MockCamera::new();
+        let params = camera.parameters();
+
+        // Default: Mono12
+        let f1 = camera.generate_frame(32, 32, 0);
+        assert_eq!(f1.bit_depth, 12);
+        assert_eq!(f1.data.len(), 32 * 32 * 2);
+
+        // Switch to Mono32
+        params
+            .get("PixelEncoding")
+            .expect("PixelEncoding exists")
+            .set_json(serde_json::json!("Mono32"))
+            .expect("set Mono32");
+        let f2 = camera.generate_frame(32, 32, 1);
+        assert_eq!(f2.bit_depth, 32);
+        assert_eq!(f2.data.len(), 32 * 32 * 4);
+
+        // Switch to Mono16
+        params
+            .get("PixelEncoding")
+            .expect("PixelEncoding exists")
+            .set_json(serde_json::json!("Mono16"))
+            .expect("set Mono16");
+        let f3 = camera.generate_frame(32, 32, 2);
+        assert_eq!(f3.bit_depth, 16);
+        assert_eq!(f3.data.len(), 32 * 32 * 2);
+
+        // Switch to Mono12Packed
+        params
+            .get("PixelEncoding")
+            .expect("PixelEncoding exists")
+            .set_json(serde_json::json!("Mono12Packed"))
+            .expect("set Mono12Packed");
+        let f4 = camera.generate_frame(32, 32, 3);
+        assert_eq!(f4.bit_depth, 12);
+        assert_eq!(f4.data.len(), (32 * 32 / 2) * 3);
     }
 }

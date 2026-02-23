@@ -1,19 +1,28 @@
-#!/usr/bin/env sh
-# bd-shim v1
-# bd-hooks-version: 0.49.4
+#!/usr/bin/env bash
+# Composite pre-push hook for rust-daq
 #
-# bd (beads) pre-push hook - thin shim
+# Chains two checks:
+#   1. Beads JSONL sync (prevents pushing stale issue data)
+#   2. Quality gate: fmt + clippy + tests (mirrors CI)
 #
-# This shim delegates to 'bd hooks run pre-push' which contains
-# the actual hook logic. This pattern ensures hook behavior is always
-# in sync with the installed bd version - no manual updates needed.
+# Skip with: git push --no-verify
 
-# Check if bd is available
-if ! command -v bd >/dev/null 2>&1; then
-    echo "Warning: bd command not found in PATH, skipping pre-push hook" >&2
+set -e
+
+# ── 1. Beads pre-push check ─────────────────────────────────────
+if command -v bd >/dev/null 2>&1; then
+    bd hooks run pre-push "$@"
+else
+    echo "Warning: bd command not found in PATH, skipping beads pre-push hook" >&2
     echo "  Install bd: brew install beads" >&2
-    echo "  Or add bd to your PATH" >&2
-    exit 0
 fi
 
-exec bd hooks run pre-push "$@"
+# ── 2. Quality gate (fmt + clippy + tests) ──────────────────────
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+GATE_SCRIPT="$REPO_ROOT/scripts/pre-push-gate.sh"
+
+if [ -x "$GATE_SCRIPT" ]; then
+    exec "$GATE_SCRIPT"
+else
+    echo "Warning: scripts/pre-push-gate.sh not found, skipping quality gate" >&2
+fi

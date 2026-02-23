@@ -650,6 +650,9 @@ impl AndorCamera {
                             });
                         }
                     }
+                    if let Some(ref group) = feat.group {
+                        param.with_metadata(|m| m.group_name = Some(group.clone()));
+                    }
                     params.register(param);
                 }
 
@@ -683,6 +686,9 @@ impl AndorCamera {
                             });
                         }
                     }
+                    if let Some(ref group) = feat.group {
+                        param.with_metadata(|m| m.group_name = Some(group.clone()));
+                    }
                     params.register(param);
                 }
 
@@ -711,6 +717,9 @@ impl AndorCamera {
                                 })
                             });
                         }
+                    }
+                    if let Some(ref group) = feat.group {
+                        param.with_metadata(|m| m.group_name = Some(group.clone()));
                     }
                     params.register(param);
                 }
@@ -744,6 +753,9 @@ impl AndorCamera {
                             });
                         }
                     }
+                    if let Some(ref group) = feat.group {
+                        param.with_metadata(|m| m.group_name = Some(group.clone()));
+                    }
                     params.register(param);
                 }
 
@@ -753,6 +765,9 @@ impl AndorCamera {
                         .with_dtype("string");
                     if !feat.writable {
                         param = param.read_only();
+                    }
+                    if let Some(ref group) = feat.group {
+                        param.with_metadata(|m| m.group_name = Some(group.clone()));
                     }
                     // SDK3 string features are typically read-only identity fields
                     // (CameraModel, SerialNumber, etc.) — no hardware write callbacks.

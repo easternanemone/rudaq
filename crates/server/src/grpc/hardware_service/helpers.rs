@@ -97,6 +97,7 @@ pub(super) fn proto_parameter_metadata(meta: &CommonParameterMetadata) -> ProtoP
         dtype: meta.dtype.clone(),
         enum_values: meta.enum_values.clone(),
         description: meta.description.clone().unwrap_or_default(),
+        group_name: meta.group_name.clone(),
     }
 }
 
