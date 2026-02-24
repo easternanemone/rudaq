@@ -5,6 +5,7 @@
 > **Note:** This document describes the legacy v1/v2 schema used by `GenericSerialDriver`.
 > The current system uses **schema v3** implemented in the `driver-universal` crate.
 > See `config/devices/ell14.toml` for a v3 example and `crates/driver-universal/` for implementation.
+> For the current schema v3 documentation, see [Device Config (Schema v3)](../how-to/device-config.md).
 
 ## Overview
 

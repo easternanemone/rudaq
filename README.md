@@ -44,49 +44,73 @@ cargo run --bin rust-daq-daemon -- run examples/demo_scan.rhai
 
 ## Architecture at a Glance
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                 User Interfaces                         │
-│  Desktop GUI (egui)  │  CLI Tools  │  gRPC Clients      │
-└───────────────┬───────────────────┬─────────────────────┘
-                │                   │
-┌───────────────▼───────────────────▼─────────────────────┐
-│          gRPC Server & Scripting Engine (Rhai)          │
-└───────────────┬─────────────────────────────────────────┘
-                │
-┌───────────────▼─────────────────────────────────────────┐
-│                  Core Experiment Engine                 │
-│   RunEngine  │  Plans  │  Observable State Management   │
-└───────────────┬─────────────────────────────────────────┘
-                │
-┌───────────────▼─────────────────────────────────────────┐
-│          Hardware Abstraction Layer (HAL)               │
-│  Capability Traits: Movable, Readable, FrameProducer    │
-│            Device Registry & Plugin System              │
-└───────────────┬─────────────────────────────────────────┘
-                │
-┌───────────────▼─────────────────────────────────────────┐
-│                 Hardware Drivers                        │
-│ PVCAM │ Comedi │ Thorlabs │ Newport │ Spectra Physics   │
-│         Serial Port Abstraction (RS-485, USB)           │
-└─────────────────────────────────────────────────────────┘
-                │
-        ┌───────┴──────────┬─────────┬──────────┐
-        │                  │         │          │
-    ┌───▼───┐      ┌──────▼──┐ ┌───▼──┐   ┌──▼───┐
-    │Camera │      │ Motion  │ │Laser │   │Sensor│
-    └───────┘      └─────────┘ └──────┘   └──────┘
+```mermaid
+graph TD
+    subgraph "User Interfaces"
+        GUI[Desktop GUI - egui]
+        CLI[CLI Tools]
+        GRPC_CLIENT[gRPC Clients - Python/Go]
+    end
+
+    subgraph "Services"
+        SERVER[gRPC Server - tonic]
+        SCRIPT[Rhai Scripting Engine]
+        MODULES[DAQ Modules]
+    end
+
+    subgraph "Domain Logic"
+        ENGINE[RunEngine + Plans]
+        DB[(SurrealDB Control Plane)]
+    end
+
+    subgraph "Hardware Abstraction"
+        HAL[DeviceRegistry + DriverFactory]
+        UNIVERSAL[driver-universal - TOML manifests]
+    end
+
+    subgraph "Native SDK Drivers"
+        PVCAM[driver-pvcam]
+        ANDOR[driver-andor-sdk3]
+        COMEDI[driver-comedi]
+        DOVER[driver-dover-motion]
+    end
+
+    subgraph "Serial Drivers - legacy"
+        THORLABS[driver-thorlabs]
+        NEWPORT[driver-newport]
+        SPECTRA[driver-spectra-physics]
+        MOCK[driver-mock]
+    end
+
+    subgraph "Data Pipeline"
+        RING[Ring Buffer - Arrow IPC]
+        STORAGE[HDF5 / CSV / Zarr Writers]
+        POOL[Object Pool - zero-alloc]
+    end
+
+    GUI & CLI & GRPC_CLIENT ---|gRPC / HTTP2| SERVER
+    SERVER --> SCRIPT & MODULES & ENGINE
+    ENGINE --> HAL
+    ENGINE -.->|lifecycle| DB
+    HAL --> UNIVERSAL & PVCAM & ANDOR & COMEDI & DOVER & THORLABS & NEWPORT & SPECTRA & MOCK
+    HAL -->|frames| RING
+    RING --> STORAGE
+    RING -.->|stream| SERVER
+    POOL -.->|zero-alloc frames| RING
 ```
 
 **Crate Organization:**
 
 | Tier | Crates | Purpose |
 |------|--------|---------|
-| **Core** | `common`, `hardware` | Foundations: error handling, device traits, registry |
-| **Drivers** | `driver-pvcam`, `driver-*` | Hardware integrations |
-| **Engine** | `experiment`, `scripting` | Orchestration and automation |
-| **Interfaces** | `server`, `ui`, `protocol` | gRPC, GUI, and network protocol |
-| **Data** | `storage`, `pool` | Persistence and high-performance buffers |
+| **Core** | `common`, `pool`, `protocol` | Foundation types, zero-alloc buffers, protobuf |
+| **Hardware** | `hardware`, `driver-mock`, `driver-universal` | HAL, registry, TOML-manifest drivers |
+| **Native Drivers** | `driver-pvcam`, `driver-andor-sdk3`, `driver-comedi`, `driver-dover-motion` | FFI-bound SDK drivers |
+| **Serial Drivers** | `driver-thorlabs`, `driver-newport`, `driver-spectra-physics` | Legacy serial (→ driver-universal) |
+| **Engine** | `experiment`, `scripting`, `daq-modules` | RunEngine, Rhai scripts, module system |
+| **Services** | `server`, `client`, `db` | gRPC server, client lib, SurrealDB |
+| **Data** | `storage` | Ring buffers, HDF5, Arrow, CSV, Zarr |
+| **Applications** | `bin`, `ui` | Daemon CLI, Desktop GUI |
 
 Full architecture docs: [System Architecture](docs/explanation/architecture.md)
 
@@ -103,8 +127,12 @@ Full architecture docs: [System Architecture](docs/explanation/architecture.md)
 | **Sensors** | Newport 1830-C Power Meter | Readable, WavelengthTunable, Parameterized | Production | `newport_power_meter` |
 | **DAQ** | NI PCI-MIO-16XE-10 | Readable, Settable (Comedi) | Production | `comedi_hardware` |
 | **Simulation** | Mock Stage, Mock Camera, Mock Sensors | All traits | Production | Built-in |
+| **Cameras** | Andor iStar sCMOS | FrameProducer, ExposureControl, GatedCamera | Active Development | `andor_hardware` |
+| **Motion** | Dover SmartStage | Movable, Parameterized | In Development | Built-in |
+| **Signal Gen** | Red Pitaya | Readable, Settable (TCP) | Production | Built-in |
+| **Config-Driven** | Any serial/TCP/SCPI device | Per-manifest | Production | `serial` |
 
-**Maitai Lab Configuration:** All 9+ devices integrated and tested. See [Maitai Setup Guide](docs/how-to/hardware-setup.md).
+**Maitai Lab Configuration:** 12 devices integrated and tested. See [Maitai Setup Guide](docs/how-to/hardware-setup.md).
 
 ---
 
@@ -173,7 +201,7 @@ cargo build -p ui --release
 #### Full Build (All Features)
 ```bash
 # Everything: all drivers, HDF5, server, scripting
-cargo build -p bin --features "server,all_hardware,storage_hdf5,scripting_rhai"
+cargo build -p bin --features "full,storage_hdf5"
 ```
 
 #### Maitai Hardware Build
@@ -181,7 +209,7 @@ cargo build -p bin --features "server,all_hardware,storage_hdf5,scripting_rhai"
 # Use build script for real hardware (CRITICAL: full clean + all drivers)
 bash scripts/build-maitai.sh
 
-# Verify: daemon log should show "Registered 9 device(s)"
+# Verify: daemon log should show "Registered 12 device(s)"
 # with camera, laser, power meter, rotators, motion, and DAQ
 ```
 
@@ -387,6 +415,13 @@ impl DriverFactory for MyDriverFactory {
     fn name(&self) -> &'static str { "My Custom Device" }
     fn capabilities(&self) -> &'static [Capability] { &[Capability::Movable] }
 
+    fn validate(&self, config: &toml::Value) -> Result<()> {
+        // Validate required config fields
+        let table = config.as_table().context("expected table")?;
+        anyhow::ensure!(table.contains_key("port"), "missing 'port' field");
+        Ok(())
+    }
+
     fn build(&self, config: toml::Value) -> BoxFuture<'static, Result<DeviceComponents>> {
         Box::pin(async move {
             let driver = Arc::new(MyDriver::new(&config).await?);
@@ -400,6 +435,8 @@ registry.register_factory(Box::new(MyDriverFactory));
 ```
 
 See [Hardware Drivers Guide](docs/how-to/hardware-drivers.md) for patterns and examples.
+
+> **Tip:** For new serial, TCP, or SCPI devices, prefer writing a [TOML manifest](docs/how-to/device-config.md) for `driver-universal` instead of implementing `DriverFactory` directly. The factory pattern is for native SDK drivers that need custom FFI bindings.
 
 ### Use the Plugin System
 
@@ -466,7 +503,7 @@ bash scripts/install-target-maintenance.sh --uninstall
 cat config/maitai_hardware.toml
 
 # Verify build includes real drivers
-cargo build -p bin --features pvcam_hardware,thorlabs,newport
+cargo build -p bin --features pvcam_hardware,serial
 
 # Check daemon log for device registration
 cargo run -p bin -- daemon --hardware-config config/demo.toml 2>&1 | grep "Registered"
@@ -530,7 +567,7 @@ Both are compatible with most commercial and open-source projects.
 
 - **V6 Architecture**: In progress — V5 stable, V6 usability improvements underway (See [ARCHITECTURE.md](docs/explanation/architecture.md))
 - **Core Features**: Production-ready (scripting, drivers, storage, gRPC)
-- **Hardware Support**: 9+ devices tested and verified on maitai machine (camera, laser, power meter, 3 rotators, motion controller, 2 Comedi channels)
+- **Hardware Support**: 12 devices tested and verified on maitai machine (camera, laser, power meter, 3 rotators, 3 motion axes, photodiode, 2 analog outputs)
 - **Documentation**: Comprehensive with ADRs for all major design decisions
 - **Testing**: Full test coverage with CI/CD pipeline
 

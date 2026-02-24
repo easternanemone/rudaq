@@ -3,14 +3,7 @@
 // - dead_code: Hardware-only structs have fields unused in mock mode
 // - unused_variables: Mock implementations may not use all parameters
 // - unused_imports: Some imports are only used in hardware mode
-// - unused_must_use: Mock implementations may discard Results
-#![allow(
-    unsafe_code,
-    dead_code,
-    unused_variables,
-    unused_imports,
-    unused_must_use
-)]
+#![allow(unsafe_code, dead_code, unused_variables, unused_imports)]
 // Clippy allows for FFI/mock patterns:
 #![allow(
     clippy::missing_safety_doc,

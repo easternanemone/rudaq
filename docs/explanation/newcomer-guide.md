@@ -261,5 +261,5 @@ Alternatively, for serial/TCP/SCPI instruments, use the **declarative driver** s
 ## Further Reading
 
 - **Crate Docs**: Run `cargo doc --open` for detailed API references.
-- **Integration Tests**: See `tests/multi_device_orchestration.rs` for real usage examples.
+- **Integration Tests**: See `crates/integration-tests/tests/multi_device_orchestration.rs` for real usage examples.
 - **Bluesky Docs**: https://nsls-ii.github.io/bluesky/ (Conceptual inspiration for Plans).

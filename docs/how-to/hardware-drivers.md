@@ -1418,7 +1418,7 @@ After implementing DriverFactory, register it at startup:
 ```rust
 // In main.rs or your initialization code
 use driver_yourdevice::YourDeviceFactory;
-use common::registry::DeviceRegistry;
+use hardware::DeviceRegistry;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -1429,7 +1429,7 @@ async fn main() -> Result<()> {
 
     // Other factories...
     registry.register_factory(Box::new(Ell14Factory));
-    registry.register_factory(Box::new(Newport1830cFactory));
+    registry.register_factory(Box::new(Newport1830CFactory));
 
     // Continue with normal startup...
 }

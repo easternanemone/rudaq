@@ -62,6 +62,35 @@ fn legacy_scpi_replacement(driver_type: &str) -> Option<&'static str> {
         .find_map(|(legacy, replacement)| (*legacy == driver_type).then_some(*replacement))
 }
 
+/// Resolve the `devices/` manifest directory adjacent to a config file.
+#[cfg(feature = "networking")]
+fn resolve_device_manifest_dir(config_path: &std::path::Path) -> Option<PathBuf> {
+    config_path
+        .parent()
+        .map(|p| p.join("devices"))
+        .filter(|p| p.exists())
+}
+
+/// Load a hardware config file and create a device registry from it.
+#[cfg(feature = "networking")]
+async fn load_hardware_config(
+    config_path: &std::path::Path,
+    label: &str,
+) -> Result<(DeviceRegistry, HardwareConfig)> {
+    println!(
+        "   Loading {label} hardware from: {}",
+        config_path.display()
+    );
+    let hw = HardwareConfig::from_file(config_path).context("Failed to parse hardware config")?;
+    let source = config_path.display().to_string();
+    log_runtime_policy_for_config(&source, &hw);
+    let config_dir = resolve_device_manifest_dir(config_path);
+    let reg = create_registry_from_config(&hw, config_dir.as_deref())
+        .await
+        .with_context(|| format!("Failed to create {label} hardware registry"))?;
+    Ok((reg, hw))
+}
+
 #[cfg(feature = "networking")]
 fn is_native_exception_driver(driver_type: &str) -> bool {
     matches!(
@@ -125,6 +154,41 @@ fn log_runtime_policy_for_config(source: &str, hw: &HardwareConfig) {
         println!(
             "   ⚠ Deprecated native drivers detected. Native SCPI/TCP paths are deprecated; see docs."
         );
+    }
+}
+
+#[cfg(feature = "networking")]
+#[derive(Debug)]
+enum ServerShutdownError {
+    TimedOut,
+    Server(anyhow::Error),
+    Join(tokio::task::JoinError),
+}
+
+#[cfg(feature = "networking")]
+impl std::fmt::Display for ServerShutdownError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TimedOut => f.write_str("Server shutdown timed out"),
+            Self::Server(e) => write!(f, "Server error on shutdown: {e}"),
+            Self::Join(e) => write!(f, "Server task join error: {e}"),
+        }
+    }
+}
+
+#[cfg(feature = "networking")]
+fn flatten_server_shutdown(
+    result: Result<
+        Result<Result<(), anyhow::Error>, tokio::task::JoinError>,
+        tokio::time::error::Elapsed,
+    >,
+) -> Result<(), ServerShutdownError> {
+    match result {
+        Err(_) => Err(ServerShutdownError::TimedOut),
+        Ok(Err(e)) if e.is_cancelled() => Ok(()),
+        Ok(Err(e)) => Err(ServerShutdownError::Join(e)),
+        Ok(Ok(Err(e))) => Err(ServerShutdownError::Server(e)),
+        Ok(Ok(Ok(()))) => Ok(()),
     }
 }
 
@@ -318,18 +382,7 @@ impl DaemonInstance {
         let (registry, hw_config) = {
             println!("🔧 Initializing hardware registry...");
             let (registry, hw_config) = if let Some(ref config_path) = config.hardware_config {
-                println!("   Loading from config: {}", config_path.display());
-                let hw = HardwareConfig::from_file(config_path)
-                    .context("Failed to parse hardware config")?;
-                let source = config_path.display().to_string();
-                log_runtime_policy_for_config(&source, &hw);
-                let config_dir = config_path
-                    .parent()
-                    .map(|p| p.join("devices"))
-                    .filter(|p| p.exists());
-                let reg = create_registry_from_config(&hw, config_dir.as_deref())
-                    .await
-                    .context("Failed to create hardware registry from config")?;
+                let (reg, hw) = load_hardware_config(config_path, "config").await?;
                 (reg, Some(hw))
             } else if config.lab_hardware {
                 let default_path = std::path::Path::new("config/maitai_hardware.toml");
@@ -339,18 +392,7 @@ impl DaemonInstance {
                         default_path.display()
                     );
                 }
-                println!("   Loading lab hardware from: {}", default_path.display());
-                let hw = HardwareConfig::from_file(default_path)
-                    .context("Failed to parse lab hardware config")?;
-                let source = default_path.display().to_string();
-                log_runtime_policy_for_config(&source, &hw);
-                let config_dir = default_path
-                    .parent()
-                    .map(|p| p.join("devices"))
-                    .filter(|p| p.exists());
-                let reg = create_registry_from_config(&hw, config_dir.as_deref())
-                    .await
-                    .context("Failed to create lab hardware registry")?;
+                let (reg, hw) = load_hardware_config(default_path, "lab").await?;
                 (reg, Some(hw))
             } else {
                 println!("   Using mock devices (no hardware config specified)");
@@ -656,17 +698,16 @@ impl DaemonInstance {
             self.shutdown_token.cancel();
 
             // Wait for server to drain with grace period
-            match tokio::time::timeout(std::time::Duration::from_secs(5), &mut self.server_task)
-                .await
-            {
-                Ok(Ok(Ok(()))) => println!("   ✓ Server stopped gracefully"),
-                Ok(Ok(Err(e))) => eprintln!("   ⚠️  Server error on shutdown: {}", e),
-                Ok(Err(e)) if e.is_cancelled() => println!("   ✓ Server task cancelled"),
-                Ok(Err(e)) => eprintln!("   ⚠️  Server task join error: {}", e),
-                Err(_elapsed) => {
+            match flatten_server_shutdown(
+                tokio::time::timeout(std::time::Duration::from_secs(5), &mut self.server_task)
+                    .await,
+            ) {
+                Ok(()) => println!("   ✓ Server stopped gracefully"),
+                Err(ServerShutdownError::TimedOut) => {
                     eprintln!("   ⚠️  Server shutdown timed out after 5s, force aborting");
                     self.server_task.abort();
                 }
+                Err(e) => eprintln!("   ⚠️  {e}"),
             }
         }
         #[cfg(not(feature = "networking"))]

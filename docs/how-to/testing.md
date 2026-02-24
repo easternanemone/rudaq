@@ -127,6 +127,7 @@ Require physical hardware (run on maitai machine):
 | `hardware_maitai_validation.rs` | MaiTai laser |
 | `hardware_pvcam_validation.rs` | Prime BSI camera |
 | `hardware_universal_driver_validation.rs` | TOML-driven drivers (Newport 1830-C, ESP300) |
+| `hardware_newport1830c_validation.rs` | Newport 1830-C power meter |
 
 The universal driver validation tests also include **mock tests** (15 tests) that run in CI without hardware, validating TOML config loading, capability wiring, and response parsing for all four device configs.
 

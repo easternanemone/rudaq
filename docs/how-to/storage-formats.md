@@ -39,7 +39,7 @@ output_path = "experiment_data.h5"
 
 **Rust Example:**
 ```rust
-use daq_storage::{HDF5Writer, RingBuffer};
+use storage::{HDF5Writer, RingBuffer};
 use std::sync::Arc;
 use std::path::Path;
 
@@ -63,7 +63,7 @@ tokio::spawn(async move {
 **Example:** Real-time optical power measurement
 
 ```rust
-use daq_storage::arrow_writer::ArrowDocumentWriter;
+use storage::arrow_writer::ArrowDocumentWriter;
 
 let writer = ArrowDocumentWriter::new(
     Path::new("live_data.arrow"),
@@ -89,7 +89,7 @@ let writer = ArrowDocumentWriter::new(
 **Example:** Save experiment results for ML analysis
 
 ```rust
-use daq_storage::arrow_writer::ParquetDocumentWriter;
+use storage::arrow_writer::ParquetDocumentWriter;
 
 let writer = ParquetDocumentWriter::new(
     Path::new("results.parquet"),
@@ -130,7 +130,7 @@ let writer = ParquetDocumentWriter::new(
 **Example:** 4D nested scan (wavelength × position × y × x)
 
 ```rust
-use daq_storage::zarr_writer::ZarrWriter;
+use storage::zarr_writer::ZarrWriter;
 
 let writer = ZarrWriter::new(Path::new("experiment.zarr")).await?;
 
@@ -194,7 +194,7 @@ Larger Buffer          Smaller Buffer
 ### Configuration Example
 
 ```rust
-use daq_storage::RingBuffer;
+use storage::RingBuffer;
 use std::path::Path;
 
 // 500 MB buffer for smooth streaming
@@ -249,7 +249,7 @@ size_mb = 500
 
 **Rust API:**
 ```rust
-use daq_storage::{ComediStreamWriter, ChannelConfig, CompressionType};
+use storage::{ComediStreamWriter, ChannelConfig, CompressionType};
 
 let channels = vec![
     ChannelConfig::new(0, "power_meter", -0.1, 10.0),
@@ -267,7 +267,7 @@ let writer = ComediStreamWriter::builder()
 ### Arrow IPC for Real-Time
 
 ```rust
-use daq_storage::arrow_writer::ArrowDocumentWriter;
+use storage::arrow_writer::ArrowDocumentWriter;
 
 // Fast write, no compression
 let writer = ArrowDocumentWriter::new(
@@ -285,7 +285,7 @@ writer.consume_document(stop_doc)?;
 ### Multi-Format Simultaneous Write
 
 ```rust
-use daq_storage::comedi_writer::{
+use storage::comedi_writer::{
     ComediStreamWriter, StorageFormat, ChannelConfig,
 };
 

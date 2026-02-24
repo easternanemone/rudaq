@@ -160,7 +160,7 @@ source ~/rust-daq/config/hosts/maitai.env
 
 # Check/rebuild daemon
 cd ~/rust-daq
-source scripts/build-maitai.sh  # Clean rebuild with PVCAM support
+bash scripts/build-maitai.sh  # Clean rebuild with PVCAM support
 
 # Start daemon
 ./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_hardware.toml

@@ -32,7 +32,6 @@ The project is structured as a Cargo workspace with 31 crates organized by layer
 
 ### 3. Hardware Abstraction
 *   **`hardware`**: The Hardware Abstraction Layer (HAL). Defines capability traits, `DeviceRegistry`, and `DriverFactory`. Also contains legacy serial drivers (migration to standalone crates in progress).
-*   **`drivers`**: Metacrate aggregating all driver crates with unified feature flags. Provides convenience feature sets (`all`, `maitai`, `hardware`) so consumers can depend on a single crate.
 
 ### 4. Driver Crates (Standalone)
 
@@ -65,6 +64,7 @@ Each driver lives in its own crate for independent compilation, testing, and opt
 *   **`protocol`**: Defines the wire protocol (Protobuf) for all network communication. Includes domain↔proto conversion utilities.
 *   **`plugin-api`**: Native FFI plugin system using `abi_stable` for cross-version binary compatibility. Enables third-party Rust plugins without recompilation.
 *   **`plugin-example`**: Example plugin implementation demonstrating the plugin-api.
+*   **`db`**: Embedded SurrealDB control-plane database. Uses in-memory engine (`kv-mem`) for tests and RocksDB (`kv-rocksdb`) for production persistence. Manages device/experiment metadata with a two-plane model: SurrealDB as control plane (desired state), DashMap DeviceRegistry as data plane (observed state).
 
 ### 6. Core
 *   **`common`**: The foundation. Defines shared types (`Parameter<T>`, `Observable<T>`), error handling, size limits (`limits.rs`), and module domain types.
@@ -103,7 +103,6 @@ graph TD
         end
 
         subgraph "Driver Layer"
-            DrvMeta[drivers metacrate]
             DrvPvcam[driver-pvcam]
             DrvAndor[driver-andor-sdk3]
             DrvThorlabs[driver-thorlabs]
@@ -122,8 +121,7 @@ graph TD
     Server --> Script
     Server --> Modules
     Script --> HW
-    HW --> DrvMeta
-    DrvMeta --> DrvPvcam & DrvAndor & DrvThorlabs & DrvNewport & DrvDover & DrvSpectra & DrvComedi & DrvGeneric & DrvUniversal & DrvMock
+    HW --> DrvPvcam & DrvAndor & DrvThorlabs & DrvNewport & DrvDover & DrvSpectra & DrvComedi & DrvGeneric & DrvUniversal & DrvMock
     HW -->|Frame Data| Ring
     Ring -->|Zero-Copy| Writer
     Ring -.->|Stream| Server
@@ -179,7 +177,6 @@ Experiments are written in [Rhai](https://rhai.rs), a scripting language designe
 │   ├── client/               # gRPC client library
 │   ├── common/               # Foundation types, errors, parameters, limits
 │   ├── daq-modules/          # Experiment modules and plugin system
-│   ├── drivers/              # Metacrate aggregating all drivers (feature flags)
 │   ├── driver-andor-sdk3/    # Andor iStar camera / Shamrock spectrograph
 │   ├── driver-comedi/        # Comedi DAQ driver for Linux boards
 │   ├── driver-dover-motion/  # Dover Motion SmartStage driver
@@ -209,13 +206,13 @@ Experiments are written in [Rhai](https://rhai.rs), a scripting language designe
 ├── config/                   # Runtime configuration (TOML)
 │   └── devices/              # Declarative driver configs (TOML)
 ├── docs/                     # Documentation
-│   ├── architecture/         # ADRs and design decisions
-│   ├── benchmarks/           # Performance documentation
-│   ├── guides/               # User and developer guides
-│   ├── project_management/   # Roadmaps and planning
-│   └── troubleshooting/      # Platform notes and setup guides
+│   ├── adr/                  # Architecture Decision Records
+│   ├── architecture/         # Architecture policies
+│   ├── explanation/          # System explanations
+│   ├── how-to/               # Guides and procedures
+│   ├── reference/            # API and SDK references
+│   └── tutorials/            # Learning tutorials
 ├── examples/                 # Rhai script examples
-└── proto/                    # Protobuf source files
 ```
 
 ---
