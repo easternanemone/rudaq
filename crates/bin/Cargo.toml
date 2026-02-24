@@ -113,19 +113,30 @@ maitai = [
 # ============================================================================
 # LEABS LAB PROFILE - LASER ENERGY ASSISTED BREAKDOWN SPECTROSCOPY
 # ============================================================================
-# Build: cargo build --release -p bin --features leabs
+# Build (mock):     cargo build --release -p bin --features leabs
+# Build (hardware): bash scripts/deploy-leabs.sh
+#   or on leabs-dev: source config/hosts/leabs-dev.env && cargo build --release -p bin --features leabs_hardware
 #
 # Enabled drivers:
-#   - andor (mock)        : Andor iStar sCMOS (mock mode, SDK not installed)
-#   - universal drivers   : IPG laser (TCP), Thorlabs PM400 (TCP)
+#   - andor              : Andor iStar sCMOS (mock or real SDK3)
+#   - universal drivers  : IPG YLPP-200 laser (TCP), Thorlabs PM400 (USB TMC)
+#     (driver-universal is always compiled; no feature flag needed)
 #
 # Expected devices (3):
-#   1. ipg_laser (IPG YLPP-200-1-50-R fiber laser)
-#   2. istar_camera (Andor iStar sCMOS, mock)
-#   3. power_meter (Thorlabs PM400)
+#   1. ipg_laser (IPG YLPP-200-1-50-R fiber laser, TCP 10.0.0.15:10001)
+#   2. istar_camera (Andor iStar sCMOS)
+#   3. power_meter (Thorlabs PM400, /dev/usbtmc0)
 # ============================================================================
 leabs = [
     "hardware/andor",              # Andor iStar (mock mode)
+    # IPG laser + PM400 use driver-universal (always compiled, no feature needed)
+]
+
+# LEABS real hardware (requires Andor SDK3 on leabs-dev)
+# Includes the same universal drivers as `leabs` but with real SDK3 for the camera.
+leabs_hardware = [
+    "hardware/andor_hardware",     # Andor iStar (real SDK3, requires ANDOR_SDK3_DIR)
+    # IPG laser + PM400 use driver-universal (always compiled, no feature needed)
 ]
 
 [lints]

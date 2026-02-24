@@ -667,7 +667,8 @@ pub fn introspect_all_features(handle: AT_H) -> Vec<DiscoveredFeature> {
 ///
 /// Includes all iStar-specific features (MCP gain, gate modes, DDG timing)
 /// plus common camera features with representative ranges and enum values.
-#[cfg(not(feature = "camera"))]
+/// Always compiled (not gated by `camera` feature) because mock code must
+/// remain functional alongside real SDK code for integration testing.
 pub fn introspect_mock_features() -> Vec<DiscoveredFeature> {
     vec![
         // ── ROI ──────────────────────────────────────────────────
@@ -904,7 +905,6 @@ pub fn introspect_mock_features() -> Vec<DiscoveredFeature> {
 }
 
 // Helper constructors for mock features to reduce verbosity
-#[cfg(not(feature = "camera"))]
 fn df_int(
     name: &str,
     _default: i64,
@@ -929,7 +929,6 @@ fn df_int(
     }
 }
 
-#[cfg(not(feature = "camera"))]
 fn df_float(name: &str, range: (f64, f64), writable: bool, group: &str) -> DiscoveredFeature {
     DiscoveredFeature {
         name: name.into(),
@@ -948,7 +947,6 @@ fn df_float(name: &str, range: (f64, f64), writable: bool, group: &str) -> Disco
     }
 }
 
-#[cfg(not(feature = "camera"))]
 fn df_bool(name: &str, _default: bool, writable: bool, group: &str) -> DiscoveredFeature {
     DiscoveredFeature {
         name: name.into(),
@@ -967,7 +965,6 @@ fn df_bool(name: &str, _default: bool, writable: bool, group: &str) -> Discovere
     }
 }
 
-#[cfg(not(feature = "camera"))]
 fn df_enum(name: &str, values: &[&str], writable: bool, group: &str) -> DiscoveredFeature {
     DiscoveredFeature {
         name: name.into(),
@@ -986,7 +983,6 @@ fn df_enum(name: &str, values: &[&str], writable: bool, group: &str) -> Discover
     }
 }
 
-#[cfg(not(feature = "camera"))]
 fn df_str(name: &str, writable: bool, group: &str) -> DiscoveredFeature {
     DiscoveredFeature {
         name: name.into(),
@@ -1005,7 +1001,6 @@ fn df_str(name: &str, writable: bool, group: &str) -> DiscoveredFeature {
     }
 }
 
-#[cfg(not(feature = "camera"))]
 fn df_cmd(name: &str) -> DiscoveredFeature {
     DiscoveredFeature {
         name: name.into(),
@@ -1125,7 +1120,6 @@ mod tests {
         assert_eq!(format!("{}", FeatureType::Command), "command");
     }
 
-    #[cfg(not(feature = "camera"))]
     #[test]
     fn mock_features_are_realistic() {
         let features = introspect_mock_features();
@@ -1144,7 +1138,6 @@ mod tests {
         assert!(names.contains(&"AcquisitionStart"));
     }
 
-    #[cfg(not(feature = "camera"))]
     #[test]
     fn mock_features_have_correct_types() {
         let features = introspect_mock_features();
@@ -1179,7 +1172,6 @@ mod tests {
         assert!(!model.writable);
     }
 
-    #[cfg(not(feature = "camera"))]
     #[test]
     fn mock_features_displayable_and_editable() {
         let features = introspect_mock_features();
@@ -1206,7 +1198,6 @@ mod tests {
         assert!(!dev_count.is_editable());
     }
 
-    #[cfg(not(feature = "camera"))]
     #[test]
     fn mock_no_duplicate_names() {
         let features = introspect_mock_features();

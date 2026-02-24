@@ -62,7 +62,7 @@
 //! [`GenericSerialDriver`]: super::generic_serial::GenericSerialDriver
 
 use anyhow::{anyhow, Context, Result};
-use rhai::{Engine, Scope, AST};
+use rhai::{Dynamic, Engine, EvalAltResult, Position, Scope, AST};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -215,11 +215,15 @@ pub fn create_sandboxed_engine(config: &ScriptEngineConfig) -> Engine {
     engine.register_fn("clamp", |x: f64, min: f64, max: f64| x.clamp(min, max));
 
     // Register hex parsing utilities
-    // NOTE: Panics on invalid input - caught by execute_script_async and converted to error
-    engine.register_fn("parse_hex", |s: &str| -> i64 {
+    // Returns a Rhai runtime error on invalid input (surfaced via execute_script_async).
+    engine.register_fn("parse_hex", |s: &str| -> Result<i64, Box<EvalAltResult>> {
         let trimmed = s.trim_start_matches("0x").trim_start_matches("0X");
-        i64::from_str_radix(trimmed, 16)
-            .unwrap_or_else(|_| panic!("parse_hex: invalid hex string '{}'", s))
+        i64::from_str_radix(trimmed, 16).map_err(|e| {
+            Box::new(EvalAltResult::ErrorRuntime(
+                Dynamic::from(format!("parse_hex: invalid hex string '{s}': {e}")),
+                Position::NONE,
+            ))
+        })
     });
 
     engine.register_fn("to_hex", |n: i64| -> String { format!("{:X}", n) });
@@ -382,7 +386,7 @@ pub fn execute_script_sync(
 /// Returns an error if:
 /// - **Timeout**: Script execution exceeds the `timeout` parameter. This can happen
 ///   with infinite loops, very long sleeps, or CPU-intensive operations.
-/// - **Panic**: Script causes a panic (e.g., calling `parse_hex` with invalid input).
+/// - **Panic**: Script causes a panic (e.g., stack overflow from deep recursion).
 ///   The panic is caught and converted to an error; the blocking thread pool is not
 ///   poisoned and subsequent executions will work normally.
 /// - **Operation limit**: Script exceeds [`ScriptEngineConfig::max_operations`],
@@ -392,10 +396,9 @@ pub fn execute_script_sync(
 /// # Panics
 ///
 /// This function does NOT panic. Script panics are caught by `spawn_blocking`
-/// and converted to errors. However, the following script operations will cause
-/// errors (caught as panics):
+/// and converted to errors. The following script operations return errors:
 ///
-/// - `parse_hex("invalid")` - Invalid hex string
+/// - `parse_hex("invalid")` - Invalid hex string (Rhai runtime error)
 /// - Division by zero (in some Rhai configurations)
 /// - Stack overflow from deep recursion
 ///
@@ -431,9 +434,8 @@ pub async fn execute_script_async(
             // spawn_blocking task panicked - convert to error
             warn!("Script execution panicked: {}", join_error);
             Err(anyhow!(
-                "Script execution panicked. This may indicate invalid input to a \
-                 function (e.g., parse_hex with non-hex string) or a stack overflow. \
-                 Error: {}",
+                "Script execution panicked. This may indicate a stack overflow \
+                 from deep recursion. Error: {}",
                 join_error
             ))
         }
@@ -706,14 +708,14 @@ mod tests {
 
         let context = ScriptContext::new("0", None, HashMap::new());
 
-        // The panic should be caught by execute_script_async and converted to error
+        // parse_hex returns a Rhai runtime error (not a panic) on invalid input
         let result = execute_script_async(engine, ast, &context, Duration::from_secs(5)).await;
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(
-            err_msg.contains("panicked") || err_msg.contains("parse_hex"),
-            "Expected panic error mentioning parse_hex, got: {}",
+            err_msg.contains("parse_hex") && err_msg.contains("invalid"),
+            "Expected runtime error mentioning parse_hex, got: {}",
             err_msg
         );
     }

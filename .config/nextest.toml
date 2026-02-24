@@ -72,6 +72,10 @@ max-threads = 1
 [test-groups.pvcam-hardware]
 max-threads = 1
 
+# Andor SDK3 tests require exclusive camera access
+[test-groups.andor-hardware]
+max-threads = 1
+
 # ELL14/Elliptec tests share RS-485 bus
 [test-groups.elliptec-hardware]
 max-threads = 1
@@ -100,6 +104,10 @@ test-group = "elliptec-hardware"
 [[profile.default.overrides]]
 filter = "test(/pvcam/)"
 test-group = "pvcam-hardware"
+
+[[profile.default.overrides]]
+filter = "package(driver-andor-sdk3) & test(/andor/)"
+test-group = "andor-hardware"
 
 [[profile.default.overrides]]
 filter = "test(/hardware_esp300/) | test(/hardware_maitai/) | test(/hardware_newport/)"

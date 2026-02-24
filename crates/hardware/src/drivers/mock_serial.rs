@@ -195,9 +195,9 @@ impl MockDeviceHarness {
         while self.write_buffer.len() < expected.len() {
             match timeout(timeout_duration, self.writes_rx.recv()).await {
                 Ok(Some(chunk)) => self.write_buffer.extend_from_slice(&chunk),
-                Ok(None) => panic!("Client-side port closed while expecting a write."),
+                Ok(None) => unreachable!("Client-side port closed while expecting a write."),
                 Err(e) => {
-                    panic!(
+                    unreachable!(
                         "Timeout waiting for write ({}). Expected `{:?}` ({} bytes), but only received `{:?}` ({} bytes).",
                         e,
                         String::from_utf8_lossy(expected),

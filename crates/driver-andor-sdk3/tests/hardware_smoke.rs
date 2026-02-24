@@ -313,6 +313,350 @@ mod camera_smoke {
 }
 
 // =============================================================================
+// Raw SDK Diagnostic Test (bypasses AndorCamera entirely)
+// =============================================================================
+
+#[cfg(feature = "camera")]
+mod raw_sdk_diagnostic {
+    use super::*;
+    use andor_sdk3_sys::*;
+
+    /// Raw SDK acquisition test — bypasses AndorCamera wrapper.
+    ///
+    /// This test directly calls the Andor SDK3 C API to determine if the
+    /// camera hardware can produce frames at the SDK level. If this test
+    /// fails, the issue is in the SDK/camera, not our wrapper code.
+    #[test]
+    fn raw_sdk_acquisition() {
+        skip_if_disabled!();
+
+        println!("=== Raw SDK Acquisition Test ===");
+        unsafe {
+            // Step 1: Initialize SDK
+            let ret = AT_InitialiseLibrary();
+            println!("  AT_InitialiseLibrary: ret={ret}");
+            assert_eq!(ret, 0, "AT_InitialiseLibrary failed with {ret}");
+
+            // Step 2: Open camera
+            let idx = camera_index();
+            let mut handle: AT_H = 0;
+            let ret = AT_Open(idx, &mut handle);
+            println!("  AT_Open({idx}): ret={ret}, handle={handle}");
+            assert_eq!(ret, 0, "AT_Open failed with {ret}");
+
+            // Step 3: Read camera model
+            let model_feat = to_wide_string("CameraModel");
+            let mut model_buf = wide_string_buffer(256);
+            let _ = AT_GetString(handle, model_feat.as_ptr(), model_buf.as_mut_ptr(), 256);
+            let model = from_wide_string(&model_buf);
+            println!("  CameraModel: {model}");
+
+            // Step 4: Set minimal configuration
+            // CycleMode = Continuous
+            let feat = to_wide_string("CycleMode");
+            let val = to_wide_string("Continuous");
+            let ret = AT_SetEnumString(handle, feat.as_ptr(), val.as_ptr());
+            println!("  Set CycleMode=Continuous: ret={ret}");
+
+            // TriggerMode = Internal
+            let feat = to_wide_string("TriggerMode");
+            let val = to_wide_string("Internal");
+            let ret = AT_SetEnumString(handle, feat.as_ptr(), val.as_ptr());
+            println!("  Set TriggerMode=Internal: ret={ret}");
+
+            // GateMode = CW On (iStar-specific, may fail on non-gated cameras)
+            let feat = to_wide_string("GateMode");
+            let val = to_wide_string("CW On");
+            let ret = AT_SetEnumString(handle, feat.as_ptr(), val.as_ptr());
+            println!("  Set GateMode='CW On': ret={ret}");
+
+            // ShutterMode = Open (iStar defaults to Closed on power-up)
+            let feat = to_wide_string("ShutterMode");
+            let val = to_wide_string("Open");
+            let ret = AT_SetEnumString(handle, feat.as_ptr(), val.as_ptr());
+            println!("  Set ShutterMode='Open': ret={ret}");
+
+            // Step 5: Read ImageSizeBytes
+            let feat = to_wide_string("ImageSizeBytes");
+            let mut img_size: AT_64 = 0;
+            let ret = AT_GetInt(handle, feat.as_ptr(), &mut img_size);
+            println!("  ImageSizeBytes: {img_size} (ret={ret})");
+            assert_eq!(ret, 0, "Failed to read ImageSizeBytes");
+            assert!(img_size > 0, "ImageSizeBytes must be > 0");
+
+            // Read other relevant features
+            let feat = to_wide_string("AOIWidth");
+            let mut aoi_w: AT_64 = 0;
+            AT_GetInt(handle, feat.as_ptr(), &mut aoi_w);
+
+            let feat = to_wide_string("AOIHeight");
+            let mut aoi_h: AT_64 = 0;
+            AT_GetInt(handle, feat.as_ptr(), &mut aoi_h);
+
+            let feat = to_wide_string("AOIStride");
+            let mut aoi_stride: AT_64 = 0;
+            AT_GetInt(handle, feat.as_ptr(), &mut aoi_stride);
+
+            println!("  AOI: {aoi_w}x{aoi_h}, stride={aoi_stride}");
+
+            // Read ExposureTime
+            let feat = to_wide_string("ExposureTime");
+            let mut exp: f64 = 0.0;
+            AT_GetFloat(handle, feat.as_ptr(), &mut exp);
+            println!("  ExposureTime: {exp:.6}s ({:.1}ms)", exp * 1000.0);
+
+            // Read FrameRate
+            let feat = to_wide_string("FrameRate");
+            let mut fps: f64 = 0.0;
+            AT_GetFloat(handle, feat.as_ptr(), &mut fps);
+            println!("  FrameRate: {fps:.2} fps");
+
+            // Step 6: Allocate 8-byte aligned buffer
+            let buf_size = img_size as usize;
+            let layout = std::alloc::Layout::from_size_align(buf_size, 8).unwrap();
+            let buf_ptr = std::alloc::alloc_zeroed(layout);
+            assert!(!buf_ptr.is_null(), "Buffer allocation failed");
+            println!(
+                "  Allocated buffer: {} bytes @ {:p} (align={})",
+                buf_size,
+                buf_ptr,
+                buf_ptr as usize % 8
+            );
+
+            // Step 7: Queue single buffer
+            let ret = AT_QueueBuffer(handle, buf_ptr, buf_size as std::os::raw::c_int);
+            println!("  AT_QueueBuffer: ret={ret}");
+            assert_eq!(ret, 0, "AT_QueueBuffer failed with {ret}");
+
+            // Step 8: Start acquisition
+            let feat = to_wide_string("AcquisitionStart");
+            let ret = AT_Command(handle, feat.as_ptr());
+            println!("  AT_Command(AcquisitionStart): ret={ret}");
+            assert_eq!(ret, 0, "AcquisitionStart failed with {ret}");
+
+            // Verify CameraAcquiring
+            let feat = to_wide_string("CameraAcquiring");
+            let mut acq: AT_BOOL = 0;
+            AT_GetBool(handle, feat.as_ptr(), &mut acq);
+            println!("  CameraAcquiring: {acq}");
+
+            // Step 9: Wait for buffer (15s timeout)
+            let mut out_ptr: *mut u8 = std::ptr::null_mut();
+            let mut out_size: std::os::raw::c_int = 0;
+            println!("  Calling AT_WaitBuffer(timeout=15000ms)...");
+            let start = std::time::Instant::now();
+            let ret = AT_WaitBuffer(handle, &mut out_ptr, &mut out_size, 15_000);
+            let elapsed = start.elapsed();
+            println!(
+                "  AT_WaitBuffer: ret={ret}, ptr={out_ptr:p}, size={out_size}, elapsed={:.1}s",
+                elapsed.as_secs_f64()
+            );
+
+            // Print frame info BEFORE cleanup (out_ptr points into buf_ptr)
+            if ret == 0 {
+                println!("\n  ✓ Raw SDK produced a frame! ({out_size} bytes)");
+                println!(
+                    "  First 16 bytes: {:?}",
+                    &std::slice::from_raw_parts(out_ptr, 16.min(out_size as usize))
+                );
+            } else {
+                println!("\n  ✗ Raw SDK did NOT produce a frame (ret={ret})");
+                println!("  This means the camera hardware or SDK (not our wrapper) is the issue.");
+            }
+
+            // Step 10: Cleanup (stop acquisition before freeing buffers)
+            let feat = to_wide_string("AcquisitionStop");
+            let stop_ret = AT_Command(handle, feat.as_ptr());
+            println!("  AT_Command(AcquisitionStop): ret={stop_ret}");
+
+            let flush_ret = AT_Flush(handle);
+            println!("  AT_Flush: ret={flush_ret}");
+
+            let close_ret = AT_Close(handle);
+            println!("  AT_Close: ret={close_ret}");
+
+            AT_FinaliseLibrary();
+            println!("  AT_FinaliseLibrary: done");
+
+            // Free buffer after SDK is done with it
+            std::alloc::dealloc(buf_ptr, layout);
+
+            println!(
+                "\n=== Raw SDK Test {} ===",
+                if ret == 0 { "PASSED" } else { "FAILED" }
+            );
+            assert_eq!(
+                ret, 0,
+                "AT_WaitBuffer timed out — camera did not produce frames at SDK level"
+            );
+        }
+    }
+
+    /// Raw SDK test with small AOI — tests if reduced bandwidth works through QEMU USB passthrough.
+    ///
+    /// The leabs-dev VM uses QEMU xHCI (virtual USB 3.0 controller). Full-resolution
+    /// frames (~8.3MB @ 33fps = ~275 MB/s) may exceed the virtual xHCI's bulk transfer
+    /// capability. This test uses a 256x256 AOI (~96KB/frame) to test if lower
+    /// bandwidth acquisition succeeds.
+    #[test]
+    fn raw_sdk_small_aoi_acquisition() {
+        skip_if_disabled!();
+
+        println!("=== Raw SDK Small AOI Acquisition Test ===");
+        unsafe {
+            let ret = AT_InitialiseLibrary();
+            assert_eq!(ret, 0, "AT_InitialiseLibrary failed");
+
+            let mut handle: AT_H = 0;
+            let ret = AT_Open(camera_index(), &mut handle);
+            println!("  AT_Open: ret={ret}, handle={handle}");
+            assert_eq!(ret, 0, "AT_Open failed");
+
+            // Check SensorInitialised (from official example)
+            let feat = to_wide_string("SensorInitialised");
+            let mut impl_flag: AT_BOOL = 0;
+            AT_IsImplemented(handle, feat.as_ptr(), &mut impl_flag);
+            println!("  SensorInitialised implemented: {impl_flag}");
+            if impl_flag != 0 {
+                let mut init_val: AT_BOOL = 0;
+                AT_GetBool(handle, feat.as_ptr(), &mut init_val);
+                println!("  SensorInitialised: {init_val}");
+                if init_val == 0 {
+                    println!("  Waiting for sensor initialisation...");
+                    for i in 0..30 {
+                        std::thread::sleep(Duration::from_secs(1));
+                        AT_GetBool(handle, feat.as_ptr(), &mut init_val);
+                        print!(".");
+                        if init_val != 0 {
+                            println!("\n  Sensor initialised after {i}s");
+                            break;
+                        }
+                    }
+                    if init_val == 0 {
+                        println!("\n  WARNING: Sensor did not initialise within 30s");
+                    }
+                }
+            }
+
+            // Set small AOI (256x256, centered)
+            let feat = to_wide_string("AOIWidth");
+            let ret = AT_SetInt(handle, feat.as_ptr(), 256);
+            println!("  Set AOIWidth=256: ret={ret}");
+
+            let feat = to_wide_string("AOIHeight");
+            let ret = AT_SetInt(handle, feat.as_ptr(), 256);
+            println!("  Set AOIHeight=256: ret={ret}");
+
+            // Use Fixed cycle mode (like official example)
+            let feat = to_wide_string("CycleMode");
+            let val = to_wide_string("Fixed");
+            let ret = AT_SetEnumString(handle, feat.as_ptr(), val.as_ptr());
+            println!("  Set CycleMode=Fixed: ret={ret}");
+
+            let feat = to_wide_string("FrameCount");
+            let ret = AT_SetInt(handle, feat.as_ptr(), 1);
+            println!("  Set FrameCount=1: ret={ret}");
+
+            // TriggerMode = Internal
+            let feat = to_wide_string("TriggerMode");
+            let val = to_wide_string("Internal");
+            let ret = AT_SetEnumString(handle, feat.as_ptr(), val.as_ptr());
+            println!("  Set TriggerMode=Internal: ret={ret}");
+
+            // GateMode = CW On
+            let feat = to_wide_string("GateMode");
+            let val = to_wide_string("CW On");
+            let ret = AT_SetEnumString(handle, feat.as_ptr(), val.as_ptr());
+            println!("  Set GateMode='CW On': ret={ret}");
+
+            // ShutterMode = Open (iStar defaults to Closed on power-up)
+            let feat = to_wide_string("ShutterMode");
+            let val = to_wide_string("Open");
+            let ret = AT_SetEnumString(handle, feat.as_ptr(), val.as_ptr());
+            println!("  Set ShutterMode='Open': ret={ret}");
+
+            // Try setting Mono16 encoding (simpler than Mono12Packed)
+            let feat = to_wide_string("PixelEncoding");
+            let val = to_wide_string("Mono16");
+            let ret = AT_SetEnumString(handle, feat.as_ptr(), val.as_ptr());
+            println!("  Set PixelEncoding=Mono16: ret={ret}");
+
+            // Read back dimensions
+            let feat = to_wide_string("ImageSizeBytes");
+            let mut img_size: AT_64 = 0;
+            AT_GetInt(handle, feat.as_ptr(), &mut img_size);
+
+            let feat = to_wide_string("AOIWidth");
+            let mut w: AT_64 = 0;
+            AT_GetInt(handle, feat.as_ptr(), &mut w);
+
+            let feat = to_wide_string("AOIHeight");
+            let mut h: AT_64 = 0;
+            AT_GetInt(handle, feat.as_ptr(), &mut h);
+
+            let feat = to_wide_string("AOIStride");
+            let mut stride: AT_64 = 0;
+            AT_GetInt(handle, feat.as_ptr(), &mut stride);
+
+            let feat = to_wide_string("FrameRate");
+            let mut fps: f64 = 0.0;
+            AT_GetFloat(handle, feat.as_ptr(), &mut fps);
+
+            println!(
+                "  AOI: {w}x{h}, stride={stride}, ImageSizeBytes={img_size}, FrameRate={fps:.1}fps"
+            );
+            println!(
+                "  Data rate: {:.1} MB/s",
+                (img_size as f64 * fps) / 1_000_000.0
+            );
+
+            // Allocate, queue, acquire
+            let buf_size = img_size as usize;
+            let layout = std::alloc::Layout::from_size_align(buf_size, 8).unwrap();
+            let buf_ptr = std::alloc::alloc_zeroed(layout);
+            assert!(!buf_ptr.is_null());
+
+            let ret = AT_QueueBuffer(handle, buf_ptr, buf_size as std::os::raw::c_int);
+            println!("  AT_QueueBuffer: ret={ret}");
+
+            let feat = to_wide_string("AcquisitionStart");
+            let ret = AT_Command(handle, feat.as_ptr());
+            println!("  AcquisitionStart: ret={ret}");
+
+            let mut out_ptr: *mut u8 = std::ptr::null_mut();
+            let mut out_size: std::os::raw::c_int = 0;
+            println!("  Waiting for frame (30s timeout)...");
+            let start = std::time::Instant::now();
+            let ret = AT_WaitBuffer(handle, &mut out_ptr, &mut out_size, 30_000);
+            let elapsed = start.elapsed();
+            println!(
+                "  AT_WaitBuffer: ret={ret}, size={out_size}, elapsed={:.1}s",
+                elapsed.as_secs_f64()
+            );
+
+            // Cleanup
+            let feat = to_wide_string("AcquisitionStop");
+            AT_Command(handle, feat.as_ptr());
+            AT_Flush(handle);
+            AT_Close(handle);
+            AT_FinaliseLibrary();
+            std::alloc::dealloc(buf_ptr, layout);
+
+            if ret == 0 {
+                println!("\n  ✓ Small AOI frame received! ({out_size} bytes)");
+            } else {
+                println!("\n  ✗ Small AOI also failed (ret={ret})");
+                println!("  This confirms QEMU USB passthrough cannot handle bulk transfers.");
+            }
+            println!(
+                "\n=== Small AOI Test {} ===",
+                if ret == 0 { "PASSED" } else { "FAILED" }
+            );
+        }
+    }
+}
+
+// =============================================================================
 // Shamrock Spectrograph Smoke Tests
 // =============================================================================
 

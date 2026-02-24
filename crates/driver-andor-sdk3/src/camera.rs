@@ -300,7 +300,7 @@ impl AndorCamera {
 
         #[allow(unused_mut)]
         let mut gate_mode =
-            Parameter::new("gate_mode", GateMode::CW).with_description("MCP gate mode");
+            Parameter::new("gate_mode", GateMode::CWOn).with_description("MCP gate mode");
 
         #[allow(unused_mut)]
         let mut mcp_gain = Parameter::new("mcp_gain", 0u32)
@@ -1529,7 +1529,7 @@ impl AndorCamera {
     /// SDK thread → C callback → UnboundedSender<String> → tokio task → Parameter::set_json()
     /// ```
     #[cfg(feature = "camera")]
-    pub fn register_feature_callbacks(&self) -> Result<()> {
+    pub async fn register_feature_callbacks(&self) -> Result<()> {
         use crate::introspection;
 
         let handle = self.inner.handle;
@@ -1591,11 +1591,11 @@ impl AndorCamera {
 
         // Store bridge ownership and sender in Inner so Drop can clean up.
         {
-            let mut guard = self.inner._callback_bridge.lock().unwrap();
+            let mut guard = self.inner._callback_bridge.lock().await;
             *guard = Some(bridge);
         }
         {
-            let mut guard = self.inner.callback_tx.lock().unwrap();
+            let mut guard = self.inner.callback_tx.lock().await;
             *guard = Some(tx);
         }
 
@@ -1662,7 +1662,7 @@ impl AndorCamera {
 
         // Store task handle so Drop can abort it.
         {
-            let mut guard = self.inner.callback_task_handle.lock().unwrap();
+            let mut guard = self.inner.callback_task_handle.lock().await;
             *guard = Some(task_handle);
         }
 
@@ -1682,13 +1682,18 @@ impl AndorCamera {
         let feature_name = if feature.is_null() {
             "unknown".to_string()
         } else {
-            // Read wide string — find null terminator
+            // Read wide string — find null terminator.
+            // AT_WC is wchar_t: u16 on Windows, i32 on Linux. Use char::from_u32
+            // for portable conversion instead of String::from_utf16_lossy.
             let mut len = 0;
             while *feature.add(len) != 0 {
                 len += 1;
             }
             let slice = std::slice::from_raw_parts(feature, len);
-            String::from_utf16_lossy(slice)
+            slice
+                .iter()
+                .filter_map(|&c| char::from_u32(c as u32))
+                .collect()
         };
 
         // Post to the bridge channel (non-blocking, fire-and-forget).
@@ -1722,7 +1727,74 @@ impl FrameProducer for AndorCamera {
             let inner = self.inner.clone();
             let handle = inner.handle;
 
-            // Query current frame dimensions and pixel encoding from SDK
+            // ── Step 1: Configure all features BEFORE reading sizes or queuing buffers.
+            // SDK3 may flush queued buffers when features change, and some features
+            // (e.g., MetadataEnable) affect ImageSizeBytes.
+            let trigger_str = self.inner.trigger_mode.get().to_string();
+            let gate_str = self.inner.gate_mode.get().to_string();
+            let hw_ts_freq = tokio::task::spawn_blocking({
+                let inner = inner.clone();
+                move || -> u64 {
+                    // Enable MetadataEnable for per-frame timestamps
+                    if Self::is_feature_implemented(handle, features::METADATA_ENABLE)
+                        .unwrap_or(false)
+                    {
+                        if let Err(e) =
+                            Self::set_bool_feature(handle, features::METADATA_ENABLE, true)
+                        {
+                            tracing::debug!("Could not enable MetadataEnable: {e}");
+                        }
+                    }
+
+                    // Continuous cycle mode for streaming
+                    if let Err(e) = Self::set_enum_feature(handle, "CycleMode", "Continuous") {
+                        tracing::error!("Failed to set CycleMode: {e}");
+                    }
+
+                    // Ensure SDK trigger mode matches configured parameter
+                    if let Err(e) = Self::set_enum_feature(handle, "TriggerMode", &trigger_str) {
+                        tracing::error!("Failed to set TriggerMode: {e}");
+                    }
+
+                    // Open MCP gate (iStar) — defaults to "CW Off" which blocks all light.
+                    // Non-gated cameras will return NotImplemented, which we ignore.
+                    if let Err(e) = Self::set_enum_feature(handle, "GateMode", &gate_str) {
+                        tracing::debug!("GateMode not available (non-gated camera): {e}");
+                    }
+
+                    // Open internal shutter (iStar) — defaults to "Closed" on power-up,
+                    // which prevents any light reaching the sensor/MCP. Non-shuttered
+                    // cameras will return NotImplemented, which we ignore.
+                    if let Err(e) = Self::set_enum_feature(handle, "ShutterMode", "Open") {
+                        tracing::debug!("ShutterMode not available: {e}");
+                    }
+
+                    // Read clock frequency (constant during acquisition)
+                    if Self::is_feature_implemented(handle, features::TIMESTAMP_CLOCK_FREQUENCY)
+                        .unwrap_or(false)
+                    {
+                        match Self::get_int_feature(handle, features::TIMESTAMP_CLOCK_FREQUENCY) {
+                            Ok(freq) if freq > 0 => {
+                                tracing::info!(freq, "Hardware timestamp clock frequency (Hz)");
+                                freq as u64
+                            }
+                            Ok(_) => 0,
+                            Err(e) => {
+                                tracing::debug!("Could not read TimestampClockFrequency: {e}");
+                                0
+                            }
+                        }
+                    } else {
+                        0
+                    }
+                }
+            })
+            .await
+            .unwrap_or(0);
+            inner.hw_timestamp_freq.store(hw_ts_freq, Ordering::Relaxed);
+
+            // ── Step 2: Read frame dimensions AFTER all configuration is complete.
+            // ImageSizeBytes reflects MetadataEnable and any feature changes above.
             let (image_size, aoi_width, aoi_height, aoi_stride, pixel_encoding) =
                 tokio::task::spawn_blocking(move || -> Result<(usize, u32, u32, usize, String)> {
                     let img_bytes = Self::get_int_feature(handle, "ImageSizeBytes")? as usize;
@@ -1765,48 +1837,9 @@ impl FrameProducer for AndorCamera {
                 "SDK3 acquisition parameters"
             );
 
-            // Enable hardware timestamps if supported (bd-z54k)
-            // Read TimestampClockFrequency once — it's constant during acquisition.
-            let hw_ts_freq = {
-                let ts_handle = inner.handle;
-                tokio::task::spawn_blocking(move || -> u64 {
-                    // Try to enable MetadataEnable (if available)
-                    if Self::is_feature_implemented(ts_handle, features::METADATA_ENABLE)
-                        .unwrap_or(false)
-                    {
-                        if let Err(e) =
-                            Self::set_bool_feature(ts_handle, features::METADATA_ENABLE, true)
-                        {
-                            tracing::debug!("Could not enable MetadataEnable: {e}");
-                        }
-                    }
-
-                    // Read clock frequency
-                    if Self::is_feature_implemented(ts_handle, features::TIMESTAMP_CLOCK_FREQUENCY)
-                        .unwrap_or(false)
-                    {
-                        match Self::get_int_feature(ts_handle, features::TIMESTAMP_CLOCK_FREQUENCY)
-                        {
-                            Ok(freq) if freq > 0 => {
-                                tracing::info!(freq, "Hardware timestamp clock frequency (Hz)");
-                                freq as u64
-                            }
-                            Ok(_) => 0,
-                            Err(e) => {
-                                tracing::debug!("Could not read TimestampClockFrequency: {e}");
-                                0
-                            }
-                        }
-                    } else {
-                        0
-                    }
-                })
-                .await
-                .unwrap_or(0)
-            };
-            inner.hw_timestamp_freq.store(hw_ts_freq, Ordering::Relaxed);
-
-            // Allocate SDK buffers and queue them
+            // ── Step 3: Queue buffers and start acquisition.
+            // Buffers MUST be queued after all configuration to avoid being flushed
+            // by feature changes, and AcquisitionStart follows immediately.
             let buffer_count = crate::buffer::DEFAULT_BUFFER_COUNT;
             let sdk_buffers = Arc::new(crate::buffer::SdkBufferSet::new(buffer_count, image_size));
 
@@ -1823,21 +1856,14 @@ impl FrameProducer for AndorCamera {
                             );
                             sdk_result(ret)?;
                         }
+
+                        // Start acquisition immediately after queuing
+                        let feature = to_wide_string("AcquisitionStart");
+                        let ret = AT_Command(handle, feature.as_ptr());
+                        sdk_result(ret)?;
                     }
                     Ok(())
                 }
-            })
-            .await??;
-
-            // Start SDK acquisition
-            tokio::task::spawn_blocking(move || -> Result<()> {
-                use crate::error::sdk_result;
-                unsafe {
-                    let feature = to_wide_string("AcquisitionStart");
-                    let ret = AT_Command(handle, feature.as_ptr());
-                    sdk_result(ret)?;
-                }
-                Ok(())
             })
             .await??;
 
@@ -1906,6 +1932,10 @@ impl FrameProducer for AndorCamera {
         (self.inner.info.sensor_width, self.inner.info.sensor_height)
     }
 
+    fn supports_observers(&self) -> bool {
+        true
+    }
+
     async fn register_observer(&self, observer: Box<dyn FrameObserver>) -> Result<ObserverHandle> {
         let handle = ObserverHandle(self.inner.next_observer_id.fetch_add(1, Ordering::Relaxed));
         self.inner.tap_registry.register(handle, observer);
@@ -1943,9 +1973,10 @@ impl AndorCamera {
         let timeout_ms: std::os::raw::c_uint = 10_000; // 10s timeout per frame
 
         while inner.streaming.load(Ordering::SeqCst) {
-            // Wait for next frame from SDK (blocking FFI call)
+            // Wait for next frame from SDK (blocking FFI call).
+            // Raw pointers aren't Send, so pass as usize across the thread boundary.
             let wait_result = tokio::task::spawn_blocking({
-                move || -> Result<(*mut u8, usize), crate::error::AndorError> {
+                move || -> Result<(usize, usize), crate::error::AndorError> {
                     unsafe {
                         let mut ptr: *mut u8 = std::ptr::null_mut();
                         let mut size: std::os::raw::c_int = 0;
@@ -1953,7 +1984,7 @@ impl AndorCamera {
                         if ret != 0 {
                             return Err(crate::error::AndorError::from_code(ret));
                         }
-                        Ok((ptr, size as usize))
+                        Ok((ptr as usize, size as usize))
                     }
                 }
             })
@@ -1966,8 +1997,9 @@ impl AndorCamera {
             };
 
             // Handle SDK wait result
-            let (frame_ptr, frame_size) = match wait_result {
-                Ok((ptr, size)) => (ptr, size),
+            // Keep as usize (not *mut u8) so the future stays Send across .await points.
+            let (frame_ptr_addr, frame_size) = match wait_result {
+                Ok((ptr_addr, size)) => (ptr_addr, size),
                 Err(e) if e.is_timeout() => {
                     tracing::warn!("AT_WaitBuffer timeout, retrying");
                     continue;
@@ -2007,10 +2039,10 @@ impl AndorCamera {
                         (aoi_width as usize) * (aoi_height as usize) * bytes_per_pixel;
                     let copy_len = pixel_bytes.min(frame_size).min(loaned.capacity());
 
-                    // SAFETY: frame_ptr is valid (just returned by AT_WaitBuffer),
+                    // SAFETY: frame_ptr_addr is valid (just returned by AT_WaitBuffer),
                     // copy_len is bounded by both frame_size and pool capacity
                     unsafe {
-                        loaned.copy_from_sdk(frame_ptr as *const u8, copy_len);
+                        loaned.copy_from_sdk(frame_ptr_addr as *const u8, copy_len);
                     }
 
                     // Fill metadata (bd-v8je)
@@ -2075,12 +2107,13 @@ impl AndorCamera {
                 }
             }
 
-            // Re-queue the SDK buffer
+            // Re-queue the SDK buffer (frame_ptr_addr is already usize for Send safety).
             let requeue_result = tokio::task::spawn_blocking({
                 let sdk_buffers = sdk_buffers.clone();
                 move || -> Result<()> {
                     use crate::error::sdk_result;
-                    if let Some(idx) = sdk_buffers.index_for_ptr(frame_ptr as *const u8) {
+                    let frame_ptr = frame_ptr_addr as *const u8;
+                    if let Some(idx) = sdk_buffers.index_for_ptr(frame_ptr) {
                         if let Some(buf) = sdk_buffers.get(idx) {
                             unsafe {
                                 let ret = AT_QueueBuffer(
@@ -2337,7 +2370,7 @@ impl Drop for AndorCameraInner {
                 // The SDK manual requires explicit unregistration; relying on AT_Close
                 // to clean up callbacks is undocumented behavior.
                 // The context pointer must match what was passed to AT_RegisterFeatureCallback.
-                let bridge_ctx = self._callback_bridge.lock().ok().and_then(|guard| {
+                let bridge_ctx = self._callback_bridge.try_lock().ok().and_then(|guard| {
                     guard
                         .as_ref()
                         .map(|b| &**b as *const FeatureCallbackBridge as *mut std::os::raw::c_void)
@@ -2349,7 +2382,7 @@ impl Drop for AndorCameraInner {
                         let _ = AT_UnregisterFeatureCallback(
                             self.handle,
                             feature_wide.as_ptr(),
-                            Some(Self::sdk_feature_callback),
+                            Some(AndorCamera::sdk_feature_callback),
                             ctx,
                         );
                     }

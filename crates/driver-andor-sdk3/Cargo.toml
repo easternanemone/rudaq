@@ -25,7 +25,7 @@ futures = "0.3"
 [features]
 default = []
 # Enable for real hardware (requires Andor SDK3 installation on Windows)
-hardware = ["andor-sdk3-sys/hardware"]
+hardware = ["andor-sdk3-sys/hardware", "camera"]
 # Individual component features
 camera = ["andor-sdk3-sys/camera"]
 spectrograph = ["andor-sdk3-sys/spectrograph"]

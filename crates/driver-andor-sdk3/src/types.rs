@@ -47,11 +47,17 @@ impl TryFrom<&str> for TriggerMode {
     }
 }
 
-/// Gate mode for MCP (Micro-Channel Plate) intensifier
+/// Gate mode for MCP (Micro-Channel Plate) intensifier.
+///
+/// SDK3 enum values: "CW On", "CW Off", "Fire Only", "Fire and Gate", "DDG".
+/// We map `CWOn` → "CW On" (gate always open, for continuous imaging),
+/// `CWOff` → "CW Off" (gate always closed), and `DDG` → "DDG".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GateMode {
-    /// Continuous Wave - MCP always active
-    CW,
+    /// Continuous Wave On - MCP gate always open
+    CWOn,
+    /// Continuous Wave Off - MCP gate always closed
+    CWOff,
     /// Digital Delay Generator - use DDG timing control
     DDG,
 }
@@ -59,7 +65,8 @@ pub enum GateMode {
 impl fmt::Display for GateMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::CW => write!(f, "CW"),
+            Self::CWOn => write!(f, "CW On"),
+            Self::CWOff => write!(f, "CW Off"),
             Self::DDG => write!(f, "DDG"),
         }
     }
@@ -70,7 +77,8 @@ impl TryFrom<&str> for GateMode {
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         match s {
-            "CW" => Ok(Self::CW),
+            "CW On" | "CW" | "CWOn" => Ok(Self::CWOn),
+            "CW Off" | "CWOff" => Ok(Self::CWOff),
             "DDG" => Ok(Self::DDG),
             _ => Err(format!("Invalid gate mode: {}", s)),
         }

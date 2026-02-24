@@ -56,3 +56,21 @@ hardware_config = "config/maitai_hardware.toml"
 name = "Maitai Direct"
 grpc_url = "http://100.117.5.12:50051"
 description = "Connect directly to already-running Maitai daemon (no SSH)"
+
+[[presets]]
+name = "LEABS Spectroscopy"
+grpc_url = "http://10.0.0.40:50051"
+description = "LEABS lab: IPG laser, Andor iStar camera, Thorlabs PM400"
+
+[presets.ssh]
+user = "brian"
+host = "10.0.0.40"
+remote_dir = "/home/brian/code/rust-daq"
+env_file = "config/hosts/leabs-dev.env"
+daemon_port = 50051
+hardware_config = "config/leabs_hardware.toml"
+
+[[presets]]
+name = "LEABS Direct"
+grpc_url = "http://10.0.0.40:50051"
+description = "Connect directly to already-running LEABS daemon (no SSH)"

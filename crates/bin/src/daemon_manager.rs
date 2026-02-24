@@ -68,8 +68,8 @@ fn is_native_exception_driver(driver_type: &str) -> bool {
         driver_type,
         "pvcam"
             | "mock_camera"
-            | "andor_camera"
-            | "andor_spectrograph"
+            | "andor_istar"
+            | "andor_shamrock"
             | "comedi_analog_input"
             | "comedi_analog_output"
             | "dover_axis"
@@ -833,8 +833,8 @@ mod tests {
         // Camera-class native exceptions
         assert!(is_native_exception_driver("pvcam"));
         assert!(is_native_exception_driver("mock_camera"));
-        assert!(is_native_exception_driver("andor_camera"));
-        assert!(is_native_exception_driver("andor_spectrograph"));
+        assert!(is_native_exception_driver("andor_istar"));
+        assert!(is_native_exception_driver("andor_shamrock"));
         // DAQ/motion native exceptions (Comedi + Dover)
         assert!(is_native_exception_driver("comedi_analog_input"));
         assert!(is_native_exception_driver("comedi_analog_output"));
