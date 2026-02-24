@@ -4761,6 +4761,8 @@ name = "experiment"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "bytes",
  "common",
  "hardware",
  "serde",
@@ -11978,6 +11980,7 @@ dependencies = [
  "num-traits",
  "once_cell",
  "rhai_codegen",
+ "serde",
  "smallvec",
  "smartstring",
  "thin-vec",
@@ -13110,6 +13113,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3fb72c633efbaa2dd666986505016c32c3044395ceaf881518399d2f4127ee29"
 dependencies = [
  "autocfg",
+ "serde",
  "static_assertions",
  "version_check",
 ]
@@ -13815,6 +13819,9 @@ name = "thin-vec"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "144f754d318415ac792f9d69fc87abbbfc043ce2ef041c60f16ad828f638717d"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "thiserror"

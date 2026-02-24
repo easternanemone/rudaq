@@ -427,8 +427,45 @@ pub async fn reconcile_once(
     Ok(report)
 }
 
+/// Detect and clean up runs with stale heartbeats (daemon crash recovery).
+///
+/// Finds runs where `status = 'running'` but `heartbeat_at` is older than
+/// `stale_threshold` (or never set), and marks them as `"failed"` with an
+/// explanatory exit reason.
+pub async fn cleanup_stale_runs(db: &DaqDb, stale_threshold: std::time::Duration) {
+    match db.find_stale_runs(stale_threshold).await {
+        Ok(stale_runs) => {
+            for stale in stale_runs {
+                warn!(
+                    run_uid = %stale.run_uid,
+                    "reconciler: detected stale run (heartbeat timeout) — marking as failed"
+                );
+                if let Err(e) = db
+                    .finish_run(
+                        &stale.run_uid,
+                        "failed",
+                        0,
+                        Some("stale heartbeat — daemon likely crashed"),
+                    )
+                    .await
+                {
+                    warn!(
+                        run_uid = %stale.run_uid,
+                        error = %e,
+                        "reconciler: failed to mark stale run as failed"
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "reconciler: failed to query stale runs");
+        }
+    }
+}
+
 /// Start a polling reconciler that runs `reconcile_once` at the given interval.
 ///
+/// Also runs stale-run detection on each tick (heartbeat crash recovery).
 /// Runs until the `shutdown` token is cancelled. Errors are logged but do not
 /// stop the loop.
 #[allow(dead_code)] // Wired in Phase 3b2 (LIVE SELECT watch)
@@ -461,6 +498,9 @@ pub async fn start_polling_reconciler(
                         warn!(error = %e, "reconciler tick failed");
                     }
                 }
+
+                // Check for stale runs (daemon crash recovery).
+                cleanup_stale_runs(&db, std::time::Duration::from_secs(60)).await;
             }
         }
     }

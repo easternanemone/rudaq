@@ -17,11 +17,26 @@
 //!
 //! 1. Initialize SDK library (AT_InitialiseLibrary)
 //! 2. Open camera by index (AT_Open)
-//! 3. Enable sensor cooling if needed
+//! 3. Configure cooling (`TemperatureControl` enum → `SensorCooling` → `FanSpeed`)
 //! 4. Configure AOI (Area of Interest) and binning
 //! 5. Set trigger mode, exposure, gate mode
 //! 6. Configure MCP gain and DDG timing
 //! 7. Start acquisition
+//!
+//! ## Cooling Model
+//!
+//! Andor SDK3 cameras have two temperature-setting mechanisms:
+//!
+//! - **`TemperatureControl`** (enum): Discrete calibrated setpoints (e.g., `"0.00"`).
+//!   Preferred on cameras that support it (iStar, Zyla, Marana). The SDK manages
+//!   the TEC PID loop for these validated points.
+//! - **`TargetSensorTemperature`** (float): On cameras with `TemperatureControl`,
+//!   this is **read-only** — it reflects the setpoint the SDK selected from the
+//!   enum. On simpler cameras without the enum, this float is writable.
+//!
+//! The `configure_cooling()` method tries the enum first, then falls back to the
+//! float for cameras that don't implement `TemperatureControl`.
+//! `AT_Close` does **not** disable the TEC — cooling persists at the hardware level.
 //!
 //! # Example
 //!
@@ -97,6 +112,26 @@ use std::sync::atomic::AtomicUsize;
 
 #[cfg(feature = "camera")]
 use andor_sdk3_sys::*;
+
+// =============================================================================
+// Blocking bridge helper
+// =============================================================================
+
+/// Run an SDK FFI call on `spawn_blocking` and map errors to `DaqError`.
+///
+/// This eliminates the repeated `.await.map_err(...)?.map_err(...)` pattern
+/// used by every `Parameter<T>` hardware callback in this module.
+#[cfg(feature = "camera")]
+async fn sdk_blocking<F, T>(f: F) -> Result<T, DaqError>
+where
+    F: FnOnce() -> anyhow::Result<T> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
+        .map_err(|e| DaqError::Instrument(e.to_string()))
+}
 
 /// Global instance counter for SDK library lifecycle management.
 ///
@@ -338,9 +373,12 @@ impl AndorCamera {
             .with_unit("°C")
             .with_description("Sensor temperature");
 
-        let target_temperature_c = Parameter::new("target_temperature_c", -20.0)
+        #[allow(unused_mut)]
+        let mut target_temperature_c = Parameter::new("target_temperature_c", -20.0)
             .with_unit("°C")
-            .with_description("Target cooling temperature");
+            .with_description(
+                "Target cooling temperature (read-only, set via TemperatureControl enum)",
+            );
 
         #[allow(unused_mut)]
         let mut electronic_shuttering =
@@ -357,6 +395,7 @@ impl AndorCamera {
             Self::attach_ddg_delay_callback(&mut ddg_output_delay_ps, handle);
             Self::attach_ddg_width_callback(&mut ddg_output_width_ps, handle);
             Self::attach_temperature_reader(&mut temperature_c, handle);
+            Self::attach_target_temperature_reader(&mut target_temperature_c, handle);
             Self::attach_roi_callback(&mut roi, handle);
             Self::attach_binning_callback(&mut binning, handle);
             Self::attach_electronic_shuttering_callback(&mut electronic_shuttering, handle);
@@ -475,6 +514,22 @@ impl AndorCamera {
         }
     }
 
+    /// Read a string feature from the SDK, returning `default` on failure.
+    ///
+    /// # Safety
+    /// `handle` must be a valid, open SDK camera handle.
+    #[cfg(feature = "camera")]
+    unsafe fn get_string_feature_or_default(handle: AT_H, feature: &str, default: &str) -> String {
+        let feature_wide = to_wide_string(feature);
+        let mut buffer = wide_string_buffer(256);
+        let ret = AT_GetString(handle, feature_wide.as_ptr(), buffer.as_mut_ptr(), 256);
+        if ret == AT_SUCCESS {
+            from_wide_string(&buffer)
+        } else {
+            default.to_string()
+        }
+    }
+
     #[cfg(feature = "camera")]
     unsafe fn query_camera_info(handle: AT_H) -> Result<CameraInfo> {
         use crate::error::sdk_result;
@@ -482,63 +537,18 @@ impl AndorCamera {
         // Get sensor dimensions
         let sensor_width_feature = to_wide_string("SensorWidth");
         let mut sensor_width: AT_64 = 0;
-        // SAFETY: handle is valid (just opened), feature name is valid wide string,
-        // sensor_width pointer is valid for writing AT_64
         let ret = AT_GetInt(handle, sensor_width_feature.as_ptr(), &mut sensor_width);
         sdk_result(ret)?;
 
         let sensor_height_feature = to_wide_string("SensorHeight");
         let mut sensor_height: AT_64 = 0;
-        // SAFETY: handle is valid, feature name is valid wide string,
-        // sensor_height pointer is valid for writing AT_64
         let ret = AT_GetInt(handle, sensor_height_feature.as_ptr(), &mut sensor_height);
         sdk_result(ret)?;
 
-        // Get model name
-        let model_feature = to_wide_string("CameraModel");
-        let mut model_buffer = wide_string_buffer(256);
-        // SAFETY: handle is valid, feature name is valid wide string,
-        // model_buffer has 256 elements allocated, buffer size matches allocation
-        let ret = AT_GetString(
-            handle,
-            model_feature.as_ptr(),
-            model_buffer.as_mut_ptr(),
-            256,
-        );
-        let model = if ret == AT_SUCCESS {
-            from_wide_string(&model_buffer)
-        } else {
-            "Unknown".to_string()
-        };
-
-        // Get serial number
-        let serial_feature = to_wide_string("SerialNumber");
-        let mut serial_buffer = wide_string_buffer(256);
-        // SAFETY: handle is valid, feature name is valid wide string,
-        // serial_buffer has 256 elements allocated, buffer size matches allocation
-        let ret = AT_GetString(
-            handle,
-            serial_feature.as_ptr(),
-            serial_buffer.as_mut_ptr(),
-            256,
-        );
-        let serial_number = if ret == AT_SUCCESS {
-            from_wide_string(&serial_buffer)
-        } else {
-            "Unknown".to_string()
-        };
-
-        // Get firmware version
-        let fw_feature = to_wide_string("FirmwareVersion");
-        let mut fw_buffer = wide_string_buffer(256);
-        // SAFETY: handle is valid, feature name is valid wide string,
-        // fw_buffer has 256 elements allocated, buffer size matches allocation
-        let ret = AT_GetString(handle, fw_feature.as_ptr(), fw_buffer.as_mut_ptr(), 256);
-        let firmware_version = if ret == AT_SUCCESS {
-            from_wide_string(&fw_buffer)
-        } else {
-            "Unknown".to_string()
-        };
+        let model = Self::get_string_feature_or_default(handle, "CameraModel", "Unknown");
+        let serial_number = Self::get_string_feature_or_default(handle, "SerialNumber", "Unknown");
+        let firmware_version =
+            Self::get_string_feature_or_default(handle, "FirmwareVersion", "Unknown");
 
         // Query feature support (non-fatal — defaults to false)
         let features = Self::query_feature_support(handle);
@@ -927,6 +937,172 @@ impl AndorCamera {
         Ok(())
     }
 
+    /// Configure cooling at initialization time.
+    ///
+    /// Sequence (per Andor SDK3 manual — order matters for writability):
+    /// 1. Enable `SensorCooling = true` — **must be first**, as
+    ///    `TemperatureControl` is not writable while the cooler is off
+    /// 2. Set `FanSpeed` (typically `"On"` for air-cooled)
+    /// 3. Set temperature target via `TemperatureControl` enum (preferred) or
+    ///    `TargetSensorTemperature` float (fallback for cameras without the enum)
+    ///
+    /// ## Temperature Control Model
+    ///
+    /// The Andor SDK3 has two temperature-setting mechanisms:
+    ///
+    /// - **`TemperatureControl`** (enum): Discrete calibrated setpoints like
+    ///   `"0.00"`. The SDK manages the TEC PID loop. This is the primary
+    ///   mechanism on iStar, Zyla, and Marana cameras. The available setpoints
+    ///   are camera-model-specific (determined by pixel correction firmware)
+    ///   and can be enumerated at runtime via `AT_GetEnumCount` /
+    ///   `AT_GetEnumStringByIndex`.
+    /// - **`TargetSensorTemperature`** (float): On cameras that implement
+    ///   `TemperatureControl`, this float is **read-only** — it reflects the
+    ///   setpoint the SDK selected. On cameras without the enum, this float
+    ///   is the writable target.
+    ///
+    /// This method tries `TemperatureControl` first. If the enum is not
+    /// implemented on this camera model, it falls back to setting
+    /// `TargetSensorTemperature` directly.
+    ///
+    /// ## Feature Writability
+    ///
+    /// `AT_IsImplemented` is a permanent hardware check, but `AT_IsWritable`
+    /// is dynamic — `TemperatureControl` becomes writable only after
+    /// `SensorCooling` is enabled. Individual enum options may also be
+    /// restricted based on the camera's current state (check via
+    /// `AT_IsEnumIndexAvailable`).
+    ///
+    /// ## Persistence
+    ///
+    /// `AT_Close` does **not** disable the TEC — cooling persists at the
+    /// hardware level across driver restarts.
+    ///
+    /// Skips entirely if `SensorCooling` is not supported on this camera model.
+    /// Individual step errors are logged as warnings but do not prevent camera use.
+    pub async fn configure_cooling(
+        &self,
+        temperature_control: &str,
+        fan_speed: &str,
+    ) -> Result<()> {
+        if !self.info().features.sensor_cooling {
+            tracing::info!(
+                "SensorCooling not supported on this camera model, skipping cooling init"
+            );
+            return Ok(());
+        }
+
+        // 1. Enable cooling FIRST — TemperatureControl is not writable while
+        //    the cooler is off (SDK3 manual requirement).
+        if let Err(e) = self.set_cooling(true).await {
+            tracing::warn!(error = %e, "Failed to enable sensor cooling");
+        } else {
+            tracing::info!("Sensor cooling enabled");
+        }
+
+        // 2. Set fan speed (maximizes cooling efficiency before setting target)
+        #[cfg(feature = "camera")]
+        {
+            let handle = self.inner.handle;
+            let fan = fan_speed.to_string();
+            match tokio::task::spawn_blocking(move || {
+                Self::set_enum_feature(handle, "FanSpeed", &fan)
+            })
+            .await
+            {
+                Ok(Ok(())) => tracing::info!(fan_speed, "Fan speed configured"),
+                Ok(Err(e)) => tracing::warn!(error = %e, fan_speed, "Failed to set fan speed"),
+                Err(e) => tracing::warn!(error = %e, "spawn_blocking failed for FanSpeed"),
+            }
+        }
+
+        // 3. Set temperature target
+        //
+        // Strategy: check AT_IsImplemented (permanent) then AT_IsWritable
+        // (dynamic) before attempting to set. Some cameras (e.g. iStar)
+        // implement TemperatureControl but keep it non-writable because
+        // the TEC targets a fixed hardware-default setpoint with no
+        // per-temperature pixel correction firmware.
+        //
+        // Priority: TemperatureControl enum → TargetSensorTemperature float.
+        #[cfg(feature = "camera")]
+        {
+            let handle = self.inner.handle;
+            let tc_value = temperature_control.to_string();
+            // Returns: Ok("enum") / Ok("float") / Ok("skipped") / Err
+            match tokio::task::spawn_blocking(move || -> anyhow::Result<&str> {
+                // Try TemperatureControl enum (calibrated setpoints)
+                if Self::is_feature_implemented(handle, "TemperatureControl")? {
+                    if Self::is_feature_writable(handle, "TemperatureControl")? {
+                        Self::set_enum_feature(handle, "TemperatureControl", &tc_value)?;
+                        return Ok("enum");
+                    }
+                    // Implemented but not writable — camera uses a fixed
+                    // hardware-managed setpoint. Read and log it.
+                    let current = Self::get_enum_string(handle, "TemperatureControl")
+                        .unwrap_or_else(|_| "unknown".to_string());
+                    tracing::info!(
+                        current_setpoint = %current,
+                        requested = %tc_value,
+                        "TemperatureControl is not writable \
+                         (camera uses hardware-managed setpoint)"
+                    );
+                    return Ok("skipped");
+                }
+
+                // TemperatureControl not available — try float fallback
+                if Self::is_feature_implemented(handle, "TargetSensorTemperature")?
+                    && Self::is_feature_writable(handle, "TargetSensorTemperature")?
+                {
+                    if let Ok(target_c) = tc_value.parse::<f64>() {
+                        Self::set_float_feature(handle, "TargetSensorTemperature", target_c)?;
+                        return Ok("float");
+                    }
+                }
+
+                tracing::info!(
+                    "No writable temperature target feature available \
+                     (camera manages its own setpoint)"
+                );
+                Ok("skipped")
+            })
+            .await
+            {
+                Ok(Ok(method)) => match method {
+                    "enum" => tracing::info!(
+                        temperature_control,
+                        "Temperature target set via TemperatureControl enum"
+                    ),
+                    "float" => tracing::info!(
+                        temperature_control,
+                        "Temperature target set via TargetSensorTemperature float (fallback)"
+                    ),
+                    _ => { /* already logged inside spawn_blocking */ }
+                },
+                Ok(Err(e)) => tracing::warn!(
+                    error = %e,
+                    temperature_control,
+                    "Failed to set temperature target"
+                ),
+                Err(e) => {
+                    tracing::warn!(error = %e, "spawn_blocking failed for temperature control")
+                }
+            }
+        }
+
+        // Log current temperature for visibility
+        match self.get_temperature().await {
+            Ok(temp) => tracing::info!(
+                current_temp_c = temp,
+                temperature_control,
+                "Cooling initialized, waiting for stabilization"
+            ),
+            Err(e) => tracing::warn!(error = %e, "Could not read current temperature"),
+        }
+
+        Ok(())
+    }
+
     /// Get sensor temperature in Celsius
     pub async fn get_temperature(&self) -> Result<f64> {
         #[cfg(feature = "camera")]
@@ -1126,152 +1302,113 @@ impl AndorCamera {
     #[cfg(feature = "camera")]
     fn attach_exposure_callback(param: &mut Parameter<f64>, handle: AT_H) {
         param.connect_to_hardware_write(move |val: f64| {
-            Box::pin(async move {
-                tokio::task::spawn_blocking(move || {
-                    AndorCamera::set_float_feature(handle, "ExposureTime", val)
-                })
-                .await
-                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-                .map_err(|e| DaqError::Instrument(e.to_string()))
-            })
+            Box::pin(sdk_blocking(move || {
+                AndorCamera::set_float_feature(handle, "ExposureTime", val)
+            }))
         });
     }
 
     #[cfg(feature = "camera")]
     fn attach_trigger_mode_callback(param: &mut Parameter<TriggerMode>, handle: AT_H) {
         param.connect_to_hardware_write(move |mode: TriggerMode| {
-            Box::pin(async move {
-                let mode_str = mode.to_string();
-                tokio::task::spawn_blocking(move || {
-                    AndorCamera::set_enum_feature(handle, "TriggerMode", &mode_str)
-                })
-                .await
-                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-                .map_err(|e| DaqError::Instrument(e.to_string()))
-            })
+            let mode_str = mode.to_string();
+            Box::pin(sdk_blocking(move || {
+                AndorCamera::set_enum_feature(handle, "TriggerMode", &mode_str)
+            }))
         });
     }
 
     #[cfg(feature = "camera")]
     fn attach_gate_mode_callback(param: &mut Parameter<GateMode>, handle: AT_H) {
         param.connect_to_hardware_write(move |mode: GateMode| {
-            Box::pin(async move {
-                let mode_str = mode.to_string();
-                tokio::task::spawn_blocking(move || -> Result<(), anyhow::Error> {
-                    AndorCamera::set_enum_feature(handle, "GateMode", &mode_str)?;
-                    // When DDG mode is active, select the Gater (MCP intensifier)
-                    // as the DDG output target so that DDGOutputDelay/Width
-                    // control the MCP gate timing.
-                    if mode == GateMode::DDG {
-                        AndorCamera::set_enum_feature(handle, "DDGOutputSelector", "Gater")?;
-                    }
-                    Ok(())
-                })
-                .await
-                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-                .map_err(|e: anyhow::Error| DaqError::Instrument(e.to_string()))
-            })
+            let mode_str = mode.to_string();
+            Box::pin(sdk_blocking(move || {
+                AndorCamera::set_enum_feature(handle, "GateMode", &mode_str)?;
+                // When DDG mode is active, select the Gater (MCP intensifier)
+                // as the DDG output target so that DDGOutputDelay/Width
+                // control the MCP gate timing.
+                if mode == GateMode::DDG {
+                    AndorCamera::set_enum_feature(handle, "DDGOutputSelector", "Gater")?;
+                }
+                Ok(())
+            }))
         });
     }
 
     #[cfg(feature = "camera")]
     fn attach_mcp_gain_callback(param: &mut Parameter<u32>, handle: AT_H) {
         param.connect_to_hardware_write(move |gain: u32| {
-            Box::pin(async move {
-                tokio::task::spawn_blocking(move || {
-                    AndorCamera::set_int_feature(handle, "MCPGain", gain as i64)
-                })
-                .await
-                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-                .map_err(|e| DaqError::Instrument(e.to_string()))
-            })
+            Box::pin(sdk_blocking(move || {
+                AndorCamera::set_int_feature(handle, "MCPGain", gain as i64)
+            }))
         });
     }
 
     #[cfg(feature = "camera")]
     fn attach_ddg_delay_callback(param: &mut Parameter<u64>, handle: AT_H) {
         param.connect_to_hardware_write(move |delay_ps: u64| {
-            Box::pin(async move {
-                tokio::task::spawn_blocking(move || {
-                    // SDK3 DDGOutputDelay is in seconds; parameter stores picoseconds
-                    AndorCamera::set_float_feature(
-                        handle,
-                        "DDGOutputDelay",
-                        delay_ps as f64 * 1e-12,
-                    )
-                })
-                .await
-                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-                .map_err(|e| DaqError::Instrument(e.to_string()))
-            })
+            Box::pin(sdk_blocking(move || {
+                // SDK3 DDGOutputDelay is in seconds; parameter stores picoseconds
+                AndorCamera::set_float_feature(handle, "DDGOutputDelay", delay_ps as f64 * 1e-12)
+            }))
         });
     }
 
     #[cfg(feature = "camera")]
     fn attach_ddg_width_callback(param: &mut Parameter<u64>, handle: AT_H) {
         param.connect_to_hardware_write(move |width_ps: u64| {
-            Box::pin(async move {
-                tokio::task::spawn_blocking(move || {
-                    // SDK3 DDGOutputWidth is in seconds; parameter stores picoseconds
-                    AndorCamera::set_float_feature(
-                        handle,
-                        "DDGOutputWidth",
-                        width_ps as f64 * 1e-12,
-                    )
-                })
-                .await
-                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-                .map_err(|e| DaqError::Instrument(e.to_string()))
-            })
+            Box::pin(sdk_blocking(move || {
+                // SDK3 DDGOutputWidth is in seconds; parameter stores picoseconds
+                AndorCamera::set_float_feature(handle, "DDGOutputWidth", width_ps as f64 * 1e-12)
+            }))
         });
     }
 
     #[cfg(feature = "camera")]
     fn attach_temperature_reader(param: &mut Parameter<f64>, handle: AT_H) {
         param.connect_to_hardware_read(move || {
-            Box::pin(async move {
-                tokio::task::spawn_blocking(move || {
-                    AndorCamera::get_float_feature(handle, "SensorTemperature")
-                })
-                .await
-                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-                .map_err(|e| DaqError::Instrument(e.to_string()))
-            })
+            Box::pin(sdk_blocking(move || {
+                AndorCamera::get_float_feature(handle, "SensorTemperature")
+            }))
+        });
+    }
+
+    /// Read `TargetSensorTemperature` from the SDK.
+    ///
+    /// On cameras with `TemperatureControl` (iStar, Zyla, Marana), this value
+    /// is managed by the SDK and reflects the selected calibrated setpoint.
+    /// It is read-only — use `TemperatureControl` enum to change the target.
+    #[cfg(feature = "camera")]
+    fn attach_target_temperature_reader(param: &mut Parameter<f64>, handle: AT_H) {
+        param.connect_to_hardware_read(move || {
+            Box::pin(sdk_blocking(move || {
+                AndorCamera::get_float_feature(handle, "TargetSensorTemperature")
+            }))
         });
     }
 
     #[cfg(feature = "camera")]
     fn attach_roi_callback(param: &mut Parameter<Roi>, handle: AT_H) {
         param.connect_to_hardware_write(move |roi: Roi| {
-            Box::pin(async move {
-                tokio::task::spawn_blocking(move || {
-                    // SDK3 AOI features use 1-based coordinates
-                    AndorCamera::set_int_feature(handle, "AOILeft", roi.x as i64 + 1)?;
-                    AndorCamera::set_int_feature(handle, "AOITop", roi.y as i64 + 1)?;
-                    AndorCamera::set_int_feature(handle, "AOIWidth", roi.width as i64)?;
-                    AndorCamera::set_int_feature(handle, "AOIHeight", roi.height as i64)?;
-                    Ok::<(), anyhow::Error>(())
-                })
-                .await
-                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-                .map_err(|e| DaqError::Instrument(e.to_string()))
-            })
+            Box::pin(sdk_blocking(move || {
+                // SDK3 AOI features use 1-based coordinates
+                AndorCamera::set_int_feature(handle, "AOILeft", roi.x as i64 + 1)?;
+                AndorCamera::set_int_feature(handle, "AOITop", roi.y as i64 + 1)?;
+                AndorCamera::set_int_feature(handle, "AOIWidth", roi.width as i64)?;
+                AndorCamera::set_int_feature(handle, "AOIHeight", roi.height as i64)?;
+                Ok(())
+            }))
         });
     }
 
     #[cfg(feature = "camera")]
     fn attach_binning_callback(param: &mut Parameter<(u32, u32)>, handle: AT_H) {
         param.connect_to_hardware_write(move |bin: (u32, u32)| {
-            Box::pin(async move {
-                tokio::task::spawn_blocking(move || {
-                    AndorCamera::set_int_feature(handle, "AOIHBin", bin.0 as i64)?;
-                    AndorCamera::set_int_feature(handle, "AOIVBin", bin.1 as i64)?;
-                    Ok::<(), anyhow::Error>(())
-                })
-                .await
-                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-                .map_err(|e| DaqError::Instrument(e.to_string()))
-            })
+            Box::pin(sdk_blocking(move || {
+                AndorCamera::set_int_feature(handle, "AOIHBin", bin.0 as i64)?;
+                AndorCamera::set_int_feature(handle, "AOIVBin", bin.1 as i64)?;
+                Ok(())
+            }))
         });
     }
 
@@ -1281,15 +1418,10 @@ impl AndorCamera {
         handle: AT_H,
     ) {
         param.connect_to_hardware_write(move |mode: ElectronicShutteringMode| {
-            Box::pin(async move {
-                let mode_str = mode.to_string();
-                tokio::task::spawn_blocking(move || {
-                    AndorCamera::set_enum_feature(handle, "ElectronicShutteringMode", &mode_str)
-                })
-                .await
-                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-                .map_err(|e| DaqError::Instrument(e.to_string()))
-            })
+            let mode_str = mode.to_string();
+            Box::pin(sdk_blocking(move || {
+                AndorCamera::set_enum_feature(handle, "ElectronicShutteringMode", &mode_str)
+            }))
         });
     }
 
@@ -1312,7 +1444,15 @@ impl AndorCamera {
     // Temperature and cooling management (bd-zekj)
     // =========================================================================
 
-    /// Set target cooling temperature in Celsius.
+    /// Set target cooling temperature in Celsius via `TargetSensorTemperature`.
+    ///
+    /// **Note:** On cameras that implement `TemperatureControl` (iStar, Zyla,
+    /// Marana), `TargetSensorTemperature` is **read-only** — the SDK sets it
+    /// automatically from the selected `TemperatureControl` enum value. Calling
+    /// this method on those cameras will return `AT_ERR_READONLY` (error 3).
+    ///
+    /// Use [`configure_cooling()`](Self::configure_cooling) for initialization,
+    /// which tries the enum first and falls back to this float automatically.
     pub async fn set_target_temperature(&self, target_c: f64) -> Result<()> {
         #[cfg(feature = "camera")]
         {

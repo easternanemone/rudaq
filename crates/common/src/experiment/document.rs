@@ -33,6 +33,7 @@
 //! StopDoc (1)
 //! ```
 
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -277,9 +278,10 @@ pub struct EventDoc {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, String>,
     /// Small array data (spectra, waveforms up to ~64KB)
-    /// Stored as serialized bytes (msgpack, JSON, or raw binary)
+    /// Stored as serialized bytes (msgpack, JSON, or raw binary).
+    /// Uses `Bytes` for O(1) cloning via reference counting.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub arrays: HashMap<String, Vec<u8>>,
+    pub arrays: HashMap<String, Bytes>,
 }
 
 impl EventDoc {
@@ -317,16 +319,16 @@ impl EventDoc {
     }
 
     /// Add array data (spectrum, waveform) as raw bytes
-    pub fn with_array(mut self, key: &str, data: Vec<u8>) -> Self {
-        self.arrays.insert(key.to_string(), data);
+    pub fn with_array(mut self, key: &str, data: impl Into<Bytes>) -> Self {
+        self.arrays.insert(key.to_string(), data.into());
         self
     }
 
     /// Add array data as f64 slice (convenience method)
     /// Encodes as little-endian bytes for efficient storage
     pub fn with_f64_array(mut self, key: &str, data: &[f64]) -> Self {
-        let bytes: Vec<u8> = data.iter().flat_map(|v| v.to_le_bytes()).collect();
-        self.arrays.insert(key.to_string(), bytes);
+        let raw: Vec<u8> = data.iter().flat_map(|v| v.to_le_bytes()).collect();
+        self.arrays.insert(key.to_string(), Bytes::from(raw));
         self
     }
 }

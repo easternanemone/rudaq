@@ -6,7 +6,9 @@ edition = "2021"
 [dependencies]
 common = { path = "../common" }
 hardware = { path = "../hardware" }
+bytes = "1"
 anyhow.workspace = true
+async-trait.workspace = true
 tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
 tracing.workspace = true
 serde = { workspace = true, features = ["derive"] }

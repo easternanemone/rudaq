@@ -5,6 +5,8 @@
 //! (no dependency on `experiment` or `ui` crates) — conversion to/from domain
 //! types happens at the gRPC boundary.
 
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -73,6 +75,15 @@ pub struct DbRunRecord {
     pub metadata: Option<serde_json::Value>,
     /// Exit reason (for non-success statuses).
     pub exit_reason: Option<String>,
+}
+
+/// A run record that has a stale heartbeat, indicating a likely daemon crash.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StaleRun {
+    /// Unique run identifier.
+    pub run_uid: String,
+    /// When the run started.
+    pub started_at: Option<String>,
 }
 
 impl DaqDb {
@@ -244,6 +255,48 @@ impl DaqDb {
             .bind(("limit", limit))
             .await?;
         let rows: Vec<DbRunRecord> = response.take(0)?;
+        Ok(rows)
+    }
+
+    // -------------------------------------------------------------------
+    // Heartbeat Monitoring
+    // -------------------------------------------------------------------
+
+    /// Update the heartbeat timestamp for an active run.
+    ///
+    /// Called periodically (~every 10s) by the `RunEngine` during plan
+    /// execution via the `RunLifecycleHook` trait. The reconciler uses
+    /// stale heartbeats to detect daemon crashes.
+    pub async fn update_run_heartbeat(&self, run_uid: &str) -> Result<()> {
+        self.client()
+            .query(
+                "UPDATE run_record SET heartbeat_at = time::now() \
+                 WHERE run_uid = $run_uid",
+            )
+            .bind(("run_uid", run_uid.to_owned()))
+            .await?;
+        Ok(())
+    }
+
+    /// Find runs with stale heartbeats (daemon likely crashed).
+    ///
+    /// Returns runs where `status = 'running'` and either:
+    /// - `heartbeat_at` is older than `stale_threshold`, or
+    /// - `heartbeat_at` is `NONE` (run never sent a heartbeat).
+    pub async fn find_stale_runs(&self, stale_threshold: Duration) -> Result<Vec<StaleRun>> {
+        let threshold_secs = stale_threshold.as_secs();
+        let mut response = self
+            .client()
+            .query(
+                "SELECT run_uid, started_at FROM run_record \
+                 WHERE status = 'running' AND (\
+                     heartbeat_at IS NONE OR \
+                     heartbeat_at < time::now() - type::duration($threshold)\
+                 )",
+            )
+            .bind(("threshold", format!("{threshold_secs}s")))
+            .await?;
+        let rows: Vec<StaleRun> = response.take(0)?;
         Ok(rows)
     }
 }
@@ -429,5 +482,111 @@ mod tests {
         assert_eq!(runs[0].status, "aborted");
         assert_eq!(runs[0].num_events, Some(5));
         assert_eq!(runs[0].exit_reason.as_deref(), Some("user requested abort"));
+    }
+
+    // ---------------------------------------------------------------
+    // Heartbeat monitoring tests
+    // ---------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_update_run_heartbeat() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+        db.create_run_record(&sample_run()).await.unwrap();
+        db.update_run_status("run_abc123", "running").await.unwrap();
+
+        // Update heartbeat — should succeed without error.
+        db.update_run_heartbeat("run_abc123").await.unwrap();
+
+        // Verify heartbeat_at is set (query raw field).
+        let mut resp = db
+            .client()
+            .query("SELECT heartbeat_at FROM run_record WHERE run_uid = 'run_abc123'")
+            .await
+            .unwrap();
+        let rows: Vec<serde_json::Value> = resp.take(0).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(
+            rows[0]["heartbeat_at"] != serde_json::Value::Null,
+            "heartbeat_at should be set after update"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_find_stale_runs_returns_never_heartbeated() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        // Create a running record but never send a heartbeat.
+        let mut run = sample_run();
+        run.status = "running".into();
+        db.create_run_record(&run).await.unwrap();
+        db.update_run_status("run_abc123", "running").await.unwrap();
+
+        // A run with no heartbeat_at should be stale.
+        let stale = db.find_stale_runs(Duration::from_secs(60)).await.unwrap();
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale[0].run_uid, "run_abc123");
+    }
+
+    #[tokio::test]
+    async fn test_find_stale_runs_excludes_completed() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        // Create a completed run (no heartbeat).
+        db.create_run_record(&sample_run()).await.unwrap();
+        db.finish_run("run_abc123", "completed", 10, None)
+            .await
+            .unwrap();
+
+        // Completed runs should NOT appear as stale.
+        let stale = db.find_stale_runs(Duration::from_secs(60)).await.unwrap();
+        assert!(stale.is_empty(), "completed runs should not be stale");
+    }
+
+    #[tokio::test]
+    async fn test_find_stale_runs_excludes_fresh_heartbeat() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        let mut run = sample_run();
+        run.status = "running".into();
+        db.create_run_record(&run).await.unwrap();
+        db.update_run_status("run_abc123", "running").await.unwrap();
+
+        // Send a heartbeat — should NOT appear stale with a 60s threshold.
+        db.update_run_heartbeat("run_abc123").await.unwrap();
+
+        let stale = db.find_stale_runs(Duration::from_secs(60)).await.unwrap();
+        assert!(
+            stale.is_empty(),
+            "freshly heartbeated run should not be stale"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_find_stale_runs_time_based_heartbeat_threshold() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        let mut run = sample_run();
+        run.status = "running".into();
+        db.create_run_record(&run).await.unwrap();
+        db.update_run_status("run_abc123", "running").await.unwrap();
+
+        // Send an initial heartbeat for the running run.
+        db.update_run_heartbeat("run_abc123").await.unwrap();
+
+        // Use a 2s threshold — large enough to avoid flakiness from query overhead.
+        let threshold = Duration::from_secs(2);
+
+        // Immediately after heartbeat, the run should NOT be stale.
+        let stale = db.find_stale_runs(threshold).await.unwrap();
+        assert!(
+            stale.is_empty(),
+            "run with heartbeat younger than threshold should not be stale"
+        );
+
+        // After crossing the threshold, the same run should now be detected as stale.
+        tokio::time::sleep(Duration::from_millis(2100)).await;
+        let stale = db.find_stale_runs(threshold).await.unwrap();
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale[0].run_uid, "run_abc123");
     }
 }

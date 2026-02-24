@@ -12,7 +12,7 @@ thiserror.workspace = true
 async-trait.workspace = true
 tokio = { workspace = true, features = ["sync", "time", "rt", "rt-multi-thread", "macros", "signal"] }
 chrono.workspace = true
-rhai = { version = "1.19", features = ["sync"] }
+rhai = { version = "1.19", features = ["sync", "serde"] }
 pyo3 = { version = "0.24", features = ["auto-initialize"], optional = true }
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

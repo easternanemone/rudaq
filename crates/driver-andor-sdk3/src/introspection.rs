@@ -32,14 +32,14 @@ pub enum FeatureType {
 
 impl fmt::Display for FeatureType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Int => write!(f, "int"),
-            Self::Float => write!(f, "float"),
-            Self::Bool => write!(f, "bool"),
-            Self::Enum => write!(f, "enum"),
-            Self::Str => write!(f, "string"),
-            Self::Command => write!(f, "command"),
-        }
+        f.write_str(match self {
+            Self::Int => "int",
+            Self::Float => "float",
+            Self::Bool => "bool",
+            Self::Enum => "enum",
+            Self::Str => "string",
+            Self::Command => "command",
+        })
     }
 }
 
@@ -75,6 +75,27 @@ impl DiscoveredFeature {
     /// Returns `true` if this feature can be edited by the user.
     pub fn is_editable(&self) -> bool {
         self.implemented && self.writable
+    }
+
+    /// Construct a feature that is not implemented on this camera model.
+    fn not_implemented(name: &str, feature_type: FeatureType, group: Option<&str>) -> Self {
+        Self {
+            name: name.into(),
+            feature_type,
+            implemented: false,
+            readable: false,
+            writable: false,
+            int_range: None,
+            float_range: None,
+            enum_values: vec![],
+            group: group.map(Into::into),
+        }
+    }
+
+    /// Builder method to set the UI group on a feature.
+    fn with_group(mut self, group: &str) -> Self {
+        self.group = Some(group.into());
+        self
     }
 }
 
@@ -590,17 +611,11 @@ pub fn introspect_all_features(handle: AT_H) -> Vec<DiscoveredFeature> {
         let implemented = AndorCamera::is_feature_implemented(handle, entry.name).unwrap_or(false);
 
         if !implemented {
-            features.push(DiscoveredFeature {
-                name: entry.name.to_string(),
-                feature_type: entry.feature_type,
-                implemented: false,
-                readable: false,
-                writable: false,
-                int_range: None,
-                float_range: None,
-                enum_values: vec![],
-                group: entry.group.map(String::from),
-            });
+            features.push(DiscoveredFeature::not_implemented(
+                entry.name,
+                entry.feature_type,
+                entry.group,
+            ));
             continue;
         }
 
@@ -672,18 +687,18 @@ pub fn introspect_all_features(handle: AT_H) -> Vec<DiscoveredFeature> {
 pub fn introspect_mock_features() -> Vec<DiscoveredFeature> {
     vec![
         // ── ROI ──────────────────────────────────────────────────
-        df_int("SensorWidth", 2048, (1, 2048), false, "Sensor"),
-        df_int("SensorHeight", 2048, (1, 2048), false, "Sensor"),
-        df_int("AOIWidth", 2048, (1, 2048), true, "ROI"),
-        df_int("AOIHeight", 2048, (1, 2048), true, "ROI"),
-        df_int("AOILeft", 1, (1, 2048), true, "ROI"),
-        df_int("AOITop", 1, (1, 2048), true, "ROI"),
-        df_int("AOIStride", 4096, (1, 65536), false, "ROI"),
-        df_int("AOIHBin", 1, (1, 8), true, "ROI"),
-        df_int("AOIVBin", 1, (1, 8), true, "ROI"),
-        df_int("ImageSizeBytes", 8388608, (1, 67108864), false, "ROI"),
-        df_bool("FullAOIControl", true, false, "ROI"),
-        df_bool("VerticallyCentreAOI", false, true, "ROI"),
+        df_int("SensorWidth", (1, 2048), false, "Sensor"),
+        df_int("SensorHeight", (1, 2048), false, "Sensor"),
+        df_int("AOIWidth", (1, 2048), true, "ROI"),
+        df_int("AOIHeight", (1, 2048), true, "ROI"),
+        df_int("AOILeft", (1, 2048), true, "ROI"),
+        df_int("AOITop", (1, 2048), true, "ROI"),
+        df_int("AOIStride", (1, 65536), false, "ROI"),
+        df_int("AOIHBin", (1, 8), true, "ROI"),
+        df_int("AOIVBin", (1, 8), true, "ROI"),
+        df_int("ImageSizeBytes", (1, 67108864), false, "ROI"),
+        df_bool("FullAOIControl", false, "ROI"),
+        df_bool("VerticallyCentreAOI", true, "ROI"),
         // ── Acquisition ──────────────────────────────────────────
         df_float("ExposureTime", (1e-7, 30.0), true, "Acquisition"),
         df_float("ReadoutTime", (0.0, 1.0), false, "Acquisition"),
@@ -707,8 +722,8 @@ pub fn introspect_mock_features() -> Vec<DiscoveredFeature> {
             "Acquisition",
         ),
         df_enum("CycleMode", &["Fixed", "Continuous"], true, "Acquisition"),
-        df_int("FrameCount", 1, (1, 1_000_000), true, "Acquisition"),
-        df_int("AccumulateCount", 1, (1, 65535), true, "Acquisition"),
+        df_int("FrameCount", (1, 1_000_000), true, "Acquisition"),
+        df_int("AccumulateCount", (1, 65535), true, "Acquisition"),
         // ── Readout ──────────────────────────────────────────────
         df_enum(
             "PixelEncoding",
@@ -744,7 +759,7 @@ pub fn introspect_mock_features() -> Vec<DiscoveredFeature> {
         // ── Sensor / Temperature ─────────────────────────────────
         df_float("SensorTemperature", (-100.0, 50.0), false, "Sensor"),
         df_float("TargetSensorTemperature", (-40.0, 5.0), true, "Sensor"),
-        df_bool("SensorCooling", true, true, "Sensor"),
+        df_bool("SensorCooling", true, "Sensor"),
         df_enum(
             "TemperatureStatus",
             &[
@@ -761,14 +776,14 @@ pub fn introspect_mock_features() -> Vec<DiscoveredFeature> {
         df_enum("TemperatureControl", &["Off", "On"], true, "Sensor"),
         df_enum("FanSpeed", &["Off", "Low", "On"], true, "Sensor"),
         // ── Intensifier (iStar) ──────────────────────────────────
-        df_int("MCPGain", 0, (0, 4095), true, "Intensifier"),
+        df_int("MCPGain", (0, 4095), true, "Intensifier"),
         df_enum(
             "GateMode",
             &["CWOn", "CWOff", "FireAndGate", "GateOnly", "DDG"],
             true,
             "Intensifier",
         ),
-        df_bool("MCPIntelligentGating", false, true, "Intensifier"),
+        df_bool("MCPIntelligentGating", true, "Intensifier"),
         df_float("InsertionDelay", (0.0, 1e-3), false, "Intensifier"),
         // ── DDG Timing ───────────────────────────────────────────
         df_float("DDGOutputDelay", (0.0, 100.0), true, "Timing"),
@@ -779,20 +794,19 @@ pub fn introspect_mock_features() -> Vec<DiscoveredFeature> {
             true,
             "Timing",
         ),
-        df_bool("DDGStepEnabled", false, true, "Timing"),
-        df_int("DDGStepCount", 1, (1, 1000), true, "Timing"),
+        df_bool("DDGStepEnabled", true, "Timing"),
+        df_int("DDGStepCount", (1, 1000), true, "Timing"),
         df_float("DDGStepDelayCoefficient", (0.0, 100.0), true, "Timing"),
         df_float("DDGStepWidthCoefficient", (0.0, 100.0), true, "Timing"),
         df_float("DDGStepUploadProgress", (0.0, 100.0), false, "Timing"),
-        df_bool("DDGStepUploadRequired", false, false, "Timing"),
+        df_bool("DDGStepUploadRequired", false, "Timing"),
         // ── Metadata ─────────────────────────────────────────────
-        df_bool("MetadataEnable", true, true, "Metadata"),
-        df_bool("MetadataFrame", true, true, "Metadata"),
-        df_bool("MetadataTimestamp", true, true, "Metadata"),
-        df_int("TimestampClock", 0, (0, i64::MAX), false, "Metadata"),
+        df_bool("MetadataEnable", true, "Metadata"),
+        df_bool("MetadataFrame", true, "Metadata"),
+        df_bool("MetadataTimestamp", true, "Metadata"),
+        df_int("TimestampClock", (0, i64::MAX), false, "Metadata"),
         df_int(
             "TimestampClockFrequency",
-            100_000_000,
             (0, 1_000_000_000),
             false,
             "Metadata",
@@ -804,7 +818,7 @@ pub fn introspect_mock_features() -> Vec<DiscoveredFeature> {
             true,
             "I/O",
         ),
-        df_bool("IOInvert", false, true, "I/O"),
+        df_bool("IOInvert", true, "I/O"),
         df_enum(
             "AuxiliaryOutSource",
             &["FireRow1", "FireRowN", "FireAll", "FireAny"],
@@ -824,94 +838,42 @@ pub fn introspect_mock_features() -> Vec<DiscoveredFeature> {
         df_str("FirmwareVersion", false, "Device"),
         df_enum("InterfaceType", &["USB3", "CameraLink"], false, "Device"),
         df_enum("CameraFamily", &["iStar"], false, "Device"),
-        df_int("ControllerID", 0, (0, 255), false, "Device"),
+        df_int("ControllerID", (0, 255), false, "Device"),
         // DeviceCount is a system-handle feature, not per-camera
-        DiscoveredFeature {
-            name: "DeviceCount".into(),
-            feature_type: FeatureType::Int,
-            implemented: false,
-            readable: false,
-            writable: false,
-            int_range: None,
-            float_range: None,
-            enum_values: vec![],
-            group: Some("Device".into()),
-        },
+        DiscoveredFeature::not_implemented("DeviceCount", FeatureType::Int, Some("Device")),
         // ── Corrections ──────────────────────────────────────────
-        df_bool("SpuriousNoiseFilter", true, true, "Corrections"),
-        df_bool("StaticBlemishCorrection", true, true, "Corrections"),
+        df_bool("SpuriousNoiseFilter", true, "Corrections"),
+        df_bool("StaticBlemishCorrection", true, "Corrections"),
         // Overlap and RollingShutterGlobalClear not available on iStar
-        DiscoveredFeature {
-            name: "Overlap".into(),
-            feature_type: FeatureType::Bool,
-            implemented: false,
-            readable: false,
-            writable: false,
-            int_range: None,
-            float_range: None,
-            enum_values: vec![],
-            group: Some("Corrections".into()),
-        },
-        DiscoveredFeature {
-            name: "RollingShutterGlobalClear".into(),
-            feature_type: FeatureType::Bool,
-            implemented: false,
-            readable: false,
-            writable: false,
-            int_range: None,
-            float_range: None,
-            enum_values: vec![],
-            group: Some("Corrections".into()),
-        },
+        DiscoveredFeature::not_implemented("Overlap", FeatureType::Bool, Some("Corrections")),
+        DiscoveredFeature::not_implemented(
+            "RollingShutterGlobalClear",
+            FeatureType::Bool,
+            Some("Corrections"),
+        ),
         // ── Commands ─────────────────────────────────────────────
         df_cmd("AcquisitionStart"),
         df_cmd("AcquisitionStop"),
         df_cmd("SoftwareTrigger"),
-        DiscoveredFeature {
-            name: "TimestampClockReset".into(),
-            feature_type: FeatureType::Command,
-            implemented: true,
-            readable: false,
-            writable: true,
-            int_range: None,
-            float_range: None,
-            enum_values: vec![],
-            group: Some("Metadata".into()),
-        },
-        DiscoveredFeature {
-            name: "BufferOverflowEvent".into(),
-            feature_type: FeatureType::Command,
-            implemented: true,
-            readable: false,
-            writable: false,
-            int_range: None,
-            float_range: None,
-            enum_values: vec![],
-            group: None,
-        },
-        DiscoveredFeature {
-            name: "EventsMissedEvent".into(),
-            feature_type: FeatureType::Command,
-            implemented: true,
-            readable: false,
-            writable: false,
-            int_range: None,
-            float_range: None,
-            enum_values: vec![],
-            group: None,
-        },
-        df_bool("EventEnable", true, true, ""),
+        df_cmd("TimestampClockReset").with_group("Metadata"),
+        df_cmd_readonly("BufferOverflowEvent"),
+        df_cmd_readonly("EventsMissedEvent"),
+        df_bool("EventEnable", true, ""),
     ]
 }
 
 // Helper constructors for mock features to reduce verbosity
-fn df_int(
-    name: &str,
-    _default: i64,
-    range: (i64, i64),
-    writable: bool,
-    group: &str,
-) -> DiscoveredFeature {
+
+/// Convert a group string to `Option<String>`, treating empty as `None`.
+fn group_option(group: &str) -> Option<String> {
+    if group.is_empty() {
+        None
+    } else {
+        Some(group.into())
+    }
+}
+
+fn df_int(name: &str, range: (i64, i64), writable: bool, group: &str) -> DiscoveredFeature {
     DiscoveredFeature {
         name: name.into(),
         feature_type: FeatureType::Int,
@@ -921,11 +883,7 @@ fn df_int(
         int_range: Some(range),
         float_range: None,
         enum_values: vec![],
-        group: if group.is_empty() {
-            None
-        } else {
-            Some(group.into())
-        },
+        group: group_option(group),
     }
 }
 
@@ -939,15 +897,11 @@ fn df_float(name: &str, range: (f64, f64), writable: bool, group: &str) -> Disco
         int_range: None,
         float_range: Some(range),
         enum_values: vec![],
-        group: if group.is_empty() {
-            None
-        } else {
-            Some(group.into())
-        },
+        group: group_option(group),
     }
 }
 
-fn df_bool(name: &str, _default: bool, writable: bool, group: &str) -> DiscoveredFeature {
+fn df_bool(name: &str, writable: bool, group: &str) -> DiscoveredFeature {
     DiscoveredFeature {
         name: name.into(),
         feature_type: FeatureType::Bool,
@@ -957,11 +911,7 @@ fn df_bool(name: &str, _default: bool, writable: bool, group: &str) -> Discovere
         int_range: None,
         float_range: None,
         enum_values: vec![],
-        group: if group.is_empty() {
-            None
-        } else {
-            Some(group.into())
-        },
+        group: group_option(group),
     }
 }
 
@@ -975,11 +925,7 @@ fn df_enum(name: &str, values: &[&str], writable: bool, group: &str) -> Discover
         int_range: None,
         float_range: None,
         enum_values: values.iter().map(|s| (*s).to_string()).collect(),
-        group: if group.is_empty() {
-            None
-        } else {
-            Some(group.into())
-        },
+        group: group_option(group),
     }
 }
 
@@ -993,11 +939,7 @@ fn df_str(name: &str, writable: bool, group: &str) -> DiscoveredFeature {
         int_range: None,
         float_range: None,
         enum_values: vec![],
-        group: if group.is_empty() {
-            None
-        } else {
-            Some(group.into())
-        },
+        group: group_option(group),
     }
 }
 
@@ -1008,6 +950,21 @@ fn df_cmd(name: &str) -> DiscoveredFeature {
         implemented: true,
         readable: false,
         writable: true,
+        int_range: None,
+        float_range: None,
+        enum_values: vec![],
+        group: None,
+    }
+}
+
+/// Read-only event/command (implemented but not writable).
+fn df_cmd_readonly(name: &str) -> DiscoveredFeature {
+    DiscoveredFeature {
+        name: name.into(),
+        feature_type: FeatureType::Command,
+        implemented: true,
+        readable: false,
+        writable: false,
         int_range: None,
         float_range: None,
         enum_values: vec![],

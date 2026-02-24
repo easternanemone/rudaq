@@ -93,6 +93,20 @@ pub struct DbDeviceFeature {
     pub group_name: Option<String>,
 }
 
+/// A device parameter's persisted runtime state.
+///
+/// Stored in the `device_runtime_state` table (schema v7) for restart
+/// recovery. Keyed by `(device_id, param_name)`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeviceParamState {
+    /// Device ID this state belongs to (e.g., "stage_1").
+    pub device_id: String,
+    /// Parameter name (e.g., "position", "ExposureTime").
+    pub param_name: String,
+    /// Last-known parameter value as JSON.
+    pub param_value: serde_json::Value,
+}
+
 /// Summary of a config import operation.
 #[derive(Debug, Clone, Default)]
 pub struct ImportReport {
@@ -347,6 +361,123 @@ impl DaqDb {
         let count = deleted.len();
         if count > 0 {
             info!(device_id, count, "deleted device features");
+        }
+        Ok(count)
+    }
+
+    // -------------------------------------------------------------------
+    // Device Runtime State
+    // -------------------------------------------------------------------
+
+    /// Upsert a single device parameter's runtime state.
+    ///
+    /// Uses `(device_id, param_name)` as the unique key via the
+    /// `idx_device_param` index. Existing records are updated with the new
+    /// value and a fresh `updated_at` timestamp.
+    pub async fn upsert_device_state(
+        &self,
+        device_id: &str,
+        param_name: &str,
+        param_value: &serde_json::Value,
+    ) -> Result<()> {
+        self.client()
+            .query(
+                "UPSERT device_runtime_state SET \
+                 device_id = $device_id, \
+                 param_name = $param_name, \
+                 param_value = $param_value, \
+                 updated_at = time::now() \
+                 WHERE device_id = $device_id AND param_name = $param_name",
+            )
+            .bind(("device_id", device_id.to_owned()))
+            .bind(("param_name", param_name.to_owned()))
+            .bind(("param_value", param_value.clone()))
+            .await?;
+        Ok(())
+    }
+
+    /// Batch upsert multiple parameter states in a single transaction.
+    ///
+    /// Accepts a slice of `(device_id, param_name, param_value)` tuples.
+    /// All upserts are wrapped in a transaction for atomicity — either all
+    /// succeed or none are applied. Intended for debounced writes where
+    /// multiple parameter changes are batched together.
+    pub async fn batch_upsert_device_state(
+        &self,
+        states: &[(String, String, serde_json::Value)],
+    ) -> Result<()> {
+        if states.is_empty() {
+            return Ok(());
+        }
+
+        // Serialize tuples into a JSON array that SurrealQL can iterate.
+        let items: Vec<serde_json::Value> = states
+            .iter()
+            .map(|(device_id, param_name, param_value)| {
+                serde_json::json!({
+                    "device_id": device_id,
+                    "param_name": param_name,
+                    "param_value": param_value,
+                })
+            })
+            .collect();
+
+        self.client()
+            .query(
+                "BEGIN TRANSACTION; \
+                 FOR $item IN $items { \
+                     UPSERT device_runtime_state SET \
+                         device_id = $item.device_id, \
+                         param_name = $item.param_name, \
+                         param_value = $item.param_value, \
+                         updated_at = time::now() \
+                     WHERE device_id = $item.device_id \
+                         AND param_name = $item.param_name; \
+                 }; \
+                 COMMIT TRANSACTION;",
+            )
+            .bind(("items", items))
+            .await?;
+
+        info!(count = states.len(), "device state batch upsert complete");
+        Ok(())
+    }
+
+    /// Retrieve all persisted runtime state for a device.
+    ///
+    /// Returns an empty `Vec` if the device has no persisted state.
+    /// Results are ordered by `param_name` for deterministic output.
+    ///
+    /// **Note:** Selects specific fields rather than `SELECT *` to avoid
+    /// SurrealDB `id` (Thing) and `updated_at` (Datetime) types that
+    /// cannot deserialize into `serde_json::Value`.
+    pub async fn get_device_state(&self, device_id: &str) -> Result<Vec<DeviceParamState>> {
+        let mut response = self
+            .client()
+            .query(
+                "SELECT device_id, param_name, param_value \
+                 FROM device_runtime_state WHERE device_id = $device_id \
+                 ORDER BY param_name",
+            )
+            .bind(("device_id", device_id.to_owned()))
+            .await?;
+        let rows: Vec<DeviceParamState> = response.take(0)?;
+        Ok(rows)
+    }
+
+    /// Delete all persisted runtime state for a device.
+    ///
+    /// Called when a device is unregistered to clean up stale state.
+    pub async fn delete_device_state(&self, device_id: &str) -> Result<usize> {
+        let mut response = self
+            .client()
+            .query("DELETE FROM device_runtime_state WHERE device_id = $device_id RETURN BEFORE")
+            .bind(("device_id", device_id.to_owned()))
+            .await?;
+        let deleted: Vec<DeviceParamState> = response.take(0)?;
+        let count = deleted.len();
+        if count > 0 {
+            info!(device_id, count, "deleted device runtime state");
         }
         Ok(count)
     }
@@ -950,5 +1081,176 @@ mod tests {
             features.is_empty(),
             "querying non-existent device should return empty vec"
         );
+    }
+
+    // -------------------------------------------------------------------
+    // Device Runtime State tests
+    // -------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_upsert_and_get_device_state() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        db.upsert_device_state("stage_1", "position", &serde_json::json!(42.5))
+            .await
+            .unwrap();
+        db.upsert_device_state("stage_1", "velocity", &serde_json::json!(10.0))
+            .await
+            .unwrap();
+
+        let states = db.get_device_state("stage_1").await.unwrap();
+        assert_eq!(states.len(), 2);
+
+        // Results are ordered by param_name
+        assert_eq!(states[0].device_id, "stage_1");
+        assert_eq!(states[0].param_name, "position");
+        assert_eq!(states[0].param_value, serde_json::json!(42.5));
+
+        assert_eq!(states[1].param_name, "velocity");
+        assert_eq!(states[1].param_value, serde_json::json!(10.0));
+    }
+
+    #[tokio::test]
+    async fn test_upsert_device_state_overwrites() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        // Insert initial value
+        db.upsert_device_state("camera_0", "ExposureTime", &serde_json::json!(0.001))
+            .await
+            .unwrap();
+
+        // Overwrite with new value
+        db.upsert_device_state("camera_0", "ExposureTime", &serde_json::json!(0.05))
+            .await
+            .unwrap();
+
+        let states = db.get_device_state("camera_0").await.unwrap();
+        assert_eq!(states.len(), 1, "upsert should not duplicate records");
+        assert_eq!(
+            states[0].param_value,
+            serde_json::json!(0.05),
+            "should have the latest value"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_batch_upsert_device_state() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        let states = vec![
+            (
+                "stage_1".to_owned(),
+                "position".to_owned(),
+                serde_json::json!(100.0),
+            ),
+            (
+                "stage_1".to_owned(),
+                "velocity".to_owned(),
+                serde_json::json!(5.0),
+            ),
+            (
+                "camera_0".to_owned(),
+                "ExposureTime".to_owned(),
+                serde_json::json!(0.01),
+            ),
+        ];
+        db.batch_upsert_device_state(&states).await.unwrap();
+
+        // Check stage_1 params
+        let stage_states = db.get_device_state("stage_1").await.unwrap();
+        assert_eq!(stage_states.len(), 2);
+        assert_eq!(stage_states[0].param_name, "position");
+        assert_eq!(stage_states[0].param_value, serde_json::json!(100.0));
+        assert_eq!(stage_states[1].param_name, "velocity");
+        assert_eq!(stage_states[1].param_value, serde_json::json!(5.0));
+
+        // Check camera_0 params
+        let camera_states = db.get_device_state("camera_0").await.unwrap();
+        assert_eq!(camera_states.len(), 1);
+        assert_eq!(camera_states[0].param_name, "ExposureTime");
+        assert_eq!(camera_states[0].param_value, serde_json::json!(0.01));
+    }
+
+    #[tokio::test]
+    async fn test_batch_upsert_device_state_empty() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        // Empty batch should be a no-op
+        db.batch_upsert_device_state(&[]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_device_state_empty() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        let states = db.get_device_state("nonexistent_device").await.unwrap();
+        assert!(
+            states.is_empty(),
+            "querying non-existent device should return empty vec"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_delete_device_state() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        db.upsert_device_state("stage_1", "position", &serde_json::json!(42.5))
+            .await
+            .unwrap();
+        db.upsert_device_state("stage_1", "velocity", &serde_json::json!(10.0))
+            .await
+            .unwrap();
+
+        let deleted = db.delete_device_state("stage_1").await.unwrap();
+        assert_eq!(deleted, 2);
+
+        let remaining = db.get_device_state("stage_1").await.unwrap();
+        assert!(remaining.is_empty(), "all state should be deleted");
+
+        // Deleting again should return 0
+        let deleted_again = db.delete_device_state("stage_1").await.unwrap();
+        assert_eq!(deleted_again, 0);
+    }
+
+    #[tokio::test]
+    async fn test_upsert_device_state_complex_values() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        // Test with various JSON value types
+        db.upsert_device_state("dev_0", "string_param", &serde_json::json!("Internal"))
+            .await
+            .unwrap();
+        db.upsert_device_state("dev_0", "bool_param", &serde_json::json!(true))
+            .await
+            .unwrap();
+        db.upsert_device_state("dev_0", "int_param", &serde_json::json!(4095))
+            .await
+            .unwrap();
+        db.upsert_device_state(
+            "dev_0",
+            "object_param",
+            &serde_json::json!({"x": 1.0, "y": 2.0}),
+        )
+        .await
+        .unwrap();
+
+        let states = db.get_device_state("dev_0").await.unwrap();
+        assert_eq!(states.len(), 4);
+
+        // Ordered by param_name
+        assert_eq!(states[0].param_name, "bool_param");
+        assert_eq!(states[0].param_value, serde_json::json!(true));
+
+        assert_eq!(states[1].param_name, "int_param");
+        assert_eq!(states[1].param_value, serde_json::json!(4095));
+
+        assert_eq!(states[2].param_name, "object_param");
+        assert_eq!(
+            states[2].param_value,
+            serde_json::json!({"x": 1.0, "y": 2.0})
+        );
+
+        assert_eq!(states[3].param_name, "string_param");
+        assert_eq!(states[3].param_value, serde_json::json!("Internal"));
     }
 }

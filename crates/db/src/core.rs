@@ -307,6 +307,7 @@ mod tests {
                     driver_type = 'mock',
                     name = 'Mock Driver',
                     capabilities = ['readable', 'movable'],
+                    commands = [],
                     created_at = time::now()",
             )
             .await

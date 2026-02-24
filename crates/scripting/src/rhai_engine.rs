@@ -458,8 +458,14 @@ impl RhaiEngine {
     }
 
     /// Convert a Rhai Dynamic to ScriptValue
+    ///
+    /// Primitives (i64, f64, bool, String, unit) are extracted directly for
+    /// zero-overhead hot-path conversion. All other types (arrays, maps, nested
+    /// structures) are round-tripped through `rhai::serde` into `serde_json::Value`
+    /// so that callers get a well-known, inspectable representation instead of an
+    /// opaque `Dynamic` wrapper.
     fn dynamic_to_script_value(value: Dynamic) -> ScriptValue {
-        // Try to extract common types
+        // Fast path: extract common primitives directly
         if value.is::<i64>() {
             ScriptValue::new(value.cast::<i64>())
         } else if value.is::<f64>() {
@@ -471,52 +477,82 @@ impl RhaiEngine {
         } else if value.is::<()>() {
             ScriptValue::new(())
         } else {
-            // Fallback: wrap the Dynamic itself
-            ScriptValue::new(value)
+            // Fallback: use rhai::serde to convert maps, arrays, and other
+            // composite types into serde_json::Value for a portable representation
+            match rhai::serde::from_dynamic::<serde_json::Value>(&value) {
+                Ok(json_val) => ScriptValue::new(json_val),
+                Err(_) => {
+                    // Last resort: wrap the raw Dynamic (e.g. opaque custom types
+                    // returned by Rhai that are not serde-compatible)
+                    ScriptValue::new(value)
+                }
+            }
         }
     }
 
     /// Convert a ScriptValue to Rhai Dynamic
+    ///
+    /// Primitives are converted directly (hot path). Opaque hardware handles
+    /// (containing `Arc<dyn Trait>`) are handled explicitly because they cannot
+    /// be serialized. All other serde-compatible types (e.g. `HashMap`, `Vec`,
+    /// `serde_json::Value`) go through `rhai::serde::to_dynamic` as an
+    /// extensible fallback.
     fn script_value_to_dynamic(value: ScriptValue) -> Result<Dynamic, ScriptError> {
         use crate::bindings::{CameraHandle, StageHandle};
         use crate::plan_bindings::RunEngineHandle;
 
-        // Try to extract common types first
+        // ── Fast path: primitives ──────────────────────────────────────────
         if let Some(i) = value.downcast_ref::<i64>() {
-            Ok(Dynamic::from(*i))
-        } else if let Some(f) = value.downcast_ref::<f64>() {
-            Ok(Dynamic::from(*f))
-        } else if let Some(b) = value.downcast_ref::<bool>() {
-            Ok(Dynamic::from(*b))
-        } else if let Some(s) = value.downcast_ref::<String>() {
-            Ok(Dynamic::from(s.clone()))
-        } else if let Some(s) = value.downcast_ref::<&str>() {
-            Ok(Dynamic::from(*s))
-        } else if value.downcast_ref::<()>().is_some() {
-            Ok(Dynamic::UNIT)
+            return Ok(Dynamic::from(*i));
         }
-        // Handle hardware types
-        else if let Some(stage) = value.downcast_ref::<StageHandle>() {
-            Ok(Dynamic::from(stage.clone()))
-        } else if let Some(camera) = value.downcast_ref::<CameraHandle>() {
-            Ok(Dynamic::from(camera.clone()))
+        if let Some(f) = value.downcast_ref::<f64>() {
+            return Ok(Dynamic::from(*f));
         }
-        // Handle RunEngine (bd-w14j.1)
-        else if let Some(run_engine) = value.downcast_ref::<RunEngineHandle>() {
-            Ok(Dynamic::from(run_engine.clone()))
+        if let Some(b) = value.downcast_ref::<bool>() {
+            return Ok(Dynamic::from(*b));
         }
-        // Try to extract Dynamic directly if that's what was wrapped
-        else if let Ok(dyn_val) = value.downcast::<Dynamic>() {
-            Ok(dyn_val)
+        if let Some(s) = value.downcast_ref::<String>() {
+            return Ok(Dynamic::from(s.clone()));
         }
-        // As a last resort, try extracting custom Rhai types
-        else {
-            Err(ScriptError::TypeConversionError {
-                expected:
-                    "i64, f64, bool, String, StageHandle, CameraHandle, RunEngineHandle, or Dynamic"
-                        .to_string(),
+        if let Some(s) = value.downcast_ref::<&str>() {
+            return Ok(Dynamic::from(*s));
+        }
+        if value.downcast_ref::<()>().is_some() {
+            return Ok(Dynamic::UNIT);
+        }
+
+        // ── Opaque hardware handles (not serde-compatible) ─────────────────
+        if let Some(stage) = value.downcast_ref::<StageHandle>() {
+            return Ok(Dynamic::from(stage.clone()));
+        }
+        if let Some(camera) = value.downcast_ref::<CameraHandle>() {
+            return Ok(Dynamic::from(camera.clone()));
+        }
+        if let Some(run_engine) = value.downcast_ref::<RunEngineHandle>() {
+            return Ok(Dynamic::from(run_engine.clone()));
+        }
+
+        // ── Serde fallback: serde_json::Value → Dynamic ────────────────────
+        // Handles values stored as serde_json::Value by dynamic_to_script_value(),
+        // as well as any other serde-compatible types wrapped in ScriptValue.
+        if let Some(json_val) = value.downcast_ref::<serde_json::Value>() {
+            return rhai::serde::to_dynamic(json_val).map_err(|e| {
+                ScriptError::TypeConversionError {
+                    expected: "serde-compatible type".to_string(),
+                    found: format!("serde_json::Value conversion failed: {e}"),
+                }
+            });
+        }
+
+        // ── Already a Dynamic (round-trip from dynamic_to_script_value) ────
+        // downcast() consumes ownership; on failure Err returns the ScriptValue
+        match value.downcast::<Dynamic>() {
+            Ok(dyn_val) => Ok(dyn_val),
+            Err(_) => Err(ScriptError::TypeConversionError {
+                expected: "i64, f64, bool, String, hardware handle, serde_json::Value, or Dynamic"
+                    .to_string(),
                 found: "unknown type".to_string(),
-            })
+            }),
         }
     }
 

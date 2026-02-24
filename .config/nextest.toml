@@ -106,7 +106,7 @@ filter = "test(/pvcam/)"
 test-group = "pvcam-hardware"
 
 [[profile.default.overrides]]
-filter = "package(driver-andor-sdk3) & test(/andor/)"
+filter = "package(driver-andor-sdk3) & (test(/andor/) | test(/raw_sdk/))"
 test-group = "andor-hardware"
 
 [[profile.default.overrides]]

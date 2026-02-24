@@ -12,7 +12,7 @@
 //! - `connects_to` — instrument → instrument (physical cabling)
 
 /// Current schema version. Bump this when adding migrations.
-pub const SCHEMA_VERSION: u32 = 6;
+pub const SCHEMA_VERSION: u32 = 7;
 
 /// A single schema migration step.
 #[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
@@ -49,6 +49,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 6,
         sql: SCHEMA_V6,
+    },
+    Migration {
+        version: 7,
+        sql: SCHEMA_V7,
     },
 ];
 
@@ -190,6 +194,29 @@ DEFINE FIELD IF NOT EXISTS discovered_at ON device_feature TYPE datetime DEFAULT
 DEFINE INDEX IF NOT EXISTS idx_device_feature ON device_feature FIELDS device_id, feature_name UNIQUE;
 ";
 
+/// v6→v7 migration: heartbeat monitoring and device runtime state persistence.
+///
+/// Adds `heartbeat_at` to `run_record` for crash detection (stale heartbeat
+/// indicates a daemon crash mid-experiment). Adds `device_runtime_state` table
+/// for persisting last-known device parameter values across restarts.
+#[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
+const SCHEMA_V7: &str = r"
+-- Fix: add DEFAULT [] to commands field on driver (v4 omitted this, causing
+-- silent CREATE failures on SCHEMAFULL tables in SurrealDB 2.x)
+DEFINE FIELD commands ON driver FLEXIBLE TYPE array DEFAULT [];
+
+-- Heartbeat timestamp for crash detection (updated every ~10s during plan execution)
+DEFINE FIELD IF NOT EXISTS heartbeat_at ON run_record TYPE option<datetime>;
+
+-- Device runtime state: persists last-known parameter values for restart recovery
+DEFINE TABLE IF NOT EXISTS device_runtime_state SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS device_id   ON device_runtime_state TYPE string;
+DEFINE FIELD IF NOT EXISTS param_name  ON device_runtime_state TYPE string;
+DEFINE FIELD IF NOT EXISTS param_value ON device_runtime_state FLEXIBLE TYPE any;
+DEFINE FIELD IF NOT EXISTS updated_at  ON device_runtime_state TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_device_param ON device_runtime_state FIELDS device_id, param_name UNIQUE;
+";
+
 /// Apply the schema to the database.
 ///
 /// This is called once during [`DaqDb::init`] and is idempotent.
@@ -289,12 +316,57 @@ mod tests {
             "executed_from",
             "uses_instrument",
             "device_feature",
+            "device_runtime_state",
         ] {
             assert!(
                 info_str.contains(table),
                 "table {table} should exist in DB info"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_v7_heartbeat_and_device_state() {
+        let db = test_db().await;
+        apply_schema(&db).await.expect("apply_schema");
+
+        // Verify heartbeat_at field accepts inserts on run_record
+        db.query(
+            "CREATE run_record SET run_uid = 'test-hb', plan_type = 'count', \
+             plan_name = 'test', heartbeat_at = time::now()",
+        )
+        .await
+        .expect("insert run_record with heartbeat_at");
+
+        let mut resp = db
+            .query("SELECT heartbeat_at FROM run_record WHERE run_uid = 'test-hb'")
+            .await
+            .expect("query");
+        let rows: Vec<serde_json::Value> = resp.take(0).expect("take");
+        assert_eq!(rows.len(), 1);
+        assert!(
+            rows[0]["heartbeat_at"] != serde_json::Value::Null,
+            "heartbeat_at should be set"
+        );
+
+        // Verify device_runtime_state accepts inserts and enforces unique index
+        db.query(
+            "CREATE device_runtime_state SET device_id = 'stage_1', \
+             param_name = 'position', param_value = 42.5",
+        )
+        .await
+        .expect("insert device_runtime_state");
+
+        let mut resp = db
+            .query(
+                "SELECT device_id, param_name, param_value FROM device_runtime_state \
+                 WHERE device_id = 'stage_1' AND param_name = 'position'",
+            )
+            .await
+            .expect("query");
+        let rows: Vec<serde_json::Value> = resp.take(0).expect("take");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["param_value"], serde_json::json!(42.5));
     }
 
     #[tokio::test]

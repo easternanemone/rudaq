@@ -177,7 +177,10 @@ impl ScriptPlanRunner {
         loop {
             // Check timeout
             if Instant::now() > timeout_deadline {
-                error!("Script execution timed out");
+                error!("Script execution timed out — aborting RunEngine");
+                if let Err(e) = self.run_engine.abort("script execution timed out").await {
+                    warn!("Failed to abort RunEngine after script timeout: {e}");
+                }
                 return Ok(ScriptRunReport::failure(
                     "Script execution timed out",
                     plans_executed,
@@ -189,7 +192,14 @@ impl ScriptPlanRunner {
 
             // Check plan limit
             if plans_executed as usize >= self.config.max_plans {
-                error!("Script exceeded maximum plan limit");
+                error!("Script exceeded maximum plan limit — aborting RunEngine");
+                if let Err(e) = self
+                    .run_engine
+                    .abort("script exceeded maximum plan limit")
+                    .await
+                {
+                    warn!("Failed to abort RunEngine after plan limit exceeded: {e}");
+                }
                 return Ok(ScriptRunReport::failure(
                     format!(
                         "Script exceeded maximum plan limit of {}",
@@ -440,7 +450,15 @@ impl ScriptPlanRunner {
                     warn!("Document channel error: {}", e);
                 }
                 Err(_) => {
-                    // Timeout waiting for documents
+                    // Timeout waiting for documents — abort to stop hardware
+                    error!("Timeout waiting for plan completion — aborting RunEngine");
+                    if let Err(e) = self
+                        .run_engine
+                        .abort("timeout waiting for plan completion")
+                        .await
+                    {
+                        warn!("Failed to abort RunEngine after plan timeout: {e}");
+                    }
                     return Err(anyhow!("Timeout waiting for plan completion"));
                 }
             }

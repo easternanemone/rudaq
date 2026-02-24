@@ -321,6 +321,52 @@ mod raw_sdk_diagnostic {
     use super::*;
     use andor_sdk3_sys::*;
 
+    /// RAII guard for raw SDK tests — ensures cleanup on panic or early return.
+    ///
+    /// Without this, an assertion failure mid-test would skip AT_Close /
+    /// AT_FinaliseLibrary / dealloc, leaking SDK state and memory.
+    struct SdkGuard {
+        handle: AT_H,
+        acquiring: bool,
+        buf: Option<(*mut u8, std::alloc::Layout)>,
+    }
+
+    impl SdkGuard {
+        /// Create a guard after AT_InitialiseLibrary + AT_Open succeed.
+        fn new(handle: AT_H) -> Self {
+            Self {
+                handle,
+                acquiring: false,
+                buf: None,
+            }
+        }
+
+        fn set_acquiring(&mut self) {
+            self.acquiring = true;
+        }
+
+        fn set_buffer(&mut self, ptr: *mut u8, layout: std::alloc::Layout) {
+            self.buf = Some((ptr, layout));
+        }
+    }
+
+    impl Drop for SdkGuard {
+        fn drop(&mut self) {
+            unsafe {
+                if self.acquiring {
+                    let feat = to_wide_string("AcquisitionStop");
+                    AT_Command(self.handle, feat.as_ptr());
+                    AT_Flush(self.handle);
+                }
+                AT_Close(self.handle);
+                AT_FinaliseLibrary();
+                if let Some((ptr, layout)) = self.buf {
+                    std::alloc::dealloc(ptr, layout);
+                }
+            }
+        }
+    }
+
     /// Raw SDK acquisition test — bypasses AndorCamera wrapper.
     ///
     /// This test directly calls the Andor SDK3 C API to determine if the
@@ -337,12 +383,13 @@ mod raw_sdk_diagnostic {
             println!("  AT_InitialiseLibrary: ret={ret}");
             assert_eq!(ret, 0, "AT_InitialiseLibrary failed with {ret}");
 
-            // Step 2: Open camera
+            // Step 2: Open camera (guard ensures cleanup on panic)
             let idx = camera_index();
             let mut handle: AT_H = 0;
             let ret = AT_Open(idx, &mut handle);
             println!("  AT_Open({idx}): ret={ret}, handle={handle}");
             assert_eq!(ret, 0, "AT_Open failed with {ret}");
+            let mut guard = SdkGuard::new(handle);
 
             // Step 3: Read camera model
             let model_feat = to_wide_string("CameraModel");
@@ -416,6 +463,7 @@ mod raw_sdk_diagnostic {
             let layout = std::alloc::Layout::from_size_align(buf_size, 8).unwrap();
             let buf_ptr = std::alloc::alloc_zeroed(layout);
             assert!(!buf_ptr.is_null(), "Buffer allocation failed");
+            guard.set_buffer(buf_ptr, layout);
             println!(
                 "  Allocated buffer: {} bytes @ {:p} (align={})",
                 buf_size,
@@ -433,6 +481,7 @@ mod raw_sdk_diagnostic {
             let ret = AT_Command(handle, feat.as_ptr());
             println!("  AT_Command(AcquisitionStart): ret={ret}");
             assert_eq!(ret, 0, "AcquisitionStart failed with {ret}");
+            guard.set_acquiring();
 
             // Verify CameraAcquiring
             let feat = to_wide_string("CameraAcquiring");
@@ -464,27 +513,12 @@ mod raw_sdk_diagnostic {
                 println!("  This means the camera hardware or SDK (not our wrapper) is the issue.");
             }
 
-            // Step 10: Cleanup (stop acquisition before freeing buffers)
-            let feat = to_wide_string("AcquisitionStop");
-            let stop_ret = AT_Command(handle, feat.as_ptr());
-            println!("  AT_Command(AcquisitionStop): ret={stop_ret}");
-
-            let flush_ret = AT_Flush(handle);
-            println!("  AT_Flush: ret={flush_ret}");
-
-            let close_ret = AT_Close(handle);
-            println!("  AT_Close: ret={close_ret}");
-
-            AT_FinaliseLibrary();
-            println!("  AT_FinaliseLibrary: done");
-
-            // Free buffer after SDK is done with it
-            std::alloc::dealloc(buf_ptr, layout);
-
             println!(
                 "\n=== Raw SDK Test {} ===",
                 if ret == 0 { "PASSED" } else { "FAILED" }
             );
+            // Guard handles cleanup (AcquisitionStop, Flush, Close, Finalize, dealloc)
+            drop(guard);
             assert_eq!(
                 ret, 0,
                 "AT_WaitBuffer timed out — camera did not produce frames at SDK level"
@@ -511,6 +545,7 @@ mod raw_sdk_diagnostic {
             let ret = AT_Open(camera_index(), &mut handle);
             println!("  AT_Open: ret={ret}, handle={handle}");
             assert_eq!(ret, 0, "AT_Open failed");
+            let mut guard = SdkGuard::new(handle);
 
             // Check SensorInitialised (from official example)
             let feat = to_wide_string("SensorInitialised");
@@ -581,10 +616,15 @@ mod raw_sdk_diagnostic {
             let ret = AT_SetEnumString(handle, feat.as_ptr(), val.as_ptr());
             println!("  Set PixelEncoding=Mono16: ret={ret}");
 
-            // Read back dimensions
+            // Read back dimensions (validate ImageSizeBytes before allocation)
             let feat = to_wide_string("ImageSizeBytes");
             let mut img_size: AT_64 = 0;
-            AT_GetInt(handle, feat.as_ptr(), &mut img_size);
+            let ret = AT_GetInt(handle, feat.as_ptr(), &mut img_size);
+            assert_eq!(ret, 0, "Failed to read ImageSizeBytes");
+            assert!(
+                img_size > 0,
+                "ImageSizeBytes must be > 0 for buffer allocation"
+            );
 
             let feat = to_wide_string("AOIWidth");
             let mut w: AT_64 = 0;
@@ -615,6 +655,7 @@ mod raw_sdk_diagnostic {
             let layout = std::alloc::Layout::from_size_align(buf_size, 8).unwrap();
             let buf_ptr = std::alloc::alloc_zeroed(layout);
             assert!(!buf_ptr.is_null());
+            guard.set_buffer(buf_ptr, layout);
 
             let ret = AT_QueueBuffer(handle, buf_ptr, buf_size as std::os::raw::c_int);
             println!("  AT_QueueBuffer: ret={ret}");
@@ -622,6 +663,7 @@ mod raw_sdk_diagnostic {
             let feat = to_wide_string("AcquisitionStart");
             let ret = AT_Command(handle, feat.as_ptr());
             println!("  AcquisitionStart: ret={ret}");
+            guard.set_acquiring();
 
             let mut out_ptr: *mut u8 = std::ptr::null_mut();
             let mut out_size: std::os::raw::c_int = 0;
@@ -634,14 +676,6 @@ mod raw_sdk_diagnostic {
                 elapsed.as_secs_f64()
             );
 
-            // Cleanup
-            let feat = to_wide_string("AcquisitionStop");
-            AT_Command(handle, feat.as_ptr());
-            AT_Flush(handle);
-            AT_Close(handle);
-            AT_FinaliseLibrary();
-            std::alloc::dealloc(buf_ptr, layout);
-
             if ret == 0 {
                 println!("\n  ✓ Small AOI frame received! ({out_size} bytes)");
             } else {
@@ -652,6 +686,7 @@ mod raw_sdk_diagnostic {
                 "\n=== Small AOI Test {} ===",
                 if ret == 0 { "PASSED" } else { "FAILED" }
             );
+            // Guard handles cleanup (AcquisitionStop, Flush, Close, Finalize, dealloc)
         }
     }
 }

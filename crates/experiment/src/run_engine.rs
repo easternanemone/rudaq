@@ -46,12 +46,14 @@
 //! }
 //! ```
 
+use bytes::Bytes;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info, instrument, warn};
 
+use super::lifecycle::RunLifecycleHook;
 use super::plans::{Plan, PlanCommand};
 use common::capabilities::{FrameObserver, ObserverHandle};
 use common::data::FrameView;
@@ -130,7 +132,7 @@ struct RunContext {
     descriptor_uid: String,
     seq_num: u32,
     collected_data: HashMap<String, f64>,
-    collected_frames: HashMap<String, Vec<u8>>,
+    collected_frames: HashMap<String, Bytes>,
     current_positions: HashMap<String, f64>,
     frame_observers: HashMap<String, ObserverHandle>,
     frame_channels: HashMap<String, mpsc::Receiver<FrameCapture>>,
@@ -163,6 +165,13 @@ pub struct RunEngine {
 
     /// Last checkpoint label (for resume)
     last_checkpoint: RwLock<Option<String>>,
+
+    /// Optional lifecycle hook for heartbeat and other cross-cutting concerns.
+    ///
+    /// When set, the engine spawns a background task during plan execution
+    /// that calls `on_heartbeat()` every ~10 seconds. This enables the
+    /// reconciler to detect stale runs (crashed daemons).
+    lifecycle_hook: Option<Arc<dyn RunLifecycleHook>>,
 }
 
 impl RunEngine {
@@ -179,7 +188,16 @@ impl RunEngine {
             abort_requested: RwLock::new(false),
             run_context: Mutex::new(None),
             last_checkpoint: RwLock::new(None),
+            lifecycle_hook: None,
         }
+    }
+
+    /// Set the lifecycle hook for heartbeat monitoring and other events.
+    ///
+    /// When set, the engine will spawn a background task during plan execution
+    /// that calls `on_heartbeat()` every ~10 seconds.
+    pub fn set_lifecycle_hook(&mut self, hook: Arc<dyn RunLifecycleHook>) {
+        self.lifecycle_hook = Some(hook);
     }
 
     /// Subscribe to document stream
@@ -473,6 +491,38 @@ impl RunEngine {
             });
         }
 
+        // Spawn heartbeat background task if lifecycle hook is configured.
+        // The task runs every ~10s and calls on_heartbeat(run_uid) until
+        // the stop signal is sent (when the run completes/aborts).
+        let (heartbeat_stop_tx, heartbeat_stop_rx) = tokio::sync::watch::channel(false);
+        let _heartbeat_handle = if let Some(hook) = &self.lifecycle_hook {
+            let hook = Arc::clone(hook);
+            let uid = run_uid.clone();
+            let mut stop_rx = heartbeat_stop_rx;
+            Some(tokio::spawn(async move {
+                let interval = Duration::from_secs(10);
+                // Send initial heartbeat immediately so the run is never
+                // without a timestamp (avoids false-positive stale detection
+                // during the first interval).
+                if let Err(e) = hook.on_heartbeat(&uid).await {
+                    warn!(run_uid = %uid, error = %e, "initial heartbeat failed");
+                }
+                loop {
+                    tokio::select! {
+                        () = sleep(interval) => {}
+                        _ = stop_rx.changed() => {
+                            break;
+                        }
+                    }
+                    if let Err(e) = hook.on_heartbeat(&uid).await {
+                        warn!(run_uid = %uid, error = %e, "heartbeat update failed");
+                    }
+                }
+            }))
+        } else {
+            None
+        };
+
         // Execute plan commands
         let mut num_events = 0u32;
         let mut exit_status = "success";
@@ -531,6 +581,9 @@ impl RunEngine {
                 }
             }
         }
+
+        // Stop the heartbeat background task.
+        let _ = heartbeat_stop_tx.send(true);
 
         // Clean up frame observers before emitting StopDoc (bd-b86g.3)
         {
@@ -610,7 +663,8 @@ impl RunEngine {
                                 Some(capture) => {
                                     let data_len = capture.data.len();
                                     let frame_num = capture.frame_number;
-                                    ctx.collected_frames.insert(device_id.clone(), capture.data);
+                                    ctx.collected_frames
+                                        .insert(device_id.clone(), Bytes::from(capture.data));
                                     debug!(
                                         device = %device_id,
                                         size = %data_len,

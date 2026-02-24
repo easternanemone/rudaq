@@ -963,7 +963,11 @@ fn domain_to_proto_document(doc: Document) -> Result<Option<crate::grpc::proto::
                 bulk_data: std::collections::HashMap::new(), // TODO: Bulk data support
                 // Middle-data support (bd-9unn)
                 metadata: event.metadata.clone(),
-                arrays: event.arrays.clone(),
+                arrays: event
+                    .arrays
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.to_vec()))
+                    .collect(),
             };
             (
                 ProtoDocType::DocEvent as i32,

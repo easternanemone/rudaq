@@ -32,6 +32,9 @@ name = "Andor iStar sCMOS"
 [devices.driver]
 type = "andor_istar"
 camera_index = 0
+enable_cooling = true
+temperature_control = "0.00"  # SDK3 TemperatureControl enum setpoint (calibrated)
+fan_speed = "On"
 
 # ============================================================================
 # Thorlabs PM400 Power Meter

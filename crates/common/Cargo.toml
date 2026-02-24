@@ -6,7 +6,7 @@ description = "Core types and traits for rust-daq"
 build = "build.rs"
 
 [dependencies]
-bytes = "1.11"
+bytes = { version = "1.11", features = ["serde"] }
 parking_lot = "0.12"
 serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true

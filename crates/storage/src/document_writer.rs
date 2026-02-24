@@ -403,7 +403,7 @@ mod tests {
         for val in frame_data {
             frame_bytes.extend_from_slice(&val.to_le_bytes());
         }
-        arrays.insert("cam1".to_string(), frame_bytes);
+        arrays.insert("cam1".to_string(), bytes::Bytes::from(frame_bytes));
 
         let event = EventDoc {
             descriptor_uid: "desc_1".to_string(),

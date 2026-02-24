@@ -52,6 +52,37 @@ impl DriverFactory for AndorCameraFactory {
             }
         }
 
+        // Validate optional cooling configuration.
+        //
+        // - enable_cooling (bool): Enable TEC on init. Default: true.
+        // - temperature_control (string): Value for the SDK3 TemperatureControl
+        //   enum (e.g. "0.00"). Valid values are camera-model-specific calibrated
+        //   setpoints; validation defers to the SDK at runtime. If the camera
+        //   lacks TemperatureControl, the value is parsed as a float for the
+        //   TargetSensorTemperature fallback. Default: "0.00".
+        // - fan_speed (string): SDK3 FanSpeed enum. Default: "On".
+        if let Some(v) = config.get("enable_cooling") {
+            if v.as_bool().is_none() {
+                anyhow::bail!("enable_cooling must be a boolean");
+            }
+        }
+        if let Some(v) = config.get("temperature_control") {
+            match v.as_str() {
+                Some(s) if !s.is_empty() => { /* valid — SDK validates the actual enum value */ }
+                Some(_) => anyhow::bail!("temperature_control must be a non-empty string"),
+                None => anyhow::bail!("temperature_control must be a string (e.g. \"0.00\")"),
+            }
+        }
+        if let Some(v) = config.get("fan_speed") {
+            match v.as_str() {
+                Some("Off" | "Low" | "On") => { /* valid */ }
+                Some(other) => {
+                    anyhow::bail!("fan_speed must be \"Off\", \"Low\", or \"On\", got \"{other}\"")
+                }
+                None => anyhow::bail!("fan_speed must be a string"),
+            }
+        }
+
         Ok(())
     }
 
@@ -66,6 +97,31 @@ impl DriverFactory for AndorCameraFactory {
 
                 let camera = Arc::new(AndorCamera::new_async(camera_index).await?);
 
+                // Configure cooling if enabled (default: true).
+                // Uses TemperatureControl enum (calibrated setpoints) as primary
+                // mechanism; falls back to TargetSensorTemperature float for
+                // cameras that don't implement the enum.
+                let enable_cooling = config
+                    .get("enable_cooling")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                if enable_cooling {
+                    let temperature_control = config
+                        .get("temperature_control")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("0.00");
+                    let fan_speed = config
+                        .get("fan_speed")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("On");
+                    if let Err(e) = camera
+                        .configure_cooling(temperature_control, fan_speed)
+                        .await
+                    {
+                        tracing::warn!(error = %e, "Cooling init failed, camera will operate without cooling");
+                    }
+                }
+
                 let components = DeviceComponents::new()
                     .with_frame_producer(camera.clone())
                     .with_triggerable(camera.clone())
@@ -79,6 +135,27 @@ impl DriverFactory for AndorCameraFactory {
             {
                 tracing::warn!("Using mock Andor camera (hardware feature not enabled)");
                 let camera = Arc::new(MockCamera::new());
+
+                // Log cooling config for visibility (mock doesn't talk to real hardware)
+                let enable_cooling = config
+                    .get("enable_cooling")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                if enable_cooling {
+                    let temperature_control = config
+                        .get("temperature_control")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("0.00");
+                    let fan_speed = config
+                        .get("fan_speed")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("On");
+                    tracing::info!(
+                        temperature_control,
+                        fan_speed,
+                        "Mock camera: cooling configured (no real hardware)"
+                    );
+                }
 
                 let components = DeviceComponents::new()
                     .with_frame_producer(camera.clone())

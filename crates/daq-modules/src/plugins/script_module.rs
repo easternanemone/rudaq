@@ -220,11 +220,21 @@ impl ScriptModule {
     }
 
     /// Parse ModuleTypeInfo from a script Dynamic value.
+    ///
+    /// The scripting engine may return either a raw `Dynamic` (opaque Rhai type)
+    /// or a `serde_json::Value` (when the serde fallback path was used for
+    /// composite types like maps). We handle both representations.
     fn parse_type_info_from_dynamic(value: ScriptValue) -> Result<ModuleTypeInfo> {
-        // Try to extract as Dynamic
-        let dynamic = value
-            .downcast::<Dynamic>()
-            .map_err(|_| anyhow!("module_type_info() must return a map"))?;
+        // The scripting engine converts composite Rhai types (maps, arrays) to
+        // serde_json::Value. Convert back to Dynamic so existing helpers work.
+        let dynamic = if let Some(json_val) = value.downcast_ref::<serde_json::Value>() {
+            scripting::rhai::serde::to_dynamic(json_val)
+                .map_err(|e| anyhow!("Failed to convert script result to Dynamic: {e}"))?
+        } else {
+            value
+                .downcast::<Dynamic>()
+                .map_err(|_| anyhow!("module_type_info() must return a map"))?
+        };
 
         let map = as_map(dynamic).ok_or_else(|| anyhow!("module_type_info() must return a map"))?;
 

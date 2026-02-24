@@ -764,8 +764,8 @@ mod tests {
 // Phase 5: Integration tests — full round-trip through UniversalDriver + EmulatorTransport
 // =========================================================================
 
-#[cfg(test)]
 #[allow(clippy::float_cmp)]
+#[cfg(test)]
 mod integration_tests {
     use std::sync::Arc;
 
