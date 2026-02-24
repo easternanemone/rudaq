@@ -24,6 +24,14 @@ use tonic::{Request, Response, Status};
 pub struct HealthServiceImpl {
     monitor: Arc<SystemHealthMonitor>,
     registry: Option<Arc<DeviceRegistry>>,
+    /// Whether SurrealDB initialized successfully (bd-9n9k.3).
+    db_available: bool,
+    /// Whether ConfigService is registered in the gRPC server (bd-9n9k.3).
+    config_service_available: bool,
+    /// DB engine identifier (e.g. "rocksdb", "mem") when DB is available (bd-9n9k.3).
+    db_engine: Option<String>,
+    /// Human-readable DB state message (bd-9n9k.3).
+    db_state_message: Option<String>,
 }
 
 impl HealthServiceImpl {
@@ -32,12 +40,30 @@ impl HealthServiceImpl {
         Self {
             monitor,
             registry: None,
+            db_available: false,
+            config_service_available: false,
+            db_engine: None,
+            db_state_message: None,
         }
     }
 
     /// Attach a device registry for per-device health reporting (bd-qa36.4.3).
     pub fn with_registry(mut self, registry: Arc<DeviceRegistry>) -> Self {
         self.registry = Some(registry);
+        self
+    }
+
+    /// Set database availability and metadata (bd-9n9k.3).
+    pub fn with_db_state(
+        mut self,
+        available: bool,
+        engine: Option<String>,
+        message: Option<String>,
+    ) -> Self {
+        self.db_available = available;
+        self.config_service_available = available;
+        self.db_engine = engine;
+        self.db_state_message = message;
         self
     }
 }
@@ -145,6 +171,11 @@ impl HealthService for HealthServiceImpl {
             total_errors: errors.len() as u32,
             critical_errors: critical_count,
             timestamp_ns: now_ns(),
+            // Database readiness (bd-9n9k.3)
+            db_available: self.db_available,
+            config_service_available: self.config_service_available,
+            db_engine: self.db_engine.clone(),
+            db_state_message: self.db_state_message.clone(),
         };
 
         Ok(Response::new(response))
@@ -282,6 +313,8 @@ impl HealthService for HealthServiceImpl {
         };
 
         let monitor = self.monitor.clone();
+        let stream_db_available = self.db_available;
+        let stream_config_available = self.config_service_available;
 
         let stream = IntervalStream::new(interval(update_interval)).then(move |_| {
             let monitor = monitor.clone();
@@ -318,10 +351,118 @@ impl HealthService for HealthServiceImpl {
                     modules: proto_modules,
                     latest_error,
                     timestamp_ns: now_ns(),
+                    // Database readiness (bd-9n9k.3)
+                    db_available: stream_db_available,
+                    config_service_available: stream_config_available,
                 })
             }
         });
 
         Ok(Response::new(Box::pin(stream)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::grpc::proto::health_service_server::HealthService as HealthServiceTrait;
+    use common::health::HealthMonitorConfig;
+
+    fn make_monitor() -> Arc<SystemHealthMonitor> {
+        Arc::new(SystemHealthMonitor::new(HealthMonitorConfig::default()))
+    }
+
+    #[tokio::test]
+    async fn test_db_available_reported_in_health() {
+        let svc = HealthServiceImpl::new(make_monitor()).with_db_state(
+            true,
+            Some("rocksdb".to_string()),
+            Some("schema v7, 3 drivers".to_string()),
+        );
+
+        let resp = svc
+            .get_system_health(Request::new(GetSystemHealthRequest {}))
+            .await
+            .expect("get_system_health should succeed");
+        let body = resp.into_inner();
+
+        assert!(body.db_available, "db_available should be true");
+        assert!(
+            body.config_service_available,
+            "config_service_available should be true"
+        );
+        assert_eq!(body.db_engine.as_deref(), Some("rocksdb"));
+        assert!(
+            body.db_state_message
+                .as_ref()
+                .is_some_and(|m| m.contains("schema v7"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_db_unavailable_reported_in_health() {
+        let svc = HealthServiceImpl::new(make_monitor()).with_db_state(
+            false,
+            None,
+            Some("Database initialization failed".to_string()),
+        );
+
+        let resp = svc
+            .get_system_health(Request::new(GetSystemHealthRequest {}))
+            .await
+            .expect("get_system_health should succeed");
+        let body = resp.into_inner();
+
+        assert!(!body.db_available, "db_available should be false");
+        assert!(
+            !body.config_service_available,
+            "config_service_available should be false"
+        );
+        assert!(body.db_engine.is_none());
+        assert!(
+            body.db_state_message
+                .as_ref()
+                .is_some_and(|m| m.contains("failed"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_db_failure_degrades_system_health() {
+        let monitor = make_monitor();
+
+        // Simulate DB init failure recording
+        monitor
+            .report_error(
+                "database",
+                ErrorSeverity::Warning,
+                "SurrealDB init failed: connection refused",
+                vec![("engine", "rocksdb")],
+            )
+            .await;
+
+        let health = monitor.get_system_health().await;
+        assert!(
+            matches!(health, SystemHealth::Degraded),
+            "System health should be Degraded after DB warning, got {:?}",
+            health
+        );
+    }
+
+    #[tokio::test]
+    async fn test_default_db_state_is_unavailable() {
+        // Without calling with_db_state, DB should report as unavailable
+        let svc = HealthServiceImpl::new(make_monitor());
+
+        let resp = svc
+            .get_system_health(Request::new(GetSystemHealthRequest {}))
+            .await
+            .expect("get_system_health should succeed");
+        let body = resp.into_inner();
+
+        assert!(!body.db_available, "default db_available should be false");
+        assert!(
+            !body.config_service_available,
+            "default config_service_available should be false"
+        );
     }
 }

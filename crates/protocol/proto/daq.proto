@@ -2788,6 +2788,11 @@ message GetSystemHealthResponse {
   uint32 total_errors = 5;
   uint32 critical_errors = 6;
   uint64 timestamp_ns = 7;
+  // Database readiness (bd-9n9k.3)
+  bool db_available = 8;
+  bool config_service_available = 9;
+  optional string db_engine = 10;
+  optional string db_state_message = 11;
 }
 
 // Overall system health status
@@ -2890,4 +2895,7 @@ message HealthUpdate {
   repeated ModuleHealthStatus modules = 2;
   optional HealthErrorRecord latest_error = 3;
   uint64 timestamp_ns = 4;
+  // Database readiness (bd-9n9k.3)
+  bool db_available = 5;
+  bool config_service_available = 6;
 }

@@ -1597,6 +1597,42 @@ pub async fn start_server_with_hardware(
         crate::grpc::custom_health_service::HealthServiceImpl::new(health_monitor)
             .with_registry(registry.clone());
 
+    // Wire DB state into health responses (bd-9n9k.3)
+    #[cfg(feature = "db-surreal")]
+    let custom_health_service = {
+        let (db_available, engine, message) = if let Some(ref db) = _db {
+            let info = db.info().await;
+            // Expose only engine kind ("rocksdb", "mem") — avoid leaking filesystem paths.
+            let engine_kind = info
+                .engine
+                .split(':')
+                .next()
+                .unwrap_or("unknown")
+                .to_string();
+            // Base availability on actual DB health, not just init success.
+            let healthy = info.healthy;
+            (
+                healthy,
+                Some(engine_kind),
+                Some(if healthy {
+                    format!(
+                        "schema v{}, {} drivers, {} instruments",
+                        info.schema_version, info.driver_count, info.instrument_count
+                    )
+                } else {
+                    "Database initialized but health check failing".to_string()
+                }),
+            )
+        } else {
+            (
+                false,
+                None,
+                Some("Database initialization failed or not configured".to_string()),
+            )
+        };
+        custom_health_service.with_db_state(db_available, engine, message)
+    };
+
     // Register serving status for all services
     standard_health_service.set_serving_status("", ServingStatus::Serving);
     standard_health_service.set_serving_status("daq.ControlService", ServingStatus::Serving);
@@ -1609,6 +1645,13 @@ pub async fn start_server_with_hardware(
     standard_health_service.set_serving_status("daq.HealthService", ServingStatus::Serving); // Register custom service too
     #[cfg(feature = "serial")]
     standard_health_service.set_serving_status("daq.PluginService", ServingStatus::Serving);
+    // Register ConfigService status based on DB availability (bd-9n9k.3)
+    #[cfg(feature = "db-surreal")]
+    if _db.is_some() {
+        standard_health_service.set_serving_status("daq.ConfigService", ServingStatus::Serving);
+    } else {
+        standard_health_service.set_serving_status("daq.ConfigService", ServingStatus::NotServing);
+    }
 
     println!("DAQ gRPC server (with hardware) listening on {}", bind_addr);
     println!("  - ControlService: script management");

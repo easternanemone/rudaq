@@ -308,6 +308,11 @@ impl DaemonInstance {
         #[cfg(feature = "db-surreal")]
         let db = {
             println!("🗄️  Initializing database (SurrealDB)...");
+            let engine_name = if config.db_path.is_some() {
+                "rocksdb"
+            } else {
+                "mem"
+            };
             let db_config = if let Some(ref path) = config.db_path {
                 println!("   Engine: RocksDB ({})", path.display());
                 db::DbConfig::rocksdb(path)
@@ -323,13 +328,43 @@ impl DaemonInstance {
                         info.schema_version, info.driver_count, info.instrument_count
                     );
                     println!();
+                    // Record DB health in monitor (bd-9n9k.3)
+                    health
+                        .heartbeat_with_message(
+                            "database",
+                            Some(format!(
+                                "SurrealDB ({}) — schema v{}, {} drivers, {} instruments",
+                                engine_name,
+                                info.schema_version,
+                                info.driver_count,
+                                info.instrument_count,
+                            )),
+                        )
+                        .await;
                     Some(db)
                 }
                 Err(e) => {
                     // DB failure is non-fatal — the daemon can still run from TOML config.
-                    // Log the error and continue without persistence.
+                    // Record structured error for health monitor (bd-9n9k.3).
+                    tracing::warn!(
+                        engine = engine_name,
+                        error = %e,
+                        "SurrealDB initialization failed — running without database persistence. \
+                         ConfigService and metadata catalogs will be unavailable. \
+                         Use --db-path <dir> to configure persistent storage."
+                    );
+                    health
+                        .report_error(
+                            "database",
+                            common::health::ErrorSeverity::Warning,
+                            format!("SurrealDB init failed: {e}"),
+                            vec![("engine", engine_name)],
+                        )
+                        .await;
                     eprintln!("   ⚠️  Database initialization failed: {}", e);
-                    eprintln!("   Continuing without database persistence.");
+                    eprintln!(
+                        "   Continuing without database persistence (ConfigService unavailable)."
+                    );
                     println!();
                     None
                 }
@@ -594,6 +629,17 @@ impl DaemonInstance {
             println!("     - Coordinated scans (ScanService)");
             println!("     - Preset save/load (PresetService)");
             println!("     - System Health Monitoring (HealthService)");
+            // DB state summary in startup banner (bd-9n9k.3)
+            #[cfg(feature = "db-surreal")]
+            if db.is_some() {
+                println!("     - Config management (ConfigService) [DB available]");
+            } else {
+                println!(
+                    "     ⚠ ConfigService UNAVAILABLE (database init failed or not configured)"
+                );
+            }
+            #[cfg(not(feature = "db-surreal"))]
+            println!("     ⚠ ConfigService UNAVAILABLE (compiled without db-surreal feature)");
             println!();
 
             let srv_registry = registry.clone();

@@ -190,9 +190,24 @@ A `HardwareWatchdog` runs inside the daemon and monitors device liveness.
 It is automatically disarmed during graceful shutdown to prevent false
 emergency triggers.
 
-### Database info (SurrealDB)
+### Database readiness (SurrealDB)
 
-When running with the `db-surreal` feature:
+When running with the `db-surreal` feature, the daemon reports database state
+through multiple channels:
+
+- **Startup banner**: Shows `ConfigService [DB available]` or
+  `⚠ ConfigService UNAVAILABLE` in the feature list.
+- **Health endpoint**: `GetSystemHealth` includes `db_available`,
+  `config_service_available`, `db_engine`, and `db_state_message` fields.
+- **Standard health check**: `grpc.health.v1.Health/Check` reports
+  `daq.ConfigService` as `SERVING` or `NOT_SERVING`.
+- **Module health**: The `database` module appears in `GetModuleHealth`
+  with heartbeat status (healthy) or error record (degraded).
+
+If DB initialization fails, the daemon continues running from TOML config
+but `ConfigService` is unavailable and system health reports `Degraded`.
+
+To query database info directly:
 
 ```bash
 rust-daq client config-info --addr http://localhost:50051

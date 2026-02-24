@@ -959,8 +959,23 @@ message GetSystemHealthResponse {
   uint32 total_errors = 5;
   uint32 critical_errors = 6;
   uint64 timestamp_ns = 7;
+  // Database readiness (bd-9n9k.3)
+  bool db_available = 8;
+  bool config_service_available = 9;
+  optional string db_engine = 10;        // e.g. "rocksdb", "mem"
+  optional string db_state_message = 11; // Human-readable status
 }
 ```
+
+> **Database readiness (bd-9n9k.3):** `db_available` reflects whether SurrealDB
+> initialized **and** passes its health check. When `false`,
+> `config_service_available` is also `false` and `ConfigService` RPCs will
+> return `Unimplemented`. Use `db_engine` (`"rocksdb"`, `"mem"`) and
+> `db_state_message` from `GetSystemHealth` for static metadata — the
+> streaming `HealthUpdate` carries only the boolean availability flags to
+> minimize per-tick overhead. The standard gRPC health check
+> (`grpc.health.v1`) reports `ConfigService` as `NOT_SERVING` when DB
+> initialization failed entirely.
 
 **StreamHealthUpdates** - Real-time health monitoring
 ```proto
@@ -976,6 +991,8 @@ message HealthUpdate {
   repeated ModuleHealthStatus modules = 2;
   optional HealthErrorRecord latest_error = 3;
   uint64 timestamp_ns = 4;
+  bool db_available = 5;               // Database readiness (bd-9n9k.3)
+  bool config_service_available = 6;
 }
 ```
 
