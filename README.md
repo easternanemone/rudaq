@@ -88,11 +88,23 @@ graph TD
         POOL[Object Pool - zero-alloc]
     end
 
-    GUI & CLI & GRPC_CLIENT ---|gRPC / HTTP2| SERVER
-    SERVER --> SCRIPT & MODULES & ENGINE
+    GUI ---|gRPC / HTTP2| SERVER
+    CLI ---|gRPC / HTTP2| SERVER
+    GRPC_CLIENT ---|gRPC / HTTP2| SERVER
+    SERVER --> SCRIPT
+    SERVER --> MODULES
+    SERVER --> ENGINE
     ENGINE --> HAL
     ENGINE -.->|lifecycle| DB
-    HAL --> UNIVERSAL & PVCAM & ANDOR & COMEDI & DOVER & THORLABS & NEWPORT & SPECTRA & MOCK
+    HAL --> UNIVERSAL
+    HAL --> PVCAM
+    HAL --> ANDOR
+    HAL --> COMEDI
+    HAL --> DOVER
+    HAL --> THORLABS
+    HAL --> NEWPORT
+    HAL --> SPECTRA
+    HAL --> MOCK
     HAL -->|frames| RING
     RING --> STORAGE
     RING -.->|stream| SERVER

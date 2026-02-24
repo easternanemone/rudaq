@@ -121,7 +121,16 @@ graph TD
     Server --> Script
     Server --> Modules
     Script --> HW
-    HW --> DrvPvcam & DrvAndor & DrvThorlabs & DrvNewport & DrvDover & DrvSpectra & DrvComedi & DrvGeneric & DrvUniversal & DrvMock
+    HW --> DrvPvcam
+    HW --> DrvAndor
+    HW --> DrvThorlabs
+    HW --> DrvNewport
+    HW --> DrvDover
+    HW --> DrvSpectra
+    HW --> DrvComedi
+    HW --> DrvGeneric
+    HW --> DrvUniversal
+    HW --> DrvMock
     HW -->|Frame Data| Ring
     Ring -->|Zero-Copy| Writer
     Ring -.->|Stream| Server
