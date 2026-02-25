@@ -341,7 +341,8 @@ impl ConfigDrivenPanel {
                             }
                             Err(e) => {
                                 tracing::warn!(device_id = ?self.device_id, "Read param failed: {e}");
-                                self.error = Some(format!("Read param: {e}"));
+                                // Show "N/A" in the field instead of blocking the whole panel
+                                s.value = Some("N/A".to_string());
                             }
                         }
                     }
@@ -705,9 +706,11 @@ impl ConfigDrivenPanel {
         // instead of the generic ExecuteDeviceCommand (which requires Commandable)
         match command {
             "emission_on" | "enable_emission" => {
+                tracing::debug!(device_id, "Routing emission_on to SetEmission RPC");
                 return self.dispatch_set_emission(client, runtime, device_id, true);
             }
             "emission_off" | "disable_emission" => {
+                tracing::debug!(device_id, "Routing emission_off to SetEmission RPC");
                 return self.dispatch_set_emission(client, runtime, device_id, false);
             }
             _ => {}
@@ -1799,6 +1802,18 @@ fn styled_button<'a>(label: &str, style: ButtonStyle) -> egui::Button<'a> {
                 .strong(),
         )
         .fill(egui::Color32::from_rgb(50, 100, 200)),
+        ButtonStyle::Warning => egui::Button::new(
+            egui::RichText::new(label.to_string())
+                .color(egui::Color32::BLACK)
+                .strong(),
+        )
+        .fill(egui::Color32::from_rgb(255, 170, 0)),
+        ButtonStyle::Info => egui::Button::new(
+            egui::RichText::new(label.to_string())
+                .color(egui::Color32::WHITE)
+                .strong(),
+        )
+        .fill(egui::Color32::from_rgb(0, 150, 170)),
         _ => egui::Button::new(label.to_string()),
     }
 }
@@ -1982,6 +1997,8 @@ mod tests {
         let _ = styled_button("Success", ButtonStyle::Success);
         let _ = styled_button("Primary", ButtonStyle::Primary);
         let _ = styled_button("Default", ButtonStyle::Default);
+        let _ = styled_button("Warning", ButtonStyle::Warning);
+        let _ = styled_button("Info", ButtonStyle::Info);
     }
 
     #[test]

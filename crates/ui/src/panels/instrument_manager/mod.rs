@@ -1562,8 +1562,8 @@ impl InstrumentManagerPanel {
             return;
         }
 
-        // Check for ELL14 rotator
-        if driver_lower.contains("ell14") || driver_lower.contains("thorlabs") {
+        // Check for ELL14 rotator (only match specific rotator identifiers, not all Thorlabs)
+        if driver_lower.contains("ell14") || driver_lower.contains("rotator") {
             let panel = self.rotator_panels.entry(device_id.clone()).or_default();
             // Use push_id to avoid widget ID collisions with docked panels
             ui.push_id(("instr_mgr", &device_id), |ui| {

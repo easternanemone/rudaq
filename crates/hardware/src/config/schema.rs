@@ -1487,6 +1487,10 @@ pub enum ButtonStyle {
     Danger,
     /// Success/positive action (green)
     Success,
+    /// Warning action (amber/orange)
+    Warning,
+    /// Informational action (blue/teal)
+    Info,
 }
 
 /// Camera control section configuration.
@@ -1902,6 +1906,12 @@ mod tests {
 
         let parsed: ButtonStyle = serde_json::from_str("\"primary\"").unwrap();
         assert_eq!(parsed, ButtonStyle::Primary);
+
+        let warning: ButtonStyle = serde_json::from_str("\"warning\"").unwrap();
+        assert_eq!(warning, ButtonStyle::Warning);
+
+        let info: ButtonStyle = serde_json::from_str("\"info\"").unwrap();
+        assert_eq!(info, ButtonStyle::Info);
     }
 
     #[test]

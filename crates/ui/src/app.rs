@@ -936,7 +936,7 @@ fn docked_advanced_panel_kind_for_device(device: &DeviceInfo) -> DockedAdvancedP
         || (device.is_readable() && !device.is_movable() && !device.is_frame_producer())
     {
         DockedAdvancedPanelKind::PowerMeter
-    } else if driver_lower.contains("ell14") || driver_lower.contains("thorlabs") {
+    } else if driver_lower.contains("ell14") || driver_lower.contains("rotator") {
         DockedAdvancedPanelKind::Rotator
     } else if device.is_movable() {
         DockedAdvancedPanelKind::Stage
@@ -958,10 +958,7 @@ fn panel_kind_for_device(device: &DeviceInfo) -> DevicePanelKind {
     } else if device.is_readable() && !device.is_movable() {
         DevicePanelKind::PowerMeter
     } else if device.is_movable() {
-        if driver_lower.contains("ell14")
-            || driver_lower.contains("rotator")
-            || driver_lower.contains("thorlabs")
-        {
+        if driver_lower.contains("ell14") || driver_lower.contains("rotator") {
             DevicePanelKind::Rotator
         } else {
             DevicePanelKind::Stage

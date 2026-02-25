@@ -38,10 +38,28 @@ pub enum PanelType {
 /// Returns `None` if the device has no metadata, no `ui_schema_json`, the JSON is
 /// malformed, or the deserialized `UiConfig` has no `control_panel` section.
 pub fn try_grpc_ui_config(device: &DeviceInfo) -> Option<ControlPanelConfig> {
+    let has_metadata = device.metadata.is_some();
+    let has_schema = device
+        .metadata
+        .as_ref()
+        .and_then(|m| m.ui_schema_json.as_ref())
+        .is_some();
+    tracing::debug!(
+        device_id = %device.id,
+        driver_type = %device.driver_type,
+        has_metadata,
+        has_schema,
+        "try_grpc_ui_config called"
+    );
     let json_str = device
         .metadata
         .as_ref()
         .and_then(|m| m.ui_schema_json.as_ref())?;
+    tracing::debug!(
+        device_id = %device.id,
+        json_len = json_str.len(),
+        "Found ui_schema_json"
+    );
     let ui_config: UiConfig = serde_json::from_str(json_str)
         .map_err(|e| {
             tracing::warn!(
@@ -52,6 +70,12 @@ pub fn try_grpc_ui_config(device: &DeviceInfo) -> Option<ControlPanelConfig> {
             e
         })
         .ok()?;
+    let has_panel = ui_config.control_panel.is_some();
+    tracing::debug!(
+        device_id = %device.id,
+        has_panel,
+        "Deserialized UiConfig"
+    );
     ui_config.control_panel
 }
 
