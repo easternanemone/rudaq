@@ -445,14 +445,14 @@ impl ConfigDrivenPanel {
             .iter()
             .any(|s| matches!(s, ControlSection::Wavelength(_)));
 
-        let param_sections: Vec<(usize, String)> = self
+        let param_sections: Vec<(usize, String, Option<String>)> = self
             .config
             .sections
             .iter()
             .enumerate()
             .filter_map(|(i, s)| {
                 if let ControlSection::Parameter(cfg) = s {
-                    Some((i, cfg.parameter.clone()))
+                    Some((i, cfg.parameter.clone(), cfg.read_command.clone()))
                 } else {
                     None
                 }
@@ -513,12 +513,37 @@ impl ConfigDrivenPanel {
                     .send(ConfigPanelAction::WavelengthValue(result, false))
                     .await;
             }
-            for (idx, param_name) in &param_sections {
-                let result = c
-                    .get_parameter(&id, param_name)
-                    .await
-                    .map(|p| p.value)
-                    .map_err(|e| e.to_string());
+            for (idx, param_name, read_cmd) in &param_sections {
+                let result = if let Some(cmd) = read_cmd {
+                    // Command-driven read: use ExecuteDeviceCommand RPC
+                    c.execute_device_command(&id, cmd, "{}")
+                        .await
+                        .map(|resp| {
+                            // Parse JSON results string, extract "value" field
+                            if let Ok(json) =
+                                serde_json::from_str::<serde_json::Value>(&resp.results)
+                            {
+                                json.get("value")
+                                    .map(|v| {
+                                        if v.is_string() {
+                                            v.as_str().unwrap_or("").to_string()
+                                        } else {
+                                            v.to_string()
+                                        }
+                                    })
+                                    .unwrap_or_else(|| resp.results.clone())
+                            } else {
+                                resp.results.clone()
+                            }
+                        })
+                        .map_err(|e| e.to_string())
+                } else {
+                    // Standard parameter read via GetParameter RPC
+                    c.get_parameter(&id, param_name)
+                        .await
+                        .map(|p| p.value)
+                        .map_err(|e| e.to_string())
+                };
                 let _ = tx
                     .send(ConfigPanelAction::ParameterRead { idx: *idx, result })
                     .await;
@@ -735,6 +760,7 @@ impl ConfigDrivenPanel {
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn dispatch_set_parameter(
         &mut self,
         client: Option<&mut DaqClient>,
@@ -743,6 +769,8 @@ impl ConfigDrivenPanel {
         idx: usize,
         param_name: &str,
         value: &str,
+        write_command: Option<&str>,
+        write_param: Option<&str>,
     ) {
         let Some(client) = client else { return };
         self.actions_in_flight += 1;
@@ -751,16 +779,35 @@ impl ConfigDrivenPanel {
         let id = device_id.to_string();
         let name = param_name.to_string();
         let val = value.to_string();
-        runtime.spawn(async move {
-            let result = c
-                .set_parameter(&id, &name, &val)
-                .await
-                .map(|r| r.actual_value)
-                .map_err(|e| e.to_string());
-            let _ = tx
-                .send(ConfigPanelAction::ParameterWrite { idx, result })
-                .await;
-        });
+
+        if let Some(cmd) = write_command {
+            // Command-driven write: use ExecuteDeviceCommand RPC
+            let cmd = cmd.to_string();
+            let param_key = write_param.unwrap_or("value").to_string();
+            runtime.spawn(async move {
+                let args = serde_json::json!({ param_key: val }).to_string();
+                let result = c
+                    .execute_device_command(&id, &cmd, &args)
+                    .await
+                    .map(|_| val)
+                    .map_err(|e| e.to_string());
+                let _ = tx
+                    .send(ConfigPanelAction::ParameterWrite { idx, result })
+                    .await;
+            });
+        } else {
+            // Standard parameter write via SetParameter RPC
+            runtime.spawn(async move {
+                let result = c
+                    .set_parameter(&id, &name, &val)
+                    .await
+                    .map(|r| r.actual_value)
+                    .map_err(|e| e.to_string());
+                let _ = tx
+                    .send(ConfigPanelAction::ParameterWrite { idx, result })
+                    .await;
+            });
+        }
     }
 
     fn dispatch_stop(
@@ -1575,6 +1622,8 @@ impl ConfigDrivenPanel {
                                 idx,
                                 &param,
                                 &val,
+                                cfg.write_command.as_deref(),
+                                cfg.write_param.as_deref(),
                             );
                         }
                     }
@@ -1603,6 +1652,8 @@ impl ConfigDrivenPanel {
                                         idx,
                                         &param,
                                         &state.input,
+                                        cfg.write_command.as_deref(),
+                                        cfg.write_param.as_deref(),
                                     );
                                 }
                             });
@@ -1631,6 +1682,8 @@ impl ConfigDrivenPanel {
                                             idx,
                                             &param,
                                             &state.input,
+                                            cfg.write_command.as_deref(),
+                                            cfg.write_param.as_deref(),
                                         );
                                     }
                                 }
@@ -1693,6 +1746,8 @@ impl ConfigDrivenPanel {
                     idx,
                     &param,
                     &val,
+                    cfg.write_command.as_deref(),
+                    cfg.write_param.as_deref(),
                 );
             }
         });

@@ -1590,6 +1590,20 @@ pub struct ParameterSectionConfig {
     /// Read-only display (no editing)
     #[serde(default)]
     pub read_only: bool,
+
+    /// Command name to read the parameter value (uses `ExecuteDeviceCommand` RPC).
+    /// When set, bypasses `GetParameter` and reads via the device's command manifest.
+    #[serde(default)]
+    pub read_command: Option<String>,
+
+    /// Command name to write the parameter value (uses `ExecuteDeviceCommand` RPC).
+    /// When set, bypasses `SetParameter` and writes via the device's command manifest.
+    #[serde(default)]
+    pub write_command: Option<String>,
+
+    /// Parameter name in the write command template (default: "value").
+    #[serde(default)]
+    pub write_param: Option<String>,
 }
 
 /// Widget type for parameter editing.

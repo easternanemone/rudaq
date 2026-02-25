@@ -14,7 +14,7 @@ manufacturer = "Thorlabs"
 model = "PM400"
 protocol = "scpi"
 category = "sensor"
-capabilities = ["Readable", "WavelengthTunable"]
+capabilities = ["Readable", "WavelengthTunable", "Commandable"]
 
 [connection]
 type = "usbtmc"
@@ -124,6 +124,8 @@ label = "Wavelength"
 parameter = "wavelength"
 widget = "spinner"
 read_only = false
+read_command = "get_wavelength"
+write_command = "set_wavelength"
 
 [[ui.control_panel.sections]]
 type = "custom_action"
