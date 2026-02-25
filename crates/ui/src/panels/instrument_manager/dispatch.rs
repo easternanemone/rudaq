@@ -4,13 +4,14 @@
 //! type should be used for a given device based on its capabilities and TOML config.
 //!
 //! The dispatch priority is:
-//! 1. **Config-driven** — If a TOML `[ui.control_panel]` exists for the device's driver type
+//! 0. **gRPC-driven** — If `device.metadata.ui_schema_json` contains a valid `[ui.control_panel]`
+//! 1. **Config-driven** — If a local TOML `[ui.control_panel]` exists for the device's driver type
 //! 2. **Capability-based** — Hardcoded panels matched by driver name and capabilities
 
 #![allow(dead_code)]
 
 use crate::device_ext::DeviceInfoExt;
-use hardware::config::schema::ControlPanelConfig;
+use hardware::config::schema::{ControlPanelConfig, UiConfig};
 use protocol::daq::DeviceInfo;
 
 use super::config_loader::DeviceConfigCache;
@@ -32,23 +33,51 @@ pub enum PanelType {
     Comedi,
 }
 
+/// Extract a `ControlPanelConfig` from the device's gRPC metadata `ui_schema_json` field.
+///
+/// Returns `None` if the device has no metadata, no `ui_schema_json`, the JSON is
+/// malformed, or the deserialized `UiConfig` has no `control_panel` section.
+pub fn try_grpc_ui_config(device: &DeviceInfo) -> Option<ControlPanelConfig> {
+    let json_str = device
+        .metadata
+        .as_ref()
+        .and_then(|m| m.ui_schema_json.as_ref())?;
+    let ui_config: UiConfig = serde_json::from_str(json_str)
+        .map_err(|e| {
+            tracing::warn!(
+                device_id = %device.id,
+                error = %e,
+                "Failed to deserialize ui_schema_json"
+            );
+            e
+        })
+        .ok()?;
+    ui_config.control_panel
+}
+
 /// Determine the appropriate control panel type for a device.
 ///
-/// Checks TOML config first (if cache is provided), then falls back to
+/// Checks gRPC metadata first, then local TOML config, then falls back to
 /// capability-based dispatch.
 ///
 /// # Priority order
-/// 0. Config-driven (TOML `[ui.control_panel]` exists) → ConfigDriven
-/// 1. Comedi DAQ devices → Comedi
-/// 2. Laser capabilities (emission/shutter/wavelength) → MaiTai
-/// 3. Readable without motion (sensors, meters) → PowerMeter
-/// 4. Movable with "ell14" in driver name → Rotator
-/// 5. Movable → Stage (default for motion devices)
+/// 0. gRPC-driven (`device.metadata.ui_schema_json`) → ConfigDriven
+/// 1. Config-driven (local TOML `[ui.control_panel]` exists) → ConfigDriven
+/// 2. Comedi DAQ devices → Comedi
+/// 3. Laser capabilities (emission/shutter/wavelength) → MaiTai
+/// 4. Readable without motion (sensors, meters) → PowerMeter
+/// 5. Movable with "ell14" in driver name → Rotator
+/// 6. Movable → Stage (default for motion devices)
 pub fn determine_panel_type_with_config(
     device: &DeviceInfo,
     config_cache: Option<&DeviceConfigCache>,
 ) -> PanelType {
-    // Priority 0: Config-driven panel from TOML
+    // Priority 0: gRPC-driven panel from device metadata
+    if let Some(config) = try_grpc_ui_config(device) {
+        return PanelType::ConfigDriven(config);
+    }
+
+    // Priority 1: Config-driven panel from local TOML
     if let Some(cache) = config_cache {
         if let Some(config) = cache.get_ui_config_for_driver(&device.driver_type) {
             return PanelType::ConfigDriven(config.clone());
@@ -237,5 +266,87 @@ mod tests {
             determine_panel_type_with_config(&dev, Some(&cache)),
             PanelType::Rotator
         ));
+    }
+
+    /// Helper: create a DeviceInfo with ui_schema_json in metadata
+    fn make_device_with_schema(
+        driver: &str,
+        capabilities: &[&str],
+        ui_schema_json: Option<&str>,
+    ) -> DeviceInfo {
+        #[allow(deprecated)]
+        DeviceInfo {
+            id: "test-device".to_string(),
+            name: "Test Device".to_string(),
+            driver_type: driver.to_string(),
+            capabilities: capabilities.iter().map(|s| (*s).to_string()).collect(),
+            metadata: Some(protocol::daq::DeviceMetadata {
+                ui_schema_json: ui_schema_json.map(ToString::to_string),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_grpc_schema_takes_priority() {
+        // Device with valid ui_schema_json → try_grpc_ui_config returns Some
+        let schema = r#"{"control_panel":{"layout":"vertical","sections":[{"type":"sensor","label":"Power"}]}}"#;
+        let dev = make_device_with_schema("ipg_laser", &["readable"], Some(schema));
+        let config = try_grpc_ui_config(&dev);
+        assert!(
+            config.is_some(),
+            "Expected gRPC schema to produce a ControlPanelConfig"
+        );
+        assert!(!config.unwrap().sections.is_empty());
+    }
+
+    #[test]
+    fn test_grpc_schema_precedence_over_capability_dispatch() {
+        // IPG-like device: readable (no movable, no frame_producer) + ui_schema_json
+        // Without schema → PowerMeter; with schema → ConfigDriven
+        let dev_no_schema = make_device(
+            "universal_ipg_ylpp-200-1-50-r",
+            false,
+            true,
+            false,
+            false,
+            false,
+        );
+        assert!(
+            matches!(determine_panel_type(&dev_no_schema), PanelType::PowerMeter),
+            "Without schema, IPG should fall to PowerMeter"
+        );
+
+        let schema = r#"{"control_panel":{"layout":"vertical","sections":[{"type":"sensor","label":"Output Power"}]}}"#;
+        let dev_with_schema =
+            make_device_with_schema("universal_ipg_ylpp-200-1-50-r", &["readable"], Some(schema));
+        assert!(
+            matches!(
+                determine_panel_type_with_config(&dev_with_schema, None),
+                PanelType::ConfigDriven(_)
+            ),
+            "With schema, IPG should get ConfigDriven panel"
+        );
+    }
+
+    #[test]
+    fn test_native_driver_no_schema_falls_through() {
+        // Device with metadata but no ui_schema_json → None
+        let dev = make_device_with_schema("pvcam_prime95b", &["frame_producer"], None);
+        assert!(
+            try_grpc_ui_config(&dev).is_none(),
+            "No ui_schema_json should return None"
+        );
+    }
+
+    #[test]
+    fn test_malformed_json_falls_through() {
+        // Invalid JSON in ui_schema_json → None (logs warning, doesn't panic)
+        let dev = make_device_with_schema("ipg_laser", &["readable"], Some("{not valid json!!!}"));
+        assert!(
+            try_grpc_ui_config(&dev).is_none(),
+            "Malformed JSON should return None"
+        );
     }
 }

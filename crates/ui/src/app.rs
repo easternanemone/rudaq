@@ -818,6 +818,8 @@ pub struct DaqApp {
     docked_config_driven_panels: HashMap<usize, ConfigDrivenPanel>,
     /// Device config cache for TOML-driven panel dispatch
     config_cache: DeviceConfigCache,
+    /// gRPC UI config cache for docked panels (keyed by panel ID)
+    grpc_ui_config_cache: HashMap<usize, Option<hardware::config::schema::ControlPanelConfig>>,
     /// User-added command widgets for advanced control panels (keyed by panel ID)
     docked_command_widgets: HashMap<usize, CommandWidgetPalette>,
     /// Preferred control-panel layout mode for docked pop-outs
@@ -1372,6 +1374,7 @@ impl DaqApp {
             docked_stage_panels: HashMap::new(),
             docked_comedi_panels: HashMap::new(),
             docked_config_driven_panels: HashMap::new(),
+            grpc_ui_config_cache: HashMap::new(),
             config_cache: {
                 let mut cache = DeviceConfigCache::new();
                 if let Err(e) = cache.load_all() {
@@ -2035,6 +2038,7 @@ impl DaqApp {
         self.docked_stage_panels.clear();
         self.docked_comedi_panels.clear();
         self.docked_config_driven_panels.clear();
+        self.grpc_ui_config_cache.clear();
         self.docked_command_widgets.clear();
     }
 
@@ -2050,6 +2054,7 @@ impl DaqApp {
         self.docked_stage_panels.remove(&id);
         self.docked_comedi_panels.remove(&id);
         self.docked_config_driven_panels.remove(&id);
+        self.grpc_ui_config_cache.remove(&id);
         self.docked_command_widgets.remove(&id);
         self.device_panel_info.remove(&id)
     }
@@ -2764,7 +2769,28 @@ impl DaqTabViewer<'_> {
             }
         }
 
-        // --- Priority 0: Config-driven panel from TOML ---
+        // --- Priority 0: gRPC-driven panel from device metadata ---
+        let grpc_config = self
+            .app
+            .grpc_ui_config_cache
+            .entry(panel_id)
+            .or_insert_with(|| {
+                crate::panels::instrument_manager::dispatch::try_grpc_ui_config(device_info)
+            });
+        if let Some(panel_config) = grpc_config {
+            let panel_config = panel_config.clone();
+            let panel = self
+                .app
+                .docked_config_driven_panels
+                .entry(panel_id)
+                .or_insert_with(|| ConfigDrivenPanel::new(panel_config));
+            ui.push_id(("docked", panel_id), |ui| {
+                panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
+            });
+            return;
+        }
+
+        // --- Priority 1: Config-driven panel from local TOML ---
         if let Some(panel_config) = self
             .app
             .config_cache
