@@ -156,10 +156,10 @@ struct SensorSectionState {
 // ConfigDrivenPanel
 // =============================================================================
 
-/// A device control panel that renders UI based on TOML configuration.
+/// A device control panel that renders UI based on declarative configuration.
 ///
-/// Reads `[ui.control_panel]` sections from device config files and produces
-/// interactive controls backed by gRPC calls to the daemon.
+/// Sourced from gRPC `ui_schema_json` metadata or local TOML `[ui.control_panel]`
+/// sections. Produces interactive controls backed by gRPC calls to the daemon.
 pub struct ConfigDrivenPanel {
     config: ControlPanelConfig,
     action_tx: mpsc::Sender<ConfigPanelAction>,

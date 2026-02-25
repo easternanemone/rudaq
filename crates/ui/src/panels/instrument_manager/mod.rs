@@ -480,8 +480,10 @@ impl InstrumentManagerPanel {
 
     /// Update device groups from flat list
     fn update_groups(&mut self, devices: Vec<DeviceInfo>) {
-        // Clear gRPC UI config cache so refreshed metadata is picked up
+        // Clear gRPC UI config cache and config-driven panels so refreshed
+        // metadata is picked up (both must be cleared together for coherence)
         self.grpc_ui_config_cache.clear();
+        self.config_driven_panels.clear();
 
         let mut by_category: HashMap<DeviceCategory, Vec<DeviceInfo>> = HashMap::new();
 
@@ -1489,11 +1491,10 @@ impl InstrumentManagerPanel {
             .entry(device_id.clone())
             .or_insert_with(|| dispatch::try_grpc_ui_config(&device));
         if let Some(panel_config) = grpc_config {
-            let panel_config = panel_config.clone();
             let panel = self
                 .config_driven_panels
                 .entry(device_id.clone())
-                .or_insert_with(|| config_renderer::ConfigDrivenPanel::new(panel_config));
+                .or_insert_with(|| config_renderer::ConfigDrivenPanel::new(panel_config.clone()));
             ui.push_id(("instr_mgr", &device_id), |ui| {
                 panel.ui(ui, &device, client.as_deref_mut(), runtime);
             });
@@ -1505,11 +1506,10 @@ impl InstrumentManagerPanel {
             .config_cache
             .get_ui_config_for_driver(&device.driver_type)
         {
-            let panel_config = panel_config.clone();
             let panel = self
                 .config_driven_panels
                 .entry(device_id.clone())
-                .or_insert_with(|| config_renderer::ConfigDrivenPanel::new(panel_config));
+                .or_insert_with(|| config_renderer::ConfigDrivenPanel::new(panel_config.clone()));
             ui.push_id(("instr_mgr", &device_id), |ui| {
                 panel.ui(ui, &device, client.as_deref_mut(), runtime);
             });

@@ -2776,12 +2776,11 @@ impl DaqTabViewer<'_> {
                 crate::panels::instrument_manager::dispatch::try_grpc_ui_config(device_info)
             });
         if let Some(panel_config) = grpc_config {
-            let panel_config = panel_config.clone();
             let panel = self
                 .app
                 .docked_config_driven_panels
                 .entry(panel_id)
-                .or_insert_with(|| ConfigDrivenPanel::new(panel_config));
+                .or_insert_with(|| ConfigDrivenPanel::new(panel_config.clone()));
             ui.push_id(("docked", panel_id), |ui| {
                 panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
             });
@@ -2794,12 +2793,11 @@ impl DaqTabViewer<'_> {
             .config_cache
             .get_ui_config_for_driver(&device_info.driver_type)
         {
-            let panel_config: hardware::config::schema::ControlPanelConfig = panel_config.clone();
             let panel = self
                 .app
                 .docked_config_driven_panels
                 .entry(panel_id)
-                .or_insert_with(|| ConfigDrivenPanel::new(panel_config));
+                .or_insert_with(|| ConfigDrivenPanel::new(panel_config.clone()));
             ui.push_id(("docked", panel_id), |ui| {
                 panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
             });
