@@ -78,7 +78,9 @@ use common::capabilities::{
     Reconfigurable, Settable, ShutterControl, Stageable, Triggerable, WavelengthTunable,
 };
 use common::data::Frame;
-use common::driver::{Capability, DeviceComponents, DeviceLifecycle, DriverFactory};
+use common::driver::{
+    Capability, DeviceComponents, DeviceLifecycle, DriverFactory, ManifestFeatureMeta,
+};
 use common::error::DaqError;
 use common::observable::ParameterMetadata;
 use common::pipeline::MeasurementSource;
@@ -258,6 +260,10 @@ pub struct DeviceMetadata {
     pub ui_schema_json: Option<String>,
     /// Config origin: "toml" (startup), "db" (reconciler), etc.
     pub config_source: Option<String>,
+    /// Static feature metadata from device manifest (for universal/TOML-driven devices).
+    ///
+    /// Used as a fallback by the reconciler when `Parameterized` is not available.
+    pub manifest_features: Vec<ManifestFeatureMeta>,
 }
 
 // =============================================================================
@@ -828,6 +834,7 @@ impl DeviceRegistry {
             available_commands: components.metadata.available_commands.clone(),
             ui_schema_json: components.metadata.ui_schema_json.clone(),
             config_source: None, // Caller sets after registration
+            manifest_features: components.metadata.manifest_features.clone(),
         };
 
         let parameter_metadata =

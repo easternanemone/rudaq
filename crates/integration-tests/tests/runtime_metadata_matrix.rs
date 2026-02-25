@@ -135,6 +135,186 @@ async fn matrix_no_db_hybrid_camera_native_parity() {
     );
 }
 
+// =========================================================================
+// Manifest feature metadata parity tests (bd-9n9k.4)
+// =========================================================================
+
+#[tokio::test]
+async fn matrix_universal_manifest_features_populated() {
+    let registry = create_profile_registry("config/profiles/mock_ell14.toml").await;
+    let devices = registry.list_devices();
+
+    for device in &devices {
+        assert!(
+            !device.metadata.manifest_features.is_empty(),
+            "universal device '{}' should have manifest_features populated",
+            device.id
+        );
+
+        // Check that parameters from TOML manifest flow through
+        let param_features: Vec<_> = device
+            .metadata
+            .manifest_features
+            .iter()
+            .filter(|f| f.feature_type != "command")
+            .collect();
+        assert!(
+            !param_features.is_empty(),
+            "device '{}' should have parameter-type manifest features",
+            device.id
+        );
+
+        // Check that commands from TOML manifest flow through
+        let command_features: Vec<_> = device
+            .metadata
+            .manifest_features
+            .iter()
+            .filter(|f| f.feature_type == "command")
+            .collect();
+        assert!(
+            !command_features.is_empty(),
+            "device '{}' should have command-type manifest features",
+            device.id
+        );
+    }
+}
+
+#[tokio::test]
+async fn matrix_universal_parameter_metadata_rich() {
+    let registry = create_profile_registry("config/profiles/mock_ell14.toml").await;
+    let devices = registry.list_devices();
+    let device = &devices[0]; // Any ELL14 device
+
+    // The ELL14 manifest defines position_deg with range, unit, and description
+    let position = device
+        .metadata
+        .manifest_features
+        .iter()
+        .find(|f| f.name == "position_deg");
+    assert!(
+        position.is_some(),
+        "ELL14 should expose position_deg parameter"
+    );
+    let position = position.expect("position_deg must exist");
+    assert_eq!(position.feature_type, "float");
+    assert_eq!(position.unit.as_deref(), Some("degrees"));
+    assert!(position.min_value.is_some(), "position_deg should have min");
+    assert!(position.max_value.is_some(), "position_deg should have max");
+    assert!(
+        position.description.is_some(),
+        "position_deg should have description"
+    );
+    assert!(position.readable);
+    assert!(
+        position.writable,
+        "position_deg should be writable (read_only not set in manifest)"
+    );
+}
+
+#[tokio::test]
+async fn matrix_universal_command_descriptions_flow_through() {
+    let registry = create_profile_registry("config/profiles/mock_ell14.toml").await;
+    let devices = registry.list_devices();
+    let device = &devices[0];
+
+    let move_cmd = device
+        .metadata
+        .manifest_features
+        .iter()
+        .find(|f| f.name == "move_absolute" && f.feature_type == "command");
+    assert!(
+        move_cmd.is_some(),
+        "ELL14 should expose move_absolute command as a manifest feature"
+    );
+    let move_cmd = move_cmd.expect("move_absolute must exist");
+    assert!(
+        move_cmd.description.is_some(),
+        "move_absolute command should have a description"
+    );
+    assert!(move_cmd.writable, "commands should be writable");
+}
+
+#[tokio::test]
+async fn matrix_native_devices_no_manifest_features() {
+    let registry = create_profile_registry("config/profiles/mock_maitai_lab.toml").await;
+    let devices = registry.list_devices();
+
+    // Native drivers (mock_camera) should have empty manifest_features
+    let camera = devices
+        .iter()
+        .find(|d| d.driver_type == "mock_camera")
+        .expect("hybrid profile should include mock_camera");
+    assert!(
+        camera.metadata.manifest_features.is_empty(),
+        "native driver should have empty manifest_features (uses Parameterized instead)"
+    );
+}
+
+#[cfg(feature = "db-surreal-mem")]
+#[tokio::test]
+async fn matrix_db_manifest_features_persisted() {
+    let registry = create_profile_registry("config/profiles/mock_ell14.toml").await;
+    let db = DaqDb::init(DbConfig::in_memory())
+        .await
+        .expect("in-memory db should initialize");
+
+    let devices = registry.list_devices();
+    let device = &devices[0];
+
+    // Simulate what the reconciler does for manifest-driven devices
+    let features: Vec<db::config_store::DbDeviceFeature> = device
+        .metadata
+        .manifest_features
+        .iter()
+        .map(|mf| db::config_store::DbDeviceFeature {
+            device_id: device.id.clone(),
+            feature_name: mf.name.clone(),
+            feature_type: mf.feature_type.clone(),
+            readable: mf.readable,
+            writable: mf.writable,
+            min_value: mf.min_value,
+            max_value: mf.max_value,
+            step: None,
+            enum_values: Vec::new(),
+            unit: mf.unit.clone(),
+            description: mf.description.clone(),
+            group_name: None,
+        })
+        .collect();
+
+    assert!(
+        !features.is_empty(),
+        "should have features to persist for ELL14"
+    );
+
+    let count = db
+        .upsert_device_features(&features)
+        .await
+        .expect("feature upsert should succeed");
+    assert!(count > 0, "should persist at least one feature");
+
+    // Verify round-trip
+    let stored = db
+        .get_device_features(&device.id)
+        .await
+        .expect("feature read should succeed");
+    assert_eq!(
+        stored.len(),
+        features.len(),
+        "stored features should match input count"
+    );
+
+    // Verify a specific feature round-tripped correctly
+    let stored_position = stored.iter().find(|f| f.feature_name == "position_deg");
+    assert!(
+        stored_position.is_some(),
+        "position_deg should survive round-trip"
+    );
+    let stored_position = stored_position.expect("position_deg must exist in DB");
+    assert_eq!(stored_position.feature_type, "float");
+    assert_eq!(stored_position.unit.as_deref(), Some("degrees"));
+}
+
 #[cfg(feature = "db-surreal-mem")]
 #[tokio::test]
 async fn matrix_db_on_hybrid_driver_metadata_parity() {

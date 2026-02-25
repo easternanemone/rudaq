@@ -38,11 +38,41 @@ pub struct DeviceManifest {
     /// Extracted from `[parameters]` section for use in formula evaluation.
     pub parameters: HashMap<String, f64>,
 
+    /// Rich parameter metadata parsed from the `[parameters]` section.
+    /// Preserves type, range, unit, description, and read_only from the
+    /// TOML manifest for downstream DB/UI consumption.
+    pub parameter_metadata: Vec<ManifestParameterMeta>,
+
     /// Initialization sequence to run when the driver connects.
     pub init_sequence: Vec<InitCommand>,
 
     /// Optional UI schema/configuration from `[ui]`.
     pub ui: Option<toml::Value>,
+}
+
+/// Metadata about a single parameter defined in the TOML manifest.
+///
+/// Extracted from `[parameters.<name>]` tables for DB/UI consumption.
+/// This is static metadata (not live values), mirroring what
+/// `ObservableMetadata` provides for runtime `Parameter<T>` instances.
+#[derive(Debug, Clone)]
+pub struct ManifestParameterMeta {
+    /// Parameter name (e.g., "position_deg").
+    pub name: String,
+    /// Data type: "float", "int", "bool", "string", "enum".
+    pub dtype: String,
+    /// Default value as f64 (for numeric types).
+    pub default_value: Option<f64>,
+    /// Minimum of allowed range.
+    pub min_value: Option<f64>,
+    /// Maximum of allowed range.
+    pub max_value: Option<f64>,
+    /// Physical unit (e.g., "degrees", "nm", "mW").
+    pub unit: Option<String>,
+    /// Human-readable description.
+    pub description: Option<String>,
+    /// Whether the parameter is read-only.
+    pub read_only: bool,
 }
 
 /// Device metadata.
@@ -209,6 +239,9 @@ pub struct CommandConfig {
 
     /// Whether this command expects a response.
     pub expects_response: bool,
+
+    /// Human-readable description from the TOML manifest.
+    pub description: Option<String>,
 }
 
 /// A verified-to-exist reference to a command name.

@@ -10,6 +10,7 @@ use anyhow::{anyhow, Context, Result};
 use common::capabilities::DeviceCategory;
 use common::driver::{
     Capability as CoreCapability, DeviceComponents, DeviceMetadata, DriverFactory,
+    ManifestFeatureMeta,
 };
 use futures::future::BoxFuture;
 use parking_lot::RwLock;
@@ -457,6 +458,10 @@ impl DriverFactory for UniversalDriverFactory {
                 .as_ref()
                 .and_then(|ui_config| serde_json::to_string(ui_config).ok());
 
+            // Convert manifest parameter metadata into crate-agnostic form.
+            // Command descriptions are included in manifest_features (type = "command").
+            let manifest_features = build_manifest_features(&manifest);
+
             components.metadata = DeviceMetadata {
                 category,
                 position_units: manifest.capabilities.movable.as_ref().and_then(|m| {
@@ -477,12 +482,55 @@ impl DriverFactory for UniversalDriverFactory {
                 max_wavelength_nm: manifest.parameters.get("max_wavelength").copied(),
                 available_commands,
                 ui_schema_json,
+                manifest_features,
                 ..DeviceMetadata::default()
             };
 
             Ok(components)
         })
     }
+}
+
+/// Build `ManifestFeatureMeta` entries from a validated manifest.
+///
+/// Combines parameter metadata (type, range, unit) with command metadata
+/// (description, query/action) into a flat list of device features for
+/// DB persistence via the reconciler.
+fn build_manifest_features(manifest: &DeviceManifest) -> Vec<ManifestFeatureMeta> {
+    let mut features = Vec::new();
+
+    // Parameters → features.
+    // All manifest parameters are readable (observable state). The TOML schema
+    // has no concept of write-only parameters; `read_only` controls writability.
+    for param in &manifest.parameter_metadata {
+        features.push(ManifestFeatureMeta {
+            name: param.name.clone(),
+            feature_type: param.dtype.clone(),
+            readable: true,
+            writable: !param.read_only,
+            min_value: param.min_value,
+            max_value: param.max_value,
+            unit: param.unit.clone(),
+            description: param.description.clone(),
+        });
+    }
+
+    // Commands → features (type = "command")
+    for (name, cmd) in &manifest.commands {
+        features.push(ManifestFeatureMeta {
+            name: name.clone(),
+            feature_type: "command".to_string(),
+            readable: cmd.expects_response,
+            writable: true,
+            min_value: None,
+            max_value: None,
+            unit: None,
+            description: cmd.description.clone(),
+        });
+    }
+
+    features.sort_by(|a, b| a.name.cmp(&b.name));
+    features
 }
 
 /// Load all v3 config factories from a directory.

@@ -114,6 +114,7 @@ fn drivers_from_config(config: &HardwareConfig) -> Vec<DbDriver> {
             driver_type: d.driver.driver_type.clone(),
             name: d.driver.driver_type.clone(),
             capabilities: vec![],
+            commands: vec![],
         })
         .collect()
 }
@@ -320,7 +321,7 @@ mod config_service_tests {
         let hw_config = load_mock_maitai_config();
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
         shadow_write(&db, &hw_config).await.unwrap();
-        let svc = ConfigServiceImpl::new(db.clone());
+        let svc = ConfigServiceImpl::new(db.clone(), None);
         (svc, db)
     }
 
@@ -455,7 +456,7 @@ mod config_service_tests {
 
         // Create a fresh service and import the exported config
         let db2 = DaqDb::init(DbConfig::in_memory()).await.unwrap();
-        let svc2 = ConfigServiceImpl::new(db2);
+        let svc2 = ConfigServiceImpl::new(db2, None);
 
         let import_resp = svc2
             .import_config(Request::new(ImportConfigRequest {
@@ -497,7 +498,7 @@ mod config_service_tests {
         let mut stream = resp.into_inner();
 
         // Make a change via a second service instance sharing the same DB
-        let svc2 = ConfigServiceImpl::new(db.clone());
+        let svc2 = ConfigServiceImpl::new(db.clone(), None);
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(100)).await;
             svc2.upsert_instrument(Request::new(UpsertInstrumentRequest {
@@ -642,7 +643,7 @@ mod watch_reconciler_tests {
         // Wait for reconciler to start and do initial pass
         tokio::time::sleep(Duration::from_millis(300)).await;
 
-        let config_svc = ConfigServiceImpl::new(db.clone());
+        let config_svc = ConfigServiceImpl::new(db.clone(), None);
         (registry, db, config_svc, shutdown)
     }
 
@@ -886,7 +887,7 @@ mod stress_tests {
         ];
 
         for i in 0..30 {
-            let svc = ConfigServiceImpl::new(db.clone());
+            let svc = ConfigServiceImpl::new(db.clone(), None);
             let driver_type = driver_types[i % driver_types.len()].to_string();
             handles.push(tokio::spawn(async move {
                 svc.upsert_instrument(Request::new(UpsertInstrumentRequest {

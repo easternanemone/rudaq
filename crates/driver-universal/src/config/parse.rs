@@ -9,10 +9,11 @@ use crate::config::raw::{
 };
 use crate::config::validated::{
     BaudRate, CapabilitySet, CommandConfig, CommandRef, ConnectionConfig, ConversionRef,
-    DeviceInfo, DeviceManifest, EmissionControlConfig, InitCommand, MethodConfig, MovableConfig,
-    ReadableConfig, ResponseParser, ResponseRef, ScpiResponseType, SerialConfig, SerialFlowControl,
-    SerialParity, SettableConfig, ShutterControlConfig, Timeout, ValidatedFormat, ValidatedFormula,
-    ValidatedRegex, ValidatedTemplate, WaitSettledConfig, WavelengthTunableConfig,
+    DeviceInfo, DeviceManifest, EmissionControlConfig, InitCommand, ManifestParameterMeta,
+    MethodConfig, MovableConfig, ReadableConfig, ResponseParser, ResponseRef, ScpiResponseType,
+    SerialConfig, SerialFlowControl, SerialParity, SettableConfig, ShutterControlConfig, Timeout,
+    ValidatedFormat, ValidatedFormula, ValidatedRegex, ValidatedTemplate, WaitSettledConfig,
+    WavelengthTunableConfig,
 };
 use crate::format_parser;
 use crate::template;
@@ -94,6 +95,9 @@ pub fn parse_manifest(raw: RawManifest) -> Result<DeviceManifest, Vec<ConfigErro
         }
     }
 
+    // 8b. Extract rich parameter metadata for DB/UI consumption.
+    let parameter_metadata = extract_parameter_metadata(&raw.parameters);
+
     // 9. Validate init_sequence entries
     let init_sequence = validate_init_sequence(&raw, &mut errors);
 
@@ -116,6 +120,7 @@ pub fn parse_manifest(raw: RawManifest) -> Result<DeviceManifest, Vec<ConfigErro
         conversions,
         capabilities,
         parameters,
+        parameter_metadata,
         init_sequence,
         ui: raw.ui,
     })
@@ -361,6 +366,97 @@ fn validate_connection(
     }
 }
 
+/// Extract rich parameter metadata from the raw `[parameters]` table.
+///
+/// Each parameter can be either a scalar default (e.g., `position = 0.0`)
+/// or a table with metadata fields:
+///
+/// ```toml
+/// [parameters.position_deg]
+/// type = "float"
+/// default = 0.0
+/// range = [0.0, 360.0]
+/// unit = "degrees"
+/// description = "Current rotation position"
+/// read_only = false
+/// ```
+fn extract_parameter_metadata(
+    raw_params: &HashMap<String, toml::Value>,
+) -> Vec<ManifestParameterMeta> {
+    let mut metas = Vec::new();
+
+    for (name, value) in raw_params {
+        if let Some(table) = value.as_table() {
+            let dtype = table
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("float")
+                .to_string();
+            // Only extract numeric defaults (f64) — used for formula evaluation context.
+            // String/bool defaults are preserved in the raw TOML for driver runtime use
+            // but are not stored in ManifestParameterMeta.default_value.
+            let default_value = table
+                .get("default")
+                .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)));
+            let (min_value, max_value) = table
+                .get("range")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    let min = arr
+                        .first()
+                        .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)));
+                    let max = arr
+                        .get(1)
+                        .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)));
+                    (min, max)
+                })
+                .unwrap_or((None, None));
+            let unit = table.get("unit").and_then(|v| v.as_str()).map(String::from);
+            let description = table
+                .get("description")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let read_only = table
+                .get("read_only")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            metas.push(ManifestParameterMeta {
+                name: name.clone(),
+                dtype,
+                default_value,
+                min_value,
+                max_value,
+                unit,
+                description,
+                read_only,
+            });
+        } else {
+            // Bare scalar — infer type from TOML value
+            let (dtype, default_value) = if let Some(f) = value.as_float() {
+                ("float".to_string(), Some(f))
+            } else if let Some(i) = value.as_integer() {
+                ("int".to_string(), Some(i as f64))
+            } else {
+                continue; // Non-numeric bare values are skipped
+            };
+            metas.push(ManifestParameterMeta {
+                name: name.clone(),
+                dtype,
+                default_value,
+                min_value: None,
+                max_value: None,
+                unit: None,
+                description: None,
+                read_only: false,
+            });
+        }
+    }
+
+    metas.sort_by(|a, b| a.name.cmp(&b.name));
+    metas
+}
+
 fn validate_commands(
     raw: &RawManifest,
     errors: &mut Vec<ConfigError>,
@@ -393,6 +489,7 @@ fn validate_commands(
                 response: response_ref,
                 response_type,
                 expects_response: cmd.expects_response,
+                description: cmd.description.clone(),
             },
         );
     }

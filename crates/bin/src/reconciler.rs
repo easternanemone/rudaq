@@ -189,54 +189,94 @@ async fn repair_driver_metadata(
 /// Convert a device's parameter metadata into `DbDeviceFeature` rows and
 /// persist them to SurrealDB.
 ///
-/// Called after successful device registration or reconfiguration. Uses
-/// `DeviceRegistry::get_parameterized()` to access the device's `ParameterSet`,
-/// then maps each parameter's `ObservableMetadata` to a `DbDeviceFeature`.
+/// Called after successful device registration or reconfiguration.
 ///
-/// This is intentionally generic — no driver-specific code. Any device that
-/// implements `Parameterized` will have its features cached.
+/// **Primary path** (native drivers): Uses `DeviceRegistry::get_parameterized()`
+/// to access the device's `ParameterSet`, then maps each parameter's
+/// `ObservableMetadata` to a `DbDeviceFeature`.
+///
+/// **Fallback path** (universal/manifest-driven drivers): When `Parameterized`
+/// is not available, uses `manifest_features` from the device's metadata.
+/// These are static feature descriptors extracted from the TOML manifest.
 async fn persist_device_features(db: &DaqDb, registry: &DeviceRegistry, device_id: &str) {
-    let Some(parameterized) = registry.get_parameterized(device_id) else {
-        return; // Device doesn't implement Parameterized — nothing to cache
+    // Primary path: native drivers with live Parameterized trait
+    if let Some(parameterized) = registry.get_parameterized(device_id) {
+        let params = parameterized.parameters();
+        let features: Vec<DbDeviceFeature> = params
+            .iter()
+            .map(|(name, param)| {
+                let meta = param.metadata();
+                DbDeviceFeature {
+                    device_id: device_id.to_owned(),
+                    feature_name: name.to_owned(),
+                    feature_type: meta.dtype.clone(),
+                    readable: true,
+                    writable: !meta.read_only,
+                    min_value: meta.min_value,
+                    max_value: meta.max_value,
+                    step: meta.step,
+                    enum_values: meta.enum_values.clone(),
+                    unit: meta.units.clone(),
+                    description: meta.description.clone(),
+                    group_name: None, // Populated by C.2 when group metadata is added
+                }
+            })
+            .collect();
+
+        upsert_features(db, device_id, &features, "parameterized").await;
+        return;
+    }
+
+    // Fallback path: manifest-driven devices (universal driver)
+    let Some(device_info) = registry.get_device_info(device_id) else {
+        return;
     };
 
-    let params = parameterized.parameters();
-    let features: Vec<DbDeviceFeature> = params
+    if device_info.metadata.manifest_features.is_empty() {
+        return;
+    }
+
+    let features: Vec<DbDeviceFeature> = device_info
+        .metadata
+        .manifest_features
         .iter()
-        .map(|(name, param)| {
-            let meta = param.metadata();
-            DbDeviceFeature {
-                device_id: device_id.to_owned(),
-                feature_name: name.to_owned(),
-                feature_type: meta.dtype.clone(),
-                readable: true,
-                writable: !meta.read_only,
-                min_value: meta.min_value,
-                max_value: meta.max_value,
-                step: meta.step,
-                enum_values: meta.enum_values.clone(),
-                unit: meta.units.clone(),
-                description: meta.description.clone(),
-                group_name: None, // Populated by C.2 when group metadata is added
-            }
+        .map(|mf| DbDeviceFeature {
+            device_id: device_id.to_owned(),
+            feature_name: mf.name.clone(),
+            feature_type: mf.feature_type.clone(),
+            readable: mf.readable,
+            writable: mf.writable,
+            min_value: mf.min_value,
+            max_value: mf.max_value,
+            step: None,
+            enum_values: Vec::new(),
+            unit: mf.unit.clone(),
+            description: mf.description.clone(),
+            group_name: None,
         })
         .collect();
 
+    upsert_features(db, device_id, &features, "manifest").await;
+}
+
+/// Shared helper to upsert device features and log the result.
+async fn upsert_features(db: &DaqDb, device_id: &str, features: &[DbDeviceFeature], source: &str) {
     if features.is_empty() {
         return;
     }
 
-    match db.upsert_device_features(&features).await {
+    match db.upsert_device_features(features).await {
         Ok(count) => {
             info!(
                 device_id,
-                count, "reconciler: persisted device feature metadata"
+                count, source, "reconciler: persisted device feature metadata"
             );
         }
         Err(e) => {
             warn!(
                 device_id,
                 error = %e,
+                source,
                 "reconciler: failed to persist device feature metadata"
             );
         }

@@ -583,6 +583,38 @@ pub struct DeviceMetadata {
     ///
     /// For universal TOML drivers this is sourced from the `[ui]` manifest section.
     pub ui_schema_json: Option<String>,
+
+    /// Manifest-derived parameter/feature metadata for DB persistence.
+    ///
+    /// For universal TOML drivers, extracted from `[parameters]` section.
+    /// Each entry describes a device parameter with type, range, unit, etc.
+    /// The reconciler uses this as a fallback when `Parameterized` is not
+    /// available (i.e., for manifest-driven devices).
+    pub manifest_features: Vec<ManifestFeatureMeta>,
+}
+
+/// Static feature metadata derived from a device manifest.
+///
+/// Crate-agnostic equivalent of `driver_universal::ManifestParameterMeta`,
+/// carried through `DeviceMetadata` for reconciler → DB persistence.
+#[derive(Debug, Clone, Default)]
+pub struct ManifestFeatureMeta {
+    /// Feature name (e.g., "position_deg", "move_absolute").
+    pub name: String,
+    /// Data type: "float", "int", "bool", "string", "enum", "command".
+    pub feature_type: String,
+    /// Whether this feature can be read.
+    pub readable: bool,
+    /// Whether this feature can be written.
+    pub writable: bool,
+    /// Minimum value for numeric features.
+    pub min_value: Option<f64>,
+    /// Maximum value for numeric features.
+    pub max_value: Option<f64>,
+    /// Physical unit (e.g., "degrees", "nm").
+    pub unit: Option<String>,
+    /// Human-readable description.
+    pub description: Option<String>,
 }
 
 // =============================================================================
