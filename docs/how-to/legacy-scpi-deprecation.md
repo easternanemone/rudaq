@@ -17,13 +17,13 @@ Camera-native and SDK-bound drivers are not in scope.
 | `esp300` | `universal_newport_esp300` |
 | `thorlabs_pm400` | `universal_thorlabs_pm400` |
 
-## Runtime Warning Behavior
+## Runtime Validation Behavior
 
-At daemon startup, when a deprecated legacy SCPI/TCP driver type is present:
+At daemon startup, driver types are classified as universal (`universal_*`), native-exception (PVCAM, Andor, Comedi, Dover), or unrecognized:
 
-1. A warning is logged with the replacement driver type.
-2. Runtime policy summary prints native non-camera counts.
-3. Startup continues (non-breaking).
+1. In `universal` / `hybrid-db` modes: unrecognized driver types cause a startup error.
+2. In `native` / `custom` modes: unrecognized driver types emit a warning but startup continues.
+3. Runtime policy summary prints driver classification counts.
 
 ## Migration Workflow
 
@@ -39,8 +39,8 @@ At daemon startup, when a deprecated legacy SCPI/TCP driver type is present:
 
 1. Phase 1 (complete): warning-only, migration documentation and runbook in place.
 2. Phase 2 (complete): universal is the recommended default in operator workflows.
-3. Phase 3 (current): legacy SCPI/TCP requires explicit opt-in (`--allow-legacy-drivers` or `RUSTDAQ_ALLOW_LEGACY_DRIVERS=1`).
-4. Phase 4: remove legacy SCPI/TCP path after hardware signoff and release communication.
+3. Phase 3 (complete): legacy SCPI/TCP required explicit opt-in for one release cycle.
+4. Phase 4 (complete): legacy SCPI/TCP drivers removed. Only `universal_*` and native-exception drivers (PVCAM, Andor, Comedi, Dover) are recognized.
 
 ## Rollback Policy
 
