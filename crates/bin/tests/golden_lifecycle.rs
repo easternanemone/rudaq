@@ -38,6 +38,17 @@ fn daemon_binary_path() -> PathBuf {
     path
 }
 
+/// Locate the workspace root so tests can run the daemon from a cwd where
+/// relative config paths (e.g. config/devices) resolve correctly.
+fn workspace_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("bin crate should be under /crates")
+        .parent()
+        .expect("workspace root should exist")
+        .to_path_buf()
+}
+
 /// Skip the test if the daemon binary hasn't been built.
 macro_rules! require_binary {
     ($binary:expr) => {
@@ -64,7 +75,7 @@ fn test_golden_startup_shutdown_mock() {
 
     // Use port 0 to let the OS assign an ephemeral port
     let child = Command::new(&binary)
-        .args(["daemon", "--port", "0"])
+        .args(["daemon", "--runtime-mode", "mock", "--port", "0"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -89,6 +100,48 @@ fn test_golden_startup_shutdown_mock() {
     );
 }
 
+/// Golden test: daemon accepts `--runtime-mode universal` at the CLI and
+/// starts from workspace root where `config/maitai_universal.toml` resolves.
+///
+/// NOTE: `--runtime-mode` and `--hardware-config` are `conflicts_with_all`
+/// in clap, so we rely on the built-in config path for universal mode.
+#[test]
+fn test_golden_startup_runtime_mode_universal() {
+    let binary = daemon_binary_path();
+    require_binary!(binary);
+
+    let workspace = workspace_root();
+
+    let child = Command::new(&binary)
+        .current_dir(&workspace)
+        .args(["daemon", "--runtime-mode", "universal", "--port", "0"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn daemon");
+
+    // Give the daemon time to initialize and emit startup logs
+    std::thread::sleep(Duration::from_secs(3));
+
+    send_sigint(&child);
+
+    let output = child.wait_with_output().expect("Failed to wait for daemon");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
+
+    assert!(
+        combined.contains("Runtime mode: universal"),
+        "Daemon should report universal runtime mode. stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        combined.contains("Starting Headless DAQ Daemon")
+            || combined.contains("gRPC server ready")
+            || combined.contains("Initializing"),
+        "Daemon should emit startup logs. stdout: {stdout}\nstderr: {stderr}"
+    );
+}
+
 // =============================================================================
 // Fault Path: Port Conflict
 // =============================================================================
@@ -105,7 +158,13 @@ fn test_golden_port_conflict() {
 
     // Try to start daemon on the same port
     let mut child = Command::new(&binary)
-        .args(["daemon", "--port", &port.to_string()])
+        .args([
+            "daemon",
+            "--runtime-mode",
+            "mock",
+            "--port",
+            &port.to_string(),
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -266,7 +325,7 @@ fn test_golden_mock_devices_registered() {
     require_binary!(binary);
 
     let child = Command::new(&binary)
-        .args(["daemon", "--port", "0"])
+        .args(["daemon", "--runtime-mode", "mock", "--port", "0"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

@@ -191,6 +191,11 @@ if ! $GUI_ONLY && ! $SKIP_BUILD; then
         echo -e "    ${line}"
     done
 
+    # Validate branch name to prevent shell injection via SSH
+    if [[ ! "$BRANCH" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
+        fail "Invalid branch name '${BRANCH}' — only alphanumeric, '.', '_', '/', '-' allowed"
+    fi
+
     info "Checking out ${BRANCH}..."
     remote "cd ${REMOTE_DIR} && git checkout ${BRANCH} && git pull origin ${BRANCH}" 2>&1 | while IFS= read -r line; do
         echo -e "    ${line}"
@@ -261,13 +266,25 @@ fi
 if ! $GUI_ONLY; then
     step "Phase 3: Starting new daemon"
 
+    # Warn if --skip-build could cause a flag/binary mismatch
+    if $SKIP_BUILD && $WITH_DB; then
+        warn "--skip-build with --with-db: ensure the existing binary was built with db-surreal-rocksdb"
+    fi
+
     # Build daemon command line
     DAEMON_CMD="./target/release/rust-daq-daemon daemon --port ${DAEMON_PORT}"
 
     if [[ -n "$RUNTIME_MODE" ]]; then
+        # Validate against known modes to prevent shell injection via SSH
+        case "$RUNTIME_MODE" in
+            mock|native|universal|hybrid-db) ;;
+            *) fail "Invalid --runtime-mode '${RUNTIME_MODE}'. Allowed: mock, native, universal, hybrid-db" ;;
+        esac
         DAEMON_CMD="${DAEMON_CMD} --runtime-mode ${RUNTIME_MODE}"
     else
-        DAEMON_CMD="${DAEMON_CMD} --hardware-config config/maitai_hardware.toml"
+        # Default to hybrid-db (universal TOML + SurrealDB control-plane).
+        # Use --runtime-mode native to fall back to legacy hardware config.
+        DAEMON_CMD="${DAEMON_CMD} --runtime-mode hybrid-db"
     fi
 
     if $WITH_DB; then

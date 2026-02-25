@@ -59,6 +59,7 @@ echo ""
 
 # Start daemon in background
 echo -e "${YELLOW}Starting daemon (port $DAEMON_PORT)...${NC}"
+# Explicit --hardware-config overrides the hybrid-db default, keeping demo in mock mode
 cargo run --bin rust-daq-daemon --quiet -- daemon \
     --hardware-config "$DEMO_CONFIG" \
     --port "$DAEMON_PORT" \

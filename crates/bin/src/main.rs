@@ -61,15 +61,17 @@ struct Cli {
 }
 
 /// Explicit runtime selection for daemon launch behavior.
+///
+/// When no mode is specified via CLI or env var, defaults to `HybridDb`.
 #[derive(clap::ValueEnum, Debug, Clone)]
 enum RuntimeMode {
-    /// Mock-only local runtime (no hardware config).
+    /// Mock-only local runtime (no hardware config). Good for demos/testing.
     Mock,
     /// Native maitai profile (`config/maitai_hardware.toml`).
     Native,
     /// Universal TOML profile (`config/maitai_universal.toml`).
     Universal,
-    /// Universal profile with SurrealDB control-plane expectations.
+    /// Universal profile with SurrealDB control-plane (default).
     HybridDb,
 }
 
@@ -85,19 +87,25 @@ enum Commands {
         config: Option<PathBuf>,
     },
 
-    /// Start daemon for remote control
+    /// Start daemon for remote control.
+    ///
+    /// Default runtime mode is hybrid-db (universal TOML + SurrealDB).
+    /// Override with --runtime-mode, RUSTDAQ_RUNTIME_MODE env var,
+    /// or --hardware-config / --lab-hardware flags.
     Daemon {
         /// gRPC port
         #[arg(long, default_value = "50051")]
         port: u16,
 
-        /// Explicit runtime mode.
+        /// Explicit runtime mode (default: hybrid-db).
         ///
         /// Overrides profile selection logic and maps to built-in configs:
-        /// - mock: no hardware config
+        /// - mock: no hardware config (for demos/testing)
         /// - native: config/maitai_hardware.toml
         /// - universal: config/maitai_universal.toml
-        /// - hybrid-db: config/maitai_universal.toml (+ db-surreal recommended)
+        /// - hybrid-db: config/maitai_universal.toml (+ SurrealDB control-plane)
+        ///
+        /// Also settable via RUSTDAQ_RUNTIME_MODE env var.
         #[arg(
             long,
             value_enum,
@@ -403,11 +411,32 @@ async fn start_daemon(
 ) -> Result<()> {
     use daemon_manager::{DaemonConfig, DaemonInstance};
 
-    let mut resolved_runtime_mode = "mock";
+    // Resolve the effective runtime mode from (in priority order):
+    //   1. --runtime-mode CLI flag
+    //   2. RUSTDAQ_RUNTIME_MODE env var
+    //   3. --lab-hardware / --hardware-config flags
+    //   4. Default: hybrid-db (universal TOML + SurrealDB control-plane)
+    let env_override = std::env::var("RUSTDAQ_RUNTIME_MODE").ok();
+    let effective_mode: Option<RuntimeMode> = runtime_mode.clone().or_else(|| {
+        env_override.as_deref().and_then(|s| match s {
+            "mock" => Some(RuntimeMode::Mock),
+            "native" => Some(RuntimeMode::Native),
+            "universal" => Some(RuntimeMode::Universal),
+            "hybrid-db" => Some(RuntimeMode::HybridDb),
+            other => {
+                eprintln!(
+                    "⚠️  Unknown RUSTDAQ_RUNTIME_MODE={other:?}, ignoring (valid: mock, native, universal, hybrid-db)"
+                );
+                None
+            }
+        })
+    });
+
+    let resolved_runtime_mode;
     let mut resolved_hardware_config = hardware_config;
     let mut resolved_lab_hardware = lab_hardware;
 
-    if let Some(mode) = runtime_mode.clone() {
+    if let Some(mode) = effective_mode {
         match mode {
             RuntimeMode::Mock => {
                 resolved_runtime_mode = "mock";
@@ -435,6 +464,10 @@ async fn start_daemon(
     } else if resolved_hardware_config.is_some() {
         resolved_runtime_mode = "custom";
         resolved_lab_hardware = false;
+    } else {
+        // Default: hybrid-db — the universal TOML driver system with SurrealDB
+        resolved_runtime_mode = "hybrid-db";
+        resolved_hardware_config = Some(PathBuf::from("config/maitai_universal.toml"));
     }
 
     println!("🧭 Runtime mode: {}", resolved_runtime_mode);
@@ -443,9 +476,9 @@ async fn start_daemon(
         println!("🗃️  Database path: {}", path.display());
     }
     #[cfg(not(feature = "db-surreal"))]
-    if matches!(runtime_mode, Some(RuntimeMode::HybridDb)) {
+    if resolved_runtime_mode == "hybrid-db" {
         eprintln!(
-            "⚠️  hybrid-db selected but this daemon build has no db-surreal feature; running universal TOML without DB persistence."
+            "⚠️  hybrid-db mode active but this build has no db-surreal feature; running universal TOML without DB persistence."
         );
     }
     #[cfg(not(feature = "db-surreal"))]

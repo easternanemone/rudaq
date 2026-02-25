@@ -26,7 +26,7 @@ DAEMON_PORT=50051
 REMOTE_LOG="/tmp/rust-daq-daemon.log"
 ENV_FILE="config/hosts/leabs-dev.env"
 HARDWARE_CONFIG="config/leabs_hardware.toml"
-CARGO_FEATURES="leabs_hardware"
+CARGO_FEATURES="leabs_hardware,db-surreal-rocksdb"
 
 # Colors
 RED='\033[0;31m'
@@ -41,6 +41,7 @@ NC='\033[0m'
 # Defaults
 # ============================================================================
 BRANCH="main"
+WITH_DB=true
 SKIP_BUILD=false
 SKIP_GUI=false
 GUI_ONLY=false
@@ -55,6 +56,8 @@ deploy-leabs.sh — One-command pull, build, launch for leabs-dev hardware testi
 
 OPTIONS:
   --branch <name>         Branch to checkout on leabs-dev (default: main)
+  --with-db               Enable SurrealDB persistence (default: enabled)
+  --no-db                 Disable SurrealDB persistence (build without db feature)
   --skip-build            Skip remote build (just restart daemon + launch GUI)
   --skip-gui              Don't launch local GUI (deploy daemon only)
   --daemon-only           Alias for --skip-gui
@@ -82,6 +85,14 @@ while [[ $# -gt 0 ]]; do
         --branch)
             BRANCH="$2"
             shift 2
+            ;;
+        --with-db)
+            WITH_DB=true
+            shift
+            ;;
+        --no-db)
+            WITH_DB=false
+            shift
             ;;
         --skip-build)
             SKIP_BUILD=true
@@ -152,9 +163,15 @@ echo "╔═══════════════════════�
 echo "║        rust-daq LEABS Deploy                     ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo -e "${NC}"
+# Adjust features based on DB flag
+if ! $WITH_DB; then
+    CARGO_FEATURES="leabs_hardware"
+fi
+
 echo -e "  Target:     ${BOLD}${LEABS_SSH}${NC}"
 echo -e "  Branch:     ${BOLD}${BRANCH}${NC}"
 echo -e "  Features:   ${BOLD}${CARGO_FEATURES}${NC}"
+echo -e "  SurrealDB:  ${BOLD}$(${WITH_DB} && echo 'enabled' || echo 'disabled')${NC}"
 echo -e "  Build:      ${BOLD}$(${SKIP_BUILD} && echo 'skip' || echo 'release')${NC}"
 echo -e "  GUI:        ${BOLD}$(${SKIP_GUI} && echo 'skip' || echo 'launch locally')${NC}"
 if [[ -n "$RUNTIME_MODE" ]]; then
@@ -197,6 +214,11 @@ if ! $GUI_ONLY && ! $SKIP_BUILD; then
     remote "cd ${REMOTE_DIR} && git fetch --all --prune" 2>&1 | while IFS= read -r line; do
         echo -e "    ${line}"
     done
+
+    # Validate branch name to prevent shell injection via SSH
+    if [[ ! "$BRANCH" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
+        fail "Invalid branch name '${BRANCH}' — only alphanumeric, '.', '_', '/', '-' allowed"
+    fi
 
     info "Checking out ${BRANCH}..."
     remote "cd ${REMOTE_DIR} && git checkout \"${BRANCH}\" && git pull github \"${BRANCH}\"" 2>&1 | while IFS= read -r line; do
@@ -264,12 +286,31 @@ fi
 if ! $GUI_ONLY; then
     step "Phase 3: Starting new daemon"
 
+    # Warn if --skip-build could cause a flag/binary mismatch
+    if $SKIP_BUILD && $WITH_DB; then
+        warn "--skip-build with --with-db: ensure the existing binary was built with db-surreal-rocksdb"
+    fi
+
     DAEMON_CMD="./target/release/rust-daq-daemon daemon --port ${DAEMON_PORT}"
 
     if [[ -n "$RUNTIME_MODE" ]]; then
-        DAEMON_CMD="${DAEMON_CMD} --runtime-mode \"${RUNTIME_MODE}\""
+        # Validate against known modes to prevent shell injection via SSH
+        case "$RUNTIME_MODE" in
+            mock|native|universal|hybrid-db) ;;
+            *) fail "Invalid --runtime-mode '${RUNTIME_MODE}'. Allowed: mock, native, universal, hybrid-db" ;;
+        esac
+        DAEMON_CMD="${DAEMON_CMD} --runtime-mode ${RUNTIME_MODE}"
+    elif $WITH_DB; then
+        # Default to hybrid-db when DB features are compiled in
+        DAEMON_CMD="${DAEMON_CMD} --runtime-mode hybrid-db"
     else
-        DAEMON_CMD="${DAEMON_CMD} --hardware-config ${HARDWARE_CONFIG}"
+        # --no-db: binary lacks DB features, use universal TOML only
+        DAEMON_CMD="${DAEMON_CMD} --runtime-mode universal"
+    fi
+
+    if $WITH_DB; then
+        DAEMON_CMD="${DAEMON_CMD} --db-path data/surrealdb-leabs"
+        remote "mkdir -p ${REMOTE_DIR}/data" 2>/dev/null || true
     fi
 
     info "Command: ${DAEMON_CMD}"

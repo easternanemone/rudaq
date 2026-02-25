@@ -81,6 +81,13 @@ async fn load_hardware_config(
         "   Loading {label} hardware from: {}",
         config_path.display()
     );
+    if !config_path.exists() {
+        anyhow::bail!(
+            "Hardware config not found: {}\n  \
+             Hint: run from the repo root, use --runtime-mode mock, or specify --hardware-config <path>",
+            config_path.display()
+        );
+    }
     let hw = HardwareConfig::from_file(config_path).context("Failed to parse hardware config")?;
     let source = config_path.display().to_string();
     log_runtime_policy_for_config(&source, &hw);
