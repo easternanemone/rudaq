@@ -3,7 +3,8 @@
 //! Config-driven UI rendering for device control panels.
 //!
 //! This module provides [`ConfigDrivenPanel`], a stateful control panel that renders
-//! device controls based on [`ControlPanelConfig`] from TOML device configuration files.
+//! device controls based on [`ControlPanelConfig`] from gRPC metadata (`ui_schema_json`)
+//! or local TOML device configuration files.
 //!
 //! ## Architecture
 //!

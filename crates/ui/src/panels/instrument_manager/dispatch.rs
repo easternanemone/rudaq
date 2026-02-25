@@ -19,7 +19,7 @@ use super::config_loader::DeviceConfigCache;
 /// The type of control panel to use for a device.
 #[derive(Debug, Clone)]
 pub enum PanelType {
-    /// Config-driven panel from TOML `[ui.control_panel]`
+    /// Config-driven panel from gRPC `ui_schema_json` or TOML `[ui.control_panel]`
     ConfigDriven(ControlPanelConfig),
     /// MaiTai Ti:Sapphire laser control panel (wavelength, emission, shutter)
     MaiTai,
@@ -372,5 +372,61 @@ mod tests {
             try_grpc_ui_config(&dev).is_none(),
             "Malformed JSON should return None"
         );
+    }
+
+    #[test]
+    fn test_pm400_not_misrouted_to_rotator() {
+        // Regression: PM400 driver type contains "thorlabs" but must NOT route to Rotator.
+        // Only "ell14" or "rotator" keywords should trigger Rotator dispatch.
+        let dev = make_device("universal_thorlabs_pm400", false, true, false, false, false);
+        assert!(
+            matches!(determine_panel_type(&dev), PanelType::PowerMeter),
+            "PM400 should be PowerMeter, not Rotator"
+        );
+    }
+
+    #[test]
+    fn test_thorlabs_ell14_still_routes_to_rotator() {
+        // Ensure ELL14 rotators still correctly route after the thorlabs fix
+        let dev = make_device("universal_thorlabs_ell14", true, false, false, false, false);
+        assert!(
+            matches!(determine_panel_type(&dev), PanelType::Rotator),
+            "ELL14 should be Rotator"
+        );
+    }
+
+    #[test]
+    fn test_grpc_schema_with_command_driven_parameter() {
+        // Full IPG-like schema with command-driven parameter section
+        let schema = r#"{
+            "control_panel": {
+                "layout": "vertical",
+                "sections": [
+                    {"type": "sensor", "label": "Output Power", "precision": 2, "unit": "W"},
+                    {"type": "custom_action", "label": "Emission ON", "command": "emission_on", "style": "success"},
+                    {"type": "parameter", "label": "Rep Rate", "parameter": "rep_rate", "widget": "spinner", "read_command": "read_rep_rate", "write_command": "set_rep_rate"}
+                ]
+            }
+        }"#;
+        let dev = make_device_with_schema(
+            "universal_ipg_ylpp-200-1-50-r",
+            &["readable", "emission_controllable", "commandable"],
+            Some(schema),
+        );
+        let config = try_grpc_ui_config(&dev);
+        assert!(
+            config.is_some(),
+            "Schema with command-driven params should parse"
+        );
+        let panel = config.unwrap();
+        assert_eq!(panel.sections.len(), 3);
+        // Verify the parameter section preserved command fields
+        match &panel.sections[2] {
+            hardware::config::schema::ControlSection::Parameter(cfg) => {
+                assert_eq!(cfg.read_command.as_deref(), Some("read_rep_rate"));
+                assert_eq!(cfg.write_command.as_deref(), Some("set_rep_rate"));
+            }
+            _ => panic!("Expected Parameter section at index 2"),
+        }
     }
 }

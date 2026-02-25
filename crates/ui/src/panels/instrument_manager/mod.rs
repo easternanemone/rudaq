@@ -13,19 +13,20 @@
 //!
 //! ## Device Panel Routing
 //! Devices are routed to panels in this priority order:
-//! 1. Specialized per-device panels for known hardware classes
-//! 2. [`GenericDevicePanel`] — auto-composes compact widgets from capabilities:
+//! 0. **gRPC-driven** — If `device.metadata.ui_schema_json` contains a valid
+//!    `ControlPanelConfig`, a [`ConfigDrivenPanel`](config_renderer::ConfigDrivenPanel)
+//!    is used. This is the primary path for universal drivers.
+//! 1. **Config-driven (local TOML)** — If a local `config/devices/*.toml` has a
+//!    `[ui.control_panel]` section matching the device's driver type.
+//! 2. **Hardcoded panels** — Specialized per-device panels for known hardware classes
+//!    (MaiTai, Comedi, PowerMeter, Rotator, Stage, PVCAM).
+//! 3. [`GenericDevicePanel`] — auto-composes compact widgets from capabilities:
 //!    - `readable` → gauge + value display with auto-refresh
 //!    - `movable` → position + jog buttons + go-to + home
 //!    - `emission_controllable` → toggle button
 //!    - `shutter_controllable` → toggle button
 //!    - `wavelength_tunable` → slider + text input
 //!    - `settable` → voltage slider + quick-set presets
-//!
-//! ## Config-Driven Panels
-//! When a device's TOML config (`config/devices/*.toml`) contains a `[ui.control_panel]`
-//! section, a [`ConfigDrivenPanel`](config_renderer::ConfigDrivenPanel) is used instead
-//! of hardcoded panels. Config-driven dispatch takes highest priority in the routing chain.
 
 #[allow(deprecated)] // DeviceConfigCache uses the deprecated DeviceConfig schema
 pub(crate) mod config_loader;

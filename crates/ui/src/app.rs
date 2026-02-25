@@ -814,7 +814,7 @@ pub struct DaqApp {
     docked_stage_panels: HashMap<usize, StageControlPanel>,
     /// Docked Comedi panels (advanced layout mode)
     docked_comedi_panels: HashMap<usize, ComediPanel>,
-    /// Docked config-driven panels (from TOML `[ui.control_panel]`)
+    /// Docked config-driven panels (from gRPC `ui_schema_json` or local TOML `[ui.control_panel]`)
     docked_config_driven_panels: HashMap<usize, ConfigDrivenPanel>,
     /// Device config cache for TOML-driven panel dispatch
     config_cache: DeviceConfigCache,
@@ -2428,6 +2428,7 @@ impl DaqApp {
         self.docked_stage_panels.remove(&panel_id);
         self.docked_comedi_panels.remove(&panel_id);
         self.docked_config_driven_panels.remove(&panel_id);
+        self.grpc_ui_config_cache.remove(&panel_id);
         self.docked_command_widgets.remove(&panel_id);
     }
 
