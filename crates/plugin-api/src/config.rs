@@ -226,7 +226,10 @@ pub enum ParameterDef {
     GetSet { get: String, set: String },
 
     /// Full verbose form (existing ParameterConfig)
-    Full(ParameterConfig),
+    ///
+    /// Boxed to avoid `clippy::large_enum_variant` — `ParameterConfig` is ~272 bytes
+    /// vs ~48 bytes for `GetSet`, and Boxing keeps the enum small.
+    Full(Box<ParameterConfig>),
 }
 
 impl ParameterDef {
@@ -256,7 +259,7 @@ impl ParameterDef {
                 unit: None,
                 description: Some(format!("Parameter: {}", name)),
             },
-            ParameterDef::Full(config) => config.clone(),
+            ParameterDef::Full(config) => ParameterConfig::clone(config),
         }
     }
 
@@ -540,7 +543,7 @@ description = "Output power"
         let power = parsed.get("power").unwrap();
         assert!(matches!(power, ParameterDef::Full(_)));
 
-        if let ParameterDef::Full(config) = power {
+        if let ParameterDef::Full(ref config) = power {
             assert_eq!(config.r#type, ParameterType::Float);
             assert_eq!(config.unit, Some("W".to_string()));
             assert_eq!(config.description, Some("Output power".to_string()));
@@ -589,7 +592,7 @@ description = "Output power"
             description: Some("Current setpoint".to_string()),
         };
 
-        let def = ParameterDef::Full(original.clone());
+        let def = ParameterDef::Full(Box::new(original.clone()));
         let expanded = def.expand("current");
 
         assert_eq!(expanded.r#type, original.r#type);
@@ -610,13 +613,13 @@ description = "Output power"
         };
         assert_eq!(getset.get_command(), Some("CURR?"));
 
-        let full = ParameterDef::Full(ParameterConfig {
+        let full = ParameterDef::Full(Box::new(ParameterConfig {
             r#type: ParameterType::Float,
             default: serde_json::Value::Null,
             range: None,
             unit: None,
             description: None,
-        });
+        }));
         assert_eq!(full.get_command(), None);
     }
 
@@ -631,13 +634,13 @@ description = "Output power"
         };
         assert_eq!(getset.set_command(), Some("CURR {}"));
 
-        let full = ParameterDef::Full(ParameterConfig {
+        let full = ParameterDef::Full(Box::new(ParameterConfig {
             r#type: ParameterType::Float,
             default: serde_json::Value::Null,
             range: None,
             unit: None,
             description: None,
-        });
+        }));
         assert_eq!(full.set_command(), None);
     }
 
@@ -691,7 +694,7 @@ description = "Tunable laser wavelength"
 
         assert!(matches!(wavelength, ParameterDef::Full(_)));
 
-        if let ParameterDef::Full(config) = wavelength {
+        if let ParameterDef::Full(ref config) = wavelength {
             assert_eq!(config.r#type, ParameterType::Float);
             assert_eq!(config.unit, Some("nm".to_string()));
             assert!(config.range.is_some());
@@ -738,14 +741,14 @@ description = "Emission state (true=on, false=off)"
         ));
 
         // Verify wavelength details
-        if let ParameterDef::Full(config) = parsed.get("wavelength_nm").unwrap() {
+        if let ParameterDef::Full(ref config) = parsed.get("wavelength_nm").unwrap() {
             assert_eq!(config.r#type, ParameterType::Float);
             assert_eq!(config.default, serde_json::json!(800.0));
             assert_eq!(config.unit, Some("nm".to_string()));
         }
 
         // Verify bool types
-        if let ParameterDef::Full(config) = parsed.get("shutter_open").unwrap() {
+        if let ParameterDef::Full(ref config) = parsed.get("shutter_open").unwrap() {
             assert_eq!(config.r#type, ParameterType::Bool);
             assert_eq!(config.default, serde_json::json!(false));
         }
