@@ -109,6 +109,7 @@ ssh_remote() {
 
 grpcurl_cmd() {
   grpcurl -plaintext \
+    -connect-timeout 2 \
     -import-path "$PROTO_DIR" \
     -proto daq.proto \
     -max-msg-sz 67108864 \
@@ -116,20 +117,34 @@ grpcurl_cmd() {
 }
 
 health_check() {
-  grpcurl_cmd "127.0.0.1:${PORT}" daq.ControlService/GetDaemonInfo >/dev/null
+  local rc
+  set +e
+  python3 -c 'import socket,sys; p=int(sys.argv[1]); s=socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.settimeout(2.0); ok=0
+try:
+    s.connect(("127.0.0.1", p))
+except OSError:
+    ok=1
+finally:
+    s.close()
+sys.exit(ok)' "$PORT" >/dev/null 2>&1
+  rc=$?
+  set -e
+  return "$rc"
 }
 
 ensure_tunnel() {
-  if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | grep -q "127.0.0.1:${PORT}"; then
-    if health_check >/dev/null 2>&1; then
-      log "Reusing existing healthy local tunnel on 127.0.0.1:${PORT}"
-      return 0
-    fi
-    log "Local listener exists on 127.0.0.1:${PORT} but health check failed; replacing stale tunnel"
-    mapfile -t stale_pids < <(lsof -nP -t -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)
-    if [[ ${#stale_pids[@]} -gt 0 ]]; then
-      kill "${stale_pids[@]}" >/dev/null 2>&1 || true
-    fi
+  if health_check; then
+    log "Reusing existing healthy local tunnel on 127.0.0.1:${PORT}"
+    return 0
+  fi
+
+  # Avoid lsof here: it has hung under detached nohup runs on macOS. Instead, best-effort
+  # kill prior SSH tunnels for this exact local forward spec and recreate one.
+  local tunnel_pattern
+  tunnel_pattern="[s]sh .* -L 127.0.0.1:${PORT}:localhost:${PORT} ${SSH_HOST}"
+  if pgrep -f "$tunnel_pattern" >/dev/null 2>&1; then
+    log "Local tunnel health check failed; replacing existing SSH tunnel(s) for 127.0.0.1:${PORT}"
+    pkill -f "$tunnel_pattern" >/dev/null 2>&1 || true
     sleep 1
   fi
   log "Starting SSH tunnel 127.0.0.1:${PORT} -> ${SSH_HOST}:localhost:${PORT}"

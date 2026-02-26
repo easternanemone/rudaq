@@ -3926,9 +3926,9 @@ impl ImageViewerPanel {
         let has_roi_panel = self.show_roi_panel && self.roi_selector.roi().is_some();
         let has_histogram_panel = matches!(self.histogram_position, HistogramPosition::SidePanel);
         let has_controls_panel = self.show_controls && !self.camera_params.is_empty();
-        let has_echelle_panel = self.echelle_profile_cache.profile().is_some()
-            || self.echelle_preview.is_some()
-            || self.echelle_preview_error.is_some();
+        // Always show the echelle panel so the calibration workspace can be used
+        // to create/load the first profile before any preview exists.
+        let has_echelle_panel = true;
 
         let stats_panel_width =
             if has_roi_panel || has_histogram_panel || has_controls_panel || has_echelle_panel {
