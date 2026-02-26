@@ -227,6 +227,21 @@ Client behavior:
 4. UI plotting support for streamed spectra
 5. Benchmark and optimize if payload size becomes limiting
 
+## Implementation Status (Current)
+
+Implemented:
+
+- additive `ControlService.StreamSpectra` RPC and spectrum payload messages
+- server-side `Measurement::Spectrum` serialization path (full x/y arrays, units, metadata JSON)
+- client `stream_spectra(...)` wrapper using dedicated no-timeout control streaming channel
+- `LiveVisualizationPanel` spectrum plot mode with `SpectrumUpdate` channel support
+- UI-side spectrum decimation and ring-buffering for high-rate updates
+
+Remaining:
+
+- wire a concrete gRPC subscription task in the UI workflow to feed `SpectrumUpdate`
+- validate end-to-end live spectrum streaming UX against a real spectrum-producing source
+
 ## Validation Checklist for Protocol Implementation
 
 - x/y lengths match

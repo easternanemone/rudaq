@@ -33,8 +33,8 @@ pub use document_viewer::DocumentViewerPanel;
 pub use getting_started::GettingStartedPanel;
 pub use image_viewer::ImageViewerPanel;
 pub use live_visualization::{
-    data_channel, frame_channel, DataUpdate, DataUpdateSender, FrameUpdate, FrameUpdateSender,
-    LiveVisualizationPanel,
+    data_channel, frame_channel, spectrum_channel, DataUpdate, DataUpdateSender, FrameUpdate,
+    FrameUpdateSender, LiveVisualizationPanel, SpectrumUpdate, SpectrumUpdateSender,
 };
 pub use logging::{ConnectionDiagnostics, ConnectionStatus, LogLevel, LoggingPanel};
 pub use modules::ModulesPanel;

@@ -10,6 +10,8 @@ pub enum DetectorType {
     Camera { device_id: String },
     /// 1D line plot (e.g., spectrometer, time series).
     LinePlot { device_id: String, label: String },
+    /// 1D spectrum plot (vector x/y arrays).
+    SpectrumPlot { device_id: String, label: String },
 }
 
 /// Individual detector panel configuration.
@@ -46,6 +48,21 @@ impl DetectorPanel {
     ) -> Self {
         Self::new(
             DetectorType::LinePlot {
+                device_id: device_id.into(),
+                label: label.into(),
+            },
+            title,
+        )
+    }
+
+    /// Create a spectrum plot panel.
+    pub fn spectrum_plot(
+        device_id: impl Into<String>,
+        label: impl Into<String>,
+        title: impl Into<String>,
+    ) -> Self {
+        Self::new(
+            DetectorType::SpectrumPlot {
                 device_id: device_id.into(),
                 label: label.into(),
             },
@@ -170,6 +187,13 @@ impl MultiDetectorGrid {
                         ui.label("(Plot integration pending)");
                     });
                 }
+                DetectorType::SpectrumPlot { device_id, label } => {
+                    ui.vertical_centered(|ui| {
+                        ui.label(format!("Device: {}", device_id));
+                        ui.label(format!("Spectrum: {}", label));
+                        ui.label("(Spectrum plot integration pending)");
+                    });
+                }
             }
         });
     }
@@ -258,6 +282,13 @@ mod tests {
         let plot = DetectorPanel::line_plot("dev0", "signal", "Test Plot");
         assert_eq!(plot.title, "Test Plot");
         assert!(matches!(plot.detector_type, DetectorType::LinePlot { .. }));
+
+        let spectrum = DetectorPanel::spectrum_plot("spec0", "merged", "Spectrum");
+        assert_eq!(spectrum.title, "Spectrum");
+        assert!(matches!(
+            spectrum.detector_type,
+            DetectorType::SpectrumPlot { .. }
+        ));
     }
 
     #[test]
