@@ -1,16 +1,35 @@
 //! gRPC client for communicating with the DAQ daemon.
+//!
+//! On native platforms, uses `tonic::transport::Channel` (HTTP/2).
+//! On WASM, uses `tonic-web-wasm-client` (gRPC-web over HTTP/1.1).
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
 use anyhow::Result;
+
+#[cfg(not(target_arch = "wasm32"))]
 use tonic::transport::Channel;
 
+#[cfg(not(target_arch = "wasm32"))]
 use crate::connection::DaemonAddress;
 
-/// gRPC channel configuration for connection reliability.
+/// Platform-specific gRPC transport type.
+///
+/// - Native: `tonic::transport::Channel` (HTTP/2 with keepalive, TLS, etc.)
+/// - WASM: `tonic_web_wasm_client::Client` (gRPC-web over HTTP/1.1 via browser fetch)
+#[cfg(not(target_arch = "wasm32"))]
+pub type Transport = Channel;
+
+#[cfg(target_arch = "wasm32")]
+pub type Transport = tonic_web_wasm_client::Client;
+
+/// gRPC channel configuration for connection reliability (native only).
 ///
 /// These settings are tuned for a DAQ GUI that maintains a persistent connection
 /// to a local or networked daemon, with emphasis on fast failure detection.
+/// Not applicable to WASM (browser manages HTTP connection lifecycle).
+#[cfg(not(target_arch = "wasm32"))]
 pub struct ChannelConfig {
     /// Connection timeout (how long to wait for initial connection)
     pub connect_timeout: Duration,
@@ -24,6 +43,7 @@ pub struct ChannelConfig {
     pub keepalive_while_idle: bool,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Default for ChannelConfig {
     fn default() -> Self {
         Self {
@@ -36,6 +56,7 @@ impl Default for ChannelConfig {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl ChannelConfig {
     /// Fast configuration for local connections (localhost/Tailscale).
     #[must_use]
@@ -130,17 +151,19 @@ use protocol::daq::{
     UploadResponse as ScriptUploadResponse,
 };
 
-/// gRPC client wrapper for the DAQ daemon
+/// gRPC client wrapper for the DAQ daemon.
+///
+/// Uses platform-specific transport: native HTTP/2 `Channel` or WASM gRPC-web `Client`.
 #[derive(Clone)]
 pub struct DaqClient {
-    control: ControlServiceClient<Channel>,
-    hardware: HardwareServiceClient<Channel>,
-    /// Dedicated client for streaming RPCs (no request timeout)
-    hardware_streaming: HardwareServiceClient<Channel>,
-    scan: ScanServiceClient<Channel>,
-    storage: StorageServiceClient<Channel>,
-    module: ModuleServiceClient<Channel>,
-    run_engine: RunEngineServiceClient<Channel>,
+    control: ControlServiceClient<Transport>,
+    hardware: HardwareServiceClient<Transport>,
+    /// Dedicated client for streaming RPCs (no request timeout on native)
+    hardware_streaming: HardwareServiceClient<Transport>,
+    scan: ScanServiceClient<Transport>,
+    storage: StorageServiceClient<Transport>,
+    module: ModuleServiceClient<Transport>,
+    run_engine: RunEngineServiceClient<Transport>,
 }
 
 /// Maximum message size for gRPC (64 MB for high-resolution camera frames)
@@ -148,10 +171,15 @@ pub struct DaqClient {
 const MAX_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
 
 impl DaqClient {
+    // =========================================================================
+    // Native connection (HTTP/2 via tonic transport)
+    // =========================================================================
+
     /// Connect to the DAQ daemon at the given address with default configuration.
     ///
     /// The address is validated and normalized by `DaemonAddress` before connection.
     /// TLS is automatically enabled for `https://` addresses.
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn connect(address: &DaemonAddress) -> Result<Self> {
         Self::connect_with_config(address, ChannelConfig::default()).await
     }
@@ -160,6 +188,7 @@ impl DaqClient {
     ///
     /// Use `ChannelConfig::fast()` for local/Tailscale connections with quicker
     /// failure detection, or customize timeouts for high-latency networks.
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn connect_with_config(
         address: &DaemonAddress,
         config: ChannelConfig,
@@ -210,6 +239,33 @@ impl DaqClient {
             module: ModuleServiceClient::new(channel.clone()),
             run_engine: RunEngineServiceClient::new(channel),
         })
+    }
+
+    // =========================================================================
+    // WASM connection (gRPC-web via browser fetch API)
+    // =========================================================================
+
+    /// Connect to the DAQ daemon over gRPC-web (browser-compatible).
+    ///
+    /// The daemon must have gRPC-web support enabled (`tonic_web::enable()`)
+    /// and CORS configured to allow the browser's origin.
+    ///
+    /// # Arguments
+    /// * `base_url` - The daemon's HTTP URL, e.g. `"http://10.0.0.40:50051"`
+    #[cfg(target_arch = "wasm32")]
+    pub fn connect_web(base_url: &str) -> Self {
+        let client = tonic_web_wasm_client::Client::new(base_url.to_string());
+        Self {
+            control: ControlServiceClient::new(client.clone()),
+            hardware: HardwareServiceClient::new(client.clone())
+                .max_decoding_message_size(MAX_MESSAGE_SIZE),
+            hardware_streaming: HardwareServiceClient::new(client.clone())
+                .max_decoding_message_size(MAX_MESSAGE_SIZE),
+            scan: ScanServiceClient::new(client.clone()),
+            storage: StorageServiceClient::new(client.clone()),
+            module: ModuleServiceClient::new(client.clone()),
+            run_engine: RunEngineServiceClient::new(client),
+        }
     }
 
     /// Perform a lightweight health check by calling GetDaemonInfo.

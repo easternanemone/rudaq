@@ -13,6 +13,11 @@ name = "rust-daq-gui"
 path = "src/main.rs"
 
 [[bin]]
+name = "rust-daq-web"
+path = "src/web_main.rs"
+required-features = ["web"]
+
+[[bin]]
 name = "daq-rerun"
 path = "src/main_rerun.rs"
 required-features = ["rerun_viewer"]
@@ -20,6 +25,31 @@ required-features = ["rerun_viewer"]
 [dependencies]
 client = { path = "../client" }
 # egui ecosystem (upgraded to 0.33 for Rerun 0.27.3 compatibility)
+egui = "0.33"
+
+serde = { workspace = true, features = ["derive"] }
+
+# gRPC client
+protocol = { path = "../protocol" }
+tonic = { workspace = true, default-features = false, features = ["prost", "codegen"] }
+prost.workspace = true
+
+# Error handling and utilities
+anyhow.workspace = true
+tracing.workspace = true
+log = "0.4"
+serde_json.workspace = true
+futures.workspace = true
+
+# --- Dependencies used by both native standalone and web ---
+# (egui-snarl, undo, egui_code_editor are used by graph/experiment panels — standalone only)
+
+# --- Native-only dependencies ---
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tonic = { workspace = true, default-features = false, features = ["transport", "prost", "codegen"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros"] }
+
+# eframe with native windowing
 eframe = { version = "0.33", default-features = false, features = [
     "default_fonts",
     "glow",
@@ -27,23 +57,17 @@ eframe = { version = "0.33", default-features = false, features = [
     "wayland",
     "x11",
 ], optional = true }
-egui = "0.33"
+
 egui_extras = { version = "0.33", default-features = false, optional = true }
 egui_dock = { version = "0.18", optional = true, features = ["serde"] }
 egui_plot = { version = "0.34", optional = true }
-
-# UI enhancement dependencies
 egui-phosphor = { version = "0.11", optional = true }
 dark-light = { version = "2.0", optional = true }
 
-# Node graph editor
+# Node graph editor (standalone panels only)
 egui-snarl = { version = "0.9", features = ["serde"] }
 undo = "0.52"
-
-# Code editor for preview panel
 egui_code_editor = "0.2.20"
-
-serde = { workspace = true, features = ["derive"] }
 
 # Rerun for embedded viewer
 rerun = { version = "0.27.3", default-features = false, features = [
@@ -52,51 +76,51 @@ rerun = { version = "0.27.3", default-features = false, features = [
     "server",
 ], optional = true }
 mimalloc = { version = "0.1", optional = true }
-# For casting pixel data bytes in gRPC streaming
 bytemuck = { version = "1.14", optional = true }
 
-# gRPC client
-protocol = { path = "../protocol" }
 experiment = { path = "../experiment" }
-tonic = { workspace = true, default-features = false, features = ["transport", "prost", "codegen"] }
-prost.workspace = true
-
-# Async runtime
-tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros"] }
-
-# Error handling and utilities
-anyhow.workspace = true
-tracing.workspace = true
-log = "0.4"
-url = "2"  # URL parsing and normalization for daemon addresses
+url = "2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono.workspace = true
-serde_json.workspace = true
-futures.workspace = true
-toml.workspace = true  # For parsing device config files
+toml.workspace = true
 
 # CLI parsing and daemon process management
 clap = { version = "4", features = ["derive"] }
-which = "6"  # Find daemon binary in PATH
-dirs = "5.0"  # Standard directory paths for settings defaults
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"  # For graceful daemon termination (SIGTERM)
+which = "6"
+dirs = "5.0"
 
 # Local PVCAM driver (only needed if running daemon locally, not for gRPC streaming)
 common = { path = "../common" }
 driver-pvcam = { path = "../driver-pvcam", optional = true }
-hardware = { path = "../hardware" }  # For device UI config schema
+hardware = { path = "../hardware" }
 rfd = { version = "0.17.2", optional = true }
 
 # Peak detection for adaptive scans
 find_peaks = "0.1"
-
 ordered-float = "4.5"
 
 # HDF5 storage for run comparison and annotation (optional)
 storage = { path = "../storage", optional = true }
 hdf5 = { package = "hdf5-metno", version = "0.11.0", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"  # For graceful daemon termination (SIGTERM)
+
+# --- WASM-only dependencies ---
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { workspace = true, features = ["sync", "macros"] }
+
+# eframe for web (no wayland/x11, uses WebGL via glow)
+eframe = { version = "0.33", default-features = false, features = [
+    "default_fonts",
+    "glow",
+], optional = true }
+
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement"] }
+console_error_panic_hook = "0.1"
+tracing-wasm = "0.2"
 
 [features]
 default = ["standalone"]
@@ -114,6 +138,9 @@ pvcam_hardware = ["pvcam_sdk"]
 
 # HDF5 storage support for run comparison and annotation
 storage_hdf5 = ["dep:hdf5", "dep:storage", "storage/storage_hdf5"]
+
+# WASM web build — lightweight browser-based GUI
+web = ["dep:eframe"]
 
 [dev-dependencies]
 tempfile.workspace = true
