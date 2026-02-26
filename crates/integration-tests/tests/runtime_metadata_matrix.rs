@@ -168,7 +168,13 @@ async fn matrix_universal_device_capabilities_match_factory_info() {
 
         assert_eq!(
             normalize(&factory.capabilities),
-            normalize(&device.capabilities),
+            normalize(
+                &device
+                    .capabilities
+                    .iter()
+                    .map(|c| c.as_str().to_string())
+                    .collect::<Vec<_>>(),
+            ),
             "capability enrichment failed for device '{}' ({})",
             device.id,
             device.driver_type

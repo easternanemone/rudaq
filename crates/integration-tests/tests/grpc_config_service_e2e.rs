@@ -48,6 +48,7 @@ fn mock_maitai_lab_path() -> PathBuf {
     workspace_root().join("config/profiles/mock_maitai_lab.toml")
 }
 
+#[allow(dead_code)]
 fn config_devices_dir() -> PathBuf {
     workspace_root().join("config/devices")
 }
