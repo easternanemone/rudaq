@@ -64,6 +64,72 @@ Cons:
 Start with **Option A** (`repeated double`) and revisit optimization after
 measuring real lab workloads.
 
+## Transport Path Evaluation: Reuse `ModuleData` vs New Dedicated Spectrum RPC
+
+This section records the evaluation requested for whether to reuse the existing
+module-data live stream or introduce a dedicated spectrum streaming RPC.
+
+## Option 1: Reuse `ModuleData` / `ModuleDataPoint`
+
+Current shape (today):
+
+- optimized for scalar time-series values (`map<string, double>`)
+- naturally consumed by existing `LiveVisualizationPanel` line plots
+
+Pros:
+
+- no new subscription RPC
+- fewer new moving parts in server/client auth/connection lifecycle
+
+Cons:
+
+- poor fit for vector payloads (`x[]`, `y[]`)
+- risks breaking or bloating the scalar stream contract
+- awkward metadata encoding for spectrum semantics (per-order vs merged, units, provenance)
+- pushes UI/client complexity into ad-hoc decoding of pseudo-vector payloads
+
+Conclusion:
+
+- **Do not reuse `ModuleDataPoint` for full spectra**.
+- Keep `ModuleData` for scalar telemetry and existing line-plot workflows.
+
+## Option 2: Extend `StreamMeasurements` to carry array payloads end-to-end
+
+Pros:
+
+- conceptually aligned with `Measurement::Spectrum`
+- may reduce duplicate server-side serialization code
+
+Cons:
+
+- current `StreamMeasurements` behavior may already be consumed by clients expecting scalarized summaries
+- changing semantics in place creates compatibility risk
+- protobuf message shape may not be suitable without a breaking change
+
+Conclusion:
+
+- preserve existing `StreamMeasurements` behavior for compatibility
+- add a **new path** for true spectra rather than changing old semantics
+
+## Option 3: New dedicated spectrum stream RPC (recommended)
+
+Pros:
+
+- clean contract for vector data (x/y arrays + units + metadata)
+- explicit client opt-in
+- safe backward compatibility with existing scalar streams
+- easier capability negotiation and phased rollout
+
+Cons:
+
+- additional server/client/UI implementation work
+- another RPC to maintain
+
+Decision:
+
+- **Recommended path:** introduce a new dedicated spectrum stream RPC and message type
+- keep `ModuleData` and existing `StreamMeasurements` intact during migration
+
 ## Proposed Message Shape (Design)
 
 Example conceptual message (`SpectrumDataPoint` placeholder name):
@@ -98,6 +164,60 @@ For echelle spectra (per-order or merged), include:
 - Add new message(s) and streaming path rather than overloading scalar-only types
 - Preserve existing scalar live visualization behavior during rollout
 - Gate new spectrum streaming path behind explicit client/server capability checks
+
+## Backward Compatibility and Migration Plan (Existing `StreamMeasurements` Consumers)
+
+This plan is intended to avoid breakage while enabling a new spectrum-capable
+live path.
+
+## Compatibility Rules
+
+- Existing `StreamMeasurements` RPC semantics remain unchanged during the initial rollout.
+- Existing `ModuleData`/scalar live visualization paths remain unchanged.
+- Spectrum streaming is additive and opt-in.
+
+## Capability Discovery (Recommended)
+
+Server should advertise support for the new spectrum stream via one of:
+
+- explicit gRPC capability RPC/field (preferred)
+- versioned feature list in an existing capabilities response
+- temporary feature flag configuration for internal rollout
+
+Client behavior:
+
+- if server supports spectrum streaming: use new RPC for spectrum panels
+- otherwise: fall back to current scalar/preview behavior without erroring
+
+## Rollout Phases
+
+1. **Proto + server implementation**
+- Add new `SpectrumDataPoint` (or equivalent) message and RPC.
+- Keep old RPCs untouched.
+
+2. **Client support (hidden/default-off)**
+- Add deserialization + subscription plumbing.
+- Feature-gate UI consumption path.
+
+3. **UI integration**
+- `LiveVisualizationPanel` (or dedicated spectrum panel mode) consumes new stream.
+- Keep scalar line plots on existing path.
+
+4. **Lab validation**
+- Verify payload sizes, update cadence, UI responsiveness, and metadata correctness.
+
+5. **Documentation + adoption guidance**
+- Publish migration notes for downstream clients:
+  - "existing scalar streams unchanged"
+  - "new RPC required for full spectra"
+
+## Deprecation Posture
+
+- No immediate deprecation of `StreamMeasurements` or `ModuleData` for scalar use cases.
+- Re-evaluate deprecation only after:
+  - spectrum RPC is deployed and stable
+  - downstream clients have migrated where needed
+  - performance/operational behavior is characterized in lab conditions
 
 ## Implementation Phases
 

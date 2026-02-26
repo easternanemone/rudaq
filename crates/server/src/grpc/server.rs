@@ -903,6 +903,9 @@ impl ControlService for DaqServer {
 
     type StreamMeasurementsStream =
         tokio_stream::wrappers::ReceiverStream<Result<crate::grpc::proto::DataPoint, Status>>;
+    type StreamSpectraStream = tokio_stream::wrappers::ReceiverStream<
+        Result<crate::grpc::proto::SpectrumDataPoint, Status>,
+    >;
 
     /// Stream measurement data from specified channels
     async fn stream_measurements(
@@ -1020,6 +1023,98 @@ impl ControlService for DaqServer {
                 }
 
                 // Yield to allow other tasks to run
+                tokio::task::yield_now().await;
+            }
+        });
+
+        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
+            rx,
+        )))
+    }
+
+    /// Stream full spectrum measurements (additive path; preserves StreamMeasurements behavior)
+    async fn stream_spectra(
+        &self,
+        request: Request<crate::grpc::proto::SpectrumStreamRequest>,
+    ) -> Result<Response<Self::StreamSpectraStream>, Status> {
+        let req = request.into_inner();
+        let (tx, rx) = tokio::sync::mpsc::channel(32);
+
+        let mut data_rx = self.data_tx.subscribe();
+        let channels = req.channels;
+        let max_rate_hz = req.max_rate_hz;
+
+        tokio::spawn(async move {
+            let mut rate_limiter = if max_rate_hz > 0 {
+                Some(tokio::time::interval(std::time::Duration::from_secs_f64(
+                    1.0 / max_rate_hz as f64,
+                )))
+            } else {
+                None
+            };
+
+            let mut last_lag_warning = std::time::Instant::now();
+            let mut total_skipped: u64 = 0;
+
+            loop {
+                let data_point = match data_rx.recv().await {
+                    Ok(dp) => dp,
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        total_skipped += skipped;
+                        if last_lag_warning.elapsed() > std::time::Duration::from_secs(1) {
+                            tracing::debug!(
+                                skipped = total_skipped,
+                                "gRPC client lagged behind spectrum stream, skipped measurements"
+                            );
+                            total_skipped = 0;
+                            last_lag_warning = std::time::Instant::now();
+                        }
+                        continue;
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                };
+
+                let Measurement::Spectrum {
+                    name,
+                    frequencies,
+                    amplitudes,
+                    frequency_unit,
+                    amplitude_unit,
+                    metadata,
+                    timestamp,
+                } = data_point
+                else {
+                    continue;
+                };
+
+                if !channels.is_empty() && !channels.contains(&name) {
+                    continue;
+                }
+
+                if let Some(ref mut limiter) = rate_limiter {
+                    limiter.tick().await;
+                }
+
+                let timestamp_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
+                let metadata_json = metadata
+                    .as_ref()
+                    .and_then(|m| serde_json::to_string(m).ok())
+                    .unwrap_or_default();
+
+                let proto_spectrum = crate::grpc::proto::SpectrumDataPoint {
+                    name,
+                    x_values: frequencies,
+                    y_values: amplitudes,
+                    x_unit: frequency_unit.unwrap_or_default(),
+                    y_unit: amplitude_unit.unwrap_or_default(),
+                    timestamp_ns,
+                    metadata_json,
+                };
+
+                if tx.send(Ok(proto_spectrum)).await.is_err() {
+                    break;
+                }
+
                 tokio::task::yield_now().await;
             }
         });
