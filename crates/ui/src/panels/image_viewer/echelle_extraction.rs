@@ -1133,6 +1133,165 @@ mod tests {
         }
     }
 
+    #[test]
+    #[ignore = "benchmark harness; run manually to collect latency/throughput metrics"]
+    fn benchmark_real_canned_hg2_extraction_latency_and_live_budget() {
+        let labels = ["hg2_001ms", "hg2_010ms", "hg2_100ms"];
+
+        struct BenchFrame {
+            label: &'static str,
+            compressed_payload: Vec<u8>,
+            width: u32,
+            height: u32,
+            bit_depth: u32,
+            uncompressed_size: u32,
+            profile: EchelleCalibrationProfile,
+        }
+
+        let frames = labels
+            .iter()
+            .map(|&label| {
+                let (payload, width, height, bit_depth, uncompressed_size) =
+                    load_real_canned_frame(label);
+                let mut profile = synthetic_profile(width, height, 1000, 1015, 1024.0, 2.0, None);
+                profile.compatibility.bit_depth = Some(12);
+                BenchFrame {
+                    label,
+                    compressed_payload: payload,
+                    width,
+                    height,
+                    bit_depth,
+                    uncompressed_size,
+                    profile,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let iterations = 40usize;
+        let mut decode_extract_us = Vec::<f64>::with_capacity(iterations * frames.len());
+        let mut extract_only_us = Vec::<f64>::with_capacity(iterations * frames.len());
+        let mut per_label_extract_us: BTreeMap<String, Vec<f64>> = BTreeMap::new();
+
+        for _ in 0..iterations {
+            for bench in &frames {
+                let mut frame = FrameData {
+                    device_id: "istar_camera".to_string(),
+                    width: bench.width,
+                    height: bench.height,
+                    bit_depth: bench.bit_depth,
+                    data: bench.compressed_payload.clone(),
+                    frame_number: 0,
+                    timestamp_ns: 0,
+                    compression: CompressionType::CompressionLz4 as i32,
+                    uncompressed_size: bench.uncompressed_size,
+                    ..Default::default()
+                };
+
+                let t0 = std::time::Instant::now();
+                decompress_frame(&mut frame).expect("benchmark frame should decompress");
+                let t1 = std::time::Instant::now();
+                let preview = extract_preview(
+                    &bench.profile,
+                    &frame.data,
+                    frame.width,
+                    frame.height,
+                    frame.bit_depth,
+                    0,
+                )
+                .expect("benchmark extraction should succeed");
+                let t2 = std::time::Instant::now();
+
+                assert_eq!(preview.orders.len(), 1);
+                let extract_us = (t2 - t1).as_secs_f64() * 1_000_000.0;
+                let total_us = (t2 - t0).as_secs_f64() * 1_000_000.0;
+                extract_only_us.push(extract_us);
+                decode_extract_us.push(total_us);
+                per_label_extract_us
+                    .entry(bench.label.to_string())
+                    .or_default()
+                    .push(extract_us);
+            }
+        }
+
+        let extract_stats = latency_stats(&extract_only_us);
+        let total_stats = latency_stats(&decode_extract_us);
+        let frames_processed = (iterations * frames.len()) as f64;
+        let total_elapsed_s = decode_extract_us.iter().sum::<f64>() / 1_000_000.0;
+        let throughput_fps = if total_elapsed_s > 0.0 {
+            frames_processed / total_elapsed_s
+        } else {
+            0.0
+        };
+
+        let live_budget_sim = [5.0, 10.0, 30.0]
+            .iter()
+            .map(|&fps| {
+                let budget_us = 1_000_000.0 / fps;
+                let over_budget = decode_extract_us
+                    .iter()
+                    .filter(|&&us| us > budget_us)
+                    .count();
+                serde_json::json!({
+                    "target_fps": fps,
+                    "frame_budget_us": budget_us,
+                    "over_budget_frames": over_budget,
+                    "over_budget_fraction": over_budget as f64 / decode_extract_us.len() as f64,
+                    "p95_decode_plus_extract_fits_budget": total_stats.p95_us <= budget_us,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let per_label = per_label_extract_us
+            .into_iter()
+            .map(|(label, samples)| {
+                let s = latency_stats(&samples);
+                (
+                    label,
+                    serde_json::json!({
+                        "count": samples.len(),
+                        "mean_us": s.mean_us,
+                        "p50_us": s.p50_us,
+                        "p95_us": s.p95_us,
+                        "p99_us": s.p99_us,
+                        "max_us": s.max_us,
+                    }),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        let report = serde_json::json!({
+            "dataset_id": "leabs-dev/2026-02-25-hg2",
+            "harness": "ui::echelle_extraction benchmark_real_canned_hg2_extraction_latency_and_live_budget",
+            "iterations_per_capture": iterations,
+            "captures": labels,
+            "samples_total": decode_extract_us.len(),
+            "throughput_frames_per_sec_decode_plus_extract": throughput_fps,
+            "decode_plus_extract_us": {
+                "mean": total_stats.mean_us,
+                "p50": total_stats.p50_us,
+                "p95": total_stats.p95_us,
+                "p99": total_stats.p99_us,
+                "max": total_stats.max_us,
+            },
+            "extract_only_us": {
+                "mean": extract_stats.mean_us,
+                "p50": extract_stats.p50_us,
+                "p95": extract_stats.p95_us,
+                "p99": extract_stats.p99_us,
+                "max": extract_stats.max_us,
+            },
+            "per_capture_extract_only_us": per_label,
+            "live_budget_simulation": live_budget_sim,
+            "notes": [
+                "Bench uses real canned Hg2 frames from leabs-dev capture set.",
+                "Current fixture is diagnostic-ramp-like; benchmark validates runtime characteristics, not spectroscopic correctness.",
+                "UI responsiveness is approximated by frame-budget simulation using decode+extract timings."
+            ]
+        });
+
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    }
+
     fn synthetic_profile(
         width: u32,
         height: u32,
@@ -1271,5 +1430,35 @@ mod tests {
             expected,
             tol
         );
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct LatencyStats {
+        mean_us: f64,
+        p50_us: f64,
+        p95_us: f64,
+        p99_us: f64,
+        max_us: f64,
+    }
+
+    fn latency_stats(samples: &[f64]) -> LatencyStats {
+        assert!(
+            !samples.is_empty(),
+            "latency_stats requires non-empty samples"
+        );
+        let mut sorted = samples.to_vec();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mean = sorted.iter().sum::<f64>() / sorted.len() as f64;
+        let pct = |p: f64| -> f64 {
+            let idx = ((sorted.len() - 1) as f64 * p).round() as usize;
+            sorted[idx]
+        };
+        LatencyStats {
+            mean_us: mean,
+            p50_us: pct(0.50),
+            p95_us: pct(0.95),
+            p99_us: pct(0.99),
+            max_us: *sorted.last().unwrap(),
+        }
     }
 }

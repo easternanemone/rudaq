@@ -88,6 +88,29 @@ properties for a **diagnostic-ramp-like** fixture (not spectroscopic truth).
 Once a real Hg-Ar echellegram fixture is captured, extend the same harness to
 assert per-order and merged spectral tolerances against calibrated golden outputs.
 
+## Current Benchmark Harness (Committed)
+
+The repository also includes a manual benchmark harness for extraction runtime
+characterization using the same real canned Hg2 frames:
+
+- test: `panels::image_viewer::echelle_extraction::tests::benchmark_real_canned_hg2_extraction_latency_and_live_budget`
+- command:
+
+```bash
+cargo test -p ui benchmark_real_canned_hg2_extraction_latency_and_live_budget --lib -- --ignored --nocapture
+```
+
+The benchmark prints a JSON report with:
+
+- decode+extract latency stats (`mean`, `p50`, `p95`, `p99`, `max`)
+- extract-only latency stats
+- per-capture timing breakdown
+- throughput estimate (frames/sec)
+- a live-frame budget simulation (`5`, `10`, `30` FPS) as a proxy for UI responsiveness
+
+This harness does not yet measure end-to-end egui render latency directly; it
+measures the extraction path that currently dominates the echelle-preview runtime.
+
 ## Hardware-in-Loop Validation Checklist (iSTAR + Mechelle)
 
 Use this checklist before treating echelle preview output as lab-ready.
