@@ -45,6 +45,8 @@ Organized using the [Diataxis](https://diataxis.fr/) framework.
 | [Zarr Acquisition](how-to/zarr-acquisition.md) | Zarr V3 storage |
 | [EOM Power Sweep](how-to/eom-power-sweep.md) | EOM power sweep workflow |
 | [Echelle Spectrum Preview (MVP)](how-to/echelle-spectrum-preview.md) | Load a calibration profile and view local echelle extraction previews |
+| [Live Echelle Calibration Session (leabs-dev)](how-to/echelle-live-calibration-session-leabs-dev.md) | Bench runbook for Mechelle+iSTAR+HG-2 live calibration and GUI workflow |
+| [Andor iSTAR Crash Capture & Repro](how-to/andor-istar-crash-capture-and-repro.md) | Wrapped-daemon crash capture and streaming repro harness for `leabs-dev` |
 | [Echelle Calibration Development](how-to/echelle-calibration-development.md) | Developer workflow for creating profiles and maintaining golden datasets |
 | [Echelle Rollout & Troubleshooting](how-to/echelle-rollout-and-troubleshooting.md) | MVP rollout stages, runtime knobs, and failure troubleshooting |
 | [Echelle Validation Plan & HIL Checklist](how-to/echelle-validation-plan-and-hil-checklist.md) | Dataset matrix definition and lab hardware-in-loop validation checklist |

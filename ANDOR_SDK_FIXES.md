@@ -83,6 +83,45 @@ When adding a new entry, include:
   - `/Users/briansquires/.codex/worktrees/5385/rust-daq/testdata/echelle/leabs-dev/2026-02-25-hg2/hg2_100ms_frame.json`
   - `/Users/briansquires/.codex/worktrees/5385/rust-daq/testdata/echelle/leabs-dev/2026-02-25-hg2/README.md`
 
+### 3. Long-running iSTAR streaming session can terminate daemon with kernel general protection fault
+
+- Observation date: `2026-02-26`
+- Environment:
+  - Host: `leabs-dev`
+  - Camera: Andor iSTAR sCMOS (`istar_camera`)
+  - Spectrograph: Mechelle 5000
+  - Acquisition path: `rust-daq-daemon` gRPC `StartStream` + `StreamFrames` from local GUI via SSH tunnel
+  - GUI behavior at failure: after streaming for some time, UI reports:
+    - `Failed to start hardware stream: status: Unknown, message: "transport error", ...`
+- Observed behavior:
+  - `rust-daq-daemon` process exits unexpectedly during/after streaming activity
+  - `/tmp/rust-daq-daemon.log` contains only daemon startup text (no Rust panic message)
+  - `journalctl` on `leabs-dev` reports a kernel crash entry:
+    - `kernel: traps: tokio-runtime-w[...] general protection fault ... in rust-daq-daemon[...]`
+  - After the daemon exits, SSH local-forward attempts log repeated:
+    - `sshd[...]: error: connect_to localhost port 50051: failed.`
+- Expected behavior:
+  - Camera streaming should not terminate the daemon process.
+  - SDK/driver faults should be surfaced as recoverable camera errors instead of process-wide memory faults.
+- Impact:
+  - kills all DAQ services, not just camera streaming
+  - UI reconnect logic later surfaces transport errors that obscure the original root cause
+  - interrupts live calibration sessions and risks loss of unsaved calibration work
+- Current `rust-daq` workaround:
+  - manually rebuild/restart daemon on `leabs-dev`
+  - treat UI `transport error` after a period of streaming as a possible daemon crash and confirm with `journalctl`
+  - capture system logs (`journalctl`) because Rust daemon log may not contain crash details
+- Vendor request:
+  - investigate iSTAR streaming SDK calls for memory safety / invalid pointer / callback lifetime issues under sustained acquisition
+  - provide guidance on thread-safety requirements and callback ownership for long-running streaming
+  - provide a reproducible debug mode/logging option for SDK-side streaming faults
+- Evidence:
+  - `/Users/briansquires/.codex/worktrees/5385/rust-daq/ANDOR_SDK_FIXES.md` (this entry; includes exact observed kernel message text)
+  - `journalctl` on `leabs-dev` (`2026-02-26 21:09:59`) showing `general protection fault` in `rust-daq-daemon`
+  - `/tmp/rust-daq-daemon.log` on `leabs-dev` (startup-only log with no Rust panic output)
+  - `/Users/briansquires/.codex/worktrees/5385/rust-daq/scripts/leabs-daemon-crash-wrapper.sh` (wrapped daemon crash-capture harness)
+  - `/Users/briansquires/.codex/worktrees/5385/rust-daq/scripts/repro-istar-stream-crash.sh` (local repro driver with health polling + artifact collection)
+
 ## Notes
 
 - This file records observed behavior at the SDK/API boundary from the `rust-daq` integration perspective.

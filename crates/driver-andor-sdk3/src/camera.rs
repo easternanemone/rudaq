@@ -1683,10 +1683,17 @@ impl AndorCamera {
         let bridge_ptr: *mut std::os::raw::c_void =
             &*bridge as *const FeatureCallbackBridge as *mut std::os::raw::c_void;
 
+        tracing::info!(
+            sdk_handle = handle,
+            bridge_ptr = ?bridge_ptr,
+            "Registering Andor SDK3 feature callbacks"
+        );
+
         // Only register callbacks for features that have a corresponding
         // Parameter AND are observable types (skip Command and Str).
         let known = introspection::known_features();
         let mut registered = 0u32;
+        let mut attempted = 0u32;
 
         for (name, ftype, _group) in &known {
             // Skip types that the receiver ignores anyway.
@@ -1703,6 +1710,7 @@ impl AndorCamera {
             if !Self::is_feature_implemented(handle, name).unwrap_or(false) {
                 continue;
             }
+            attempted += 1;
             unsafe {
                 let feature_wide = andor_sdk3_sys::to_wide_string(name);
                 let ret = andor_sdk3_sys::AT_RegisterFeatureCallback(
@@ -1713,11 +1721,19 @@ impl AndorCamera {
                 );
                 if ret != andor_sdk3_sys::AT_SUCCESS {
                     tracing::warn!(
+                        sdk_handle = handle,
                         feature = name,
+                        bridge_ptr = ?bridge_ptr,
                         "Failed to register feature callback: {}",
                         crate::error::AndorError::from_code(ret)
                     );
                 } else {
+                    tracing::debug!(
+                        sdk_handle = handle,
+                        feature = name,
+                        bridge_ptr = ?bridge_ptr,
+                        "Registered Andor feature callback"
+                    );
                     // Track for cleanup in Drop (bd-cytq)
                     if let Ok(mut cbs) = self.inner.registered_callbacks.lock() {
                         cbs.push((*name).to_string());
@@ -1727,7 +1743,13 @@ impl AndorCamera {
             }
         }
 
-        tracing::info!(registered, "SDK feature callbacks registered");
+        tracing::info!(
+            sdk_handle = handle,
+            bridge_ptr = ?bridge_ptr,
+            attempted,
+            registered,
+            "Andor SDK3 feature callback registration complete"
+        );
 
         // Store bridge ownership and sender in Inner so Drop can clean up.
         {
@@ -1857,6 +1879,12 @@ impl FrameProducer for AndorCamera {
             anyhow::bail!("Camera is already streaming");
         }
 
+        tracing::info!(
+            sdk_handle = self.inner.handle,
+            trigger_mode = %self.inner.trigger_mode.get(),
+            gate_mode = %self.inner.gate_mode.get(),
+            "Andor start_stream requested"
+        );
         self.inner.streaming.store(true, Ordering::SeqCst);
         self.inner.frame_count.store(0, Ordering::Relaxed);
         self.inner.frames_dropped.store(0, Ordering::Relaxed);
@@ -1999,6 +2027,12 @@ impl FrameProducer for AndorCamera {
 
                         // Start acquisition immediately after queuing
                         let feature = to_wide_string("AcquisitionStart");
+                        tracing::debug!(
+                            sdk_handle = handle,
+                            buffer_count,
+                            image_size,
+                            "Issuing AT_Command(AcquisitionStart) after buffer queue"
+                        );
                         let ret = AT_Command(handle, feature.as_ptr());
                         sdk_result(ret)?;
                     }
@@ -2027,14 +2061,26 @@ impl FrameProducer for AndorCamera {
             *self.inner.acq_task_handle.lock().await = Some(acq_handle);
         }
 
-        tracing::info!("Camera streaming started");
+        tracing::info!(
+            sdk_handle = self.inner.handle,
+            "Andor camera streaming started"
+        );
         Ok(())
     }
 
     async fn stop_stream(&self) -> Result<()> {
         if !self.inner.streaming.load(Ordering::Relaxed) {
+            tracing::debug!(
+                sdk_handle = self.inner.handle,
+                "Andor stop_stream called while already stopped"
+            );
             return Ok(()); // Already stopped
         }
+
+        tracing::info!(
+            sdk_handle = self.inner.handle,
+            "Andor stop_stream requested"
+        );
 
         // Signal the loop to stop
         self.inner.streaming.store(false, Ordering::SeqCst);
@@ -2051,11 +2097,16 @@ impl FrameProducer for AndorCamera {
             tokio::task::spawn_blocking(move || -> Result<()> {
                 use crate::error::sdk_result;
                 unsafe {
+                    tracing::debug!(sdk_handle = handle, "Issuing AT_Command(AcquisitionStop)");
                     let feature = to_wide_string("AcquisitionStop");
                     let ret = AT_Command(handle, feature.as_ptr());
                     sdk_result(ret)?;
 
                     // Flush all queued buffers
+                    tracing::debug!(
+                        sdk_handle = handle,
+                        "Issuing AT_Flush after AcquisitionStop"
+                    );
                     let ret = AT_Flush(handle);
                     sdk_result(ret)?;
                 }
@@ -2064,7 +2115,10 @@ impl FrameProducer for AndorCamera {
             .await??;
         }
 
-        tracing::info!("Camera streaming stopped");
+        tracing::info!(
+            sdk_handle = self.inner.handle,
+            "Andor camera streaming stopped"
+        );
         Ok(())
     }
 
@@ -2517,6 +2571,14 @@ impl Drop for AndorCameraInner {
                 });
                 if let Ok(cbs) = self.registered_callbacks.lock() {
                     let ctx = bridge_ctx.unwrap_or(std::ptr::null_mut());
+                    if !cbs.is_empty() {
+                        tracing::info!(
+                            sdk_handle = self.handle,
+                            count = cbs.len(),
+                            callback_ctx = ?ctx,
+                            "Unregistering Andor SDK3 feature callbacks before AT_Close"
+                        );
+                    }
                     for name in cbs.iter() {
                         let feature_wide = andor_sdk3_sys::to_wide_string(name);
                         let _ = AT_UnregisterFeatureCallback(
@@ -2525,9 +2587,20 @@ impl Drop for AndorCameraInner {
                             Some(AndorCamera::sdk_feature_callback),
                             ctx,
                         );
+                        tracing::debug!(
+                            sdk_handle = self.handle,
+                            feature = %name,
+                            callback_ctx = ?ctx,
+                            "AT_UnregisterFeatureCallback issued"
+                        );
                     }
                     if !cbs.is_empty() {
-                        tracing::debug!(count = cbs.len(), "Unregistered SDK feature callbacks");
+                        tracing::debug!(
+                            sdk_handle = self.handle,
+                            count = cbs.len(),
+                            callback_ctx = ?ctx,
+                            "Unregistered Andor SDK3 feature callbacks"
+                        );
                     }
                 }
 
