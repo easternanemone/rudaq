@@ -252,5 +252,9 @@ Rules of engagement:
 
 ## Implementation Status
 
-- Design/spec only (no production sidecar path yet)
+- Prototype Rust sidecar runner implemented (`stdin`/`stdout` JSON, timeout/restart semantics)
+- Fixture-backed Python sidecar prototype implemented for offline/captured-frame testing:
+  - `scripts/echelle/fixture_sidecar_hg2.py`
+  - serves committed reference artifacts for `leabs-dev/2026-02-25-hg2`
+  - intended for contract/provenance/numeric-comparison testing (not production extraction)
 - Local Rust MVP extractor remains the active path for Image Viewer preview

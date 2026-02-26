@@ -651,6 +651,7 @@ fn eval_polynomial(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::panels::image_viewer::echelle_sidecar::EchelleSidecarRunner;
     use crate::panels::image_viewer::processing::get_pixel_value_inline;
     use chrono::Utc;
     use common::echelle::{
@@ -662,6 +663,7 @@ mod tests {
     use protocol::daq::{CompressionType, FrameData};
     use serde_json::Value;
     use std::collections::BTreeMap;
+    use std::time::Duration;
 
     #[test]
     fn decoded_frame_matches_existing_pixel_helper_for_8_and_16_bit() {
@@ -1017,6 +1019,117 @@ mod tests {
             let p99_tol = spec["p99_abs_diff"]["abs_tolerance"].as_f64().unwrap();
             let p99_actual = actual["p99_abs_diff"].as_f64().unwrap();
             assert_close_with_context(&key, "p99_abs_diff", p99_actual, p99_target, p99_tol);
+        }
+    }
+
+    #[test]
+    fn fixture_sidecar_offline_hg2_compares_to_rust_mvp_path() {
+        // Prototype sidecar tests rely on Python being available locally.
+        let python_available = std::process::Command::new("/usr/bin/env")
+            .arg("python3")
+            .arg("--version")
+            .output()
+            .is_ok();
+        if !python_available {
+            eprintln!("skipping fixture sidecar test: python3 unavailable");
+            return;
+        }
+
+        let dataset_dir = real_hg2_dataset_dir();
+        let script_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../scripts/echelle/fixture_sidecar_hg2.py");
+        let runner = EchelleSidecarRunner::new(
+            "/usr/bin/env",
+            [
+                "python3".to_string(),
+                script_path.display().to_string(),
+                "--dataset-dir".to_string(),
+                dataset_dir.display().to_string(),
+            ],
+        )
+        .with_timeout(Duration::from_secs(2));
+
+        let health = runner
+            .health_check()
+            .expect("fixture sidecar health should work");
+        assert_eq!(health.response["ok"], true);
+        assert_eq!(health.response["result"]["service"], "fixture_sidecar_hg2");
+
+        for label in ["hg2_001ms", "hg2_010ms", "hg2_100ms"] {
+            let sidecar = runner
+                .request_json(&serde_json::json!({
+                    "request_id": format!("offline-{label}"),
+                    "op": "extract_offline_fixture",
+                    "label": label
+                }))
+                .expect("fixture sidecar extraction should succeed");
+            assert_eq!(sidecar.response["ok"], true);
+
+            let result = &sidecar.response["result"];
+            assert_eq!(
+                result["quality"]["dataset_classification"],
+                "diagnostic_ramp_like"
+            );
+            assert_eq!(result["quality"]["spectroscopic_truth_usable"], false);
+            assert_eq!(result["quality"]["reference_order_count"], 0);
+            assert_eq!(
+                result["reference_summary"]["order_detection"]["n_orders"],
+                0
+            );
+            assert_eq!(
+                result["provenance"]["dataset_id"],
+                "leabs-dev/2026-02-25-hg2"
+            );
+            assert_eq!(result["provenance"]["label"], label);
+
+            let (payload, width, height, bit_depth, uncompressed_size) =
+                load_real_canned_frame(label);
+            let mut frame = FrameData {
+                device_id: "istar_camera".to_string(),
+                width,
+                height,
+                bit_depth,
+                data: payload,
+                frame_number: 0,
+                timestamp_ns: 0,
+                compression: CompressionType::CompressionLz4 as i32,
+                uncompressed_size,
+                ..Default::default()
+            };
+            decompress_frame(&mut frame).expect("LZ4 frame payload should decompress");
+
+            let pixels_u16 = frame
+                .data
+                .chunks_exact(2)
+                .map(|b| u16::from_le_bytes([b[0], b[1]]))
+                .collect::<Vec<_>>();
+            let mean = pixels_u16.iter().map(|&v| v as f64).sum::<f64>() / pixels_u16.len() as f64;
+            let max = pixels_u16.iter().copied().max().unwrap_or_default();
+
+            let side_diag = &result["quality"]["capture_image_diagnostics"];
+            assert_close(mean, side_diag["mean"].as_f64().unwrap(), 0.0);
+            assert_eq!(u64::from(max), side_diag["max"].as_u64().unwrap());
+            assert_eq!(side_diag["likely_additive_ramp_pattern"], true);
+
+            // Compare sidecar offline output to Rust MVP extraction on the same frame bytes.
+            // The current fixture is diagnostic-ramp-like, so the sidecar (reference-tool-backed)
+            // returns zero detected orders while the Rust path can still extract a forced preview
+            // when given an explicit synthetic profile.
+            let mut profile =
+                synthetic_profile(frame.width, frame.height, 1000, 1015, 1024.0, 2.0, None);
+            profile.compatibility.bit_depth = Some(12);
+            let rust_preview = extract_preview(
+                &profile,
+                &frame.data,
+                frame.width,
+                frame.height,
+                frame.bit_depth,
+                0,
+            )
+            .expect("Rust MVP extraction should succeed on canned frame");
+            assert_eq!(rust_preview.orders.len(), 1);
+            assert_eq!(rust_preview.orders[0].flux.len(), 16);
+            assert!(rust_preview.orders[0].flux.iter().any(|&v| v > 0.0));
         }
     }
 
