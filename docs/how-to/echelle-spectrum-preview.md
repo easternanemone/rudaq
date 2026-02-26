@@ -17,7 +17,7 @@ echellegram into a preview spectrum inside the Image Viewer.
 
 ## What Is Not Yet Final
 
-- Calibration GUI authoring workflow (trace editing, line ID, wavelength fitting)
+- Calibration GUI authoring workflow is only partially implemented (profile management, trace overlays + frame-peak auto-seed detection, manual point/line tables, selected-order LSQ wavelength refit, residual diagnostics, blaze preview CSV export; no auto line matching yet)
 - Protocol-level streaming of full spectra across gRPC
 - Production-quality optimal extraction
 - Full bad-pixel mask artifact loading (hook exists; integration pending)
@@ -32,10 +32,13 @@ Test fixture example:
 
 - `/Users/briansquires/.codex/worktrees/5385/rust-daq/crates/common/tests/fixtures/echelle_profile_v1.toml`
 
-## Programmatic Setup (Current Path)
+## Loading a Calibration Profile
 
-There is not yet a dedicated UI file picker for echelle calibration profiles.
-For now, set the profile path programmatically:
+You can load a profile either programmatically or from the calibration workspace
+path controls in the Image Viewer side panel (`Load Editor`, `Activate Path`,
+`Save + Activate`).
+
+Programmatic setup remains supported:
 
 ```rust
 use std::path::PathBuf;

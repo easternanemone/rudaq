@@ -30,7 +30,7 @@ use crate::runtime::Runtime;
 use crate::time::{Duration, Instant};
 use eframe::egui;
 use egui_extras::{Size, StripBuilder};
-use egui_plot::{Line, Plot, PlotPoints};
+use egui_plot::{Line, Plot, PlotPoints, Points};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -41,8 +41,15 @@ use crate::layout::{self, colors};
 use crate::widgets::{Histogram, HistogramPosition, ParameterCache, RoiSelector};
 use client::DaqClient;
 use common::core::Measurement;
+use common::echelle::{
+    AxisDirection, DetectorAxis, EchelleArtifactRef, EchelleCalibrationProfile,
+    EchelleExtractionConfig, EchelleFrameCompatibility, EchelleOrderCalibration,
+    EchelleOrientation, EchelleProvenance, EchelleSchemaVersion, EchelleSummationMode,
+    EchelleTraceModel, EchelleWavelengthModel, PolynomialBasis,
+};
 use protocol::compression::decompress_frame;
 use protocol::daq::StreamQuality;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum EchellePlotXAxisMode {
@@ -57,6 +64,82 @@ struct EchellePlotHoverLink {
     sample_index: usize,
     wavelength: f64,
     flux: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum EchelleCalibrationTab {
+    #[default]
+    Profile,
+    Trace,
+    LinePoints,
+    WavelengthFit,
+    BlazeFlat,
+    MechelleNotes,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct EchelleCalibrationPointUi {
+    enabled: bool,
+    order_relative_index: u32,
+    x_sample: f64,
+    y_pixel: f64,
+    wavelength: f64,
+    note: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct EchelleLineListEntryUi {
+    enabled: bool,
+    wavelength: f64,
+    label: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct EchelleCalibrationUiState {
+    tab: EchelleCalibrationTab,
+    editor_profile: Option<EchelleCalibrationProfile>,
+    editor_dirty: bool,
+    editor_last_loaded_path: Option<std::path::PathBuf>,
+    save_as_path_text: String,
+    points_path_text: String,
+    line_list_path_text: String,
+    blaze_export_path_text: String,
+    calibration_points: Vec<EchelleCalibrationPointUi>,
+    line_list: Vec<EchelleLineListEntryUi>,
+    selected_order_edit_idx: usize,
+    selected_point_idx: usize,
+    trace_overlay_enabled: bool,
+    trace_overlay_all_orders: bool,
+    trace_overlay_sample_step: u32,
+    trace_overlay_max_orders: u32,
+    trace_nudge_px: f64,
+    trace_auto_detect_min_separation_px: u32,
+    trace_auto_detect_threshold_fraction: f64,
+    fit_outlier_sigma: f64,
+    fit_rms_acceptance_px: f64,
+    blaze_preview_enabled: bool,
+    blaze_preview_scale: f64,
+    status_message: Option<String>,
+    last_error: Option<String>,
+}
+
+impl EchelleCalibrationUiState {
+    fn with_defaults() -> Self {
+        Self {
+            trace_overlay_enabled: true,
+            trace_overlay_all_orders: false,
+            trace_overlay_sample_step: 32,
+            trace_overlay_max_orders: 32,
+            trace_nudge_px: 0.25,
+            trace_auto_detect_min_separation_px: 16,
+            trace_auto_detect_threshold_fraction: 0.25,
+            fit_outlier_sigma: 3.0,
+            fit_rms_acceptance_px: 0.25,
+            blaze_preview_enabled: false,
+            blaze_preview_scale: 1.0,
+            ..Default::default()
+        }
+    }
 }
 
 /// Image Viewer Panel state
@@ -249,6 +332,8 @@ pub struct ImageViewerPanel {
     echelle_last_extract_ms: Option<f64>,
     /// Hover cross-link from spectrum plot to image sample marker.
     echelle_plot_hover_link: Option<EchellePlotHoverLink>,
+    /// Calibration authoring workspace state (bd-2kla.8 scaffolding).
+    echelle_cal_ui: EchelleCalibrationUiState,
 }
 
 impl Default for ImageViewerPanel {
@@ -364,6 +449,7 @@ impl Default for ImageViewerPanel {
             echelle_extract_skipped_frames: 0,
             echelle_last_extract_ms: None,
             echelle_plot_hover_link: None,
+            echelle_cal_ui: EchelleCalibrationUiState::with_defaults(),
         }
     }
 }
@@ -379,12 +465,17 @@ impl ImageViewerPanel {
     /// The profile is loaded lazily and reloaded on modification while preserving
     /// the last-good profile if a subsequent reload fails.
     pub fn set_echelle_profile_path(&mut self, path: std::path::PathBuf) {
+        self.echelle_cal_ui.save_as_path_text = path.display().to_string();
         self.echelle_profile_cache.set_path(path);
     }
 
     /// Clear the active echelle calibration profile cache/path.
     pub fn clear_echelle_profile_path(&mut self) {
         if let EchelleProfileCacheEvent::Cleared = self.echelle_profile_cache.clear() {
+            self.echelle_cal_ui.editor_profile = None;
+            self.echelle_cal_ui.editor_dirty = false;
+            self.echelle_cal_ui.editor_last_loaded_path = None;
+            self.echelle_cal_ui.save_as_path_text.clear();
             // Do not clobber persistent statuses such as recording completion.
             if self
                 .status
@@ -461,6 +552,21 @@ impl ImageViewerPanel {
             EchelleProfileCacheEvent::Loaded(path) => {
                 self.error = None;
                 self.echelle_preview_error = None;
+                self.echelle_cal_ui.save_as_path_text = path.display().to_string();
+                if !self.echelle_cal_ui.editor_dirty {
+                    if let Some(profile) = self.echelle_profile_cache.profile() {
+                        self.echelle_cal_ui.editor_profile = Some((**profile).clone());
+                        self.echelle_cal_ui.editor_last_loaded_path = Some(path.clone());
+                        self.echelle_cal_ui.status_message =
+                            Some(format!("Editor synced from {}", path.display()));
+                        self.echelle_cal_ui.last_error = None;
+                    }
+                } else {
+                    self.echelle_cal_ui.status_message = Some(format!(
+                        "Active profile reloaded from {} (editor has unsaved changes)",
+                        path.display()
+                    ));
+                }
                 self.status = Some(format!("Echelle profile loaded: {}", path.display()));
             }
             EchelleProfileCacheEvent::Error(msg) => {
@@ -468,9 +574,317 @@ impl ImageViewerPanel {
                 self.error = Some(msg);
             }
             EchelleProfileCacheEvent::Cleared => {
+                self.echelle_cal_ui.editor_last_loaded_path = None;
                 self.status = Some("Echelle profile cleared".to_string());
             }
         }
+    }
+
+    fn ensure_echelle_calibration_editor_profile(&mut self) {
+        if self.echelle_cal_ui.editor_profile.is_some() {
+            return;
+        }
+        if let Some(profile) = self.echelle_profile_cache.profile() {
+            self.echelle_cal_ui.editor_profile = Some((**profile).clone());
+            self.echelle_cal_ui.editor_last_loaded_path =
+                self.echelle_profile_cache.path().map(|p| p.to_path_buf());
+            return;
+        }
+        self.echelle_cal_ui.editor_profile = Some(self.default_echelle_calibration_profile());
+        self.echelle_cal_ui.editor_dirty = true;
+        self.echelle_cal_ui.status_message =
+            Some("Created new draft calibration profile from current frame metadata".to_string());
+    }
+
+    fn default_echelle_calibration_profile(&self) -> EchelleCalibrationProfile {
+        let frame_width = self.width.max(1);
+        let frame_height = self.height.max(1);
+        let sample_end = frame_width.saturating_sub(1).min(1023);
+        let center_y = (frame_height as f64 / 2.0).max(1.0);
+        EchelleCalibrationProfile {
+            schema_version: EchelleSchemaVersion::v1(),
+            profile_id: None,
+            display_name: format!("Mechelle Draft {}x{}", frame_width, frame_height),
+            compatibility: EchelleFrameCompatibility {
+                sensor_width: frame_width,
+                sensor_height: frame_height,
+                frame_width,
+                frame_height,
+                roi_x: 0,
+                roi_y: 0,
+                binning_x: 1,
+                binning_y: 1,
+                bit_depth: (self.bit_depth > 0).then_some(self.bit_depth),
+            },
+            orientation: EchelleOrientation {
+                dispersion_axis: DetectorAxis::X,
+                cross_dispersion_axis: DetectorAxis::Y,
+                order_number_increase_direction: AxisDirection::Positive,
+                wavelength_increase_with_dispersion_positive: true,
+            },
+            extraction: EchelleExtractionConfig {
+                summation_mode: EchelleSummationMode::SimpleSum,
+                default_aperture_half_width_px: 4.0,
+                background: None,
+            },
+            orders: vec![EchelleOrderCalibration {
+                relative_index: 0,
+                physical_order_number: None,
+                sample_start: 0,
+                sample_end,
+                trace: EchelleTraceModel::Polynomial {
+                    basis: PolynomialBasis::Monomial,
+                    coefficients: vec![center_y],
+                    domain_start: 0.0,
+                    domain_end: frame_width.saturating_sub(1) as f64 + 1.0,
+                },
+                wavelength: EchelleWavelengthModel::Polynomial {
+                    basis: PolynomialBasis::Monomial,
+                    coefficients: vec![0.0, 1.0],
+                    domain_start: 0.0,
+                    domain_end: frame_width.saturating_sub(1) as f64 + 1.0,
+                    unit: "nm".to_string(),
+                },
+                aperture_half_width_px: Some(4.0),
+                enabled: true,
+                notes: Some("Draft placeholder order; replace with traced Mechelle orders".into()),
+            }],
+            corrections: Default::default(),
+            provenance: EchelleProvenance {
+                creator_tool: "rust-daq-image-viewer".to_string(),
+                creator_version: None,
+                created_at_utc: chrono::Utc::now(),
+                source_frame_ids: Vec::new(),
+                notes: Some("Draft created from Image Viewer calibration workspace".to_string()),
+            },
+        }
+    }
+
+    fn mark_echelle_editor_dirty(&mut self) {
+        self.echelle_cal_ui.editor_dirty = true;
+        self.echelle_cal_ui.last_error = None;
+    }
+
+    fn save_echelle_editor_profile_to_path(
+        &mut self,
+        activate_after_save: bool,
+    ) -> Result<std::path::PathBuf, String> {
+        let mut profile = self
+            .echelle_cal_ui
+            .editor_profile
+            .clone()
+            .ok_or_else(|| "No calibration profile in editor".to_string())?;
+        profile.provenance.created_at_utc = chrono::Utc::now();
+        let mut note = String::from("Saved from Image Viewer calibration workspace");
+        if let Some(existing) = profile.provenance.notes.as_deref() {
+            if !existing.trim().is_empty() && !existing.contains("Saved from Image Viewer") {
+                note = format!("{existing}\n{note}");
+            } else if !existing.trim().is_empty() {
+                note = existing.to_string();
+            }
+        }
+        profile.provenance.notes = Some(note);
+        let path_text = self.echelle_cal_ui.save_as_path_text.trim();
+        if path_text.is_empty() {
+            return Err("Enter a .toml or .json path to save the calibration profile".to_string());
+        }
+        let path = std::path::PathBuf::from(path_text);
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() && !parent.exists() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    format!(
+                        "Failed to create calibration profile directory {}: {e}",
+                        parent.display()
+                    )
+                })?;
+            }
+        }
+        profile
+            .save_to_path(&path)
+            .map_err(|e| format!("Failed to save calibration profile {}: {e}", path.display()))?;
+        self.echelle_cal_ui.editor_dirty = false;
+        self.echelle_cal_ui.editor_last_loaded_path = Some(path.clone());
+        self.echelle_cal_ui.status_message =
+            Some(format!("Saved calibration profile to {}", path.display()));
+        self.echelle_cal_ui.last_error = None;
+        if activate_after_save {
+            self.set_echelle_profile_path(path.clone());
+            self.poll_echelle_profile_cache();
+        }
+        Ok(path)
+    }
+
+    fn import_echelle_calibration_points_from_path(
+        &mut self,
+        path: &std::path::Path,
+    ) -> Result<usize, String> {
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+        let items = serde_json::from_str::<Vec<EchelleCalibrationPointUi>>(&text)
+            .map_err(|e| format!("Failed to parse calibration points JSON: {e}"))?;
+        let count = items.len();
+        self.echelle_cal_ui.calibration_points = items;
+        self.echelle_cal_ui.selected_point_idx = self
+            .echelle_cal_ui
+            .selected_point_idx
+            .min(count.saturating_sub(1));
+        Ok(count)
+    }
+
+    fn export_echelle_calibration_points_to_path(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<(), String> {
+        let json = serde_json::to_string_pretty(&self.echelle_cal_ui.calibration_points)
+            .map_err(|e| format!("Failed to serialize calibration points: {e}"))?;
+        std::fs::write(path, json).map_err(|e| format!("Failed to write {}: {e}", path.display()))
+    }
+
+    fn import_echelle_line_list_from_path(
+        &mut self,
+        path: &std::path::Path,
+    ) -> Result<usize, String> {
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+        let items = serde_json::from_str::<Vec<EchelleLineListEntryUi>>(&text)
+            .map_err(|e| format!("Failed to parse line list JSON: {e}"))?;
+        let count = items.len();
+        self.echelle_cal_ui.line_list = items;
+        Ok(count)
+    }
+
+    fn export_echelle_line_list_to_path(&self, path: &std::path::Path) -> Result<(), String> {
+        let json = serde_json::to_string_pretty(&self.echelle_cal_ui.line_list)
+            .map_err(|e| format!("Failed to serialize line list: {e}"))?;
+        std::fs::write(path, json).map_err(|e| format!("Failed to write {}: {e}", path.display()))
+    }
+
+    fn auto_detect_trace_seeds_from_current_frame(&mut self) -> Result<usize, String> {
+        self.ensure_echelle_calibration_editor_profile();
+        let frame = self
+            .last_frame_data
+            .as_ref()
+            .ok_or_else(|| "No frame available for auto-detect".to_string())?;
+        let profile = self
+            .echelle_cal_ui
+            .editor_profile
+            .as_ref()
+            .ok_or_else(|| "No editor profile loaded".to_string())?;
+
+        let centers = detect_cross_dispersion_peaks_from_frame(
+            frame.as_ref(),
+            self.width,
+            self.height,
+            self.bit_depth,
+            profile.orientation.dispersion_axis,
+            self.echelle_cal_ui
+                .trace_auto_detect_min_separation_px
+                .max(1),
+            self.echelle_cal_ui.trace_overlay_max_orders.max(1) as usize,
+            self.echelle_cal_ui
+                .trace_auto_detect_threshold_fraction
+                .clamp(0.01, 0.95),
+        )?;
+        if centers.is_empty() {
+            return Err("No candidate order peaks detected in the current frame".to_string());
+        }
+
+        if let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() {
+            let dispersion_len = match profile.orientation.dispersion_axis {
+                DetectorAxis::X => profile.compatibility.frame_width.max(1),
+                DetectorAxis::Y => profile.compatibility.frame_height.max(1),
+            };
+            let cross_roi_offset = match profile.orientation.cross_dispersion_axis {
+                DetectorAxis::X => profile.compatibility.roi_x as f64,
+                DetectorAxis::Y => profile.compatibility.roi_y as f64,
+            };
+            let template_wavelength = profile
+                .orders
+                .get(self.echelle_cal_ui.selected_order_edit_idx)
+                .map(|o| o.wavelength.clone())
+                .or_else(|| profile.orders.first().map(|o| o.wavelength.clone()))
+                .unwrap_or(EchelleWavelengthModel::Polynomial {
+                    basis: PolynomialBasis::Monomial,
+                    coefficients: vec![0.0, 1.0],
+                    domain_start: 0.0,
+                    domain_end: dispersion_len.saturating_sub(1) as f64 + 1.0,
+                    unit: "nm".to_string(),
+                });
+
+            let mut new_orders = Vec::with_capacity(centers.len());
+            for (idx, center_local) in centers.iter().enumerate() {
+                new_orders.push(EchelleOrderCalibration {
+                    relative_index: idx as u32,
+                    physical_order_number: None,
+                    sample_start: 0,
+                    sample_end: dispersion_len.saturating_sub(1),
+                    trace: EchelleTraceModel::Polynomial {
+                        basis: PolynomialBasis::Monomial,
+                        coefficients: vec![*center_local + cross_roi_offset],
+                        domain_start: 0.0,
+                        domain_end: dispersion_len.saturating_sub(1) as f64 + 1.0,
+                    },
+                    wavelength: template_wavelength.clone(),
+                    aperture_half_width_px: None,
+                    enabled: true,
+                    notes: Some("Auto-detected constant trace seed from frame peaks".to_string()),
+                });
+            }
+            profile.orders = new_orders;
+        }
+        self.echelle_cal_ui.selected_order_edit_idx = 0;
+        self.mark_echelle_editor_dirty();
+        Ok(centers.len())
+    }
+
+    fn export_selected_order_blaze_preview_artifact(
+        &mut self,
+        path: &std::path::Path,
+    ) -> Result<(), String> {
+        let preview = self
+            .echelle_preview
+            .as_ref()
+            .ok_or_else(|| "No extracted preview is available".to_string())?;
+        let order = preview
+            .orders
+            .get(self.echelle_selected_order_plot)
+            .ok_or_else(|| "No selected order preview available".to_string())?;
+        if order.flux.is_empty() {
+            return Err("Selected order preview has empty flux".to_string());
+        }
+
+        let max_flux = order
+            .flux
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max)
+            .max(1e-12);
+        let mut out = String::from("sample,wavelength,raw_flux,normalized_flux\n");
+        for (i, (&w, &f)) in order.wavelengths.iter().zip(&order.flux).enumerate() {
+            out.push_str(&format!("{i},{w},{f},{}\n", f / max_flux));
+        }
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() && !parent.exists() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    format!(
+                        "Failed to create blaze artifact directory {}: {e}",
+                        parent.display()
+                    )
+                })?;
+            }
+        }
+        std::fs::write(path, out)
+            .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
+
+        if let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() {
+            profile.corrections.blaze = Some(EchelleArtifactRef {
+                path: path.display().to_string(),
+                sha256: None,
+                format: Some("csv".to_string()),
+            });
+            self.mark_echelle_editor_dirty();
+        }
+        Ok(())
     }
 
     fn maybe_update_echelle_preview(&mut self, frame: &FrameUpdate) {
@@ -525,6 +939,1153 @@ impl ImageViewerPanel {
                 // Preserve last-good preview for continuity, similar to profile hot reload semantics.
             }
         }
+    }
+
+    fn render_echelle_calibration_workspace(&mut self, ui: &mut egui::Ui) {
+        egui::CollapsingHeader::new("Calibration Workspace (Mechelle / Echelle)")
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.small(
+                    "Author and validate echelle calibration profiles, order traces, arc picks, and fit diagnostics.",
+                );
+
+                ui.horizontal_wrapped(|ui| {
+                    for (tab, label) in [
+                        (EchelleCalibrationTab::Profile, "Profile"),
+                        (EchelleCalibrationTab::Trace, "Trace"),
+                        (EchelleCalibrationTab::LinePoints, "Arc/Points"),
+                        (EchelleCalibrationTab::WavelengthFit, "Wavelength Fit"),
+                        (EchelleCalibrationTab::BlazeFlat, "Blaze/Flat"),
+                        (EchelleCalibrationTab::MechelleNotes, "Mechelle UX"),
+                    ] {
+                        ui.selectable_value(&mut self.echelle_cal_ui.tab, tab, label);
+                    }
+                });
+
+                if let Some(msg) = &self.echelle_cal_ui.status_message {
+                    ui.small(msg);
+                }
+                if let Some(err) = &self.echelle_cal_ui.last_error {
+                    ui.colored_label(colors::ERROR, err);
+                }
+
+                ui.separator();
+
+                let mut trigger_load_editor = false;
+                let mut trigger_save_editor = false;
+                let mut trigger_save_activate = false;
+                let mut trigger_activate_only = false;
+
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Profile path:");
+                    ui.text_edit_singleline(&mut self.echelle_cal_ui.save_as_path_text);
+                    if ui.button("Load Editor").clicked() {
+                        trigger_load_editor = true;
+                    }
+                    if ui.button("Save").clicked() {
+                        trigger_save_editor = true;
+                    }
+                    if ui.button("Save + Activate").clicked() {
+                        trigger_save_activate = true;
+                    }
+                    if ui.button("Activate Path").clicked() {
+                        trigger_activate_only = true;
+                    }
+                });
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("Clone Active -> Editor").clicked() {
+                        if let Some(profile) = self.echelle_profile_cache.profile() {
+                            self.echelle_cal_ui.editor_profile = Some((**profile).clone());
+                            self.echelle_cal_ui.editor_dirty = false;
+                            self.echelle_cal_ui.editor_last_loaded_path =
+                                self.echelle_profile_cache.path().map(|p| p.to_path_buf());
+                            if self.echelle_cal_ui.save_as_path_text.is_empty() {
+                                if let Some(path) = self.echelle_profile_cache.path() {
+                                    self.echelle_cal_ui.save_as_path_text = path.display().to_string();
+                                }
+                            }
+                            self.echelle_cal_ui.status_message =
+                                Some("Editor cloned from active profile".to_string());
+                            self.echelle_cal_ui.last_error = None;
+                        } else {
+                            self.echelle_cal_ui.last_error =
+                                Some("No active profile available to clone".to_string());
+                        }
+                    }
+                    if ui.button("New Draft From Frame").clicked() {
+                        self.echelle_cal_ui.editor_profile = Some(self.default_echelle_calibration_profile());
+                        self.echelle_cal_ui.editor_dirty = true;
+                        self.echelle_cal_ui.editor_last_loaded_path = None;
+                        self.echelle_cal_ui.status_message =
+                            Some("Created new draft calibration profile".to_string());
+                        self.echelle_cal_ui.last_error = None;
+                    }
+                    if ui.button("Reset Editor From Active").clicked() {
+                        if let Some(profile) = self.echelle_profile_cache.profile() {
+                            self.echelle_cal_ui.editor_profile = Some((**profile).clone());
+                            self.echelle_cal_ui.editor_dirty = false;
+                            self.echelle_cal_ui.status_message =
+                                Some("Editor reset from active profile".to_string());
+                            self.echelle_cal_ui.last_error = None;
+                        }
+                    }
+                    if let Some(path) = &self.echelle_cal_ui.editor_last_loaded_path {
+                        ui.small(format!("Editor source: {}", path.display()));
+                    } else {
+                        ui.small("Editor source: draft");
+                    }
+                    if self.echelle_cal_ui.editor_dirty {
+                        ui.colored_label(colors::WARNING, "Unsaved editor changes");
+                    }
+                });
+
+                if trigger_load_editor {
+                    let path = std::path::PathBuf::from(self.echelle_cal_ui.save_as_path_text.trim());
+                    if self.echelle_cal_ui.save_as_path_text.trim().is_empty() {
+                        self.echelle_cal_ui.last_error =
+                            Some("Enter a profile path before loading".to_string());
+                    } else {
+                        match EchelleCalibrationProfile::load_from_path(&path) {
+                            Ok(profile) => {
+                                self.echelle_cal_ui.editor_profile = Some(profile);
+                                self.echelle_cal_ui.editor_dirty = false;
+                                self.echelle_cal_ui.editor_last_loaded_path = Some(path.clone());
+                                self.echelle_cal_ui.status_message =
+                                    Some(format!("Loaded editor profile from {}", path.display()));
+                                self.echelle_cal_ui.last_error = None;
+                            }
+                            Err(err) => {
+                                self.echelle_cal_ui.last_error = Some(format!(
+                                    "Failed to load editor profile {}: {err}",
+                                    path.display()
+                                ));
+                            }
+                        }
+                    }
+                }
+                if trigger_save_editor {
+                    if let Err(err) = self.save_echelle_editor_profile_to_path(false) {
+                        self.echelle_cal_ui.last_error = Some(err);
+                    }
+                }
+                if trigger_save_activate {
+                    if let Err(err) = self.save_echelle_editor_profile_to_path(true) {
+                        self.echelle_cal_ui.last_error = Some(err);
+                    }
+                }
+                if trigger_activate_only {
+                    let path_text = self.echelle_cal_ui.save_as_path_text.trim();
+                    if path_text.is_empty() {
+                        self.echelle_cal_ui.last_error =
+                            Some("Enter a profile path before activation".to_string());
+                    } else {
+                        self.set_echelle_profile_path(std::path::PathBuf::from(path_text));
+                        self.poll_echelle_profile_cache();
+                    }
+                }
+
+                match self.echelle_cal_ui.tab {
+                    EchelleCalibrationTab::Profile => self.render_echelle_calibration_profile_tab(ui),
+                    EchelleCalibrationTab::Trace => self.render_echelle_calibration_trace_tab(ui),
+                    EchelleCalibrationTab::LinePoints => {
+                        self.render_echelle_calibration_line_points_tab(ui)
+                    }
+                    EchelleCalibrationTab::WavelengthFit => {
+                        self.render_echelle_calibration_wavelength_fit_tab(ui)
+                    }
+                    EchelleCalibrationTab::BlazeFlat => self.render_echelle_calibration_blaze_tab(ui),
+                    EchelleCalibrationTab::MechelleNotes => {
+                        self.render_echelle_calibration_mechelle_notes_tab(ui)
+                    }
+                }
+            });
+    }
+
+    fn render_echelle_calibration_profile_tab(&mut self, ui: &mut egui::Ui) {
+        self.ensure_echelle_calibration_editor_profile();
+        let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() else {
+            ui.weak("No editor profile loaded.");
+            return;
+        };
+
+        let mut changed = false;
+        egui::Grid::new("echelle_cal_profile_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                ui.label("Display name");
+                changed |= ui.text_edit_singleline(&mut profile.display_name).changed();
+                ui.end_row();
+
+                ui.label("Profile ID");
+                let mut id_text = profile.profile_id.clone().unwrap_or_default();
+                if ui.text_edit_singleline(&mut id_text).changed() {
+                    profile.profile_id = if id_text.trim().is_empty() {
+                        None
+                    } else {
+                        Some(id_text)
+                    };
+                    changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Schema");
+                ui.horizontal(|ui| {
+                    changed |= ui
+                        .add(egui::DragValue::new(&mut profile.schema_version.major).range(1..=9))
+                        .changed();
+                    changed |= ui
+                        .add(egui::DragValue::new(&mut profile.schema_version.minor).range(0..=99))
+                        .changed();
+                    changed |= ui
+                        .add(egui::DragValue::new(&mut profile.schema_version.patch).range(0..=99))
+                        .changed();
+                });
+                ui.end_row();
+
+                ui.label("Compatibility");
+                ui.horizontal_wrapped(|ui| {
+                    changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut profile.compatibility.frame_width)
+                                .range(1..=8192)
+                                .prefix("frame_w "),
+                        )
+                        .changed();
+                    changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut profile.compatibility.frame_height)
+                                .range(1..=8192)
+                                .prefix("frame_h "),
+                        )
+                        .changed();
+                    changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut profile.compatibility.roi_x)
+                                .range(0..=8192)
+                                .prefix("roi_x "),
+                        )
+                        .changed();
+                    changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut profile.compatibility.roi_y)
+                                .range(0..=8192)
+                                .prefix("roi_y "),
+                        )
+                        .changed();
+                    changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut profile.compatibility.binning_x)
+                                .range(1..=16)
+                                .prefix("bin_x "),
+                        )
+                        .changed();
+                    changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut profile.compatibility.binning_y)
+                                .range(1..=16)
+                                .prefix("bin_y "),
+                        )
+                        .changed();
+                });
+                ui.end_row();
+
+                ui.label("Provenance");
+                ui.vertical(|ui| {
+                    changed |= ui
+                        .text_edit_singleline(&mut profile.provenance.creator_tool)
+                        .changed();
+                    let mut version = profile
+                        .provenance
+                        .creator_version
+                        .clone()
+                        .unwrap_or_default();
+                    if ui.text_edit_singleline(&mut version).changed() {
+                        profile.provenance.creator_version = if version.trim().is_empty() {
+                            None
+                        } else {
+                            Some(version)
+                        };
+                        changed = true;
+                    }
+                    let notes = profile.provenance.notes.get_or_insert_with(String::new);
+                    changed |= ui.text_edit_multiline(notes).changed();
+                    ui.small(format!(
+                        "created_at_utc: {}",
+                        profile.provenance.created_at_utc
+                    ));
+                });
+                ui.end_row();
+            });
+
+        ui.separator();
+        match profile.validate() {
+            Ok(()) => ui.colored_label(colors::SUCCESS, "Profile validates"),
+            Err(err) => ui.colored_label(colors::WARNING, format!("Validation issue: {err}")),
+        };
+
+        if changed {
+            self.mark_echelle_editor_dirty();
+        }
+    }
+
+    fn render_echelle_calibration_trace_tab(&mut self, ui: &mut egui::Ui) {
+        self.ensure_echelle_calibration_editor_profile();
+
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(
+                &mut self.echelle_cal_ui.trace_overlay_enabled,
+                "Show trace overlays on image",
+            );
+            ui.checkbox(
+                &mut self.echelle_cal_ui.trace_overlay_all_orders,
+                "All orders",
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.echelle_cal_ui.trace_overlay_sample_step)
+                    .range(1..=256)
+                    .prefix("step "),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.echelle_cal_ui.trace_overlay_max_orders)
+                    .range(1..=256)
+                    .prefix("max "),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.echelle_cal_ui.trace_nudge_px)
+                    .range(0.01..=20.0)
+                    .speed(0.05)
+                    .prefix("nudge "),
+            );
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.add(
+                egui::DragValue::new(&mut self.echelle_cal_ui.trace_auto_detect_min_separation_px)
+                    .range(1..=512)
+                    .prefix("auto min-sep "),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.echelle_cal_ui.trace_auto_detect_threshold_fraction)
+                    .range(0.01..=0.95)
+                    .speed(0.01)
+                    .prefix("auto thr "),
+            );
+            if ui
+                .button("Auto-Detect Trace Seeds From Current Frame")
+                .clicked()
+            {
+                match self.auto_detect_trace_seeds_from_current_frame() {
+                    Ok(count) => {
+                        self.echelle_cal_ui.status_message = Some(format!(
+                            "Auto-detected {count} trace seed(s) from current frame"
+                        ));
+                        self.echelle_cal_ui.last_error = None;
+                    }
+                    Err(err) => self.echelle_cal_ui.last_error = Some(err),
+                }
+            }
+            ui.small("Creates constant-trace seeds from cross-dispersion peaks; refine manually.");
+        });
+
+        let Some(profile_ref) = self.echelle_cal_ui.editor_profile.as_ref() else {
+            ui.weak("No editor profile loaded.");
+            return;
+        };
+
+        let order_labels: Vec<String> = profile_ref
+            .orders
+            .iter()
+            .enumerate()
+            .map(|(idx, order)| {
+                format!(
+                    "#{idx} rel={}{}{}",
+                    order.relative_index,
+                    order
+                        .physical_order_number
+                        .map(|m| format!(" m={m}"))
+                        .unwrap_or_default(),
+                    if order.enabled { "" } else { " (disabled)" }
+                )
+            })
+            .collect();
+
+        if order_labels.is_empty() {
+            ui.weak("No orders in editor profile.");
+            return;
+        }
+
+        if self.echelle_cal_ui.selected_order_edit_idx >= order_labels.len() {
+            self.echelle_cal_ui.selected_order_edit_idx = 0;
+        }
+
+        ui.horizontal_wrapped(|ui| {
+            egui::ComboBox::from_id_salt("echelle_cal_trace_order_select")
+                .selected_text(
+                    order_labels
+                        .get(self.echelle_cal_ui.selected_order_edit_idx)
+                        .cloned()
+                        .unwrap_or_else(|| "order".to_string()),
+                )
+                .show_ui(ui, |ui| {
+                    for (idx, label) in order_labels.iter().enumerate() {
+                        ui.selectable_value(
+                            &mut self.echelle_cal_ui.selected_order_edit_idx,
+                            idx,
+                            label,
+                        );
+                    }
+                });
+            if ui.button("Add Order (Clone)").clicked() {
+                if let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() {
+                    let selected = self
+                        .echelle_cal_ui
+                        .selected_order_edit_idx
+                        .min(profile.orders.len() - 1);
+                    let mut new_order = profile.orders[selected].clone();
+                    let next_rel = profile
+                        .orders
+                        .iter()
+                        .map(|o| o.relative_index)
+                        .max()
+                        .unwrap_or(0)
+                        .saturating_add(1);
+                    new_order.relative_index = next_rel;
+                    new_order.physical_order_number = None;
+                    new_order.notes = Some("Cloned for manual trace adjustment".to_string());
+                    profile.orders.push(new_order);
+                    self.echelle_cal_ui.selected_order_edit_idx = profile.orders.len() - 1;
+                    self.mark_echelle_editor_dirty();
+                }
+            }
+            if ui.button("Remove Selected Order").clicked() {
+                if let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() {
+                    if profile.orders.len() > 1 {
+                        let idx = self
+                            .echelle_cal_ui
+                            .selected_order_edit_idx
+                            .min(profile.orders.len() - 1);
+                        profile.orders.remove(idx);
+                        self.echelle_cal_ui.selected_order_edit_idx = self
+                            .echelle_cal_ui
+                            .selected_order_edit_idx
+                            .min(profile.orders.len().saturating_sub(1));
+                        self.mark_echelle_editor_dirty();
+                    } else {
+                        self.echelle_cal_ui.last_error =
+                            Some("Profile must contain at least one order".to_string());
+                    }
+                }
+            }
+        });
+
+        let selected_idx = self.echelle_cal_ui.selected_order_edit_idx;
+        let mut changed = false;
+        if let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() {
+            if let Some(order) = profile.orders.get_mut(selected_idx) {
+                ui.separator();
+                ui.horizontal_wrapped(|ui| {
+                    changed |= ui.checkbox(&mut order.enabled, "Enabled").changed();
+                    changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut order.relative_index)
+                                .range(0..=999)
+                                .prefix("rel "),
+                        )
+                        .changed();
+                    let mut physical_text = order
+                        .physical_order_number
+                        .map(|v| v.to_string())
+                        .unwrap_or_default();
+                    ui.label("m:");
+                    if ui.text_edit_singleline(&mut physical_text).changed() {
+                        order.physical_order_number = if physical_text.trim().is_empty() {
+                            None
+                        } else {
+                            physical_text.parse::<i32>().ok()
+                        };
+                        changed = true;
+                    }
+                });
+
+                ui.horizontal_wrapped(|ui| {
+                    changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut order.sample_start)
+                                .range(0..=8191)
+                                .prefix("sample_start "),
+                        )
+                        .changed();
+                    changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut order.sample_end)
+                                .range(0..=8191)
+                                .prefix("sample_end "),
+                        )
+                        .changed();
+                    let mut aperture_enabled = order.aperture_half_width_px.is_some();
+                    if ui
+                        .checkbox(&mut aperture_enabled, "Order aperture override")
+                        .changed()
+                    {
+                        if aperture_enabled && order.aperture_half_width_px.is_none() {
+                            order.aperture_half_width_px = Some(4.0);
+                        }
+                        if !aperture_enabled {
+                            order.aperture_half_width_px = None;
+                        }
+                        changed = true;
+                    }
+                    if let Some(ap) = &mut order.aperture_half_width_px {
+                        changed |= ui
+                            .add(
+                                egui::DragValue::new(ap)
+                                    .range(0.1..=128.0)
+                                    .speed(0.1)
+                                    .prefix("half-width "),
+                            )
+                            .changed();
+                    }
+                });
+
+                let notes = order.notes.get_or_insert_with(String::new);
+                changed |= ui.text_edit_multiline(notes).changed();
+
+                let EchelleTraceModel::Polynomial {
+                    basis,
+                    coefficients,
+                    domain_start,
+                    domain_end,
+                } = &mut order.trace;
+                ui.separator();
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Trace basis:");
+                    ui.selectable_value(basis, PolynomialBasis::Monomial, "Monomial");
+                    ui.selectable_value(basis, PolynomialBasis::Chebyshev, "Chebyshev");
+                    changed |= ui
+                        .add(
+                            egui::DragValue::new(domain_start)
+                                .speed(0.5)
+                                .prefix("domain_start "),
+                        )
+                        .changed();
+                    changed |= ui
+                        .add(
+                            egui::DragValue::new(domain_end)
+                                .speed(0.5)
+                                .prefix("domain_end "),
+                        )
+                        .changed();
+                });
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("Nudge -Y").clicked() {
+                        if let Some(c0) = coefficients.first_mut() {
+                            *c0 -= self.echelle_cal_ui.trace_nudge_px;
+                            changed = true;
+                        }
+                    }
+                    if ui.button("Nudge +Y").clicked() {
+                        if let Some(c0) = coefficients.first_mut() {
+                            *c0 += self.echelle_cal_ui.trace_nudge_px;
+                            changed = true;
+                        }
+                    }
+                    if ui.button("Add Coeff").clicked() {
+                        coefficients.push(0.0);
+                        changed = true;
+                    }
+                    if ui.button("Pop Coeff").clicked() && coefficients.len() > 1 {
+                        coefficients.pop();
+                        changed = true;
+                    }
+                });
+                egui::Grid::new("echelle_cal_trace_coeff_grid").show(ui, |ui| {
+                    for (i, coeff) in coefficients.iter_mut().enumerate() {
+                        ui.label(format!("c{i}"));
+                        changed |= ui.add(egui::DragValue::new(coeff).speed(0.01)).changed();
+                        ui.end_row();
+                    }
+                });
+            }
+        }
+
+        if let Some(profile) = self.echelle_cal_ui.editor_profile.as_ref() {
+            match profile.validate() {
+                Ok(()) => ui.colored_label(colors::SUCCESS, "Trace/order edits validate"),
+                Err(err) => ui.colored_label(colors::WARNING, format!("Validation issue: {err}")),
+            };
+        }
+        if changed {
+            self.mark_echelle_editor_dirty();
+        }
+    }
+
+    fn render_echelle_calibration_line_points_tab(&mut self, ui: &mut egui::Ui) {
+        self.ensure_echelle_calibration_editor_profile();
+
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Points JSON:");
+            ui.text_edit_singleline(&mut self.echelle_cal_ui.points_path_text);
+            if ui.button("Import Points").clicked() {
+                let path_text = self.echelle_cal_ui.points_path_text.trim().to_string();
+                if path_text.is_empty() {
+                    self.echelle_cal_ui.last_error = Some("Enter a points JSON path".to_string());
+                } else {
+                    match self.import_echelle_calibration_points_from_path(std::path::Path::new(
+                        &path_text,
+                    )) {
+                        Ok(count) => {
+                            self.echelle_cal_ui.status_message =
+                                Some(format!("Imported {count} calibration points"));
+                            self.echelle_cal_ui.last_error = None;
+                        }
+                        Err(err) => self.echelle_cal_ui.last_error = Some(err),
+                    }
+                }
+            }
+            if ui.button("Export Points").clicked() {
+                let path_text = self.echelle_cal_ui.points_path_text.trim().to_string();
+                if path_text.is_empty() {
+                    self.echelle_cal_ui.last_error = Some("Enter a points JSON path".to_string());
+                } else {
+                    match self
+                        .export_echelle_calibration_points_to_path(std::path::Path::new(&path_text))
+                    {
+                        Ok(()) => {
+                            self.echelle_cal_ui.status_message =
+                                Some("Exported calibration points".to_string());
+                            self.echelle_cal_ui.last_error = None;
+                        }
+                        Err(err) => self.echelle_cal_ui.last_error = Some(err),
+                    }
+                }
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Line list JSON:");
+            ui.text_edit_singleline(&mut self.echelle_cal_ui.line_list_path_text);
+            if ui.button("Import Line List").clicked() {
+                let path_text = self.echelle_cal_ui.line_list_path_text.trim().to_string();
+                if path_text.is_empty() {
+                    self.echelle_cal_ui.last_error =
+                        Some("Enter a line list JSON path".to_string());
+                } else {
+                    match self.import_echelle_line_list_from_path(std::path::Path::new(&path_text))
+                    {
+                        Ok(count) => {
+                            self.echelle_cal_ui.status_message =
+                                Some(format!("Imported {count} line-list entries"));
+                            self.echelle_cal_ui.last_error = None;
+                        }
+                        Err(err) => self.echelle_cal_ui.last_error = Some(err),
+                    }
+                }
+            }
+            if ui.button("Export Line List").clicked() {
+                let path_text = self.echelle_cal_ui.line_list_path_text.trim().to_string();
+                if path_text.is_empty() {
+                    self.echelle_cal_ui.last_error =
+                        Some("Enter a line list JSON path".to_string());
+                } else {
+                    match self.export_echelle_line_list_to_path(std::path::Path::new(&path_text)) {
+                        Ok(()) => {
+                            self.echelle_cal_ui.status_message =
+                                Some("Exported line list".to_string());
+                            self.echelle_cal_ui.last_error = None;
+                        }
+                        Err(err) => self.echelle_cal_ui.last_error = Some(err),
+                    }
+                }
+            }
+        });
+
+        ui.separator();
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Add Point").clicked() {
+                let (order_relative_index, x_sample, y_pixel, wavelength) =
+                    if let Some(link) = self.echelle_plot_hover_link {
+                        (
+                            link.relative_index,
+                            link.sample_index as f64,
+                            0.0,
+                            link.wavelength,
+                        )
+                    } else {
+                        (0, 0.0, 0.0, 0.0)
+                    };
+                self.echelle_cal_ui
+                    .calibration_points
+                    .push(EchelleCalibrationPointUi {
+                        enabled: true,
+                        order_relative_index,
+                        x_sample,
+                        y_pixel,
+                        wavelength,
+                        note: String::new(),
+                    });
+                self.echelle_cal_ui.selected_point_idx = self
+                    .echelle_cal_ui
+                    .calibration_points
+                    .len()
+                    .saturating_sub(1);
+            }
+            if ui.button("Remove Point").clicked()
+                && !self.echelle_cal_ui.calibration_points.is_empty()
+            {
+                let idx = self
+                    .echelle_cal_ui
+                    .selected_point_idx
+                    .min(self.echelle_cal_ui.calibration_points.len() - 1);
+                self.echelle_cal_ui.calibration_points.remove(idx);
+                self.echelle_cal_ui.selected_point_idx =
+                    self.echelle_cal_ui.selected_point_idx.min(
+                        self.echelle_cal_ui
+                            .calibration_points
+                            .len()
+                            .saturating_sub(1),
+                    );
+            }
+            ui.small(format!(
+                "{} calibration points",
+                self.echelle_cal_ui.calibration_points.len()
+            ));
+        });
+        egui::ScrollArea::vertical()
+            .max_height(180.0)
+            .show(ui, |ui| {
+                egui::Grid::new("echelle_cal_points_grid")
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.strong("Sel");
+                        ui.strong("On");
+                        ui.strong("Order");
+                        ui.strong("x");
+                        ui.strong("y");
+                        ui.strong("λ");
+                        ui.strong("Note");
+                        ui.end_row();
+                        for (idx, p) in self
+                            .echelle_cal_ui
+                            .calibration_points
+                            .iter_mut()
+                            .enumerate()
+                        {
+                            ui.selectable_value(
+                                &mut self.echelle_cal_ui.selected_point_idx,
+                                idx,
+                                "•",
+                            );
+                            ui.checkbox(&mut p.enabled, "");
+                            ui.add(
+                                egui::DragValue::new(&mut p.order_relative_index).range(0..=999),
+                            );
+                            ui.add(egui::DragValue::new(&mut p.x_sample).speed(0.1));
+                            ui.add(egui::DragValue::new(&mut p.y_pixel).speed(0.1));
+                            ui.add(egui::DragValue::new(&mut p.wavelength).speed(0.001));
+                            ui.text_edit_singleline(&mut p.note);
+                            ui.end_row();
+                        }
+                    });
+            });
+
+        ui.separator();
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Add Line").clicked() {
+                self.echelle_cal_ui.line_list.push(EchelleLineListEntryUi {
+                    enabled: true,
+                    wavelength: 0.0,
+                    label: String::new(),
+                });
+            }
+            if ui.button("Remove Line").clicked() && !self.echelle_cal_ui.line_list.is_empty() {
+                self.echelle_cal_ui.line_list.pop();
+            }
+            ui.small(format!(
+                "{} line-list entries",
+                self.echelle_cal_ui.line_list.len()
+            ));
+        });
+        egui::ScrollArea::vertical()
+            .max_height(140.0)
+            .show(ui, |ui| {
+                egui::Grid::new("echelle_cal_line_list_grid")
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.strong("On");
+                        ui.strong("λ");
+                        ui.strong("Label");
+                        ui.end_row();
+                        for line in &mut self.echelle_cal_ui.line_list {
+                            ui.checkbox(&mut line.enabled, "");
+                            ui.add(egui::DragValue::new(&mut line.wavelength).speed(0.001));
+                            ui.text_edit_singleline(&mut line.label);
+                            ui.end_row();
+                        }
+                    });
+            });
+    }
+
+    fn render_echelle_calibration_wavelength_fit_tab(&mut self, ui: &mut egui::Ui) {
+        self.ensure_echelle_calibration_editor_profile();
+        let Some(_) = self.echelle_cal_ui.editor_profile.as_ref() else {
+            ui.weak("No editor profile loaded.");
+            return;
+        };
+
+        let mut trigger_fit_selected = false;
+        ui.horizontal_wrapped(|ui| {
+            ui.add(
+                egui::DragValue::new(&mut self.echelle_cal_ui.fit_outlier_sigma)
+                    .range(0.5..=10.0)
+                    .speed(0.1)
+                    .prefix("outlier σ "),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.echelle_cal_ui.fit_rms_acceptance_px)
+                    .range(0.01..=10.0)
+                    .speed(0.01)
+                    .prefix("accept RMS "),
+            );
+            if ui.button("Fit Selected Order (LSQ)").clicked() {
+                trigger_fit_selected = true;
+            }
+            ui.small("Manual picks only (assisted matching planned later).");
+        });
+
+        if trigger_fit_selected {
+            let selected_idx = self.echelle_cal_ui.selected_order_edit_idx;
+            let points = self.echelle_cal_ui.calibration_points.clone();
+            let fit_result = if let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() {
+                if let Some(order) = profile.orders.get_mut(selected_idx) {
+                    fit_wavelength_model_for_order_from_points(order, &points)
+                } else {
+                    Err("Selected order is out of range".to_string())
+                }
+            } else {
+                Err("No editor profile loaded".to_string())
+            };
+            match fit_result {
+                Ok(summary) => {
+                    self.echelle_cal_ui.status_message = Some(summary);
+                    self.echelle_cal_ui.last_error = None;
+                    self.mark_echelle_editor_dirty();
+                }
+                Err(err) => {
+                    self.echelle_cal_ui.last_error = Some(err);
+                }
+            }
+        }
+
+        let Some(profile) = self.echelle_cal_ui.editor_profile.as_ref() else {
+            ui.weak("No editor profile loaded.");
+            return;
+        };
+
+        let mut global_count = 0usize;
+        let mut global_sum_sq = 0.0f64;
+        for order in &profile.orders {
+            let residuals = compute_wavelength_fit_residuals_for_order(
+                order,
+                &self.echelle_cal_ui.calibration_points,
+            );
+            global_count += residuals.len();
+            global_sum_sq += residuals.iter().map(|(_, r)| r * r).sum::<f64>();
+        }
+        if global_count > 0 {
+            let global_rms = (global_sum_sq / global_count as f64).sqrt();
+            ui.small(format!(
+                "Global residual summary across editor orders: {} points | RMS {:.6}",
+                global_count, global_rms
+            ));
+        }
+
+        let selected_order = profile
+            .orders
+            .get(self.echelle_cal_ui.selected_order_edit_idx)
+            .or_else(|| profile.orders.first());
+        let Some(order) = selected_order else {
+            ui.weak("No orders available.");
+            return;
+        };
+
+        let residuals = compute_wavelength_fit_residuals_for_order(
+            order,
+            &self.echelle_cal_ui.calibration_points,
+        );
+        let count = residuals.len();
+        if count == 0 {
+            ui.weak("No enabled calibration points for the selected order.");
+            return;
+        }
+
+        let rms = (residuals.iter().map(|(_, r)| r * r).sum::<f64>() / count as f64).sqrt();
+        let mean_abs = residuals.iter().map(|(_, r)| r.abs()).sum::<f64>() / count as f64;
+        let mean = residuals.iter().map(|(_, r)| *r).sum::<f64>() / count as f64;
+        let stddev = (residuals
+            .iter()
+            .map(|(_, r)| {
+                let d = *r - mean;
+                d * d
+            })
+            .sum::<f64>()
+            / count as f64)
+            .sqrt();
+        let sigma = self.echelle_cal_ui.fit_outlier_sigma.max(0.1);
+        let outliers = residuals
+            .iter()
+            .filter(|(_, r)| stddev > 0.0 && ((*r - mean).abs() / stddev) > sigma)
+            .count();
+
+        ui.horizontal_wrapped(|ui| {
+            ui.small(format!("Order rel={}", order.relative_index));
+            ui.separator();
+            ui.small(format!("points: {count}"));
+            ui.separator();
+            ui.small(format!("RMS: {:.6}", rms));
+            ui.separator();
+            ui.small(format!("mean|resid|: {:.6}", mean_abs));
+            ui.separator();
+            ui.small(format!("outliers@{sigma:.1}σ: {outliers}"));
+            ui.separator();
+            if rms <= self.echelle_cal_ui.fit_rms_acceptance_px {
+                ui.colored_label(colors::SUCCESS, "Within acceptance threshold");
+            } else {
+                ui.colored_label(colors::WARNING, "Exceeds acceptance threshold");
+            }
+        });
+
+        let points: Vec<[f64; 2]> = residuals.iter().map(|(x, r)| [*x, *r]).collect();
+        Plot::new("echelle_wavelength_fit_residual_plot")
+            .height(160.0)
+            .allow_scroll(false)
+            .allow_zoom(true)
+            .allow_drag(true)
+            .x_axis_label("sample")
+            .y_axis_label("λ residual")
+            .show(ui, |plot_ui| {
+                plot_ui.points(
+                    Points::new("residuals", PlotPoints::new(points))
+                        .radius(3.0)
+                        .color(egui::Color32::from_rgb(255, 185, 60)),
+                );
+                plot_ui.line(Line::new(
+                    "zero",
+                    PlotPoints::new(vec![
+                        [order.sample_start as f64, 0.0],
+                        [order.sample_end as f64, 0.0],
+                    ]),
+                ));
+            });
+    }
+
+    fn render_echelle_calibration_blaze_tab(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(
+                &mut self.echelle_cal_ui.blaze_preview_enabled,
+                "Preview blaze-corrected overlay",
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.echelle_cal_ui.blaze_preview_scale)
+                    .range(0.05..=100.0)
+                    .speed(0.05)
+                    .prefix("scale "),
+            );
+            ui.small("MVP: scalar preview overlay while blaze artifact generation UI is staged.");
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Blaze export CSV:");
+            ui.text_edit_singleline(&mut self.echelle_cal_ui.blaze_export_path_text);
+            if ui.button("Generate From Selected Order Preview").clicked() {
+                let path_text = self
+                    .echelle_cal_ui
+                    .blaze_export_path_text
+                    .trim()
+                    .to_string();
+                if path_text.is_empty() {
+                    self.echelle_cal_ui.last_error =
+                        Some("Enter a blaze export CSV path".to_string());
+                } else {
+                    match self.export_selected_order_blaze_preview_artifact(std::path::Path::new(
+                        &path_text,
+                    )) {
+                        Ok(()) => {
+                            self.echelle_cal_ui.status_message =
+                                Some(format!("Generated blaze preview artifact {}", path_text));
+                            self.echelle_cal_ui.last_error = None;
+                        }
+                        Err(err) => self.echelle_cal_ui.last_error = Some(err),
+                    }
+                }
+            }
+        });
+
+        if let Some(profile) = self.echelle_cal_ui.editor_profile.as_ref() {
+            ui.small(format!(
+                "Blaze artifact: {}",
+                profile
+                    .corrections
+                    .blaze
+                    .as_ref()
+                    .map(|b| b.path.as_str())
+                    .unwrap_or("<not set>")
+            ));
+            ui.small(format!(
+                "Flat-field artifact: {}",
+                profile
+                    .corrections
+                    .flat_field
+                    .as_ref()
+                    .map(|f| f.path.as_str())
+                    .unwrap_or("<not set>")
+            ));
+        }
+
+        let Some(preview) = &self.echelle_preview else {
+            ui.weak("No extracted preview available for blaze/flat comparison.");
+            return;
+        };
+        let Some(order) = preview.orders.get(self.echelle_selected_order_plot) else {
+            ui.weak("No selected order preview available.");
+            return;
+        };
+        if order.flux.is_empty() {
+            ui.weak("Selected order flux is empty.");
+            return;
+        }
+
+        let xs: Vec<f64> = if self.echelle_plot_x_axis_mode == EchellePlotXAxisMode::SampleIndex {
+            (0..order.flux.len()).map(|i| i as f64).collect()
+        } else {
+            order.wavelengths.clone()
+        };
+        let raw_points: Vec<[f64; 2]> = xs
+            .iter()
+            .copied()
+            .zip(order.flux.iter().copied())
+            .map(|(x, y)| [x, y])
+            .collect();
+        let corrected_points: Vec<[f64; 2]> = if self.echelle_cal_ui.blaze_preview_enabled {
+            let s = self.echelle_cal_ui.blaze_preview_scale.max(1e-9);
+            xs.iter()
+                .copied()
+                .zip(order.flux.iter().copied())
+                .map(|(x, y)| [x, y / s])
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        Plot::new("echelle_blaze_preview_compare_plot")
+            .height(170.0)
+            .allow_scroll(false)
+            .x_axis_label(
+                if self.echelle_plot_x_axis_mode == EchellePlotXAxisMode::SampleIndex {
+                    "sample"
+                } else {
+                    order.wavelength_unit.as_str()
+                },
+            )
+            .y_axis_label("counts")
+            .show(ui, |plot_ui| {
+                plot_ui.line(
+                    Line::new("Uncorrected", PlotPoints::new(raw_points))
+                        .color(egui::Color32::from_rgb(120, 200, 255)),
+                );
+                if !corrected_points.is_empty() {
+                    plot_ui.line(
+                        Line::new("Preview corrected", PlotPoints::new(corrected_points))
+                            .color(egui::Color32::from_rgb(255, 160, 60)),
+                    );
+                }
+            });
+    }
+
+    fn render_echelle_calibration_mechelle_notes_tab(&mut self, ui: &mut egui::Ui) {
+        self.ensure_echelle_calibration_editor_profile();
+        ui.small(
+            "Mechelle-specific UX planning for image slicer / multi-trace-per-order complexity.",
+        );
+        ui.separator();
+        ui.label("Current design assumptions:");
+        ui.small("1. A single physical echelle order may present multiple visible traces/slices.");
+        ui.small(
+            "2. Trace editing UI must support grouping multiple traces under one physical order.",
+        );
+        ui.small("3. Arc picks should support slice association and confidence labels.");
+        ui.small("4. Blaze/flat correction previews should compare per-slice and merged views.");
+        ui.small("5. Profile format may need future schema extension for sub-trace components.");
+        ui.separator();
+        if let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() {
+            ui.label("Operator notes / vendor quirks / slicer observations:");
+            let notes = profile.provenance.notes.get_or_insert_with(String::new);
+            if ui.text_edit_multiline(notes).changed() {
+                self.mark_echelle_editor_dirty();
+            }
+        }
+    }
+
+    fn build_echelle_trace_overlay_paths(&self) -> Vec<(u32, Vec<(f32, f32)>)> {
+        if !self.echelle_cal_ui.trace_overlay_enabled {
+            return Vec::new();
+        }
+        let profile = self
+            .echelle_cal_ui
+            .editor_profile
+            .clone()
+            .or_else(|| self.echelle_profile_cache.profile().map(|p| (**p).clone()));
+        let Some(profile) = profile else {
+            return Vec::new();
+        };
+        let sample_step = self.echelle_cal_ui.trace_overlay_sample_step.max(1) as usize;
+        let max_orders = self.echelle_cal_ui.trace_overlay_max_orders.max(1) as usize;
+        let selected_relative = self
+            .echelle_cal_ui
+            .editor_profile
+            .as_ref()
+            .and_then(|p| p.orders.get(self.echelle_cal_ui.selected_order_edit_idx))
+            .map(|o| o.relative_index);
+
+        let mut out = Vec::new();
+        for order in profile.orders.iter().filter(|o| o.enabled) {
+            if !self.echelle_cal_ui.trace_overlay_all_orders
+                && selected_relative.is_some()
+                && Some(order.relative_index) != selected_relative
+            {
+                continue;
+            }
+            if out.len() >= max_orders {
+                break;
+            }
+            let mut pts = Vec::new();
+            let total_samples = order
+                .sample_end
+                .saturating_sub(order.sample_start)
+                .saturating_add(1) as usize;
+            for sample_idx in (0..total_samples).step_by(sample_step) {
+                if let Some((x, y)) = order_sample_image_position(&profile, order, sample_idx) {
+                    if x.is_finite() && y.is_finite() {
+                        pts.push((x, y));
+                    }
+                }
+            }
+            if total_samples > 0 {
+                let last_idx = total_samples - 1;
+                if let Some((x, y)) = order_sample_image_position(&profile, order, last_idx) {
+                    if x.is_finite() && y.is_finite() {
+                        if pts
+                            .last()
+                            .map(|(px, py)| (*px - x).abs() > 1e-3 || (*py - y).abs() > 1e-3)
+                            .unwrap_or(true)
+                        {
+                            pts.push((x, y));
+                        }
+                    }
+                }
+            }
+            if pts.len() >= 2 {
+                out.push((order.relative_index, pts));
+            }
+        }
+        out
     }
 
     /// Spawn background thread for RGBA conversion (bd-xifj)
@@ -2435,6 +3996,13 @@ impl ImageViewerPanel {
                     let scale_unit = self.scale_unit.clone();
                     let last_frame_data = self.last_frame_data.clone();
                     let roi_selection_mode = self.roi_selector.selection_mode;
+                    let echelle_trace_overlay_paths = self.build_echelle_trace_overlay_paths();
+                    let echelle_trace_overlay_selected_relative = self
+                        .echelle_cal_ui
+                        .editor_profile
+                        .as_ref()
+                        .and_then(|p| p.orders.get(self.echelle_cal_ui.selected_order_edit_idx))
+                        .map(|o| o.relative_index);
                     let echelle_hover_marker = self.echelle_plot_hover_link.and_then(|link| {
                         let profile = self.echelle_profile_cache.profile()?;
                         let order = profile
@@ -2557,6 +4125,65 @@ impl ImageViewerPanel {
                                                 ),
                                             );
                                             self.histogram.show_overlay(&mut hist_ui, hist_size);
+                                        }
+
+                                        if !echelle_trace_overlay_paths.is_empty() {
+                                            let painter = ui.painter();
+                                            for (relative_index, path) in
+                                                &echelle_trace_overlay_paths
+                                            {
+                                                let color = if Some(*relative_index)
+                                                    == echelle_trace_overlay_selected_relative
+                                                {
+                                                    egui::Color32::from_rgb(80, 220, 120)
+                                                } else {
+                                                    egui::Color32::from_rgba_unmultiplied(
+                                                        100, 180, 255, 180,
+                                                    )
+                                                };
+                                                let stroke = egui::Stroke::new(
+                                                    if Some(*relative_index)
+                                                        == echelle_trace_overlay_selected_relative
+                                                    {
+                                                        2.0
+                                                    } else {
+                                                        1.0
+                                                    },
+                                                    color,
+                                                );
+                                                for segment in path.windows(2) {
+                                                    let (x0, y0) = segment[0];
+                                                    let (x1, y1) = segment[1];
+                                                    let p0 = egui::pos2(
+                                                        rect.min.x + offset.x + x0 * zoom,
+                                                        rect.min.y + offset.y + y0 * zoom,
+                                                    );
+                                                    let p1 = egui::pos2(
+                                                        rect.min.x + offset.x + x1 * zoom,
+                                                        rect.min.y + offset.y + y1 * zoom,
+                                                    );
+                                                    if image_rect.contains(p0)
+                                                        || image_rect.contains(p1)
+                                                    {
+                                                        painter.line_segment([p0, p1], stroke);
+                                                    }
+                                                }
+                                                if let Some((x, y)) = path.first().copied() {
+                                                    let p = egui::pos2(
+                                                        rect.min.x + offset.x + x * zoom,
+                                                        rect.min.y + offset.y + y * zoom,
+                                                    );
+                                                    if image_rect.contains(p) {
+                                                        painter.text(
+                                                            p + egui::vec2(6.0, 6.0),
+                                                            egui::Align2::LEFT_TOP,
+                                                            format!("rel {}", relative_index),
+                                                            egui::FontId::monospace(10.0),
+                                                            color,
+                                                        );
+                                                    }
+                                                }
+                                            }
                                         }
 
                                         if let Some((px, py, label)) = &echelle_hover_marker {
@@ -3080,10 +4707,15 @@ impl ImageViewerPanel {
     }
 
     fn render_echelle_preview_panel(&mut self, ui: &mut egui::Ui) {
+        self.render_echelle_calibration_workspace(ui);
+        ui.separator();
+
         if self.echelle_profile_cache.profile().is_none() {
-            ui.weak("No echelle calibration profile loaded.");
-            ui.weak("Use the programmatic API to set a profile path for now.");
-            return;
+            ui.weak("No active echelle calibration profile loaded for live extraction preview.");
+            ui.weak("Use the calibration workspace above to load/save+activate a profile path.");
+            if self.echelle_preview.is_none() {
+                return;
+            }
         }
 
         ui.horizontal_wrapped(|ui| {
@@ -3400,6 +5032,450 @@ fn nearest_index_by_x(xs: &[f64], target: f64) -> usize {
         }
     }
     best_idx
+}
+
+fn compute_wavelength_fit_residuals_for_order(
+    order: &EchelleOrderCalibration,
+    points: &[EchelleCalibrationPointUi],
+) -> Vec<(f64, f64)> {
+    let mut residuals = Vec::new();
+    for point in points
+        .iter()
+        .filter(|p| p.enabled && p.order_relative_index == order.relative_index)
+    {
+        let predicted = match &order.wavelength {
+            EchelleWavelengthModel::Polynomial {
+                basis,
+                coefficients,
+                domain_start,
+                domain_end,
+                ..
+            } => eval_polynomial_for_ui(
+                *basis,
+                coefficients,
+                *domain_start,
+                *domain_end,
+                point.x_sample,
+            ),
+            EchelleWavelengthModel::Sampled { wavelengths, .. } => {
+                let idx = point.x_sample.round().clamp(0.0, f64::MAX) as usize;
+                wavelengths.get(idx).copied()
+            }
+        };
+        if let Some(predicted) = predicted {
+            residuals.push((point.x_sample, point.wavelength - predicted));
+        }
+    }
+    residuals
+}
+
+fn fit_wavelength_model_for_order_from_points(
+    order: &mut EchelleOrderCalibration,
+    points: &[EchelleCalibrationPointUi],
+) -> Result<String, String> {
+    let enabled_points: Vec<&EchelleCalibrationPointUi> = points
+        .iter()
+        .filter(|p| p.enabled && p.order_relative_index == order.relative_index)
+        .collect();
+    if enabled_points.len() < 2 {
+        return Err(format!(
+            "Need at least 2 enabled calibration points for order {}",
+            order.relative_index
+        ));
+    }
+
+    match &mut order.wavelength {
+        EchelleWavelengthModel::Polynomial {
+            basis,
+            coefficients,
+            domain_start,
+            domain_end,
+            unit,
+        } => {
+            let degree = coefficients.len().saturating_sub(1);
+            if enabled_points.len() < coefficients.len() {
+                return Err(format!(
+                    "Need at least {} enabled points to fit degree {} polynomial for order {}",
+                    coefficients.len(),
+                    degree,
+                    order.relative_index
+                ));
+            }
+            let xs: Vec<f64> = enabled_points.iter().map(|p| p.x_sample).collect();
+            let ys: Vec<f64> = enabled_points.iter().map(|p| p.wavelength).collect();
+            let fitted = fit_polynomial_basis_least_squares_ui(
+                *basis,
+                degree,
+                *domain_start,
+                *domain_end,
+                &xs,
+                &ys,
+            )?;
+            *coefficients = fitted;
+            Ok(format!(
+                "Fitted order {} wavelength polynomial (degree {}, {} points, unit {})",
+                order.relative_index,
+                degree,
+                enabled_points.len(),
+                unit
+            ))
+        }
+        EchelleWavelengthModel::Sampled { .. } => Err(format!(
+            "Selected order {} uses sampled wavelengths; sampled refit UI not implemented yet",
+            order.relative_index
+        )),
+    }
+}
+
+fn eval_polynomial_for_ui(
+    basis: PolynomialBasis,
+    coefficients: &[f64],
+    domain_start: f64,
+    domain_end: f64,
+    x: f64,
+) -> Option<f64> {
+    if coefficients.is_empty()
+        || !x.is_finite()
+        || !domain_start.is_finite()
+        || !domain_end.is_finite()
+        || domain_start >= domain_end
+    {
+        return None;
+    }
+    let value = match basis {
+        PolynomialBasis::Monomial => {
+            let mut acc = 0.0f64;
+            for &c in coefficients.iter().rev() {
+                acc = acc * x + c;
+            }
+            acc
+        }
+        PolynomialBasis::Chebyshev => {
+            let t = ((2.0 * (x - domain_start)) / (domain_end - domain_start)) - 1.0;
+            if coefficients.len() == 1 {
+                coefficients[0]
+            } else {
+                let mut t0 = 1.0f64;
+                let mut t1 = t;
+                let mut acc = coefficients[0] * t0 + coefficients[1] * t1;
+                for &c in coefficients.iter().skip(2) {
+                    let tn = 2.0 * t * t1 - t0;
+                    acc += c * tn;
+                    t0 = t1;
+                    t1 = tn;
+                }
+                acc
+            }
+        }
+    };
+    value.is_finite().then_some(value)
+}
+
+fn fit_polynomial_basis_least_squares_ui(
+    basis: PolynomialBasis,
+    degree: usize,
+    domain_start: f64,
+    domain_end: f64,
+    xs: &[f64],
+    ys: &[f64],
+) -> Result<Vec<f64>, String> {
+    if xs.len() != ys.len() || xs.is_empty() {
+        return Err("xs/ys must be non-empty and same length".to_string());
+    }
+    let n_coeff = degree + 1;
+    let mut ata = vec![vec![0.0f64; n_coeff]; n_coeff];
+    let mut aty = vec![0.0f64; n_coeff];
+
+    for (&x, &y) in xs.iter().zip(ys) {
+        let terms = basis_terms_for_ui(basis, degree, domain_start, domain_end, x)
+            .ok_or_else(|| "invalid polynomial basis/domain/input while fitting".to_string())?;
+        for i in 0..n_coeff {
+            aty[i] += terms[i] * y;
+            for j in 0..n_coeff {
+                ata[i][j] += terms[i] * terms[j];
+            }
+        }
+    }
+
+    solve_linear_system_gaussian(ata, aty)
+        .ok_or_else(|| "least-squares solve failed (singular/ill-conditioned matrix)".to_string())
+}
+
+fn basis_terms_for_ui(
+    basis: PolynomialBasis,
+    degree: usize,
+    domain_start: f64,
+    domain_end: f64,
+    x: f64,
+) -> Option<Vec<f64>> {
+    if !x.is_finite()
+        || !domain_start.is_finite()
+        || !domain_end.is_finite()
+        || domain_start >= domain_end
+    {
+        return None;
+    }
+    let mut out = vec![0.0; degree + 1];
+    match basis {
+        PolynomialBasis::Monomial => {
+            let mut p = 1.0;
+            for term in &mut out {
+                *term = p;
+                p *= x;
+            }
+        }
+        PolynomialBasis::Chebyshev => {
+            let t = ((2.0 * (x - domain_start)) / (domain_end - domain_start)) - 1.0;
+            out[0] = 1.0;
+            if degree >= 1 {
+                out[1] = t;
+            }
+            for n in 2..=degree {
+                out[n] = 2.0 * t * out[n - 1] - out[n - 2];
+            }
+        }
+    }
+    Some(out)
+}
+
+fn solve_linear_system_gaussian(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
+    let n = a.len();
+    if n == 0 || b.len() != n || a.iter().any(|row| row.len() != n) {
+        return None;
+    }
+
+    for col in 0..n {
+        let mut pivot = col;
+        let mut best = a[col][col].abs();
+        for row in (col + 1)..n {
+            let v = a[row][col].abs();
+            if v > best {
+                best = v;
+                pivot = row;
+            }
+        }
+        if best <= 1e-12 || !best.is_finite() {
+            return None;
+        }
+        if pivot != col {
+            a.swap(pivot, col);
+            b.swap(pivot, col);
+        }
+
+        let pivot_val = a[col][col];
+        for j in col..n {
+            a[col][j] /= pivot_val;
+        }
+        b[col] /= pivot_val;
+
+        for row in 0..n {
+            if row == col {
+                continue;
+            }
+            let factor = a[row][col];
+            if factor == 0.0 {
+                continue;
+            }
+            for j in col..n {
+                a[row][j] -= factor * a[col][j];
+            }
+            b[row] -= factor * b[col];
+        }
+    }
+
+    if b.iter().all(|v| v.is_finite()) {
+        Some(b)
+    } else {
+        None
+    }
+}
+
+fn detect_cross_dispersion_peaks_from_frame(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    bit_depth: u32,
+    dispersion_axis: DetectorAxis,
+    min_separation_px: u32,
+    max_peaks: usize,
+    threshold_fraction: f64,
+) -> Result<Vec<f64>, String> {
+    if width == 0 || height == 0 {
+        return Err("Frame dimensions must be non-zero".to_string());
+    }
+    if max_peaks == 0 {
+        return Ok(Vec::new());
+    }
+
+    let cross_len = match dispersion_axis {
+        DetectorAxis::X => height as usize,
+        DetectorAxis::Y => width as usize,
+    };
+    let disp_len = match dispersion_axis {
+        DetectorAxis::X => width as usize,
+        DetectorAxis::Y => height as usize,
+    };
+    let mut profile = vec![0.0f64; cross_len];
+
+    for cross in 0..cross_len {
+        let mut sum = 0.0f64;
+        for disp in 0..disp_len {
+            let (x, y) = match dispersion_axis {
+                DetectorAxis::X => (disp as u32, cross as u32),
+                DetectorAxis::Y => (cross as u32, disp as u32),
+            };
+            let px =
+                get_pixel_value_inline(data, x, y, width, height, bit_depth).ok_or_else(|| {
+                    "Failed to read pixel while auto-detecting trace seeds".to_string()
+                })?;
+            sum += px as f64;
+        }
+        profile[cross] = sum / disp_len.max(1) as f64;
+    }
+
+    let mut sorted = profile.clone();
+    sorted.sort_by(|a, b| a.total_cmp(b));
+    let median = sorted[sorted.len() / 2];
+    let max_value = profile
+        .iter()
+        .copied()
+        .fold(f64::NEG_INFINITY, f64::max)
+        .max(median);
+    let threshold = median + (max_value - median) * threshold_fraction.clamp(0.0, 1.0);
+
+    let mut candidates: Vec<(usize, f64)> = Vec::new();
+    for i in 1..profile.len().saturating_sub(1) {
+        let v = profile[i];
+        if v >= threshold && v > profile[i - 1] && v >= profile[i + 1] {
+            candidates.push((i, v));
+        }
+    }
+    candidates.sort_by(|a, b| b.1.total_cmp(&a.1));
+
+    let min_sep = min_separation_px as isize;
+    let mut selected: Vec<usize> = Vec::new();
+    for (idx, _v) in candidates {
+        if selected
+            .iter()
+            .all(|&keep| (keep as isize - idx as isize).abs() >= min_sep)
+        {
+            selected.push(idx);
+            if selected.len() >= max_peaks {
+                break;
+            }
+        }
+    }
+    selected.sort_unstable();
+
+    Ok(selected.into_iter().map(|i| i as f64).collect())
+}
+
+#[cfg(test)]
+mod echelle_calibration_ui_helper_tests {
+    use super::*;
+
+    #[test]
+    fn eval_polynomial_for_ui_monomial_and_chebyshev() {
+        let mono = eval_polynomial_for_ui(PolynomialBasis::Monomial, &[2.0, 3.0], 0.0, 10.0, 4.0);
+        assert_eq!(mono, Some(14.0));
+
+        let cheb = eval_polynomial_for_ui(PolynomialBasis::Chebyshev, &[5.0, 2.0], 0.0, 10.0, 10.0);
+        // At x=10 => normalized t=1, so 5 + 2*T1 = 7
+        assert_eq!(cheb, Some(7.0));
+    }
+
+    #[test]
+    fn compute_wavelength_fit_residuals_filters_by_order_and_enabled_flag() {
+        let order = EchelleOrderCalibration {
+            relative_index: 3,
+            physical_order_number: Some(77),
+            sample_start: 0,
+            sample_end: 100,
+            trace: EchelleTraceModel::Polynomial {
+                basis: PolynomialBasis::Monomial,
+                coefficients: vec![10.0],
+                domain_start: 0.0,
+                domain_end: 101.0,
+            },
+            wavelength: EchelleWavelengthModel::Polynomial {
+                basis: PolynomialBasis::Monomial,
+                coefficients: vec![500.0, 0.1],
+                domain_start: 0.0,
+                domain_end: 101.0,
+                unit: "nm".to_string(),
+            },
+            aperture_half_width_px: Some(4.0),
+            enabled: true,
+            notes: None,
+        };
+
+        let points = vec![
+            EchelleCalibrationPointUi {
+                enabled: true,
+                order_relative_index: 3,
+                x_sample: 10.0,
+                y_pixel: 0.0,
+                wavelength: 501.2, // predicted 501.0 => residual 0.2
+                note: String::new(),
+            },
+            EchelleCalibrationPointUi {
+                enabled: false,
+                order_relative_index: 3,
+                x_sample: 20.0,
+                y_pixel: 0.0,
+                wavelength: 503.0,
+                note: String::new(),
+            },
+            EchelleCalibrationPointUi {
+                enabled: true,
+                order_relative_index: 4,
+                x_sample: 10.0,
+                y_pixel: 0.0,
+                wavelength: 999.0,
+                note: String::new(),
+            },
+        ];
+
+        let residuals = compute_wavelength_fit_residuals_for_order(&order, &points);
+        assert_eq!(residuals.len(), 1);
+        assert!((residuals[0].0 - 10.0).abs() < 1e-9);
+        assert!((residuals[0].1 - 0.2).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fit_polynomial_basis_least_squares_ui_recovers_linear_coefficients() {
+        let xs = [0.0, 1.0, 2.0, 3.0, 4.0];
+        let ys: Vec<f64> = xs.iter().map(|x| 10.0 + 0.5 * x).collect();
+        let coeffs =
+            fit_polynomial_basis_least_squares_ui(PolynomialBasis::Monomial, 1, 0.0, 5.0, &xs, &ys)
+                .unwrap();
+        assert_eq!(coeffs.len(), 2);
+        assert!((coeffs[0] - 10.0).abs() < 1e-9);
+        assert!((coeffs[1] - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn detect_cross_dispersion_peaks_from_frame_finds_bright_rows() {
+        let width = 8u32;
+        let height = 12u32;
+        let mut data = vec![1u8; (width * height) as usize];
+        for x in 0..width {
+            data[(3 * width + x) as usize] = 50;
+            data[(8 * width + x) as usize] = 80;
+        }
+        let peaks = detect_cross_dispersion_peaks_from_frame(
+            &data,
+            width,
+            height,
+            8,
+            DetectorAxis::X,
+            2,
+            8,
+            0.2,
+        )
+        .unwrap();
+        assert_eq!(peaks, vec![3.0, 8.0]);
+    }
 }
 
 // Unit tests for image_viewer.rs functions

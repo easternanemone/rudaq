@@ -34,16 +34,31 @@ If any of these materially change, create a new profile (do not silently reuse).
 ## Calibration Authoring Workflow (Current)
 
 1. Capture representative frames for the target mode.
-2. Build/fit traces and wavelength solution in external tooling (or manual process).
-3. Export/translate into rust-daq echelle profile schema:
+2. Load or create a draft profile in the Image Viewer calibration workspace:
+   - `Echelle Spectrum (MVP Preview)` side panel -> `Calibration Workspace`
+   - tabs currently implemented:
+     - `Profile` (create/load/save/save+activate, version/provenance edits)
+     - `Trace` (overlay on image, coefficient editing, validity checks, auto-detect constant-trace seeds from current frame peaks)
+     - `Arc/Points` (manual point table + line list import/export JSON)
+     - `Wavelength Fit` (selected-order polynomial least-squares fit from manual points, residual plot, RMS/outlier controls, threshold checks, global residual summary)
+     - `Blaze/Flat` (preview overlay for corrected vs uncorrected spectrum, artifact refs, selected-order blaze-preview CSV artifact export)
+3. Build/fit traces and wavelength solution in external tooling (or manual process), or use the manual GUI tables for iterative editing.
+4. Export/translate into rust-daq echelle profile schema:
    - `/Users/briansquires/.codex/worktrees/5385/rust-daq/docs/reference/echelle-calibration-profile-schema.md`
-4. Load the profile into the Image Viewer (programmatic path today).
-5. Validate:
+5. Activate the profile in the Image Viewer (`Save + Activate` or `Activate Path`).
+6. Validate:
    - profile loads
    - extraction preview renders
    - order traces align visually
    - wavelength mapping looks plausible
-6. Save snapshot exports (`JSON` / merged `CSV`) for comparison records.
+7. Save snapshot exports (`JSON` / merged `CSV`) for comparison records.
+
+## Current GUI Limits (Important)
+
+- Trace auto-detect currently generates constant-trace seeds from cross-dispersion peaks; polynomial tracing/refinement is still manual
+- No automatic arc-line matching yet (manual point entry/import)
+- Wavelength-fit solver currently supports manual-point least-squares refit of the selected polynomial order (sampled wavelength models and automated/global fitting remain future work)
+- Blaze/flat tab currently generates a selected-order normalized CSV preview artifact and tracks artifact refs; full flat/blaze pipeline artifact generation remains future work
 
 ## Golden Dataset Strategy (Before Full Sidecar/QA Harness)
 
