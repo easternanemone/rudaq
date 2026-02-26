@@ -67,9 +67,16 @@ EOF
 
 split_csv_into_array() {
   local csv="$1"
-  local -n out_ref="$2"
+  local out_name="$2"
   local IFS=','
-  read -r -a out_ref <<<"$csv"
+  local tmp_array=()
+  local quoted=""
+  local item
+  read -r -a tmp_array <<<"$csv"
+  for item in "${tmp_array[@]}"; do
+    quoted+="$(printf '%q ' "$item")"
+  done
+  eval "$out_name=($quoted)"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -99,6 +106,11 @@ done
 if [[ ! -x "$REPRO_SCRIPT" ]]; then
   echo "Repro script not found or not executable: $REPRO_SCRIPT" >&2
   exit 1
+fi
+if [[ "$RUNTIME_MODE" != "universal" ]]; then
+  echo "ERROR: --runtime-mode '$RUNTIME_MODE' is not currently supported by the repro harness." >&2
+  echo "Use --runtime-mode universal (default)." >&2
+  exit 2
 fi
 if [[ ${#QUALITIES[@]} -eq 0 || ${#FPS_VALUES[@]} -eq 0 || ${#EXPOSURE_VALUES[@]} -eq 0 ]]; then
   echo "Matrix dimensions may not be empty" >&2
@@ -144,7 +156,11 @@ extract_stream_exit_code() {
 contains_repro_marker() {
   local f="$1"
   local marker="$2"
-  rg -q --fixed-strings "$marker" "$f"
+  if command -v rg >/dev/null 2>&1; then
+    rg -q --fixed-strings "$marker" "$f"
+  else
+    grep -Fq "$marker" "$f"
+  fi
 }
 
 printf 'case_index,start_iso,end_iso,quality,max_fps,exposure_ms,restarted_daemon,built_remote,case_exit_code,stream_exit_code,result_line,repro_run_dir,resource_exhausted,daemon_health_loss\n' > "$CSV_FILE"

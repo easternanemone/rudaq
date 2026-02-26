@@ -33,7 +33,7 @@ Stretch goals:
 
 Documented SDK quirks observed on this setup are tracked in:
 
-- `/Users/briansquires/.codex/worktrees/5385/rust-daq/ANDOR_SDK_FIXES.md`
+- `ANDOR_SDK_FIXES.md` (from repo root)
 
 Important for this session:
 
@@ -73,7 +73,7 @@ ssh leabs-dev 'echo ok && hostname && date'
 Use the deploy helper (recommended):
 
 ```bash
-cd /Users/briansquires/.codex/worktrees/5385/rust-daq
+cd <path-to-rust-daq>
 bash scripts/deploy-leabs.sh --skip-build
 ```
 
@@ -139,7 +139,7 @@ first, then curate a smaller fixture subset into `testdata/` later.
 Suggested local session directory:
 
 ```text
-/Users/briansquires/labdata/echelle/leabs-dev/YYYY-MM-DD-hg2-session-01/
+<lab-data-root>/echelle/leabs-dev/YYYY-MM-DD-hg2-session-01/
 ```
 
 Suggested files to record:
@@ -213,7 +213,7 @@ If observed:
 3. Confirm intensifier / readout mode state if applicable.
 4. Re-check exposure changes are accepted (`GetExposure` and/or `SetExposureResponse` actual value).
 5. Document the behavior in:
-   - `/Users/briansquires/.codex/worktrees/5385/rust-daq/ANDOR_SDK_FIXES.md`
+   - `ANDOR_SDK_FIXES.md`
 
 ## Optional gRPC Capture Commands (CLI Spot Checks)
 
@@ -270,7 +270,7 @@ side panel.
 Recommended file path:
 
 ```text
-/Users/briansquires/labdata/echelle/leabs-dev/YYYY-MM-DD-hg2-session-01/profile_draft_v1.toml
+<lab-data-root>/echelle/leabs-dev/YYYY-MM-DD-hg2-session-01/profile_draft_v1.toml
 ```
 
 ### 2. Trace Seeding and Editing (Trace tab)
@@ -369,9 +369,9 @@ Once a real Hg-Ar echellegram capture is confirmed:
 
 1. Select a small representative subset (do not dump all raw lab data into git).
 2. Copy into a new dataset folder under:
-   - `/Users/briansquires/.codex/worktrees/5385/rust-daq/testdata/echelle/leabs-dev/`
+   - `testdata/echelle/leabs-dev/` (repo-relative)
 3. Generate reference outputs (update or extend):
-   - `/Users/briansquires/.codex/worktrees/5385/rust-daq/scripts/echelle/reference_extract_hg2.py`
+   - `scripts/echelle/reference_extract_hg2.py`
    - or a new script for the new capture naming/mode
 4. Update regression tolerances and harness inputs.
 

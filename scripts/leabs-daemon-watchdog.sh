@@ -114,14 +114,7 @@ grpcurl_cmd() {
 health_check() {
   local rc
   set +e
-  python3 -c 'import socket,sys; p=int(sys.argv[1]); s=socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.settimeout(2.0); ok=0
-try:
-    s.connect(("127.0.0.1", p))
-except OSError:
-    ok=1
-finally:
-    s.close()
-sys.exit(ok)' "$PORT" >/dev/null 2>&1
+  grpcurl_cmd -max-time 4 "127.0.0.1:${PORT}" daq.ControlService/GetDaemonInfo >/dev/null 2>&1
   rc=$?
   set -e
   return "$rc"
@@ -131,7 +124,7 @@ ensure_tunnel() {
   if ! $ENSURE_TUNNEL; then
     return 0
   fi
-  if health_check >/dev/null 2>&1; then
+  if health_check; then
     log "Reusing existing healthy local tunnel on 127.0.0.1:${PORT}"
     return 0
   fi
@@ -155,36 +148,74 @@ ensure_tunnel() {
 install_remote_wrapper() {
   log "Installing crash wrapper on remote"
   scp -q "$REMOTE_WRAPPER" "${SSH_HOST}:${REMOTE_DIR}/scripts/leabs-daemon-crash-wrapper.sh"
-  ssh_remote "chmod +x ${REMOTE_DIR}/scripts/leabs-daemon-crash-wrapper.sh"
+  ssh_remote bash -s -- "$REMOTE_DIR" <<'EOS'
+set -euo pipefail
+remote_dir="$1"
+chmod +x "${remote_dir}/scripts/leabs-daemon-crash-wrapper.sh"
+EOS
 }
 
 start_wrapped_daemon() {
   local build_remote="$1"
   local daemon_cmd
+  if [[ "${RUNTIME_MODE}" != "universal" ]]; then
+    log "ERROR: RUNTIME_MODE='${RUNTIME_MODE}' is not supported with --hardware-config. Use 'universal'."
+    exit 2
+  fi
   # Current daemon CLI rejects --hardware-config combined with --runtime-mode on this path.
-  daemon_cmd="./target/release/rust-daq-daemon daemon --port ${PORT} --hardware-config ${HARDWARE_CONFIG}"
+  daemon_cmd=(
+    "./target/release/rust-daq-daemon"
+    "daemon"
+    "--port" "${PORT}"
+    "--hardware-config" "${HARDWARE_CONFIG}"
+  )
 
   log "Stopping any existing remote daemon"
   ssh_remote "pkill -f '[r]ust-daq-daemon daemon' >/dev/null 2>&1 || true"
 
   if [[ "$build_remote" == "true" ]]; then
     log "Building remote daemon (features: leabs_hardware)"
-    ssh_remote "bash -lc 'source \$HOME/.cargo/env && cd ${REMOTE_DIR} && source ${ENV_FILE} && cargo build --release --bin rust-daq-daemon --features leabs_hardware'"
+    ssh_remote bash -s -- "$REMOTE_DIR" "$ENV_FILE" <<'EOS'
+set -euo pipefail
+remote_dir="$1"
+env_file="$2"
+source "$HOME/.cargo/env"
+cd "$remote_dir"
+source "$env_file"
+cargo build --release --bin rust-daq-daemon --features leabs_hardware
+EOS
   fi
 
   log "Starting wrapped daemon on remote"
-  ssh_remote "bash -lc '
-    cd ${REMOTE_DIR} &&
-    source \$HOME/.cargo/env &&
-    source ${ENV_FILE} &&
-    setsid -f bash scripts/leabs-daemon-crash-wrapper.sh \
-      --capture-root ${REMOTE_CAPTURE_ROOT} \
-      --label watchdog \
-      -- ${daemon_cmd} \
-      > /tmp/rust-daq-daemon-wrapper.out 2>&1 < /dev/null
-    sleep 1
-    cat ${REMOTE_CAPTURE_ROOT}/latest_session_path.txt 2>/dev/null || true
-  '" | tee -a "${RUN_DIR}/wrapper_session_paths.log"
+  ssh_remote bash -s -- \
+    "$REMOTE_DIR" \
+    "$ENV_FILE" \
+    "$REMOTE_CAPTURE_ROOT" \
+    "$PORT" \
+    "$HARDWARE_CONFIG" <<'EOS' | tee -a "${RUN_DIR}/wrapper_session_paths.log"
+set -euo pipefail
+remote_dir="$1"
+env_file="$2"
+capture_root="$3"
+port="$4"
+hardware_config="$5"
+daemon_cmd=(
+  "./target/release/rust-daq-daemon"
+  "daemon"
+  "--port" "$port"
+  "--hardware-config" "$hardware_config"
+)
+source "$HOME/.cargo/env"
+cd "$remote_dir"
+source "$env_file"
+setsid -f bash scripts/leabs-daemon-crash-wrapper.sh \
+  --capture-root "$capture_root" \
+  --label watchdog \
+  -- "${daemon_cmd[@]}" \
+  > /tmp/rust-daq-daemon-wrapper.out 2>&1 < /dev/null
+sleep 1
+cat "${capture_root}/latest_session_path.txt" 2>/dev/null || true
+EOS
 }
 
 wait_for_daemon() {
