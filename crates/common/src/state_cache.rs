@@ -85,6 +85,7 @@ impl Default for GameLoopConfig {
 /// 1. Drains all pending updates from `update_rx` into a local map
 /// 2. Assembles a snapshot from the latest value per device
 /// 3. Broadcasts the snapshot (slow subscribers drop old snapshots)
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn run_game_loop(
     mut update_rx: tokio::sync::mpsc::Receiver<NodeStateUpdate>,
     broadcast_tx: tokio::sync::broadcast::Sender<SystemStateSnapshot>,

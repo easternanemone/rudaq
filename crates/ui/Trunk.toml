@@ -1,0 +1,20 @@
+# Trunk configuration for the WASM web build.
+# Run: cd crates/ui && trunk serve
+# Build: cd crates/ui && trunk build --release
+
+[build]
+# Target the web binary (not the native GUI)
+target = "index.html"
+# Build in release mode by default for smaller WASM output
+# (override with `trunk serve` for dev mode)
+
+[watch]
+# Re-build when these files change
+watch = ["src", "index.html"]
+
+# Proxy gRPC-web requests to the daemon during development.
+# Adjust the backend URL to match your lab machine.
+# Uncomment to enable:
+# [[proxy]]
+# rewrite = "/protocol.daq"
+# backend = "http://10.0.0.40:50051"

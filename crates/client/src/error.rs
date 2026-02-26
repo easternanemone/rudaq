@@ -13,6 +13,8 @@ pub enum ClientError {
     UrlParse(#[from] url::ParseError),
 
     /// gRPC transport error (connection failed, TLS error, etc.).
+    /// Only available on native platforms (WASM uses browser fetch).
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("gRPC transport error: {0}")]
     Transport(#[from] tonic::transport::Error),
 

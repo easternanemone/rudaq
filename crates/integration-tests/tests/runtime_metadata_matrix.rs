@@ -52,7 +52,6 @@ async fn create_profile_registry(path: &str) -> hardware::registry::DeviceRegist
     registry
 }
 
-#[cfg(feature = "db-surreal-mem")]
 fn normalize(values: &[String]) -> Vec<String> {
     let mut out = values.to_vec();
     out.sort();
@@ -133,6 +132,71 @@ async fn matrix_no_db_hybrid_camera_native_parity() {
         ui_schema_count > 0,
         "expected at least one universal device to expose ui schema metadata"
     );
+}
+
+// =========================================================================
+// Metadata Enrichment Assertions (bd-zyc8)
+// =========================================================================
+
+#[tokio::test]
+async fn matrix_universal_factory_info_matches_device_commands() {
+    let registry = create_profile_registry("config/profiles/mock_ell14.toml").await;
+
+    for device in registry.list_devices() {
+        let factory = registry
+            .factory_info(&device.driver_type)
+            .expect("factory info must exist for universal device");
+
+        assert_eq!(
+            normalize(&factory.available_commands),
+            normalize(&device.metadata.available_commands),
+            "command catalog enrichment failed for device '{}' ({})",
+            device.id,
+            device.driver_type
+        );
+    }
+}
+
+#[tokio::test]
+async fn matrix_universal_device_capabilities_match_factory_info() {
+    let registry = create_profile_registry("config/profiles/mock_ell14.toml").await;
+
+    for device in registry.list_devices() {
+        let factory = registry
+            .factory_info(&device.driver_type)
+            .expect("factory info must exist for universal device");
+
+        assert_eq!(
+            normalize(&factory.capabilities),
+            normalize(&device.capabilities),
+            "capability enrichment failed for device '{}' ({})",
+            device.id,
+            device.driver_type
+        );
+    }
+}
+
+#[tokio::test]
+async fn matrix_hybrid_universal_factory_info_present_for_universal_devices() {
+    let registry = create_profile_registry("config/profiles/mock_maitai_lab.toml").await;
+
+    let universal_devices: Vec<_> = registry
+        .list_devices()
+        .into_iter()
+        .filter(|d| d.driver_type.starts_with("universal_"))
+        .collect();
+
+    for device in universal_devices {
+        let factory = registry
+            .factory_info(&device.driver_type)
+            .expect("factory info must exist for universal device in hybrid profile");
+
+        assert!(
+            !factory.available_commands.is_empty(),
+            "factory command catalog must be populated for device '{}'",
+            device.id
+        );
+    }
 }
 
 // =========================================================================
