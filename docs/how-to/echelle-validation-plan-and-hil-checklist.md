@@ -71,6 +71,23 @@ For each mode, track:
 - `reference_tool` (e.g. GAMSE-based workflow)
 - `notes`
 
+## Current Automated Regression Harness (Committed)
+
+The repository now includes a dataset-backed regression harness for the
+`leabs-dev/2026-02-25-hg2` fixture set:
+
+- test: `panels::image_viewer::echelle_extraction::tests::real_canned_hg2_reference_regression_matches_declared_tolerances`
+- command: `cargo test -p ui echelle --lib -- --nocapture`
+- inputs:
+  - `testdata/echelle/leabs-dev/2026-02-25-hg2/reference/comparison_tolerances.json`
+  - `testdata/echelle/leabs-dev/2026-02-25-hg2/reference/capture_diagnostics.json`
+  - `*_reference_summary.json` and dataset frame summaries
+
+This harness currently validates transport/decompression and numeric regression
+properties for a **diagnostic-ramp-like** fixture (not spectroscopic truth).
+Once a real Hg-Ar echellegram fixture is captured, extend the same harness to
+assert per-order and merged spectral tolerances against calibrated golden outputs.
+
 ## Hardware-in-Loop Validation Checklist (iSTAR + Mechelle)
 
 Use this checklist before treating echelle preview output as lab-ready.

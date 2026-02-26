@@ -660,6 +660,8 @@ mod tests {
     };
     use protocol::compression::decompress_frame;
     use protocol::daq::{CompressionType, FrameData};
+    use serde_json::Value;
+    use std::collections::BTreeMap;
 
     #[test]
     fn decoded_frame_matches_existing_pixel_helper_for_8_and_16_bit() {
@@ -858,6 +860,166 @@ mod tests {
         }
     }
 
+    #[test]
+    fn real_canned_hg2_reference_regression_matches_declared_tolerances() {
+        let dataset_dir = real_hg2_dataset_dir();
+        let reference_dir = dataset_dir.join("reference");
+
+        let tolerances = read_json_value(reference_dir.join("comparison_tolerances.json"));
+        let capture_diagnostics = read_json_value(reference_dir.join("capture_diagnostics.json"));
+        let dataset_index = read_json_value(reference_dir.join("dataset_reference_index.json"));
+
+        assert_eq!(
+            tolerances["dataset_id"].as_str(),
+            Some("leabs-dev/2026-02-25-hg2")
+        );
+        assert_eq!(
+            tolerances["dataset_classification"].as_str(),
+            Some("diagnostic_ramp_like")
+        );
+        assert_eq!(
+            tolerances["spectroscopic_truth_usable"].as_bool(),
+            Some(false)
+        );
+
+        let raw_expectations = &tolerances["raw_frame_expectations"];
+        let expected_width = raw_expectations["width"].as_u64().unwrap() as u32;
+        let expected_height = raw_expectations["height"].as_u64().unwrap() as u32;
+        let expected_bit_depth = raw_expectations["bit_depth_nominal"].as_u64().unwrap() as u32;
+        let expected_uncompressed = raw_expectations["uncompressed_size_bytes"]
+            .as_u64()
+            .unwrap() as u32;
+        let expected_compression = raw_expectations["compression"].as_str().unwrap();
+
+        let extraction_expectations = &tolerances["reference_extraction_expectations"];
+        let expected_order_count = extraction_expectations["expected_order_count"]
+            .as_u64()
+            .unwrap();
+        let expected_quality = extraction_expectations["expected_quality_classification"]
+            .as_str()
+            .unwrap();
+
+        let labels = ["hg2_001ms", "hg2_010ms", "hg2_100ms"];
+        let mut summaries_by_label = BTreeMap::new();
+        for label in labels {
+            let summary = read_json_value(dataset_dir.join(format!("{label}_summary.json")));
+            assert_eq!(
+                summary["frame"]["width"].as_u64(),
+                Some(expected_width as u64)
+            );
+            assert_eq!(
+                summary["frame"]["height"].as_u64(),
+                Some(expected_height as u64)
+            );
+            assert_eq!(
+                summary["frame"]["bit_depth"].as_u64(),
+                Some(expected_bit_depth as u64)
+            );
+            assert_eq!(
+                summary["frame"]["uncompressed_size"].as_u64(),
+                Some(expected_uncompressed as u64)
+            );
+            assert_eq!(
+                summary["frame"]["compression"].as_str(),
+                Some(expected_compression)
+            );
+
+            let ref_summary =
+                read_json_value(reference_dir.join(format!("{label}_reference_summary.json")));
+            assert_eq!(ref_summary["label"].as_str(), Some(label));
+            assert_eq!(
+                ref_summary["dataset_quality_classification"]["kind"].as_str(),
+                Some(expected_quality)
+            );
+            assert_eq!(
+                ref_summary["dataset_quality_classification"]["usable_for_spectroscopic_truth"]
+                    .as_bool(),
+                Some(false)
+            );
+            let n_orders = ref_summary["order_detection"]["n_orders"].as_u64().unwrap();
+            assert_eq!(n_orders, expected_order_count);
+            assert_eq!(
+                ref_summary["per_order_summary"]
+                    .as_array()
+                    .map(|x| x.len())
+                    .unwrap_or_default(),
+                n_orders as usize
+            );
+            assert_eq!(
+                ref_summary["image_diagnostics"]["sampled_additive_ramp_match"].as_bool(),
+                Some(true)
+            );
+            assert_eq!(
+                ref_summary["image_diagnostics"]["likely_additive_ramp_pattern"].as_bool(),
+                Some(true)
+            );
+            summaries_by_label.insert(label.to_string(), ref_summary);
+        }
+
+        let indexed = dataset_index["captures"].as_array().unwrap();
+        assert_eq!(indexed.len(), labels.len());
+        for item in indexed {
+            let label = item["label"].as_str().unwrap();
+            let n_orders = item["order_detection"]["n_orders"].as_u64().unwrap();
+            assert_eq!(n_orders, expected_order_count);
+            assert!(summaries_by_label.contains_key(label));
+        }
+
+        let capture_diag_map = capture_diagnostics["captures"].as_object().unwrap();
+        for label in labels {
+            let diag = &capture_diag_map[label];
+            assert_eq!(diag["sampled_additive_ramp_match"].as_bool(), Some(true));
+            assert_eq!(diag["likely_additive_ramp_pattern"].as_bool(), Some(true));
+            assert_close(
+                diag["residual_to_image_stddev_ratio"].as_f64().unwrap(),
+                0.0,
+                0.0,
+            );
+        }
+
+        let pairwise_actual = capture_diagnostics["pairwise_differences"]
+            .as_array()
+            .unwrap();
+        let mut pairwise_by_key: BTreeMap<(String, String), &Value> = BTreeMap::new();
+        for item in pairwise_actual {
+            let a = item["a"].as_str().unwrap().to_string();
+            let b = item["b"].as_str().unwrap().to_string();
+            pairwise_by_key.insert((a, b), item);
+        }
+
+        for spec in tolerances["pairwise_frame_tolerances"].as_array().unwrap() {
+            let key = (
+                spec["a"].as_str().unwrap().to_string(),
+                spec["b"].as_str().unwrap().to_string(),
+            );
+            let actual = pairwise_by_key
+                .get(&key)
+                .unwrap_or_else(|| panic!("missing pairwise diagnostics entry for {:?}", key));
+
+            let max_abs_target = spec["max_abs_diff"]["target"].as_u64().unwrap() as i64;
+            let max_abs_tol = spec["max_abs_diff"]["tolerance"].as_u64().unwrap() as i64;
+            let max_abs_actual = actual["max_abs_diff"].as_i64().unwrap();
+            assert!(
+                (max_abs_actual - max_abs_target).abs() <= max_abs_tol,
+                "pair {:?} max_abs_diff actual={} target={} tol={}",
+                key,
+                max_abs_actual,
+                max_abs_target,
+                max_abs_tol
+            );
+
+            let mean_target = spec["mean_diff"]["target"].as_f64().unwrap();
+            let mean_tol = spec["mean_diff"]["abs_tolerance"].as_f64().unwrap();
+            let mean_actual = actual["mean_diff"].as_f64().unwrap();
+            assert_close_with_context(&key, "mean_diff", mean_actual, mean_target, mean_tol);
+
+            let p99_target = spec["p99_abs_diff"]["target"].as_f64().unwrap();
+            let p99_tol = spec["p99_abs_diff"]["abs_tolerance"].as_f64().unwrap();
+            let p99_actual = actual["p99_abs_diff"].as_f64().unwrap();
+            assert_close_with_context(&key, "p99_abs_diff", p99_actual, p99_target, p99_tol);
+        }
+    }
+
     fn synthetic_profile(
         width: u32,
         height: u32,
@@ -936,8 +1098,7 @@ mod tests {
     }
 
     fn load_real_canned_frame(label: &str) -> (Vec<u8>, u32, u32, u32, u32) {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../testdata/echelle/leabs-dev/2026-02-25-hg2");
+        let dir = real_hg2_dataset_dir();
         let summary_path = dir.join(format!("{label}_summary.json"));
         let payload_path = dir.join(format!("{label}_payload_lz4.bin"));
 
@@ -956,5 +1117,46 @@ mod tests {
             .unwrap_or_else(|e| panic!("failed to read {}: {e}", payload_path.display()));
 
         (payload, width, height, bit_depth, uncompressed_size)
+    }
+
+    fn real_hg2_dataset_dir() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../testdata/echelle/leabs-dev/2026-02-25-hg2")
+    }
+
+    fn read_json_value(path: std::path::PathBuf) -> Value {
+        serde_json::from_str(
+            &std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display())),
+        )
+        .unwrap_or_else(|e| panic!("failed to parse {}: {e}", path.display()))
+    }
+
+    fn assert_close(actual: f64, expected: f64, tol: f64) {
+        assert!(
+            (actual - expected).abs() <= tol,
+            "actual={} expected={} tol={}",
+            actual,
+            expected,
+            tol
+        );
+    }
+
+    fn assert_close_with_context(
+        key: &(String, String),
+        field: &str,
+        actual: f64,
+        expected: f64,
+        tol: f64,
+    ) {
+        assert!(
+            (actual - expected).abs() <= tol,
+            "pair {:?} field {} actual={} expected={} tol={}",
+            key,
+            field,
+            actual,
+            expected,
+            tol
+        );
     }
 }
