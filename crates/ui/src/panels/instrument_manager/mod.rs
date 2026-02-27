@@ -171,6 +171,8 @@ pub struct InstrumentManagerPanel {
     generic_panels: HashMap<String, GenericDevicePanel>,
     /// Config-driven control panels (keyed by device_id)
     config_driven_panels: HashMap<String, config_renderer::ConfigDrivenPanel>,
+    /// Cached gRPC ui_schema_json → ControlPanelConfig lookups (keyed by device_id)
+    grpc_ui_config_cache: HashMap<String, Option<hardware::config::schema::ControlPanelConfig>>,
     /// TOML device config cache for config-driven panels
     config_cache: config_loader::DeviceConfigCache,
     /// PVCAM Smart Stream editors (keyed by device_id)
@@ -242,6 +244,7 @@ impl Default for InstrumentManagerPanel {
             comedi_panels: HashMap::new(),
             generic_panels: HashMap::new(),
             config_driven_panels: HashMap::new(),
+            grpc_ui_config_cache: HashMap::new(),
             config_cache: {
                 let mut cache = config_loader::DeviceConfigCache::new();
                 if let Err(e) = cache.load_all() {
@@ -507,6 +510,9 @@ impl InstrumentManagerPanel {
             DeviceCategory::PowerMeter => 4,
             DeviceCategory::Other => 5,
         });
+
+        // Clear gRPC config cache so refreshed devices re-parse metadata
+        self.grpc_ui_config_cache.clear();
     }
 
     /// Refresh device states for all known devices
@@ -1475,7 +1481,24 @@ impl InstrumentManagerPanel {
 
         ui.separator();
 
-        // --- Priority 0: Config-driven panel from TOML ---
+        // --- Priority 0: gRPC-driven panel from device metadata ---
+        let grpc_config = self
+            .grpc_ui_config_cache
+            .entry(device_id.clone())
+            .or_insert_with(|| dispatch::try_grpc_ui_config(&device));
+        if let Some(panel_config) = grpc_config {
+            let panel_config = panel_config.clone();
+            let panel = self
+                .config_driven_panels
+                .entry(device_id.clone())
+                .or_insert_with(|| config_renderer::ConfigDrivenPanel::new(panel_config));
+            ui.push_id(("instr_mgr", &device_id), |ui| {
+                panel.ui(ui, &device, client.as_deref_mut(), runtime);
+            });
+            return;
+        }
+
+        // --- Priority 1: Config-driven panel from local TOML ---
         if let Some(panel_config) = self
             .config_cache
             .get_ui_config_for_driver(&device.driver_type)
