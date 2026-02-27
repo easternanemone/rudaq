@@ -52,6 +52,11 @@ mod wasm_runtime {
     /// GUI code typically ignores the handle (fire-and-forget pattern),
     /// but some panels store it as an `Option<JoinHandle<()>>` to track
     /// whether a background task is running.
+    ///
+    /// **WASM limitation**: The return value `T` is dropped inside `spawn()`
+    /// and cannot be retrieved. The type parameter exists solely for API
+    /// compatibility with native code — do not attempt to `.await` this handle.
+    /// GUI code should communicate results via channels, not return values.
     pub struct JoinHandle<T>(pub(crate) std::marker::PhantomData<T>);
 
     impl<T> JoinHandle<T> {

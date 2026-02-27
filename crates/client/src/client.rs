@@ -252,6 +252,12 @@ impl DaqClient {
     ///
     /// # Arguments
     /// * `base_url` - The daemon's HTTP URL, e.g. `"http://10.0.0.40:50051"`
+    /// Create a gRPC-web client for browser use.
+    ///
+    /// Unlike the native `connect()`, this is synchronous — the underlying
+    /// `tonic_web_wasm_client::Client` connects lazily on the first RPC call.
+    /// Connection errors (network unreachable, CORS failures, etc.) will surface
+    /// as errors on the first method call, not at construction time.
     #[cfg(target_arch = "wasm32")]
     pub fn connect_web(base_url: &str) -> Self {
         let client = tonic_web_wasm_client::Client::new(base_url.to_string());

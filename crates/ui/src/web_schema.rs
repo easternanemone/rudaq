@@ -1,12 +1,17 @@
 //! Lightweight schema types for the WASM web build.
 //!
-//! These mirror the UI configuration structs from `hardware::config::schema`
-//! but without the `hardware` crate's native-only dependencies (serial, FFI
-//! bindings, `garde`/`schemars` validators). The serde attributes are identical
-//! so that JSON produced by the daemon deserializes correctly in the browser.
+//! These types **mirror** the UI configuration structs from
+//! `hardware::config::schema`, but without the `hardware` crate's
+//! native-only dependencies (serial, FFI bindings, `garde`/`schemars`
+//! validators). The serde attributes are kept identical so that JSON
+//! produced by the daemon deserializes correctly in the browser.
 //!
-//! Note: `deny_unknown_fields` is intentionally omitted so the web build
-//! gracefully ignores any new fields added to the server-side schema.
+//! **Schema sync**: This module is manually kept in sync with
+//! `hardware::config::schema`. When changing either schema, run
+//! `cargo nextest run -p ui web_schema` to verify roundtrip
+//! compatibility. The `deny_unknown_fields` attribute is intentionally
+//! omitted so the web build gracefully ignores any new fields added
+//! to the server-side schema (forward-compatible).
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
