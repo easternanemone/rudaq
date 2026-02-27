@@ -46,7 +46,7 @@ For full database preservation including internal state:
 
 ```bash
 # Stop daemon first to ensure consistent snapshot
-pkill -f 'rust-daq-daemon daemon'
+pkill -INT -f 'rust-daq-daemon daemon'
 
 # Create tarball of RocksDB directory
 tar czf surrealdb-backup_$(date +%Y%m%d_%H%M%S).tar.gz data/surrealdb-maitai/
@@ -61,7 +61,7 @@ tar czf surrealdb-backup_$(date +%Y%m%d_%H%M%S).tar.gz data/surrealdb-maitai/
 
 ```bash
 # Import TOML config into running daemon's database
-rust-daq-daemon client config-import --file backup.toml --addr http://127.0.0.1:50051
+rust-daq-daemon client config-import backup.toml --addr http://127.0.0.1:50051
 ```
 
 Verify:
@@ -105,7 +105,7 @@ Export from a running in-memory daemon and import into a new RocksDB instance:
 rust-daq-daemon client config-export --addr http://127.0.0.1:50051 > migration.toml
 
 # Stop daemon
-pkill -f 'rust-daq-daemon daemon'
+pkill -INT -f 'rust-daq-daemon daemon'
 
 # Import into RocksDB (offline)
 rust-daq-daemon config import migration.toml --db-path data/surrealdb-persistent
@@ -119,7 +119,7 @@ rust-daq-daemon config import migration.toml --db-path data/surrealdb-persistent
 ### 3b. RocksDB to In-Memory
 
 ```bash
-# Export from RocksDB (offline or online)
+# Export from RocksDB (offline only — stop daemon first)
 rust-daq-daemon config export --db-path data/surrealdb-persistent > migration.toml
 
 # Restart without --db-path (uses in-memory engine)
@@ -157,7 +157,7 @@ Incident detected
 
 ```bash
 # Stop current daemon
-pkill -f 'rust-daq-daemon daemon'
+pkill -INT -f 'rust-daq-daemon daemon'
 
 # Restart in native mode (bypasses universal drivers and DB entirely)
 ./target/release/rust-daq-daemon daemon --runtime-mode native

@@ -41,10 +41,10 @@ cargo build --release -p bin --features "leabs_hardware,db-surreal-rocksdb"
 # Ensure RocksDB directory exists
 mkdir -p data/surrealdb-leabs
 
-# Start daemon in explicit hybrid mode
+# Start daemon with LEABS hardware config and persistent database
 ./target/release/rust-daq-daemon daemon \
   --port 50051 \
-  --runtime-mode hybrid-db \
+  --hardware-config config/leabs_hardware.toml \
   --db-path data/surrealdb-leabs
 ```
 
