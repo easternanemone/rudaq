@@ -279,3 +279,101 @@ fn default_wavelength_label() -> String {
 fn default_sensor_label() -> String {
     "Reading".to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // JSON produced by serde_json::to_string() on the server-side hardware types.
+    // If deserialization breaks here it means a serde attribute diverged.
+    const IPG_LASER_UI_JSON: &str = r##"{
+        "icon": "laser",
+        "color": "#FF6B00",
+        "control_panel": {
+            "layout": "vertical",
+            "show_header": true,
+            "sections": [
+                { "type": "sensor", "label": "Output Power", "precision": 2, "unit": "W", "refresh_ms": 500 },
+                { "type": "separator", "visible": true },
+                { "type": "custom_action", "label": "Emission ON", "command": "emission_on", "style": "success" },
+                { "type": "custom_action", "label": "Emission OFF", "command": "emission_off", "style": "danger" },
+                { "type": "separator", "visible": true },
+                { "type": "parameter", "label": "Repetition Rate", "parameter": "rep_rate", "widget": "spinner", "read_only": false, "read_command": "read_rep_rate", "write_command": "set_rep_rate" },
+                { "type": "status_display", "label": "Laser Status", "parameters": ["status", "error"], "compact": true }
+            ]
+        },
+        "status_display": {
+            "summary_params": ["power"],
+            "summary_format": "{{ power }} W",
+            "show_connection": true
+        }
+    }"##;
+
+    #[test]
+    fn test_ipg_laser_ui_config_deserializes() {
+        let config: UiConfig = serde_json::from_str(IPG_LASER_UI_JSON).unwrap();
+        assert_eq!(config.icon.as_deref(), Some("laser"));
+        assert_eq!(config.color.as_deref(), Some("#FF6B00"));
+
+        let panel = config.control_panel.as_ref().unwrap();
+        assert_eq!(panel.layout, PanelLayout::Vertical);
+        assert!(panel.show_header);
+        assert_eq!(panel.sections.len(), 7);
+    }
+
+    #[test]
+    fn test_section_types_deserialize_correctly() {
+        let config: UiConfig = serde_json::from_str(IPG_LASER_UI_JSON).unwrap();
+        let sections = &config.control_panel.unwrap().sections;
+
+        assert!(matches!(&sections[0], ControlSection::Sensor(s) if s.label == "Output Power"));
+        assert!(matches!(&sections[1], ControlSection::Separator(_)));
+        assert!(
+            matches!(&sections[2], ControlSection::CustomAction(a) if a.command == "emission_on")
+        );
+        assert!(
+            matches!(&sections[3], ControlSection::CustomAction(a) if a.style == ButtonStyle::Danger)
+        );
+        assert!(
+            matches!(&sections[5], ControlSection::Parameter(p) if p.read_command.as_deref() == Some("read_rep_rate"))
+        );
+        assert!(
+            matches!(&sections[6], ControlSection::StatusDisplay(s) if s.parameters == ["status", "error"])
+        );
+    }
+
+    #[test]
+    fn test_sensor_defaults() {
+        let json = r#"{ "type": "sensor", "label": "Power" }"#;
+        let section: ControlSection = serde_json::from_str(json).unwrap();
+        match section {
+            ControlSection::Sensor(s) => {
+                assert_eq!(s.label, "Power");
+                assert_eq!(s.precision, 3); // default
+                assert!(s.unit.is_none());
+                assert!(!s.show_trend); // default false
+            }
+            _ => panic!("expected Sensor"),
+        }
+    }
+
+    #[test]
+    fn test_unknown_fields_are_ignored() {
+        // The web schema must tolerate extra fields the server may add in future
+        let json = r#"{
+            "icon": "test",
+            "future_field_unknown": "should be ignored",
+            "control_panel": null
+        }"#;
+        let config: UiConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.icon.as_deref(), Some("test"));
+    }
+
+    #[test]
+    fn test_minimal_config_uses_defaults() {
+        let json = r#"{}"#;
+        let config: UiConfig = serde_json::from_str(json).unwrap();
+        assert!(config.icon.is_none());
+        assert!(config.control_panel.is_none());
+    }
+}

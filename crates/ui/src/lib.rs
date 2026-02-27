@@ -1,6 +1,12 @@
 // Platform-agnostic async runtime abstraction (native tokio / WASM spawn_local)
 pub mod runtime;
 
+// Serde-only schema types for the WASM web build.
+// Included during native test runs (via `test` cfg) so the deserialization
+// tests in web_schema.rs are exercised without needing a WASM target.
+#[cfg(any(feature = "web", test))]
+pub mod web_schema;
+
 // These modules use native deps (clap, tokio runtime, process spawning, etc.)
 // and are not available on WASM targets.
 #[cfg(not(target_arch = "wasm32"))]
