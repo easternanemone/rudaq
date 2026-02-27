@@ -59,6 +59,13 @@ fn normalize(values: &[String]) -> Vec<String> {
     out
 }
 
+fn normalize_capabilities(values: &[common::driver::Capability]) -> Vec<String> {
+    let mut out: Vec<String> = values.iter().map(|cap| cap.as_str().to_string()).collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
 #[tokio::test]
 async fn matrix_no_db_universal_only_metadata_ui() {
     let registry = create_profile_registry("config/profiles/mock_ell14.toml").await;
@@ -168,13 +175,7 @@ async fn matrix_universal_device_capabilities_match_factory_info() {
 
         assert_eq!(
             normalize(&factory.capabilities),
-            normalize(
-                &device
-                    .capabilities
-                    .iter()
-                    .map(|c| c.as_str().to_string())
-                    .collect::<Vec<_>>(),
-            ),
+            normalize_capabilities(&device.capabilities),
             "capability enrichment failed for device '{}' ({})",
             device.id,
             device.driver_type
