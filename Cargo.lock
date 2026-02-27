@@ -14703,6 +14703,7 @@ dependencies = [
  "futures",
  "hardware",
  "hdf5-metno",
+ "js-sys",
  "libc",
  "log",
  "mimalloc",

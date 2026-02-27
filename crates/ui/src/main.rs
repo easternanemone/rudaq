@@ -23,9 +23,13 @@ mod time;
 
 #[cfg(feature = "standalone")]
 mod app;
+#[cfg(feature = "standalone")]
 mod client;
+#[cfg(feature = "standalone")]
 mod connection;
+#[cfg(feature = "standalone")]
 mod connection_state_ext;
+#[cfg(feature = "standalone")]
 mod daemon_launcher;
 #[cfg(feature = "standalone")]
 mod device_ext;
@@ -43,6 +47,7 @@ mod icons;
 mod layout;
 #[cfg(feature = "standalone")]
 mod panels;
+#[cfg(feature = "standalone")]
 mod reconnect;
 #[cfg(feature = "standalone")]
 mod settings;

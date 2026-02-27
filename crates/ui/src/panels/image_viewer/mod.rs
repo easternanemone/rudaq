@@ -1136,7 +1136,7 @@ impl ImageViewerPanel {
                         exit_reason = "cancelled";
                         break;
                     }
-                    () = tokio::time::sleep(STREAM_TIMEOUT) => {
+                    () = crate::runtime::sleep(STREAM_TIMEOUT) => {
                         tracing::warn!(
                             device_id = %device_id_clone,
                             timeout_secs = STREAM_TIMEOUT.as_secs(),

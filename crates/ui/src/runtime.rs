@@ -63,3 +63,23 @@ mod wasm_runtime {
 
 #[cfg(target_arch = "wasm32")]
 pub use wasm_runtime::{JoinHandle, Runtime};
+
+// Cross-platform async sleep.
+// On native: delegates to tokio::time::sleep (requires tokio time driver).
+// On WASM: uses setTimeout via js_sys::Promise (browser event loop).
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use tokio::time::sleep;
+
+/// Async sleep for WASM — uses `setTimeout` under the hood.
+#[cfg(target_arch = "wasm32")]
+pub async fn sleep(duration: std::time::Duration) {
+    let ms = duration.as_millis() as i32;
+    let promise = js_sys::Promise::new(&mut |resolve, _| {
+        web_sys::window()
+            .expect("no global window")
+            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms)
+            .expect("setTimeout failed");
+    });
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+}
