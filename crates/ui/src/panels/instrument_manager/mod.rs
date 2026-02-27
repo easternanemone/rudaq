@@ -13,19 +13,20 @@
 //!
 //! ## Device Panel Routing
 //! Devices are routed to panels in this priority order:
-//! 1. Specialized per-device panels for known hardware classes
-//! 2. [`GenericDevicePanel`] — auto-composes compact widgets from capabilities:
+//! 0. **gRPC-driven** — If `device.metadata.ui_schema_json` contains a valid
+//!    `ControlPanelConfig`, a [`ConfigDrivenPanel`](config_renderer::ConfigDrivenPanel)
+//!    is used. This is the primary path for universal drivers.
+//! 1. **Config-driven (local TOML)** — If a local `config/devices/*.toml` has a
+//!    `[ui.control_panel]` section matching the device's driver type.
+//! 2. **Hardcoded panels** — Specialized per-device panels for known hardware classes
+//!    (MaiTai, Comedi, PowerMeter, Rotator, Stage, PVCAM).
+//! 3. [`GenericDevicePanel`] — auto-composes compact widgets from capabilities:
 //!    - `readable` → gauge + value display with auto-refresh
 //!    - `movable` → position + jog buttons + go-to + home
 //!    - `emission_controllable` → toggle button
 //!    - `shutter_controllable` → toggle button
 //!    - `wavelength_tunable` → slider + text input
 //!    - `settable` → voltage slider + quick-set presets
-//!
-//! ## Config-Driven Panels
-//! When a device's TOML config (`config/devices/*.toml`) contains a `[ui.control_panel]`
-//! section, a [`ConfigDrivenPanel`](config_renderer::ConfigDrivenPanel) is used instead
-//! of hardcoded panels. Config-driven dispatch takes highest priority in the routing chain.
 
 #[allow(deprecated)] // DeviceConfigCache uses the deprecated DeviceConfig schema
 pub(crate) mod config_loader;
@@ -37,12 +38,12 @@ mod types;
 
 pub use types::{DeviceCategory, DeviceGroup, ParameterInfo, PopOutRequest};
 
-use crate::runtime::Runtime;
 use eframe::egui;
 use egui_extras::{Size, StripBuilder};
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::Arc;
+use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::device_ext::DeviceInfoExt;
@@ -117,7 +118,7 @@ pub struct InstrumentManagerPanel {
     /// Devices grouped by category
     groups: Vec<DeviceGroup>,
     /// Last refresh timestamp
-    last_refresh: Option<crate::time::Instant>,
+    last_refresh: Option<std::time::Instant>,
     /// Whether initial auto-refresh has been triggered
     initial_refresh_done: bool,
     /// Error message
@@ -152,7 +153,7 @@ pub struct InstrumentManagerPanel {
     /// Exposure input (ms) for cameras
     exposure_input: HashMap<String, String>,
     /// Last read value (keyed by device_id)
-    last_reading: HashMap<String, (f64, crate::time::Instant)>,
+    last_reading: HashMap<String, (f64, std::time::Instant)>,
     /// Operation in progress (keyed by device_id)
     operation_pending: HashMap<String, String>,
 
@@ -171,10 +172,11 @@ pub struct InstrumentManagerPanel {
     generic_panels: HashMap<String, GenericDevicePanel>,
     /// Config-driven control panels (keyed by device_id)
     config_driven_panels: HashMap<String, config_renderer::ConfigDrivenPanel>,
-    /// Cached gRPC ui_schema_json → ControlPanelConfig lookups (keyed by device_id)
-    grpc_ui_config_cache: HashMap<String, Option<hardware::config::schema::ControlPanelConfig>>,
     /// TOML device config cache for config-driven panels
     config_cache: config_loader::DeviceConfigCache,
+    /// gRPC UI config cache: caches deserialized ControlPanelConfig from device metadata
+    /// (keyed by device_id, None means "tried and no config found")
+    grpc_ui_config_cache: HashMap<String, Option<hardware::config::schema::ControlPanelConfig>>,
     /// PVCAM Smart Stream editors (keyed by device_id)
     smart_stream_editors: HashMap<String, SmartStreamEditor>,
 
@@ -311,7 +313,7 @@ impl InstrumentManagerPanel {
                                     "InstrumentManagerPanel: refresh succeeded, received devices"
                                 );
                                 self.update_groups(devices);
-                                self.last_refresh = Some(crate::time::Instant::now());
+                                self.last_refresh = Some(std::time::Instant::now());
                                 self.status = Some(format!(
                                     "Loaded {} devices",
                                     self.groups.iter().map(|g| g.devices.len()).sum::<usize>()
@@ -426,7 +428,7 @@ impl InstrumentManagerPanel {
                             match result {
                                 Ok(value) => {
                                     self.last_reading
-                                        .insert(device_id, (value, crate::time::Instant::now()));
+                                        .insert(device_id, (value, std::time::Instant::now()));
                                     self.status = Some(format!("Read: {:.4}", value));
                                     self.error = None;
                                 }
@@ -478,6 +480,11 @@ impl InstrumentManagerPanel {
 
     /// Update device groups from flat list
     fn update_groups(&mut self, devices: Vec<DeviceInfo>) {
+        // Clear gRPC UI config cache and config-driven panels so refreshed
+        // metadata is picked up (both must be cleared together for coherence)
+        self.grpc_ui_config_cache.clear();
+        self.config_driven_panels.clear();
+
         let mut by_category: HashMap<DeviceCategory, Vec<DeviceInfo>> = HashMap::new();
 
         for device in devices {
@@ -510,9 +517,6 @@ impl InstrumentManagerPanel {
             DeviceCategory::PowerMeter => 4,
             DeviceCategory::Other => 5,
         });
-
-        // Clear gRPC config cache so refreshed devices re-parse metadata
-        self.grpc_ui_config_cache.clear();
     }
 
     /// Refresh device states for all known devices
@@ -1487,11 +1491,10 @@ impl InstrumentManagerPanel {
             .entry(device_id.clone())
             .or_insert_with(|| dispatch::try_grpc_ui_config(&device));
         if let Some(panel_config) = grpc_config {
-            let panel_config = panel_config.clone();
             let panel = self
                 .config_driven_panels
                 .entry(device_id.clone())
-                .or_insert_with(|| config_renderer::ConfigDrivenPanel::new(panel_config));
+                .or_insert_with(|| config_renderer::ConfigDrivenPanel::new(panel_config.clone()));
             ui.push_id(("instr_mgr", &device_id), |ui| {
                 panel.ui(ui, &device, client.as_deref_mut(), runtime);
             });
@@ -1503,11 +1506,10 @@ impl InstrumentManagerPanel {
             .config_cache
             .get_ui_config_for_driver(&device.driver_type)
         {
-            let panel_config = panel_config.clone();
             let panel = self
                 .config_driven_panels
                 .entry(device_id.clone())
-                .or_insert_with(|| config_renderer::ConfigDrivenPanel::new(panel_config));
+                .or_insert_with(|| config_renderer::ConfigDrivenPanel::new(panel_config.clone()));
             ui.push_id(("instr_mgr", &device_id), |ui| {
                 panel.ui(ui, &device, client.as_deref_mut(), runtime);
             });
@@ -1561,8 +1563,8 @@ impl InstrumentManagerPanel {
             return;
         }
 
-        // Check for ELL14 rotator
-        if driver_lower.contains("ell14") || driver_lower.contains("thorlabs") {
+        // Check for ELL14 rotator (only match specific rotator identifiers, not all Thorlabs)
+        if driver_lower.contains("ell14") || driver_lower.contains("rotator") {
             let panel = self.rotator_panels.entry(device_id.clone()).or_default();
             // Use push_id to avoid widget ID collisions with docked panels
             ui.push_id(("instr_mgr", &device_id), |ui| {

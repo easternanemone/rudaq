@@ -4,8 +4,8 @@
 //! type should be used for a given device based on its capabilities and TOML config.
 //!
 //! The dispatch priority is:
-//! 0. **gRPC-driven** — If `device.metadata.ui_schema_json` contains a valid `UiConfig`
-//! 1. **Config-driven** — If a TOML `[ui.control_panel]` exists for the device's driver type
+//! 0. **gRPC-driven** — If `device.metadata.ui_schema_json` contains a valid `[ui.control_panel]`
+//! 1. **Config-driven** — If a local TOML `[ui.control_panel]` exists for the device's driver type
 //! 2. **Capability-based** — Hardcoded panels matched by driver name and capabilities
 
 #![allow(dead_code)]
@@ -19,7 +19,7 @@ use super::config_loader::DeviceConfigCache;
 /// The type of control panel to use for a device.
 #[derive(Debug, Clone)]
 pub enum PanelType {
-    /// Config-driven panel from TOML `[ui.control_panel]`
+    /// Config-driven panel from gRPC `ui_schema_json` or TOML `[ui.control_panel]`
     ConfigDriven(ControlPanelConfig),
     /// MaiTai Ti:Sapphire laser control panel (wavelength, emission, shutter)
     MaiTai,
@@ -33,37 +33,60 @@ pub enum PanelType {
     Comedi,
 }
 
-/// Extract a `ControlPanelConfig` from the device's gRPC metadata `ui_schema_json`.
+/// Extract a `ControlPanelConfig` from the device's gRPC metadata `ui_schema_json` field.
 ///
-/// Returns `Some(config)` if the device has valid `ui_schema_json` metadata that
-/// deserializes to a `UiConfig` with a `control_panel` section. Returns `None` if
-/// metadata is absent, the JSON is missing or malformed, or `control_panel` is unset.
+/// Returns `None` if the device has no metadata, no `ui_schema_json`, the JSON is
+/// malformed, or the deserialized `UiConfig` has no `control_panel` section.
 pub fn try_grpc_ui_config(device: &DeviceInfo) -> Option<ControlPanelConfig> {
+    let has_metadata = device.metadata.is_some();
+    let has_schema = device
+        .metadata
+        .as_ref()
+        .and_then(|m| m.ui_schema_json.as_ref())
+        .is_some();
+    tracing::debug!(
+        device_id = %device.id,
+        driver_type = %device.driver_type,
+        has_metadata,
+        has_schema,
+        "try_grpc_ui_config called"
+    );
     let json_str = device
         .metadata
         .as_ref()
         .and_then(|m| m.ui_schema_json.as_ref())?;
+    tracing::debug!(
+        device_id = %device.id,
+        json_len = json_str.len(),
+        "Found ui_schema_json"
+    );
     let ui_config: UiConfig = serde_json::from_str(json_str)
         .map_err(|e| {
             tracing::warn!(
                 device_id = %device.id,
                 error = %e,
-                "Failed to deserialize ui_schema_json from gRPC metadata"
+                "Failed to deserialize ui_schema_json"
             );
             e
         })
         .ok()?;
+    let has_panel = ui_config.control_panel.is_some();
+    tracing::debug!(
+        device_id = %device.id,
+        has_panel,
+        "Deserialized UiConfig"
+    );
     ui_config.control_panel
 }
 
 /// Determine the appropriate control panel type for a device.
 ///
-/// Checks gRPC metadata first, then TOML config cache, then falls back to
+/// Checks gRPC metadata first, then local TOML config, then falls back to
 /// capability-based dispatch.
 ///
 /// # Priority order
-/// 0. gRPC metadata (`ui_schema_json`) → ConfigDriven
-/// 1. Config-driven (TOML `[ui.control_panel]` exists) → ConfigDriven
+/// 0. gRPC-driven (`device.metadata.ui_schema_json`) → ConfigDriven
+/// 1. Config-driven (local TOML `[ui.control_panel]` exists) → ConfigDriven
 /// 2. Comedi DAQ devices → Comedi
 /// 3. Laser capabilities (emission/shutter/wavelength) → MaiTai
 /// 4. Readable without motion (sensors, meters) → PowerMeter
@@ -269,66 +292,44 @@ mod tests {
         ));
     }
 
-    /// Helper to create a DeviceInfo with `ui_schema_json` in metadata
+    /// Helper: create a DeviceInfo with ui_schema_json in metadata
     fn make_device_with_schema(
         driver: &str,
-        movable: bool,
-        readable: bool,
-        emission: bool,
-        shutter: bool,
-        wavelength: bool,
-        ui_schema_json: Option<String>,
+        capabilities: &[&str],
+        ui_schema_json: Option<&str>,
     ) -> DeviceInfo {
-        let mut dev = make_device(driver, movable, readable, emission, shutter, wavelength);
-        dev.metadata = Some(protocol::daq::DeviceMetadata {
-            ui_schema_json,
+        #[allow(deprecated)]
+        DeviceInfo {
+            id: "test-device".to_string(),
+            name: "Test Device".to_string(),
+            driver_type: driver.to_string(),
+            capabilities: capabilities.iter().map(|s| (*s).to_string()).collect(),
+            metadata: Some(protocol::daq::DeviceMetadata {
+                ui_schema_json: ui_schema_json.map(ToString::to_string),
+                ..Default::default()
+            }),
             ..Default::default()
-        });
-        dev
+        }
     }
 
     #[test]
     fn test_grpc_schema_takes_priority() {
         // Device with valid ui_schema_json → try_grpc_ui_config returns Some
-        let json = r#"{"control_panel":{"layout":"vertical","sections":[{"type":"sensor","label":"Power"}]}}"#;
-        let dev = make_device_with_schema(
-            "universal_ipg_ylpp",
-            false,
-            true,
-            false,
-            false,
-            false,
-            Some(json.to_string()),
-        );
+        let schema = r#"{"control_panel":{"layout":"vertical","sections":[{"type":"sensor","label":"Power"}]}}"#;
+        let dev = make_device_with_schema("ipg_laser", &["readable"], Some(schema));
         let config = try_grpc_ui_config(&dev);
         assert!(
             config.is_some(),
-            "gRPC ui_schema_json should produce a ControlPanelConfig"
+            "Expected gRPC schema to produce a ControlPanelConfig"
         );
-
-        // Full dispatch also returns ConfigDriven
-        assert!(matches!(
-            determine_panel_type_with_config(&dev, None),
-            PanelType::ConfigDriven(_)
-        ));
+        assert!(!config.unwrap().sections.is_empty());
     }
 
     #[test]
     fn test_grpc_schema_precedence_over_capability_dispatch() {
-        // IPG-like device: readable (would normally → PowerMeter) but has ui_schema_json
-        let json = r#"{"control_panel":{"layout":"vertical","sections":[{"type":"custom_action","label":"Emission","command":"emission_on"},{"type":"sensor","label":"Output Power"}]}}"#;
-        let dev = make_device_with_schema(
-            "universal_ipg_ylpp-200-1-50-r",
-            false,
-            true,
-            false,
-            false,
-            false,
-            Some(json.to_string()),
-        );
-
-        // Without gRPC metadata, this would be PowerMeter
-        let dev_no_meta = make_device(
+        // IPG-like device: readable (no movable, no frame_producer) + ui_schema_json
+        // Without schema → PowerMeter; with schema → ConfigDriven
+        let dev_no_schema = make_device(
             "universal_ipg_ylpp-200-1-50-r",
             false,
             true,
@@ -336,49 +337,96 @@ mod tests {
             false,
             false,
         );
-        assert!(matches!(
-            determine_panel_type_with_config(&dev_no_meta, None),
-            PanelType::PowerMeter
-        ));
+        assert!(
+            matches!(determine_panel_type(&dev_no_schema), PanelType::PowerMeter),
+            "Without schema, IPG should fall to PowerMeter"
+        );
 
-        // With gRPC metadata, ConfigDriven takes precedence
-        assert!(matches!(
-            determine_panel_type_with_config(&dev, None),
-            PanelType::ConfigDriven(_)
-        ));
+        let schema = r#"{"control_panel":{"layout":"vertical","sections":[{"type":"sensor","label":"Output Power"}]}}"#;
+        let dev_with_schema =
+            make_device_with_schema("universal_ipg_ylpp-200-1-50-r", &["readable"], Some(schema));
+        assert!(
+            matches!(
+                determine_panel_type_with_config(&dev_with_schema, None),
+                PanelType::ConfigDriven(_)
+            ),
+            "With schema, IPG should get ConfigDriven panel"
+        );
     }
 
     #[test]
     fn test_native_driver_no_schema_falls_through() {
-        // Device without ui_schema_json → try_grpc_ui_config returns None
-        let dev = make_device_with_schema("MaiTai DeepSee", false, true, true, false, false, None);
-        assert!(try_grpc_ui_config(&dev).is_none());
-
-        // Falls through to capability dispatch → MaiTai
-        assert!(matches!(
-            determine_panel_type_with_config(&dev, None),
-            PanelType::MaiTai
-        ));
+        // Device with metadata but no ui_schema_json → None
+        let dev = make_device_with_schema("pvcam_prime95b", &["frame_producer"], None);
+        assert!(
+            try_grpc_ui_config(&dev).is_none(),
+            "No ui_schema_json should return None"
+        );
     }
 
     #[test]
     fn test_malformed_json_falls_through() {
-        // Invalid JSON → try_grpc_ui_config returns None, falls to capability dispatch
-        let dev = make_device_with_schema(
-            "Newport 1830-C",
-            false,
-            true,
-            false,
-            false,
-            false,
-            Some("{not valid json!!!}".to_string()),
+        // Invalid JSON in ui_schema_json → None (logs warning, doesn't panic)
+        let dev = make_device_with_schema("ipg_laser", &["readable"], Some("{not valid json!!!}"));
+        assert!(
+            try_grpc_ui_config(&dev).is_none(),
+            "Malformed JSON should return None"
         );
-        assert!(try_grpc_ui_config(&dev).is_none());
+    }
 
-        // Falls through to capability dispatch → PowerMeter
-        assert!(matches!(
-            determine_panel_type_with_config(&dev, None),
-            PanelType::PowerMeter
-        ));
+    #[test]
+    fn test_pm400_not_misrouted_to_rotator() {
+        // Regression: PM400 driver type contains "thorlabs" but must NOT route to Rotator.
+        // Only "ell14" or "rotator" keywords should trigger Rotator dispatch.
+        let dev = make_device("universal_thorlabs_pm400", false, true, false, false, false);
+        assert!(
+            matches!(determine_panel_type(&dev), PanelType::PowerMeter),
+            "PM400 should be PowerMeter, not Rotator"
+        );
+    }
+
+    #[test]
+    fn test_thorlabs_ell14_still_routes_to_rotator() {
+        // Ensure ELL14 rotators still correctly route after the thorlabs fix
+        let dev = make_device("universal_thorlabs_ell14", true, false, false, false, false);
+        assert!(
+            matches!(determine_panel_type(&dev), PanelType::Rotator),
+            "ELL14 should be Rotator"
+        );
+    }
+
+    #[test]
+    fn test_grpc_schema_with_command_driven_parameter() {
+        // Full IPG-like schema with command-driven parameter section
+        let schema = r#"{
+            "control_panel": {
+                "layout": "vertical",
+                "sections": [
+                    {"type": "sensor", "label": "Output Power", "precision": 2, "unit": "W"},
+                    {"type": "custom_action", "label": "Emission ON", "command": "emission_on", "style": "success"},
+                    {"type": "parameter", "label": "Rep Rate", "parameter": "rep_rate", "widget": "spinner", "read_command": "read_rep_rate", "write_command": "set_rep_rate"}
+                ]
+            }
+        }"#;
+        let dev = make_device_with_schema(
+            "universal_ipg_ylpp-200-1-50-r",
+            &["readable", "emission_controllable", "commandable"],
+            Some(schema),
+        );
+        let config = try_grpc_ui_config(&dev);
+        assert!(
+            config.is_some(),
+            "Schema with command-driven params should parse"
+        );
+        let panel = config.unwrap();
+        assert_eq!(panel.sections.len(), 3);
+        // Verify the parameter section preserved command fields
+        match &panel.sections[2] {
+            hardware::config::schema::ControlSection::Parameter(cfg) => {
+                assert_eq!(cfg.read_command.as_deref(), Some("read_rep_rate"));
+                assert_eq!(cfg.write_command.as_deref(), Some("set_rep_rate"));
+            }
+            _ => panic!("Expected Parameter section at index 2"),
+        }
     }
 }

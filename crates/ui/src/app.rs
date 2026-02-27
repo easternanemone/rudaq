@@ -860,15 +860,15 @@ pub struct DaqApp {
     docked_stage_panels: HashMap<usize, StageControlPanel>,
     /// Docked Comedi panels (advanced layout mode)
     docked_comedi_panels: HashMap<usize, ComediPanel>,
-    /// Docked config-driven panels (from TOML `[ui.control_panel]`)
+    /// Docked config-driven panels (from gRPC `ui_schema_json` or local TOML `[ui.control_panel]`)
     #[cfg(not(target_arch = "wasm32"))]
     docked_config_driven_panels: HashMap<usize, ConfigDrivenPanel>,
-    /// Cached gRPC ui_schema_json → ControlPanelConfig lookups (keyed by panel ID)
-    #[cfg(not(target_arch = "wasm32"))]
-    grpc_ui_config_cache: HashMap<usize, Option<hardware::config::schema::ControlPanelConfig>>,
     /// Device config cache for TOML-driven panel dispatch
     #[cfg(not(target_arch = "wasm32"))]
     config_cache: DeviceConfigCache,
+    /// gRPC UI config cache for docked panels (keyed by panel ID)
+    #[cfg(not(target_arch = "wasm32"))]
+    grpc_ui_config_cache: HashMap<usize, Option<hardware::config::schema::ControlPanelConfig>>,
     /// User-added command widgets for advanced control panels (keyed by panel ID)
     docked_command_widgets: HashMap<usize, CommandWidgetPalette>,
     /// Preferred control-panel layout mode for docked pop-outs
@@ -991,7 +991,7 @@ fn docked_advanced_panel_kind_for_device(device: &DeviceInfo) -> DockedAdvancedP
         || (device.is_readable() && !device.is_movable() && !device.is_frame_producer())
     {
         DockedAdvancedPanelKind::PowerMeter
-    } else if driver_lower.contains("ell14") || driver_lower.contains("thorlabs") {
+    } else if driver_lower.contains("ell14") || driver_lower.contains("rotator") {
         DockedAdvancedPanelKind::Rotator
     } else if device.is_movable() {
         DockedAdvancedPanelKind::Stage
@@ -1013,10 +1013,7 @@ fn panel_kind_for_device(device: &DeviceInfo) -> DevicePanelKind {
     } else if device.is_readable() && !device.is_movable() {
         DevicePanelKind::PowerMeter
     } else if device.is_movable() {
-        if driver_lower.contains("ell14")
-            || driver_lower.contains("rotator")
-            || driver_lower.contains("thorlabs")
-        {
+        if driver_lower.contains("ell14") || driver_lower.contains("rotator") {
             DevicePanelKind::Rotator
         } else {
             DevicePanelKind::Stage
@@ -2267,10 +2264,9 @@ impl DaqApp {
         self.docked_stage_panels.clear();
         self.docked_comedi_panels.clear();
         #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.docked_config_driven_panels.clear();
-            self.grpc_ui_config_cache.clear();
-        }
+        self.docked_config_driven_panels.clear();
+        #[cfg(not(target_arch = "wasm32"))]
+        self.grpc_ui_config_cache.clear();
         self.docked_command_widgets.clear();
     }
 
@@ -2286,10 +2282,9 @@ impl DaqApp {
         self.docked_stage_panels.remove(&id);
         self.docked_comedi_panels.remove(&id);
         #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.docked_config_driven_panels.remove(&id);
-            self.grpc_ui_config_cache.remove(&id);
-        }
+        self.docked_config_driven_panels.remove(&id);
+        #[cfg(not(target_arch = "wasm32"))]
+        self.grpc_ui_config_cache.remove(&id);
         self.docked_command_widgets.remove(&id);
         self.device_panel_info.remove(&id)
     }
@@ -2676,6 +2671,8 @@ impl DaqApp {
         self.docked_comedi_panels.remove(&panel_id);
         #[cfg(not(target_arch = "wasm32"))]
         self.docked_config_driven_panels.remove(&panel_id);
+        #[cfg(not(target_arch = "wasm32"))]
+        self.grpc_ui_config_cache.remove(&panel_id);
         self.docked_command_widgets.remove(&panel_id);
     }
 
@@ -3068,33 +3065,32 @@ impl DaqTabViewer<'_> {
                 .app
                 .grpc_ui_config_cache
                 .entry(panel_id)
-                .or_insert_with(|| dispatch::try_grpc_ui_config(device_info));
+                .or_insert_with(|| {
+                    crate::panels::instrument_manager::dispatch::try_grpc_ui_config(device_info)
+                });
             if let Some(panel_config) = grpc_config {
-                let panel_config = panel_config.clone();
                 let panel = self
                     .app
                     .docked_config_driven_panels
                     .entry(panel_id)
-                    .or_insert_with(|| ConfigDrivenPanel::new(panel_config));
+                    .or_insert_with(|| ConfigDrivenPanel::new(panel_config.clone()));
                 ui.push_id(("docked", panel_id), |ui| {
                     panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
                 });
                 return;
             }
 
-            // Priority 1: Config-driven panel from local TOML
+            // --- Priority 1: Config-driven panel from local TOML ---
             if let Some(panel_config) = self
                 .app
                 .config_cache
                 .get_ui_config_for_driver(&device_info.driver_type)
             {
-                let panel_config: hardware::config::schema::ControlPanelConfig =
-                    panel_config.clone();
                 let panel = self
                     .app
                     .docked_config_driven_panels
                     .entry(panel_id)
-                    .or_insert_with(|| ConfigDrivenPanel::new(panel_config));
+                    .or_insert_with(|| ConfigDrivenPanel::new(panel_config.clone()));
                 ui.push_id(("docked", panel_id), |ui| {
                     panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
                 });

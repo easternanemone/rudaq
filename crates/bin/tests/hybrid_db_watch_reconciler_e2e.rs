@@ -1,3 +1,4 @@
+#![cfg(feature = "db-surreal-mem")]
 #![allow(unsafe_code)]
 //! Daemon subprocess + gRPC E2E for SurrealDB watch reconciler (bd-zyc8).
 //!

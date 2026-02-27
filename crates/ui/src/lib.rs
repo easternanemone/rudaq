@@ -22,7 +22,6 @@ pub mod daemon_launcher;
 pub mod log_capture;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod reconnect;
-
 // gui_log_layer depends on tracing-subscriber (native-only)
 #[cfg(not(target_arch = "wasm32"))]
 pub mod gui_log_layer;

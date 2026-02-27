@@ -11,8 +11,6 @@
 //! 4. Cleanup auxiliary tasks
 
 use anyhow::{Context, Result};
-#[cfg(feature = "networking")]
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -40,26 +38,12 @@ pub struct DaemonConfig {
     pub port: u16,
     pub hardware_config: Option<PathBuf>,
     pub lab_hardware: bool,
+    /// Resolved runtime mode string (e.g. "mock", "native", "universal", "hybrid-db", "custom").
+    pub runtime_mode: String,
     /// Path for the SurrealDB database. Only used when `db-surreal-rocksdb` is
     /// enabled. `None` = use in-memory engine (default for `db-surreal-mem`).
     #[cfg(feature = "db-surreal")]
     pub db_path: Option<PathBuf>,
-}
-
-#[cfg(feature = "networking")]
-const LEGACY_SCPI_DRIVER_REPLACEMENTS: &[(&str, &str)] = &[
-    ("ell14", "universal_thorlabs_ell14"),
-    ("maitai", "universal_spectra-physics_maitai"),
-    ("newport1830_c", "universal_newport_1830-c"),
-    ("esp300", "universal_newport_esp300"),
-    ("thorlabs_pm400", "universal_thorlabs_pm400"),
-];
-
-#[cfg(feature = "networking")]
-fn legacy_scpi_replacement(driver_type: &str) -> Option<&'static str> {
-    LEGACY_SCPI_DRIVER_REPLACEMENTS
-        .iter()
-        .find_map(|(legacy, replacement)| (*legacy == driver_type).then_some(*replacement))
 }
 
 /// Resolve the `devices/` manifest directory adjacent to a config file.
@@ -76,6 +60,7 @@ fn resolve_device_manifest_dir(config_path: &std::path::Path) -> Option<PathBuf>
 async fn load_hardware_config(
     config_path: &std::path::Path,
     label: &str,
+    runtime_mode: &str,
 ) -> Result<(DeviceRegistry, HardwareConfig)> {
     println!(
         "   Loading {label} hardware from: {}",
@@ -90,7 +75,7 @@ async fn load_hardware_config(
     }
     let hw = HardwareConfig::from_file(config_path).context("Failed to parse hardware config")?;
     let source = config_path.display().to_string();
-    log_runtime_policy_for_config(&source, &hw);
+    validate_runtime_policy_for_config(&source, &hw, runtime_mode)?;
     let config_dir = resolve_device_manifest_dir(config_path);
     let reg = create_registry_from_config(&hw, config_dir.as_deref())
         .await
@@ -113,11 +98,15 @@ fn is_native_exception_driver(driver_type: &str) -> bool {
 }
 
 #[cfg(feature = "networking")]
-fn log_runtime_policy_for_config(source: &str, hw: &HardwareConfig) {
+fn validate_runtime_policy_for_config(
+    source: &str,
+    hw: &HardwareConfig,
+    runtime_mode: &str,
+) -> Result<()> {
     let mut universal_count = 0usize;
     let mut native_exception_count = 0usize;
-    let mut deprecated_native_count = 0usize;
-    let mut warned_driver_types = HashSet::new();
+    let mut unrecognized_count = 0usize;
+    let mut unrecognized_driver_types = Vec::new();
 
     for device in &hw.devices {
         let driver_type = device.driver.driver_type.as_str();
@@ -130,38 +119,49 @@ fn log_runtime_policy_for_config(source: &str, hw: &HardwareConfig) {
             continue;
         }
 
-        deprecated_native_count += 1;
-        if let Some(replacement) = legacy_scpi_replacement(driver_type) {
-            if warned_driver_types.insert(driver_type.to_string()) {
-                tracing::warn!(
-                    driver_type = %driver_type,
-                    replacement = %replacement,
-                    "Legacy native SCPI/TCP driver path detected; migrate to universal driver"
-                );
-                println!(
-                    "   ⚠ Legacy SCPI/TCP driver '{}' in '{}'; prefer '{}'",
-                    driver_type, source, replacement
-                );
-            }
-        }
+        unrecognized_count += 1;
+        unrecognized_driver_types.push(driver_type.to_string());
     }
 
     tracing::info!(
         config_source = source,
         universal_count,
         native_exception_count,
-        deprecated_native_count,
+        unrecognized_count,
         "Runtime policy summary: universal TOML for SCPI/TCP, native exceptions for SDK-bound drivers"
     );
     println!(
-        "   Runtime policy [{}]: universal={}, native_exception={}, deprecated_native={}",
-        source, universal_count, native_exception_count, deprecated_native_count
+        "   Runtime policy [{}]: universal={}, native_exception={}, unrecognized={}",
+        source, universal_count, native_exception_count, unrecognized_count
     );
-    if deprecated_native_count > 0 {
-        println!(
-            "   ⚠ Deprecated native drivers detected. Native SCPI/TCP paths are deprecated; see docs."
-        );
+
+    // In universal/hybrid-db modes, only universal and native-exception drivers are allowed.
+    // Legacy SCPI/TCP drivers have been sunset (Phase 4 complete).
+    if unrecognized_count > 0 {
+        let is_gated_mode = matches!(runtime_mode, "universal" | "hybrid-db");
+
+        if is_gated_mode {
+            anyhow::bail!(
+                "Unrecognized driver types in '{}' mode: [{}]. \
+                 Only universal_* and native-exception drivers (PVCAM, Andor, Comedi, Dover) are supported. \
+                 Legacy SCPI/TCP drivers have been removed. See docs/how-to/legacy-scpi-deprecation.md",
+                runtime_mode,
+                unrecognized_driver_types.join(", ")
+            );
+        } else {
+            tracing::warn!(
+                runtime_mode = runtime_mode,
+                unrecognized_drivers = ?unrecognized_driver_types,
+                "Unrecognized driver types detected; these may not function correctly"
+            );
+            println!(
+                "   ⚠ Unrecognized driver types detected: [{}]",
+                unrecognized_driver_types.join(", ")
+            );
+        }
     }
+
+    Ok(())
 }
 
 #[cfg(feature = "networking")]
@@ -424,7 +424,8 @@ impl DaemonInstance {
         let (registry, hw_config) = {
             println!("🔧 Initializing hardware registry...");
             let (registry, hw_config) = if let Some(ref config_path) = config.hardware_config {
-                let (reg, hw) = load_hardware_config(config_path, "config").await?;
+                let (reg, hw) =
+                    load_hardware_config(config_path, "config", &config.runtime_mode).await?;
                 (reg, Some(hw))
             } else if config.lab_hardware {
                 let default_path = std::path::Path::new("config/maitai_hardware.toml");
@@ -434,7 +435,8 @@ impl DaemonInstance {
                         default_path.display()
                     );
                 }
-                let (reg, hw) = load_hardware_config(default_path, "lab").await?;
+                let (reg, hw) =
+                    load_hardware_config(default_path, "lab", &config.runtime_mode).await?;
                 (reg, Some(hw))
             } else {
                 println!("   Using mock devices (no hardware config specified)");
@@ -839,6 +841,7 @@ mod tests {
             port: 50051,
             hardware_config: None,
             lab_hardware: false,
+            runtime_mode: "mock".to_string(),
             #[cfg(feature = "db-surreal")]
             db_path: None,
         };
@@ -890,39 +893,6 @@ mod tests {
 
     #[cfg(feature = "networking")]
     #[test]
-    fn test_legacy_scpi_replacement_known() {
-        assert_eq!(
-            legacy_scpi_replacement("ell14"),
-            Some("universal_thorlabs_ell14")
-        );
-        assert_eq!(
-            legacy_scpi_replacement("maitai"),
-            Some("universal_spectra-physics_maitai")
-        );
-        assert_eq!(
-            legacy_scpi_replacement("newport1830_c"),
-            Some("universal_newport_1830-c")
-        );
-        assert_eq!(
-            legacy_scpi_replacement("esp300"),
-            Some("universal_newport_esp300")
-        );
-        assert_eq!(
-            legacy_scpi_replacement("thorlabs_pm400"),
-            Some("universal_thorlabs_pm400")
-        );
-    }
-
-    #[cfg(feature = "networking")]
-    #[test]
-    fn test_legacy_scpi_replacement_unknown() {
-        assert_eq!(legacy_scpi_replacement("pvcam"), None);
-        assert_eq!(legacy_scpi_replacement("random_driver"), None);
-        assert_eq!(legacy_scpi_replacement("universal_foo"), None);
-    }
-
-    #[cfg(feature = "networking")]
-    #[test]
     fn test_is_native_exception_driver() {
         // Camera-class native exceptions
         assert!(is_native_exception_driver("pvcam"));
@@ -946,7 +916,7 @@ mod tests {
 
     #[cfg(feature = "networking")]
     #[test]
-    fn test_policy_classification_counts() {
+    fn test_validate_rejects_unrecognized_in_universal_mode() {
         use hardware::registry::{DeviceConfig, DriverConfig};
 
         fn dev(id: &str, driver_type: &str) -> DeviceConfig {
@@ -961,22 +931,89 @@ mod tests {
             }
         }
 
-        // Build a HardwareConfig with a mix of driver types
+        let hw = HardwareConfig {
+            plugin_paths: vec![],
+            devices: vec![
+                dev("d1", "universal_thorlabs_ell14"),
+                dev("d2", "ell14"), // unrecognized (former legacy)
+            ],
+        };
+
+        let result = validate_runtime_policy_for_config("test", &hw, "universal");
+        assert!(
+            result.is_err(),
+            "should reject unrecognized drivers in universal mode"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("ell14"),
+            "error should name the offending driver"
+        );
+    }
+
+    #[cfg(feature = "networking")]
+    #[test]
+    fn test_validate_warns_unrecognized_in_native_mode() {
+        use hardware::registry::{DeviceConfig, DriverConfig};
+
+        fn dev(id: &str, driver_type: &str) -> DeviceConfig {
+            DeviceConfig {
+                id: id.to_string(),
+                name: id.to_string(),
+                driver: DriverConfig {
+                    driver_type: driver_type.to_string(),
+                    config: toml::Value::Table(toml::map::Map::new()),
+                },
+                enabled: true,
+            }
+        }
+
+        let hw = HardwareConfig {
+            plugin_paths: vec![],
+            devices: vec![dev("d1", "ell14"), dev("d2", "pvcam")],
+        };
+
+        // Native mode warns but does not error
+        validate_runtime_policy_for_config("test", &hw, "native")
+            .expect("native mode should warn but allow unrecognized drivers");
+    }
+
+    #[cfg(feature = "networking")]
+    #[test]
+    fn test_validate_pure_universal_config_passes() {
+        use hardware::registry::{DeviceConfig, DriverConfig};
+
+        fn dev(id: &str, driver_type: &str) -> DeviceConfig {
+            DeviceConfig {
+                id: id.to_string(),
+                name: id.to_string(),
+                driver: DriverConfig {
+                    driver_type: driver_type.to_string(),
+                    config: toml::Value::Table(toml::map::Map::new()),
+                },
+                enabled: true,
+            }
+        }
+
+        // Config with only universal + native exception drivers
         let hw = HardwareConfig {
             plugin_paths: vec![],
             devices: vec![
                 dev("d1", "universal_thorlabs_ell14"),
                 dev("d2", "universal_newport_esp300"),
                 dev("d3", "pvcam"),
-                dev("d4", "comedi_analog_input"),
-                dev("d5", "dover_axis"),
-                dev("d6", "ell14"),         // legacy → deprecated
-                dev("d7", "random_native"), // unknown → deprecated
+                dev("d4", "andor_istar"),
+                dev("d5", "comedi_analog_input"),
             ],
         };
 
-        // Smoke test: must not panic
-        log_runtime_policy_for_config("test", &hw);
+        // Should pass in all modes
+        validate_runtime_policy_for_config("test", &hw, "universal")
+            .expect("pure universal+exception config should pass in universal mode");
+        validate_runtime_policy_for_config("test", &hw, "hybrid-db")
+            .expect("pure universal+exception config should pass in hybrid-db mode");
+        validate_runtime_policy_for_config("test", &hw, "native")
+            .expect("pure universal+exception config should pass in native mode");
     }
 
     /// Integration test: verify that a DaemonInstance can be started with
@@ -987,6 +1024,7 @@ mod tests {
             port: 0,
             hardware_config: None,
             lab_hardware: false,
+            runtime_mode: "mock".to_string(),
             #[cfg(feature = "db-surreal")]
             db_path: None,
         };
@@ -1012,6 +1050,7 @@ mod tests {
             port: 0,
             hardware_config: None,
             lab_hardware: false,
+            runtime_mode: "mock".to_string(),
             #[cfg(feature = "db-surreal")]
             db_path: None,
         };

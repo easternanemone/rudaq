@@ -348,10 +348,10 @@ hardware_config = "config/hardware.toml"
 
     #[test]
     fn test_reject_hardware_fields_at_top_level() {
-        let toml_str = r#"
+        let toml_str = r"
 config_version = 1
 stage_limits = { x_min = -50.0, x_max = 50.0 }
-"#;
+";
         let result = toml::from_str::<GuiConfig>(toml_str);
         assert!(result.is_err(), "gui.toml must reject hardware parameters");
         let err = result.unwrap_err().to_string();

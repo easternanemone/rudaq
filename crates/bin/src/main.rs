@@ -488,6 +488,7 @@ async fn start_daemon(
         port,
         hardware_config: resolved_hardware_config,
         lab_hardware: resolved_lab_hardware,
+        runtime_mode: resolved_runtime_mode.to_string(),
         #[cfg(feature = "db-surreal")]
         db_path,
     };
