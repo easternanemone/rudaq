@@ -14,11 +14,11 @@
 //! - Panel drains channels each frame and updates state
 //! - No mutable borrows cross async boundaries
 
+use crate::time::Instant;
 use eframe::egui::{self, TextureHandle};
 use egui_plot::{Line, PlotPoints};
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc;
-use std::time::Instant;
 
 use crate::panels::{DetectorPanel, DetectorType, MultiDetectorGrid};
 use crate::widgets::AutoScalePlot;

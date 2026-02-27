@@ -1,7 +1,7 @@
 //! Main application state and UI logic.
 
+use crate::time::{Duration, Instant};
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
 
 use eframe::egui;
 use egui_dock::tab_viewer::OnCloseResponse;
@@ -2394,7 +2394,7 @@ impl DaqApp {
 
         self.runtime.spawn(async move {
             // Measure RTT for the health check (bd-j3xz.3.3)
-            let start = std::time::Instant::now();
+            let start = crate::time::Instant::now();
             match client.health_check().await {
                 Ok(()) => {
                     let rtt_ms = start.elapsed().as_secs_f64() * 1000.0;

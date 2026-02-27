@@ -3,10 +3,10 @@
 //! Contains supporting types, enums, and channel helpers used by the
 //! image viewer panel and its submodules.
 
+use crate::time::Instant;
 use std::collections::HashMap;
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::Instant;
 
 use crate::widgets::ParameterCache;
 use protocol::daq::FrameData;

@@ -1,9 +1,9 @@
 //! Execution state tracking for visual feedback in the graph editor.
 
+use crate::time::{Duration, Instant};
 use egui_snarl::NodeId;
 use std::collections::HashSet;
 use std::fmt::Write;
-use std::time::{Duration, Instant};
 
 /// Progress for a single scan dimension (e.g., "wavelength 3/10")
 #[derive(Debug, Clone)]

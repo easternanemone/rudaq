@@ -35,7 +35,7 @@ pub struct RunHistoryPanel {
     /// Selected run index in filtered_acquisitions
     selected_run_idx: Option<usize>,
     /// Last refresh timestamp
-    last_refresh: Option<std::time::Instant>,
+    last_refresh: Option<crate::time::Instant>,
     /// Error message
     error: Option<String>,
     /// Pending action
@@ -88,7 +88,7 @@ impl RunHistoryPanel {
                             Ok(acquisitions) => {
                                 self.acquisitions = acquisitions;
                                 self.apply_filter();
-                                self.last_refresh = Some(std::time::Instant::now());
+                                self.last_refresh = Some(crate::time::Instant::now());
                                 self.error = None;
                             }
                             Err(e) => self.error = Some(e),

@@ -70,7 +70,7 @@ pub struct ExperimentDesignerPanel {
     /// Graph metadata
     metadata: GraphMetadata,
     /// Status message for save/load feedback (message, timestamp)
-    status_message: Option<(String, std::time::Instant)>,
+    status_message: Option<(String, crate::time::Instant)>,
     /// Execution state for visual feedback
     execution_state: ExecutionState,
     /// Channel for async action results
@@ -103,13 +103,13 @@ pub struct ExperimentDesignerPanel {
     /// Cached device IDs for dropdown selectors
     cached_device_ids: Vec<String>,
     /// Last time device list was fetched
-    last_device_fetch: Option<std::time::Instant>,
+    last_device_fetch: Option<crate::time::Instant>,
     /// Whether to show flattened progress (vs nested) for multi-dimensional scans
     show_flattened_progress: bool,
     /// Active adaptive alert (if any)
     adaptive_alert: Option<AdaptiveAlertData>,
     /// Timestamp when auto-proceed should trigger (for non-approval alerts)
-    adaptive_alert_auto_proceed_at: Option<std::time::Instant>,
+    adaptive_alert_auto_proceed_at: Option<crate::time::Instant>,
 }
 
 /// Create custom SnarlStyle for the experiment designer.
@@ -444,7 +444,7 @@ impl ExperimentDesignerPanel {
                 AdaptiveAlertResponse::Pending => {
                     // Check auto-proceed timeout for non-approval alerts
                     if let Some(auto_time) = self.adaptive_alert_auto_proceed_at {
-                        if std::time::Instant::now() >= auto_time {
+                        if crate::time::Instant::now() >= auto_time {
                             self.confirm_adaptive_action();
                             self.adaptive_alert = None;
                             self.adaptive_alert_auto_proceed_at = None;
@@ -852,7 +852,7 @@ impl ExperimentDesignerPanel {
 
     /// Set a status message that auto-fades after 3 seconds.
     fn set_status(&mut self, msg: impl Into<String>) {
-        self.status_message = Some((msg.into(), std::time::Instant::now()));
+        self.status_message = Some((msg.into(), crate::time::Instant::now()));
     }
 
     /// Open file dialog to export graph as Rhai script.
@@ -1511,7 +1511,7 @@ impl ExperimentDesignerPanel {
         });
 
         // Mark that we've initiated a poll (update timestamp to avoid rapid polling)
-        self.execution_state.last_update = std::time::Instant::now();
+        self.execution_state.last_update = crate::time::Instant::now();
     }
 
     /// Update the cached device list from daemon
@@ -1519,7 +1519,7 @@ impl ExperimentDesignerPanel {
         let Some(client) = client else {
             // No client, clear device list
             self.cached_device_ids.clear();
-            self.last_device_fetch = Some(std::time::Instant::now());
+            self.last_device_fetch = Some(crate::time::Instant::now());
             return;
         };
         let Some(runtime) = runtime else {
@@ -1541,7 +1541,7 @@ impl ExperimentDesignerPanel {
                 // Keep existing list on error
             }
         }
-        self.last_device_fetch = Some(std::time::Instant::now());
+        self.last_device_fetch = Some(crate::time::Instant::now());
     }
 
     // ========== Runtime Parameter Editing ==========
@@ -1937,7 +1937,7 @@ impl ExperimentDesignerPanel {
         if !data.requires_approval {
             // Auto-proceed after 3 seconds
             self.adaptive_alert_auto_proceed_at =
-                Some(std::time::Instant::now() + std::time::Duration::from_secs(3));
+                Some(crate::time::Instant::now() + std::time::Duration::from_secs(3));
         }
         self.adaptive_alert = Some(data);
     }

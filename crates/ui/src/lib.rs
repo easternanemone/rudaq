@@ -1,6 +1,9 @@
 // Platform-agnostic async runtime abstraction (native tokio / WASM spawn_local)
 pub mod runtime;
 
+// Cross-platform time types (std::time on native, web-time on WASM)
+pub mod time;
+
 // Serde-only schema types for the WASM web build.
 // Included during native test runs (via `test` cfg) so the deserialization
 // tests in web_schema.rs are exercised without needing a WASM target.

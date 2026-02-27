@@ -125,7 +125,7 @@ pub struct DevicesPanel {
     /// Selected device ID
     selected_device: Option<String>,
     /// Last refresh timestamp
-    last_refresh: Option<std::time::Instant>,
+    last_refresh: Option<crate::time::Instant>,
     /// Whether initial auto-refresh has been triggered
     initial_refresh_done: bool,
     /// Move target position
@@ -242,7 +242,7 @@ impl DevicesPanel {
                             Ok((devices, failures)) => {
                                 self.devices = devices;
                                 self.registration_failures = failures;
-                                self.last_refresh = Some(std::time::Instant::now());
+                                self.last_refresh = Some(crate::time::Instant::now());
                                 if self.registration_failures.is_empty() {
                                     self.status =
                                         Some(format!("Loaded {} devices", self.devices.len()));

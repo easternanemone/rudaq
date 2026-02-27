@@ -50,7 +50,7 @@ pub struct ScriptsPanel {
     /// Selected execution ID (for stop action)
     selected_execution: Option<String>,
     /// Last refresh timestamp
-    last_refresh: Option<std::time::Instant>,
+    last_refresh: Option<crate::time::Instant>,
     /// Error message
     error: Option<String>,
     /// Status message
@@ -64,7 +64,7 @@ pub struct ScriptsPanel {
     /// Auto-refresh interval for running executions
     auto_refresh_enabled: bool,
     /// Last auto-refresh time
-    last_auto_refresh: Option<std::time::Instant>,
+    last_auto_refresh: Option<crate::time::Instant>,
     /// Whether the inline editor is visible
     editor_visible: bool,
     /// Editor code content
@@ -98,7 +98,7 @@ impl ScriptsPanel {
                         ActionResult::Refresh(Ok((scripts, executions))) => {
                             self.scripts = scripts;
                             self.executions = executions;
-                            self.last_refresh = Some(std::time::Instant::now());
+                            self.last_refresh = Some(crate::time::Instant::now());
                             // Only show status if not auto-refreshing
                             if !self.auto_refresh_enabled {
                                 self.status = Some(format!(
@@ -196,7 +196,7 @@ impl ScriptsPanel {
                 .unwrap_or(true);
 
             if should_refresh && self.action_in_flight == 0 {
-                self.last_auto_refresh = Some(std::time::Instant::now());
+                self.last_auto_refresh = Some(crate::time::Instant::now());
                 pending_refresh = true;
             }
             ui.ctx()

@@ -19,6 +19,7 @@
 //! ```
 
 mod runtime;
+mod time;
 
 #[cfg(feature = "standalone")]
 mod app;

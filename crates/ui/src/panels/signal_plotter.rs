@@ -10,12 +10,12 @@
 //! - `SignalPlotterPanel` stores a receiver and drains it each frame
 //! - No mutable borrows cross async boundaries
 
+use crate::time::Instant;
 use eframe::egui;
 use egui_plot::{Line, Plot, PlotPoints};
 use std::collections::VecDeque;
 use std::fmt::Write;
 use std::sync::mpsc;
-use std::time::Instant;
 
 /// Maximum history depth (points)
 const MAX_HISTORY: usize = 500;

@@ -3,10 +3,10 @@
 //! Provides scrolling tabular display of acquired data with timestamps,
 //! filtering, and export capabilities.
 
+use crate::time::Instant;
 use eframe::egui::{self, Color32, RichText, Ui};
 use std::collections::VecDeque;
 use std::fmt::Write;
-use std::time::Instant;
 use tokio::sync::mpsc;
 
 /// Maximum rows in the log buffer

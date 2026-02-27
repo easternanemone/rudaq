@@ -51,7 +51,7 @@ pub struct DigitalIOPanel {
     /// Refresh interval
     refresh_interval_ms: u32,
     /// Last refresh time
-    last_refresh: std::time::Instant,
+    last_refresh: crate::time::Instant,
     /// View mode
     view_mode: ViewMode,
     /// Selected port for port-wide operations
@@ -90,7 +90,7 @@ impl Default for DigitalIOPanel {
             pins,
             auto_refresh: false,
             refresh_interval_ms: 100,
-            last_refresh: std::time::Instant::now(),
+            last_refresh: crate::time::Instant::now(),
             view_mode: ViewMode::Grid,
             selected_port: 0,
             status: None,
@@ -130,7 +130,7 @@ impl DigitalIOPanel {
             let elapsed = self.last_refresh.elapsed();
             if elapsed.as_millis() >= self.refresh_interval_ms as u128 {
                 self.read_all_inputs(runtime);
-                self.last_refresh = std::time::Instant::now();
+                self.last_refresh = crate::time::Instant::now();
             }
             ui.ctx().request_repaint();
         }

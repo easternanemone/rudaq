@@ -4,10 +4,10 @@
 //! unit selection, statistics, and bar graph visualization.
 
 use crate::runtime::Runtime;
+use crate::time::Instant;
 use eframe::egui::{self, Color32, RichText, Ui};
 use futures::StreamExt;
 use std::collections::VecDeque;
-use std::time::Instant;
 use tokio::sync::mpsc;
 
 use client::DaqClient;

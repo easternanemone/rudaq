@@ -8,9 +8,9 @@
 //! - Auto-scroll with pause capability
 //! - Text search filtering
 
+use crate::time::Instant;
 use std::collections::VecDeque;
 use std::fmt::Write;
-use std::time::Instant;
 
 use eframe::egui;
 

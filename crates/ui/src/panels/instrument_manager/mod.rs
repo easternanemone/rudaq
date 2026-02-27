@@ -117,7 +117,7 @@ pub struct InstrumentManagerPanel {
     /// Devices grouped by category
     groups: Vec<DeviceGroup>,
     /// Last refresh timestamp
-    last_refresh: Option<std::time::Instant>,
+    last_refresh: Option<crate::time::Instant>,
     /// Whether initial auto-refresh has been triggered
     initial_refresh_done: bool,
     /// Error message
@@ -152,7 +152,7 @@ pub struct InstrumentManagerPanel {
     /// Exposure input (ms) for cameras
     exposure_input: HashMap<String, String>,
     /// Last read value (keyed by device_id)
-    last_reading: HashMap<String, (f64, std::time::Instant)>,
+    last_reading: HashMap<String, (f64, crate::time::Instant)>,
     /// Operation in progress (keyed by device_id)
     operation_pending: HashMap<String, String>,
 
@@ -311,7 +311,7 @@ impl InstrumentManagerPanel {
                                     "InstrumentManagerPanel: refresh succeeded, received devices"
                                 );
                                 self.update_groups(devices);
-                                self.last_refresh = Some(std::time::Instant::now());
+                                self.last_refresh = Some(crate::time::Instant::now());
                                 self.status = Some(format!(
                                     "Loaded {} devices",
                                     self.groups.iter().map(|g| g.devices.len()).sum::<usize>()
@@ -426,7 +426,7 @@ impl InstrumentManagerPanel {
                             match result {
                                 Ok(value) => {
                                     self.last_reading
-                                        .insert(device_id, (value, std::time::Instant::now()));
+                                        .insert(device_id, (value, crate::time::Instant::now()));
                                     self.status = Some(format!("Read: {:.4}", value));
                                     self.error = None;
                                 }

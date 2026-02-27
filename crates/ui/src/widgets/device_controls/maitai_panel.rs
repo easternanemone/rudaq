@@ -7,8 +7,8 @@
 //! - Power display gauge
 
 use crate::runtime::Runtime;
+use crate::time::{Duration, Instant};
 use egui::Ui;
-use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tracing;
 

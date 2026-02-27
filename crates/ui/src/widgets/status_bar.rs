@@ -35,7 +35,7 @@ pub struct StatusMessage {
     /// The message level (determines styling)
     pub level: StatusLevel,
     /// When this message was created
-    pub created_at: std::time::Instant,
+    pub created_at: crate::time::Instant,
     /// How long to show this message (None = until manually cleared)
     pub duration: Option<std::time::Duration>,
 }
@@ -102,7 +102,7 @@ impl StatusBar {
         self.status_message = Some(StatusMessage {
             text: text.into(),
             level,
-            created_at: std::time::Instant::now(),
+            created_at: crate::time::Instant::now(),
             duration: Some(std::time::Duration::from_secs(5)),
         });
     }
@@ -113,7 +113,7 @@ impl StatusBar {
         self.status_message = Some(StatusMessage {
             text: text.into(),
             level,
-            created_at: std::time::Instant::now(),
+            created_at: crate::time::Instant::now(),
             duration: None,
         });
     }
@@ -309,7 +309,7 @@ impl StatusBar {
                 format!("Reconnecting (attempt {})", attempt)
             }
             ConnectionState::CircuitBreaker { cooldown_until, .. } => {
-                let now = std::time::Instant::now();
+                let now = crate::time::Instant::now();
                 let remaining = if *cooldown_until > now {
                     (*cooldown_until - now).as_secs_f64()
                 } else {
@@ -364,9 +364,9 @@ mod tests {
         bar.status_message = Some(StatusMessage {
             text: "Test".to_string(),
             level: StatusLevel::Info,
-            created_at: std::time::Instant::now()
+            created_at: crate::time::Instant::now()
                 .checked_sub(std::time::Duration::from_secs(10))
-                .unwrap_or_else(std::time::Instant::now),
+                .unwrap_or_else(crate::time::Instant::now),
             duration: Some(std::time::Duration::from_secs(5)),
         });
 
@@ -383,7 +383,7 @@ mod tests {
         bar.status_message = Some(StatusMessage {
             text: "Persistent".to_string(),
             level: StatusLevel::Warning,
-            created_at: std::time::Instant::now()
+            created_at: crate::time::Instant::now()
                 .checked_sub(std::time::Duration::from_secs(100))
                 .unwrap(),
             duration: None, // Persistent

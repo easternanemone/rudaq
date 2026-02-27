@@ -22,12 +22,12 @@ use processing::*;
 pub use types::*;
 
 use crate::runtime::Runtime;
+use crate::time::{Duration, Instant};
 use eframe::egui;
 use egui_extras::{Size, StripBuilder};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use crate::device_ext::DeviceInfoExt;
 use crate::icons;

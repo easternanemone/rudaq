@@ -43,7 +43,7 @@ pub struct RotatorControlPanel {
     /// Status refresh request in flight - does NOT disable controls
     refresh_in_flight: bool,
     /// Last command time for debouncing rapid clicks
-    last_command_time: Option<std::time::Instant>,
+    last_command_time: Option<crate::time::Instant>,
 }
 
 impl Default for RotatorControlPanel {
@@ -181,7 +181,7 @@ impl RotatorControlPanel {
 
         self.state.moving = true;
         self.panel_state.action_started();
-        self.last_command_time = Some(std::time::Instant::now());
+        self.last_command_time = Some(crate::time::Instant::now());
         tracing::info!(
             panel_instance_id = self.panel_instance_id,
             device_id,
@@ -232,7 +232,7 @@ impl RotatorControlPanel {
 
         self.state.moving = true;
         self.panel_state.action_started();
-        self.last_command_time = Some(std::time::Instant::now());
+        self.last_command_time = Some(crate::time::Instant::now());
         tracing::info!(
             panel_instance_id = self.panel_instance_id,
             device_id,
@@ -276,7 +276,7 @@ impl RotatorControlPanel {
 
         self.state.moving = true;
         self.panel_state.action_started();
-        self.last_command_time = Some(std::time::Instant::now());
+        self.last_command_time = Some(crate::time::Instant::now());
         tracing::info!(
             panel_instance_id = self.panel_instance_id,
             device_id,
@@ -622,7 +622,7 @@ mod tests {
 
         // Set last_command_time to a time in the past (well beyond debounce period)
         panel.last_command_time = Some(
-            std::time::Instant::now()
+            crate::time::Instant::now()
                 .checked_sub(std::time::Duration::from_millis(500))
                 .unwrap(),
         );
@@ -642,7 +642,7 @@ mod tests {
         let mut panel = RotatorControlPanel::default();
 
         // Set last_command_time to now (within debounce period)
-        panel.last_command_time = Some(std::time::Instant::now());
+        panel.last_command_time = Some(crate::time::Instant::now());
 
         // Should NOT allow command since we're within the debounce period
         assert!(

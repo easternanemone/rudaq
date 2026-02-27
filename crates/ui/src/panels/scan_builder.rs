@@ -3,8 +3,8 @@
 //! This panel provides a simplified UI for scientists to configure parameter scans
 //! by selecting devices from the daemon and entering scan parameters through a form.
 
+use crate::time::Instant;
 use std::collections::HashMap;
-use std::time::Instant;
 
 use crate::runtime::JoinHandle;
 use crate::runtime::Runtime;
