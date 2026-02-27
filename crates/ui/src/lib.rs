@@ -1,10 +1,21 @@
+// Platform-agnostic async runtime abstraction (native tokio / WASM spawn_local)
+pub mod runtime;
+
+// These modules use native deps (clap, tokio runtime, process spawning, etc.)
+// and are not available on WASM targets.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod client;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod connection;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod daemon_launcher;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod log_capture;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod reconnect;
+
 #[cfg(feature = "standalone")]
 pub mod gui_log_layer;
-pub mod log_capture;
-pub mod reconnect;
 
 #[cfg(feature = "standalone")]
 pub mod connection_state_ext;

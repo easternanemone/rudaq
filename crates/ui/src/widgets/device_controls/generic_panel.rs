@@ -267,7 +267,10 @@ impl GenericDevicePanel {
                                 reading.raw_units = units;
                                 self.error = None;
                             }
-                            Err(e) => self.error = Some(format!("Read failed: {}", e)),
+                            Err(e) => {
+                                tracing::warn!(device_id = ?self.device_id, "Read failed: {e}");
+                                self.error = Some(format!("Read failed: {}", e));
+                            }
                         }
                     }
                 }
@@ -280,7 +283,10 @@ impl GenericDevicePanel {
                             self.status = Some("Move completed".to_string());
                             self.error = None;
                         }
-                        Err(e) => self.error = Some(format!("Move failed: {}", e)),
+                        Err(e) => {
+                            tracing::warn!(device_id = ?self.device_id, "Move failed: {e}");
+                            self.error = Some(format!("Move failed: {}", e));
+                        }
                     }
                 }
                 GenericAction::Emission(res, _) => {
@@ -295,7 +301,10 @@ impl GenericDevicePanel {
                                 });
                                 self.error = None;
                             }
-                            Err(e) => self.error = Some(format!("Emission: {}", e)),
+                            Err(e) => {
+                                tracing::warn!(device_id = ?self.device_id, "Emission failed: {e}");
+                                self.error = Some(format!("Emission: {}", e));
+                            }
                         }
                     }
                 }
@@ -311,7 +320,10 @@ impl GenericDevicePanel {
                                 });
                                 self.error = None;
                             }
-                            Err(e) => self.error = Some(format!("Shutter: {}", e)),
+                            Err(e) => {
+                                tracing::warn!(device_id = ?self.device_id, "Shutter failed: {e}");
+                                self.error = Some(format!("Shutter: {}", e));
+                            }
                         }
                     }
                 }
@@ -327,7 +339,10 @@ impl GenericDevicePanel {
                                 self.status = Some(format!("Wavelength: {:.1} nm", nm));
                                 self.error = None;
                             }
-                            Err(e) => self.error = Some(format!("Wavelength: {}", e)),
+                            Err(e) => {
+                                tracing::warn!(device_id = ?self.device_id, "Wavelength failed: {e}");
+                                self.error = Some(format!("Wavelength: {}", e));
+                            }
                         }
                     }
                 }
@@ -340,7 +355,10 @@ impl GenericDevicePanel {
                                 self.status = Some(format!("Set to {:.3} V", v));
                                 self.error = None;
                             }
-                            Err(e) => self.error = Some(format!("Write failed: {}", e)),
+                            Err(e) => {
+                                tracing::warn!(device_id = ?self.device_id, "Write failed: {e}");
+                                self.error = Some(format!("Write failed: {}", e));
+                            }
                         }
                     }
                 }

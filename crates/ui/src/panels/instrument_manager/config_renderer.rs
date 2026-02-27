@@ -3,7 +3,8 @@
 //! Config-driven UI rendering for device control panels.
 //!
 //! This module provides [`ConfigDrivenPanel`], a stateful control panel that renders
-//! device controls based on [`ControlPanelConfig`] from TOML device configuration files.
+//! device controls based on [`ControlPanelConfig`] from gRPC metadata (`ui_schema_json`)
+//! or local TOML device configuration files.
 //!
 //! ## Architecture
 //!
@@ -155,10 +156,10 @@ struct SensorSectionState {
 // ConfigDrivenPanel
 // =============================================================================
 
-/// A device control panel that renders UI based on TOML configuration.
+/// A device control panel that renders UI based on declarative configuration.
 ///
-/// Reads `[ui.control_panel]` sections from device config files and produces
-/// interactive controls backed by gRPC calls to the daemon.
+/// Sourced from gRPC `ui_schema_json` metadata or local TOML `[ui.control_panel]`
+/// sections. Produces interactive controls backed by gRPC calls to the daemon.
 pub struct ConfigDrivenPanel {
     config: ControlPanelConfig,
     action_tx: mpsc::Sender<ConfigPanelAction>,
@@ -257,7 +258,10 @@ impl ConfigDrivenPanel {
                             self.status = Some("Move completed".to_string());
                             self.error = None;
                         }
-                        Err(e) => self.error = Some(format!("Move failed: {e}")),
+                        Err(e) => {
+                            tracing::warn!(device_id = ?self.device_id, "Move failed: {e}");
+                            self.error = Some(format!("Move failed: {e}"));
+                        }
                     }
                 }
                 ConfigPanelAction::ReadValue(res) => {
@@ -277,6 +281,7 @@ impl ConfigDrivenPanel {
                         }
                     }
                     if let Err(e) = res {
+                        tracing::warn!(device_id = ?self.device_id, "Read failed: {e}");
                         self.error = Some(format!("Read failed: {e}"));
                     }
                 }
@@ -297,7 +302,10 @@ impl ConfigDrivenPanel {
                             });
                             self.error = None;
                         }
-                        Err(e) => self.error = Some(format!("Shutter: {e}")),
+                        Err(e) => {
+                            tracing::warn!(device_id = ?self.device_id, "Shutter failed: {e}");
+                            self.error = Some(format!("Shutter: {e}"));
+                        }
                     }
                 }
                 ConfigPanelAction::WavelengthValue(res, _) => {
@@ -317,7 +325,10 @@ impl ConfigDrivenPanel {
                             self.status = Some(format!("Wavelength: {nm:.1} nm"));
                             self.error = None;
                         }
-                        Err(e) => self.error = Some(format!("Wavelength: {e}")),
+                        Err(e) => {
+                            tracing::warn!(device_id = ?self.device_id, "Wavelength failed: {e}");
+                            self.error = Some(format!("Wavelength: {e}"));
+                        }
                     }
                 }
                 ConfigPanelAction::ParameterRead { idx, result } => {
@@ -329,7 +340,11 @@ impl ConfigDrivenPanel {
                                 }
                                 s.value = Some(val);
                             }
-                            Err(e) => self.error = Some(format!("Read param: {e}")),
+                            Err(e) => {
+                                tracing::warn!(device_id = ?self.device_id, "Read param failed: {e}");
+                                // Show "N/A" in the field instead of blocking the whole panel
+                                s.value = Some("N/A".to_string());
+                            }
                         }
                     }
                 }
@@ -342,7 +357,10 @@ impl ConfigDrivenPanel {
                                 self.status = Some("Parameter updated".to_string());
                                 self.error = None;
                             }
-                            Err(e) => self.error = Some(format!("Set param: {e}")),
+                            Err(e) => {
+                                tracing::warn!(device_id = ?self.device_id, "Set param failed: {e}");
+                                self.error = Some(format!("Set param: {e}"));
+                            }
                         }
                     }
                 }
@@ -351,7 +369,10 @@ impl ConfigDrivenPanel {
                     {
                         match result {
                             Ok(values) => s.values = values,
-                            Err(e) => self.error = Some(format!("Status: {e}")),
+                            Err(e) => {
+                                tracing::warn!(device_id = ?self.device_id, "Status read failed: {e}");
+                                self.error = Some(format!("Status: {e}"));
+                            }
                         }
                     }
                 }
@@ -364,7 +385,10 @@ impl ConfigDrivenPanel {
                         });
                         self.error = None;
                     }
-                    Err(e) => self.error = Some(format!("Command failed: {e}")),
+                    Err(e) => {
+                        tracing::warn!(device_id = ?self.device_id, "Command failed: {e}");
+                        self.error = Some(format!("Command failed: {e}"));
+                    }
                 },
                 ConfigPanelAction::Stopped(res) => {
                     // Clear motion state so the UI doesn't remain "busy"
@@ -378,7 +402,10 @@ impl ConfigDrivenPanel {
                             self.status = Some("Stopped".to_string());
                             self.error = None;
                         }
-                        Err(e) => self.error = Some(format!("Stop failed: {e}")),
+                        Err(e) => {
+                            tracing::warn!(device_id = ?self.device_id, "Stop failed: {e}");
+                            self.error = Some(format!("Stop failed: {e}"));
+                        }
                     }
                 }
             }
@@ -419,14 +446,14 @@ impl ConfigDrivenPanel {
             .iter()
             .any(|s| matches!(s, ControlSection::Wavelength(_)));
 
-        let param_sections: Vec<(usize, String)> = self
+        let param_sections: Vec<(usize, String, Option<String>)> = self
             .config
             .sections
             .iter()
             .enumerate()
             .filter_map(|(i, s)| {
                 if let ControlSection::Parameter(cfg) = s {
-                    Some((i, cfg.parameter.clone()))
+                    Some((i, cfg.parameter.clone(), cfg.read_command.clone()))
                 } else {
                     None
                 }
@@ -487,12 +514,37 @@ impl ConfigDrivenPanel {
                     .send(ConfigPanelAction::WavelengthValue(result, false))
                     .await;
             }
-            for (idx, param_name) in &param_sections {
-                let result = c
-                    .get_parameter(&id, param_name)
-                    .await
-                    .map(|p| p.value)
-                    .map_err(|e| e.to_string());
+            for (idx, param_name, read_cmd) in &param_sections {
+                let result = if let Some(cmd) = read_cmd {
+                    // Command-driven read: use ExecuteDeviceCommand RPC
+                    c.execute_device_command(&id, cmd, "{}")
+                        .await
+                        .map(|resp| {
+                            // Parse JSON results string, extract "value" field
+                            if let Ok(json) =
+                                serde_json::from_str::<serde_json::Value>(&resp.results)
+                            {
+                                json.get("value")
+                                    .map(|v| {
+                                        if v.is_string() {
+                                            v.as_str().unwrap_or("").to_string()
+                                        } else {
+                                            v.to_string()
+                                        }
+                                    })
+                                    .unwrap_or_else(|| resp.results.clone())
+                            } else {
+                                resp.results.clone()
+                            }
+                        })
+                        .map_err(|e| e.to_string())
+                } else {
+                    // Standard parameter read via GetParameter RPC
+                    c.get_parameter(&id, param_name)
+                        .await
+                        .map(|p| p.value)
+                        .map_err(|e| e.to_string())
+                };
                 let _ = tx
                     .send(ConfigPanelAction::ParameterRead { idx: *idx, result })
                     .await;
@@ -599,6 +651,36 @@ impl ConfigDrivenPanel {
         });
     }
 
+    fn dispatch_set_emission(
+        &mut self,
+        client: Option<&mut DaqClient>,
+        runtime: &Runtime,
+        device_id: &str,
+        enabled: bool,
+    ) {
+        let Some(client) = client else { return };
+        self.actions_in_flight += 1;
+        let mut c = client.clone();
+        let tx = self.action_tx.clone();
+        let id = device_id.to_string();
+        runtime.spawn(async move {
+            let result = c
+                .set_emission(&id, enabled)
+                .await
+                .map(|_| {
+                    if enabled {
+                        "Emission ON".to_string()
+                    } else {
+                        "Emission OFF".to_string()
+                    }
+                })
+                .map_err(|e| e.to_string());
+            let _ = tx
+                .send(ConfigPanelAction::CommandExecuted { _idx: 0, result })
+                .await;
+        });
+    }
+
     fn dispatch_set_shutter(
         &mut self,
         client: Option<&mut DaqClient>,
@@ -646,6 +728,20 @@ impl ConfigDrivenPanel {
         command: &str,
         params: &std::collections::HashMap<String, serde_json::Value>,
     ) {
+        // Route well-known capability commands to their specific RPCs
+        // instead of the generic ExecuteDeviceCommand (which requires Commandable)
+        match command {
+            "emission_on" | "enable_emission" => {
+                tracing::debug!(device_id, "Routing emission_on to SetEmission RPC");
+                return self.dispatch_set_emission(client, runtime, device_id, true);
+            }
+            "emission_off" | "disable_emission" => {
+                tracing::debug!(device_id, "Routing emission_off to SetEmission RPC");
+                return self.dispatch_set_emission(client, runtime, device_id, false);
+            }
+            _ => {}
+        }
+
         let Some(client) = client else { return };
         self.actions_in_flight += 1;
         let mut c = client.clone();
@@ -665,6 +761,7 @@ impl ConfigDrivenPanel {
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn dispatch_set_parameter(
         &mut self,
         client: Option<&mut DaqClient>,
@@ -673,6 +770,8 @@ impl ConfigDrivenPanel {
         idx: usize,
         param_name: &str,
         value: &str,
+        write_command: Option<&str>,
+        write_param: Option<&str>,
     ) {
         let Some(client) = client else { return };
         self.actions_in_flight += 1;
@@ -681,16 +780,35 @@ impl ConfigDrivenPanel {
         let id = device_id.to_string();
         let name = param_name.to_string();
         let val = value.to_string();
-        runtime.spawn(async move {
-            let result = c
-                .set_parameter(&id, &name, &val)
-                .await
-                .map(|r| r.actual_value)
-                .map_err(|e| e.to_string());
-            let _ = tx
-                .send(ConfigPanelAction::ParameterWrite { idx, result })
-                .await;
-        });
+
+        if let Some(cmd) = write_command {
+            // Command-driven write: use ExecuteDeviceCommand RPC
+            let cmd = cmd.to_string();
+            let param_key = write_param.unwrap_or("value").to_string();
+            runtime.spawn(async move {
+                let args = serde_json::json!({ param_key: val }).to_string();
+                let result = c
+                    .execute_device_command(&id, &cmd, &args)
+                    .await
+                    .map(|_| val)
+                    .map_err(|e| e.to_string());
+                let _ = tx
+                    .send(ConfigPanelAction::ParameterWrite { idx, result })
+                    .await;
+            });
+        } else {
+            // Standard parameter write via SetParameter RPC
+            runtime.spawn(async move {
+                let result = c
+                    .set_parameter(&id, &name, &val)
+                    .await
+                    .map(|r| r.actual_value)
+                    .map_err(|e| e.to_string());
+                let _ = tx
+                    .send(ConfigPanelAction::ParameterWrite { idx, result })
+                    .await;
+            });
+        }
     }
 
     fn dispatch_stop(
@@ -1505,6 +1623,8 @@ impl ConfigDrivenPanel {
                                 idx,
                                 &param,
                                 &val,
+                                cfg.write_command.as_deref(),
+                                cfg.write_param.as_deref(),
                             );
                         }
                     }
@@ -1533,6 +1653,8 @@ impl ConfigDrivenPanel {
                                         idx,
                                         &param,
                                         &state.input,
+                                        cfg.write_command.as_deref(),
+                                        cfg.write_param.as_deref(),
                                     );
                                 }
                             });
@@ -1561,6 +1683,8 @@ impl ConfigDrivenPanel {
                                             idx,
                                             &param,
                                             &state.input,
+                                            cfg.write_command.as_deref(),
+                                            cfg.write_param.as_deref(),
                                         );
                                     }
                                 }
@@ -1623,6 +1747,8 @@ impl ConfigDrivenPanel {
                     idx,
                     &param,
                     &val,
+                    cfg.write_command.as_deref(),
+                    cfg.write_param.as_deref(),
                 );
             }
         });
@@ -1732,6 +1858,18 @@ fn styled_button<'a>(label: &str, style: ButtonStyle) -> egui::Button<'a> {
                 .strong(),
         )
         .fill(egui::Color32::from_rgb(50, 100, 200)),
+        ButtonStyle::Warning => egui::Button::new(
+            egui::RichText::new(label.to_string())
+                .color(egui::Color32::BLACK)
+                .strong(),
+        )
+        .fill(egui::Color32::from_rgb(255, 170, 0)),
+        ButtonStyle::Info => egui::Button::new(
+            egui::RichText::new(label.to_string())
+                .color(egui::Color32::WHITE)
+                .strong(),
+        )
+        .fill(egui::Color32::from_rgb(0, 150, 170)),
         _ => egui::Button::new(label.to_string()),
     }
 }
@@ -1915,6 +2053,8 @@ mod tests {
         let _ = styled_button("Success", ButtonStyle::Success);
         let _ = styled_button("Primary", ButtonStyle::Primary);
         let _ = styled_button("Default", ButtonStyle::Default);
+        let _ = styled_button("Warning", ButtonStyle::Warning);
+        let _ = styled_button("Info", ButtonStyle::Info);
     }
 
     #[test]

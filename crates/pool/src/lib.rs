@@ -1600,62 +1600,67 @@ mod pool_timing_tests {
     }
 }
 
-/// Test that specifically verifies the Box indirection fix (bd-s9u7.1).
-///
-/// This test would trigger undefined behavior with Vec<UnsafeCell<T>>
-/// because grow() causes Vec reallocation, invalidating cached pointers
-/// in existing Loaned instances.
-///
-/// With Vec<Box<UnsafeCell<T>>>, Box contents stay at stable addresses
-/// even when the Vec reallocates, so cached pointers remain valid.
-#[tokio::test]
-async fn test_grow_while_loaned_items_held() {
-    // Create small pool that will need to grow
-    let pool = Pool::new_simple(2, || vec![0u8; 1024]);
+#[cfg(test)]
+mod grow_safety_tests {
+    use super::*;
 
-    // Acquire both slots
-    let mut item1 = pool.acquire().await;
-    let mut item2 = pool.acquire().await;
+    /// Test that specifically verifies the Box indirection fix (bd-s9u7.1).
+    ///
+    /// This test would trigger undefined behavior with Vec<UnsafeCell<T>>
+    /// because grow() causes Vec reallocation, invalidating cached pointers
+    /// in existing Loaned instances.
+    ///
+    /// With Vec<Box<UnsafeCell<T>>>, Box contents stay at stable addresses
+    /// even when the Vec reallocates, so cached pointers remain valid.
+    #[tokio::test]
+    async fn test_grow_while_loaned_items_held() {
+        // Create small pool that will need to grow
+        let pool = Pool::new_simple(2, || vec![0u8; 1024]);
 
-    // Write data to items
-    item1[0] = 42;
-    item1[1] = 43;
-    item2[0] = 84;
-    item2[1] = 85;
+        // Acquire both slots
+        let mut item1 = pool.acquire().await;
+        let mut item2 = pool.acquire().await;
 
-    // Pool is now exhausted - next acquire will trigger grow()
-    // This grow() will reallocate the Vec, which would invalidate
-    // item1 and item2's cached pointers if they pointed into the Vec directly.
-    let mut item3 = pool
-        .acquire_or_grow()
-        .expect("grow should succeed for unbounded pool");
-    item3[0] = 126;
+        // Write data to items
+        item1[0] = 42;
+        item1[1] = 43;
+        item2[0] = 84;
+        item2[1] = 85;
 
-    // Verify the original items' data is still accessible
-    // (would be UB/corruption with the old implementation)
-    assert_eq!(item1[0], 42, "item1 data corrupted after grow");
-    assert_eq!(item1[1], 43, "item1 data corrupted after grow");
-    assert_eq!(item2[0], 84, "item2 data corrupted after grow");
-    assert_eq!(item2[1], 85, "item2 data corrupted after grow");
-    assert_eq!(item3[0], 126, "item3 data incorrect");
+        // Pool is now exhausted - next acquire will trigger grow()
+        // This grow() will reallocate the Vec, which would invalidate
+        // item1 and item2's cached pointers if they pointed into the Vec directly.
+        let mut item3 = pool
+            .acquire_or_grow()
+            .expect("grow should succeed for unbounded pool");
+        item3[0] = 126;
 
-    // Verify we can still mutate through the old references
-    item1[2] = 99;
-    assert_eq!(item1[2], 99);
-    item2[2] = 100;
-    assert_eq!(item2[2], 100);
+        // Verify the original items' data is still accessible
+        // (would be UB/corruption with the old implementation)
+        assert_eq!(item1[0], 42, "item1 data corrupted after grow");
+        assert_eq!(item1[1], 43, "item1 data corrupted after grow");
+        assert_eq!(item2[0], 84, "item2 data corrupted after grow");
+        assert_eq!(item2[1], 85, "item2 data corrupted after grow");
+        assert_eq!(item3[0], 126, "item3 data incorrect");
 
-    // Pool should have grown to 4 slots
-    assert_eq!(
-        pool.size(),
-        10,
-        "pool should have grown from 2 to 10 (grows by max(current, 8))"
-    );
-    assert_eq!(pool.initial_size(), 2, "initial size should remain 2");
+        // Verify we can still mutate through the old references
+        item1[2] = 99;
+        assert_eq!(item1[2], 99);
+        item2[2] = 100;
+        assert_eq!(item2[2], 100);
 
-    // Verify pool did grow (the key safety property we're testing)
-    assert!(pool.size() > 2, "pool must have grown to avoid exhaustion");
-}
+        // Pool should have grown to 4 slots
+        assert_eq!(
+            pool.size(),
+            10,
+            "pool should have grown from 2 to 10 (grows by max(current, 8))"
+        );
+        assert_eq!(pool.initial_size(), 2, "initial size should remain 2");
+
+        // Verify pool did grow (the key safety property we're testing)
+        assert!(pool.size() > 2, "pool must have grown to avoid exhaustion");
+    }
+} // mod grow_safety_tests
 
 // =========================================================================
 // Concurrent safety tests (bd-qa36.6.1)
@@ -1665,179 +1670,184 @@ async fn test_grow_while_loaned_items_held() {
 // because parking_lot::RwLock, crossbeam_queue::SegQueue, and
 // tokio::sync::Semaphore have no loom-compatible replacements.
 // =========================================================================
+#[cfg(test)]
+mod concurrent_safety_tests {
+    use super::*;
 
-/// INV-1: Verify no two tasks ever hold the same slot index simultaneously.
-///
-/// Uses per-slot AtomicU64 ownership markers to detect actual overlapping access,
-/// not just post-hoc availability counts.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn concurrent_acquire_release_no_duplicate_slots() {
-    use std::sync::atomic::{AtomicU64, Ordering};
+    /// INV-1: Verify no two tasks ever hold the same slot index simultaneously.
+    ///
+    /// Uses per-slot AtomicU64 ownership markers to detect actual overlapping access,
+    /// not just post-hoc availability counts.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_acquire_release_no_duplicate_slots() {
+        use std::sync::atomic::{AtomicU64, Ordering};
 
-    const POOL_SIZE: usize = 4;
-    let pool = Pool::new(POOL_SIZE, || 0u64, None::<fn(&mut u64)>);
+        const POOL_SIZE: usize = 4;
+        let pool = Pool::new(POOL_SIZE, || 0u64, None::<fn(&mut u64)>);
 
-    // Per-slot ownership markers: 0 = free, non-zero = owning task id
-    let owners: Arc<Vec<AtomicU64>> = Arc::new((0..POOL_SIZE).map(|_| AtomicU64::new(0)).collect());
-    let violation_count = Arc::new(AtomicU64::new(0));
+        // Per-slot ownership markers: 0 = free, non-zero = owning task id
+        let owners: Arc<Vec<AtomicU64>> =
+            Arc::new((0..POOL_SIZE).map(|_| AtomicU64::new(0)).collect());
+        let violation_count = Arc::new(AtomicU64::new(0));
 
-    let mut handles = Vec::new();
-    for task_id in 1..=8u64 {
-        let p = pool.clone();
-        let owners = owners.clone();
-        let violations = violation_count.clone();
-        handles.push(tokio::spawn(async move {
-            for _ in 0..100 {
-                let loan = p.acquire().await;
-                let idx = loan.slot_index();
+        let mut handles = Vec::new();
+        for task_id in 1..=8u64 {
+            let p = pool.clone();
+            let owners = owners.clone();
+            let violations = violation_count.clone();
+            handles.push(tokio::spawn(async move {
+                for _ in 0..100 {
+                    let loan = p.acquire().await;
+                    let idx = loan.slot_index();
 
-                // Claim ownership — previous value must be 0 (free)
-                let prev = owners[idx].swap(task_id, Ordering::SeqCst);
-                if prev != 0 {
-                    violations.fetch_add(1, Ordering::SeqCst);
+                    // Claim ownership — previous value must be 0 (free)
+                    let prev = owners[idx].swap(task_id, Ordering::SeqCst);
+                    if prev != 0 {
+                        violations.fetch_add(1, Ordering::SeqCst);
+                    }
+
+                    // Hold briefly to widen the race window
+                    tokio::task::yield_now().await;
+
+                    // Release ownership before returning to pool
+                    owners[idx].store(0, Ordering::SeqCst);
+                    drop(loan);
                 }
-
-                // Hold briefly to widen the race window
-                tokio::task::yield_now().await;
-
-                // Release ownership before returning to pool
-                owners[idx].store(0, Ordering::SeqCst);
-                drop(loan);
-            }
-        }));
-    }
-
-    for h in handles {
-        h.await.unwrap();
-    }
-
-    assert_eq!(
-        violation_count.load(Ordering::SeqCst),
-        0,
-        "INV-1 violated: two tasks held the same slot simultaneously"
-    );
-    assert_eq!(pool.available(), pool.size());
-}
-
-/// INV-2 + INV-3: Verify cached pointers survive growth.
-/// Tasks hold Loaned items while another task triggers pool growth via
-/// acquire_or_grow(). The cached raw pointers must remain valid.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn concurrent_grow_does_not_invalidate_pointers() {
-    let pool = Pool::new(2, || vec![0u8; 64], None::<fn(&mut Vec<u8>)>);
-
-    // Acquire both slots and write unique patterns
-    let mut loan_a = pool.acquire().await;
-    let mut loan_b = pool.acquire().await;
-    loan_a.get_mut().fill(0xAA);
-    loan_b.get_mut().fill(0xBB);
-
-    // Trigger growth from another task while loans are held
-    let p = pool.clone();
-    let grow_handle = tokio::spawn(async move {
-        // acquire_or_grow will grow the pool since all slots are taken
-        let mut loan_c = p.acquire_or_grow().expect("grow should succeed");
-        loan_c.get_mut().fill(0xCC);
-        assert!(
-            loan_c.get().iter().all(|&b| b == 0xCC),
-            "new slot data corrupted"
-        );
-    });
-
-    grow_handle.await.unwrap();
-
-    // Verify original cached pointers still read correctly after growth
-    assert!(
-        loan_a.get().iter().all(|&b| b == 0xAA),
-        "loan_a data corrupted after growth"
-    );
-    assert!(
-        loan_b.get().iter().all(|&b| b == 0xBB),
-        "loan_b data corrupted after growth"
-    );
-
-    // Pool must have grown
-    assert!(pool.size() > 2, "pool should have grown");
-    drop(loan_a);
-    drop(loan_b);
-    assert_eq!(
-        pool.available(),
-        pool.size(),
-        "all slots should be returned"
-    );
-}
-
-/// INV-5: Verify permits and indices stay coupled under high churn.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn concurrent_churn_preserves_permit_index_coupling() {
-    let pool = Pool::new_with_reset(4, || 0u64, |v| *v = 0);
-
-    let mut handles = Vec::new();
-    for _ in 0..4 {
-        let p = pool.clone();
-        handles.push(tokio::spawn(async move {
-            for i in 0..500u64 {
-                let mut loan = p.acquire().await;
-                *loan.get_mut() = i;
-                assert_eq!(*loan.get(), i);
-                // Drop triggers release() which pushes index + adds permit
-            }
-        }));
-    }
-
-    for h in handles {
-        h.await.unwrap();
-    }
-
-    // If permits leaked, available() < size(). If indices leaked, acquire would hang.
-    assert_eq!(
-        pool.available(),
-        pool.size(),
-        "permit-index coupling broken: {} available, {} total",
-        pool.available(),
-        pool.size()
-    );
-}
-
-/// Verify IndexGuard preserves capacity even when reset_fn panics concurrently.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn concurrent_panic_recovery_preserves_capacity() {
-    use std::sync::atomic::{AtomicBool, Ordering};
-
-    let should_panic = Arc::new(AtomicBool::new(true));
-    let sp = should_panic.clone();
-    let pool = Pool::new_with_reset(
-        4,
-        || 0u64,
-        move |_| {
-            assert!(!sp.load(Ordering::SeqCst), "intentional reset_fn panic");
-        },
-    );
-
-    // Acquire and drop items — each drop will panic in reset_fn
-    // IndexGuard should recover the slot regardless
-    let mut handles = Vec::new();
-    for _ in 0..8 {
-        let p = pool.clone();
-        handles.push(tokio::spawn(async move {
-            let loan = p.acquire().await;
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                drop(loan);
             }));
-        }));
+        }
+
+        for h in handles {
+            h.await.unwrap();
+        }
+
+        assert_eq!(
+            violation_count.load(Ordering::SeqCst),
+            0,
+            "INV-1 violated: two tasks held the same slot simultaneously"
+        );
+        assert_eq!(pool.available(), pool.size());
     }
 
-    for h in handles {
-        h.await.unwrap();
+    /// INV-2 + INV-3: Verify cached pointers survive growth.
+    /// Tasks hold Loaned items while another task triggers pool growth via
+    /// acquire_or_grow(). The cached raw pointers must remain valid.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_grow_does_not_invalidate_pointers() {
+        let pool = Pool::new(2, || vec![0u8; 64], None::<fn(&mut Vec<u8>)>);
+
+        // Acquire both slots and write unique patterns
+        let mut loan_a = pool.acquire().await;
+        let mut loan_b = pool.acquire().await;
+        loan_a.get_mut().fill(0xAA);
+        loan_b.get_mut().fill(0xBB);
+
+        // Trigger growth from another task while loans are held
+        let p = pool.clone();
+        let grow_handle = tokio::spawn(async move {
+            // acquire_or_grow will grow the pool since all slots are taken
+            let mut loan_c = p.acquire_or_grow().expect("grow should succeed");
+            loan_c.get_mut().fill(0xCC);
+            assert!(
+                loan_c.get().iter().all(|&b| b == 0xCC),
+                "new slot data corrupted"
+            );
+        });
+
+        grow_handle.await.unwrap();
+
+        // Verify original cached pointers still read correctly after growth
+        assert!(
+            loan_a.get().iter().all(|&b| b == 0xAA),
+            "loan_a data corrupted after growth"
+        );
+        assert!(
+            loan_b.get().iter().all(|&b| b == 0xBB),
+            "loan_b data corrupted after growth"
+        );
+
+        // Pool must have grown
+        assert!(pool.size() > 2, "pool should have grown");
+        drop(loan_a);
+        drop(loan_b);
+        assert_eq!(
+            pool.available(),
+            pool.size(),
+            "all slots should be returned"
+        );
     }
 
-    // Disable panics for the verification phase
-    should_panic.store(false, Ordering::SeqCst);
+    /// INV-5: Verify permits and indices stay coupled under high churn.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_churn_preserves_permit_index_coupling() {
+        let pool = Pool::new_with_reset(4, || 0u64, |v| *v = 0);
 
-    // All slots must be available — no permanent capacity loss
-    assert_eq!(
-        pool.available(),
-        pool.size(),
-        "pool leaked capacity after concurrent reset_fn panics"
-    );
-}
+        let mut handles = Vec::new();
+        for _ in 0..4 {
+            let p = pool.clone();
+            handles.push(tokio::spawn(async move {
+                for i in 0..500u64 {
+                    let mut loan = p.acquire().await;
+                    *loan.get_mut() = i;
+                    assert_eq!(*loan.get(), i);
+                    // Drop triggers release() which pushes index + adds permit
+                }
+            }));
+        }
+
+        for h in handles {
+            h.await.unwrap();
+        }
+
+        // If permits leaked, available() < size(). If indices leaked, acquire would hang.
+        assert_eq!(
+            pool.available(),
+            pool.size(),
+            "permit-index coupling broken: {} available, {} total",
+            pool.available(),
+            pool.size()
+        );
+    }
+
+    /// Verify IndexGuard preserves capacity even when reset_fn panics concurrently.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_panic_recovery_preserves_capacity() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let should_panic = Arc::new(AtomicBool::new(true));
+        let sp = should_panic.clone();
+        let pool = Pool::new_with_reset(
+            4,
+            || 0u64,
+            move |_| {
+                assert!(!sp.load(Ordering::SeqCst), "intentional reset_fn panic");
+            },
+        );
+
+        // Acquire and drop items — each drop will panic in reset_fn
+        // IndexGuard should recover the slot regardless
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let p = pool.clone();
+            handles.push(tokio::spawn(async move {
+                let loan = p.acquire().await;
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    drop(loan);
+                }));
+            }));
+        }
+
+        for h in handles {
+            h.await.unwrap();
+        }
+
+        // Disable panics for the verification phase
+        should_panic.store(false, Ordering::SeqCst);
+
+        // All slots must be available — no permanent capacity loss
+        assert_eq!(
+            pool.available(),
+            pool.size(),
+            "pool leaked capacity after concurrent reset_fn panics"
+        );
+    }
+} // mod concurrent_safety_tests

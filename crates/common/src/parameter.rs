@@ -487,14 +487,22 @@ where
     // when hardware callbacks await tokio::sync::Mutex.
     // Current-thread runtime (tests) or no runtime: futures::executor::block_on
     // is safe because there's no cross-task mutex contention.
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => match handle.runtime_flavor() {
-            tokio::runtime::RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(param.set(value)))
-            }
-            _ => futures::executor::block_on(param.set(value)),
-        },
-        Err(_) => futures::executor::block_on(param.set(value)),
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => match handle.runtime_flavor() {
+                tokio::runtime::RuntimeFlavor::MultiThread => {
+                    tokio::task::block_in_place(|| handle.block_on(param.set(value)))
+                }
+                _ => futures::executor::block_on(param.set(value)),
+            },
+            Err(_) => futures::executor::block_on(param.set(value)),
+        }
+    }
+    // On WASM there is no multi-threaded runtime; use simple block_on.
+    #[cfg(target_arch = "wasm32")]
+    {
+        futures::executor::block_on(param.set(value))
     }
 }
 

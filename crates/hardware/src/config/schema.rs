@@ -1487,6 +1487,10 @@ pub enum ButtonStyle {
     Danger,
     /// Success/positive action (green)
     Success,
+    /// Warning action (amber/orange)
+    Warning,
+    /// Informational action (blue/teal)
+    Info,
 }
 
 /// Camera control section configuration.
@@ -1586,6 +1590,20 @@ pub struct ParameterSectionConfig {
     /// Read-only display (no editing)
     #[serde(default)]
     pub read_only: bool,
+
+    /// Command name to read the parameter value (uses `ExecuteDeviceCommand` RPC).
+    /// When set, bypasses `GetParameter` and reads via the device's command manifest.
+    #[serde(default)]
+    pub read_command: Option<String>,
+
+    /// Command name to write the parameter value (uses `ExecuteDeviceCommand` RPC).
+    /// When set, bypasses `SetParameter` and writes via the device's command manifest.
+    #[serde(default)]
+    pub write_command: Option<String>,
+
+    /// Parameter name in the write command template (default: "value").
+    #[serde(default)]
+    pub write_param: Option<String>,
 }
 
 /// Widget type for parameter editing.
@@ -1902,6 +1920,12 @@ mod tests {
 
         let parsed: ButtonStyle = serde_json::from_str("\"primary\"").unwrap();
         assert_eq!(parsed, ButtonStyle::Primary);
+
+        let warning: ButtonStyle = serde_json::from_str("\"warning\"").unwrap();
+        assert_eq!(warning, ButtonStyle::Warning);
+
+        let info: ButtonStyle = serde_json::from_str("\"info\"").unwrap();
+        assert_eq!(info, ButtonStyle::Info);
     }
 
     #[test]
@@ -1948,5 +1972,98 @@ mod tests {
         matches!(&config.sections[1], ControlSection::Separator(_));
         // Check third section is PresetButtons
         matches!(&config.sections[2], ControlSection::PresetButtons(_));
+    }
+
+    #[test]
+    fn test_parameter_section_with_command_fields() {
+        let toml = r#"
+            type = "parameter"
+            label = "Repetition Rate"
+            parameter = "rep_rate"
+            widget = "spinner"
+            read_only = false
+            read_command = "read_rep_rate"
+            write_command = "set_rep_rate"
+        "#;
+
+        let section: ControlSection = toml::from_str(toml).unwrap();
+        match section {
+            ControlSection::Parameter(cfg) => {
+                assert_eq!(cfg.label, "Repetition Rate");
+                assert_eq!(cfg.parameter, "rep_rate");
+                assert_eq!(cfg.widget, ParameterWidget::Spinner);
+                assert!(!cfg.read_only);
+                assert_eq!(cfg.read_command.as_deref(), Some("read_rep_rate"));
+                assert_eq!(cfg.write_command.as_deref(), Some("set_rep_rate"));
+                assert!(cfg.write_param.is_none()); // defaults to None (uses "value")
+            }
+            _ => panic!("Expected Parameter section"),
+        }
+    }
+
+    #[test]
+    fn test_parameter_section_without_command_fields() {
+        // Backward compatibility: command fields are optional and default to None
+        let toml = r#"
+            type = "parameter"
+            label = "Wavelength"
+            parameter = "wavelength"
+            widget = "slider"
+        "#;
+
+        let section: ControlSection = toml::from_str(toml).unwrap();
+        match section {
+            ControlSection::Parameter(cfg) => {
+                assert_eq!(cfg.parameter, "wavelength");
+                assert!(cfg.read_command.is_none());
+                assert!(cfg.write_command.is_none());
+                assert!(cfg.write_param.is_none());
+            }
+            _ => panic!("Expected Parameter section"),
+        }
+    }
+
+    #[test]
+    fn test_parameter_section_with_write_param() {
+        let toml = r#"
+            type = "parameter"
+            label = "Current"
+            parameter = "current"
+            widget = "spinner"
+            read_command = "read_current"
+            write_command = "set_current"
+            write_param = "percent"
+        "#;
+
+        let section: ControlSection = toml::from_str(toml).unwrap();
+        match section {
+            ControlSection::Parameter(cfg) => {
+                assert_eq!(cfg.write_param.as_deref(), Some("percent"));
+            }
+            _ => panic!("Expected Parameter section"),
+        }
+    }
+
+    #[test]
+    fn test_parameter_section_json_roundtrip() {
+        // Simulate the gRPC path: TOML → JSON → deserialize
+        let toml_str = r#"
+            type = "parameter"
+            label = "Rep Rate"
+            parameter = "rep_rate"
+            widget = "spinner"
+            read_command = "read_rep_rate"
+            write_command = "set_rep_rate"
+        "#;
+        let section: ControlSection = toml::from_str(toml_str).unwrap();
+        let json = serde_json::to_string(&section).unwrap();
+        let roundtripped: ControlSection = serde_json::from_str(&json).unwrap();
+        match roundtripped {
+            ControlSection::Parameter(cfg) => {
+                assert_eq!(cfg.read_command.as_deref(), Some("read_rep_rate"));
+                assert_eq!(cfg.write_command.as_deref(), Some("set_rep_rate"));
+            }
+            _ => panic!("Expected Parameter section after JSON roundtrip"),
+        }
     }
 }

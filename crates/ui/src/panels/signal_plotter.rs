@@ -47,6 +47,7 @@ pub struct ObservableUpdate {
 }
 
 impl ObservableUpdate {
+    #[allow(dead_code)]
     pub fn new(
         device_id: impl Into<String>,
         observable_name: impl Into<String>,
@@ -239,6 +240,7 @@ pub struct SignalPlotterPanel {
     /// Receiver for async observable updates
     update_rx: Option<ObservableUpdateReceiver>,
     /// Sender clone for spawning new subscriptions
+    #[allow(dead_code)]
     update_tx: Option<ObservableUpdateSender>,
     /// New trace device ID input
     new_trace_device: String,
@@ -292,6 +294,7 @@ impl SignalPlotterPanel {
     /// Get a clone of the update sender for async tasks
     ///
     /// Pass this to background Tokio tasks that need to push updates.
+    #[allow(dead_code)]
     pub fn get_sender(&self) -> Option<ObservableUpdateSender> {
         self.update_tx.clone()
     }

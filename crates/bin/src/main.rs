@@ -129,11 +129,6 @@ enum Commands {
         #[cfg(feature = "db-surreal")]
         #[arg(long)]
         db_path: Option<PathBuf>,
-
-        /// Allow deprecated legacy SCPI/TCP drivers in universal/hybrid-db modes.
-        /// Set RUSTDAQ_ALLOW_LEGACY_DRIVERS=1 as an alternative.
-        #[arg(long)]
-        allow_legacy_drivers: bool,
     },
 
     /// Remote control commands (connect to daemon)
@@ -331,7 +326,6 @@ async fn main() -> Result<()> {
             lab_hardware,
             #[cfg(feature = "db-surreal")]
             db_path,
-            allow_legacy_drivers,
         } => {
             start_daemon(
                 port,
@@ -342,7 +336,6 @@ async fn main() -> Result<()> {
                 db_path,
                 #[cfg(not(feature = "db-surreal"))]
                 None,
-                allow_legacy_drivers,
             )
             .await
         }
@@ -415,14 +408,8 @@ async fn start_daemon(
     hardware_config: Option<PathBuf>,
     lab_hardware: bool,
     db_path: Option<PathBuf>,
-    allow_legacy_drivers: bool,
 ) -> Result<()> {
     use daemon_manager::{DaemonConfig, DaemonInstance};
-
-    let allow_legacy = allow_legacy_drivers
-        || std::env::var("RUSTDAQ_ALLOW_LEGACY_DRIVERS")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
 
     // Resolve the effective runtime mode from (in priority order):
     //   1. --runtime-mode CLI flag
@@ -502,7 +489,6 @@ async fn start_daemon(
         hardware_config: resolved_hardware_config,
         lab_hardware: resolved_lab_hardware,
         runtime_mode: resolved_runtime_mode.to_string(),
-        allow_legacy_drivers: allow_legacy,
         #[cfg(feature = "db-surreal")]
         db_path,
     };

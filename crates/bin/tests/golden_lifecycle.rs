@@ -143,6 +143,93 @@ fn test_golden_startup_runtime_mode_universal() {
 }
 
 // =============================================================================
+// Hybrid-DB (Default) Normal Path
+// =============================================================================
+
+/// Golden test: daemon starts in default hybrid-db mode when no flags provided,
+/// using SurrealDB in-memory engine.
+#[test]
+#[cfg(feature = "db-surreal-mem")]
+fn test_golden_default_runtime_hybrid_db_startup_shutdown() {
+    let binary = daemon_binary_path();
+    require_binary!(binary);
+
+    let workspace = workspace_root();
+
+    let child = Command::new(&binary)
+        .current_dir(&workspace)
+        .args(["daemon", "--port", "0"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn daemon");
+
+    // Give the daemon time to initialize and emit startup logs
+    std::thread::sleep(Duration::from_secs(4));
+
+    send_sigint(&child);
+
+    let output = child.wait_with_output().expect("Failed to wait for daemon");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(
+        combined.contains("Runtime mode: hybrid-db"),
+        "Daemon should report hybrid-db runtime mode. Output: {combined}"
+    );
+    assert!(
+        combined.contains("Starting Headless DAQ Daemon")
+            || combined.contains("gRPC server ready")
+            || combined.contains("Initializing"),
+        "Daemon should emit startup logs. Output: {combined}"
+    );
+}
+
+/// Golden test: daemon in default hybrid-db mode registers devices from the
+/// default universal profile.
+#[test]
+#[cfg(feature = "db-surreal-mem")]
+fn test_golden_default_runtime_registers_devices() {
+    let binary = daemon_binary_path();
+    require_binary!(binary);
+
+    let workspace = workspace_root();
+
+    let child = Command::new(&binary)
+        .current_dir(&workspace)
+        .args(["daemon", "--port", "0"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn daemon");
+
+    // Give daemon time to register devices and start
+    std::thread::sleep(Duration::from_secs(4));
+
+    send_sigint(&child);
+
+    let output = child.wait_with_output().expect("Failed to wait for daemon");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Hybrid-db mode should register devices (e.g., from config/maitai_universal.toml)
+    assert!(
+        combined.contains("device")
+            || combined.contains("Device")
+            || combined.contains("Registered")
+            || combined.contains("universal"),
+        "Daemon should report registered devices in stdout.\nGot: {}",
+        combined
+    );
+}
+
+// =============================================================================
 // Fault Path: Port Conflict
 // =============================================================================
 

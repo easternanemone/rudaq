@@ -14,7 +14,7 @@ manufacturer = "IPG Photonics"
 model = "YLPP-200-1-50-R"
 protocol = "ipg_tcp"
 category = "source"
-capabilities = ["Readable", "EmissionControl"]
+capabilities = ["Readable", "EmissionControl", "Commandable"]
 
 [connection]
 type = "tcp"
@@ -167,6 +167,8 @@ label = "Repetition Rate"
 parameter = "rep_rate"
 widget = "spinner"
 read_only = false
+read_command = "read_rep_rate"
+write_command = "set_rep_rate"
 
 [[ui.control_panel.sections]]
 type = "status_display"
