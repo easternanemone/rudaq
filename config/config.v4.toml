@@ -14,7 +14,12 @@ auth_enabled = false
 # auth_token = "change-me"
 
 # Allowed origins for gRPC-web (CORS). Keep this list tight.
-allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+allowed_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+]
 
 [storage]
 # Path to the memory-mapped ring buffer file.
