@@ -23,7 +23,10 @@ At daemon startup, when a deprecated legacy SCPI/TCP driver type is present:
 
 1. A warning is logged with the replacement driver type.
 2. Runtime policy summary prints native non-camera counts.
-3. Startup continues (non-breaking).
+3. In `native` mode with `--allow-legacy-drivers` (or `RUSTDAQ_ALLOW_LEGACY_DRIVERS=1`): startup
+   continues with a deprecation warning.
+4. In `universal` or `hybrid-db` mode: startup is **rejected** unless `--allow-legacy-drivers` or
+   `RUSTDAQ_ALLOW_LEGACY_DRIVERS=1` is set.
 
 ## Migration Workflow
 
