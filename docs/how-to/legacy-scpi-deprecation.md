@@ -40,7 +40,9 @@ At daemon startup, driver types are classified as universal (`universal_*`), nat
 1. Phase 1 (complete): warning-only, migration documentation and runbook in place.
 2. Phase 2 (complete): universal is the recommended default in operator workflows.
 3. Phase 3 (complete): legacy SCPI/TCP required explicit opt-in for one release cycle.
-4. Phase 4 (complete): legacy SCPI/TCP drivers removed. Only `universal_*` and native-exception drivers (PVCAM, Andor, Comedi, Dover) are recognized.
+4. Phase 4 (complete): in `universal` / `hybrid-db` modes, legacy SCPI/TCP drivers are no longer
+   accepted. Only `universal_*` and native-exception drivers (PVCAM, Andor, Comedi, Dover) are
+   recognized in these modes. A `--runtime-mode native` rollback path remains for exceptional cases.
 
 ## Rollback Policy
 
