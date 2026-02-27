@@ -23,7 +23,10 @@ At daemon startup, when a deprecated legacy SCPI/TCP driver type is present:
 
 1. A warning is logged with the replacement driver type.
 2. Runtime policy summary prints native non-camera counts.
-3. Startup continues (non-breaking).
+3. In `native` mode with `--allow-legacy-drivers` (or `RUSTDAQ_ALLOW_LEGACY_DRIVERS=1`): startup
+   continues with a deprecation warning.
+4. In `universal` or `hybrid-db` mode: startup is **rejected** unless `--allow-legacy-drivers` or
+   `RUSTDAQ_ALLOW_LEGACY_DRIVERS=1` is set.
 
 ## Migration Workflow
 
@@ -37,9 +40,9 @@ At daemon startup, when a deprecated legacy SCPI/TCP driver type is present:
 
 ## Proposed Timeline
 
-1. Phase 1 (current): warning-only, migration documentation and runbook in place.
-2. Phase 2: universal becomes recommended default in operator workflows.
-3. Phase 3: legacy SCPI/TCP path requires explicit opt-in.
+1. Phase 1 (complete): warning-only, migration documentation and runbook in place.
+2. Phase 2 (complete): universal is the recommended default in operator workflows.
+3. Phase 3 (current): legacy SCPI/TCP requires explicit opt-in (`--allow-legacy-drivers` or `RUSTDAQ_ALLOW_LEGACY_DRIVERS=1`).
 4. Phase 4: remove legacy SCPI/TCP path after hardware signoff and release communication.
 
 ## Rollback Policy

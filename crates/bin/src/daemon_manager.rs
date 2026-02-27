@@ -40,6 +40,11 @@ pub struct DaemonConfig {
     pub port: u16,
     pub hardware_config: Option<PathBuf>,
     pub lab_hardware: bool,
+    /// Resolved runtime mode string (e.g. "mock", "native", "universal", "hybrid-db", "custom").
+    pub runtime_mode: String,
+    /// Allow deprecated legacy SCPI/TCP drivers in universal/hybrid-db modes.
+    /// When false (default), legacy drivers in those modes cause a startup error.
+    pub allow_legacy_drivers: bool,
     /// Path for the SurrealDB database. Only used when `db-surreal-rocksdb` is
     /// enabled. `None` = use in-memory engine (default for `db-surreal-mem`).
     #[cfg(feature = "db-surreal")]
@@ -76,6 +81,8 @@ fn resolve_device_manifest_dir(config_path: &std::path::Path) -> Option<PathBuf>
 async fn load_hardware_config(
     config_path: &std::path::Path,
     label: &str,
+    runtime_mode: &str,
+    allow_legacy: bool,
 ) -> Result<(DeviceRegistry, HardwareConfig)> {
     println!(
         "   Loading {label} hardware from: {}",
@@ -90,7 +97,7 @@ async fn load_hardware_config(
     }
     let hw = HardwareConfig::from_file(config_path).context("Failed to parse hardware config")?;
     let source = config_path.display().to_string();
-    log_runtime_policy_for_config(&source, &hw);
+    validate_runtime_policy_for_config(&source, &hw, runtime_mode, allow_legacy)?;
     let config_dir = resolve_device_manifest_dir(config_path);
     let reg = create_registry_from_config(&hw, config_dir.as_deref())
         .await
@@ -113,11 +120,17 @@ fn is_native_exception_driver(driver_type: &str) -> bool {
 }
 
 #[cfg(feature = "networking")]
-fn log_runtime_policy_for_config(source: &str, hw: &HardwareConfig) {
+fn validate_runtime_policy_for_config(
+    source: &str,
+    hw: &HardwareConfig,
+    runtime_mode: &str,
+    allow_legacy: bool,
+) -> Result<()> {
     let mut universal_count = 0usize;
     let mut native_exception_count = 0usize;
     let mut deprecated_native_count = 0usize;
     let mut warned_driver_types = HashSet::new();
+    let mut deprecated_driver_types = Vec::new();
 
     for device in &hw.devices {
         let driver_type = device.driver.driver_type.as_str();
@@ -131,6 +144,7 @@ fn log_runtime_policy_for_config(source: &str, hw: &HardwareConfig) {
         }
 
         deprecated_native_count += 1;
+        deprecated_driver_types.push(driver_type.to_string());
         if let Some(replacement) = legacy_scpi_replacement(driver_type) {
             if warned_driver_types.insert(driver_type.to_string()) {
                 tracing::warn!(
@@ -157,11 +171,38 @@ fn log_runtime_policy_for_config(source: &str, hw: &HardwareConfig) {
         "   Runtime policy [{}]: universal={}, native_exception={}, deprecated_native={}",
         source, universal_count, native_exception_count, deprecated_native_count
     );
+
+    // Gating logic: in universal/hybrid-db modes, deprecated drivers require explicit opt-in
     if deprecated_native_count > 0 {
-        println!(
-            "   ⚠ Deprecated native drivers detected. Native SCPI/TCP paths are deprecated; see docs."
-        );
+        let is_gated_mode = matches!(runtime_mode, "universal" | "hybrid-db");
+
+        if is_gated_mode && !allow_legacy {
+            anyhow::bail!(
+                "Legacy SCPI/TCP drivers detected in '{}' mode: [{}]. \
+                 These drivers are deprecated and blocked by default. Options:\n  \
+                 1. Migrate to universal TOML drivers (see docs/how-to/legacy-scpi-deprecation.md)\n  \
+                 2. Pass --allow-legacy-drivers or set RUSTDAQ_ALLOW_LEGACY_DRIVERS=1\n  \
+                 3. Use --runtime-mode native as a rollback",
+                runtime_mode,
+                deprecated_driver_types.join(", ")
+            );
+        } else if is_gated_mode && allow_legacy {
+            tracing::warn!(
+                runtime_mode = runtime_mode,
+                deprecated_drivers = ?deprecated_driver_types,
+                "Legacy drivers allowed via explicit opt-in; migrate before Phase 4 sunset"
+            );
+            println!(
+                "   ⚠ Legacy drivers allowed via --allow-legacy-drivers (migrate before Phase 4 sunset)"
+            );
+        } else {
+            println!(
+                "   ⚠ Deprecated native drivers detected. Native SCPI/TCP paths are deprecated; see docs."
+            );
+        }
     }
+
+    Ok(())
 }
 
 #[cfg(feature = "networking")]
@@ -424,7 +465,13 @@ impl DaemonInstance {
         let (registry, hw_config) = {
             println!("🔧 Initializing hardware registry...");
             let (registry, hw_config) = if let Some(ref config_path) = config.hardware_config {
-                let (reg, hw) = load_hardware_config(config_path, "config").await?;
+                let (reg, hw) = load_hardware_config(
+                    config_path,
+                    "config",
+                    &config.runtime_mode,
+                    config.allow_legacy_drivers,
+                )
+                .await?;
                 (reg, Some(hw))
             } else if config.lab_hardware {
                 let default_path = std::path::Path::new("config/maitai_hardware.toml");
@@ -434,7 +481,13 @@ impl DaemonInstance {
                         default_path.display()
                     );
                 }
-                let (reg, hw) = load_hardware_config(default_path, "lab").await?;
+                let (reg, hw) = load_hardware_config(
+                    default_path,
+                    "lab",
+                    &config.runtime_mode,
+                    config.allow_legacy_drivers,
+                )
+                .await?;
                 (reg, Some(hw))
             } else {
                 println!("   Using mock devices (no hardware config specified)");
@@ -839,6 +892,8 @@ mod tests {
             port: 50051,
             hardware_config: None,
             lab_hardware: false,
+            runtime_mode: "mock".to_string(),
+            allow_legacy_drivers: false,
             #[cfg(feature = "db-surreal")]
             db_path: None,
         };
@@ -975,8 +1030,143 @@ mod tests {
             ],
         };
 
-        // Smoke test: must not panic
-        log_runtime_policy_for_config("test", &hw);
+        // In native mode, legacy drivers are allowed (warn only)
+        validate_runtime_policy_for_config("test", &hw, "native", false)
+            .expect("native mode should allow legacy drivers");
+    }
+
+    #[cfg(feature = "networking")]
+    #[test]
+    fn test_validate_rejects_legacy_in_universal_mode() {
+        use hardware::registry::{DeviceConfig, DriverConfig};
+
+        fn dev(id: &str, driver_type: &str) -> DeviceConfig {
+            DeviceConfig {
+                id: id.to_string(),
+                name: id.to_string(),
+                driver: DriverConfig {
+                    driver_type: driver_type.to_string(),
+                    config: toml::Value::Table(toml::map::Map::new()),
+                },
+                enabled: true,
+            }
+        }
+
+        let hw = HardwareConfig {
+            plugin_paths: vec![],
+            devices: vec![
+                dev("d1", "universal_thorlabs_ell14"),
+                dev("d2", "ell14"), // legacy
+            ],
+        };
+
+        let result = validate_runtime_policy_for_config("test", &hw, "universal", false);
+        assert!(
+            result.is_err(),
+            "should reject legacy drivers in universal mode"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("ell14"),
+            "error should name the offending driver"
+        );
+        assert!(
+            err_msg.contains("--allow-legacy-drivers"),
+            "error should suggest the override flag"
+        );
+    }
+
+    #[cfg(feature = "networking")]
+    #[test]
+    fn test_validate_allows_legacy_with_override() {
+        use hardware::registry::{DeviceConfig, DriverConfig};
+
+        fn dev(id: &str, driver_type: &str) -> DeviceConfig {
+            DeviceConfig {
+                id: id.to_string(),
+                name: id.to_string(),
+                driver: DriverConfig {
+                    driver_type: driver_type.to_string(),
+                    config: toml::Value::Table(toml::map::Map::new()),
+                },
+                enabled: true,
+            }
+        }
+
+        let hw = HardwareConfig {
+            plugin_paths: vec![],
+            devices: vec![
+                dev("d1", "universal_thorlabs_ell14"),
+                dev("d2", "ell14"), // legacy
+            ],
+        };
+
+        validate_runtime_policy_for_config("test", &hw, "universal", true)
+            .expect("should allow legacy drivers with explicit override");
+    }
+
+    #[cfg(feature = "networking")]
+    #[test]
+    fn test_validate_allows_legacy_in_native_mode() {
+        use hardware::registry::{DeviceConfig, DriverConfig};
+
+        fn dev(id: &str, driver_type: &str) -> DeviceConfig {
+            DeviceConfig {
+                id: id.to_string(),
+                name: id.to_string(),
+                driver: DriverConfig {
+                    driver_type: driver_type.to_string(),
+                    config: toml::Value::Table(toml::map::Map::new()),
+                },
+                enabled: true,
+            }
+        }
+
+        let hw = HardwareConfig {
+            plugin_paths: vec![],
+            devices: vec![dev("d1", "ell14"), dev("d2", "maitai"), dev("d3", "pvcam")],
+        };
+
+        validate_runtime_policy_for_config("test", &hw, "native", false)
+            .expect("native mode should allow legacy drivers without override");
+    }
+
+    #[cfg(feature = "networking")]
+    #[test]
+    fn test_validate_pure_universal_config_passes() {
+        use hardware::registry::{DeviceConfig, DriverConfig};
+
+        fn dev(id: &str, driver_type: &str) -> DeviceConfig {
+            DeviceConfig {
+                id: id.to_string(),
+                name: id.to_string(),
+                driver: DriverConfig {
+                    driver_type: driver_type.to_string(),
+                    config: toml::Value::Table(toml::map::Map::new()),
+                },
+                enabled: true,
+            }
+        }
+
+        // Config with only universal + native exception drivers
+        let hw = HardwareConfig {
+            plugin_paths: vec![],
+            devices: vec![
+                dev("d1", "universal_thorlabs_ell14"),
+                dev("d2", "universal_newport_esp300"),
+                dev("d3", "pvcam"),
+                dev("d4", "andor_istar"),
+                dev("d5", "comedi_analog_input"),
+            ],
+        };
+
+        // Should pass in all modes with no override needed
+        validate_runtime_policy_for_config("test", &hw, "universal", false)
+            .expect("pure universal+exception config should pass in universal mode");
+        validate_runtime_policy_for_config("test", &hw, "hybrid-db", false)
+            .expect("pure universal+exception config should pass in hybrid-db mode");
+        validate_runtime_policy_for_config("test", &hw, "native", false)
+            .expect("pure universal+exception config should pass in native mode");
     }
 
     /// Integration test: verify that a DaemonInstance can be started with
@@ -987,6 +1177,8 @@ mod tests {
             port: 0,
             hardware_config: None,
             lab_hardware: false,
+            runtime_mode: "mock".to_string(),
+            allow_legacy_drivers: false,
             #[cfg(feature = "db-surreal")]
             db_path: None,
         };
@@ -1012,6 +1204,8 @@ mod tests {
             port: 0,
             hardware_config: None,
             lab_hardware: false,
+            runtime_mode: "mock".to_string(),
+            allow_legacy_drivers: false,
             #[cfg(feature = "db-surreal")]
             db_path: None,
         };
