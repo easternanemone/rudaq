@@ -6,11 +6,11 @@
 //! - Event: Measurement data points
 //! - Stop: Run completion status
 
+use crate::runtime::JoinHandle;
 use eframe::egui;
 use futures::StreamExt;
 use protocol::daq::Document;
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
 
 /// Document Viewer panel state
 #[derive(Default)]
@@ -53,7 +53,7 @@ impl DocumentViewerPanel {
     pub fn ui(
         &mut self,
         ui: &mut egui::Ui,
-        client: Option<&mut crate::client::DaqClient>,
+        client: Option<&mut client::DaqClient>,
         runtime: &crate::runtime::Runtime,
     ) {
         // Poll for new documents

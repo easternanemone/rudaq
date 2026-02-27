@@ -20,10 +20,11 @@ use crate::daemon_launcher::{AutoConnectState, DaemonLauncher, DaemonMode};
 use crate::device_ext::DeviceInfoExt;
 use crate::icons;
 use crate::layout;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::panels::instrument_manager::{
+    config_loader::DeviceConfigCache, config_renderer::ConfigDrivenPanel, dispatch,
+};
 use crate::panels::{
-    instrument_manager::{
-        config_loader::DeviceConfigCache, config_renderer::ConfigDrivenPanel, dispatch,
-    },
     ComediPanel, ConnectionDiagnostics, ConnectionStatus as LogConnectionStatus, DevicesPanel,
     DocumentViewerPanel, ExperimentDesignerPanel, GettingStartedPanel, ImageViewerPanel,
     InstrumentManagerPanel, LoggingPanel, ModulesPanel, PlanRunnerPanel, RunComparisonPanel,
@@ -860,10 +861,13 @@ pub struct DaqApp {
     /// Docked Comedi panels (advanced layout mode)
     docked_comedi_panels: HashMap<usize, ComediPanel>,
     /// Docked config-driven panels (from TOML `[ui.control_panel]`)
+    #[cfg(not(target_arch = "wasm32"))]
     docked_config_driven_panels: HashMap<usize, ConfigDrivenPanel>,
     /// Cached gRPC ui_schema_json → ControlPanelConfig lookups (keyed by panel ID)
+    #[cfg(not(target_arch = "wasm32"))]
     grpc_ui_config_cache: HashMap<usize, Option<hardware::config::schema::ControlPanelConfig>>,
     /// Device config cache for TOML-driven panel dispatch
+    #[cfg(not(target_arch = "wasm32"))]
     config_cache: DeviceConfigCache,
     /// User-added command widgets for advanced control panels (keyed by panel ID)
     docked_command_widgets: HashMap<usize, CommandWidgetPalette>,
@@ -1592,8 +1596,11 @@ impl DaqApp {
             docked_rotator_panels: HashMap::new(),
             docked_stage_panels: HashMap::new(),
             docked_comedi_panels: HashMap::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             docked_config_driven_panels: HashMap::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             grpc_ui_config_cache: HashMap::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             config_cache: {
                 let mut cache = DeviceConfigCache::new();
                 if let Err(e) = cache.load_all() {
@@ -2259,8 +2266,11 @@ impl DaqApp {
         self.docked_rotator_panels.clear();
         self.docked_stage_panels.clear();
         self.docked_comedi_panels.clear();
-        self.docked_config_driven_panels.clear();
-        self.grpc_ui_config_cache.clear();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.docked_config_driven_panels.clear();
+            self.grpc_ui_config_cache.clear();
+        }
         self.docked_command_widgets.clear();
     }
 
@@ -2275,8 +2285,11 @@ impl DaqApp {
         self.docked_rotator_panels.remove(&id);
         self.docked_stage_panels.remove(&id);
         self.docked_comedi_panels.remove(&id);
-        self.docked_config_driven_panels.remove(&id);
-        self.grpc_ui_config_cache.remove(&id);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.docked_config_driven_panels.remove(&id);
+            self.grpc_ui_config_cache.remove(&id);
+        }
         self.docked_command_widgets.remove(&id);
         self.device_panel_info.remove(&id)
     }
@@ -2561,9 +2574,11 @@ impl DaqApp {
                     devices,
                 } => {
                     // Ignore stale results
-                    if epoch != self.device_reconcile_epoch
-                        || daemon_url != self.daemon_address.to_string()
-                    {
+                    let stale = epoch != self.device_reconcile_epoch;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let stale = stale || daemon_url != self.daemon_address.to_string();
+                    let _ = &daemon_url; // suppress unused warning on WASM
+                    if stale {
                         tracing::debug!(
                             epoch,
                             current_epoch = self.device_reconcile_epoch,
@@ -2580,9 +2595,11 @@ impl DaqApp {
                     error,
                 } => {
                     // Ignore stale errors
-                    if epoch != self.device_reconcile_epoch
-                        || daemon_url != self.daemon_address.to_string()
-                    {
+                    let stale = epoch != self.device_reconcile_epoch;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let stale = stale || daemon_url != self.daemon_address.to_string();
+                    let _ = &daemon_url;
+                    if stale {
                         continue;
                     }
 
@@ -2657,6 +2674,7 @@ impl DaqApp {
         self.docked_rotator_panels.remove(&panel_id);
         self.docked_stage_panels.remove(&panel_id);
         self.docked_comedi_panels.remove(&panel_id);
+        #[cfg(not(target_arch = "wasm32"))]
         self.docked_config_driven_panels.remove(&panel_id);
         self.docked_command_widgets.remove(&panel_id);
     }
@@ -3014,7 +3032,10 @@ impl DaqTabViewer<'_> {
 
                     ui.label(format!("Device: {}", device_info.name));
                     ui.label(format!("ID: {}", device_info.id));
+                    #[cfg(not(target_arch = "wasm32"))]
                     ui.label(format!("Daemon: {}", self.app.daemon_address));
+                    #[cfg(target_arch = "wasm32")]
+                    ui.label(format!("Daemon: {}", self.app.wasm_connection.url_input));
 
                     ui.add_space(10.0);
                     ui.label("This device is not available on the connected daemon.");
@@ -3039,41 +3060,46 @@ impl DaqTabViewer<'_> {
             }
         }
 
-        // --- Priority 0: gRPC-driven panel from device metadata ---
-        let grpc_config = self
-            .app
-            .grpc_ui_config_cache
-            .entry(panel_id)
-            .or_insert_with(|| dispatch::try_grpc_ui_config(device_info));
-        if let Some(panel_config) = grpc_config {
-            let panel_config = panel_config.clone();
-            let panel = self
-                .app
-                .docked_config_driven_panels
-                .entry(panel_id)
-                .or_insert_with(|| ConfigDrivenPanel::new(panel_config));
-            ui.push_id(("docked", panel_id), |ui| {
-                panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
-            });
-            return;
-        }
-
-        // --- Priority 1: Config-driven panel from local TOML ---
-        if let Some(panel_config) = self
-            .app
-            .config_cache
-            .get_ui_config_for_driver(&device_info.driver_type)
+        // --- Priority 0 & 1: Config-driven panels (native-only, uses hardware crate) ---
+        #[cfg(not(target_arch = "wasm32"))]
         {
-            let panel_config: hardware::config::schema::ControlPanelConfig = panel_config.clone();
-            let panel = self
+            // Priority 0: gRPC-driven panel from device metadata
+            let grpc_config = self
                 .app
-                .docked_config_driven_panels
+                .grpc_ui_config_cache
                 .entry(panel_id)
-                .or_insert_with(|| ConfigDrivenPanel::new(panel_config));
-            ui.push_id(("docked", panel_id), |ui| {
-                panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
-            });
-            return;
+                .or_insert_with(|| dispatch::try_grpc_ui_config(device_info));
+            if let Some(panel_config) = grpc_config {
+                let panel_config = panel_config.clone();
+                let panel = self
+                    .app
+                    .docked_config_driven_panels
+                    .entry(panel_id)
+                    .or_insert_with(|| ConfigDrivenPanel::new(panel_config));
+                ui.push_id(("docked", panel_id), |ui| {
+                    panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
+                });
+                return;
+            }
+
+            // Priority 1: Config-driven panel from local TOML
+            if let Some(panel_config) = self
+                .app
+                .config_cache
+                .get_ui_config_for_driver(&device_info.driver_type)
+            {
+                let panel_config: hardware::config::schema::ControlPanelConfig =
+                    panel_config.clone();
+                let panel = self
+                    .app
+                    .docked_config_driven_panels
+                    .entry(panel_id)
+                    .or_insert_with(|| ConfigDrivenPanel::new(panel_config));
+                ui.push_id(("docked", panel_id), |ui| {
+                    panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
+                });
+                return;
+            }
         }
 
         let layout_mode = self.app.control_panel_layout_mode;
@@ -3170,8 +3196,13 @@ impl eframe::App for DaqApp {
 
         // --- Cross-platform polling ---
         self.poll_device_reconcile(); // bd-vjzq
-        self.maybe_spawn_health_check();
-        self.poll_health_checks();
+
+        // Health checks use ConnectionManager (native-only)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.maybe_spawn_health_check();
+            self.poll_health_checks();
+        }
 
         // Check global keyboard shortcuts
         self.check_global_shortcuts(ctx);

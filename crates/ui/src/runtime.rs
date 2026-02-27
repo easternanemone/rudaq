@@ -11,6 +11,8 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use tokio::runtime::Runtime;
+#[cfg(not(target_arch = "wasm32"))]
+pub use tokio::task::JoinHandle;
 
 #[cfg(target_arch = "wasm32")]
 mod wasm_runtime {
@@ -51,6 +53,12 @@ mod wasm_runtime {
     /// but some panels store it as an `Option<JoinHandle<()>>` to track
     /// whether a background task is running.
     pub struct JoinHandle<T>(pub(crate) std::marker::PhantomData<T>);
+
+    impl<T> JoinHandle<T> {
+        /// No-op abort on WASM — spawned futures run detached on the browser
+        /// event loop and cannot be cancelled.
+        pub fn abort(&self) {}
+    }
 }
 
 #[cfg(target_arch = "wasm32")]

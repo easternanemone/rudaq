@@ -6,12 +6,12 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
+use crate::runtime::JoinHandle;
 use crate::runtime::Runtime;
 use eframe::egui;
 use egui_plot::{Legend, Line, Plot, PlotPoints, Points};
 use futures::StreamExt;
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
 
 use crate::device_ext::DeviceInfoExt;
 use crate::widgets::{offline_notice, MetadataEditor, OfflineContext};

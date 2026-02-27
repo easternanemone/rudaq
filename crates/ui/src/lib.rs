@@ -20,7 +20,8 @@ pub mod log_capture;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod reconnect;
 
-#[cfg(any(feature = "standalone", feature = "web"))]
+// gui_log_layer depends on tracing-subscriber (native-only)
+#[cfg(not(target_arch = "wasm32"))]
 pub mod gui_log_layer;
 
 // connection_state_ext depends on client::reconnect::ConnectionState (native-only)
