@@ -1,7 +1,7 @@
 //! Storage panel - HDF5 recording and acquisition management.
 
+use crate::runtime::Runtime;
 use eframe::egui;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};
@@ -37,7 +37,7 @@ pub struct StoragePanel {
     /// List of acquisitions
     acquisitions: Vec<protocol::daq::AcquisitionSummary>,
     /// Last refresh timestamp
-    last_refresh: Option<std::time::Instant>,
+    last_refresh: Option<crate::time::Instant>,
     /// Recording name input
     recording_name: String,
     /// Error message
@@ -68,7 +68,7 @@ impl StoragePanel {
                                 self.config = config;
                                 self.recording_status = status;
                                 self.acquisitions = acquisitions;
-                                self.last_refresh = Some(std::time::Instant::now());
+                                self.last_refresh = Some(crate::time::Instant::now());
                                 self.status = Some(format!(
                                     "Loaded {} acquisitions",
                                     self.acquisitions.len()

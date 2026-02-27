@@ -15,8 +15,8 @@ pub use power_meter_panel::PowerMeterControlPanel;
 pub use rotator_panel::RotatorControlPanel;
 pub use stage_panel::StageControlPanel;
 
+use crate::runtime::Runtime;
 use egui::Ui;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use client::DaqClient;
@@ -98,7 +98,7 @@ pub struct DevicePanelState<R> {
     /// Auto-refresh enabled flag
     pub auto_refresh: bool,
     /// Last refresh timestamp for interval timing
-    pub last_refresh: Option<std::time::Instant>,
+    pub last_refresh: Option<crate::time::Instant>,
 }
 
 impl<R> DevicePanelState<R> {
@@ -146,7 +146,7 @@ impl<R> DevicePanelState<R> {
     ///
     /// Call this after initiating a refresh action to reset the interval timer.
     pub fn mark_refreshed(&mut self) {
-        self.last_refresh = Some(std::time::Instant::now());
+        self.last_refresh = Some(crate::time::Instant::now());
     }
 
     /// Decrement the in-flight action counter (saturating at 0).

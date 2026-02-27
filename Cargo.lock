@@ -14703,6 +14703,7 @@ dependencies = [
  "futures",
  "hardware",
  "hdf5-metno",
+ "js-sys",
  "libc",
  "log",
  "mimalloc",
@@ -14726,6 +14727,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "web-time",
  "which 6.0.3",
 ]
 

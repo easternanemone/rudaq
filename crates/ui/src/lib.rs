@@ -1,6 +1,15 @@
 // Platform-agnostic async runtime abstraction (native tokio / WASM spawn_local)
 pub mod runtime;
 
+// Cross-platform time types (std::time on native, web-time on WASM)
+pub mod time;
+
+// Serde-only schema types for the WASM web build.
+// Included during native test runs (via `test` cfg) so the deserialization
+// tests in web_schema.rs are exercised without needing a WASM target.
+#[cfg(any(feature = "web", test))]
+pub mod web_schema;
+
 // These modules use native deps (clap, tokio runtime, process spawning, etc.)
 // and are not available on WASM targets.
 #[cfg(not(target_arch = "wasm32"))]
@@ -13,37 +22,38 @@ pub mod daemon_launcher;
 pub mod log_capture;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod reconnect;
-
-#[cfg(feature = "standalone")]
+// gui_log_layer depends on tracing-subscriber (native-only)
+#[cfg(not(target_arch = "wasm32"))]
 pub mod gui_log_layer;
 
-#[cfg(feature = "standalone")]
+// connection_state_ext depends on client::reconnect::ConnectionState (native-only)
+#[cfg(not(target_arch = "wasm32"))]
 pub mod connection_state_ext;
-#[cfg(feature = "standalone")]
+#[cfg(not(target_arch = "wasm32"))]
 pub use connection_state_ext::ConnectionStateExt;
 
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub(crate) mod device_ext;
 
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod app;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod export;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod graph;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod gui_config;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod icons;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod layout;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod panels;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod settings;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod shortcuts;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod theme;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod widgets;

@@ -1,7 +1,7 @@
 //! Modules panel - experiment module management.
 
+use crate::runtime::Runtime;
 use eframe::egui;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};
@@ -52,7 +52,7 @@ pub struct ModulesPanel {
     /// Selected module instance
     selected_module: Option<String>,
     /// Last refresh timestamp
-    last_refresh: Option<std::time::Instant>,
+    last_refresh: Option<crate::time::Instant>,
     /// Error message
     error: Option<String>,
     /// Status message
@@ -80,7 +80,7 @@ impl ModulesPanel {
                             Ok((types, modules)) => {
                                 self.module_types = types;
                                 self.modules = modules;
-                                self.last_refresh = Some(std::time::Instant::now());
+                                self.last_refresh = Some(crate::time::Instant::now());
                                 self.status = Some(format!(
                                     "Loaded {} types, {} modules",
                                     self.module_types.len(),

@@ -115,11 +115,20 @@ pub struct StorageSettings {
 impl Default for StorageSettings {
     fn default() -> Self {
         Self {
-            default_save_dir: dirs::home_dir()
-                .unwrap_or_default()
-                .join("daq_data")
-                .to_string_lossy()
-                .to_string(),
+            default_save_dir: {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    dirs::home_dir()
+                        .unwrap_or_default()
+                        .join("daq_data")
+                        .to_string_lossy()
+                        .to_string()
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    "daq_data".to_string()
+                }
+            },
             file_format: FileFormat::Hdf5,
         }
     }

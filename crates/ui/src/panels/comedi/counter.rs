@@ -2,8 +2,8 @@
 //!
 //! Provides counter mode selection, count display, and pulse generation control.
 
+use crate::runtime::Runtime;
 use eframe::egui::{self, Color32, RichText, Ui};
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};
@@ -96,7 +96,7 @@ pub struct CounterPanel {
     /// Refresh interval
     refresh_interval_ms: u32,
     /// Last refresh time
-    last_refresh: std::time::Instant,
+    last_refresh: crate::time::Instant,
     /// Status message
     status: Option<String>,
     /// Error message
@@ -117,7 +117,7 @@ impl Default for CounterPanel {
             selected_counter: 0,
             auto_refresh: false,
             refresh_interval_ms: 100,
-            last_refresh: std::time::Instant::now(),
+            last_refresh: crate::time::Instant::now(),
             status: None,
             error: None,
             action_tx,
@@ -150,7 +150,7 @@ impl CounterPanel {
             let elapsed = self.last_refresh.elapsed();
             if elapsed.as_millis() >= self.refresh_interval_ms as u128 {
                 self.read_all_counters(runtime);
-                self.last_refresh = std::time::Instant::now();
+                self.last_refresh = crate::time::Instant::now();
             }
             ui.ctx().request_repaint();
         }

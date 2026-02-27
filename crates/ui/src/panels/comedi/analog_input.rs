@@ -3,9 +3,9 @@
 //! Provides channel selection, voltage range configuration, and real-time
 //! voltage readout for analog input subsystems.
 
+use crate::runtime::Runtime;
 use eframe::egui::{self, Color32, RichText, Ui};
 use std::collections::HashMap;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};
@@ -58,7 +58,7 @@ pub struct AnalogInputPanel {
     /// Refresh interval in milliseconds
     refresh_interval_ms: u32,
     /// Last refresh time
-    last_refresh: std::time::Instant,
+    last_refresh: crate::time::Instant,
     /// Differential mode (uses channel pairs)
     differential_mode: bool,
     /// Status message
@@ -86,7 +86,7 @@ impl Default for AnalogInputPanel {
             selected_channel: 0,
             auto_refresh: false,
             refresh_interval_ms: 100,
-            last_refresh: std::time::Instant::now(),
+            last_refresh: crate::time::Instant::now(),
             differential_mode: false,
             status: None,
             error: None,
@@ -123,7 +123,7 @@ impl AnalogInputPanel {
                 if let Some(c) = client.as_deref() {
                     self.read_all_channels(runtime, c);
                 }
-                self.last_refresh = std::time::Instant::now();
+                self.last_refresh = crate::time::Instant::now();
             }
             ui.ctx().request_repaint();
         }

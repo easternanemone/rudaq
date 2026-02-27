@@ -247,8 +247,15 @@ impl DaqClient {
 
     /// Connect to the DAQ daemon over gRPC-web (browser-compatible).
     ///
+    /// Create a gRPC-web client for browser use.
+    ///
     /// The daemon must have gRPC-web support enabled (`tonic_web::enable()`)
     /// and CORS configured to allow the browser's origin.
+    ///
+    /// Unlike the native `connect()`, this is synchronous — the underlying
+    /// `tonic_web_wasm_client::Client` connects lazily on the first RPC call.
+    /// Connection errors (network unreachable, CORS failures, etc.) will surface
+    /// as errors on the first method call, not at construction time.
     ///
     /// # Arguments
     /// * `base_url` - The daemon's HTTP URL, e.g. `"http://10.0.0.40:50051"`

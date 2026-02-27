@@ -1,24 +1,30 @@
 //! Main application state and UI logic.
 
+use crate::time::{Duration, Instant};
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
 
 use eframe::egui;
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 use tokio::sync::mpsc;
 
+#[cfg(not(target_arch = "wasm32"))]
 use crate::connection::{
     clear_legacy_daemon_address, migrate_legacy_daemon_address, resolve_address, AddressSource,
     DaemonAddress,
 };
+#[cfg(not(target_arch = "wasm32"))]
 use crate::connection_state_ext::ConnectionStateExt;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::daemon_launcher::{AutoConnectState, DaemonLauncher, DaemonMode};
 use crate::device_ext::DeviceInfoExt;
 use crate::icons;
 use crate::layout;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::panels::instrument_manager::{
+    config_loader::DeviceConfigCache, config_renderer::ConfigDrivenPanel, dispatch,
+};
 use crate::panels::{
-    instrument_manager::{config_loader::DeviceConfigCache, config_renderer::ConfigDrivenPanel},
     ComediPanel, ConnectionDiagnostics, ConnectionStatus as LogConnectionStatus, DevicesPanel,
     DocumentViewerPanel, ExperimentDesignerPanel, GettingStartedPanel, ImageViewerPanel,
     InstrumentManagerPanel, LoggingPanel, ModulesPanel, PlanRunnerPanel, RunComparisonPanel,
@@ -30,6 +36,7 @@ use crate::widgets::{
     DeviceControlWidget, GenericDevicePanel, MaiTaiControlPanel, PowerMeterControlPanel,
     RotatorControlPanel, StageControlPanel, StatusBar,
 };
+#[cfg(not(target_arch = "wasm32"))]
 use client::reconnect::{friendly_error_message, ConnectionManager, ConnectionState};
 use client::DaqClient;
 use protocol::daq::DeviceInfo;
@@ -44,6 +51,7 @@ const LAYOUT_VERSION: u32 = 3;
 /// Storage key for layout version
 const LAYOUT_VERSION_KEY: &str = "layout_version";
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Directory for session state files (bd-izdj.30)
 fn session_dir() -> std::path::PathBuf {
     dirs::data_local_dir()
@@ -51,11 +59,13 @@ fn session_dir() -> std::path::PathBuf {
         .join("rust-daq")
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Per-process session file path to avoid cross-process races (bd-izdj.30)
 fn session_file_path() -> std::path::PathBuf {
     session_dir().join(format!("gui_session_{}.json", std::process::id()))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Check if a PID is still alive
 fn is_pid_alive(pid: u32) -> bool {
     #[cfg(unix)]
@@ -74,6 +84,7 @@ fn is_pid_alive(pid: u32) -> bool {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Write session state to disk atomically (marks GUI as running)
 fn write_session_file(daemon_url: &str) {
     let path = session_file_path();
@@ -100,6 +111,7 @@ fn write_session_file(daemon_url: &str) {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Check if a previous session crashed by scanning for session files
 /// with running=true whose PID is no longer alive.
 fn check_crashed_session() -> Option<String> {
@@ -168,6 +180,7 @@ fn check_crashed_session() -> Option<String> {
     None
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Remove only our own session file (marks clean shutdown)
 fn clear_session_file() {
     let path = session_file_path();
@@ -430,7 +443,7 @@ impl CommandWidgetPalette {
         command: &str,
         args_json: &str,
         client: Option<&mut DaqClient>,
-        runtime: &tokio::runtime::Runtime,
+        runtime: &crate::runtime::Runtime,
     ) {
         let Some(widget) = self.widgets.iter_mut().find(|w| w.id == widget_id) else {
             return;
@@ -485,7 +498,7 @@ impl CommandWidgetPalette {
         ui: &mut egui::Ui,
         device: &DeviceInfo,
         mut client: Option<&mut DaqClient>,
-        runtime: &tokio::runtime::Runtime,
+        runtime: &crate::runtime::Runtime,
     ) {
         self.poll_results();
 
@@ -714,15 +727,44 @@ impl CommandWidgetPalette {
     }
 }
 
+/// WASM-only connection state for browser-based GUI.
+/// On native, ConnectionManager handles reconnection with exponential backoff.
+/// On WASM, we use a simpler connect-once model via DaqClient::connect_web().
+#[cfg(target_arch = "wasm32")]
+struct WasmConnectionState {
+    /// URL input field (e.g. "http://10.0.0.40:8080")
+    url_input: String,
+    /// Connection status message
+    status: String,
+    /// Whether a connect attempt is in progress
+    connecting: bool,
+    /// Pending connect result receiver
+    connect_rx: Option<mpsc::Receiver<Result<DaqClient, String>>>,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Default for WasmConnectionState {
+    fn default() -> Self {
+        Self {
+            url_input: "http://localhost:8080".to_string(),
+            status: "Disconnected".to_string(),
+            connecting: false,
+            connect_rx: None,
+        }
+    }
+}
+
 /// Main application state
 pub struct DaqApp {
     /// gRPC client (wrapped in Option for lazy initialization)
     client: Option<DaqClient>,
 
     /// Connection manager (handles state machine and auto-reconnect)
+    #[cfg(not(target_arch = "wasm32"))]
     connection: ConnectionManager,
 
     /// Validated daemon address (normalized, with source tracking)
+    #[cfg(not(target_arch = "wasm32"))]
     daemon_address: DaemonAddress,
 
     /// Text input field for address (may be invalid during editing)
@@ -762,7 +804,7 @@ pub struct DaqApp {
     logging_panel: LoggingPanel,
 
     /// Tokio runtime for async operations
-    runtime: tokio::runtime::Runtime,
+    runtime: crate::runtime::Runtime,
 
     /// Channel for health check results
     health_tx: mpsc::Sender<HealthCheckResult>,
@@ -779,15 +821,19 @@ pub struct DaqApp {
     was_connected: bool,
 
     /// Daemon mode configuration (local auto-start, remote, or lab hardware)
+    #[cfg(not(target_arch = "wasm32"))]
     daemon_mode: DaemonMode,
 
     /// Daemon process launcher (for auto-start local modes)
+    #[cfg(not(target_arch = "wasm32"))]
     daemon_launcher: Option<DaemonLauncher>,
 
     /// Auto-connect lifecycle state
+    #[cfg(not(target_arch = "wasm32"))]
     auto_connect_state: AutoConnectState,
 
     /// Receiver for tracing log events (forwarded to logging panel)
+    #[cfg(not(target_arch = "wasm32"))]
     log_receiver: tokio::sync::mpsc::Receiver<crate::gui_log_layer::GuiLogEvent>,
 
     /// Theme preference (light/dark/system)
@@ -815,10 +861,13 @@ pub struct DaqApp {
     /// Docked Comedi panels (advanced layout mode)
     docked_comedi_panels: HashMap<usize, ComediPanel>,
     /// Docked config-driven panels (from gRPC `ui_schema_json` or local TOML `[ui.control_panel]`)
+    #[cfg(not(target_arch = "wasm32"))]
     docked_config_driven_panels: HashMap<usize, ConfigDrivenPanel>,
     /// Device config cache for TOML-driven panel dispatch
+    #[cfg(not(target_arch = "wasm32"))]
     config_cache: DeviceConfigCache,
     /// gRPC UI config cache for docked panels (keyed by panel ID)
+    #[cfg(not(target_arch = "wasm32"))]
     grpc_ui_config_cache: HashMap<usize, Option<hardware::config::schema::ControlPanelConfig>>,
     /// User-added command widgets for advanced control panels (keyed by panel ID)
     docked_command_widgets: HashMap<usize, CommandWidgetPalette>,
@@ -832,6 +881,7 @@ pub struct DaqApp {
     app_settings: crate::settings::AppSettings,
 
     /// Connection presets loaded from gui.toml
+    #[cfg(not(target_arch = "wasm32"))]
     gui_presets: Vec<crate::gui_config::DaemonPreset>,
 
     /// PVCAM live view streaming state (requires rerun_viewer + instrument_photometrics)
@@ -851,7 +901,12 @@ pub struct DaqApp {
     show_cheat_sheet: bool,
 
     /// Whether this session recovered from a crash (bd-izdj.30)
+    #[cfg(not(target_arch = "wasm32"))]
     recovered_from_crash: bool,
+
+    /// WASM connection state (URL input + pending connect)
+    #[cfg(target_arch = "wasm32")]
+    wasm_connection: WasmConnectionState,
 }
 
 /// Action to perform on the UI state
@@ -1091,6 +1146,7 @@ pub enum Panel {
 
 impl DaqApp {
     /// Create a new application instance with the specified daemon mode
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         daemon_mode: DaemonMode,
@@ -1395,6 +1451,171 @@ impl DaqApp {
         }
     }
 
+    /// Create a new application instance for WASM (browser).
+    /// Skips daemon launching, session files, crash detection, and ConnectionManager.
+    #[cfg(target_arch = "wasm32")]
+    pub fn new_wasm(cc: &eframe::CreationContext<'_>) -> Self {
+        // Load phosphor icons into egui fonts
+        let mut fonts = egui::FontDefinitions::default();
+        icons::add_to_fonts(&mut fonts);
+        cc.egui_ctx.set_fonts(fonts);
+
+        // Load or default theme preference
+        let theme_preference: ThemePreference = cc
+            .storage
+            .and_then(|s| eframe::get_value(s, "theme_preference"))
+            .unwrap_or_default();
+        theme::apply_theme(&cc.egui_ctx, theme_preference);
+
+        // Load or initialize keyboard shortcuts
+        let shortcut_manager: ShortcutManager = cc
+            .storage
+            .and_then(|s| eframe::get_value(s, "shortcut_manager"))
+            .unwrap_or_default();
+
+        // Configure egui style
+        let mut style = (*cc.egui_ctx.style()).clone();
+        style.spacing.item_spacing = layout::ITEM_SPACING;
+        cc.egui_ctx.set_style(style);
+
+        // WASM runtime (delegates to spawn_local)
+        let runtime = crate::runtime::Runtime;
+
+        // Load app settings
+        let app_settings: crate::settings::AppSettings = cc
+            .storage
+            .and_then(|s| eframe::get_value(s, "app_settings"))
+            .unwrap_or_default();
+        let control_panel_layout_mode: ControlPanelLayoutMode = cc
+            .storage
+            .and_then(|s| eframe::get_value(s, "control_panel_layout_mode"))
+            .unwrap_or(ControlPanelLayoutMode::Simple);
+
+        // Health check channel
+        let (health_tx, health_rx) = mpsc::channel(4);
+        // Device reconciliation channel
+        let (device_reconcile_tx, device_reconcile_rx) = mpsc::channel(4);
+
+        // Load persisted device panel info
+        let (device_panel_info, next_device_panel_id) = if let Some(storage) = cc.storage {
+            let persisted: HashMap<usize, PersistedPanelInfo> =
+                eframe::get_value(storage, "device_panel_info").unwrap_or_default();
+            let next_id: usize = eframe::get_value(storage, "next_device_panel_id").unwrap_or(0);
+            let mut device_info_map = HashMap::new();
+            for (id, persisted_info) in persisted {
+                let device_info: DeviceInfo = persisted_info.clone().into();
+                let kind = panel_kind_for_device(&device_info);
+                device_info_map.insert(
+                    id,
+                    DevicePanelInfo {
+                        device_info,
+                        availability: DeviceAvailability::Pending,
+                        kind,
+                    },
+                );
+            }
+            (device_info_map, next_id)
+        } else {
+            (HashMap::new(), 0)
+        };
+
+        // Initialize dock state
+        let mut dock_state = if let Some(storage) = cc.storage {
+            let stored_version: Option<u32> = eframe::get_value(storage, LAYOUT_VERSION_KEY);
+            match stored_version {
+                Some(v) if v == LAYOUT_VERSION => eframe::get_value(storage, eframe::APP_KEY)
+                    .unwrap_or_else(Self::default_dock_state),
+                _ => Self::default_dock_state(),
+            }
+        } else {
+            Self::default_dock_state()
+        };
+
+        // Remove orphaned DeviceControl panels
+        let orphaned_ids: Vec<usize> = dock_state
+            .iter_all_tabs()
+            .filter_map(|(_, tab)| {
+                if let Panel::DeviceControl { id } = tab {
+                    if !device_panel_info.contains_key(id) {
+                        Some(*id)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for id in orphaned_ids {
+            dock_state.retain_tabs(
+                |tab| !matches!(tab, Panel::DeviceControl { id: panel_id } if *panel_id == id),
+            );
+        }
+
+        Self {
+            client: None,
+            address_input: String::new(),
+            address_error: None,
+            daemon_version: None,
+            gui_version: env!("CARGO_PKG_VERSION").to_string(),
+            dock_state: Some(dock_state),
+            ui_actions: Vec::new(),
+            getting_started_panel: GettingStartedPanel::default(),
+            devices_panel: DevicesPanel::default(),
+            scripts_panel: ScriptsPanel::default(),
+            scans_panel: ScansPanel::default(),
+            storage_panel: StoragePanel::default(),
+            run_history_panel: RunHistoryPanel::default(),
+            run_comparison_panel: RunComparisonPanel::default(),
+            modules_panel: ModulesPanel::default(),
+            plan_runner_panel: PlanRunnerPanel::default(),
+            scan_builder_panel: ScanBuilderPanel::default(),
+            experiment_designer_panel: ExperimentDesignerPanel::default(),
+            document_viewer_panel: DocumentViewerPanel::default(),
+            instrument_manager_panel: InstrumentManagerPanel::default(),
+            signal_plotter_panel: SignalPlotterPanel::new(),
+            image_viewer_panel: ImageViewerPanel::new(),
+            logging_panel: LoggingPanel::new(),
+            runtime,
+            health_tx,
+            health_rx,
+            device_reconcile_epoch: 0,
+            device_reconcile_tx,
+            device_reconcile_rx,
+            was_connected: false,
+            theme_preference,
+            status_bar: StatusBar::new(),
+            device_panel_info,
+            next_device_panel_id,
+            docked_panels: HashMap::new(),
+            docked_maitai_panels: HashMap::new(),
+            docked_power_meter_panels: HashMap::new(),
+            docked_rotator_panels: HashMap::new(),
+            docked_stage_panels: HashMap::new(),
+            docked_comedi_panels: HashMap::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            docked_config_driven_panels: HashMap::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            grpc_ui_config_cache: HashMap::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            config_cache: {
+                let mut cache = DeviceConfigCache::new();
+                if let Err(e) = cache.load_all() {
+                    tracing::warn!("Failed to load device configs at startup: {}", e);
+                }
+                cache
+            },
+            docked_command_widgets: HashMap::new(),
+            control_panel_layout_mode,
+            settings_window: crate::settings::SettingsWindow::default(),
+            app_settings,
+            shortcut_manager,
+            cheat_sheet_panel: CheatSheetPanel::new(),
+            show_cheat_sheet: false,
+            wasm_connection: WasmConnectionState::default(),
+        }
+    }
+
     /// Create the default dock layout
     fn default_dock_state() -> DockState<Panel> {
         // Start with Instruments + ImageViewer as tabbed panels in the main content area
@@ -1411,6 +1632,7 @@ impl DaqApp {
     }
 
     /// Attempt to connect to the daemon
+    #[cfg(not(target_arch = "wasm32"))]
     fn connect(&mut self) {
         if self.connection.is_busy() {
             return;
@@ -1445,6 +1667,7 @@ impl DaqApp {
     }
 
     /// Disconnect from the daemon
+    #[cfg(not(target_arch = "wasm32"))]
     fn disconnect(&mut self) {
         self.client = None;
         self.daemon_version = None;
@@ -1455,6 +1678,7 @@ impl DaqApp {
     }
 
     /// Switch to a different daemon mode
+    #[cfg(not(target_arch = "wasm32"))]
     fn switch_daemon_mode(&mut self, mode: DaemonMode) {
         tracing::info!("Switching daemon mode to: {}", mode.label());
 
@@ -1498,6 +1722,7 @@ impl DaqApp {
     }
 
     /// Render the top menu bar
+    #[cfg(not(target_arch = "wasm32"))]
     fn render_menu_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
@@ -1699,6 +1924,7 @@ impl DaqApp {
 
     /// Render version mismatch warning (if applicable)
     /// Show a transient banner when recovering from a crash (bd-izdj.30)
+    #[cfg(not(target_arch = "wasm32"))]
     fn render_crash_recovery_banner(&mut self, ctx: &egui::Context) {
         if !self.recovered_from_crash {
             return;
@@ -1720,6 +1946,7 @@ impl DaqApp {
             });
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn render_version_warning(&self, ctx: &egui::Context) {
         // Only show warning if connected and versions don't match
         if self.connection.state().is_connected() {
@@ -1744,6 +1971,7 @@ impl DaqApp {
     }
 
     /// Render the connection status bar
+    #[cfg(not(target_arch = "wasm32"))]
     fn render_status_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -2004,6 +2232,7 @@ impl DaqApp {
         self.pvcam_streaming = true;
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn poll_logs(&mut self) {
         // Drain all pending log events from the channel
         while let Ok(event) = self.log_receiver.try_recv() {
@@ -2034,7 +2263,9 @@ impl DaqApp {
         self.docked_rotator_panels.clear();
         self.docked_stage_panels.clear();
         self.docked_comedi_panels.clear();
+        #[cfg(not(target_arch = "wasm32"))]
         self.docked_config_driven_panels.clear();
+        #[cfg(not(target_arch = "wasm32"))]
         self.grpc_ui_config_cache.clear();
         self.docked_command_widgets.clear();
     }
@@ -2050,12 +2281,15 @@ impl DaqApp {
         self.docked_rotator_panels.remove(&id);
         self.docked_stage_panels.remove(&id);
         self.docked_comedi_panels.remove(&id);
+        #[cfg(not(target_arch = "wasm32"))]
         self.docked_config_driven_panels.remove(&id);
+        #[cfg(not(target_arch = "wasm32"))]
         self.grpc_ui_config_cache.remove(&id);
         self.docked_command_widgets.remove(&id);
         self.device_panel_info.remove(&id)
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn poll_connect_results(&mut self, ctx: &egui::Context) {
         // Poll connection manager for results
         if let Some((client, daemon_version)) =
@@ -2137,6 +2371,7 @@ impl DaqApp {
     }
 
     /// Check if a health check should be spawned and spawn it.
+    #[cfg(not(target_arch = "wasm32"))]
     fn maybe_spawn_health_check(&mut self) {
         if !self.connection.should_health_check() {
             return;
@@ -2154,7 +2389,7 @@ impl DaqApp {
 
         self.runtime.spawn(async move {
             // Measure RTT for the health check (bd-j3xz.3.3)
-            let start = std::time::Instant::now();
+            let start = crate::time::Instant::now();
             match client.health_check().await {
                 Ok(()) => {
                     let rtt_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -2168,6 +2403,7 @@ impl DaqApp {
     }
 
     /// Poll for health check results.
+    #[cfg(not(target_arch = "wasm32"))]
     fn poll_health_checks(&mut self) {
         while let Ok(result) = self.health_rx.try_recv() {
             match result {
@@ -2197,6 +2433,7 @@ impl DaqApp {
     }
 
     /// Update the logging panel's connection diagnostics from the ConnectionManager (bd-j3xz.3.3).
+    #[cfg(not(target_arch = "wasm32"))]
     fn update_connection_diagnostics(&mut self) {
         let health_status = self.connection.health_status();
 
@@ -2219,6 +2456,7 @@ impl DaqApp {
     }
 
     /// Process auto-connect state machine
+    #[cfg(not(target_arch = "wasm32"))]
     fn process_auto_connect(&mut self, ctx: &egui::Context) {
         use std::time::Duration;
 
@@ -2291,7 +2529,7 @@ impl DaqApp {
         // Increment epoch to invalidate stale results
         self.device_reconcile_epoch = self.device_reconcile_epoch.wrapping_add(1);
         let epoch = self.device_reconcile_epoch;
-        let daemon_url = self.daemon_address.to_string();
+        let daemon_url = self.current_daemon_url();
 
         // Clone what we need for async task
         let mut client = client.clone();
@@ -2331,9 +2569,11 @@ impl DaqApp {
                     devices,
                 } => {
                     // Ignore stale results
-                    if epoch != self.device_reconcile_epoch
-                        || daemon_url != self.daemon_address.to_string()
-                    {
+                    let stale = epoch != self.device_reconcile_epoch;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let stale = stale || daemon_url != self.daemon_address.to_string();
+                    let _ = &daemon_url; // suppress unused warning on WASM
+                    if stale {
                         tracing::debug!(
                             epoch,
                             current_epoch = self.device_reconcile_epoch,
@@ -2350,9 +2590,11 @@ impl DaqApp {
                     error,
                 } => {
                     // Ignore stale errors
-                    if epoch != self.device_reconcile_epoch
-                        || daemon_url != self.daemon_address.to_string()
-                    {
+                    let stale = epoch != self.device_reconcile_epoch;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let stale = stale || daemon_url != self.daemon_address.to_string();
+                    let _ = &daemon_url;
+                    if stale {
                         continue;
                     }
 
@@ -2427,12 +2669,15 @@ impl DaqApp {
         self.docked_rotator_panels.remove(&panel_id);
         self.docked_stage_panels.remove(&panel_id);
         self.docked_comedi_panels.remove(&panel_id);
+        #[cfg(not(target_arch = "wasm32"))]
         self.docked_config_driven_panels.remove(&panel_id);
+        #[cfg(not(target_arch = "wasm32"))]
         self.grpc_ui_config_cache.remove(&panel_id);
         self.docked_command_widgets.remove(&panel_id);
     }
 
     /// Detect connection state transitions and handle them
+    #[cfg(not(target_arch = "wasm32"))]
     fn detect_connection_transitions(&mut self) {
         let is_connected = self.connection.state().is_connected();
 
@@ -2442,6 +2687,48 @@ impl DaqApp {
         }
 
         self.was_connected = is_connected;
+    }
+
+    /// Get the current daemon URL as a string (cross-platform helper).
+    /// On native, delegates to `DaemonAddress::to_string()`.
+    /// On WASM, returns the URL input from `WasmConnectionState`.
+    fn current_daemon_url(&self) -> String {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.daemon_address.to_string()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.wasm_connection.url_input.clone()
+        }
+    }
+
+    /// Connect to a daemon from the WASM browser GUI.
+    /// `DaqClient::connect_web` is synchronous (no async needed) — it creates
+    /// the tonic-web-wasm-client channels immediately. Device list is fetched
+    /// asynchronously after connection.
+    #[cfg(target_arch = "wasm32")]
+    fn wasm_connect(&mut self, ctx: &egui::Context) {
+        let url = self.wasm_connection.url_input.trim().to_string();
+        if url.is_empty() {
+            self.wasm_connection.status = "Enter a server URL".to_string();
+            return;
+        }
+
+        self.wasm_connection.connecting = true;
+        self.wasm_connection.status = "Connecting...".to_string();
+
+        // connect_web is synchronous — creates gRPC-web channel immediately
+        let client = client::DaqClient::connect_web(&url);
+        self.client = Some(client);
+        self.wasm_connection.connecting = false;
+        self.wasm_connection.status = "Connected".to_string();
+        self.was_connected = true;
+
+        // Trigger device list refresh
+        self.logging_panel
+            .info("Connection", &format!("Connected to {}", url));
+        ctx.request_repaint();
     }
 
     /// Check and handle global keyboard shortcuts
@@ -2742,7 +3029,10 @@ impl DaqTabViewer<'_> {
 
                     ui.label(format!("Device: {}", device_info.name));
                     ui.label(format!("ID: {}", device_info.id));
+                    #[cfg(not(target_arch = "wasm32"))]
                     ui.label(format!("Daemon: {}", self.app.daemon_address));
+                    #[cfg(target_arch = "wasm32")]
+                    ui.label(format!("Daemon: {}", self.app.wasm_connection.url_input));
 
                     ui.add_space(10.0);
                     ui.label("This device is not available on the connected daemon.");
@@ -2767,41 +3057,45 @@ impl DaqTabViewer<'_> {
             }
         }
 
-        // --- Priority 0: gRPC-driven panel from device metadata ---
-        let grpc_config = self
-            .app
-            .grpc_ui_config_cache
-            .entry(panel_id)
-            .or_insert_with(|| {
-                crate::panels::instrument_manager::dispatch::try_grpc_ui_config(device_info)
-            });
-        if let Some(panel_config) = grpc_config {
-            let panel = self
-                .app
-                .docked_config_driven_panels
-                .entry(panel_id)
-                .or_insert_with(|| ConfigDrivenPanel::new(panel_config.clone()));
-            ui.push_id(("docked", panel_id), |ui| {
-                panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
-            });
-            return;
-        }
-
-        // --- Priority 1: Config-driven panel from local TOML ---
-        if let Some(panel_config) = self
-            .app
-            .config_cache
-            .get_ui_config_for_driver(&device_info.driver_type)
+        // --- Priority 0 & 1: Config-driven panels (native-only, uses hardware crate) ---
+        #[cfg(not(target_arch = "wasm32"))]
         {
-            let panel = self
+            // Priority 0: gRPC-driven panel from device metadata
+            let grpc_config = self
                 .app
-                .docked_config_driven_panels
+                .grpc_ui_config_cache
                 .entry(panel_id)
-                .or_insert_with(|| ConfigDrivenPanel::new(panel_config.clone()));
-            ui.push_id(("docked", panel_id), |ui| {
-                panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
-            });
-            return;
+                .or_insert_with(|| {
+                    crate::panels::instrument_manager::dispatch::try_grpc_ui_config(device_info)
+                });
+            if let Some(panel_config) = grpc_config {
+                let panel = self
+                    .app
+                    .docked_config_driven_panels
+                    .entry(panel_id)
+                    .or_insert_with(|| ConfigDrivenPanel::new(panel_config.clone()));
+                ui.push_id(("docked", panel_id), |ui| {
+                    panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
+                });
+                return;
+            }
+
+            // --- Priority 1: Config-driven panel from local TOML ---
+            if let Some(panel_config) = self
+                .app
+                .config_cache
+                .get_ui_config_for_driver(&device_info.driver_type)
+            {
+                let panel = self
+                    .app
+                    .docked_config_driven_panels
+                    .entry(panel_id)
+                    .or_insert_with(|| ConfigDrivenPanel::new(panel_config.clone()));
+                ui.push_id(("docked", panel_id), |ui| {
+                    panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
+                });
+                return;
+            }
         }
 
         let layout_mode = self.app.control_panel_layout_mode;
@@ -2865,18 +3159,46 @@ impl DaqTabViewer<'_> {
 
 impl eframe::App for DaqApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.poll_logs();
-        self.poll_connect_results(ctx);
+        // --- Native-only polling (ConnectionManager, logs, auto-connect) ---
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.poll_logs();
+            self.poll_connect_results(ctx);
+            self.update_connection_diagnostics(); // bd-j3xz.3.3
+            self.process_auto_connect(ctx);
+            self.detect_connection_transitions();
+        }
+
+        // --- WASM connection polling ---
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(ref mut rx) = self.wasm_connection.connect_rx {
+                if let Ok(result) = rx.try_recv() {
+                    self.wasm_connection.connecting = false;
+                    match result {
+                        Ok(client) => {
+                            self.wasm_connection.status = "Connected".to_string();
+                            self.client = Some(client);
+                            self.was_connected = true;
+                        }
+                        Err(e) => {
+                            self.wasm_connection.status = format!("Error: {}", e);
+                        }
+                    }
+                    self.wasm_connection.connect_rx = None;
+                }
+            }
+        }
+
+        // --- Cross-platform polling ---
         self.poll_device_reconcile(); // bd-vjzq
-        self.maybe_spawn_health_check();
-        self.poll_health_checks();
-        self.update_connection_diagnostics(); // bd-j3xz.3.3
 
-        // Process auto-connect state machine
-        self.process_auto_connect(ctx);
-
-        // Detect connection state transitions (for panel refresh on connect)
-        self.detect_connection_transitions();
+        // Health checks use ConnectionManager (native-only)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.maybe_spawn_health_check();
+            self.poll_health_checks();
+        }
 
         // Check global keyboard shortcuts
         self.check_global_shortcuts(ctx);
@@ -2888,10 +3210,43 @@ impl eframe::App for DaqApp {
             }
         });
 
-        self.render_menu_bar(ctx);
-        self.render_version_warning(ctx);
-        self.render_crash_recovery_banner(ctx);
-        self.render_status_bar(ctx);
+        // --- Native-only rendering (menu bar, status bars, crash recovery) ---
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.render_menu_bar(ctx);
+            self.render_version_warning(ctx);
+            self.render_crash_recovery_banner(ctx);
+            self.render_status_bar(ctx);
+        }
+
+        // --- WASM menu bar with connection UI ---
+        #[cfg(target_arch = "wasm32")]
+        {
+            egui::TopBottomPanel::top("wasm_menu_bar").show(ctx, |ui| {
+                egui::menu::bar(ui, |ui| {
+                    ui.label(egui::RichText::new("DAQ Control Panel").strong());
+                    ui.separator();
+                    ui.label("Server:");
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut self.wasm_connection.url_input)
+                            .desired_width(250.0),
+                    );
+                    if self.wasm_connection.connecting {
+                        ui.spinner();
+                    } else if ui.button("Connect").clicked()
+                        || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                    {
+                        self.wasm_connect(ctx);
+                    }
+                    ui.separator();
+                    if self.client.is_some() {
+                        ui.colored_label(egui::Color32::GREEN, "Connected");
+                    } else {
+                        ui.label(&self.wasm_connection.status);
+                    }
+                });
+            });
+        }
 
         // Render settings window
         if self.settings_window.show(ctx, &mut self.app_settings) {
@@ -2904,14 +3259,20 @@ impl eframe::App for DaqApp {
             ctx.set_zoom_factor(self.app_settings.appearance.ui_scale);
         }
 
-        let error_count = self.connection.health_status().total_errors;
-        let error_count = if error_count > 0 {
-            Some(error_count)
-        } else {
-            None
-        };
-        self.status_bar
-            .show(ctx, self.connection.state(), error_count);
+        // --- Status bar (platform-specific) ---
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let error_count = self.connection.health_status().total_errors;
+            let error_count = if error_count > 0 {
+                Some(error_count)
+            } else {
+                None
+            };
+            self.status_bar
+                .show(ctx, self.connection.state(), error_count);
+        }
+        #[cfg(target_arch = "wasm32")]
+        self.status_bar.show_simple(ctx, self.client.is_some());
 
         // Render Dock Area
         let mut dock_state = self
@@ -3029,16 +3390,16 @@ impl eframe::App for DaqApp {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        // Persist daemon address via AppSettings (single source of truth)
-        if self.connection.state().is_connected() {
-            self.app_settings.connection.daemon_address =
-                self.daemon_address.original().to_string();
+        // Native-only: persist daemon address, clear legacy keys, update session file
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.connection.state().is_connected() {
+                self.app_settings.connection.daemon_address =
+                    self.daemon_address.original().to_string();
+            }
+            clear_legacy_daemon_address(storage);
+            write_session_file(self.daemon_address.as_str());
         }
-        // Clear legacy key if still present (one-time cleanup)
-        clear_legacy_daemon_address(storage);
-
-        // Update session file with current daemon URL (bd-izdj.30)
-        write_session_file(self.daemon_address.as_str());
 
         if let Some(dock_state) = &self.dock_state {
             eframe::set_value(storage, eframe::APP_KEY, dock_state);
@@ -3073,7 +3434,8 @@ impl eframe::App for DaqApp {
 
 impl Drop for DaqApp {
     fn drop(&mut self) {
-        // Mark clean shutdown — remove session file (bd-izdj.30)
+        // Native-only: mark clean shutdown and stop daemon
+        #[cfg(not(target_arch = "wasm32"))]
         clear_session_file();
 
         tracing::debug!("DaqApp shutting down, cleaning up device panel state");
@@ -3086,9 +3448,10 @@ impl Drop for DaqApp {
             self.remove_panel_data(id);
         }
 
-        // Shutdown daemon launcher if running
+        // Native-only: shutdown daemon launcher if running
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(launcher) = self.daemon_launcher.take() {
-            drop(launcher); // DaemonLauncher should have its own Drop that terminates the process
+            drop(launcher);
         }
 
         tracing::debug!("DaqApp shutdown complete");

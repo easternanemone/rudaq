@@ -6,9 +6,9 @@
 //! - Wavelength control (690-1040nm)
 //! - Power display gauge
 
+use crate::runtime::Runtime;
+use crate::time::{Duration, Instant};
 use egui::Ui;
-use std::time::{Duration, Instant};
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use tracing;
 

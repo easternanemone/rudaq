@@ -21,11 +21,11 @@
 //! and then put back. This avoids borrowing `self.sections[idx]` simultaneously
 //! with `self.dispatch_*()` methods.
 
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
+use crate::runtime::Runtime;
 use eframe::egui;
 use egui::Ui;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::widgets::{DeviceControlWidget, Gauge};

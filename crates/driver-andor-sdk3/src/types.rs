@@ -47,7 +47,7 @@ impl TryFrom<&str> for TriggerMode {
     }
 }
 
-/// Gate mode for MCP (Micro-Channel Plate) intensifier.
+/// Gate mode for MCP (Multi-Channel Plate) intensifier.
 ///
 /// SDK3 enum values: "CW On", "CW Off", "Fire Only", "Fire and Gate", "DDG".
 /// We map `CWOn` → "CW On" (gate always open, for continuous imaging),

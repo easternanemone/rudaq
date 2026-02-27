@@ -6,10 +6,10 @@
 //!
 //! Each capability renders in 1-2 rows using standard egui widgets.
 
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
+use crate::runtime::Runtime;
 use egui::Ui;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::device_ext::DeviceInfoExt;

@@ -3,8 +3,8 @@
 //! This module provides functionality to auto-start and manage the rust-daq-daemon
 //! process from the GUI application.
 
+use crate::time::{Duration, Instant};
 use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
 
 /// Daemon mode configuration determining how the GUI connects to a daemon.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -237,7 +237,7 @@ impl DaemonLauncher {
             }
 
             // Wait up to 2 seconds for graceful exit
-            let start = std::time::Instant::now();
+            let start = crate::time::Instant::now();
             let timeout = std::time::Duration::from_secs(2);
             while start.elapsed() < timeout {
                 match child.try_wait() {

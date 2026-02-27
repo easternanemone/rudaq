@@ -3,9 +3,9 @@
 //! Provides large numeric display of counter values with rate calculation,
 //! frequency display, and totalizer features.
 
+use crate::time::Instant;
 use eframe::egui::{self, Color32, RichText, Ui};
 use std::collections::VecDeque;
-use std::time::Instant;
 use tokio::sync::mpsc;
 
 /// Maximum history for rate calculation

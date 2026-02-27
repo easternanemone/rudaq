@@ -4,8 +4,8 @@
 //!
 //! This widget is available for integration but not currently used.
 
+use crate::time::{Duration, Instant};
 use std::collections::VecDeque;
-use std::time::{Duration, Instant};
 
 use egui::{Align2, Area, Color32, Context, Frame, Id, Order, Pos2, RichText, Vec2};
 

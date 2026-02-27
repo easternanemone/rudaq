@@ -1,9 +1,9 @@
 //! Run comparison panel - overlay plots from multiple runs for visual analysis.
 
+use crate::runtime::Runtime;
 use eframe::egui;
 use egui_plot::{Corner, Legend, Line, Plot, PlotPoints};
 use std::collections::{HashMap, HashSet};
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};
@@ -52,7 +52,7 @@ pub struct RunComparisonPanel {
     /// Error message
     error: Option<String>,
     /// Last refresh timestamp
-    last_refresh: Option<std::time::Instant>,
+    last_refresh: Option<crate::time::Instant>,
     /// Pending action
     pending_action: Option<PendingAction>,
     /// Async action result sender
@@ -94,7 +94,7 @@ impl RunComparisonPanel {
                         ActionResult::Refresh(result) => match result {
                             Ok(acquisitions) => {
                                 self.available_runs = acquisitions;
-                                self.last_refresh = Some(std::time::Instant::now());
+                                self.last_refresh = Some(crate::time::Instant::now());
                                 self.error = None;
                             }
                             Err(e) => self.error = Some(e),

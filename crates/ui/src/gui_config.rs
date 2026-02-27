@@ -229,6 +229,7 @@ fn discover_config_path() -> Option<PathBuf> {
     }
 
     // 3. ~/.config/rust-daq/gui.toml (XDG-style user config)
+    #[cfg(not(target_arch = "wasm32"))]
     if let Some(config_dir) = dirs::config_dir() {
         let user_config = config_dir.join("rust-daq/gui.toml");
         if user_config.is_file() {

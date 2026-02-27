@@ -11,6 +11,7 @@ use eframe::egui;
 
 use crate::icons;
 use crate::layout::{self, colors};
+#[cfg(not(target_arch = "wasm32"))]
 use client::reconnect::ConnectionState;
 
 /// Status bar widget displaying connection state and contextual information.
@@ -34,7 +35,7 @@ pub struct StatusMessage {
     /// The message level (determines styling)
     pub level: StatusLevel,
     /// When this message was created
-    pub created_at: std::time::Instant,
+    pub created_at: crate::time::Instant,
     /// How long to show this message (None = until manually cleared)
     pub duration: Option<std::time::Duration>,
 }
@@ -101,7 +102,7 @@ impl StatusBar {
         self.status_message = Some(StatusMessage {
             text: text.into(),
             level,
-            created_at: std::time::Instant::now(),
+            created_at: crate::time::Instant::now(),
             duration: Some(std::time::Duration::from_secs(5)),
         });
     }
@@ -112,7 +113,7 @@ impl StatusBar {
         self.status_message = Some(StatusMessage {
             text: text.into(),
             level,
-            created_at: std::time::Instant::now(),
+            created_at: crate::time::Instant::now(),
             duration: None,
         });
     }
@@ -133,17 +134,8 @@ impl StatusBar {
         }
     }
 
-    /// Render the status bar.
-    ///
-    /// # Arguments
-    /// * `ctx` - The egui context
-    /// * `connection_state` - Current connection state
-    /// * `error_count` - Optional number of errors to display
-    ///
-    /// # Example
-    /// ```ignore
-    /// status_bar.show(ctx, self.connection.state(), Some(5));
-    /// ```
+    /// Render the status bar (native — includes connection state indicator).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn show(
         &mut self,
         ctx: &egui::Context,
@@ -203,7 +195,44 @@ impl StatusBar {
         }
     }
 
+    /// Render the status bar (WASM — simplified, no ConnectionState).
+    #[cfg(target_arch = "wasm32")]
+    pub fn show_simple(&mut self, ctx: &egui::Context, connected: bool) {
+        self.check_status_expiry();
+
+        egui::TopBottomPanel::bottom("app_status_bar")
+            .exact_height(layout::STATUS_BAR_HEIGHT)
+            .show(ctx, |ui| {
+                ui.horizontal_centered(|ui| {
+                    self.render_breadcrumb(ui);
+                    ui.add_space(ui.available_width() * 0.1);
+                    self.render_status_message(ui);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let version = env!("CARGO_PKG_VERSION");
+                        ui.label(
+                            egui::RichText::new(format!("v{}", version))
+                                .small()
+                                .color(colors::MUTED),
+                        );
+                        ui.add_space(8.0);
+                        let (icon, color, tooltip) = if connected {
+                            (icons::status::CONNECTED, colors::CONNECTED, "Connected")
+                        } else {
+                            (
+                                icons::status::DISCONNECTED,
+                                colors::DISCONNECTED,
+                                "Disconnected",
+                            )
+                        };
+                        ui.label(egui::RichText::new(icon).color(color).size(16.0))
+                            .on_hover_text(tooltip);
+                    });
+                });
+            });
+    }
+
     /// Render the right section (connection indicator and version).
+    #[cfg(not(target_arch = "wasm32"))]
     fn render_right_section(
         &self,
         ui: &mut egui::Ui,
@@ -280,7 +309,7 @@ impl StatusBar {
                 format!("Reconnecting (attempt {})", attempt)
             }
             ConnectionState::CircuitBreaker { cooldown_until, .. } => {
-                let now = std::time::Instant::now();
+                let now = crate::time::Instant::now();
                 let remaining = if *cooldown_until > now {
                     (*cooldown_until - now).as_secs_f64()
                 } else {
@@ -335,9 +364,9 @@ mod tests {
         bar.status_message = Some(StatusMessage {
             text: "Test".to_string(),
             level: StatusLevel::Info,
-            created_at: std::time::Instant::now()
+            created_at: crate::time::Instant::now()
                 .checked_sub(std::time::Duration::from_secs(10))
-                .unwrap_or_else(std::time::Instant::now),
+                .unwrap_or_else(crate::time::Instant::now),
             duration: Some(std::time::Duration::from_secs(5)),
         });
 
@@ -354,7 +383,7 @@ mod tests {
         bar.status_message = Some(StatusMessage {
             text: "Persistent".to_string(),
             level: StatusLevel::Warning,
-            created_at: std::time::Instant::now()
+            created_at: crate::time::Instant::now()
                 .checked_sub(std::time::Duration::from_secs(100))
                 .unwrap(),
             duration: None, // Persistent

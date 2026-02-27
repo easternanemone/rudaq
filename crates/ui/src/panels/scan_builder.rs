@@ -3,15 +3,15 @@
 //! This panel provides a simplified UI for scientists to configure parameter scans
 //! by selecting devices from the daemon and entering scan parameters through a form.
 
+use crate::time::Instant;
 use std::collections::HashMap;
-use std::time::Instant;
 
+use crate::runtime::JoinHandle;
+use crate::runtime::Runtime;
 use eframe::egui;
 use egui_plot::{Legend, Line, Plot, PlotPoints, Points};
 use futures::StreamExt;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
 
 use crate::device_ext::DeviceInfoExt;
 use crate::widgets::{offline_notice, MetadataEditor, OfflineContext};

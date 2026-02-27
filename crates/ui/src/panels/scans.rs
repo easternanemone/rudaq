@@ -1,7 +1,7 @@
 //! Scans panel - configure and monitor multi-axis scans.
 
+use crate::runtime::Runtime;
 use eframe::egui;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};
@@ -74,7 +74,7 @@ pub struct ScansPanel {
     /// Available devices (for wizard)
     devices: Vec<protocol::daq::DeviceInfo>,
     /// Last refresh timestamp
-    last_refresh: Option<std::time::Instant>,
+    last_refresh: Option<crate::time::Instant>,
     /// Error message
     error: Option<String>,
     /// Status message
@@ -117,7 +117,7 @@ impl ScansPanel {
                             Ok((scans, devices)) => {
                                 self.scans = scans;
                                 self.devices = devices;
-                                self.last_refresh = Some(std::time::Instant::now());
+                                self.last_refresh = Some(crate::time::Instant::now());
                                 self.status = Some(format!("Loaded {} scans", self.scans.len()));
                                 self.error = None;
                             }

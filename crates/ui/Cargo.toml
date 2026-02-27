@@ -41,8 +41,23 @@ log = "0.4"
 serde_json.workspace = true
 futures.workspace = true
 
-# --- Dependencies used by both native standalone and web ---
-# (egui-snarl, undo, egui_code_editor are used by graph/experiment panels — standalone only)
+# --- Cross-platform egui panel dependencies (used by both standalone and web) ---
+egui_extras = { version = "0.33", default-features = false, optional = true }
+egui_dock = { version = "0.18", optional = true, features = ["serde"] }
+egui_plot = { version = "0.34", optional = true }
+egui-phosphor = { version = "0.11", optional = true }
+
+# --- Cross-platform dependencies (pure Rust, compile on native + WASM) ---
+egui-snarl = { version = "0.9", features = ["serde"] }
+undo = "0.52"
+egui_code_editor = "0.2.20"
+chrono.workspace = true
+toml.workspace = true
+url = "2"
+find_peaks = "0.1"
+ordered-float = "4.5"
+web-time = "1"
+common = { path = "../common" }
 
 # --- Native-only dependencies ---
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -58,16 +73,8 @@ eframe = { version = "0.33", default-features = false, features = [
     "x11",
 ], optional = true }
 
-egui_extras = { version = "0.33", default-features = false, optional = true }
-egui_dock = { version = "0.18", optional = true, features = ["serde"] }
-egui_plot = { version = "0.34", optional = true }
-egui-phosphor = { version = "0.11", optional = true }
 dark-light = { version = "2.0", optional = true }
 
-# Node graph editor (standalone panels only)
-egui-snarl = { version = "0.9", features = ["serde"] }
-undo = "0.52"
-egui_code_editor = "0.2.20"
 
 # Rerun for embedded viewer
 rerun = { version = "0.27.3", default-features = false, features = [
@@ -78,11 +85,11 @@ rerun = { version = "0.27.3", default-features = false, features = [
 mimalloc = { version = "0.1", optional = true }
 bytemuck = { version = "1.14", optional = true }
 
+# Native-only workspace crates (depend on mio, serial2, etc.)
 experiment = { path = "../experiment" }
-url = "2"
+hardware = { path = "../hardware" }
+
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-chrono.workspace = true
-toml.workspace = true
 
 # CLI parsing and daemon process management
 clap = { version = "4", features = ["derive"] }
@@ -90,14 +97,9 @@ which = "6"
 dirs = "5.0"
 
 # Local PVCAM driver (only needed if running daemon locally, not for gRPC streaming)
-common = { path = "../common" }
 driver-pvcam = { path = "../driver-pvcam", optional = true }
-hardware = { path = "../hardware" }
 rfd = { version = "0.17.2", optional = true }
 
-# Peak detection for adaptive scans
-find_peaks = "0.1"
-ordered-float = "4.5"
 
 # HDF5 storage for run comparison and annotation (optional)
 storage = { path = "../storage", optional = true }
@@ -114,8 +116,10 @@ tokio = { workspace = true, features = ["sync", "macros"] }
 eframe = { version = "0.33", default-features = false, features = [
     "default_fonts",
     "glow",
+    "persistence",
 ], optional = true }
 
+js-sys = "0.3"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement"] }
@@ -139,8 +143,8 @@ pvcam_hardware = ["pvcam_sdk"]
 # HDF5 storage support for run comparison and annotation
 storage_hdf5 = ["dep:hdf5", "dep:storage", "storage/storage_hdf5"]
 
-# WASM web build — lightweight browser-based GUI
-web = ["dep:eframe"]
+# WASM web build — full browser-based GUI (same panels as standalone)
+web = ["dep:eframe", "dep:egui_extras", "dep:egui_dock", "dep:egui_plot", "dep:egui-phosphor"]
 
 [dev-dependencies]
 tempfile.workspace = true

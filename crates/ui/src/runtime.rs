@@ -11,6 +11,8 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use tokio::runtime::Runtime;
+#[cfg(not(target_arch = "wasm32"))]
+pub use tokio::task::JoinHandle;
 
 #[cfg(target_arch = "wasm32")]
 mod wasm_runtime {
@@ -50,8 +52,39 @@ mod wasm_runtime {
     /// GUI code typically ignores the handle (fire-and-forget pattern),
     /// but some panels store it as an `Option<JoinHandle<()>>` to track
     /// whether a background task is running.
+    ///
+    /// **WASM limitation**: The return value `T` is dropped inside `spawn()`
+    /// and cannot be retrieved. The type parameter exists solely for API
+    /// compatibility with native code — do not attempt to `.await` this handle.
+    /// GUI code should communicate results via channels, not return values.
     pub struct JoinHandle<T>(pub(crate) std::marker::PhantomData<T>);
+
+    impl<T> JoinHandle<T> {
+        /// No-op abort on WASM — spawned futures run detached on the browser
+        /// event loop and cannot be cancelled.
+        pub fn abort(&self) {}
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 pub use wasm_runtime::{JoinHandle, Runtime};
+
+// Cross-platform async sleep.
+// On native: delegates to tokio::time::sleep (requires tokio time driver).
+// On WASM: uses setTimeout via js_sys::Promise (browser event loop).
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use tokio::time::sleep;
+
+/// Async sleep for WASM — uses `setTimeout` under the hood.
+#[cfg(target_arch = "wasm32")]
+pub async fn sleep(duration: std::time::Duration) {
+    let ms = duration.as_millis() as i32;
+    let promise = js_sys::Promise::new(&mut |resolve, _| {
+        web_sys::window()
+            .expect("no global window")
+            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms)
+            .expect("setTimeout failed");
+    });
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+}
