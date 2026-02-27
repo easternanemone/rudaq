@@ -4,9 +4,9 @@
 
 use std::path::PathBuf;
 
+use crate::runtime::Runtime;
 use egui_snarl::ui::{BackgroundPattern, SnarlStyle, SnarlWidget, WireLayer, WireStyle};
 use egui_snarl::{NodeId, Snarl};
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use undo::Record;
 
@@ -770,12 +770,17 @@ impl ExperimentDesignerPanel {
 
     /// Open file dialog and load selected file.
     fn open_file_dialog(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("Experiment Graph", &[GRAPH_FILE_EXTENSION])
             .add_filter("All Files", &["*"])
             .pick_file()
         {
             self.load_from_path(&path);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.set_status("File dialogs are not available in the browser");
         }
     }
 
@@ -810,12 +815,17 @@ impl ExperimentDesignerPanel {
 
     /// Open save dialog and save to selected file.
     fn save_file_dialog(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("Experiment Graph", &[GRAPH_FILE_EXTENSION])
             .set_file_name("experiment.expgraph")
             .save_file()
         {
             self.save_to_path(&path);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.set_status("File dialogs are not available in the browser");
         }
     }
 
@@ -864,6 +874,7 @@ impl ExperimentDesignerPanel {
             .unwrap_or_else(|| "experiment.rhai".to_string());
 
         // Open save dialog
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("Rhai Script", &["rhai"])
             .set_file_name(&suggested_name)
@@ -877,6 +888,11 @@ impl ExperimentDesignerPanel {
                     self.set_status(format!("Export failed: {}", e));
                 }
             }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (code, suggested_name); // suppress unused variable warnings
+            self.set_status("File dialogs are not available in the browser");
         }
     }
 

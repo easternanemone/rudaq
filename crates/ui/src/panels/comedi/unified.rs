@@ -2,8 +2,8 @@
 //!
 //! Combines all subsystem panels into a tabbed interface with device status overview.
 
+use crate::runtime::Runtime;
 use eframe::egui::{self, Color32, RichText, Ui};
-use tokio::runtime::Runtime;
 
 use crate::widgets::{offline_notice, OfflineContext};
 use client::DaqClient;

@@ -3,11 +3,11 @@
 //! Provides DMM-style voltage readout with large numeric display,
 //! unit selection, statistics, and bar graph visualization.
 
+use crate::runtime::Runtime;
 use eframe::egui::{self, Color32, RichText, Ui};
 use futures::StreamExt;
 use std::collections::VecDeque;
 use std::time::Instant;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use client::DaqClient;

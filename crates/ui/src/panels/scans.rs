@@ -1,7 +1,7 @@
 //! Scans panel - configure and monitor multi-axis scans.
 
+use crate::runtime::Runtime;
 use eframe::egui;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};

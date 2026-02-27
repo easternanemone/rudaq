@@ -18,6 +18,8 @@
 //! rust-daq-gui --lab-hardware
 //! ```
 
+mod runtime;
+
 #[cfg(feature = "standalone")]
 mod app;
 mod client;

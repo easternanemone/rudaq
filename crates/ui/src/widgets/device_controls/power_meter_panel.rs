@@ -38,8 +38,8 @@
 //! Display       → "5.0000 µW" (scaled for readability)
 //! ```
 
+use crate::runtime::Runtime;
 use egui::Ui;
-use tokio::runtime::Runtime;
 
 use crate::widgets::device_controls::{DeviceControlWidget, DevicePanelState};
 use crate::widgets::Gauge;

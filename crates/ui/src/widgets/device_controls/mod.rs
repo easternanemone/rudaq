@@ -15,8 +15,8 @@ pub use power_meter_panel::PowerMeterControlPanel;
 pub use rotator_panel::RotatorControlPanel;
 pub use stage_panel::StageControlPanel;
 
+use crate::runtime::Runtime;
 use egui::Ui;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use client::DaqClient;

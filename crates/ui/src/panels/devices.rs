@@ -9,8 +9,8 @@
 //! - Device-specific control panels (MaiTai, PowerMeter, Rotators, etc.)
 //! - PVCAM PP Features and Smart Streaming
 
+use crate::runtime::Runtime;
 use eframe::egui;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::device_ext::DeviceInfoExt;

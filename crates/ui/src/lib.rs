@@ -20,36 +20,37 @@ pub mod log_capture;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod reconnect;
 
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod gui_log_layer;
 
-#[cfg(feature = "standalone")]
+// connection_state_ext depends on client::reconnect::ConnectionState (native-only)
+#[cfg(not(target_arch = "wasm32"))]
 pub mod connection_state_ext;
-#[cfg(feature = "standalone")]
+#[cfg(not(target_arch = "wasm32"))]
 pub use connection_state_ext::ConnectionStateExt;
 
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub(crate) mod device_ext;
 
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod app;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod export;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod graph;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod gui_config;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod icons;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod layout;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod panels;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod settings;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod shortcuts;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod theme;
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", feature = "web"))]
 pub mod widgets;

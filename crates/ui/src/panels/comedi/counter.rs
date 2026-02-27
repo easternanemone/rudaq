@@ -2,8 +2,8 @@
 //!
 //! Provides counter mode selection, count display, and pulse generation control.
 
+use crate::runtime::Runtime;
 use eframe::egui::{self, Color32, RichText, Ui};
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};

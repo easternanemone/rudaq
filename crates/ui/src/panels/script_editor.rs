@@ -4,6 +4,7 @@
 //! Changes to the script do NOT sync back to the graph (one-way export).
 
 use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
+#[cfg(not(target_arch = "wasm32"))]
 use rfd::FileDialog;
 
 /// Panel for editing Rhai scripts directly (ejected from visual mode).
@@ -122,6 +123,7 @@ impl ScriptEditorPanel {
     }
 
     fn save_as(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(path) = FileDialog::new()
             .add_filter("Rhai Script", &["rhai"])
             .set_file_name("script.rhai")
@@ -129,6 +131,10 @@ impl ScriptEditorPanel {
         {
             self.file_path = Some(path.clone());
             self.save();
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.status = Some("File dialogs are not available in the browser".to_string());
         }
     }
 

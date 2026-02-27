@@ -2,8 +2,8 @@
 //!
 //! Provides per-pin direction control and state display/control for digital I/O ports.
 
+use crate::runtime::Runtime;
 use eframe::egui::{self, Color32, RichText, Ui};
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};

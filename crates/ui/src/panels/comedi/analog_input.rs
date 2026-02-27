@@ -3,9 +3,9 @@
 //! Provides channel selection, voltage range configuration, and real-time
 //! voltage readout for analog input subsystems.
 
+use crate::runtime::Runtime;
 use eframe::egui::{self, Color32, RichText, Ui};
 use std::collections::HashMap;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};

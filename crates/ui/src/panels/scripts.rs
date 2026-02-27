@@ -3,12 +3,13 @@
 //! Phase 6 (bd-r8uq): Enhanced with Run/Stop controls, progress bars, and execution status.
 //! File upload and inline editor for writing/uploading scripts from the GUI.
 
+use crate::runtime::Runtime;
 use eframe::egui;
 use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
+#[cfg(not(target_arch = "wasm32"))]
 use rfd::FileDialog;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};
@@ -273,36 +274,43 @@ impl ScriptsPanel {
 
         // Handle file upload from dialog (outside toolbar closure to satisfy borrow checker)
         if file_upload_requested {
-            if let Some(path) = FileDialog::new()
-                .add_filter("Rhai Script", &["rhai"])
-                .pick_file()
+            #[cfg(not(target_arch = "wasm32"))]
             {
-                match std::fs::read_to_string(&path) {
-                    Ok(content) => {
-                        let name = path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string();
-                        if name.trim().is_empty() {
-                            self.error =
-                                Some("Selected file has an empty or invalid name".to_string());
-                        } else if content.trim().is_empty() {
-                            self.error = Some(format!("File '{}' is empty", name));
-                        } else if content.len() > MAX_SCRIPT_SIZE {
-                            self.error = Some(format!(
-                                "Script too large ({} bytes, max {})",
-                                content.len(),
-                                MAX_SCRIPT_SIZE
-                            ));
-                        } else {
-                            pending_upload = Some((name, content));
+                if let Some(path) = FileDialog::new()
+                    .add_filter("Rhai Script", &["rhai"])
+                    .pick_file()
+                {
+                    match std::fs::read_to_string(&path) {
+                        Ok(content) => {
+                            let name = path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string();
+                            if name.trim().is_empty() {
+                                self.error =
+                                    Some("Selected file has an empty or invalid name".to_string());
+                            } else if content.trim().is_empty() {
+                                self.error = Some(format!("File '{}' is empty", name));
+                            } else if content.len() > MAX_SCRIPT_SIZE {
+                                self.error = Some(format!(
+                                    "Script too large ({} bytes, max {})",
+                                    content.len(),
+                                    MAX_SCRIPT_SIZE
+                                ));
+                            } else {
+                                pending_upload = Some((name, content));
+                            }
+                        }
+                        Err(e) => {
+                            self.error = Some(format!("Failed to read file: {}", e));
                         }
                     }
-                    Err(e) => {
-                        self.error = Some(format!("Failed to read file: {}", e));
-                    }
                 }
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                self.error = Some("File dialogs are not available in the browser".to_string());
             }
         }
 
@@ -752,66 +760,80 @@ impl ScriptsPanel {
 
     /// Open a .rhai file into the editor
     fn open_file_into_editor(&mut self) {
-        if let Some(path) = FileDialog::new()
-            .add_filter("Rhai Script", &["rhai"])
-            .pick_file()
+        #[cfg(not(target_arch = "wasm32"))]
         {
-            match std::fs::read_to_string(&path) {
-                Ok(content) => {
-                    if content.len() > MAX_SCRIPT_SIZE {
-                        self.editor_status = Some(format!(
-                            "File too large ({} bytes, max {})",
-                            content.len(),
-                            MAX_SCRIPT_SIZE
-                        ));
-                    } else {
-                        self.editor_name = path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string();
-                        self.editor_code = content;
-                        self.editor_file_path = Some(path);
-                        self.editor_dirty = false;
-                        self.editor_status = Some("File loaded".to_string());
-                        self.editor_visible = true;
+            if let Some(path) = FileDialog::new()
+                .add_filter("Rhai Script", &["rhai"])
+                .pick_file()
+            {
+                match std::fs::read_to_string(&path) {
+                    Ok(content) => {
+                        if content.len() > MAX_SCRIPT_SIZE {
+                            self.editor_status = Some(format!(
+                                "File too large ({} bytes, max {})",
+                                content.len(),
+                                MAX_SCRIPT_SIZE
+                            ));
+                        } else {
+                            self.editor_name = path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string();
+                            self.editor_code = content;
+                            self.editor_file_path = Some(path);
+                            self.editor_dirty = false;
+                            self.editor_status = Some("File loaded".to_string());
+                            self.editor_visible = true;
+                        }
+                    }
+                    Err(e) => {
+                        self.editor_status = Some(format!("Failed to read: {}", e));
                     }
                 }
-                Err(e) => {
-                    self.editor_status = Some(format!("Failed to read: {}", e));
-                }
             }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.editor_status = Some("File dialogs are not available in the browser".to_string());
         }
     }
 
     /// Save editor content to a local file
     fn save_editor_to_file(&mut self) {
-        let dialog = FileDialog::new()
-            .add_filter("Rhai Script", &["rhai"])
-            .set_file_name(&self.editor_name);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let dialog = FileDialog::new()
+                .add_filter("Rhai Script", &["rhai"])
+                .set_file_name(&self.editor_name);
 
-        // If we have an existing path, start there
-        let dialog = if let Some(path) = &self.editor_file_path {
-            if let Some(parent) = path.parent() {
-                dialog.set_directory(parent)
+            // If we have an existing path, start there
+            let dialog = if let Some(path) = &self.editor_file_path {
+                if let Some(parent) = path.parent() {
+                    dialog.set_directory(parent)
+                } else {
+                    dialog
+                }
             } else {
                 dialog
-            }
-        } else {
-            dialog
-        };
+            };
 
-        if let Some(path) = dialog.save_file() {
-            match std::fs::write(&path, &self.editor_code) {
-                Ok(()) => {
-                    self.editor_file_path = Some(path.clone());
-                    self.editor_dirty = false;
-                    self.editor_status = Some(format!("Saved to {}", path.display()));
-                }
-                Err(e) => {
-                    self.editor_status = Some(format!("Save failed: {}", e));
+            if let Some(path) = dialog.save_file() {
+                match std::fs::write(&path, &self.editor_code) {
+                    Ok(()) => {
+                        self.editor_file_path = Some(path.clone());
+                        self.editor_dirty = false;
+                        self.editor_status = Some(format!("Saved to {}", path.display()));
+                    }
+                    Err(e) => {
+                        self.editor_status = Some(format!("Save failed: {}", e));
+                    }
                 }
             }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.editor_status = Some("File dialogs are not available in the browser".to_string());
         }
     }
 

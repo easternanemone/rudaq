@@ -10,12 +10,12 @@
 //! - Panel drains channel each frame and updates display
 //! - No async spawns from within the panel
 
+use crate::runtime::Runtime;
 use eframe::egui::{self, Color32, RichText, Ui};
 use egui_plot::{Line, Plot, PlotPoints, VLine};
 use futures::StreamExt;
 use std::collections::VecDeque;
 use std::time::Instant;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use client::DaqClient;

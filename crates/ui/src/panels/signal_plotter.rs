@@ -587,6 +587,7 @@ impl SignalPlotterPanel {
             // Export button
             if ui.button("📁 Export to CSV").clicked() {
                 // Open file dialog
+                #[cfg(not(target_arch = "wasm32"))]
                 if let Some(path) = rfd::FileDialog::new()
                     .set_file_name("signal_data.csv")
                     .add_filter("CSV Files", &["csv"])
@@ -594,6 +595,13 @@ impl SignalPlotterPanel {
                     .save_file()
                 {
                     self.export_to_csv(path);
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    self.export_status = Some((
+                        "File dialogs are not available in the browser".to_string(),
+                        true,
+                    ));
                 }
             }
 

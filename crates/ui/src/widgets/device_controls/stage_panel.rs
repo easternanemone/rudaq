@@ -6,8 +6,8 @@
 //! - Home/Stop buttons
 //! - Velocity display
 
+use crate::runtime::Runtime;
 use egui::Ui;
-use tokio::runtime::Runtime;
 
 use crate::widgets::device_controls::{DeviceControlWidget, DevicePanelState};
 use client::DaqClient;

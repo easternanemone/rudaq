@@ -8,8 +8,8 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::runtime::Runtime;
 use egui::Ui;
-use tokio::runtime::Runtime;
 
 use crate::widgets::device_controls::{DeviceControlWidget, DevicePanelState};
 use client::DaqClient;

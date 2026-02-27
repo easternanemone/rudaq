@@ -6,10 +6,10 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
+use crate::runtime::Runtime;
 use eframe::egui;
 use egui_plot::{Legend, Line, Plot, PlotPoints, Points};
 use futures::StreamExt;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 

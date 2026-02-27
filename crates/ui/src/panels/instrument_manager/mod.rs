@@ -37,12 +37,12 @@ mod types;
 
 pub use types::{DeviceCategory, DeviceGroup, ParameterInfo, PopOutRequest};
 
+use crate::runtime::Runtime;
 use eframe::egui;
 use egui_extras::{Size, StripBuilder};
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::Arc;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::device_ext::DeviceInfoExt;

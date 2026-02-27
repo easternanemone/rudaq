@@ -1,9 +1,9 @@
 //! Run comparison panel - overlay plots from multiple runs for visual analysis.
 
+use crate::runtime::Runtime;
 use eframe::egui;
 use egui_plot::{Corner, Legend, Line, Plot, PlotPoints};
 use std::collections::{HashMap, HashSet};
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};

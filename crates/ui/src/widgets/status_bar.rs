@@ -11,6 +11,7 @@ use eframe::egui;
 
 use crate::icons;
 use crate::layout::{self, colors};
+#[cfg(not(target_arch = "wasm32"))]
 use client::reconnect::ConnectionState;
 
 /// Status bar widget displaying connection state and contextual information.
@@ -133,17 +134,8 @@ impl StatusBar {
         }
     }
 
-    /// Render the status bar.
-    ///
-    /// # Arguments
-    /// * `ctx` - The egui context
-    /// * `connection_state` - Current connection state
-    /// * `error_count` - Optional number of errors to display
-    ///
-    /// # Example
-    /// ```ignore
-    /// status_bar.show(ctx, self.connection.state(), Some(5));
-    /// ```
+    /// Render the status bar (native — includes connection state indicator).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn show(
         &mut self,
         ctx: &egui::Context,
@@ -203,7 +195,44 @@ impl StatusBar {
         }
     }
 
+    /// Render the status bar (WASM — simplified, no ConnectionState).
+    #[cfg(target_arch = "wasm32")]
+    pub fn show_simple(&mut self, ctx: &egui::Context, connected: bool) {
+        self.check_status_expiry();
+
+        egui::TopBottomPanel::bottom("app_status_bar")
+            .exact_height(layout::STATUS_BAR_HEIGHT)
+            .show(ctx, |ui| {
+                ui.horizontal_centered(|ui| {
+                    self.render_breadcrumb(ui);
+                    ui.add_space(ui.available_width() * 0.1);
+                    self.render_status_message(ui);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let version = env!("CARGO_PKG_VERSION");
+                        ui.label(
+                            egui::RichText::new(format!("v{}", version))
+                                .small()
+                                .color(colors::MUTED),
+                        );
+                        ui.add_space(8.0);
+                        let (icon, color, tooltip) = if connected {
+                            (icons::status::CONNECTED, colors::CONNECTED, "Connected")
+                        } else {
+                            (
+                                icons::status::DISCONNECTED,
+                                colors::DISCONNECTED,
+                                "Disconnected",
+                            )
+                        };
+                        ui.label(egui::RichText::new(icon).color(color).size(16.0))
+                            .on_hover_text(tooltip);
+                    });
+                });
+            });
+    }
+
     /// Render the right section (connection indicator and version).
+    #[cfg(not(target_arch = "wasm32"))]
     fn render_right_section(
         &self,
         ui: &mut egui::Ui,

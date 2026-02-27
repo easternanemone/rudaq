@@ -54,7 +54,7 @@ impl DocumentViewerPanel {
         &mut self,
         ui: &mut egui::Ui,
         client: Option<&mut crate::client::DaqClient>,
-        runtime: &tokio::runtime::Runtime,
+        runtime: &crate::runtime::Runtime,
     ) {
         // Poll for new documents
         let mut stream_disconnected = false;
