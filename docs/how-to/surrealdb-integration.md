@@ -696,7 +696,7 @@ cargo build
 # Production: RocksDB persistence
 cargo build --release -p bin --features production
 
-# Or just RocksDB engine (note: default kv-mem is also included):
+# Add RocksDB engine (kv-mem is also included via defaults):
 cargo build --release -p bin --features db-surreal-rocksdb
 
 # No DB (TOML-only, fast compilation for driver work)
@@ -735,8 +735,8 @@ cargo nextest run --no-default-features       # 2076 tests (no DB)
 
 **Production** (maitai lab machine):
 ```bash
-cargo build --release --features db-surreal-rocksdb
-./target/release/rust-daq daemon \
+cargo build --release -p bin --features db-surreal-rocksdb
+./target/release/rust-daq-daemon daemon \
   --port 50051 \
   --hardware-config /etc/rust-daq/maitai_hardware.toml \
   --db-path /var/lib/rust-daq/db
@@ -869,11 +869,11 @@ cargo nextest run
 # Production build with RocksDB persistence
 cargo build --release -p bin --features production
 
-# Build with RocksDB engine only
-cargo build --release --features db-surreal-rocksdb
+# Add RocksDB engine (kv-mem is also included via defaults)
+cargo build --release -p bin --features db-surreal-rocksdb
 
 # Build without DB (TOML-only, for driver development)
-cargo build --no-default-features --features networking,server
+cargo build -p bin --no-default-features --features networking,server
 ```
 
 ### CLI Commands
