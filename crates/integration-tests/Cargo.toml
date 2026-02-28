@@ -43,7 +43,7 @@ tracing-subscriber = { version = "0.3", features = ["registry"] }
 
 
 [features]
-default = ["networking", "server", "scripting", "storage_hdf5", "storage_arrow", "native_plugins", "serial", "thorlabs", "newport", "newport_power_meter", "modules", "pvcam", "universal"]
+default = ["networking", "server", "scripting", "storage_hdf5", "storage_arrow", "native_plugins", "serial", "thorlabs", "newport", "newport_power_meter", "modules", "pvcam", "universal", "db-surreal-mem"]
 networking = ["server/networking"]
 server = ["dep:server", "networking"]
 scripting = ["dep:scripting"]

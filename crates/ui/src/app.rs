@@ -22,7 +22,7 @@ use crate::icons;
 use crate::layout;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::panels::instrument_manager::{
-    config_loader::DeviceConfigCache, config_renderer::ConfigDrivenPanel, dispatch,
+    config_loader::DeviceConfigCache, config_renderer::ConfigDrivenPanel,
 };
 use crate::panels::{
     ComediPanel, ConnectionDiagnostics, ConnectionStatus as LogConnectionStatus, DevicesPanel,

@@ -370,7 +370,8 @@ impl MockPowerMeter {
 
         let reading_param = Parameter::new("power_reading", base_power)
             .with_description("Live power reading with noise")
-            .with_unit("W");
+            .with_unit("W")
+            .with_dtype("float");
 
         params.register(power_param.clone());
         params.register(reading_param.clone());
@@ -680,7 +681,8 @@ impl MockPowerMeterBuilder {
 
         let reading_param = Parameter::new("power_reading", self.base_power)
             .with_description("Live power reading with noise")
-            .with_unit("W");
+            .with_unit("W")
+            .with_dtype("float");
 
         params.register(power_param.clone());
         params.register(reading_param.clone());

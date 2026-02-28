@@ -192,7 +192,8 @@ impl MockLaser {
         let wavelength_param = Parameter::new("wavelength_nm", config.wavelength_nm)
             .with_description("Tunable laser wavelength")
             .with_unit("nm")
-            .with_range(690.0, 1040.0);
+            .with_range(690.0, 1040.0)
+            .with_dtype("float");
 
         params.register(wavelength_param);
 

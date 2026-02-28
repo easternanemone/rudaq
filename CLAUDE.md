@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build / Test / Lint
 
 ```bash
-cargo build                              # Default features: storage_csv, instrument_serial
+cargo build                              # Default feature set (see Cargo.toml)
 cargo nextest run                        # Parallel test runner (install: cargo install cargo-nextest --locked)
 cargo nextest run test_name              # Single test by name
 cargo nextest run -p common              # Single crate

@@ -80,14 +80,21 @@ jobs:
             features: universal
             cache-suffix: universal
             timeout: 35
+          # db-surreal-mem is now a default feature; this entry validates
+          # the explicit feature path for completeness.
           - name: "runtime / hybrid-db-mem-smoke"
             package: integration-tests
             features: universal,db-surreal-mem
             cache-suffix: universal-db-surreal-mem
             timeout: 35
+          # RocksDB must be tested without kv-mem to avoid dual-engine
+          # compilation (kv-mem + kv-rocksdb) which prevents the RocksDB
+          # process-global lock from releasing on Drop. We use
+          # --no-default-features and re-list everything except db-surreal-mem.
           - name: "runtime / hybrid-db-rocksdb-smoke"
             package: integration-tests
-            features: universal,db-surreal-rocksdb
+            features: networking,server,scripting,storage_hdf5,storage_arrow,native_plugins,serial,thorlabs,newport,newport_power_meter,modules,pvcam,universal,db-surreal-rocksdb
+            cargo-args: "--no-default-features"
             cache-suffix: universal-db-surreal-rocksdb
             timeout: 35
     steps:
@@ -110,6 +117,7 @@ jobs:
       - name: Clippy (${{ matrix.name }})
         run: |
           cargo clippy -p ${{ matrix.package }} \
+            ${{ matrix.cargo-args || '' }} \
             --features ${{ matrix.features }} \
             --all-targets \
             -- -D warnings
@@ -117,5 +125,6 @@ jobs:
       - name: Tests (${{ matrix.name }})
         run: |
           cargo nextest run -p ${{ matrix.package }} \
+            ${{ matrix.cargo-args || '' }} \
             --features ${{ matrix.features }} \
             --profile ci

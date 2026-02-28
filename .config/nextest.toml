@@ -80,9 +80,20 @@ max-threads = 1
 [test-groups.elliptec-hardware]
 max-threads = 1
 
+# Daemon subprocess E2E tests spawn child processes and need dedicated resources
+[test-groups.daemon-e2e]
+max-threads = 1
+
 # =============================================================================
 # Per-Test Overrides
 # =============================================================================
+
+# Daemon subprocess E2E tests need exclusive execution and longer timeouts
+# (they spawn a daemon process, which competes for CPU in parallel test runs)
+[[profile.default.overrides]]
+filter = "test(/watch_reconciler/)"
+test-group = "daemon-e2e"
+slow-timeout = { period = "60s", terminate-after = 3 }
 
 # Timing-sensitive tests get extra retries and longer timeout
 [[profile.default.overrides]]

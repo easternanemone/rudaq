@@ -231,7 +231,8 @@ impl MockDAQOutput {
         let voltage_param = Parameter::new("voltage", config.initial_voltage)
             .with_description(format!("Channel {} voltage", config.channel))
             .with_unit("V")
-            .with_range(range.min(), range.max());
+            .with_range(range.min(), range.max())
+            .with_dtype("float");
 
         params.register(voltage_param);
 

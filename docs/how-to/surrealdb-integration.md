@@ -112,35 +112,41 @@ Conversions between hardware config types and DB record types live in `bin`
 
 ### 1.5 Feature Flag Architecture
 
-SurrealDB is a heavy dependency. The entire integration is gated behind
-feature flags to maintain fast compile times for driver development and
-lightweight CI.
+SurrealDB is a heavy dependency. The `kv-mem` (in-memory) engine is
+enabled by default so that every `cargo build` and `cargo test` includes
+the database layer — matching the production topology. The `kv-rocksdb`
+engine remains opt-in since it requires native C++ dependencies.
+
+Use `--no-default-features` to produce a DB-less build when needed
+(e.g., lightweight driver development).
 
 ```
+db crate features:
+  kv-mem     (DEFAULT) ──► SurrealDB in-memory backend
+  kv-rocksdb           ──► SurrealDB RocksDB backend
+
 bin crate features:
-  db-surreal          ──► Meta-feature, activates DB modules
-  db-surreal-mem      ──► In-memory engine (tests/dev)
-  db-surreal-rocksdb  ──► RocksDB engine (production)
+  db-surreal           ──► Meta-feature, activates DB modules
+  db-surreal-mem (DEFAULT) ──► In-memory engine (tests/dev)
+  db-surreal-rocksdb   ──► RocksDB engine (production)
+  production           ──► RocksDB + modules + all_hardware
 
 server crate features:
-  db-surreal          ──► ConfigService gRPC handler
-  db-surreal-mem      ──► In-memory engine (tests)
-  db-surreal-rocksdb  ──► RocksDB engine (production)
-
-db crate features:
-  kv-mem              ──► SurrealDB in-memory backend
-  kv-rocksdb          ──► SurrealDB RocksDB backend
+  db-surreal           ──► ConfigService gRPC handler
+  db-surreal-mem       ──► In-memory engine (activated via bin defaults)
+  db-surreal-rocksdb   ──► RocksDB engine (production)
 ```
 
 | Feature | Engine | Use Case | Binary Impact |
 |---------|--------|----------|---------------|
-| *(none)* | None | TOML-only deployment | Baseline |
-| `db-surreal-mem` | In-memory | Dev, tests, CI | +~8 MB |
+| *(default)* | In-memory | Dev, tests, CI | Baseline (+~8 MB vs no-DB) |
 | `db-surreal-rocksdb` | RocksDB | Production | +~15 MB |
+| `--no-default-features` | None | TOML-only deployment | Smallest |
 
 All DB modules in the `db` crate are gated behind
 `#[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]`
-(`crates/db/src/lib.rs:64`).
+(`crates/db/src/lib.rs:64`). These guards remain valid for
+`--no-default-features` builds.
 
 All DB integration code in the `bin` crate is gated behind
 `#[cfg(feature = "db-surreal")]` (`crates/bin/src/main.rs:34`).
@@ -188,11 +194,11 @@ all shutters close and lasers power down on any panic.
   reconciler handles the complex diffing to transition hardware.
 
 **Why Feature Flags?**
-- The `db` crate pulls in SurrealDB (~15 MB compiled), RocksDB C++ bindings,
-  and many transitive deps. Gating behind features keeps core driver
-  development fast (no SurrealDB compile on every change).
-- CI can run the 2076-test baseline in seconds, adding the 59 DB tests only
-  when the feature is relevant.
+- The `db` crate pulls in SurrealDB (~8 MB for kv-mem, ~15 MB for kv-rocksdb).
+  The in-memory engine (`kv-mem`) is now default so dev builds match production
+  topology. The heavier `kv-rocksdb` engine (with C++ bindings) remains opt-in.
+- `--no-default-features` still produces a DB-less build for lightweight driver
+  development when DB overhead is unwanted.
 
 ---
 
@@ -684,30 +690,34 @@ Key code path: `reconciler.rs:157-165` — `is_device_idle()` check.
 ### 5.1 Build Configurations
 
 ```bash
-# No DB (default) -- fast compilation, TOML-only
+# Default: includes in-memory SurrealDB
 cargo build
 
-# Development: in-memory DB
-cargo build --features db-surreal-mem
-
 # Production: RocksDB persistence
-cargo build --release --features db-surreal-rocksdb
+cargo build --release -p bin --features production
+
+# Or just RocksDB engine (note: default kv-mem is also included):
+cargo build --release -p bin --features db-surreal-rocksdb
+
+# No DB (TOML-only, fast compilation for driver work)
+cargo build -p bin --no-default-features --features networking,server
 ```
 
 | Configuration | Tests | DB Features | Binary Size |
 |---------------|-------|-------------|-------------|
-| No DB | 2076 | None | Baseline |
-| `db-surreal-mem` | 2135 (+59) | In-memory | +~8 MB |
-| `db-surreal-rocksdb` | 2135 (+59) | RocksDB | +~15 MB |
+| Default (`db-surreal-mem`) | 2135 | In-memory | Baseline |
+| `production` / `db-surreal-rocksdb` | 2135 | RocksDB | +~7 MB |
+| `--no-default-features` | 2076 | None | Smallest |
 
-**Critical**: Never enable both `db-surreal-mem` and `db-surreal-rocksdb`
-in the same build.
+**Note**: The `production` feature unions with the default `kv-mem`, compiling
+both engines. This is safe — the `Any` engine selects at runtime based on the
+connection string (`mem://` vs `rocksdb://path`). Binary size increases by ~7 MB.
 
 ### 5.2 Deployment Scenarios
 
 **Development**:
 ```bash
-cargo run --features db-surreal-mem -- daemon \
+cargo run -p bin -- daemon \
   --port 50051 \
   --hardware-config config/dev_hardware.toml
 ```
@@ -717,8 +727,8 @@ cargo run --features db-surreal-mem -- daemon \
 
 **Testing / CI**:
 ```bash
-cargo nextest run                             # 2076 tests (no DB)
-cargo nextest run --features db-surreal-mem   # 2135 tests (+59 DB)
+cargo nextest run                             # 2135 tests (DB included by default)
+cargo nextest run --no-default-features       # 2076 tests (no DB)
 ```
 - RocksDB persistence tests use **subprocess isolation** (separate OS
   process writes, exits, reader process verifies). Must run serially.
@@ -850,17 +860,20 @@ rust-daq config export --db-path /var/lib/rust-daq/db > backup.toml
 ### Feature Flag Cheat Sheet
 
 ```bash
-# Build without DB
+# Default build — includes in-memory SurrealDB
 cargo build
 
-# Build with in-memory DB (dev/test)
-cargo build --features db-surreal-mem
+# Run all tests (DB tests included by default)
+cargo nextest run
 
-# Build with RocksDB (production)
+# Production build with RocksDB persistence
+cargo build --release -p bin --features production
+
+# Build with RocksDB engine only
 cargo build --release --features db-surreal-rocksdb
 
-# Run all tests including DB
-cargo nextest run --features db-surreal-mem
+# Build without DB (TOML-only, for driver development)
+cargo build --no-default-features --features networking,server
 ```
 
 ### CLI Commands

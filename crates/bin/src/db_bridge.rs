@@ -29,26 +29,9 @@ pub fn devices_to_db(config: &HardwareConfig) -> Vec<DbInstrument> {
         .collect()
 }
 
-/// Extract unique driver definitions from a `HardwareConfig`.
-///
-/// Since the TOML config doesn't carry driver metadata (capabilities, etc.),
-/// we use the driver_type as a placeholder name. Driver records are later
-/// enriched by the plugin/factory system.
-pub fn drivers_from_config(config: &HardwareConfig) -> Vec<DbDriver> {
+#[cfg(test)]
+fn drivers_from_config(config: &HardwareConfig) -> Vec<DbDriver> {
     drivers_from_config_with_sources(config, None, &HashMap::new())
-}
-
-/// Extract driver definitions from config, enriched by registered factory
-/// introspection when available.
-///
-/// Enrichment source precedence:
-/// 1. Factory metadata (`name`, `capabilities`, `available_commands`)
-/// 2. TOML fallback (`driver_type` placeholders with empty lists)
-pub fn drivers_from_config_with_registry(
-    config: &HardwareConfig,
-    registry: &DeviceRegistry,
-) -> Vec<DbDriver> {
-    drivers_from_config_with_sources(config, Some(registry), &HashMap::new())
 }
 
 /// Build driver rows from TOML config with optional factory enrichment and
@@ -122,11 +105,8 @@ pub fn db_to_hardware_toml(instruments: &[DbInstrument]) -> Result<String, toml:
 // Shadow write helper
 // ---------------------------------------------------------------------------
 
-/// Shadow-write a parsed hardware config into the database.
-///
-/// Non-fatal: returns errors instead of panicking so the caller can log and
-/// continue booting from TOML.
-pub async fn shadow_write(
+#[cfg(test)]
+async fn shadow_write(
     db: &db::DaqDb,
     config: &HardwareConfig,
 ) -> Result<(usize, usize), db::error::DbError> {

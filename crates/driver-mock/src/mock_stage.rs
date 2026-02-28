@@ -597,7 +597,8 @@ impl MockStageBuilder {
 
         let mut position = Parameter::new("position", self.initial_position)
             .with_description("Stage position")
-            .with_unit("mm");
+            .with_unit("mm")
+            .with_dtype("float");
 
         // Attach hardware callbacks
         let state_for_read = state.clone();

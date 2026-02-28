@@ -37,7 +37,7 @@ libc = "0.2"
 tempfile.workspace = true
 
 [features]
-default = ["networking", "server"]
+default = ["networking", "server", "db-surreal-mem"]
 networking = []
 server = [] # Enabled by default via dependency, but kept as feature flag for conditional compilation
 storage_hdf5 = ["storage/storage_hdf5"]
@@ -70,6 +70,10 @@ db-surreal = ["dep:db", "server/db-surreal"]
 db-surreal-mem = ["db-surreal", "db/kv-mem", "server/db-surreal-mem"]
 # RocksDB engine (persistent, for production)
 db-surreal-rocksdb = ["db-surreal", "db/kv-rocksdb", "server/db-surreal-rocksdb"]
+
+# Production deployment with RocksDB persistence + full module system.
+# Use: cargo build --release -p bin --features production
+production = ["db-surreal-rocksdb", "modules", "all_hardware"]
 
 # Prometheus metrics (reconciler observability)
 metrics = ["dep:prometheus", "server/metrics"]

@@ -254,12 +254,14 @@ impl MockRotator {
         let position_param = Parameter::new("position_degrees", config.initial_position)
             .with_description("Rotary stage position")
             .with_unit("deg")
-            .with_range(config.min_position, config.max_position);
+            .with_range(config.min_position, config.max_position)
+            .with_dtype("float");
 
         let velocity_param = Parameter::new("velocity_percent", config.velocity_percent as f64)
             .with_description("Motor velocity")
             .with_unit("%")
-            .with_range(0.0, 100.0);
+            .with_range(0.0, 100.0)
+            .with_dtype("float");
 
         params.register(position_param);
         params.register(velocity_param);
