@@ -727,6 +727,14 @@ impl CommandWidgetPalette {
     }
 }
 
+/// Storage key for persisting the WASM server URL across reloads.
+#[cfg(target_arch = "wasm32")]
+const WASM_SERVER_URL_KEY: &str = "wasm_server_url";
+
+/// Default daemon URL for WASM builds.
+#[cfg(target_arch = "wasm32")]
+const WASM_DEFAULT_SERVER_URL: &str = "http://localhost:8080";
+
 /// WASM-only connection state for browser-based GUI.
 /// On native, ConnectionManager handles reconnection with exponential backoff.
 /// On WASM, we use a simpler connect-once model via DaqClient::connect_web().
@@ -746,7 +754,7 @@ struct WasmConnectionState {
 impl Default for WasmConnectionState {
     fn default() -> Self {
         Self {
-            url_input: "http://localhost:8080".to_string(),
+            url_input: WASM_DEFAULT_SERVER_URL.to_string(),
             status: "Disconnected".to_string(),
             connecting: false,
             connect_rx: None,
@@ -1612,7 +1620,16 @@ impl DaqApp {
             shortcut_manager,
             cheat_sheet_panel: CheatSheetPanel::new(),
             show_cheat_sheet: false,
-            wasm_connection: WasmConnectionState::default(),
+            wasm_connection: {
+                let url = cc
+                    .storage
+                    .and_then(|s| eframe::get_value::<String>(s, WASM_SERVER_URL_KEY))
+                    .unwrap_or_else(|| WASM_DEFAULT_SERVER_URL.to_string());
+                WasmConnectionState {
+                    url_input: url,
+                    ..Default::default()
+                }
+            },
         }
     }
 
@@ -2969,6 +2986,7 @@ impl DaqTabViewer<'_> {
             ui.separator();
             ui.add_space(layout::SECTION_SPACING / 2.0);
 
+            #[cfg(not(target_arch = "wasm32"))]
             if ui
                 .button(format!("{} Open Rerun", icons::CHART_LINE))
                 .clicked()
@@ -3420,6 +3438,13 @@ impl eframe::App for DaqApp {
             "control_panel_layout_mode",
             &self.control_panel_layout_mode,
         );
+
+        // WASM-only: persist server URL so users don't re-enter it on reload
+        #[cfg(target_arch = "wasm32")]
+        {
+            let trimmed_url = self.wasm_connection.url_input.trim().to_string();
+            eframe::set_value(storage, WASM_SERVER_URL_KEY, &trimmed_url);
+        }
 
         // Persist device panel info for layout restoration
         let persisted_panels: HashMap<usize, PersistedPanelInfo> = self
