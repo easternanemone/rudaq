@@ -14,6 +14,7 @@ pub enum EchelleProfileCacheEvent {
     Unchanged,
     Loaded(PathBuf),
     Error(String),
+    #[allow(dead_code)] // Used by clear() which is not yet called from UI
     Cleared,
 }
 
@@ -35,6 +36,7 @@ impl EchelleProfileCache {
         }
     }
 
+    #[allow(dead_code)] // Called from clear_echelle_profile_path, not yet wired
     pub fn clear(&mut self) -> EchelleProfileCacheEvent {
         self.path = None;
         self.last_modified = None;
@@ -51,6 +53,7 @@ impl EchelleProfileCache {
         self.profile.as_ref()
     }
 
+    #[allow(dead_code)] // UI display of cache errors not yet wired
     pub fn last_error(&self) -> Option<&str> {
         self.last_error.as_deref()
     }

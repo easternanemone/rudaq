@@ -31,6 +31,7 @@ const MAX_QUEUED_FRAMES: usize = 4;
 const MAX_QUEUED_DATA: usize = 100;
 
 /// Maximum queued spectrum updates per plot
+#[allow(dead_code)] // Used once spectrum UI wiring is complete
 const MAX_QUEUED_SPECTRA: usize = 16;
 
 /// Maximum plot history (data points)
@@ -86,6 +87,7 @@ pub struct SpectrumUpdate {
 /// Sender handles for pushing updates from async tasks
 pub type FrameUpdateSender = mpsc::SyncSender<FrameUpdate>;
 pub type DataUpdateSender = mpsc::SyncSender<DataUpdate>;
+#[allow(dead_code)] // Used once spectrum UI wiring is complete
 pub type SpectrumUpdateSender = mpsc::SyncSender<SpectrumUpdate>;
 
 /// Receiver handles stored in panel
@@ -104,6 +106,7 @@ pub fn data_channel() -> (DataUpdateSender, DataUpdateReceiver) {
 }
 
 /// Create a new bounded channel pair for spectrum updates
+#[allow(dead_code)] // Used once spectrum UI wiring is complete
 pub fn spectrum_channel() -> (SpectrumUpdateSender, SpectrumUpdateReceiver) {
     mpsc::sync_channel(MAX_QUEUED_SPECTRA)
 }
@@ -536,6 +539,7 @@ impl LiveVisualizationPanel {
     }
 
     /// Set the spectrum update receiver
+    #[allow(dead_code)] // Used once spectrum UI wiring is complete
     pub fn set_spectrum_receiver(&mut self, rx: SpectrumUpdateReceiver) {
         self.spectrum_rx = Some(rx);
     }

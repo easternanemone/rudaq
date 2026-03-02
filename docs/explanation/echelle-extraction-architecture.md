@@ -20,20 +20,20 @@ Mechelle/iSTAR echellegrams into spectra in rust-daq.
 ## Key Design Decisions
 
 - Calibration profile is versioned and validated in `common`:
-  - `/Users/briansquires/.codex/worktrees/5385/rust-daq/crates/common/src/echelle.rs`
+  - `crates/common/src/echelle.rs`
 - MVP extraction runs locally in `ImageViewerPanel` (UI-owned) for fastest iteration:
-  - `/Users/briansquires/.codex/worktrees/5385/rust-daq/docs/adr/012-mechelle-echelle-mvp-extraction-location.md`
+  - `docs/adr/012-mechelle-echelle-mvp-extraction-location.md`
 - Calibration profile ownership/versioning policy is defined in:
-  - `/Users/briansquires/.codex/worktrees/5385/rust-daq/docs/adr/013-mechelle-calibration-profile-ownership-and-compatibility.md`
+  - `docs/adr/013-mechelle-calibration-profile-ownership-and-compatibility.md`
 
 ## Implemented MVP Components
 
 - Profile cache / hot reload:
-  - `/Users/briansquires/.codex/worktrees/5385/rust-daq/crates/ui/src/panels/image_viewer/echelle_profile_cache.rs`
+  - `crates/ui/src/panels/image_viewer/echelle_profile_cache.rs`
 - Extraction kernel:
-  - `/Users/briansquires/.codex/worktrees/5385/rust-daq/crates/ui/src/panels/image_viewer/echelle_extraction.rs`
+  - `crates/ui/src/panels/image_viewer/echelle_extraction.rs`
 - UI integration + spectrum preview:
-  - `/Users/briansquires/.codex/worktrees/5385/rust-daq/crates/ui/src/panels/image_viewer/mod.rs`
+  - `crates/ui/src/panels/image_viewer/mod.rs`
 
 ## Extraction Algorithm (MVP)
 

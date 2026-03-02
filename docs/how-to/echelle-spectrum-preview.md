@@ -26,11 +26,11 @@ echellegram into a preview spectrum inside the Image Viewer.
 
 Use the schema documented in:
 
-- `/Users/briansquires/.codex/worktrees/5385/rust-daq/docs/reference/echelle-calibration-profile-schema.md`
+- `docs/reference/echelle-calibration-profile-schema.md`
 
 Test fixture example:
 
-- `/Users/briansquires/.codex/worktrees/5385/rust-daq/crates/common/tests/fixtures/echelle_profile_v1.toml`
+- `crates/common/tests/fixtures/echelle_profile_v1.toml`
 
 ## Loading a Calibration Profile
 
@@ -91,6 +91,6 @@ reference tools while the dedicated calibration UX is still under development.
 
 ## Related Implementation Files
 
-- `/Users/briansquires/.codex/worktrees/5385/rust-daq/crates/ui/src/panels/image_viewer/echelle_extraction.rs`
-- `/Users/briansquires/.codex/worktrees/5385/rust-daq/crates/ui/src/panels/image_viewer/echelle_profile_cache.rs`
-- `/Users/briansquires/.codex/worktrees/5385/rust-daq/crates/ui/src/panels/image_viewer/mod.rs`
+- `crates/ui/src/panels/image_viewer/echelle_extraction.rs`
+- `crates/ui/src/panels/image_viewer/echelle_profile_cache.rs`
+- `crates/ui/src/panels/image_viewer/mod.rs`

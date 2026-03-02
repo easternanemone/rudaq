@@ -1305,7 +1305,9 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
     }
 
     #[cfg(feature = "scripting")]
-    let builder = builder.add_service(tonic_web::enable(ControlServiceServer::new(server)));
+    let builder = builder.add_service(tonic_web::enable(
+        ControlServiceServer::new(server).max_encoding_message_size(64 * 1024 * 1024),
+    ));
 
     builder
         .add_service(tonic_web::enable(HealthServer::new(health_service)))
@@ -1801,8 +1803,9 @@ pub async fn start_server_with_hardware(
     }
 
     #[cfg(all(feature = "serial", feature = "scripting"))]
-    let server_builder =
-        server_builder.add_service(tonic_web::enable(ControlServiceServer::new(control_server)));
+    let server_builder = server_builder.add_service(tonic_web::enable(
+        ControlServiceServer::new(control_server).max_encoding_message_size(64 * 1024 * 1024),
+    ));
 
     #[cfg(feature = "serial")]
     let server_builder = server_builder
@@ -1865,8 +1868,9 @@ pub async fn start_server_with_hardware(
     }
 
     #[cfg(all(not(feature = "serial"), feature = "scripting"))]
-    let server_builder =
-        server_builder.add_service(tonic_web::enable(ControlServiceServer::new(control_server)));
+    let server_builder = server_builder.add_service(tonic_web::enable(
+        ControlServiceServer::new(control_server).max_encoding_message_size(64 * 1024 * 1024),
+    ));
 
     #[cfg(not(feature = "serial"))]
     let server_builder = server_builder

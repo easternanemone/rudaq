@@ -11,11 +11,11 @@ That message can be a *follow-on symptom* after the daemon has already crashed.
 
 ## Tools Added
 
-- `/Users/briansquires/.codex/worktrees/5385/rust-daq/scripts/leabs-daemon-crash-wrapper.sh`
+- `scripts/leabs-daemon-crash-wrapper.sh`
   - runs on `leabs-dev`
   - wraps `rust-daq-daemon`
   - captures exit code, journal excerpts, coredump metadata, core-file scan
-- `/Users/briansquires/.codex/worktrees/5385/rust-daq/scripts/repro-istar-stream-crash.sh`
+- `scripts/repro-istar-stream-crash.sh`
   - runs locally
   - starts the wrapped daemon on `leabs-dev` (optional)
   - ensures local SSH tunnel to `127.0.0.1:50051`
@@ -27,7 +27,7 @@ That message can be a *follow-on symptom* after the daemon has already crashed.
 This exercises a sustained `StreamFrames` session.
 
 ```bash
-cd /Users/briansquires/.codex/worktrees/5385/rust-daq
+cd "$(git rev-parse --show-toplevel)"
 
 bash scripts/repro-istar-stream-crash.sh \
   --soak-seconds 1800 \
@@ -52,7 +52,7 @@ same daemon process (closer to GUI reconnect behavior after timeouts/errors).
 Step 1: Start wrapped daemon once and validate tunnel (short run, leaves daemon running)
 
 ```bash
-cd /Users/briansquires/.codex/worktrees/5385/rust-daq
+cd "$(git rev-parse --show-toplevel)"
 
 bash scripts/repro-istar-stream-crash.sh \
   --soak-seconds 5 \
@@ -64,7 +64,7 @@ bash scripts/repro-istar-stream-crash.sh \
 Step 2: Repeat short stream cycles without restarting the daemon
 
 ```bash
-cd /Users/briansquires/.codex/worktrees/5385/rust-daq
+cd "$(git rev-parse --show-toplevel)"
 
 i=0
 while [ $i -lt 40 ]; do
@@ -91,7 +91,7 @@ Each iteration creates a separate local run directory with:
 
 Local runs are stored under:
 
-- `/Users/briansquires/.codex/worktrees/5385/rust-daq/tmp/istar-crash-repro/`
+- `tmp/istar-crash-repro/`
 
 Remote wrapped-daemon sessions are stored under:
 

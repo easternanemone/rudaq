@@ -4,7 +4,7 @@ This document defines the canonical calibration profile format used by rust-daq
 to convert a 2D echellegram (for example, Andor iSTAR sCMOS + Mechelle 5000)
 into one or more 1D spectra.
 
-The Rust source of truth is `/Users/briansquires/.codex/worktrees/5385/rust-daq/crates/common/src/echelle.rs`.
+The Rust source of truth is `crates/common/src/echelle.rs`.
 
 ## Status and Scope
 
@@ -380,7 +380,7 @@ Examples of actionable checks already implemented:
 
 The repository fixture is:
 
-- `/Users/briansquires/.codex/worktrees/5385/rust-daq/crates/common/tests/fixtures/echelle_profile_v1.toml`
+- `crates/common/tests/fixtures/echelle_profile_v1.toml`
 
 Key structure:
 
@@ -466,14 +466,14 @@ Each schema evolution PR should include tests covering:
 
 Current tests covering this policy live in:
 
-- `/Users/briansquires/.codex/worktrees/5385/rust-daq/crates/common/src/echelle.rs`
-- `/Users/briansquires/.codex/worktrees/5385/rust-daq/crates/common/tests/echelle_profile_fixture.rs`
+- `crates/common/src/echelle.rs`
+- `crates/common/tests/echelle_profile_fixture.rs`
 
 ## Runtime UI Loading and Hot Reload Notes
 
 The UI cache implementation is in:
 
-- `/Users/briansquires/.codex/worktrees/5385/rust-daq/crates/ui/src/panels/image_viewer/echelle_profile_cache.rs`
+- `crates/ui/src/panels/image_viewer/echelle_profile_cache.rs`
 
 Behavior:
 

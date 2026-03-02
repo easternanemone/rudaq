@@ -16,6 +16,7 @@
 pub mod colormap;
 mod echelle_extraction;
 mod echelle_profile_cache;
+#[cfg(not(target_arch = "wasm32"))]
 mod echelle_sidecar;
 mod processing;
 mod types;
@@ -470,6 +471,7 @@ impl ImageViewerPanel {
     }
 
     /// Clear the active echelle calibration profile cache/path.
+    #[allow(dead_code)] // Echelle UI wiring pending
     pub fn clear_echelle_profile_path(&mut self) {
         if let EchelleProfileCacheEvent::Cleared = self.echelle_profile_cache.clear() {
             self.echelle_cal_ui.editor_profile = None;
@@ -489,21 +491,25 @@ impl ImageViewerPanel {
     }
 
     /// Expose the last echelle profile loader error for future UI presentation.
+    #[allow(dead_code)] // Echelle UI wiring pending
     pub fn echelle_profile_last_error(&self) -> Option<&str> {
         self.echelle_profile_cache.last_error()
     }
 
     /// Returns the configured echelle calibration profile path, if any.
+    #[allow(dead_code)] // Echelle UI wiring pending
     pub fn echelle_profile_path(&self) -> Option<&std::path::Path> {
         self.echelle_profile_cache.path()
     }
 
     /// Returns the latest extracted echelle preview spectra as `Measurement::Spectrum` values.
+    #[allow(dead_code)] // Echelle UI wiring pending
     pub fn echelle_preview_measurements(&self) -> &[Measurement] {
         &self.echelle_preview_measurements
     }
 
     /// Developer hook: export latest preview spectra (orders + merged if present) as JSON.
+    #[allow(dead_code)] // Echelle UI wiring pending
     pub fn save_echelle_preview_measurements_json(
         &self,
         path: &std::path::Path,
@@ -517,6 +523,7 @@ impl ImageViewerPanel {
     }
 
     /// Developer hook: export the merged preview spectrum as CSV (`wavelength,flux`).
+    #[allow(dead_code)] // Echelle UI wiring pending
     pub fn save_echelle_preview_merged_csv(&self, path: &std::path::Path) -> Result<(), String> {
         let merged = self
             .echelle_preview
@@ -532,16 +539,19 @@ impl ImageViewerPanel {
     }
 
     /// Set whether the local echelle extraction preview is enabled.
+    #[allow(dead_code)] // Echelle UI wiring pending
     pub fn set_echelle_extraction_enabled(&mut self, enabled: bool) {
         self.echelle_extraction_enabled = enabled;
     }
 
     /// Set extraction cadence for the local preview (`1` = every frame).
+    #[allow(dead_code)] // Echelle UI wiring pending
     pub fn set_echelle_extract_every_n_frames(&mut self, every_n_frames: u32) {
         self.echelle_extract_every_n_frames = every_n_frames.max(1);
     }
 
     /// Configure whether the preview plot defaults to merged mode.
+    #[allow(dead_code)] // Echelle UI wiring pending
     pub fn set_echelle_preview_show_merged(&mut self, show_merged: bool) {
         self.echelle_show_merged_plot = show_merged;
     }

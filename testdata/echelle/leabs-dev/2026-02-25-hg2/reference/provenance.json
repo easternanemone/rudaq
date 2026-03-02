@@ -6,7 +6,7 @@
     "numpy": "2.4.2",
     "lz4": "4.4.5"
   },
-  "dataset_dir": "/Users/briansquires/.codex/worktrees/5385/rust-daq/testdata/echelle/leabs-dev/2026-02-25-hg2",
+  "dataset_dir": "testdata/echelle/leabs-dev/2026-02-25-hg2",
   "source_manifest_sha256": "0fa2da3eaba2b8f470a6f1272c8428f31a62f29221c40bca1b1483a33c174f29",
   "source_parameters_sha256": "ad48242d5adbd795ce949f7d8cdf3fd0e28142fb2d878f8700b4c2557b3a0774",
   "notes": [

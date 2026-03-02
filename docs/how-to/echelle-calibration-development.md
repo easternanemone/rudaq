@@ -44,7 +44,7 @@ If any of these materially change, create a new profile (do not silently reuse).
      - `Blaze/Flat` (preview overlay for corrected vs uncorrected spectrum, artifact refs, selected-order blaze-preview CSV artifact export)
 3. Build/fit traces and wavelength solution in external tooling (or manual process), or use the manual GUI tables for iterative editing.
 4. Export/translate into rust-daq echelle profile schema:
-   - `/Users/briansquires/.codex/worktrees/5385/rust-daq/docs/reference/echelle-calibration-profile-schema.md`
+   - `docs/reference/echelle-calibration-profile-schema.md`
 5. Activate the profile in the Image Viewer (`Save + Activate` or `Activate Path`).
 6. Validate:
    - profile loads
@@ -131,7 +131,7 @@ Include at least one example for:
 ## Useful Implementation References
 
 - Schema and validation:
-  - `/Users/briansquires/.codex/worktrees/5385/rust-daq/crates/common/src/echelle.rs`
+  - `crates/common/src/echelle.rs`
 - Local extractor and debug exports:
-  - `/Users/briansquires/.codex/worktrees/5385/rust-daq/crates/ui/src/panels/image_viewer/echelle_extraction.rs`
-  - `/Users/briansquires/.codex/worktrees/5385/rust-daq/crates/ui/src/panels/image_viewer/mod.rs`
+  - `crates/ui/src/panels/image_viewer/echelle_extraction.rs`
+  - `crates/ui/src/panels/image_viewer/mod.rs`

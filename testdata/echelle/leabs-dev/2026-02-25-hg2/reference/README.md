@@ -5,7 +5,7 @@ This directory contains externally generated reference artifacts for the
 
 ## Generator
 
-- Script: `/Users/briansquires/.codex/worktrees/5385/rust-daq/scripts/echelle/reference_extract_hg2.py`
+- Script: `scripts/echelle/reference_extract_hg2.py`
 - Purpose: create reproducible, non-UI "golden" outputs plus provenance for regression testing
 
 ## Artifact Types

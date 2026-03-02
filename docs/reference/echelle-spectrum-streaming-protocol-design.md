@@ -3,7 +3,8 @@
 This document captures the design for streaming full spectra/vector payloads
 through rust-daq gRPC without scalarizing them.
 
-This addresses the protocol design phase ahead of implementation.
+Core streaming infrastructure is implemented (see Implementation Status below);
+remaining work covers end-to-end UI wiring and live-source validation.
 
 ## Problem
 
