@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Prototype sidecar runner for future Python echelle extraction integration.
 //!
 //! This module intentionally keeps the contract simple: JSON request/response
@@ -123,7 +124,7 @@ impl EchelleSidecarRunner {
             serde_json::to_string(request).map_err(SidecarRunnerError::InvalidJson)?;
         stdin
             .write_all(request_line.as_bytes())
-            .and_then(|_| stdin.write_all(b"\n"))
+            .and_then(|()| stdin.write_all(b"\n"))
             .map_err(SidecarRunnerError::StdinWrite)?;
         drop(stdin);
 
@@ -140,7 +141,7 @@ impl EchelleSidecarRunner {
         // Prototype runner uses per-request spawn; timeout + kill gives restart semantics by respawn.
         loop {
             if start.elapsed() > self.timeout {
-                let _ = child.kill().map_err(SidecarRunnerError::Kill)?;
+                child.kill().map_err(SidecarRunnerError::Kill)?;
                 let _ = child.wait();
                 let _ = stdout_handle.join();
                 let _ = stderr_handle.join();

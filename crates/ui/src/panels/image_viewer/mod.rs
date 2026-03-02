@@ -523,9 +523,10 @@ impl ImageViewerPanel {
             .as_ref()
             .and_then(|p| p.merged.as_ref())
             .ok_or_else(|| "no merged echelle preview available".to_string())?;
+        use std::fmt::Write;
         let mut out = String::from("wavelength,flux\n");
         for (w, f) in merged.wavelengths.iter().zip(&merged.flux) {
-            out.push_str(&format!("{w},{f}\n"));
+            let _ = writeln!(out, "{w},{f}");
         }
         std::fs::write(path, out).map_err(|e| format!("failed to write {}: {e}", path.display()))
     }
@@ -859,9 +860,10 @@ impl ImageViewerPanel {
             .copied()
             .fold(f64::NEG_INFINITY, f64::max)
             .max(1e-12);
+        use std::fmt::Write;
         let mut out = String::from("sample,wavelength,raw_flux,normalized_flux\n");
         for (i, (&w, &f)) in order.wavelengths.iter().zip(&order.flux).enumerate() {
-            out.push_str(&format!("{i},{w},{f},{}\n", f / max_flux));
+            let _ = writeln!(out, "{i},{w},{f},{}", f / max_flux);
         }
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() && !parent.exists() {
@@ -1088,14 +1090,14 @@ impl ImageViewerPanel {
                     EchelleCalibrationTab::Profile => self.render_echelle_calibration_profile_tab(ui),
                     EchelleCalibrationTab::Trace => self.render_echelle_calibration_trace_tab(ui),
                     EchelleCalibrationTab::LinePoints => {
-                        self.render_echelle_calibration_line_points_tab(ui)
+                        self.render_echelle_calibration_line_points_tab(ui);
                     }
                     EchelleCalibrationTab::WavelengthFit => {
-                        self.render_echelle_calibration_wavelength_fit_tab(ui)
+                        self.render_echelle_calibration_wavelength_fit_tab(ui);
                     }
                     EchelleCalibrationTab::BlazeFlat => self.render_echelle_calibration_blaze_tab(ui),
                     EchelleCalibrationTab::MechelleNotes => {
-                        self.render_echelle_calibration_mechelle_notes_tab(ui)
+                        self.render_echelle_calibration_mechelle_notes_tab(ui);
                     }
                 }
             });
@@ -2070,14 +2072,14 @@ impl ImageViewerPanel {
             if total_samples > 0 {
                 let last_idx = total_samples - 1;
                 if let Some((x, y)) = order_sample_image_position(&profile, order, last_idx) {
-                    if x.is_finite() && y.is_finite() {
-                        if pts
+                    if x.is_finite()
+                        && y.is_finite()
+                        && pts
                             .last()
                             .map(|(px, py)| (*px - x).abs() > 1e-3 || (*py - y).abs() > 1e-3)
                             .unwrap_or(true)
-                        {
-                            pts.push((x, y));
-                        }
+                    {
+                        pts.push((x, y));
                     }
                 }
             }
@@ -5238,6 +5240,7 @@ fn basis_terms_for_ui(
     Some(out)
 }
 
+#[allow(clippy::needless_range_loop)]
 fn solve_linear_system_gaussian(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
     let n = a.len();
     if n == 0 || b.len() != n || a.iter().any(|row| row.len() != n) {
@@ -5290,6 +5293,7 @@ fn solve_linear_system_gaussian(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option
     }
 }
 
+#[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
 fn detect_cross_dispersion_peaks_from_frame(
     data: &[u8],
     width: u32,

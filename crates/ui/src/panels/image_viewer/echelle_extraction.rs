@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! MVP echelle extraction helpers for ImageViewerPanel.
 //!
 //! The goal is a safe, calibration-profile-driven preview extraction path that
@@ -149,21 +150,19 @@ impl<'a> DecodedIntensityFrame<'a> {
                 let (prefix, u16s, suffix) = unsafe { frame_data.align_to::<u16>() };
                 if prefix.is_empty() && suffix.is_empty() && u16s.len() >= pixel_count {
                     DecodedPixels::U16Borrowed(&u16s[..pixel_count])
-                } else {
-                    if let Some(scratch) = u16_scratch {
-                        scratch.clear();
-                        scratch.reserve(pixel_count);
-                        for chunk in frame_data[..expected_bytes].chunks_exact(2) {
-                            scratch.push(u16::from_le_bytes([chunk[0], chunk[1]]));
-                        }
-                        DecodedPixels::U16Borrowed(&scratch[..pixel_count])
-                    } else {
-                        let mut decoded = Vec::with_capacity(pixel_count);
-                        for chunk in frame_data[..expected_bytes].chunks_exact(2) {
-                            decoded.push(u16::from_le_bytes([chunk[0], chunk[1]]));
-                        }
-                        DecodedPixels::U16Owned(decoded)
+                } else if let Some(scratch) = u16_scratch {
+                    scratch.clear();
+                    scratch.reserve(pixel_count);
+                    for chunk in frame_data[..expected_bytes].chunks_exact(2) {
+                        scratch.push(u16::from_le_bytes([chunk[0], chunk[1]]));
                     }
+                    DecodedPixels::U16Borrowed(&scratch[..pixel_count])
+                } else {
+                    let mut decoded = Vec::with_capacity(pixel_count);
+                    for chunk in frame_data[..expected_bytes].chunks_exact(2) {
+                        decoded.push(u16::from_le_bytes([chunk[0], chunk[1]]));
+                    }
+                    DecodedPixels::U16Owned(decoded)
                 }
             }
             _ => {
@@ -288,7 +287,7 @@ fn extract_preview_with_scratch_inner(
 
     let mut orders = Vec::new();
     for order in profile.orders.iter().filter(|o| o.enabled) {
-        let preview = extract_order(profile, order, &decoded, saturation_threshold)?;
+        let preview = extract_order(profile, order, decoded, saturation_threshold)?;
         orders.push(preview);
     }
 
