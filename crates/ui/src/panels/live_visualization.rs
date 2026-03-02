@@ -15,7 +15,7 @@
 //! - Panel drains channels each frame and updates state
 //! - No mutable borrows cross async boundaries
 
-use crate::time::Instant;
+use crate::time::{Duration, Instant};
 use eframe::egui::{self, TextureHandle};
 use egui_plot::{Line, PlotPoints};
 use std::collections::{HashMap, VecDeque};
@@ -130,7 +130,7 @@ impl FpsTracker {
         self.last_frame_number = frame_number;
 
         // Remove frames older than FPS window
-        let fps_window = std::time::Duration::from_secs_f64(FPS_WINDOW);
+        let fps_window = Duration::from_secs_f64(FPS_WINDOW);
         let cutoff = now.checked_sub(fps_window).unwrap_or(now);
         while let Some(&time) = self.frame_times.front() {
             if time < cutoff {
@@ -159,7 +159,7 @@ impl FpsTracker {
         }
 
         let now = Instant::now();
-        let fps_window = std::time::Duration::from_secs_f64(FPS_WINDOW);
+        let fps_window = Duration::from_secs_f64(FPS_WINDOW);
         let cutoff = now.checked_sub(fps_window).unwrap_or(now);
         let recent_frames: Vec<_> = self.frame_times.iter().filter(|&&t| t >= cutoff).collect();
 
@@ -371,7 +371,7 @@ impl SpectrumPlotState {
 
 fn trim_recent_times(times: &mut VecDeque<Instant>) {
     let now = Instant::now();
-    let fps_window = std::time::Duration::from_secs_f64(FPS_WINDOW);
+    let fps_window = Duration::from_secs_f64(FPS_WINDOW);
     let cutoff = now.checked_sub(fps_window).unwrap_or(now);
     while let Some(&time) = times.front() {
         if time < cutoff {
@@ -387,7 +387,7 @@ fn rate_from_instants(times: &VecDeque<Instant>) -> f64 {
         return 0.0;
     }
     let now = Instant::now();
-    let fps_window = std::time::Duration::from_secs_f64(FPS_WINDOW);
+    let fps_window = Duration::from_secs_f64(FPS_WINDOW);
     let cutoff = now.checked_sub(fps_window).unwrap_or(now);
     let recent: Vec<_> = times.iter().filter(|&&t| t >= cutoff).collect();
     if recent.len() < 2 {
