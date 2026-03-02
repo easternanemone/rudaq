@@ -1534,7 +1534,7 @@ impl HardwareService for HardwareServiceImpl {
             .unwrap_or_else(|| IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
 
         // Check per-client stream limit (bd-64hu)
-        self.stream_limiter.try_acquire(client_ip)?;
+        let stream_slot = self.stream_limiter.try_acquire_guard(client_ip)?;
 
         let req = request.into_inner();
         let device_id = req.device_id.clone();
@@ -1604,8 +1604,10 @@ impl HardwareService for HardwareServiceImpl {
         // Spawn task to forward frames from observer channel to gRPC stream
         let device_id_clone = device_id.clone();
         let frame_producer_clone = frame_producer.clone();
-        let stream_limiter_clone = self.stream_limiter.clone();
         tokio::spawn(async move {
+            // Hold the per-client stream slot for the lifetime of this forwarding task.
+            // Dropping the guard releases the slot on every exit path (including panic unwind).
+            let stream_slot_guard = stream_slot;
             // Initialize to allow first frame through immediately
             let mut last_frame_time = match min_interval {
                 Some(interval) => std::time::Instant::now().checked_sub(interval).unwrap(),
@@ -1629,7 +1631,39 @@ impl HardwareService for HardwareServiceImpl {
             let exit_reason: &str;
 
             loop {
-                match observer_rx.recv().await {
+                let next_packet = tokio::select! {
+                    maybe_packet = observer_rx.recv() => maybe_packet,
+                    () = grpc_tx.closed() => {
+                        tracing::info!(
+                            device_id = %device_id_clone,
+                            frames_sent = frames_sent,
+                            "gRPC frame stream receiver dropped; stopping forwarding task"
+                        );
+
+                        if let Err(e) = frame_producer_clone
+                            .unregister_observer(observer_handle)
+                            .await
+                        {
+                            tracing::debug!(
+                                device_id = %device_id_clone,
+                                observer_handle = observer_handle.id(),
+                                error = %e,
+                                "Failed to unregister observer after gRPC receiver drop (may already be unregistered)"
+                            );
+                        } else {
+                            tracing::info!(
+                                device_id = %device_id_clone,
+                                observer_handle = observer_handle.id(),
+                                "Unregistered observer after gRPC receiver drop"
+                            );
+                        }
+
+                        exit_reason = "grpc_receiver_dropped";
+                        break;
+                    }
+                };
+
+                match next_packet {
                     Some(packet) => {
                         // Log early frames for debugging
                         if frames_sent < 10 {
@@ -1860,9 +1894,8 @@ impl HardwareService for HardwareServiceImpl {
                     }
                 }
             }
-
             // Release stream slot (bd-64hu)
-            stream_limiter_clone.release(client_ip);
+            drop(stream_slot_guard);
 
             // Final summary log
             tracing::info!(

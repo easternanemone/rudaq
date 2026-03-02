@@ -1,0 +1,20 @@
+{
+  "label": "hg2_100ms",
+  "illumination": "HG-2 Mercury-Argon lamp",
+  "exposure_s_requested": 0.1,
+  "frame": {
+    "width": 2048,
+    "height": 2048,
+    "bit_depth": 12,
+    "frame_number": null,
+    "timestamp_ns": "1772061733767242235",
+    "roi_x": null,
+    "roi_y": null,
+    "binning_x": null,
+    "binning_y": null,
+    "exposure_ms": 100,
+    "compression": "COMPRESSION_LZ4",
+    "uncompressed_size": 8388608,
+    "payload_b64_len": 174136
+  }
+}

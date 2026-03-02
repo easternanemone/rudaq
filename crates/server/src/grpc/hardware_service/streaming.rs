@@ -8,6 +8,7 @@ use protocol::downsample::{downsample_2x2, downsample_4x4};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::net::IpAddr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tonic::Status;
 
@@ -149,6 +150,19 @@ pub struct StreamLimiter {
     active_streams: std::sync::Mutex<HashMap<IpAddr, usize>>,
 }
 
+/// RAII guard that releases a previously acquired stream slot on drop.
+#[must_use = "Dropping the guard releases the stream slot"]
+pub struct StreamSlotGuard {
+    limiter: Arc<StreamLimiter>,
+    client_ip: IpAddr,
+}
+
+impl Drop for StreamSlotGuard {
+    fn drop(&mut self) {
+        self.limiter.release(self.client_ip);
+    }
+}
+
 impl StreamLimiter {
     /// Create a new stream limiter.
     pub fn new() -> Self {
@@ -189,6 +203,18 @@ impl StreamLimiter {
         Ok(())
     }
 
+    /// Try to acquire a stream slot and return an RAII guard that releases it on drop.
+    pub fn try_acquire_guard(
+        self: &Arc<Self>,
+        client_ip: IpAddr,
+    ) -> Result<StreamSlotGuard, Status> {
+        self.try_acquire(client_ip)?;
+        Ok(StreamSlotGuard {
+            limiter: Arc::clone(self),
+            client_ip,
+        })
+    }
+
     /// Release a stream slot for the given client IP.
     pub fn release(&self, client_ip: IpAddr) {
         let mut streams = match self.active_streams.lock() {
@@ -221,5 +247,38 @@ impl StreamLimiter {
             .lock()
             .map(|streams| streams.contains_key(&client_ip))
             .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StreamLimiter;
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::sync::Arc;
+
+    #[test]
+    fn stream_slot_guard_releases_on_drop() {
+        let limiter = Arc::new(StreamLimiter::new());
+        let client_ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
+
+        {
+            let _guard = limiter.try_acquire_guard(client_ip).expect("acquire guard");
+            assert!(limiter.has_streams(client_ip));
+        }
+
+        assert!(!limiter.has_streams(client_ip));
+    }
+
+    #[test]
+    fn stream_slot_guard_releases_on_early_return_path() {
+        fn early_return(limiter: Arc<StreamLimiter>, client_ip: IpAddr) {
+            let _guard = limiter.try_acquire_guard(client_ip).expect("acquire guard");
+        }
+
+        let limiter = Arc::new(StreamLimiter::new());
+        let client_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2));
+
+        early_return(Arc::clone(&limiter), client_ip);
+        assert!(!limiter.has_streams(client_ip));
     }
 }

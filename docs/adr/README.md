@@ -19,6 +19,8 @@ For background on ADRs, see [Michael Nygard's original article](https://cognitop
 | 009 | [PVCAM Driver Architecture](009-pvcam-driver-architecture.md) | Accepted | 2025-01-09 | Justification for the multi-layer PVCAM driver architecture (~9K LOC) for production scientific use. |
 | 010 | [PVCAM Pool Migration Results](010-pvcam-pool-migration-results.md) | Migration Complete | 2026-01-17 | Results from eliminating ~1.6 GB/s allocation churn via zero-allocation frame pools. |
 | 011 | [PVCAM SDK Pattern Compliance](011-pvcam-sdk-pattern-compliance.md) | In Progress | 2025-01-10 | Add SDK-mandated `ATTR_AVAIL` parameter discovery checks throughout the driver. |
+| 012 | [Mechelle Echelle MVP Extraction Location](012-mechelle-echelle-mvp-extraction-location.md) | Proposed | 2026-02-25 | Phase-1 decision to implement echelle extraction locally in `ImageViewerPanel` before protocol-native spectrum streaming. |
+| 013 | [Mechelle Calibration Profile Ownership, Versioning, and Compatibility Policy](013-mechelle-calibration-profile-ownership-and-compatibility.md) | Proposed | 2026-02-25 | Define rust-daq-owned canonical calibration profile schema policy with strict compatibility validation and versioning. |
 | — | [PVCAM Performance Gap Analysis](analysis-pvcam-performance-gap.md) | Analysis Complete | 2026-01-11 | Root-cause analysis of the 10x FPS gap (4.4 vs 50) traced to per-frame heap allocation. |
 
 ## Creating a New ADR

@@ -54,6 +54,7 @@ pub mod validation;
 pub mod data;
 // Document model (Bluesky-style)
 pub mod capabilities;
+pub mod echelle;
 pub mod error;
 pub mod error_recovery;
 pub mod experiment;

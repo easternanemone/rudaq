@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn test_minimal_config_uses_defaults() {
-        let json = r#"{}"#;
+        let json = r"{}";
         let config: UiConfig = serde_json::from_str(json).unwrap();
         assert!(config.icon.is_none());
         assert!(config.control_panel.is_none());

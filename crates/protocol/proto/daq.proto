@@ -21,6 +21,8 @@ service ControlService {
 
   // Stream measurement data
   rpc StreamMeasurements(MeasurementRequest) returns (stream DataPoint);
+  // Stream full spectrum measurements (vector payloads, additive path)
+  rpc StreamSpectra(SpectrumStreamRequest) returns (stream SpectrumDataPoint);
 
   // List all uploaded scripts
   rpc ListScripts(ListScriptsRequest) returns (ListScriptsResponse);
@@ -108,6 +110,23 @@ message DataPoint {
   string channel = 1;
   double value = 2;
   uint64 timestamp_ns = 3;
+}
+
+// Request for spectrum streaming (additive path; preserves StreamMeasurements behavior)
+message SpectrumStreamRequest {
+  repeated string channels = 1;
+  uint32 max_rate_hz = 2;
+}
+
+// Full spectrum payload (x/y arrays preserved)
+message SpectrumDataPoint {
+  string name = 1;
+  repeated double x_values = 2;
+  repeated double y_values = 3;
+  string x_unit = 4;
+  string y_unit = 5;
+  uint64 timestamp_ns = 6;
+  string metadata_json = 7; // serialized metadata object for forward-compatible transport
 }
 
 // Request to list all scripts

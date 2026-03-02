@@ -321,6 +321,7 @@ pub static GLOBAL_CALLBACK_CTX: std::sync::atomic::AtomicPtr<CallbackContext> =
 /// Set the global callback context pointer (call before registering callback)
 #[cfg(feature = "pvcam_sdk")]
 pub fn set_global_callback_ctx(ctx: *const CallbackContext) {
+    tracing::debug!(ctx_ptr = ?ctx, "PVCAM GLOBAL_CALLBACK_CTX set");
     GLOBAL_CALLBACK_CTX.store(
         ctx as *mut CallbackContext,
         std::sync::atomic::Ordering::Release,
@@ -330,6 +331,8 @@ pub fn set_global_callback_ctx(ctx: *const CallbackContext) {
 /// Clear the global callback context pointer (call after deregistering callback)
 #[cfg(feature = "pvcam_sdk")]
 pub fn clear_global_callback_ctx() {
+    let prev = GLOBAL_CALLBACK_CTX.load(std::sync::atomic::Ordering::Acquire);
+    tracing::debug!(prev_ctx_ptr = ?prev, "PVCAM GLOBAL_CALLBACK_CTX cleared");
     GLOBAL_CALLBACK_CTX.store(std::ptr::null_mut(), std::sync::atomic::Ordering::Release);
 }
 

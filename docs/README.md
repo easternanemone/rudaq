@@ -44,6 +44,12 @@ Organized using the [Diataxis](https://diataxis.fr/) framework.
 | [Storage Formats](how-to/storage-formats.md) | HDF5, Arrow, CSV, NetCDF |
 | [Zarr Acquisition](how-to/zarr-acquisition.md) | Zarr V3 storage |
 | [EOM Power Sweep](how-to/eom-power-sweep.md) | EOM power sweep workflow |
+| [Echelle Spectrum Preview (MVP)](how-to/echelle-spectrum-preview.md) | Load a calibration profile and view local echelle extraction previews |
+| [Live Echelle Calibration Session (leabs-dev)](how-to/echelle-live-calibration-session-leabs-dev.md) | Bench runbook for Mechelle+iSTAR+HG-2 live calibration and GUI workflow |
+| [Andor iSTAR Crash Capture & Repro](how-to/andor-istar-crash-capture-and-repro.md) | Wrapped-daemon crash capture and streaming repro harness for `leabs-dev` |
+| [Echelle Calibration Development](how-to/echelle-calibration-development.md) | Developer workflow for creating profiles and maintaining golden datasets |
+| [Echelle Rollout & Troubleshooting](how-to/echelle-rollout-and-troubleshooting.md) | MVP rollout stages, runtime knobs, and failure troubleshooting |
+| [Echelle Validation Plan & HIL Checklist](how-to/echelle-validation-plan-and-hil-checklist.md) | Dataset matrix definition and lab hardware-in-loop validation checklist |
 
 ### Infrastructure
 
@@ -62,6 +68,9 @@ Organized using the [Diataxis](https://diataxis.fr/) framework.
 | [PVCAM SDK](reference/pvcam-sdk.md) | PVCAM API reference and error codes |
 | [Dover Motion API](reference/dover-motion-api.md) | MotionSynergyAPI reference |
 | [Feature Matrix](reference/feature-matrix.md) | Implementation status for all features |
+| [Echelle Calibration Profile Schema](reference/echelle-calibration-profile-schema.md) | Versioned profile schema for Mechelle/echelle extraction calibration |
+| [Echelle Sidecar API Contract](reference/echelle-sidecar-api-contract.md) | Design for Python sidecar extraction contract, packaging, and licensing guidance |
+| [Echelle Spectrum Streaming Protocol Design](reference/echelle-spectrum-streaming-protocol-design.md) | Design for gRPC vector-spectrum payload streaming and metadata |
 
 ## Explanation — Understand the system
 
@@ -72,6 +81,7 @@ Organized using the [Diataxis](https://diataxis.fr/) framework.
 | [Plugin Schema](explanation/plugin-schema.md) | Plugin system design |
 | [PVCAM Integration Map](explanation/pvcam-integration-map.md) | PVCAM driver integration points |
 | [Rerun Visualization](explanation/rerun-visualization.md) | Rerun.io visualization debugging |
+| [Echelle Extraction Architecture](explanation/echelle-extraction-architecture.md) | MVP local extractor design and planned sidecar/protocol evolution |
 
 ## Architecture Decision Records
 

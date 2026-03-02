@@ -851,6 +851,13 @@ impl PvcamAcquisition {
                 // Get raw pointer to pinned CallbackContext for FFI
                 // Deref Arc -> Pin<Box<T>> -> T, then take address
                 let callback_ctx_ptr = &**self.callback_context as *const CallbackContext;
+                tracing::info!(
+                    hcam = h,
+                    callback_type = PL_CALLBACK_EOF,
+                    callback_fn = ?(pvcam_eof_callback as *mut std::ffi::c_void),
+                    callback_ctx_ptr = ?callback_ctx_ptr,
+                    "PVCAM registering EOF callback before pl_exp_setup_cont"
+                );
 
                 // bd-static-ctx-2026-01-12: Set global context BEFORE registering callback
                 // The SDK p_context parameter stops working after ~19 frames on Prime BSI.
@@ -873,13 +880,21 @@ impl PvcamAcquisition {
                     );
                     if result == 0 {
                         tracing::warn!(
+                            hcam = h,
+                            callback_type = PL_CALLBACK_EOF,
+                            callback_ctx_ptr = ?callback_ctx_ptr,
                             "Failed to register EOF callback ({}), falling back to polling mode",
                             get_pvcam_error()
                         );
                         clear_global_callback_ctx(); // Clear on failure
                         false
                     } else {
-                        tracing::info!("PVCAM EOF callback registered successfully (before setup)");
+                        tracing::info!(
+                            hcam = h,
+                            callback_type = PL_CALLBACK_EOF,
+                            callback_ctx_ptr = ?callback_ctx_ptr,
+                            "PVCAM EOF callback registered successfully (before setup)"
+                        );
                         // Store callback state for Drop cleanup
                         self.callback_registered.store(true, Ordering::Release);
                         true
@@ -1148,8 +1163,15 @@ impl PvcamAcquisition {
                         // that manifests as callbacks stopping after ~5 frames. The SDK examples only
                         // register callbacks ONCE and never re-register during a session.
                         if use_callback {
+                            tracing::info!(
+                                hcam = h,
+                                callback_type = PL_CALLBACK_EOF,
+                                "PVCAM deregistering EOF callback before fallback re-registration"
+                            );
                             pl_cam_deregister_callback(h, PL_CALLBACK_EOF);
                             tracing::info!(
+                                hcam = h,
+                                callback_type = PL_CALLBACK_EOF,
                                 "Deregistered EOF callback before fallback re-registration"
                             );
                         }
@@ -1160,6 +1182,13 @@ impl PvcamAcquisition {
                             // Recreate raw pointer (needed because original was scoped to avoid holding across await)
                             let callback_ctx_ptr =
                                 &**self.callback_context as *const CallbackContext;
+                            tracing::info!(
+                                hcam = h,
+                                callback_type = PL_CALLBACK_EOF,
+                                callback_fn = ?(pvcam_eof_callback as *mut std::ffi::c_void),
+                                callback_ctx_ptr = ?callback_ctx_ptr,
+                                "PVCAM re-registering EOF callback after fallback setup"
+                            );
                             let result = pl_cam_register_callback_ex3(
                                 h,
                                 PL_CALLBACK_EOF,
@@ -1168,11 +1197,19 @@ impl PvcamAcquisition {
                             );
                             if result == 0 {
                                 tracing::warn!(
+                                    hcam = h,
+                                    callback_type = PL_CALLBACK_EOF,
+                                    callback_ctx_ptr = ?callback_ctx_ptr,
                                     "Failed to re-register EOF callback after fallback: {}",
                                     get_pvcam_error()
                                 );
                             } else {
-                                tracing::info!("EOF callback re-registered after fallback setup");
+                                tracing::info!(
+                                    hcam = h,
+                                    callback_type = PL_CALLBACK_EOF,
+                                    callback_ctx_ptr = ?callback_ctx_ptr,
+                                    "EOF callback re-registered after fallback setup"
+                                );
                             }
                         }
 
@@ -1574,51 +1611,69 @@ impl PvcamAcquisition {
     }
 
     pub async fn stop_stream(&self, conn: &PvcamConnection) -> Result<()> {
-        tracing::debug!("stop_stream called");
+        tracing::debug!("PVCAM stop_stream called");
         // Avoid unused parameter warnings when hardware feature is disabled.
         let _ = conn;
         if !self.streaming.get() {
-            tracing::debug!("stop_stream: not streaming, returning early");
+            tracing::debug!("PVCAM stop_stream: not streaming, returning early");
             return Ok(());
         }
-        tracing::debug!("stop_stream: setting streaming=false");
+        #[cfg(feature = "pvcam_sdk")]
+        tracing::info!(
+            active_hcam = self.active_hcam.load(Ordering::Acquire),
+            callback_registered = self.callback_registered.load(Ordering::Acquire),
+            "PVCAM stop_stream requested"
+        );
+        #[cfg(not(feature = "pvcam_sdk"))]
+        tracing::info!("PVCAM stop_stream requested");
+        tracing::debug!("PVCAM stop_stream: setting streaming=false");
         self.streaming.set_from_hardware(false).await?;
 
         #[cfg(feature = "pvcam_sdk")]
         {
             // Signal callback context to shutdown (bd-ek9n.2)
             // This wakes any waiting thread in the frame loop
-            tracing::debug!("stop_stream: signaling callback context shutdown");
+            tracing::debug!("PVCAM stop_stream: signaling callback context shutdown");
             self.callback_context.signal_shutdown();
 
             // bd-hehw: Take handle under lock, then drop lock before awaiting
             // This prevents holding the mutex guard across the .await point
-            tracing::debug!("stop_stream: waiting for poll thread to complete");
+            tracing::debug!("PVCAM stop_stream: waiting for poll thread to complete");
             let handle = { self.poll_handle.lock().await.take() };
             if let Some(handle) = handle {
-                tracing::debug!("stop_stream: awaiting poll handle");
+                tracing::debug!("PVCAM stop_stream: awaiting poll handle");
                 let _ = handle.await;
-                tracing::debug!("stop_stream: poll handle completed");
+                tracing::debug!("PVCAM stop_stream: poll handle completed");
             } else {
-                tracing::debug!("stop_stream: no poll handle to wait for");
+                tracing::debug!("PVCAM stop_stream: no poll handle to wait for");
             }
             if let Some(h) = conn.handle() {
-                tracing::debug!("stop_stream: stopping acquisition on hcam={}", h);
+                tracing::info!(hcam = h, "PVCAM stop_stream: issuing pl_exp_stop_cont");
                 // bd-g9gq: Use FFI safe wrappers with explicit safety contracts
                 ffi_safe::stop_acquisition(h, CCS_HALT);
                 // Deregister EOF callback if registered (bd-ek9n.2)
                 if self.callback_registered.load(Ordering::Acquire) {
-                    tracing::debug!("stop_stream: deregistering EOF callback");
+                    let callback_ctx_ptr = &**self.callback_context as *const CallbackContext;
+                    tracing::info!(
+                        hcam = h,
+                        callback_type = PL_CALLBACK_EOF,
+                        callback_ctx_ptr = ?callback_ctx_ptr,
+                        "PVCAM stop_stream: deregistering EOF callback"
+                    );
                     ffi_safe::deregister_callback(h, PL_CALLBACK_EOF);
                     self.callback_registered.store(false, Ordering::Release);
                     clear_global_callback_ctx();
-                    tracing::debug!("stop_stream: EOF callback deregistered, global ctx cleared");
+                    tracing::debug!(
+                        hcam = h,
+                        callback_type = PL_CALLBACK_EOF,
+                        "PVCAM stop_stream: EOF callback deregistered, global ctx cleared"
+                    );
                 }
             } else {
-                tracing::debug!("stop_stream: no camera handle, skipping SDK cleanup");
+                tracing::debug!("PVCAM stop_stream: no camera handle, skipping SDK cleanup");
             }
             // Clear stored state after cleanup
-            tracing::debug!("stop_stream: clearing stored state");
+            tracing::debug!("PVCAM stop_stream: clearing stored state");
             self.active_hcam.store(-1, Ordering::Release); // -1 = no active handle
             *self.circ_buffer.lock().await = None;
             // bd-g6pr: Clear completion channel so Drop doesn't try to wait again
@@ -1628,9 +1683,9 @@ impl PvcamAcquisition {
             if let Ok(mut guard) = self.poll_thread_done_tx.lock() {
                 *guard = None;
             }
-            tracing::debug!("stop_stream: cleanup complete");
+            tracing::debug!("PVCAM stop_stream: cleanup complete");
         }
-        tracing::info!("stop_stream completed successfully");
+        tracing::info!("PVCAM stop_stream completed successfully");
         Ok(())
     }
 
@@ -3242,6 +3297,11 @@ impl Drop for PvcamAcquisition {
                 // use-after-free in the callback.
                 unsafe {
                     // Stop continuous acquisition first (halts camera operation)
+                    tracing::info!(
+                        hcam,
+                        callback_registered = self.callback_registered.load(Ordering::Acquire),
+                        "PVCAM acquisition Drop cleanup: issuing pl_exp_stop_cont"
+                    );
                     let stop_result = pl_exp_stop_cont(hcam, CCS_HALT);
                     if stop_result == 0 {
                         tracing::warn!(
@@ -3254,6 +3314,13 @@ impl Drop for PvcamAcquisition {
 
                     // Deregister callback to prevent use-after-free
                     if self.callback_registered.swap(false, Ordering::AcqRel) {
+                        let callback_ctx_ptr = &**self.callback_context as *const CallbackContext;
+                        tracing::info!(
+                            hcam,
+                            callback_type = PL_CALLBACK_EOF,
+                            callback_ctx_ptr = ?callback_ctx_ptr,
+                            "PVCAM acquisition Drop cleanup: deregistering EOF callback"
+                        );
                         let dereg_result = pl_cam_deregister_callback(hcam, PL_CALLBACK_EOF);
                         if dereg_result == 0 {
                             tracing::warn!(
@@ -3261,7 +3328,11 @@ impl Drop for PvcamAcquisition {
                                 get_pvcam_error()
                             );
                         } else {
-                            tracing::debug!("Deregistered PVCAM EOF callback in Drop");
+                            tracing::debug!(
+                                hcam,
+                                callback_type = PL_CALLBACK_EOF,
+                                "Deregistered PVCAM EOF callback in Drop"
+                            );
                         }
                         clear_global_callback_ctx();
                     }

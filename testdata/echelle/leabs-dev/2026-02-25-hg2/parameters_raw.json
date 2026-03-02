@@ -1,0 +1,97 @@
+{
+  "AOILeft": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"AOILeft\",\n  \"value\": \"1\",\n  \"timestampNs\": \"1772061715911999892\"\n}\n",
+    "stderr": ""
+  },
+  "AOITop": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"AOITop\",\n  \"value\": \"1\",\n  \"timestampNs\": \"1772061715973041337\"\n}\n",
+    "stderr": ""
+  },
+  "AOIWidth": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"AOIWidth\",\n  \"value\": \"1\",\n  \"timestampNs\": \"1772061716043214786\"\n}\n",
+    "stderr": ""
+  },
+  "AOIHeight": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"AOIHeight\",\n  \"value\": \"1\",\n  \"timestampNs\": \"1772061716142683244\"\n}\n",
+    "stderr": ""
+  },
+  "AOIHBin": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"AOIHBin\",\n  \"value\": \"1\",\n  \"timestampNs\": \"1772061716197026606\"\n}\n",
+    "stderr": ""
+  },
+  "AOIVBin": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"AOIVBin\",\n  \"value\": \"1\",\n  \"timestampNs\": \"1772061716247765390\"\n}\n",
+    "stderr": ""
+  },
+  "PixelEncoding": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"PixelEncoding\",\n  \"value\": \"\\\"Mono12\\\"\",\n  \"timestampNs\": \"1772061716300157975\"\n}\n",
+    "stderr": ""
+  },
+  "BytesPerPixel": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"BytesPerPixel\",\n  \"value\": \"0.0\",\n  \"timestampNs\": \"1772061716350916907\"\n}\n",
+    "stderr": ""
+  },
+  "TriggerMode": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"TriggerMode\",\n  \"value\": \"\\\"Internal\\\"\",\n  \"timestampNs\": \"1772061716402527819\"\n}\n",
+    "stderr": ""
+  },
+  "GateMode": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"GateMode\",\n  \"value\": \"\\\"CWOn\\\"\",\n  \"timestampNs\": \"1772061716452464318\"\n}\n",
+    "stderr": ""
+  },
+  "exposure_s": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"exposure_s\",\n  \"value\": \"0.001\",\n  \"units\": \"s\",\n  \"timestampNs\": \"1772061716510015270\"\n}\n",
+    "stderr": ""
+  },
+  "SensorTemperature": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"SensorTemperature\",\n  \"value\": \"0.0\",\n  \"timestampNs\": \"1772061716561815860\"\n}\n",
+    "stderr": ""
+  },
+  "TemperatureStatus": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"TemperatureStatus\",\n  \"value\": \"\\\"Cooler Off\\\"\",\n  \"timestampNs\": \"1772061716614346002\"\n}\n",
+    "stderr": ""
+  },
+  "FrameRate": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"FrameRate\",\n  \"value\": \"0.0\",\n  \"timestampNs\": \"1772061716665783592\"\n}\n",
+    "stderr": ""
+  },
+  "mcp_gain": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"mcp_gain\",\n  \"value\": \"1000\",\n  \"timestampNs\": \"1772061716718234076\"\n}\n",
+    "stderr": ""
+  },
+  "SimplePreAmpGainControl": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"SimplePreAmpGainControl\",\n  \"value\": \"\\\"12-bit (low noise)\\\"\",\n  \"timestampNs\": \"1772061716770705352\"\n}\n",
+    "stderr": ""
+  },
+  "CameraModel": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"CameraModel\",\n  \"value\": \"\\\"\\\"\",\n  \"timestampNs\": \"1772061716822588540\"\n}\n",
+    "stderr": ""
+  },
+  "CameraName": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"CameraName\",\n  \"value\": \"\\\"\\\"\",\n  \"timestampNs\": \"1772061716874112464\"\n}\n",
+    "stderr": ""
+  },
+  "SerialNumber": {
+    "exit_code": 0,
+    "stdout": "{\n  \"deviceId\": \"istar_camera\",\n  \"name\": \"SerialNumber\",\n  \"value\": \"\\\"\\\"\",\n  \"timestampNs\": \"1772061716924690777\"\n}\n",
+    "stderr": ""
+  }
+}

@@ -126,6 +126,8 @@ use protocol::daq::{
     SetParameterRequest,
     SetShutterRequest,
     SetWavelengthRequest,
+    SpectrumDataPoint,
+    SpectrumStreamRequest,
     StartEngineRequest,
     StartEngineResponse,
     StartModuleRequest,
@@ -157,6 +159,8 @@ use protocol::daq::{
 #[derive(Clone)]
 pub struct DaqClient {
     control: ControlServiceClient<Transport>,
+    /// Dedicated ControlService client for long-lived streaming RPCs (no request timeout)
+    control_streaming: ControlServiceClient<Transport>,
     hardware: HardwareServiceClient<Transport>,
     /// Dedicated client for streaming RPCs (no request timeout on native)
     hardware_streaming: HardwareServiceClient<Transport>,
@@ -228,6 +232,8 @@ impl DaqClient {
 
         Ok(Self {
             control: ControlServiceClient::new(channel.clone()),
+            control_streaming: ControlServiceClient::new(streaming_channel.clone())
+                .max_decoding_message_size(MAX_MESSAGE_SIZE),
             // Hardware client needs larger message size for camera frame streaming
             hardware: HardwareServiceClient::new(channel.clone())
                 .max_decoding_message_size(MAX_MESSAGE_SIZE),
@@ -467,6 +473,23 @@ impl DaqClient {
                 force,
             })
             .await?;
+        Ok(response.into_inner())
+    }
+
+    /// Stream full spectrum measurements from ControlService (additive path).
+    ///
+    /// This preserves the existing scalar `StreamMeasurements` behavior by using the
+    /// dedicated `StreamSpectra` RPC introduced for vector payloads.
+    pub async fn stream_spectra(
+        &mut self,
+        channels: Vec<String>,
+        max_rate_hz: u32,
+    ) -> Result<impl futures::Stream<Item = Result<SpectrumDataPoint, tonic::Status>>> {
+        let request = SpectrumStreamRequest {
+            channels,
+            max_rate_hz,
+        };
+        let response = self.control_streaming.stream_spectra(request).await?;
         Ok(response.into_inner())
     }
 

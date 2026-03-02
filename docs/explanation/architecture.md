@@ -17,7 +17,7 @@ The architecture follows a **Headless-First** design: the core daemon runs as a 
 
 ## System Components
 
-The project is structured as a Cargo workspace with 31 crates organized by layer:
+The project is structured as a Cargo workspace with 30 crates organized by layer:
 
 ### 1. Application Layer
 *   **`bin`**: The entry point for the daemon (`rust-daq-daemon`). Wires together the system based on compile-time features.
