@@ -6,9 +6,3 @@
 //!
 //! The crate is retained as a workspace member for potential future
 //! Spectra-Physics drivers that require native SDK bindings.
-
-/// Force the linker to include this crate.
-#[inline(never)]
-pub fn link() {
-    // No factories to link — MaiTai is now driver-universal
-}

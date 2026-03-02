@@ -1215,6 +1215,27 @@ impl ControlService for DaqServer {
     }
 }
 
+/// Build a gRPC `Server` with the standard middleware stack (CORS, auth, tracing, audit).
+///
+/// Extracted as a macro because Tower's builder returns deeply nested generic types
+/// that cannot be named in a function signature without `type_alias_impl_trait`.
+macro_rules! build_grpc_server {
+    ($grpc_settings:expr, $cors:expr) => {{
+        use crate::grpc::audit_log::AuditLogLayer;
+        use crate::grpc::request_tracing::RequestTracingLayer;
+        let auth_settings = $grpc_settings.clone();
+        Server::builder()
+            .accept_http1(true)
+            .layer($cors)
+            .layer(interceptor(move |request: Request<()>| {
+                validate_auth(&auth_settings, &request)?;
+                Ok(request)
+            }))
+            .layer(RequestTracingLayer::new())
+            .layer(AuditLogLayer::new())
+    }};
+}
+
 /// Start the DAQ gRPC server
 ///
 /// Provides RunEngineService and optionally ControlService (when `scripting` feature is enabled).
@@ -1285,20 +1306,7 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
         );
     }
 
-    let auth_settings = grpc_settings.clone();
-    let mut builder = {
-        use crate::grpc::audit_log::AuditLogLayer;
-        use crate::grpc::request_tracing::RequestTracingLayer;
-        Server::builder()
-            .accept_http1(true)
-            .layer(cors)
-            .layer(interceptor(move |request: Request<()>| {
-                validate_auth(&auth_settings, &request)?;
-                Ok(request)
-            }))
-            .layer(RequestTracingLayer::new())
-            .layer(AuditLogLayer::new())
-    };
+    let mut builder = build_grpc_server!(grpc_settings, cors);
 
     if let Some(tls_config) = tls_config {
         builder = builder.tls_config(tls_config)?;
@@ -1782,20 +1790,7 @@ pub async fn start_server_with_hardware(
     }
 
     #[cfg(feature = "serial")]
-    let mut server_builder = {
-        use crate::grpc::audit_log::AuditLogLayer;
-        use crate::grpc::request_tracing::RequestTracingLayer;
-        let auth_settings = grpc_settings.clone();
-        Server::builder()
-            .accept_http1(true)
-            .layer(cors.clone())
-            .layer(interceptor(move |request: Request<()>| {
-                validate_auth(&auth_settings, &request)?;
-                Ok(request)
-            }))
-            .layer(RequestTracingLayer::new())
-            .layer(AuditLogLayer::new())
-    };
+    let mut server_builder = build_grpc_server!(grpc_settings, cors.clone());
 
     #[cfg(feature = "serial")]
     if let Some(tls_config) = tls_config {
@@ -1847,20 +1842,7 @@ pub async fn start_server_with_hardware(
     };
 
     #[cfg(not(feature = "serial"))]
-    let mut server_builder = {
-        use crate::grpc::audit_log::AuditLogLayer;
-        use crate::grpc::request_tracing::RequestTracingLayer;
-        let auth_settings = grpc_settings.clone();
-        Server::builder()
-            .accept_http1(true)
-            .layer(cors.clone())
-            .layer(interceptor(move |request: Request<()>| {
-                validate_auth(&auth_settings, &request)?;
-                Ok(request)
-            }))
-            .layer(RequestTracingLayer::new())
-            .layer(AuditLogLayer::new())
-    };
+    let mut server_builder = build_grpc_server!(grpc_settings, cors.clone());
 
     #[cfg(not(feature = "serial"))]
     if let Some(tls_config) = tls_config {

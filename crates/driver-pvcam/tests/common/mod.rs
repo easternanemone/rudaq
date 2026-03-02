@@ -452,3 +452,28 @@ pub fn get_pvcam_error() -> String {
 pub fn get_pvcam_error_code() -> i16 {
     unsafe { pvcam_sys::pl_error_code() }
 }
+
+// ============================================================================
+// Hardware Test Gating Helpers
+// ============================================================================
+
+/// Check if PVCAM hardware smoke tests are enabled via `PVCAM_SMOKE_TEST=1`.
+#[cfg(all(feature = "pvcam_sdk", feature = "hardware_tests"))]
+pub fn smoke_test_enabled() -> bool {
+    std::env::var("PVCAM_SMOKE_TEST")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false)
+}
+
+/// Get camera name from `PVCAM_CAMERA_NAME` env var, defaulting to `"pvcamUSB_0"`.
+#[cfg(all(feature = "pvcam_sdk", feature = "hardware_tests"))]
+pub fn camera_name() -> String {
+    std::env::var("PVCAM_CAMERA_NAME").unwrap_or_else(|_| "pvcamUSB_0".to_string())
+}
+
+/// Serialize access to the physical camera across test threads.
+///
+/// Uses `tokio::sync::Mutex` to avoid blocking Tokio worker threads when
+/// the guard is held across `.await` points in async hardware tests.
+#[cfg(all(feature = "pvcam_sdk", feature = "hardware_tests"))]
+pub static CAMERA_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());

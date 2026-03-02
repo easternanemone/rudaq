@@ -14,7 +14,7 @@
 //! - `LD_LIBRARY_PATH` - Must include PVCAM library path for runtime
 //!
 //! Optional:
-//! - `PVCAM_CAMERA_NAME` - Camera name (default: "PrimeBSI")
+//! - `PVCAM_CAMERA_NAME` - Camera name (default: "pvcamUSB_0")
 //!
 //! # Quick Setup
 //!
@@ -59,9 +59,9 @@ fn smoke_test_enabled() -> bool {
         .unwrap_or(false)
 }
 
-/// Get camera name from environment or default to PrimeBSI
+/// Get camera name from environment or default to `pvcamUSB_0` (SDK device name).
 fn camera_name() -> String {
-    env::var("PVCAM_CAMERA_NAME").unwrap_or_else(|_| "PrimeBSI".to_string())
+    env::var("PVCAM_CAMERA_NAME").unwrap_or_else(|_| "pvcamUSB_0".to_string())
 }
 
 /// Skip test with message if smoke test not enabled

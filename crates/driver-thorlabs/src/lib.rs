@@ -10,9 +10,3 @@
 pub mod shared_ports;
 
 pub use shared_ports::{get_or_open_port, SharedPort};
-
-/// Force the linker to include this crate.
-#[inline(never)]
-pub fn link() {
-    // No factories to link — ELL14 is now driver-universal
-}

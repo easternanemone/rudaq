@@ -974,20 +974,26 @@ impl DeviceRegistry {
         }
     }
 
-    /// Shutdown all registered devices, collecting any lifecycle errors.
+    /// Shutdown all registered devices with bounded concurrency, collecting any errors.
+    ///
+    /// Uses `buffer_unordered(4)` rather than unbounded `join_all` because some drivers
+    /// share underlying transports (e.g., multiple devices on one serial port) and fully
+    /// parallel teardown could cause resource contention.
     pub async fn shutdown_all(&self) -> Result<(), DaqError> {
+        use futures::stream::{self, StreamExt};
+
         let device_ids: Vec<String> = self
             .devices
             .iter()
             .map(|entry| entry.key().clone())
             .collect();
-        let mut errors = Vec::new();
 
-        for device_id in device_ids {
-            if let Err(err) = self.unregister(&device_id).await {
-                errors.push(err);
-            }
-        }
+        let errors: Vec<DaqError> = stream::iter(device_ids)
+            .map(|id| async move { self.unregister(&id).await })
+            .buffer_unordered(4)
+            .filter_map(|r| async { r.err() })
+            .collect()
+            .await;
 
         if errors.is_empty() {
             Ok(())

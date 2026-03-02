@@ -280,7 +280,7 @@ impl MockRotator {
 
     /// Get the current velocity percentage.
     pub fn velocity(&self) -> u8 {
-        self.velocity_param.get() as u8
+        self.velocity_param.get().round() as u8
     }
 
     /// Set the velocity percentage (0-100).
@@ -314,7 +314,7 @@ impl MockRotator {
     /// Home the device to mechanical zero.
     pub async fn home(&self) -> Result<()> {
         // Simulate homing motion
-        let velocity = self.velocity_param.get() as u8;
+        let velocity = self.velocity_param.get().round() as u8;
         let duration_ms = (1000.0 * (100.0 / velocity.max(1) as f64)) as u64;
         sleep(Duration::from_millis(duration_ms)).await;
 
@@ -346,7 +346,7 @@ impl MockRotator {
 
     /// Calculate movement duration based on distance and velocity.
     fn calculate_duration(&self, distance_degrees: f64) -> Duration {
-        let velocity = self.velocity_param.get() as u8;
+        let velocity = self.velocity_param.get().round() as u8;
 
         // Base speed: 1 degree per 10ms at 100% velocity
         // Scale by velocity percentage

@@ -14,8 +14,10 @@
 //! The daemon binary should configure a `tracing_subscriber` layer filtered to
 //! `target: "audit"` and backed by a file appender for persistent audit storage.
 
+use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::LazyLock;
 use std::task::{Context, Poll};
 
 use http::{Request, Response};
@@ -25,68 +27,71 @@ use uuid::Uuid;
 
 /// gRPC methods that mutate hardware state and require audit logging.
 ///
+/// Uses `LazyLock<HashSet>` for O(1) lookup on the hot path (35 methods).
 /// Covers all operations that can change physical device state, including:
 /// - Direct device control (move, trigger, laser, shutter)
 /// - Plan/scan execution (start, stop, pause, resume)
 /// - NI DAQ analog/digital output
 /// - Script execution (can indirectly control hardware)
-const MUTATING_METHODS: &[&str] = &[
-    // HardwareService — direct device control
-    "/daq.HardwareService/MoveAbsolute",
-    "/daq.HardwareService/MoveRelative",
-    "/daq.HardwareService/StopMotion",
-    "/daq.HardwareService/Arm",
-    "/daq.HardwareService/Trigger",
-    "/daq.HardwareService/SetExposure",
-    "/daq.HardwareService/SetShutter",
-    "/daq.HardwareService/SetWavelength",
-    "/daq.HardwareService/SetEmission",
-    "/daq.HardwareService/StartStream",
-    "/daq.HardwareService/StopStream",
-    "/daq.HardwareService/StageDevice",
-    "/daq.HardwareService/UnstageDevice",
-    "/daq.HardwareService/ExecuteDeviceCommand",
-    "/daq.HardwareService/SetParameter",
-    // RunEngineService — plan execution
-    "/daq.RunEngineService/QueuePlan",
-    "/daq.RunEngineService/StartEngine",
-    "/daq.RunEngineService/PauseEngine",
-    "/daq.RunEngineService/ResumeEngine",
-    "/daq.RunEngineService/AbortPlan",
-    "/daq.RunEngineService/HaltEngine",
-    // NiDaqService — analog/digital I/O
-    "/daq.ni_daq.NiDaqService/SetAnalogOutput",
-    "/daq.ni_daq.NiDaqService/WriteDigitalIO",
-    "/daq.ni_daq.NiDaqService/WriteDigitalPort",
-    "/daq.ni_daq.NiDaqService/ConfigureAnalogInput",
-    "/daq.ni_daq.NiDaqService/ConfigureAnalogOutput",
-    "/daq.ni_daq.NiDaqService/ConfigureDigitalIO",
-    "/daq.ni_daq.NiDaqService/ConfigureTrigger",
-    "/daq.ni_daq.NiDaqService/ArmCounter",
-    "/daq.ni_daq.NiDaqService/DisarmCounter",
-    "/daq.ni_daq.NiDaqService/ResetCounter",
-    "/daq.ni_daq.NiDaqService/ConfigureCounter",
-    // ControlService — script execution
-    "/daq.ControlService/StartScript",
-    "/daq.ControlService/StopScript",
-    // ScanService (deprecated but still active)
-    "/daq.ScanService/StartScan",
-    "/daq.ScanService/StopScan",
-    "/daq.ScanService/PauseScan",
-    "/daq.ScanService/ResumeScan",
-    // ModuleService — module lifecycle
-    "/daq.ModuleService/StartModule",
-    "/daq.ModuleService/StopModule",
-    "/daq.ModuleService/PauseModule",
-    "/daq.ModuleService/ResumeModule",
-    // StorageService — recording control
-    "/daq.StorageService/StartRecording",
-    "/daq.StorageService/StopRecording",
-];
+static MUTATING_METHODS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    HashSet::from([
+        // HardwareService — direct device control
+        "/daq.HardwareService/MoveAbsolute",
+        "/daq.HardwareService/MoveRelative",
+        "/daq.HardwareService/StopMotion",
+        "/daq.HardwareService/Arm",
+        "/daq.HardwareService/Trigger",
+        "/daq.HardwareService/SetExposure",
+        "/daq.HardwareService/SetShutter",
+        "/daq.HardwareService/SetWavelength",
+        "/daq.HardwareService/SetEmission",
+        "/daq.HardwareService/StartStream",
+        "/daq.HardwareService/StopStream",
+        "/daq.HardwareService/StageDevice",
+        "/daq.HardwareService/UnstageDevice",
+        "/daq.HardwareService/ExecuteDeviceCommand",
+        "/daq.HardwareService/SetParameter",
+        // RunEngineService — plan execution
+        "/daq.RunEngineService/QueuePlan",
+        "/daq.RunEngineService/StartEngine",
+        "/daq.RunEngineService/PauseEngine",
+        "/daq.RunEngineService/ResumeEngine",
+        "/daq.RunEngineService/AbortPlan",
+        "/daq.RunEngineService/HaltEngine",
+        // NiDaqService — analog/digital I/O
+        "/daq.ni_daq.NiDaqService/SetAnalogOutput",
+        "/daq.ni_daq.NiDaqService/WriteDigitalIO",
+        "/daq.ni_daq.NiDaqService/WriteDigitalPort",
+        "/daq.ni_daq.NiDaqService/ConfigureAnalogInput",
+        "/daq.ni_daq.NiDaqService/ConfigureAnalogOutput",
+        "/daq.ni_daq.NiDaqService/ConfigureDigitalIO",
+        "/daq.ni_daq.NiDaqService/ConfigureTrigger",
+        "/daq.ni_daq.NiDaqService/ArmCounter",
+        "/daq.ni_daq.NiDaqService/DisarmCounter",
+        "/daq.ni_daq.NiDaqService/ResetCounter",
+        "/daq.ni_daq.NiDaqService/ConfigureCounter",
+        // ControlService — script execution
+        "/daq.ControlService/StartScript",
+        "/daq.ControlService/StopScript",
+        // ScanService (deprecated but still active)
+        "/daq.ScanService/StartScan",
+        "/daq.ScanService/StopScan",
+        "/daq.ScanService/PauseScan",
+        "/daq.ScanService/ResumeScan",
+        // ModuleService — module lifecycle
+        "/daq.ModuleService/StartModule",
+        "/daq.ModuleService/StopModule",
+        "/daq.ModuleService/PauseModule",
+        "/daq.ModuleService/ResumeModule",
+        // StorageService — recording control
+        "/daq.StorageService/StartRecording",
+        "/daq.StorageService/StopRecording",
+    ])
+});
 
 /// Returns `true` if the gRPC method path corresponds to a hardware-mutating operation.
 fn is_mutating_method(path: &str) -> bool {
-    MUTATING_METHODS.contains(&path)
+    MUTATING_METHODS.contains(path)
 }
 
 /// Tower layer that adds audit logging for hardware-mutating gRPC calls.
