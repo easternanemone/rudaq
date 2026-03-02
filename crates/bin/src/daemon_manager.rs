@@ -428,7 +428,7 @@ impl DaemonInstance {
                     load_hardware_config(config_path, "config", &config.runtime_mode).await?;
                 (reg, Some(hw))
             } else if config.lab_hardware {
-                let default_path = std::path::Path::new("config/maitai_hardware.toml");
+                let default_path = std::path::Path::new("config/maitai_universal.toml");
                 if !default_path.exists() {
                     anyhow::bail!(
                         "--lab-hardware requires {} or use --hardware-config <path>",

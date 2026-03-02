@@ -11,7 +11,7 @@ use serde::Deserialize;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
+
 use tokio::time::sleep;
 
 // =============================================================================
@@ -218,14 +218,14 @@ impl Ell14StatusCode {
 /// ```
 pub struct MockRotator {
     /// Current position in degrees
-    position_degrees: RwLock<f64>,
+    position_param: Parameter<f64>,
 
     /// Position limits
     min_position: f64,
     max_position: f64,
 
     /// Velocity percentage (0-100)
-    velocity_percent: AtomicU8,
+    velocity_param: Parameter<f64>,
 
     /// Calibration: pulses per degree (reserved for future use)
     #[allow(dead_code)]
@@ -263,14 +263,14 @@ impl MockRotator {
             .with_range(0.0, 100.0)
             .with_dtype("float");
 
-        params.register(position_param);
-        params.register(velocity_param);
+        params.register(position_param.clone());
+        params.register(velocity_param.clone());
 
         Self {
-            position_degrees: RwLock::new(config.initial_position),
+            position_param,
             min_position: config.min_position,
             max_position: config.max_position,
-            velocity_percent: AtomicU8::new(config.velocity_percent),
+            velocity_param,
             pulses_per_degree: config.pulses_per_degree,
             status: AtomicU8::new(Ell14StatusCode::Ok as u8),
             is_homed: AtomicBool::new(false),
@@ -280,7 +280,7 @@ impl MockRotator {
 
     /// Get the current velocity percentage.
     pub fn velocity(&self) -> u8 {
-        self.velocity_percent.load(Ordering::Relaxed)
+        self.velocity_param.get() as u8
     }
 
     /// Set the velocity percentage (0-100).
@@ -291,7 +291,10 @@ impl MockRotator {
             return Err(anyhow!("Velocity must be 0-100%"));
         }
 
-        self.velocity_percent.store(velocity, Ordering::Relaxed);
+        self.velocity_param
+            .inner()
+            .set(velocity as f64)
+            .expect("set velocity");
         self.status
             .store(Ell14StatusCode::Ok as u8, Ordering::Relaxed);
 
@@ -311,12 +314,12 @@ impl MockRotator {
     /// Home the device to mechanical zero.
     pub async fn home(&self) -> Result<()> {
         // Simulate homing motion
-        let velocity = self.velocity_percent.load(Ordering::Relaxed);
+        let velocity = self.velocity_param.get() as u8;
         let duration_ms = (1000.0 * (100.0 / velocity.max(1) as f64)) as u64;
         sleep(Duration::from_millis(duration_ms)).await;
 
         // Set position to zero
-        *self.position_degrees.write().await = 0.0;
+        self.position_param.inner().set(0.0)?;
 
         self.is_homed.store(true, Ordering::Relaxed);
         self.status
@@ -327,7 +330,7 @@ impl MockRotator {
 
     /// Jog forward by a fixed step (default: 5 degrees).
     pub async fn jog_forward(&self, step_degrees: f64) -> Result<()> {
-        let current = *self.position_degrees.read().await;
+        let current = self.position_param.get();
         let target = current + step_degrees;
 
         self.move_abs(target).await
@@ -335,7 +338,7 @@ impl MockRotator {
 
     /// Jog backward by a fixed step (default: 5 degrees).
     pub async fn jog_backward(&self, step_degrees: f64) -> Result<()> {
-        let current = *self.position_degrees.read().await;
+        let current = self.position_param.get();
         let target = current - step_degrees;
 
         self.move_abs(target).await
@@ -343,7 +346,7 @@ impl MockRotator {
 
     /// Calculate movement duration based on distance and velocity.
     fn calculate_duration(&self, distance_degrees: f64) -> Duration {
-        let velocity = self.velocity_percent.load(Ordering::Relaxed);
+        let velocity = self.velocity_param.get() as u8;
 
         // Base speed: 1 degree per 10ms at 100% velocity
         // Scale by velocity percentage
@@ -388,7 +391,7 @@ impl Movable for MockRotator {
         let encoder_step = 1.0 / self.pulses_per_degree;
         let position = (position / encoder_step).round() * encoder_step;
 
-        let current = *self.position_degrees.read().await;
+        let current = self.position_param.get();
         let distance = (position - current).abs();
 
         // Simulate motion time based on distance and velocity
@@ -396,7 +399,7 @@ impl Movable for MockRotator {
         sleep(duration).await;
 
         // Update position (already quantized)
-        *self.position_degrees.write().await = position;
+        self.position_param.inner().set(position)?;
 
         self.status
             .store(Ell14StatusCode::Ok as u8, Ordering::Relaxed);
@@ -405,14 +408,14 @@ impl Movable for MockRotator {
     }
 
     async fn move_rel(&self, distance: f64) -> Result<()> {
-        let current = *self.position_degrees.read().await;
+        let current = self.position_param.get();
         let target = current + distance;
 
         self.move_abs(target).await
     }
 
     async fn position(&self) -> Result<f64> {
-        Ok(*self.position_degrees.read().await)
+        Ok(self.position_param.get())
     }
 
     async fn wait_settled(&self) -> Result<()> {

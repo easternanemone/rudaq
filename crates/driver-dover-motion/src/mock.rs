@@ -13,39 +13,34 @@ use tracing::instrument;
 ///
 /// Provides a fully functional mock implementation for testing and development
 /// without requiring Dover Motion hardware or SDK.
+///
+/// All observable device state is stored in `Parameter<T>` instances — the single
+/// source of truth. Internal simulation state (TOP config) uses Mutex.
 pub struct DoverMockDriver {
     /// Axis name for logging
     axis_name: String,
 
-    /// Current position (mm)
-    position: Arc<Mutex<f64>>,
-
-    /// Velocity (mm/s)
-    velocity: Arc<Mutex<f64>>,
-
-    /// Acceleration (mm/s²)
-    acceleration: Arc<Mutex<f64>>,
-
-    /// Deceleration (mm/s²)
-    deceleration: Arc<Mutex<f64>>,
-
-    /// Is axis currently moving
-    moving: Arc<Mutex<bool>>,
-
-    /// Trigger-on-position enabled state
-    top_enabled: Arc<Mutex<bool>>,
-
     /// TOP configuration (start, end, increment, bidirectional, pulse_width_ns)
+    /// Internal simulation state, not exposed as a parameter.
     top_config: Arc<Mutex<Option<(f64, f64, f64, bool, u64)>>>,
 
-    /// Position parameter
+    /// Position parameter (mm)
     position_param: Parameter<f64>,
 
-    /// Velocity parameter
+    /// Velocity parameter (mm/s)
     velocity_param: Parameter<f64>,
 
-    /// Acceleration parameter
+    /// Acceleration parameter (mm/s²)
     acceleration_param: Parameter<f64>,
+
+    /// Deceleration parameter (mm/s²)
+    deceleration_param: Parameter<f64>,
+
+    /// Whether the axis is currently moving
+    moving_param: Parameter<bool>,
+
+    /// Trigger-on-position enabled state
+    top_enabled_param: Parameter<bool>,
 
     /// Parameter registry
     params: Arc<ParameterSet>,
@@ -72,67 +67,79 @@ impl DoverMockDriver {
             .with_description("Axis acceleration")
             .with_unit("mm/s²");
 
+        let deceleration = Parameter::new("deceleration", 10.0)
+            .with_description("Axis deceleration")
+            .with_unit("mm/s²");
+
+        let moving = Parameter::new("moving", false)
+            .with_description("Axis in motion")
+            .read_only();
+
+        let top_enabled =
+            Parameter::new("top_enabled", false).with_description("Trigger-on-position enabled");
+
         params.register(position.clone());
         params.register(velocity.clone());
         params.register(acceleration.clone());
+        params.register(deceleration.clone());
+        params.register(moving.clone());
+        params.register(top_enabled.clone());
 
         Self {
             axis_name: axis_name.to_string(),
-            position: Arc::new(Mutex::new(0.0)),
-            velocity: Arc::new(Mutex::new(1.0)),
-            acceleration: Arc::new(Mutex::new(10.0)),
-            deceleration: Arc::new(Mutex::new(10.0)),
-            moving: Arc::new(Mutex::new(false)),
-            top_enabled: Arc::new(Mutex::new(false)),
             top_config: Arc::new(Mutex::new(None)),
             position_param: position,
             velocity_param: velocity,
             acceleration_param: acceleration,
+            deceleration_param: deceleration,
+            moving_param: moving,
+            top_enabled_param: top_enabled,
             params: Arc::new(params),
         }
     }
 
     /// Set velocity.
+    #[allow(clippy::unused_async)] // async for API parity with real driver
     pub async fn set_velocity(&self, velocity: f64) -> Result<()> {
-        *self.velocity.lock().await = velocity;
         self.velocity_param.inner().set(velocity);
         tracing::debug!("[MOCK] Set velocity to {} mm/s", velocity);
         Ok(())
     }
 
     /// Set acceleration.
+    #[allow(clippy::unused_async)] // async for API parity with real driver
     pub async fn set_acceleration(&self, acceleration: f64) -> Result<()> {
-        *self.acceleration.lock().await = acceleration;
         self.acceleration_param.inner().set(acceleration);
         tracing::debug!("[MOCK] Set acceleration to {} mm/s²", acceleration);
         Ok(())
     }
 
     /// Set deceleration.
+    #[allow(clippy::unused_async)] // async for API parity with real driver
     pub async fn set_deceleration(&self, deceleration: f64) -> Result<()> {
-        *self.deceleration.lock().await = deceleration;
+        self.deceleration_param.inner().set(deceleration);
         tracing::debug!("[MOCK] Set deceleration to {} mm/s²", deceleration);
         Ok(())
     }
 
     /// Simulate motion (for testing).
     async fn simulate_motion(&self, target: f64) {
-        *self.moving.lock().await = true;
+        self.moving_param.inner().set(true);
 
         // Simulate motion time based on distance and velocity
-        let current_pos = *self.position.lock().await;
+        let current_pos = self.position_param.get();
         let distance = (target - current_pos).abs();
-        let velocity = *self.velocity.lock().await;
+        let velocity = self.velocity_param.get();
         let time_ms = ((distance / velocity) * 1000.0).max(10.0);
 
         tokio::time::sleep(std::time::Duration::from_millis(time_ms as u64)).await;
 
-        *self.position.lock().await = target;
-        *self.moving.lock().await = false;
+        self.position_param.inner().set(target);
+        self.moving_param.inner().set(false);
 
         // Simulate TOP triggers if enabled
-        if *self.top_enabled.lock().await {
-            if let Some((start, end, inc, bidir, pulse_width)) = *self.top_config.lock().await {
+        if self.top_enabled_param.get() {
+            if let Some((start, end, inc, _bidir, pulse_width)) = *self.top_config.lock().await {
                 let num_triggers = ((end - start).abs() / inc).floor() as usize;
                 tracing::debug!(
                     "[MOCK] TOP: Generated {} triggers ({}ns pulses)",
@@ -156,25 +163,21 @@ impl Movable for DoverMockDriver {
     async fn move_abs(&self, position: f64) -> Result<()> {
         tracing::debug!("[MOCK] Moving to absolute position {} mm", position);
         self.simulate_motion(position).await;
-        self.position_param.inner().set(position);
         Ok(())
     }
 
     #[instrument(skip(self), fields(axis = %self.axis_name, distance), err)]
     async fn move_rel(&self, distance: f64) -> Result<()> {
-        let current = *self.position.lock().await;
+        let current = self.position_param.get();
         let target = current + distance;
         tracing::debug!("[MOCK] Moving relative distance {} mm", distance);
         self.simulate_motion(target).await;
-        self.position_param.inner().set(target);
         Ok(())
     }
 
     #[instrument(skip(self), fields(axis = %self.axis_name), err)]
     async fn position(&self) -> Result<f64> {
-        let pos = *self.position.lock().await;
-        self.position_param.inner().set(pos);
-        Ok(pos)
+        Ok(self.position_param.get())
     }
 
     #[instrument(skip(self), fields(axis = %self.axis_name), err)]
@@ -187,7 +190,7 @@ impl Movable for DoverMockDriver {
                 return Err(anyhow!("[MOCK] wait_settled timed out after 60 seconds"));
             }
 
-            if !*self.moving.lock().await {
+            if !self.moving_param.get() {
                 return Ok(());
             }
 
@@ -198,7 +201,7 @@ impl Movable for DoverMockDriver {
     #[instrument(skip(self), fields(axis = %self.axis_name), err)]
     async fn stop(&self) -> Result<()> {
         tracing::debug!("[MOCK] Stopping axis motion");
-        *self.moving.lock().await = false;
+        self.moving_param.inner().set(false);
         Ok(())
     }
 }
@@ -245,7 +248,7 @@ impl TriggerOnPosition for DoverMockDriver {
             pulse_width_ns
         );
 
-        *self.top_enabled.lock().await = true;
+        self.top_enabled_param.inner().set(true);
         *self.top_config.lock().await = Some((
             start_position,
             end_position,
@@ -260,14 +263,14 @@ impl TriggerOnPosition for DoverMockDriver {
     #[instrument(skip(self), fields(axis = %self.axis_name), err)]
     async fn disable_top(&self) -> Result<()> {
         tracing::info!("[MOCK] Disabled TOP");
-        *self.top_enabled.lock().await = false;
+        self.top_enabled_param.inner().set(false);
         *self.top_config.lock().await = None;
         Ok(())
     }
 
     #[instrument(skip(self), fields(axis = %self.axis_name), err)]
     async fn is_top_enabled(&self) -> Result<bool> {
-        Ok(*self.top_enabled.lock().await)
+        Ok(self.top_enabled_param.get())
     }
 }
 
@@ -331,10 +334,14 @@ mod tests {
 
         // Test velocity parameter
         driver.set_velocity(5.0).await.unwrap();
-        assert_eq!(*driver.velocity.lock().await, 5.0);
+        assert_eq!(driver.velocity_param.get(), 5.0);
 
         // Test acceleration parameter
         driver.set_acceleration(20.0).await.unwrap();
-        assert_eq!(*driver.acceleration.lock().await, 20.0);
+        assert_eq!(driver.acceleration_param.get(), 20.0);
+
+        // Test deceleration parameter
+        driver.set_deceleration(15.0).await.unwrap();
+        assert_eq!(driver.deceleration_param.get(), 15.0);
     }
 }

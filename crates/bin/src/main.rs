@@ -67,7 +67,7 @@ struct Cli {
 enum RuntimeMode {
     /// Mock-only local runtime (no hardware config). Good for demos/testing.
     Mock,
-    /// Native maitai profile (`config/maitai_hardware.toml`).
+    /// Native maitai profile (`config/maitai_universal.toml`).
     Native,
     /// Universal TOML profile (`config/maitai_universal.toml`).
     Universal,
@@ -101,7 +101,7 @@ enum Commands {
         ///
         /// Overrides profile selection logic and maps to built-in configs:
         /// - mock: no hardware config (for demos/testing)
-        /// - native: config/maitai_hardware.toml
+        /// - native: config/maitai_universal.toml
         /// - universal: config/maitai_universal.toml
         /// - hybrid-db: config/maitai_universal.toml (+ SurrealDB control-plane)
         ///
@@ -445,7 +445,7 @@ async fn start_daemon(
             }
             RuntimeMode::Native => {
                 resolved_runtime_mode = "native";
-                resolved_hardware_config = Some(PathBuf::from("config/maitai_hardware.toml"));
+                resolved_hardware_config = Some(PathBuf::from("config/maitai_universal.toml"));
                 resolved_lab_hardware = false;
             }
             RuntimeMode::Universal => {

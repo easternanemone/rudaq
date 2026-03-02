@@ -2,7 +2,7 @@
 #
 # Hardware config that uses universal (config-driven) driver types instead of
 # native hand-coded drivers. Same device IDs, ports, and addressing as
-# maitai_hardware.toml so the GUI and experiment scripts work unchanged.
+# the original native config so the GUI and experiment scripts work unchanged.
 #
 # Usage:
 #   rust-daq-daemon daemon --hardware-config config/maitai_universal.toml

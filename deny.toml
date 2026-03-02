@@ -163,11 +163,6 @@ expression = "MIT"
 license-files = []
 
 [[licenses.clarify]]
-crate = "driver-generic"
-expression = "MIT"
-license-files = []
-
-[[licenses.clarify]]
 crate = "driver-universal"
 expression = "MIT"
 license-files = []

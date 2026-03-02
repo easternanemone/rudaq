@@ -65,6 +65,7 @@ hive-mind-prompt-*.txt
 # .claude/settings.json is now tracked for cloud env hooks
 .claude/statusline-command.sh
 .gemini-flow/
+.ralph-tui/
 
 # Session data and temporary outputs
 data_output/
@@ -158,3 +159,6 @@ whats-next.md
 __pycache__/
 .serena/
 .perles/
+
+# bv (beads viewer) local config and caches
+.bv/

@@ -806,7 +806,7 @@ fn evaluate_success(config: &HarnessConfig, metrics: &SummaryMetrics, notes: &[S
 
 async fn spawn_server(addr: &str) -> Result<()> {
     let registry =
-        create_registry_from_file(std::path::Path::new("config/maitai_hardware.toml")).await?;
+        create_registry_from_file(std::path::Path::new("config/maitai_universal.toml")).await?;
     let health_monitor = Arc::new(SystemHealthMonitor::new(Default::default()));
     let addr = addr.parse().context("Invalid server address")?;
 

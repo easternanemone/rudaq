@@ -86,7 +86,7 @@ use common::observable::ParameterMetadata;
 use common::pipeline::MeasurementSource;
 
 #[cfg(feature = "serial")]
-use crate::plugin::driver::GenericDriver;
+use crate::manifest_driver::driver::GenericDriver;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -430,7 +430,7 @@ pub struct DeviceRegistry {
 
     /// Plugin factory for loading YAML-defined drivers (serial feature only)
     #[cfg(feature = "serial")]
-    plugin_factory: Arc<RwLock<crate::plugin::registry::PluginFactory>>,
+    plugin_factory: Arc<RwLock<crate::manifest_driver::registry::PluginFactory>>,
 
     /// Registration failures for debugging (device_id, driver_type, error_message)
     registration_failures: DashMap<DeviceId, RegistrationFailure>,
@@ -524,7 +524,9 @@ impl DeviceRegistry {
             devices: DashMap::new(),
             factories: DashMap::new(),
             #[cfg(feature = "serial")]
-            plugin_factory: Arc::new(RwLock::new(crate::plugin::registry::PluginFactory::new())),
+            plugin_factory: Arc::new(RwLock::new(
+                crate::manifest_driver::registry::PluginFactory::new(),
+            )),
             registration_failures: DashMap::new(),
             device_health: DashMap::new(),
             fault_threshold: AtomicU32::new(3),
@@ -535,7 +537,7 @@ impl DeviceRegistry {
     /// Create a new device registry with a pre-configured PluginFactory
     #[cfg(feature = "serial")]
     pub fn with_plugin_factory(
-        plugin_factory: Arc<RwLock<crate::plugin::registry::PluginFactory>>,
+        plugin_factory: Arc<RwLock<crate::manifest_driver::registry::PluginFactory>>,
     ) -> Self {
         Self {
             devices: DashMap::new(),
@@ -550,7 +552,7 @@ impl DeviceRegistry {
 
     /// Get a reference to the plugin factory
     #[cfg(feature = "serial")]
-    pub fn plugin_factory(&self) -> Arc<RwLock<crate::plugin::registry::PluginFactory>> {
+    pub fn plugin_factory(&self) -> Arc<RwLock<crate::manifest_driver::registry::PluginFactory>> {
         self.plugin_factory.clone()
     }
 
@@ -1501,11 +1503,13 @@ impl DeviceRegistry {
                 .map(|a| a.name.as_str())
                 .unwrap_or("axis");
 
-            Some(Arc::new(crate::plugin::handles::PluginAxisHandle::new(
-                driver.clone(),
-                axis_name.to_string(),
-                false, // not mocking
-            )))
+            Some(Arc::new(
+                crate::manifest_driver::handles::PluginAxisHandle::new(
+                    driver.clone(),
+                    axis_name.to_string(),
+                    false, // not mocking
+                ),
+            ))
         } else {
             None
         };
@@ -1526,11 +1530,13 @@ impl DeviceRegistry {
                 .map(|r| r.name.as_str())
                 .unwrap_or("reading");
 
-            Some(Arc::new(crate::plugin::handles::PluginSensorHandle::new(
-                driver.clone(),
-                readable_name.to_string(),
-                false, // not mocking
-            )))
+            Some(Arc::new(
+                crate::manifest_driver::handles::PluginSensorHandle::new(
+                    driver.clone(),
+                    readable_name.to_string(),
+                    false, // not mocking
+                ),
+            ))
         } else {
             None
         };
@@ -1889,26 +1895,11 @@ pub async fn register_all_factories(
     // Register mock factories (always available)
     register_mock_factories(registry);
 
-    // Register Thorlabs factories
-    #[cfg(feature = "thorlabs")]
-    {
-        use driver_thorlabs::Ell14Factory;
-        registry.register_factory(Box::new(Ell14Factory));
-    }
-
     // Register Newport factories
     #[cfg(feature = "newport")]
     {
-        use driver_newport::{Esp300Factory, Newport1830CFactory};
-        registry.register_factory(Box::new(Esp300Factory));
+        use driver_newport::Newport1830CFactory;
         registry.register_factory(Box::new(Newport1830CFactory));
-    }
-
-    // Register Spectra-Physics factories
-    #[cfg(feature = "spectra_physics")]
-    {
-        use driver_spectra_physics::MaiTaiFactory;
-        registry.register_factory(Box::new(MaiTaiFactory));
     }
 
     // Register Red Pitaya factories
@@ -2477,7 +2468,9 @@ initial_position = 0.0
         use tokio::sync::RwLock;
 
         // Create a plugin factory and registry
-        let factory = Arc::new(RwLock::new(crate::plugin::registry::PluginFactory::new()));
+        let factory = Arc::new(RwLock::new(
+            crate::manifest_driver::registry::PluginFactory::new(),
+        ));
         let registry = DeviceRegistry::with_plugin_factory(factory.clone());
 
         // Note: This test verifies that the plugin infrastructure is wired up correctly.

@@ -5,11 +5,11 @@
 //! controls based on plugin YAML definitions.
 
 #[cfg(feature = "serial")]
-use hardware::plugin::driver::GenericDriver;
+use hardware::manifest_driver::driver::GenericDriver;
 #[cfg(feature = "serial")]
-use hardware::plugin::registry::PluginFactory;
+use hardware::manifest_driver::registry::PluginFactory;
 #[cfg(feature = "serial")]
-use hardware::plugin::schema::{DriverType, UiElement};
+use hardware::manifest_driver::schema::{DriverType, UiElement};
 #[cfg(feature = "serial")]
 use hardware::registry::{DeviceConfig, DeviceRegistry, DriverConfig};
 
@@ -760,7 +760,7 @@ mod tests {
     #[cfg(feature = "serial")]
     #[tokio::test]
     async fn test_plugin_service_creation() {
-        use hardware::plugin::registry::PluginFactory;
+        use hardware::manifest_driver::registry::PluginFactory;
         use hardware::registry::DeviceRegistry;
 
         let factory = Arc::new(RwLock::new(PluginFactory::new()));
@@ -775,7 +775,7 @@ mod tests {
     #[cfg(feature = "serial")]
     #[tokio::test]
     async fn test_next_instance_id_increments() {
-        use hardware::plugin::registry::PluginFactory;
+        use hardware::manifest_driver::registry::PluginFactory;
         use hardware::registry::DeviceRegistry;
 
         let factory = Arc::new(RwLock::new(PluginFactory::new()));
@@ -794,7 +794,7 @@ mod tests {
     #[cfg(feature = "serial")]
     #[test]
     fn test_driver_type_to_string() {
-        use hardware::plugin::schema::DriverType;
+        use hardware::manifest_driver::schema::DriverType;
 
         assert_eq!(
             driver_type_to_string(&DriverType::SerialScpi),
@@ -853,7 +853,7 @@ mod tests {
     #[cfg(feature = "serial")]
     #[tokio::test]
     async fn test_list_plugins_empty() {
-        use hardware::plugin::registry::PluginFactory;
+        use hardware::manifest_driver::registry::PluginFactory;
         use hardware::registry::DeviceRegistry;
 
         let factory = Arc::new(RwLock::new(PluginFactory::new()));
@@ -873,7 +873,7 @@ mod tests {
     #[cfg(feature = "serial")]
     #[tokio::test]
     async fn test_get_plugin_info_not_found() {
-        use hardware::plugin::registry::PluginFactory;
+        use hardware::manifest_driver::registry::PluginFactory;
         use hardware::registry::DeviceRegistry;
 
         let factory = Arc::new(RwLock::new(PluginFactory::new()));

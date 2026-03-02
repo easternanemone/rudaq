@@ -169,36 +169,12 @@ fn verify_mock_serial_export() {
 // Real Hardware Drivers (feature-gated)
 // =============================================================================
 
-#[cfg(feature = "thorlabs")]
-#[test]
-fn verify_ell14_export() {
-    // Verify Ell14 driver is exported
-    fn _check_type_exists<T>() {}
-    _check_type_exists::<hardware::drivers::ell14::Ell14Driver>();
-}
-
-#[cfg(feature = "newport")]
-#[test]
-fn verify_esp300_export() {
-    // Verify Esp300 driver is exported
-    fn _check_type_exists<T>() {}
-    _check_type_exists::<hardware::drivers::esp300::Esp300Driver>();
-}
-
 #[cfg(all(feature = "pvcam", feature = "pvcam_sdk"))]
 #[test]
 fn verify_pvcam_export() {
     // Verify PVCAM camera is exported
     fn _check_type_exists<T>() {}
     _check_type_exists::<hardware::drivers::pvcam::PvcamDriver>();
-}
-
-#[cfg(feature = "spectra_physics")]
-#[test]
-fn verify_maitai_export() {
-    // Verify MaiTai laser is exported
-    fn _check_type_exists<T>() {}
-    _check_type_exists::<hardware::drivers::maitai::MaiTaiDriver>();
 }
 
 #[cfg(feature = "newport_power_meter")]

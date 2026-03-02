@@ -706,79 +706,84 @@ mod measurement_lock_tests {
 // ============================================================================
 
 // RocksDB tests require the db-surreal-rocksdb feature and use a temp directory.
-// They're separated because RocksDB uses a process-global lock.
-// Excluded when kv-mem is also active — SurrealDB's dual-engine compilation
-// prevents the RocksDB lock from releasing on Drop (the in-memory engine's
-// background tasks hold Arc<Surreal> clones). Run via feature-matrix with
-// --no-default-features to get clean single-engine compilation.
-#[cfg(all(feature = "db-surreal-rocksdb", not(feature = "db-surreal-mem")))]
+// Uses subprocess isolation to work around RocksDB's process-global lock:
+// the writer subprocess exits (releasing the lock via OS cleanup), then
+// the main test reopens the database. This works regardless of whether
+// kv-mem is also compiled in.
+#[cfg(feature = "db-surreal-rocksdb")]
 mod rocksdb_tests {
     use super::*;
     use tempfile::TempDir;
 
-    /// T9: Instruments survive daemon restart with RocksDB persistence.
+    /// Helper subprocess that writes the full mock_maitai_lab config to RocksDB.
+    ///
+    /// Invoked as a subprocess by the main test so the RocksDB process-global
+    /// lock is released when this process exits. SurrealDB provides no
+    /// `disconnect()` API, and RocksDB's C++ layer tracks open databases in
+    /// a process-global static set — the only reliable way to release the
+    /// lock is to exit the process.
     #[tokio::test]
-    #[ignore = "SurrealDB embedded RocksDB lock not released on Drop — needs explicit close() API"]
+    #[ignore = "only invoked as a subprocess by test_t9_rocksdb_persistence_across_restart"]
+    async fn rocksdb_t9_writer_helper() {
+        let db_path = std::env::var("ROCKSDB_TEST_PATH").expect("ROCKSDB_TEST_PATH must be set");
+        let config = DbConfig::rocksdb(&db_path);
+        let db = DaqDb::init(config).await.unwrap();
+
+        let hw_config = load_mock_maitai_config();
+        shadow_write(&db, &hw_config).await.unwrap();
+
+        // Verify data was written before exiting
+        let instruments = db.get_all_instruments().await.unwrap();
+        assert_eq!(instruments.len(), 9, "should write 9 instruments");
+        let drivers = db.get_all_drivers().await.unwrap();
+        assert_eq!(drivers.len(), 5, "should write 5 drivers");
+    }
+
+    /// T9: Instruments survive daemon restart with RocksDB persistence.
+    ///
+    /// Uses subprocess isolation: spawns `rocksdb_t9_writer_helper` as a
+    /// separate OS process to write data. When that process exits, the
+    /// RocksDB lock is released by the OS. The main test then reopens the
+    /// database and verifies all 9 instruments and 5 drivers persist.
+    #[tokio::test]
     async fn test_t9_rocksdb_persistence_across_restart() {
         let tmpdir = TempDir::new().unwrap();
         let db_path = tmpdir.path().join("test.db");
-        let hw_config = load_mock_maitai_config();
 
-        // "First boot": write to RocksDB
-        {
-            let config = DbConfig::rocksdb(&db_path);
-            let db = DaqDb::init(config).await.unwrap();
-            shadow_write(&db, &hw_config).await.unwrap();
+        // First boot: spawn the writer helper as a separate OS process.
+        // RocksDB's C++ layer uses a process-global lock set, so the only
+        // way to release the lock is to exit the process.
+        let test_bin = std::env::current_exe().unwrap();
+        let output = std::process::Command::new(&test_bin)
+            .arg("rocksdb_tests::rocksdb_t9_writer_helper")
+            .arg("--exact")
+            .arg("--ignored")
+            .arg("--nocapture")
+            .env("ROCKSDB_TEST_PATH", db_path.to_str().unwrap())
+            .output()
+            .expect("failed to spawn writer subprocess");
+        assert!(
+            output.status.success(),
+            "writer subprocess failed:\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
 
-            // Verify data was written
-            let instruments = db.get_all_instruments().await.unwrap();
-            assert_eq!(instruments.len(), 9);
-            // Drop DB (simulates shutdown)
-        }
+        // Second boot: re-open and verify data persists
+        let db = DaqDb::init(DbConfig::rocksdb(&db_path)).await.unwrap();
 
-        // "Second boot": read from same RocksDB path.
-        // Retry with backoff because SurrealDB's async engine may not
-        // release the RocksDB process-global lock synchronously on drop —
-        // internal Tokio tasks can hold Arc<Surreal> clones briefly.
-        let db = {
-            let mut last_err = None;
-            let mut db_handle = None;
-            for attempt in 0..10 {
-                if attempt > 0 {
-                    tokio::time::sleep(std::time::Duration::from_millis(50 * attempt)).await;
-                }
-                let config = DbConfig::rocksdb(&db_path);
-                match DaqDb::init(config).await {
-                    Ok(db) => {
-                        db_handle = Some(db);
-                        break;
-                    }
-                    Err(e) => last_err = Some(e),
-                }
-            }
-            db_handle.unwrap_or_else(|| {
-                panic!(
-                    "failed to reopen RocksDB after 10 attempts: {}",
-                    last_err.unwrap()
-                )
-            })
-        };
-        {
-            let db = db;
+        let instruments = db.get_all_instruments().await.unwrap();
+        assert_eq!(
+            instruments.len(),
+            9,
+            "instruments should persist across restart"
+        );
 
-            let instruments = db.get_all_instruments().await.unwrap();
-            assert_eq!(
-                instruments.len(),
-                9,
-                "instruments should persist across restart"
-            );
+        let drivers = db.get_all_drivers().await.unwrap();
+        assert_eq!(drivers.len(), 5, "drivers should persist across restart");
 
-            let drivers = db.get_all_drivers().await.unwrap();
-            assert_eq!(drivers.len(), 5, "drivers should persist across restart");
-
-            // Verify specific instrument
-            let rotator = db.get_instrument("rotator_2").await.unwrap();
-            assert!(rotator.is_some(), "rotator_2 should survive restart");
-        }
+        // Verify specific instrument round-trip
+        let rotator = db.get_instrument("rotator_2").await.unwrap();
+        assert!(rotator.is_some(), "rotator_2 should survive restart");
     }
 }

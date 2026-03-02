@@ -4,7 +4,7 @@
 //! interprets YAML plugin definitions to control serial or TCP instruments without
 //! recompilation.
 
-use crate::plugin::templating::render_command;
+use crate::manifest_driver::templating::render_command;
 use anyhow::{anyhow, Result};
 use rand::Rng;
 use regex::Regex;
@@ -15,7 +15,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, RwLock};
 
-use crate::plugin::schema::{CommandSequence, InstrumentConfig, ValueType};
+use crate::manifest_driver::schema::{CommandSequence, InstrumentConfig, ValueType};
 use common::driver::DeviceLifecycle;
 use common::error::DaqError;
 use common::limits::{self, validate_frame_size};
@@ -391,7 +391,7 @@ impl GenericDriver {
     /// Assumes 16-bit pixels (2 bytes per pixel) which is standard for scientific cameras.
     async fn acquire_frame(
         &self,
-        frame_producer: &crate::plugin::schema::FrameProducerCapability,
+        frame_producer: &crate::manifest_driver::schema::FrameProducerCapability,
     ) -> Result<crate::Frame> {
         let width = frame_producer.width;
         let height = frame_producer.height;
@@ -483,7 +483,9 @@ impl GenericDriver {
     }
 
     /// Returns a mock value if mock data is configured, otherwise an error indicating no mock.
-    fn get_mock_value(mock_data: Option<&crate::plugin::schema::MockData>) -> Result<Value> {
+    fn get_mock_value(
+        mock_data: Option<&crate::manifest_driver::schema::MockData>,
+    ) -> Result<Value> {
         if let Some(mock) = mock_data {
             let mut rng = rand::thread_rng();
             let jitter_amount = rng.gen_range(-mock.jitter..=mock.jitter);
@@ -1218,7 +1220,7 @@ impl GenericDriver {
     pub fn get_scriptable(
         &self,
         script_name: &str,
-    ) -> Result<&crate::plugin::schema::ScriptableCapability> {
+    ) -> Result<&crate::manifest_driver::schema::ScriptableCapability> {
         self.config
             .capabilities
             .scriptable
@@ -1477,7 +1479,7 @@ impl GenericDriver {
         &self,
         width: u32,
         height: u32,
-        mock_config: Option<&crate::plugin::schema::MockFrameConfig>,
+        mock_config: Option<&crate::manifest_driver::schema::MockFrameConfig>,
     ) -> Result<crate::Frame> {
         let pattern = mock_config
             .as_ref()
@@ -1661,7 +1663,7 @@ impl DeviceLifecycle for GenericDriver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin::schema::*;
+    use crate::manifest_driver::schema::*;
 
     /// Creates a minimal valid InstrumentConfig for testing
     fn create_test_config() -> InstrumentConfig {

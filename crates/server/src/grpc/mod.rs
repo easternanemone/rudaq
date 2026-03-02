@@ -1,3 +1,5 @@
+#[cfg(feature = "server")]
+pub mod audit_log;
 #[cfg(feature = "db-surreal")]
 pub mod config_service;
 pub mod custom_health_service;
@@ -12,6 +14,8 @@ pub mod module_service;
 pub mod ni_daq_service;
 pub mod plugin_service;
 pub mod preset_service;
+#[cfg(feature = "server")]
+pub mod request_tracing;
 pub mod run_engine_service;
 pub mod scan_service;
 /// gRPC server for remote DAQ control (Phase 3)

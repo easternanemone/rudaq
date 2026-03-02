@@ -2,7 +2,7 @@
 #
 # This file provides default settings and named connection presets for the
 # desktop GUI. It does NOT contain hardware parameters (those belong in
-# hardware config files like maitai_hardware.toml).
+# hardware config files like maitai_universal.toml).
 #
 # Discovery order (first found wins):
 #   1. ./config/gui.toml (project root)
@@ -50,7 +50,7 @@ host = "100.117.5.12"
 remote_dir = "/home/maitai/code/rust-daq"
 env_file = ".env.maitai"
 daemon_port = 50051
-hardware_config = "config/maitai_hardware.toml"
+hardware_config = "config/maitai_universal.toml"
 
 [[presets]]
 name = "Maitai Direct"

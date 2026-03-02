@@ -37,6 +37,8 @@ uuid = { version = "1.10", features = ["v4", "serde"] }
 chrono = { workspace = true, features = ["serde"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 sha2 = "0.10"
+tower-layer = { version = "0.3", optional = true }
+tower-service = { version = "0.3", optional = true }
 tower-http = { version = "0.4", features = ["cors", "trace"], optional = true }
 tonic-web = { version = "0.10", optional = true }
 sysinfo = "0.37.2"
@@ -53,7 +55,7 @@ hyper = { version = "0.14", features = ["server", "http1", "tcp"], optional = tr
 [features]
 # Simplified feature flags (bd-0aqw)
 default = ["modules", "server", "networking", "scripting"]
-server = ["dep:tonic-web", "dep:tower-http"]
+server = ["dep:tonic-web", "dep:tower-http", "dep:tower-layer", "dep:tower-service"]
 modules = ["dep:daq-modules"]
 modules_scripting = ["modules", "daq-modules/scripting"]
 modules_native_plugins = ["modules", "daq-modules/native_plugins"]

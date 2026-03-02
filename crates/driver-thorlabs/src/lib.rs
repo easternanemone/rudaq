@@ -1,46 +1,18 @@
 //! Thorlabs hardware drivers for rust-daq.
 //!
-//! This crate provides drivers for Thorlabs devices, including:
-//! - ELL14 Rotation Mount (RS-485 bus)
+//! This crate provides shared infrastructure for Thorlabs devices.
+//! The ELL14 rotation mount driver has been superseded by the
+//! driver-universal TOML manifest at `config/devices/ell14.toml`.
 //!
-//! # Usage
-//!
-//! Add to your `Cargo.toml`:
-//!
-//! ```toml
-//! [dependencies]
-//! driver-thorlabs = { path = "../driver-thorlabs" }
-//! ```
-//!
-//! Register the factory with your device registry:
-//!
-//! ```rust,ignore
-//! use driver_thorlabs::Ell14Factory;
-//!
-//! registry.register_factory(Box::new(Ell14Factory));
-//! ```
+//! The `shared_ports` module provides RS-485 bus port sharing, which
+//! may be used by driver-universal for multi-device serial buses.
 
-mod ell14;
 pub mod shared_ports;
 
-pub use ell14::{Ell14Driver, Ell14Factory};
 pub use shared_ports::{get_or_open_port, SharedPort};
 
 /// Force the linker to include this crate.
-///
-/// Call this function from main() to ensure the driver factories are
-/// linked into the final binary and not stripped by the linker.
 #[inline(never)]
 pub fn link() {
-    std::hint::black_box(std::any::TypeId::of::<Ell14Factory>());
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_link_does_not_panic() {
-        link();
-    }
+    // No factories to link — ELL14 is now driver-universal
 }

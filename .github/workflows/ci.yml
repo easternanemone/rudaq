@@ -92,6 +92,5 @@ jobs:
         run: |
           cargo nextest run --workspace --profile ci \
             --exclude ui \
-            --exclude driver-generic \
             --exclude comedi-sys \
             --exclude driver-comedi

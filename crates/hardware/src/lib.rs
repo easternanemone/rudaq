@@ -5,9 +5,8 @@
 //! This crate provides the central hardware driver system:
 //!
 //! - **[`DeviceRegistry`]** - Thread-safe device registration and discovery
-//! - **[`DriverFactory`]** - Plugin architecture for dynamic driver loading
 //! - **Capability Traits** - [`Movable`], [`Readable`], [`FrameProducer`], etc.
-//! - **Config-Driven Drivers** - TOML-based generic serial drivers
+//! - **Manifest Drivers** - TOML/YAML-driven instrument definitions
 //! - **Serial Port Management** - Stable by-id paths and multidrop bus support
 //!
 //! ## Quick Example
@@ -38,7 +37,6 @@
 //! - `comedi` - NI DAQ card support
 //!
 //! [`DeviceRegistry`]: registry::DeviceRegistry
-//! [`DriverFactory`]: factory::DriverFactory
 //! [`Movable`]: capabilities::Movable
 //! [`Readable`]: capabilities::Readable
 //! [`FrameProducer`]: capabilities::FrameProducer
@@ -50,8 +48,9 @@
 pub use common::capabilities;
 pub mod config;
 pub mod drivers;
-pub mod factory;
-pub mod plugin;
+pub mod manifest_driver;
+/// Backward-compat alias: `plugin` → `manifest_driver`
+pub use manifest_driver as plugin;
 pub mod port_resolver;
 pub mod registry;
 pub mod resource_pool;
@@ -61,15 +60,4 @@ pub use capabilities::*;
 pub use registry::{
     register_all_factories, register_mock_factories, DeviceConfig, DeviceInfo, DeviceRegistry,
     DriverConfig,
-};
-
-// Re-export declarative config types under a distinct name to avoid confusion
-// with registry::DeviceConfig (which is for device registration)
-#[allow(deprecated)]
-pub use config::DeviceConfig as DeclarativeDeviceConfig;
-
-// Re-export factory types for config-driven driver creation
-pub use factory::{
-    load_all_factories, ConfiguredBus, ConfiguredDriver, DriverFactory, GenericSerialDriverFactory,
-    GenericSerialInstanceConfig,
 };

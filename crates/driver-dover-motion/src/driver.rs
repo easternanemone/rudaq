@@ -73,7 +73,7 @@ pub struct DoverAxisDriver {
     params: Arc<ParameterSet>,
 
     /// Trigger-on-position enabled state
-    top_enabled: Arc<Mutex<bool>>,
+    top_enabled_param: Parameter<bool>,
 }
 
 impl DoverAxisDriver {
@@ -133,9 +133,13 @@ impl DoverAxisDriver {
             .with_description("Axis acceleration")
             .with_unit("mm/s²");
 
+        let top_enabled =
+            Parameter::new("top_enabled", false).with_description("Trigger-on-position enabled");
+
         params.register(position.clone());
         params.register(velocity.clone());
         params.register(acceleration.clone());
+        params.register(top_enabled.clone());
 
         Ok(Self {
             axis_handle: Arc::new(Mutex::new(axis_handle)),
@@ -144,7 +148,7 @@ impl DoverAxisDriver {
             velocity_param: velocity,
             acceleration_param: acceleration,
             params: Arc::new(params),
-            top_enabled: Arc::new(Mutex::new(false)),
+            top_enabled_param: top_enabled,
         })
     }
 
@@ -478,7 +482,7 @@ impl TriggerOnPosition for DoverAxisDriver {
         .await
         .context("Failed to spawn enable TOP task")??;
 
-        *self.top_enabled.lock().await = true;
+        self.top_enabled_param.inner().set(true);
         Ok(())
     }
 
@@ -498,12 +502,12 @@ impl TriggerOnPosition for DoverAxisDriver {
         .await
         .context("Failed to spawn disable TOP task")??;
 
-        *self.top_enabled.lock().await = false;
+        self.top_enabled_param.inner().set(false);
         Ok(())
     }
 
     #[instrument(skip(self), fields(axis = %self.axis_name), err)]
     async fn is_top_enabled(&self) -> Result<bool> {
-        Ok(*self.top_enabled.lock().await)
+        Ok(self.top_enabled_param.get())
     }
 }

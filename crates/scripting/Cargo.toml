@@ -38,13 +38,9 @@ comedi_scripting = ["dep:driver-comedi"]
 # Marker feature for cfg guards on hardware factory functions
 hardware_factories = []
 
-# Generic Serial Driver support for Rhai
-generic_driver = ["hardware/serial", "hardware/scripting"]
-
 # Full scripting - RECOMMENDED
 scripting_full = [
     "hardware_factories",
-    "generic_driver",
     "dep:driver-thorlabs",
     "dep:driver-newport",
     "dep:driver-spectra-physics",

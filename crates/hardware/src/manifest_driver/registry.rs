@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::net::TcpStream;
 
-use crate::plugin::driver::GenericDriver;
-use crate::plugin::schema::{DriverType as SchemaDriverType, InstrumentConfig};
+use crate::manifest_driver::driver::GenericDriver;
+use crate::manifest_driver::schema::{DriverType as SchemaDriverType, InstrumentConfig};
 use common::serial::open_serial_async;
 
 // =============================================================================
@@ -904,7 +904,7 @@ pub fn validate_plugin_config(config: &InstrumentConfig) -> Vec<ValidationError>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin::schema::*;
+    use crate::manifest_driver::schema::*;
 
     fn create_minimal_valid_config() -> InstrumentConfig {
         InstrumentConfig {

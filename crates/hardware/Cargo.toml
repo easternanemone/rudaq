@@ -24,7 +24,6 @@ serde_valid = "0.24"
 schemars = "0.8"
 evalexpr = "11"
 figment = { version = "0.10", features = ["toml"] }
-enum_dispatch = "0.3"
 crc = { version = "3.4.0", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -83,11 +82,6 @@ optional = true
 version = "0.8"
 optional = true
 
-[dependencies.rhai]
-version = "1.19"
-features = ["sync"]
-optional = true
-
 [features]
 # Simplified feature flags (bd-0aqw)
 default = ["serial"]
@@ -125,7 +119,6 @@ full = ["all_hardware", "simulator"]
 # Other features
 simulator = []
 plugins_hot_reload = ["dep:notify", "dep:hot-lib-reloader"]
-scripting = ["dep:rhai"]        # Rhai scripting for config-driven drivers
 binary_protocol = ["dep:crc"]   # Modbus RTU, etc.
 
 [lints]

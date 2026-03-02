@@ -107,7 +107,7 @@ struct Cli {
     /// Use real lab hardware configuration
     ///
     /// Launches the daemon with --lab-hardware flag to use the pre-configured
-    /// lab setup (see config/maitai_hardware.toml)
+    /// lab setup (see config/maitai_universal.toml)
     #[arg(long)]
     lab_hardware: bool,
 

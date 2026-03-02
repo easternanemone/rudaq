@@ -150,7 +150,7 @@ impl DriverFactory for MockLaserFactory {
 /// Mode-lock indicator transitions to locked after warmup completes.
 pub struct MockLaser {
     /// Current wavelength setting (nm)
-    wavelength_nm: RwLock<f64>,
+    wavelength_param: Parameter<f64>,
 
     /// Wavelength range
     min_wavelength: f64,
@@ -195,10 +195,10 @@ impl MockLaser {
             .with_range(690.0, 1040.0)
             .with_dtype("float");
 
-        params.register(wavelength_param);
+        params.register(wavelength_param.clone());
 
         Self {
-            wavelength_nm: RwLock::new(config.wavelength_nm),
+            wavelength_param,
             min_wavelength: 690.0,
             max_wavelength: 1040.0,
             shutter_open: AtomicBool::new(false),
@@ -312,7 +312,7 @@ impl WavelengthTunable for MockLaser {
             ));
         }
 
-        *self.wavelength_nm.write().await = wavelength_nm;
+        self.wavelength_param.inner().set(wavelength_nm)?;
 
         // Simulate tuning delay
         sleep(Duration::from_millis(100)).await;
@@ -321,7 +321,7 @@ impl WavelengthTunable for MockLaser {
     }
 
     async fn get_wavelength(&self) -> Result<f64> {
-        Ok(*self.wavelength_nm.read().await)
+        Ok(self.wavelength_param.get())
     }
 
     fn wavelength_range(&self) -> (f64, f64) {

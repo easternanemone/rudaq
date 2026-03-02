@@ -18,9 +18,6 @@
 
 pub mod bindings;
 pub mod comedi_bindings;
-pub mod engine;
-#[cfg(feature = "generic_driver")]
-pub mod generic_driver_bindings;
 pub mod path_security;
 pub mod plan_bindings;
 pub mod rhai_engine;
@@ -34,9 +31,6 @@ pub mod yield_handle;
 pub mod pyo3_engine;
 
 pub use bindings::{CameraHandle, ReadableHandle, ShutterHandle, SoftLimits, StageHandle};
-
-#[cfg(feature = "scripting_full")]
-pub use bindings::Ell14Handle;
 
 #[cfg(feature = "hdf5_scripting")]
 pub use bindings::Hdf5Handle;

@@ -17,51 +17,14 @@ pub use driver_newport;
 #[cfg(feature = "spectra_physics")]
 pub use driver_spectra_physics;
 
-// Legacy driver modules (kept for backwards compatibility)
-// TODO: Migrate to DriverFactory-based crates (bd-ha9c Phase 10+)
-
-#[cfg(feature = "thorlabs")]
-pub mod ell14;
-
-#[cfg(all(test, feature = "thorlabs"))]
-mod ell14_polling;
-
-// Generic serial driver for config-driven devices
-#[cfg(feature = "serial")]
-pub mod generic_serial;
-
-// Rhai scripting engine for config-driven drivers
-#[cfg(feature = "scripting")]
-pub mod script_engine;
-
 // Binary protocol support (Modbus RTU, etc.)
 pub mod binary_protocol;
-
-// Re-export key types from generic_serial
-#[cfg(feature = "serial")]
-#[allow(deprecated)]
-pub use generic_serial::{DynSerial, GenericSerialDriver, SharedPort};
-
-// Re-export scripting types when enabled
-#[cfg(feature = "scripting")]
-pub use script_engine::{
-    create_sandboxed_engine, execute_script_async, execute_script_sync, validate_script,
-    CompiledScripts, ScriptContext, ScriptEngineConfig, ScriptResult,
-};
 
 // Re-export binary protocol types
 pub use binary_protocol::{BinaryFrameBuilder, BinaryResponseParser, ParsedValue};
 
 #[cfg(feature = "binary_protocol")]
 pub use binary_protocol::{calculate_crc, validate_crc, CrcValue};
-
-/// Newport ESP300 motion controller (legacy module)
-#[cfg(feature = "newport")]
-pub mod esp300;
-
-/// MaiTai Ti:Sapphire laser driver (legacy module)
-#[cfg(feature = "spectra_physics")]
-pub mod maitai;
 
 /// Mock drivers for testing (legacy module, re-exports from driver-mock)
 pub mod mock;

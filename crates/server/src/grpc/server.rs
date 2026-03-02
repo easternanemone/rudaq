@@ -1191,13 +1191,19 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
     }
 
     let auth_settings = grpc_settings.clone();
-    let mut builder = Server::builder()
-        .accept_http1(true)
-        .layer(cors)
-        .layer(interceptor(move |request: Request<()>| {
-            validate_auth(&auth_settings, &request)?;
-            Ok(request)
-        }));
+    let mut builder = {
+        use crate::grpc::audit_log::AuditLogLayer;
+        use crate::grpc::request_tracing::RequestTracingLayer;
+        Server::builder()
+            .accept_http1(true)
+            .layer(cors)
+            .layer(interceptor(move |request: Request<()>| {
+                validate_auth(&auth_settings, &request)?;
+                Ok(request)
+            }))
+            .layer(RequestTracingLayer::new())
+            .layer(AuditLogLayer::new())
+    };
 
     if let Some(tls_config) = tls_config {
         builder = builder.tls_config(tls_config)?;
@@ -1664,6 +1670,8 @@ pub async fn start_server_with_hardware(
     println!("  - PresetService: configuration save/load (bd-akcm)");
     println!("  - StorageService: HDF5 data storage (bd-p6im)");
 
+    println!("  - AuditLog: hardware-mutating calls → tracing target \"audit\" (bd-1afe.10)");
+
     if !grpc_settings.auth_enabled {
         eprintln!("⚠️  gRPC auth is disabled (set grpc.auth_enabled=true to require auth)");
     }
@@ -1678,6 +1686,8 @@ pub async fn start_server_with_hardware(
 
     #[cfg(feature = "serial")]
     let mut server_builder = {
+        use crate::grpc::audit_log::AuditLogLayer;
+        use crate::grpc::request_tracing::RequestTracingLayer;
         let auth_settings = grpc_settings.clone();
         Server::builder()
             .accept_http1(true)
@@ -1686,6 +1696,8 @@ pub async fn start_server_with_hardware(
                 validate_auth(&auth_settings, &request)?;
                 Ok(request)
             }))
+            .layer(RequestTracingLayer::new())
+            .layer(AuditLogLayer::new())
     };
 
     #[cfg(feature = "serial")]
@@ -1738,6 +1750,8 @@ pub async fn start_server_with_hardware(
 
     #[cfg(not(feature = "serial"))]
     let mut server_builder = {
+        use crate::grpc::audit_log::AuditLogLayer;
+        use crate::grpc::request_tracing::RequestTracingLayer;
         let auth_settings = grpc_settings.clone();
         Server::builder()
             .accept_http1(true)
@@ -1746,6 +1760,8 @@ pub async fn start_server_with_hardware(
                 validate_auth(&auth_settings, &request)?;
                 Ok(request)
             }))
+            .layer(RequestTracingLayer::new())
+            .layer(AuditLogLayer::new())
     };
 
     #[cfg(not(feature = "serial"))]

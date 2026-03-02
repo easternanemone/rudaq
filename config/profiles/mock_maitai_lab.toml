@@ -3,7 +3,7 @@
 # Simulates the complete maitai lab hardware inventory using mock/emulator
 # transports. No physical hardware required.
 #
-# This profile mirrors config/maitai_hardware.toml but uses mock = true for
+# This profile mirrors config/maitai_universal.toml but uses mock = true for
 # all universal driver devices and mock_camera for the camera.
 #
 # Hardware emulated:

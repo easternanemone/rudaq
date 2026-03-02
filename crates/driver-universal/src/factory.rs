@@ -79,7 +79,7 @@ fn register_shared_transport(port_path: &str, transport: &SharedTransport) {
 }
 
 /// Instance configuration passed via the hardware TOML config
-/// (e.g., `maitai_hardware.toml`).
+/// (e.g., `maitai_universal.toml`).
 ///
 /// Each device instance provides connection-specific details like port path,
 /// address, and optional baud rate override.

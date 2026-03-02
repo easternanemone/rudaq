@@ -9,7 +9,6 @@ use common::parameter::Parameter;
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 // =============================================================================
 // MockDAQOutputFactory - DriverFactory implementation
@@ -193,7 +192,7 @@ pub struct MockDAQOutput {
     channel: u32,
 
     /// Current voltage value
-    current_value: RwLock<f64>,
+    voltage_param: Parameter<f64>,
 
     /// Voltage range
     range: VoltageRange,
@@ -234,11 +233,11 @@ impl MockDAQOutput {
             .with_range(range.min(), range.max())
             .with_dtype("float");
 
-        params.register(voltage_param);
+        params.register(voltage_param.clone());
 
         Self {
             channel: config.channel,
-            current_value: RwLock::new(config.initial_voltage),
+            voltage_param,
             range,
             params: Arc::new(params),
         }
@@ -257,6 +256,7 @@ impl MockDAQOutput {
     /// Set the output voltage.
     ///
     /// Returns an error if the voltage is outside the configured range.
+    #[allow(clippy::unused_async)]
     pub async fn set_voltage(&self, voltage: f64) -> Result<()> {
         if !self.range.contains(voltage) {
             return Err(anyhow!(
@@ -267,14 +267,15 @@ impl MockDAQOutput {
             ));
         }
 
-        *self.current_value.write().await = voltage;
+        self.voltage_param.inner().set(voltage)?;
 
         Ok(())
     }
 
     /// Get the current output voltage.
+    #[allow(clippy::unused_async)]
     pub async fn voltage(&self) -> Result<f64> {
-        Ok(*self.current_value.read().await)
+        Ok(self.voltage_param.get())
     }
 }
 
