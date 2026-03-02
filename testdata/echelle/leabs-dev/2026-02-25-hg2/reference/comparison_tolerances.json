@@ -1,0 +1,102 @@
+{
+  "schema_version": "1",
+  "dataset_id": "leabs-dev/2026-02-25-hg2",
+  "dataset_classification": "diagnostic_ramp_like",
+  "spectroscopic_truth_usable": false,
+  "intended_use": [
+    "transport_decompression_regression",
+    "decoder_shape_and_metadata_regression",
+    "extractor_pipeline_no_crash_regression",
+    "reference_artifact_generation_provenance_regression"
+  ],
+  "not_intended_use": [
+    "wavelength_solution_validation",
+    "order_trace_accuracy_validation",
+    "blaze_correction_validation",
+    "spectral_line_identification"
+  ],
+  "raw_frame_expectations": {
+    "width": 2048,
+    "height": 2048,
+    "transport_dtype": "u16_le",
+    "bit_depth_nominal": 12,
+    "compression": "COMPRESSION_LZ4",
+    "uncompressed_size_bytes": 8388608
+  },
+  "reference_extraction_expectations": {
+    "axis": "pixel_x",
+    "wavelength_calibrated": false,
+    "expected_order_count": 0,
+    "expected_quality_classification": "diagnostic_ramp_like",
+    "order_count_tolerance": {
+      "mode": "exact",
+      "value": 0
+    }
+  },
+  "pairwise_frame_tolerances": [
+    {
+      "a": "hg2_001ms",
+      "b": "hg2_010ms",
+      "expected_relation": "uniform_offset",
+      "mean_diff": {
+        "target": 1.0,
+        "abs_tolerance": 0.0
+      },
+      "max_abs_diff": {
+        "target": 1,
+        "tolerance": 0
+      },
+      "p99_abs_diff": {
+        "target": 1.0,
+        "abs_tolerance": 0.0
+      }
+    },
+    {
+      "a": "hg2_001ms",
+      "b": "hg2_100ms",
+      "expected_relation": "uniform_offset",
+      "mean_diff": {
+        "target": 1.0,
+        "abs_tolerance": 0.0
+      },
+      "max_abs_diff": {
+        "target": 1,
+        "tolerance": 0
+      },
+      "p99_abs_diff": {
+        "target": 1.0,
+        "abs_tolerance": 0.0
+      }
+    },
+    {
+      "a": "hg2_010ms",
+      "b": "hg2_100ms",
+      "expected_relation": "bitwise_equal",
+      "mean_diff": {
+        "target": 0.0,
+        "abs_tolerance": 0.0
+      },
+      "max_abs_diff": {
+        "target": 0,
+        "tolerance": 0
+      },
+      "p99_abs_diff": {
+        "target": 0.0,
+        "abs_tolerance": 0.0
+      }
+    }
+  ],
+  "dataset_caveats": [
+    "Captured frames currently decode to an additive ramp-like diagnostic pattern instead of visible echelle orders.",
+    "Exposure scaling behavior is not spectroscopic: 10 ms and 100 ms frames are identical; 1 ms differs by a uniform +1 count offset.",
+    "GetParameter AOIWidth/AOIHeight values were inconsistent with streamed frame dimensions at capture time.",
+    "Streamed FrameData omitted ROI and binning metadata fields for these captures.",
+    "Use streamed FrameData dimensions/bit depth as canonical values for this fixture set."
+  ],
+  "evidence_files": [
+    "capture_diagnostics.json",
+    "dataset_reference_index.json",
+    "../manifest.json",
+    "../parameters_raw.json"
+  ]
+}

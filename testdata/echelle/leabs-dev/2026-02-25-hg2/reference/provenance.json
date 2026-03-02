@@ -1,0 +1,17 @@
+{
+  "tool": {
+    "name": "scripts/echelle/reference_extract_hg2.py",
+    "kind": "external_reference_tooling",
+    "python": "3.12.11 (main, Sep  2 2025, 14:12:30) [Clang 20.1.4 ]",
+    "numpy": "2.4.2",
+    "lz4": "4.4.5"
+  },
+  "dataset_dir": "/Users/briansquires/.codex/worktrees/5385/rust-daq/testdata/echelle/leabs-dev/2026-02-25-hg2",
+  "source_manifest_sha256": "0fa2da3eaba2b8f470a6f1272c8428f31a62f29221c40bca1b1483a33c174f29",
+  "source_parameters_sha256": "ad48242d5adbd795ce949f7d8cdf3fd0e28142fb2d878f8700b4c2557b3a0774",
+  "notes": [
+    "Pixel-space reference extraction only (not wavelength calibrated).",
+    "Order centers are estimated from row-profile peaks and treated as constant-row traces.",
+    "Use for transport/decompression and regression baselines until calibrated traces/wavelength solutions are available."
+  ]
+}

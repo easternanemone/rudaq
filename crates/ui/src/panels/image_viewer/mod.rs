@@ -14,10 +14,15 @@
 //! - Panel drains channel each frame and updates texture
 
 pub mod colormap;
+mod echelle_extraction;
+mod echelle_profile_cache;
+mod echelle_sidecar;
 mod processing;
 mod types;
 
 pub use colormap::*;
+use echelle_extraction::*;
+use echelle_profile_cache::*;
 use processing::*;
 pub use types::*;
 
@@ -25,6 +30,7 @@ use crate::runtime::Runtime;
 use crate::time::{Duration, Instant};
 use eframe::egui;
 use egui_extras::{Size, StripBuilder};
+use egui_plot::{Line, Plot, PlotPoints};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -34,8 +40,24 @@ use crate::icons;
 use crate::layout::{self, colors};
 use crate::widgets::{Histogram, HistogramPosition, ParameterCache, RoiSelector};
 use client::DaqClient;
+use common::core::Measurement;
 use protocol::compression::decompress_frame;
 use protocol::daq::StreamQuality;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum EchellePlotXAxisMode {
+    #[default]
+    Wavelength,
+    SampleIndex,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct EchellePlotHoverLink {
+    relative_index: u32,
+    sample_index: usize,
+    wavelength: f64,
+    flux: f64,
+}
 
 /// Image Viewer Panel state
 pub struct ImageViewerPanel {
@@ -196,6 +218,37 @@ pub struct ImageViewerPanel {
     colorbar: crate::widgets::Colorbar,
     /// Show colorbar in the image viewer
     show_colorbar: bool,
+
+    // -- Echelle Calibration Profile Cache (bd-2kla.2.4) --
+    /// Optional cached echelle calibration profile with hot-reload-safe semantics.
+    echelle_profile_cache: EchelleProfileCache,
+    /// Last extracted echelle spectrum preview (MVP local extraction path).
+    echelle_preview: Option<EchelleExtractionPreview>,
+    /// Most recent extraction error (kept separate from general panel errors).
+    echelle_preview_error: Option<String>,
+    /// Extract every Nth frame to bound CPU cost on UI path.
+    echelle_extract_every_n_frames: u32,
+    /// Toggle echelle extraction preview while profile is loaded.
+    echelle_extraction_enabled: bool,
+    /// Selected order index for side-panel plot (0 = first extracted order).
+    echelle_selected_order_plot: usize,
+    /// Show merged wavelength-sorted preview when available.
+    echelle_show_merged_plot: bool,
+    /// Reusable scratch buffer for 12/16-bit decode fallback path (allocation control).
+    echelle_decode_scratch_u16: Vec<u16>,
+    /// Debug/export hook: latest preview spectra materialized as Measurement::Spectrum values.
+    echelle_preview_measurements: Vec<Measurement>,
+    /// Display-only moving-average smoothing for the spectrum preview plot.
+    echelle_plot_smoothing_window: u32,
+    /// X-axis display mode for the spectrum preview.
+    echelle_plot_x_axis_mode: EchellePlotXAxisMode,
+    /// Developer diagnostics counters for the local extractor.
+    echelle_extract_runs: u64,
+    echelle_extract_errors: u64,
+    echelle_extract_skipped_frames: u64,
+    echelle_last_extract_ms: Option<f64>,
+    /// Hover cross-link from spectrum plot to image sample marker.
+    echelle_plot_hover_link: Option<EchellePlotHoverLink>,
 }
 
 impl Default for ImageViewerPanel {
@@ -294,6 +347,23 @@ impl Default for ImageViewerPanel {
                 .orientation(crate::widgets::ColorbarOrientation::Vertical)
                 .units("counts"),
             show_colorbar: true,
+
+            echelle_profile_cache: EchelleProfileCache::default(),
+            echelle_preview: None,
+            echelle_preview_error: None,
+            echelle_extract_every_n_frames: 5,
+            echelle_extraction_enabled: true,
+            echelle_selected_order_plot: 0,
+            echelle_show_merged_plot: true,
+            echelle_decode_scratch_u16: Vec::new(),
+            echelle_preview_measurements: Vec::new(),
+            echelle_plot_smoothing_window: 1,
+            echelle_plot_x_axis_mode: EchellePlotXAxisMode::Wavelength,
+            echelle_extract_runs: 0,
+            echelle_extract_errors: 0,
+            echelle_extract_skipped_frames: 0,
+            echelle_last_extract_ms: None,
+            echelle_plot_hover_link: None,
         }
     }
 }
@@ -302,6 +372,159 @@ impl ImageViewerPanel {
     /// Create a new image viewer panel
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Set the echelle calibration profile path used for extraction preview features.
+    ///
+    /// The profile is loaded lazily and reloaded on modification while preserving
+    /// the last-good profile if a subsequent reload fails.
+    pub fn set_echelle_profile_path(&mut self, path: std::path::PathBuf) {
+        self.echelle_profile_cache.set_path(path);
+    }
+
+    /// Clear the active echelle calibration profile cache/path.
+    pub fn clear_echelle_profile_path(&mut self) {
+        if let EchelleProfileCacheEvent::Cleared = self.echelle_profile_cache.clear() {
+            // Do not clobber persistent statuses such as recording completion.
+            if self
+                .status
+                .as_deref()
+                .map(|s| s.starts_with("Echelle profile"))
+                .unwrap_or(false)
+            {
+                self.status = None;
+            }
+        }
+    }
+
+    /// Expose the last echelle profile loader error for future UI presentation.
+    pub fn echelle_profile_last_error(&self) -> Option<&str> {
+        self.echelle_profile_cache.last_error()
+    }
+
+    /// Returns the configured echelle calibration profile path, if any.
+    pub fn echelle_profile_path(&self) -> Option<&std::path::Path> {
+        self.echelle_profile_cache.path()
+    }
+
+    /// Returns the latest extracted echelle preview spectra as `Measurement::Spectrum` values.
+    pub fn echelle_preview_measurements(&self) -> &[Measurement] {
+        &self.echelle_preview_measurements
+    }
+
+    /// Developer hook: export latest preview spectra (orders + merged if present) as JSON.
+    pub fn save_echelle_preview_measurements_json(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<(), String> {
+        if self.echelle_preview_measurements.is_empty() {
+            return Err("no echelle preview measurements available".to_string());
+        }
+        let json = serde_json::to_string_pretty(&self.echelle_preview_measurements)
+            .map_err(|e| format!("failed to serialize preview measurements: {e}"))?;
+        std::fs::write(path, json).map_err(|e| format!("failed to write {}: {e}", path.display()))
+    }
+
+    /// Developer hook: export the merged preview spectrum as CSV (`wavelength,flux`).
+    pub fn save_echelle_preview_merged_csv(&self, path: &std::path::Path) -> Result<(), String> {
+        let merged = self
+            .echelle_preview
+            .as_ref()
+            .and_then(|p| p.merged.as_ref())
+            .ok_or_else(|| "no merged echelle preview available".to_string())?;
+        let mut out = String::from("wavelength,flux\n");
+        for (w, f) in merged.wavelengths.iter().zip(&merged.flux) {
+            out.push_str(&format!("{w},{f}\n"));
+        }
+        std::fs::write(path, out).map_err(|e| format!("failed to write {}: {e}", path.display()))
+    }
+
+    /// Set whether the local echelle extraction preview is enabled.
+    pub fn set_echelle_extraction_enabled(&mut self, enabled: bool) {
+        self.echelle_extraction_enabled = enabled;
+    }
+
+    /// Set extraction cadence for the local preview (`1` = every frame).
+    pub fn set_echelle_extract_every_n_frames(&mut self, every_n_frames: u32) {
+        self.echelle_extract_every_n_frames = every_n_frames.max(1);
+    }
+
+    /// Configure whether the preview plot defaults to merged mode.
+    pub fn set_echelle_preview_show_merged(&mut self, show_merged: bool) {
+        self.echelle_show_merged_plot = show_merged;
+    }
+
+    /// Poll the profile cache for changes and surface loader results through UI status/error.
+    fn poll_echelle_profile_cache(&mut self) {
+        match self.echelle_profile_cache.poll_reload_if_changed() {
+            EchelleProfileCacheEvent::Unchanged => {}
+            EchelleProfileCacheEvent::Loaded(path) => {
+                self.error = None;
+                self.echelle_preview_error = None;
+                self.status = Some(format!("Echelle profile loaded: {}", path.display()));
+            }
+            EchelleProfileCacheEvent::Error(msg) => {
+                // Preserve last-good profile inside the cache; only surface the error.
+                self.error = Some(msg);
+            }
+            EchelleProfileCacheEvent::Cleared => {
+                self.status = Some("Echelle profile cleared".to_string());
+            }
+        }
+    }
+
+    fn maybe_update_echelle_preview(&mut self, frame: &FrameUpdate) {
+        if !self.echelle_extraction_enabled {
+            return;
+        }
+
+        let decimation = self.echelle_extract_every_n_frames.max(1) as u64;
+        if decimation > 1 && !frame.frame_number.is_multiple_of(decimation) {
+            self.echelle_extract_skipped_frames =
+                self.echelle_extract_skipped_frames.saturating_add(1);
+            return;
+        }
+
+        let Some(profile) = self.echelle_profile_cache.profile().cloned() else {
+            self.echelle_preview = None;
+            self.echelle_preview_error = None;
+            return;
+        };
+
+        let t0 = Instant::now();
+        match extract_preview_with_u16_scratch(
+            &profile,
+            &frame.data,
+            frame.width,
+            frame.height,
+            frame.bit_depth,
+            frame.frame_number,
+            &mut self.echelle_decode_scratch_u16,
+        ) {
+            Ok(preview) => {
+                self.echelle_last_extract_ms = Some(t0.elapsed().as_secs_f64() * 1000.0);
+                self.echelle_extract_runs = self.echelle_extract_runs.saturating_add(1);
+                let order_count = preview.orders.len();
+                if order_count == 0 {
+                    self.echelle_preview = None;
+                    self.echelle_preview_error =
+                        Some("Echelle profile has no enabled orders for extraction".to_string());
+                    return;
+                }
+                if self.echelle_selected_order_plot >= order_count {
+                    self.echelle_selected_order_plot = 0;
+                }
+                self.echelle_preview_measurements = preview.to_measurements();
+                self.echelle_preview = Some(preview);
+                self.echelle_preview_error = None;
+            }
+            Err(err) => {
+                self.echelle_last_extract_ms = Some(t0.elapsed().as_secs_f64() * 1000.0);
+                self.echelle_extract_errors = self.echelle_extract_errors.saturating_add(1);
+                self.echelle_preview_error = Some(err);
+                // Preserve last-good preview for continuity, similar to profile hot reload semantics.
+            }
+        }
     }
 
     /// Spawn background thread for RGBA conversion (bd-xifj)
@@ -1502,6 +1725,9 @@ impl ImageViewerPanel {
         self.histogram
             .from_frame_data(&frame.data, frame.width, frame.height, frame.bit_depth);
 
+        // bd-2kla.4: Optional local echelle extraction preview (decimated)
+        self.maybe_update_echelle_preview(&frame);
+
         // bd-07j1: Update colorbar range from frame data
         let bit_max = match frame.bit_depth {
             8 => 255.0,
@@ -1524,6 +1750,7 @@ impl ImageViewerPanel {
         // Poll for async action results
         self.poll_actions();
         self.poll_param_results(ui.ctx());
+        self.poll_echelle_profile_cache();
 
         // Drain pending frame updates
         self.drain_updates(ui.ctx());
@@ -2138,16 +2365,20 @@ impl ImageViewerPanel {
         let has_roi_panel = self.show_roi_panel && self.roi_selector.roi().is_some();
         let has_histogram_panel = matches!(self.histogram_position, HistogramPosition::SidePanel);
         let has_controls_panel = self.show_controls && !self.camera_params.is_empty();
+        let has_echelle_panel = self.echelle_profile_cache.profile().is_some()
+            || self.echelle_preview.is_some()
+            || self.echelle_preview_error.is_some();
 
-        let stats_panel_width = if has_roi_panel || has_histogram_panel || has_controls_panel {
-            if has_controls_panel {
-                280.0
+        let stats_panel_width =
+            if has_roi_panel || has_histogram_panel || has_controls_panel || has_echelle_panel {
+                if has_controls_panel || has_echelle_panel {
+                    320.0
+                } else {
+                    200.0
+                }
             } else {
-                200.0
-            }
-        } else {
-            0.0
-        };
+                0.0
+            };
 
         // Side panel for stats/controls (fixed width, drawn first so remainder goes to image)
         if stats_panel_width > 0.0 {
@@ -2160,6 +2391,7 @@ impl ImageViewerPanel {
                         has_controls_panel,
                         has_roi_panel,
                         has_histogram_panel,
+                        has_echelle_panel,
                     );
                 });
         }
@@ -2203,6 +2435,20 @@ impl ImageViewerPanel {
                     let scale_unit = self.scale_unit.clone();
                     let last_frame_data = self.last_frame_data.clone();
                     let roi_selection_mode = self.roi_selector.selection_mode;
+                    let echelle_hover_marker = self.echelle_plot_hover_link.and_then(|link| {
+                        let profile = self.echelle_profile_cache.profile()?;
+                        let order = profile
+                            .orders
+                            .iter()
+                            .find(|o| o.enabled && o.relative_index == link.relative_index)?;
+                        let (x, y) =
+                            order_sample_image_position(profile, order, link.sample_index)?;
+                        Some((
+                            x,
+                            y,
+                            format!("mvp λ={:.4}, f={:.1}", link.wavelength, link.flux),
+                        ))
+                    });
 
                     // Track crosshair lock changes to apply after closure
                     let mut crosshair_lock_action: Option<Option<(i32, i32)>> = None;
@@ -2311,6 +2557,29 @@ impl ImageViewerPanel {
                                                 ),
                                             );
                                             self.histogram.show_overlay(&mut hist_ui, hist_size);
+                                        }
+
+                                        if let Some((px, py, label)) = &echelle_hover_marker {
+                                            let marker_x = rect.min.x + offset.x + *px * zoom;
+                                            let marker_y = rect.min.y + offset.y + *py * zoom;
+                                            let marker_pos = egui::pos2(marker_x, marker_y);
+                                            if image_rect.contains(marker_pos) {
+                                                let painter = ui.painter();
+                                                let color = egui::Color32::from_rgb(255, 120, 0);
+                                                painter.circle_stroke(
+                                                    marker_pos,
+                                                    (4.0 * zoom.clamp(0.5, 2.0)).max(4.0),
+                                                    egui::Stroke::new(2.0, color),
+                                                );
+                                                painter.circle_filled(marker_pos, 2.0, color);
+                                                painter.text(
+                                                    marker_pos + egui::vec2(8.0, -8.0),
+                                                    egui::Align2::LEFT_BOTTOM,
+                                                    label,
+                                                    egui::FontId::monospace(11.0),
+                                                    color,
+                                                );
+                                            }
                                         }
 
                                         // Crosshair cursor with pixel readout (bd-pgcb)
@@ -2618,6 +2887,7 @@ impl ImageViewerPanel {
         has_controls_panel: bool,
         has_roi_panel: bool,
         has_histogram_panel: bool,
+        has_echelle_panel: bool,
     ) {
         ui.set_max_width(ui.available_width());
         egui::ScrollArea::vertical()
@@ -2643,6 +2913,17 @@ impl ImageViewerPanel {
                                 }
                             }
                         });
+                    });
+                    ui.add_space(layout::SECTION_SPACING);
+                }
+
+                if has_echelle_panel {
+                    layout::card_frame(ui).show(ui, |ui| {
+                        egui::CollapsingHeader::new("Echelle Spectrum (MVP Preview)")
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                self.render_echelle_preview_panel(ui);
+                            });
                     });
                     ui.add_space(layout::SECTION_SPACING);
                 }
@@ -2798,6 +3079,275 @@ impl ImageViewerPanel {
             });
     }
 
+    fn render_echelle_preview_panel(&mut self, ui: &mut egui::Ui) {
+        if self.echelle_profile_cache.profile().is_none() {
+            ui.weak("No echelle calibration profile loaded.");
+            ui.weak("Use the programmatic API to set a profile path for now.");
+            return;
+        }
+
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(&mut self.echelle_extraction_enabled, "Enabled");
+            ui.add(
+                egui::DragValue::new(&mut self.echelle_extract_every_n_frames)
+                    .range(1..=120)
+                    .prefix("Every ")
+                    .suffix(" frames"),
+            );
+            ui.checkbox(&mut self.echelle_show_merged_plot, "Merged");
+            ui.separator();
+            ui.label("X:");
+            ui.selectable_value(
+                &mut self.echelle_plot_x_axis_mode,
+                EchellePlotXAxisMode::Wavelength,
+                "Wavelength",
+            );
+            ui.selectable_value(
+                &mut self.echelle_plot_x_axis_mode,
+                EchellePlotXAxisMode::SampleIndex,
+                "Sample",
+            );
+            ui.separator();
+            ui.add(
+                egui::DragValue::new(&mut self.echelle_plot_smoothing_window)
+                    .range(1..=25)
+                    .prefix("Smooth ")
+                    .suffix(" px"),
+            );
+        });
+
+        if let Some(profile) = self.echelle_profile_cache.profile() {
+            egui::Frame::group(ui.style()).show(ui, |ui| {
+                ui.small("Calibration Profile");
+                ui.small(format!(
+                    "{}{}",
+                    profile.display_name,
+                    profile
+                        .profile_id
+                        .as_ref()
+                        .map(|id| format!(" ({id})"))
+                        .unwrap_or_default()
+                ));
+                ui.small(format!(
+                    "Schema {}.{}.{} | Frame {}x{} | ROI ({}, {}) | Bin {}x{}",
+                    profile.schema_version.major,
+                    profile.schema_version.minor,
+                    profile.schema_version.patch,
+                    profile.compatibility.frame_width,
+                    profile.compatibility.frame_height,
+                    profile.compatibility.roi_x,
+                    profile.compatibility.roi_y,
+                    profile.compatibility.binning_x,
+                    profile.compatibility.binning_y
+                ));
+                ui.small(format!(
+                    "Created by {}{} at {}",
+                    profile.provenance.creator_tool,
+                    profile
+                        .provenance
+                        .creator_version
+                        .as_ref()
+                        .map(|v| format!("@{v}"))
+                        .unwrap_or_default(),
+                    profile.provenance.created_at_utc
+                ));
+                if let Some(path) = self.echelle_profile_cache.path() {
+                    ui.small(format!("Path: {}", path.display()));
+                }
+            });
+        }
+
+        if let Some(err) = &self.echelle_preview_error {
+            ui.colored_label(colors::ERROR, err);
+        }
+
+        let Some(preview) = &self.echelle_preview else {
+            ui.weak("Waiting for extracted spectrum preview...");
+            return;
+        };
+
+        ui.small(format!(
+            "Profile: {} | Frame {} | Orders: {}",
+            preview.profile_display_name,
+            preview.frame_number,
+            preview.orders.len()
+        ));
+
+        if !preview.orders.is_empty() {
+            let selected_text = preview
+                .orders
+                .get(self.echelle_selected_order_plot)
+                .map(|o| match o.physical_order_number {
+                    Some(m) => format!("Order {} (m={})", o.relative_index, m),
+                    None => format!("Order {}", o.relative_index),
+                })
+                .unwrap_or_else(|| "Order 0".to_string());
+
+            egui::ComboBox::from_id_salt("echelle_order_plot_selector")
+                .selected_text(selected_text)
+                .show_ui(ui, |ui| {
+                    for (idx, order) in preview.orders.iter().enumerate() {
+                        let label = match order.physical_order_number {
+                            Some(m) => format!("Order {} (m={})", order.relative_index, m),
+                            None => format!("Order {}", order.relative_index),
+                        };
+                        ui.selectable_value(&mut self.echelle_selected_order_plot, idx, label);
+                    }
+                });
+        }
+
+        let mut plot_label = "Order";
+        let (mut xs, ys, unit) = if self.echelle_show_merged_plot {
+            if let Some(merged) = &preview.merged {
+                plot_label = "Merged";
+                (
+                    merged.wavelengths.clone(),
+                    &merged.flux,
+                    merged.wavelength_unit.as_str(),
+                )
+            } else if let Some(order) = preview.orders.get(self.echelle_selected_order_plot) {
+                (
+                    order.wavelengths.clone(),
+                    &order.flux,
+                    order.wavelength_unit.as_str(),
+                )
+            } else {
+                ui.weak("No order spectra available.");
+                return;
+            }
+        } else if let Some(order) = preview.orders.get(self.echelle_selected_order_plot) {
+            (
+                order.wavelengths.clone(),
+                &order.flux,
+                order.wavelength_unit.as_str(),
+            )
+        } else {
+            ui.weak("No order spectra available.");
+            return;
+        };
+
+        if xs.is_empty() || ys.is_empty() {
+            ui.weak("Extracted spectrum is empty.");
+            return;
+        }
+
+        if self.echelle_plot_x_axis_mode == EchellePlotXAxisMode::SampleIndex {
+            xs = (0..ys.len()).map(|i| i as f64).collect();
+        }
+        let display_flux = if self.echelle_plot_smoothing_window > 1 {
+            smooth_display_series(ys, self.echelle_plot_smoothing_window as usize)
+        } else {
+            ys.clone()
+        };
+
+        let points: Vec<[f64; 2]> = xs
+            .iter()
+            .copied()
+            .zip(display_flux.iter().copied())
+            .map(|(x, y)| [x, y])
+            .collect();
+        let line = Line::new(format!("{plot_label} flux"), PlotPoints::new(points));
+        let selected_order_for_hover = if self.echelle_show_merged_plot {
+            None
+        } else {
+            preview.orders.get(self.echelle_selected_order_plot)
+        };
+        let wavelength_lookup_for_hover = if self.echelle_show_merged_plot {
+            None
+        } else {
+            preview
+                .orders
+                .get(self.echelle_selected_order_plot)
+                .map(|o| o.wavelengths.as_slice())
+        };
+        let flux_lookup_for_hover = if self.echelle_show_merged_plot {
+            None
+        } else {
+            preview
+                .orders
+                .get(self.echelle_selected_order_plot)
+                .map(|o| o.flux.as_slice())
+        };
+        let mut hover_link = None;
+
+        Plot::new("image_viewer_echelle_preview_plot")
+            .height(180.0)
+            .allow_scroll(false)
+            .allow_drag(true)
+            .allow_zoom(true)
+            .x_axis_label(match self.echelle_plot_x_axis_mode {
+                EchellePlotXAxisMode::Wavelength => unit,
+                EchellePlotXAxisMode::SampleIndex => "sample",
+            })
+            .y_axis_label("counts")
+            .show(ui, |plot_ui| {
+                plot_ui.line(line);
+                if let (Some(order), Some(w_lookup), Some(f_lookup)) = (
+                    selected_order_for_hover,
+                    wavelength_lookup_for_hover,
+                    flux_lookup_for_hover,
+                ) {
+                    if let Some(pointer) = plot_ui.pointer_coordinate() {
+                        let idx = match self.echelle_plot_x_axis_mode {
+                            EchellePlotXAxisMode::SampleIndex => {
+                                let idx = pointer.x.round() as isize;
+                                idx.clamp(0, (f_lookup.len().saturating_sub(1)) as isize) as usize
+                            }
+                            EchellePlotXAxisMode::Wavelength => nearest_index_by_x(&xs, pointer.x),
+                        };
+                        if idx < w_lookup.len() && idx < f_lookup.len() {
+                            hover_link = Some(EchellePlotHoverLink {
+                                relative_index: order.relative_index,
+                                sample_index: idx,
+                                wavelength: w_lookup[idx],
+                                flux: f_lookup[idx],
+                            });
+                        }
+                    }
+                }
+            });
+        self.echelle_plot_hover_link = hover_link;
+
+        if let Some(order) = preview.orders.get(self.echelle_selected_order_plot) {
+            let mean_valid = if order.valid_fraction.is_empty() {
+                0.0
+            } else {
+                order.valid_fraction.iter().map(|&v| v as f64).sum::<f64>()
+                    / order.valid_fraction.len() as f64
+            };
+            ui.small(format!(
+                "Coverage: {}/{} samples | mean valid frac: {:.2} | saturated samples: {}",
+                order.covered_samples, order.total_samples, mean_valid, order.saturated_samples
+            ));
+            if let Some(link) = self.echelle_plot_hover_link {
+                if link.relative_index == order.relative_index {
+                    ui.small(format!(
+                        "Hover: sample {} | λ={:.6} {} | flux={:.2}",
+                        link.sample_index, link.wavelength, order.wavelength_unit, link.flux
+                    ));
+                }
+            }
+        }
+
+        egui::CollapsingHeader::new("Diagnostics")
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.small(format!("extract runs: {}", self.echelle_extract_runs));
+                ui.small(format!("extract errors: {}", self.echelle_extract_errors));
+                ui.small(format!(
+                    "decimation skips: {}",
+                    self.echelle_extract_skipped_frames
+                ));
+                if let Some(ms) = self.echelle_last_extract_ms {
+                    ui.small(format!("last extract: {:.2} ms", ms));
+                }
+                ui.small(format!(
+                    "preview spectra objects: {}",
+                    self.echelle_preview_measurements.len()
+                ));
+            });
+    }
+
     // =========================================================================
     // Public API for programmatic control
     // =========================================================================
@@ -2822,6 +3372,34 @@ impl ImageViewerPanel {
     pub fn device_id(&self) -> Option<&str> {
         self.device_id.as_deref()
     }
+}
+
+fn smooth_display_series(values: &[f64], window: usize) -> Vec<f64> {
+    if values.is_empty() || window <= 1 {
+        return values.to_vec();
+    }
+    let radius = window / 2;
+    let mut out = Vec::with_capacity(values.len());
+    for i in 0..values.len() {
+        let start = i.saturating_sub(radius);
+        let end = (i + radius + 1).min(values.len());
+        let sum: f64 = values[start..end].iter().sum();
+        out.push(sum / (end - start) as f64);
+    }
+    out
+}
+
+fn nearest_index_by_x(xs: &[f64], target: f64) -> usize {
+    let mut best_idx = 0usize;
+    let mut best_dist = f64::INFINITY;
+    for (i, &x) in xs.iter().enumerate() {
+        let d = (x - target).abs();
+        if d < best_dist {
+            best_dist = d;
+            best_idx = i;
+        }
+    }
+    best_idx
 }
 
 // Unit tests for image_viewer.rs functions

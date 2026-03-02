@@ -1,0 +1,103 @@
+{
+  "host": "leabs-dev",
+  "capture_utc": "2026-02-25T23:25:00Z",
+  "device_id": "istar_camera",
+  "lamp": {
+    "vendor": "Ocean Optics",
+    "model": "HG-2 Mercury-Argon",
+    "description": "Mercury-Argon wavelength calibration lamp illuminating Mechelle 5000 input"
+  },
+  "spectrograph": {
+    "model": "Mechelle 5000"
+  },
+  "camera": {
+    "model": "Andor iStar sCMOS"
+  },
+  "captures": [
+    {
+      "label": "hg2_001ms",
+      "illumination": "HG-2 Mercury-Argon lamp",
+      "exposure_s_requested": 0.001,
+      "frame": {
+        "width": 2048,
+        "height": 2048,
+        "bit_depth": 12,
+        "frame_number": "1",
+        "timestamp_ns": "1772061717218483184",
+        "roi_x": null,
+        "roi_y": null,
+        "binning_x": null,
+        "binning_y": null,
+        "exposure_ms": 1,
+        "compression": "COMPRESSION_LZ4",
+        "uncompressed_size": 8388608,
+        "payload_b64_len": 119564
+      }
+    },
+    {
+      "label": "hg2_010ms",
+      "illumination": "HG-2 Mercury-Argon lamp",
+      "exposure_s_requested": 0.01,
+      "frame": {
+        "width": 2048,
+        "height": 2048,
+        "bit_depth": 12,
+        "frame_number": null,
+        "timestamp_ns": "1772061725394205376",
+        "roi_x": null,
+        "roi_y": null,
+        "binning_x": null,
+        "binning_y": null,
+        "exposure_ms": 10,
+        "compression": "COMPRESSION_LZ4",
+        "uncompressed_size": 8388608,
+        "payload_b64_len": 174136
+      }
+    },
+    {
+      "label": "hg2_100ms",
+      "illumination": "HG-2 Mercury-Argon lamp",
+      "exposure_s_requested": 0.1,
+      "frame": {
+        "width": 2048,
+        "height": 2048,
+        "bit_depth": 12,
+        "frame_number": null,
+        "timestamp_ns": "1772061733767242235",
+        "roi_x": null,
+        "roi_y": null,
+        "binning_x": null,
+        "binning_y": null,
+        "exposure_ms": 100,
+        "compression": "COMPRESSION_LZ4",
+        "uncompressed_size": 8388608,
+        "payload_b64_len": 174136
+      }
+    }
+  ],
+  "artifacts": [
+    "hg2_001ms_frame.json",
+    "hg2_001ms_payload_lz4.bin",
+    "hg2_001ms_set_exposure.json",
+    "hg2_001ms_start_stream.json",
+    "hg2_001ms_stop_stream.json",
+    "hg2_001ms_stream.out",
+    "hg2_001ms_summary.json",
+    "hg2_010ms_frame.json",
+    "hg2_010ms_payload_lz4.bin",
+    "hg2_010ms_set_exposure.json",
+    "hg2_010ms_start_stream.json",
+    "hg2_010ms_stop_stream.json",
+    "hg2_010ms_stream.out",
+    "hg2_010ms_summary.json",
+    "hg2_100ms_frame.json",
+    "hg2_100ms_payload_lz4.bin",
+    "hg2_100ms_set_exposure.json",
+    "hg2_100ms_start_stream.json",
+    "hg2_100ms_stop_stream.json",
+    "hg2_100ms_stream.out",
+    "hg2_100ms_summary.json",
+    "manifest_seed.json",
+    "parameters_raw.json"
+  ]
+}
