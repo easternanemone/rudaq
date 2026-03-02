@@ -1,6 +1,7 @@
 /target/
 **/target/
 *.bin
+!testdata/**/*.bin
 
 # Gemini-Flow
 .gemini-flow/cache/
