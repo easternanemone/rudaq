@@ -1633,7 +1633,7 @@ impl HardwareService for HardwareServiceImpl {
             loop {
                 let next_packet = tokio::select! {
                     maybe_packet = observer_rx.recv() => maybe_packet,
-                    _ = grpc_tx.closed() => {
+                    () = grpc_tx.closed() => {
                         tracing::info!(
                             device_id = %device_id_clone,
                             frames_sent = frames_sent,
