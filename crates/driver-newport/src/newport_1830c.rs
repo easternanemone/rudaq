@@ -233,6 +233,8 @@ impl Newport1830CDriver {
         wavelength.connect_to_hardware_write(move |target: f64| {
             let port = port.clone();
             Box::pin(async move {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                // SAFETY: wavelength is validated positive and fits in u16 (typical range 400-1100nm)
                 let nm = target.round() as u16;
                 let cmd = format!("W{:04}\n", nm);
                 let mut guard = port.lock().await;

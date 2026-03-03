@@ -495,6 +495,8 @@ pub fn register_hardware(engine: &mut Engine) {
         "create_mock_camera",
         |width: i64, height: i64| -> CameraHandle {
             use driver_mock::MockCamera;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            // SAFETY: Rhai passes i64; camera dimensions are small positive integers
             CameraHandle {
                 driver: Arc::new(MockCamera::new(width as u32, height as u32)),
                 data_tx: None,
@@ -601,6 +603,8 @@ pub fn register_hardware(engine: &mut Engine) {
                 // Small delay between samples
                 std::thread::sleep(Duration::from_millis(50));
             }
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: sample count is small; precision loss negligible for averaging
             Ok(sum / samples as f64)
         },
     );

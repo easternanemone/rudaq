@@ -41,6 +41,13 @@ fn hex_filter(value: i64, width: usize) -> String {
     // Many instrument protocols encode signed values as fixed-width two's
     // complement hex (e.g. ELL14 relative moves use 8-hex-digit int32 fields).
     // Without masking, negative i64 values render as 16 hex digits.
+    // SAFETY: Intentional truncation + sign reinterpretation for two's complement hex encoding.
+    // Width-based masking is required by instrument protocol encoding (e.g. ELL14).
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_possible_wrap
+    )]
     let masked: u64 = match width {
         2 => u64::from(value as u8),
         4 => u64::from(value as u16),

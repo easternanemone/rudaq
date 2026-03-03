@@ -112,6 +112,8 @@ fn validate_points(points: i64) -> Result<usize, Box<EvalAltResult>> {
             ),
         ));
     }
+    #[allow(clippy::cast_sign_loss)]
+    // SAFETY: points is validated positive above
     Ok(points as usize)
 }
 
@@ -243,6 +245,8 @@ pub fn register_plans(engine: &mut Engine) {
     });
 
     engine.register_fn("num_points", |plan: &mut PlanHandle| -> i64 {
+        #[allow(clippy::cast_possible_wrap)]
+        // num_points is small enough to fit in i64 for Rhai scripting
         plan.plan
             .lock()
             .ok()
@@ -344,6 +348,8 @@ pub fn register_plans(engine: &mut Engine) {
     });
 
     // run_engine.queue_len() -> int
+    #[allow(clippy::cast_possible_wrap)]
+    // SAFETY: queue length is small; fits in i64 for Rhai scripting
     engine.register_fn("queue_len", |re: &mut RunEngineHandle| -> i64 {
         block_in_place(|| Handle::current().block_on(re.engine.queue_len())) as i64
     });

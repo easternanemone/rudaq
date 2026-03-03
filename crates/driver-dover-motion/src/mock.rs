@@ -132,6 +132,8 @@ impl DoverMockDriver {
         let velocity = self.velocity_param.get();
         let time_ms = ((distance / velocity) * 1000.0).max(10.0);
 
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: time_ms is clamped positive via .max(10.0) and fits in u64
         tokio::time::sleep(std::time::Duration::from_millis(time_ms as u64)).await;
 
         self.position_param.inner().set(target);
@@ -140,6 +142,8 @@ impl DoverMockDriver {
         // Simulate TOP triggers if enabled
         if self.top_enabled_param.get() {
             if let Some((start, end, inc, _bidir, pulse_width)) = *self.top_config.lock().await {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                // SAFETY: trigger count is non-negative and bounded by physical travel range
                 let num_triggers = ((end - start).abs() / inc).floor() as usize;
                 tracing::debug!(
                     "[MOCK] TOP: Generated {} triggers ({}ns pulses)",

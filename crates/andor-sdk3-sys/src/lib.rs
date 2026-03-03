@@ -135,7 +135,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(dead_code)]
-#![allow(clippy::all)]
+#![allow(clippy::all, clippy::pedantic)] // Suppress all clippy for generated FFI bindings
 #![allow(unsafe_code)] // FFI bindings require unsafe
 
 // Include the generated bindings
@@ -214,7 +214,12 @@ pub fn from_wide_string(buffer: &[AT_WC]) -> String {
     let len = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
     buffer[..len]
         .iter()
-        .map(|&c| char::from_u32(c as u32).unwrap_or(char::REPLACEMENT_CHARACTER))
+        .map(|&c| {
+            #[allow(clippy::cast_lossless)]
+            // SAFETY: AT_WC (i32) to u32 — required for char::from_u32 FFI boundary
+            let code = c as u32;
+            char::from_u32(code).unwrap_or(char::REPLACEMENT_CHARACTER)
+        })
         .collect()
 }
 

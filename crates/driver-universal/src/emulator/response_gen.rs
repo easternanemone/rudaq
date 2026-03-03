@@ -122,6 +122,12 @@ fn generate_format_string(segments: &[FormatSegment], state: &HashMap<String, Va
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 // SAFETY: Intentional truncation for two's complement hex encoding.
 fn format_hex(value: i64, width: usize) -> String {
+    // SAFETY: Intentional truncation + sign reinterpretation for two's complement hex encoding.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_possible_wrap
+    )]
     let masked: u64 = match width {
         2 => u64::from(value as u8),
         4 => u64::from(value as u16),
@@ -162,6 +168,7 @@ fn generate_transform_inverse(
                     i.to_string()
                 } else if let Ok(f) = current.parse::<f64>() {
                     #[allow(clippy::cast_possible_truncation)]
+                    // SAFETY: rounding f64 to i64 — truncation acceptable for device values
                     {
                         (f.round() as i64).to_string()
                     }
@@ -341,6 +348,8 @@ pub fn value_as_f64(val: &Value) -> Option<f64> {
 // SAFETY: f64 -> i64 truncation is intentional for float-to-int conversion.
 pub fn value_as_i64(val: &Value) -> Option<i64> {
     match val {
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: rounding f64 to i64 — truncation acceptable for device protocol values
         Value::Number(n) => n.as_i64().or_else(|| n.as_f64().map(|f| f.round() as i64)),
         Value::String(s) => s.parse().ok(),
         _ => None,

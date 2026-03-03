@@ -157,6 +157,8 @@ impl UniversalDriver {
                 if let Some(param_name) = &mapping.input_param {
                     params.insert(
                         param_name.clone(),
+                        #[allow(clippy::cast_possible_truncation)]
+                        // SAFETY: rounding f64 to i64 — truncation acceptable for device register values
                         serde_json::Value::Number(serde_json::Number::from(
                             converted.round() as i64
                         )),
@@ -258,6 +260,8 @@ impl UniversalDriver {
         let fields = self.execute_method(mapping, None).await?;
         let raw_value = Self::extract_response_value(&fields, mapping.output_field.as_ref())?;
 
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: i64 to f64 — precision loss acceptable for device readback values
         let raw_f64 = raw_value
             .as_f64()
             .or_else(|| raw_value.as_i64().map(|i| i as f64))
@@ -324,6 +328,8 @@ impl UniversalDriver {
         let result = eval_with_context_mut(&formula.source, &mut context)?;
         match result {
             Value::Float(f) => Ok(f),
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: i64 to f64 — precision loss acceptable for formula result
             Value::Int(i) => Ok(i as f64),
             other => Err(anyhow!(
                 "Formula '{}' returned non-numeric: {:?}",
@@ -343,6 +349,8 @@ impl UniversalDriver {
 
         let start = std::time::Instant::now();
         loop {
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: elapsed millis for a timeout check will not exceed u64 range
             if start.elapsed().as_millis() as u64 > u64::from(config.timeout_ms) {
                 return Err(anyhow!(
                     "wait_settled timed out after {}ms",
@@ -550,6 +558,8 @@ impl common::capabilities::Settable for UniversalDriver {
         let mapping = capability_method!(self, settable, set, "Settable", "set");
 
         // Extract f64 from the JSON value for the template
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: i64 to f64 — precision loss acceptable for device parameter values
         let f_val = value.as_f64().or_else(|| value.as_i64().map(|i| i as f64));
 
         // Build params manually since set_value takes a name
@@ -581,6 +591,8 @@ impl common::capabilities::Settable for UniversalDriver {
                 .as_deref()
                 .unwrap_or("value")
                 .to_string();
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: rounding f64 to i64 — truncation acceptable for device register values
             params.insert(target, serde_json::json!(converted.round() as i64));
         } else if let Some(param_name) = &mapping.from_param {
             params.insert(param_name.clone(), value);
