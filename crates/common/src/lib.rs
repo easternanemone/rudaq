@@ -69,6 +69,9 @@ pub mod pipeline;
 // Driver factory and capability types for plugin architecture
 pub mod driver;
 
+// Runtime feature flags loaded from config/feature_flags.toml
+pub mod feature_flags;
+
 // Serial port abstractions for driver crates (requires "serial" feature)
 #[cfg(feature = "serial")]
 pub mod serial;

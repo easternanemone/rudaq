@@ -21,6 +21,10 @@ debug_serial_commands = false
 verbose_grpc_logging = false
 
 # Performance features
+# Master toggle for performance optimizations. When false, frame_pool_preallocation
+# and async_ring_buffer are forced off regardless of their individual settings.
+# Useful for A/B testing and quick rollback of all perf optimizations.
+optimized_streaming = true
 frame_pool_preallocation = true
 async_ring_buffer = true
 
