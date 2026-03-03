@@ -1,0 +1,41 @@
+# rust-daq-daemon systemd user service
+#
+# Installed by: scripts/install-service.sh install
+# Location:     ~/.config/systemd/user/rust-daq-daemon.service
+#
+# This runs as a user service (systemd --user) so it inherits the
+# user's environment.  Host-specific env vars (PVCAM_SDK_DIR, serial
+# ports, etc.) should be set in an EnvironmentFile or via
+# systemctl --user set-environment.
+#
+# After changes: systemctl --user daemon-reload && systemctl --user restart rust-daq-daemon
+
+[Unit]
+Description=rust-daq DAQ Daemon (gRPC on port 50051)
+Documentation=https://github.com/TheFermiSea/rust-daq
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/code/rust-daq/target/release/rust-daq-daemon daemon --port 50051
+WorkingDirectory=%h/code/rust-daq
+Restart=on-failure
+RestartSec=5
+
+# Optional host-specific environment (uncomment and adjust for your host)
+# EnvironmentFile=%h/code/rust-daq/config/hosts/maitai.env
+
+# Logging (stdout/stderr go to journald)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rust-daq-daemon
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/code/rust-daq/target %h/code/rust-daq/data %t/rust-daq
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
