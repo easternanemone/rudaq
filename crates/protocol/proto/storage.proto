@@ -1,0 +1,958 @@
+syntax = "proto3";
+
+package daq;
+
+import "experiment.proto";
+
+// =============================================================================
+// StorageService - HDF5 Data Storage and Export (bd-p6im)
+// =============================================================================
+//
+// Provides persistent storage for acquired data using HDF5 format.
+// Uses the "Mullet Strategy": Arrow for fast in-memory processing,
+// HDF5 for long-term storage and cross-platform compatibility.
+//
+// Key features:
+//   - Configure output directory and HDF5 settings
+//   - Start/Stop data recording
+//   - List and query stored acquisitions
+//   - Export data from ring buffer to HDF5 files
+//   - Background flushing at configurable intervals
+//
+// Example workflow:
+//   1. ConfigureStorage(output_dir="/data/experiments", compression="gzip")
+//   2. StartRecording(name="my_experiment") - begins capturing ring buffer
+//   3. ... acquire data via ScanService or RunEngineService ...
+//   4. StopRecording() - finalizes HDF5 file
+//   5. ListAcquisitions() - see saved files
+//   6. GetAcquisitionInfo(acquisition_id) - get file metadata
+
+service StorageService {
+  // ==========================================================================
+  // Storage Configuration
+  // ==========================================================================
+
+  // Configure storage settings (output directory, format options)
+  rpc ConfigureStorage(ConfigureStorageRequest) returns (ConfigureStorageResponse);
+
+  // Get current storage configuration
+  rpc GetStorageConfig(GetStorageConfigRequest) returns (StorageConfig);
+
+  // ==========================================================================
+  // Recording Control
+  // ==========================================================================
+
+  // Start recording data to HDF5 file
+  rpc StartRecording(StartRecordingRequest) returns (StartRecordingResponse);
+
+  // Stop recording and finalize HDF5 file
+  rpc StopRecording(StopRecordingRequest) returns (StopRecordingResponse);
+
+  // Get current recording status
+  rpc GetRecordingStatus(GetRecordingStatusRequest) returns (RecordingStatus);
+
+  // ==========================================================================
+  // Acquisition Management
+  // ==========================================================================
+
+  // List all saved acquisitions (HDF5 files)
+  rpc ListAcquisitions(ListAcquisitionsRequest) returns (ListAcquisitionsResponse);
+
+  // Get detailed info about a specific acquisition
+  rpc GetAcquisitionInfo(GetAcquisitionInfoRequest) returns (AcquisitionInfo);
+
+  // Delete an acquisition file
+  rpc DeleteAcquisition(DeleteAcquisitionRequest) returns (DeleteAcquisitionResponse);
+
+  // ==========================================================================
+  // Data Export
+  // ==========================================================================
+
+  // Export ring buffer data to HDF5 (manual flush)
+  rpc FlushToStorage(FlushToStorageRequest) returns (FlushToStorageResponse);
+
+  // Stream recording progress updates
+  rpc StreamRecordingProgress(StreamRecordingProgressRequest) returns (stream RecordingProgress);
+
+  // ==========================================================================
+  // Ring Buffer Tap (Cross-Process Access)
+  // ==========================================================================
+
+  // Get information for cross-process ring buffer access via mmap.
+  // Python/Julia clients can use this to discover the buffer location and
+  // parameters needed to safely read data without gRPC overhead.
+  rpc GetRingBufferTapInfo(GetRingBufferTapInfoRequest) returns (RingBufferTapInfo);
+
+  // Get tap health and backpressure statistics.
+  rpc GetTapStatus(GetTapStatusRequest) returns (GetTapStatusResponse);
+}
+
+// --------------------------------------------------------------------------
+// Storage Configuration Messages
+// --------------------------------------------------------------------------
+
+message ConfigureStorageRequest {
+  // Output directory for HDF5 files
+  string output_directory = 1;
+
+  // HDF5-specific settings
+  HDF5Config hdf5_config = 2;
+
+  // Ring buffer flush settings
+  optional uint32 flush_interval_ms = 3;  // How often to flush (default: 1000ms)
+  optional uint32 max_buffer_mb = 4;      // Max memory before forced flush
+}
+
+message HDF5Config {
+  // Compression settings
+  string compression = 1;                 // "none", "gzip", "lz4", "zstd"
+  optional uint32 compression_level = 2;  // 1-9 for gzip, varies by algorithm
+
+  // Chunking settings
+  optional uint32 chunk_size = 3;         // Chunk size for datasets (default: 4096)
+
+  // File naming pattern
+  optional string filename_pattern = 4;   // e.g., "{name}_{timestamp}.h5"
+
+  // Metadata options
+  bool include_timestamps = 5;            // Store per-sample timestamps
+  bool include_device_metadata = 6;       // Store device configuration
+}
+
+message ConfigureStorageResponse {
+  bool success = 1;
+  string error_message = 2;
+  string resolved_output_directory = 3;   // Absolute path after resolution
+}
+
+message GetStorageConfigRequest {
+  // Empty
+}
+
+message StorageConfig {
+  string output_directory = 1;
+  HDF5Config hdf5_config = 2;
+  uint32 flush_interval_ms = 3;
+  uint32 max_buffer_mb = 4;
+
+  // Status info
+  uint64 disk_space_available_bytes = 10;
+  uint64 disk_space_used_bytes = 11;
+}
+
+// --------------------------------------------------------------------------
+// Recording Control Messages
+// --------------------------------------------------------------------------
+
+message StartRecordingRequest {
+  // Recording name (used in filename)
+  string name = 1;
+
+  // Optional metadata to embed in HDF5 file
+  map<string, string> metadata = 2;
+
+  // Optional: override default config for this recording
+  optional HDF5Config config_override = 3;
+
+  // Optional: associate with a scan or run
+  optional string scan_id = 10;
+  optional string run_uid = 11;
+}
+
+message StartRecordingResponse {
+  bool success = 1;
+  string error_message = 2;
+  string recording_id = 3;           // Unique ID for this recording session
+  string output_path = 4;            // Full path to HDF5 file being written
+}
+
+message StopRecordingRequest {
+  optional string recording_id = 1;  // If omitted, stops current recording
+
+  // Final metadata to add
+  map<string, string> final_metadata = 2;
+}
+
+message StopRecordingResponse {
+  bool success = 1;
+  string error_message = 2;
+  string acquisition_id = 3;         // ID to reference the completed file
+  string output_path = 4;            // Full path to finalized HDF5 file
+  uint64 file_size_bytes = 5;
+  uint64 total_samples = 6;
+  uint64 duration_ns = 7;
+}
+
+message GetRecordingStatusRequest {
+  optional string recording_id = 1;  // If omitted, returns current recording
+}
+
+// Recording state
+enum RecordingState {
+  RECORDING_STATE_UNSPECIFIED = 0;
+  RECORDING_IDLE = 1;                // No active recording
+  RECORDING_ACTIVE = 2;              // Actively recording
+  RECORDING_FLUSHING = 3;            // Flushing buffer to disk
+  RECORDING_FINALIZING = 4;          // Closing HDF5 file
+  RECORDING_ERROR = 5;               // Error during recording
+}
+
+message RecordingStatus {
+  string recording_id = 1;
+  RecordingState state = 2;
+  string output_path = 3;
+
+  // Progress info
+  uint64 samples_recorded = 10;
+  uint64 bytes_written = 11;
+  uint64 start_time_ns = 12;
+  uint64 elapsed_ns = 13;
+
+  // Buffer status
+  uint32 buffer_fill_percent = 20;
+  uint64 pending_samples = 21;
+  uint64 flushes_completed = 22;
+
+  // Error info (if state == RECORDING_ERROR)
+  string error_message = 30;
+}
+
+// --------------------------------------------------------------------------
+// Acquisition Management Messages
+// --------------------------------------------------------------------------
+
+message ListAcquisitionsRequest {
+  // Optional filters
+  optional string name_pattern = 1;       // Glob pattern for name matching
+  optional uint64 after_timestamp_ns = 2; // Only files created after
+  optional uint64 before_timestamp_ns = 3;// Only files created before
+  optional uint32 limit = 4;              // Max results (default: 100)
+  optional uint32 offset = 5;             // For pagination
+}
+
+message ListAcquisitionsResponse {
+  repeated AcquisitionSummary acquisitions = 1;
+  uint32 total_count = 2;                 // Total matching (for pagination)
+}
+
+// Brief summary of an acquisition
+message AcquisitionSummary {
+  string acquisition_id = 1;
+  string name = 2;
+  string file_path = 3;
+  uint64 file_size_bytes = 4;
+  uint64 created_at_ns = 5;
+  uint64 duration_ns = 6;
+  uint64 sample_count = 7;
+}
+
+message GetAcquisitionInfoRequest {
+  string acquisition_id = 1;
+}
+
+// Detailed acquisition information
+message AcquisitionInfo {
+  string acquisition_id = 1;
+  string name = 2;
+  string file_path = 3;
+  uint64 file_size_bytes = 4;
+  uint64 created_at_ns = 5;
+  uint64 duration_ns = 6;
+
+  // Data structure info
+  repeated DatasetInfo datasets = 10;
+
+  // Embedded metadata
+  map<string, string> metadata = 20;
+
+  // Associated scan/run (if any)
+  optional string scan_id = 30;
+  optional string run_uid = 31;
+
+  // HDF5 file structure summary
+  HDF5Structure structure = 40;
+}
+
+// Information about a dataset within the HDF5 file
+message DatasetInfo {
+  string name = 1;                        // Dataset path, e.g., "/data/power"
+  string dtype = 2;                       // Data type, e.g., "float64", "uint16"
+  repeated uint64 shape = 3;              // Dataset shape
+  string units = 4;                       // Physical units
+  string device_id = 5;                   // Source device
+  uint64 sample_count = 6;                // Number of samples
+  optional double min_value = 7;          // Data range (if computed)
+  optional double max_value = 8;
+}
+
+// HDF5 file structure summary
+message HDF5Structure {
+  repeated string groups = 1;             // Group paths
+  uint32 dataset_count = 2;
+  uint64 total_elements = 3;
+  string compression = 4;
+  uint32 chunk_size = 5;
+}
+
+message DeleteAcquisitionRequest {
+  string acquisition_id = 1;
+  bool confirm = 2;                       // Must be true to actually delete
+}
+
+message DeleteAcquisitionResponse {
+  bool success = 1;
+  string error_message = 2;
+  uint64 bytes_freed = 3;
+}
+
+// --------------------------------------------------------------------------
+// Data Export Messages
+// --------------------------------------------------------------------------
+
+message FlushToStorageRequest {
+  optional string recording_id = 1;       // If omitted, flushes current
+  bool sync = 2;                          // If true, wait for flush to complete
+}
+
+message FlushToStorageResponse {
+  bool success = 1;
+  string error_message = 2;
+  uint64 samples_flushed = 3;
+  uint64 bytes_written = 4;
+}
+
+message StreamRecordingProgressRequest {
+  string scan_id = 1;
+  uint32 update_interval_ms = 2;          // How often to send updates (default: 500)
+}
+
+message RecordingProgress {
+  string scan_id = 1;
+  // NOTE: ScanState is defined in experiment.proto (same package)
+  ScanState state = 2;
+  uint64 timestamp_ns = 3;
+
+  // Incremental progress
+  uint64 samples_recorded = 10;
+  uint64 bytes_written = 11;
+  double samples_per_second = 12;         // Current throughput
+
+  // Buffer status
+  uint32 buffer_fill_percent = 20;
+  bool flush_in_progress = 21;
+
+  // Estimated time remaining (if deterministic)
+  optional uint64 estimated_remaining_ns = 30;
+}
+
+// --------------------------------------------------------------------------
+// Ring Buffer Tap Messages (bd-vms4.2)
+// --------------------------------------------------------------------------
+
+// Request for ring buffer tap information
+message GetRingBufferTapInfoRequest {
+  // Optional: specific buffer name (empty = default/primary buffer)
+  string buffer_name = 1;
+}
+
+// Information for cross-process ring buffer access via mmap.
+// Contains all parameters needed for Python/Julia to safely read the buffer.
+message RingBufferTapInfo {
+  // Filesystem path to the memory-mapped buffer file
+  // (e.g., "/dev/shm/rust_daq_ring.buf" or "/tmp/rust_daq_ring.buf")
+  string file_path = 1;
+
+  // Total size of the file in bytes (header + data region)
+  uint64 total_size_bytes = 2;
+
+  // Size of the data region in bytes (excluding header)
+  uint64 capacity_bytes = 3;
+
+  // Header size in bytes (fixed at 128 bytes, but included for forward compat)
+  uint32 header_size = 4;
+
+  // Current stream ID for detecting buffer re-initialization.
+  // If this value changes, readers should re-open the buffer.
+  uint64 stream_id = 5;
+
+  // Magic number for validation (0xDADADADA00000001)
+  uint64 magic = 6;
+
+  // Current write head position (total bytes written, monotonically increasing)
+  uint64 write_head = 10;
+
+  // Current read tail position (oldest unconsumed data)
+  uint64 read_tail = 11;
+
+  // Current write epoch (for seqlock synchronization)
+  uint64 write_epoch = 12;
+
+  // Data format information
+  string data_format = 20;           // "arrow_ipc", "raw", etc.
+  optional string arrow_schema_json = 21;  // Arrow schema if applicable
+}
+
+message GetTapStatusRequest {
+  // Optional tap ID to filter. If omitted, returns all taps.
+  optional string tap_id = 1;
+}
+
+message TapStatus {
+  string tap_id = 1;
+  uint32 nth_frame = 2;
+  uint64 delivered_frames = 3;
+  uint64 dropped_frames = 4;
+  uint32 channel_capacity = 5;
+  uint32 channel_available = 6;
+  double channel_utilization = 7;
+}
+
+message GetTapStatusResponse {
+  repeated TapStatus taps = 1;
+}
+
+// =============================================================================
+// PluginService - Data-driven instrument plugin management (bd-22si.6.1)
+// =============================================================================
+//
+// Exposes plugin metadata for dynamic UI rendering and plugin management.
+// Plugins are YAML-defined instrument drivers that can be loaded at runtime.
+//
+// Key features:
+//   - List available plugins and their capabilities
+//   - Get detailed plugin configuration for UI generation
+//   - Spawn plugin instances with custom addresses
+//   - Query plugin instances for current state
+//
+// Example workflow:
+//   1. ListPlugins() - see available plugin types
+//   2. GetPluginInfo("maitai-laser") - get capabilities and UI hints
+//   3. SpawnPlugin("maitai-laser", "/dev/ttyUSB0") - instantiate driver
+//   4. Use HardwareService to control the spawned device
+
+service PluginService {
+  // ==========================================================================
+  // Plugin Discovery
+  // ==========================================================================
+
+  // List all available plugin types
+  rpc ListPlugins(ListPluginsRequest) returns (ListPluginsResponse);
+
+  // Get detailed info about a specific plugin type
+  rpc GetPluginInfo(GetPluginInfoRequest) returns (PluginInfo);
+
+  // ==========================================================================
+  // Plugin Instance Management
+  // ==========================================================================
+
+  // Spawn a new plugin instance
+  rpc SpawnPlugin(SpawnPluginRequest) returns (SpawnPluginResponse);
+
+  // List all spawned plugin instances
+  rpc ListPluginInstances(ListPluginInstancesRequest) returns (ListPluginInstancesResponse);
+
+  // Get status of a specific plugin instance
+  rpc GetPluginInstanceStatus(GetPluginInstanceStatusRequest) returns (PluginInstanceStatus);
+
+  // Destroy a plugin instance
+  rpc DestroyPluginInstance(DestroyPluginInstanceRequest) returns (DestroyPluginInstanceResponse);
+}
+
+// --------------------------------------------------------------------------
+// Plugin Discovery Messages
+// --------------------------------------------------------------------------
+
+message ListPluginsRequest {
+  // Optional filter by driver type
+  optional string driver_type_filter = 1;  // "serial_scpi", "tcp_scpi", etc.
+}
+
+message ListPluginsResponse {
+  repeated PluginSummary plugins = 1;
+}
+
+// Brief summary of a plugin
+message PluginSummary {
+  string plugin_id = 1;           // Unique plugin ID from YAML metadata.id
+  string name = 2;                // Display name from YAML metadata.name
+  string version = 3;             // Plugin version
+  string driver_type = 4;         // "serial_scpi", "tcp_scpi", "serial_raw", "tcp_raw"
+
+  // Capability flags (quick check without fetching full info)
+  bool has_readable = 10;
+  bool has_movable = 11;
+  bool has_settable = 12;
+  bool has_switchable = 13;
+  bool has_actionable = 14;
+  bool has_loggable = 15;
+  bool has_scriptable = 16;
+}
+
+message GetPluginInfoRequest {
+  string plugin_id = 1;
+}
+
+// Full plugin information for UI generation
+message PluginInfo {
+  // Metadata
+  string plugin_id = 1;
+  string name = 2;
+  string version = 3;
+  string driver_type = 4;
+
+  // Protocol configuration
+  PluginProtocol protocol = 10;
+
+  // Capabilities (detailed)
+  PluginCapabilities capabilities = 20;
+
+  // UI layout hints from YAML
+  repeated PluginUIElement ui_layout = 30;
+}
+
+// Protocol settings from plugin YAML
+message PluginProtocol {
+  uint32 baud_rate = 1;           // For serial connections
+  string termination = 2;         // Line terminator
+  uint32 command_delay_ms = 3;    // Delay after commands
+  uint32 timeout_ms = 4;          // Read timeout
+
+  // TCP settings (for tcp_* driver types)
+  optional string tcp_host = 10;
+  optional uint32 tcp_port = 11;
+}
+
+// All capabilities from plugin YAML
+message PluginCapabilities {
+  repeated PluginReadable readable = 1;
+  optional PluginMovable movable = 2;
+  repeated PluginSettable settable = 3;
+  repeated PluginSwitchable switchable = 4;
+  repeated PluginActionable actionable = 5;
+  repeated PluginLoggable loggable = 6;
+  repeated PluginScriptable scriptable = 7;
+}
+
+// Readable capability (sensor values)
+message PluginReadable {
+  string name = 1;
+  string command = 2;             // Command to send
+  string pattern = 3;             // Response parsing pattern
+  optional string unit = 4;
+}
+
+// Movable capability (motion control)
+message PluginMovable {
+  repeated PluginAxis axes = 1;
+  string set_cmd = 2;             // Move command template
+  string get_cmd = 3;             // Position query template
+  string get_pattern = 4;         // Position response pattern
+}
+
+// Axis configuration
+message PluginAxis {
+  string name = 1;
+  optional string unit = 2;
+  optional double min = 3;
+  optional double max = 4;
+}
+
+// Settable capability (parameters)
+message PluginSettable {
+  string name = 1;
+  string set_cmd = 2;
+  optional string get_cmd = 3;
+  string pattern = 4;
+  optional string unit = 5;
+  optional double min = 6;
+  optional double max = 7;
+  string value_type = 8;          // "float", "int", "string", "enum", "bool"
+  repeated string options = 9;    // For enum types
+}
+
+// Switchable capability (on/off)
+message PluginSwitchable {
+  string name = 1;
+  string on_cmd = 2;
+  string off_cmd = 3;
+  optional string status_cmd = 4;
+  optional string pattern = 5;
+}
+
+// Actionable capability (one-shot commands)
+message PluginActionable {
+  string name = 1;
+  string cmd = 2;
+  uint32 wait_ms = 3;
+}
+
+// Loggable capability (static metadata)
+message PluginLoggable {
+  string name = 1;
+  string cmd = 2;
+  string pattern = 3;
+}
+
+// Scriptable capability (Rhai scripts)
+message PluginScriptable {
+  string name = 1;
+  optional string description = 2;
+  string script = 3;              // Rhai script source
+  uint32 timeout_ms = 4;
+}
+
+// UI layout element from plugin YAML
+message PluginUIElement {
+  string element_type = 1;        // "group", "slider", "readout", "toggle", "button", "dropdown"
+  string label = 2;
+  optional string target = 3;     // Links to capability name
+  optional string source = 4;     // For readout, links to readable
+  optional string action = 5;     // For button, links to actionable
+  repeated PluginUIElement children = 10;  // For group elements
+}
+
+// --------------------------------------------------------------------------
+// Plugin Instance Management Messages
+// --------------------------------------------------------------------------
+
+message SpawnPluginRequest {
+  string plugin_id = 1;
+  string address = 2;             // Port path or "host:port" for TCP
+  optional string instance_name = 3;  // Optional friendly name
+  bool mock_mode = 4;             // If true, use mock data instead of real communication
+}
+
+message SpawnPluginResponse {
+  bool success = 1;
+  string error_message = 2;
+  string instance_id = 3;         // Unique ID for this instance
+  string device_id = 4;           // Device ID registered with HardwareService
+}
+
+message ListPluginInstancesRequest {
+  optional string plugin_id = 1;  // Filter by plugin type
+}
+
+message ListPluginInstancesResponse {
+  repeated PluginInstanceSummary instances = 1;
+}
+
+message PluginInstanceSummary {
+  string instance_id = 1;
+  string plugin_id = 2;
+  string plugin_name = 3;
+  string address = 4;
+  string device_id = 5;
+  bool connected = 6;
+  bool mock_mode = 7;
+}
+
+message GetPluginInstanceStatusRequest {
+  string instance_id = 1;
+}
+
+message PluginInstanceStatus {
+  string instance_id = 1;
+  string plugin_id = 2;
+  string plugin_name = 3;
+  string address = 4;
+  string device_id = 5;
+  bool connected = 6;
+  bool mock_mode = 7;
+
+  // Last error (if any)
+  optional string last_error = 10;
+  optional uint64 last_error_time_ns = 11;
+
+  // Statistics
+  uint64 commands_sent = 20;
+  uint64 commands_failed = 21;
+  uint64 uptime_ns = 22;
+}
+
+message DestroyPluginInstanceRequest {
+  string instance_id = 1;
+  bool run_disconnect_sequence = 2;  // Execute on_disconnect commands first
+}
+
+message DestroyPluginInstanceResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// =============================================================================
+// ConfigService - SurrealDB Configuration Management (bd-3gvx)
+// =============================================================================
+//
+// Provides CRUD access to the SurrealDB control plane database.
+// Changes made via this service are automatically detected by the watch
+// reconciler (LIVE SELECT) and reconciled to the hardware registry.
+//
+// Feature-gated behind db-surreal -- not compiled without SurrealDB support.
+//
+// Example workflow:
+//   1. ListInstruments() - see current device configs
+//   2. UpsertInstrument(device_id="my_laser", ...) - add/update device
+//   3. Watch reconciler detects change -> reconciles to registry
+//   4. ListDevices() via HardwareService shows newly added device
+
+service ConfigService {
+  // Instruments (CRUD)
+  rpc ListInstruments(ListInstrumentsRequest) returns (ListInstrumentsResponse);
+  rpc GetInstrument(GetInstrumentRequest) returns (InstrumentConfig);
+  rpc UpsertInstrument(UpsertInstrumentRequest) returns (UpsertInstrumentResponse);
+  rpc DeleteInstrument(DeleteInstrumentRequest) returns (DeleteInstrumentResponse);
+
+  // Drivers (read-only -- drivers are defined by code/plugins, not config)
+  rpc ListDrivers(ListDriversRequest) returns (ListDriversResponse);
+
+  // Bulk operations
+  rpc ImportConfig(ImportConfigRequest) returns (ImportConfigResponse);
+  rpc ExportConfig(ExportConfigRequest) returns (ExportConfigResponse);
+
+  // Database info
+  rpc GetDbInfo(GetDbInfoRequest) returns (DbInfoResponse);
+
+  // Live change stream
+  rpc SubscribeConfigChanges(SubscribeConfigRequest) returns (stream ConfigChangeEvent);
+}
+
+// --------------------------------------------------------------------------
+// ConfigService Messages (bd-3gvx)
+// --------------------------------------------------------------------------
+
+message InstrumentConfig {
+  string device_id = 1;
+  string name = 2;
+  string driver_type = 3;
+  string config_json = 4;   // JSON string of driver-specific config
+  bool enabled = 5;
+}
+
+message DriverConfig {
+  string driver_type = 1;
+  string name = 2;
+  repeated string capabilities = 3;
+  repeated string commands = 4;
+}
+
+// --- Instrument CRUD ---
+
+message ListInstrumentsRequest {}
+message ListInstrumentsResponse {
+  repeated InstrumentConfig instruments = 1;
+}
+
+message GetInstrumentRequest {
+  string device_id = 1;
+}
+
+message UpsertInstrumentRequest {
+  InstrumentConfig instrument = 1;
+}
+message UpsertInstrumentResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message DeleteInstrumentRequest {
+  string device_id = 1;
+}
+message DeleteInstrumentResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// --- Drivers ---
+
+message ListDriversRequest {}
+message ListDriversResponse {
+  repeated DriverConfig drivers = 1;
+}
+
+// --- Bulk operations ---
+
+message ImportConfigRequest {
+  string toml_content = 1;  // Hardware config TOML content
+}
+message ImportConfigResponse {
+  bool success = 1;
+  string message = 2;
+  uint32 drivers_imported = 3;
+  uint32 instruments_imported = 4;
+}
+
+message ExportConfigRequest {}
+message ExportConfigResponse {
+  string toml_content = 1;  // Hardware config as TOML
+}
+
+// --- Database info ---
+
+message GetDbInfoRequest {}
+message DbInfoResponse {
+  string engine = 1;
+  string namespace = 2;
+  string database = 3;
+  uint32 schema_version = 4;
+  uint64 uptime_secs = 5;
+  bool healthy = 6;
+  uint64 driver_count = 7;
+  uint64 instrument_count = 8;
+}
+
+// --- Live change stream ---
+
+message SubscribeConfigRequest {}
+message ConfigChangeEvent {
+  string change_type = 1;    // "upsert" | "delete"
+  string device_id = 2;
+  InstrumentConfig instrument = 3;  // populated for upsert
+  uint64 timestamp_ns = 4;
+}
+
+// ==========================================================================
+// HEALTH MONITORING SERVICE (bd-pauy)
+// System health monitoring for headless operation
+// ==========================================================================
+
+service HealthService {
+  // Get overall system health status
+  rpc GetSystemHealth(GetSystemHealthRequest) returns (GetSystemHealthResponse);
+
+  // Get detailed health status for all modules
+  rpc GetModuleHealth(GetModuleHealthRequest) returns (GetModuleHealthResponse);
+
+  // Get per-device hardware health (bd-qa36.4.3)
+  rpc GetDeviceHealth(GetDeviceHealthRequest) returns (GetDeviceHealthResponse);
+
+  // Get recent error history
+  rpc GetErrorHistory(GetErrorHistoryRequest) returns (GetErrorHistoryResponse);
+
+  // Stream health updates in real-time
+  rpc StreamHealthUpdates(StreamHealthUpdatesRequest) returns (stream HealthUpdate);
+}
+
+// Request for system health
+message GetSystemHealthRequest {}
+
+// Response with overall system health
+message GetSystemHealthResponse {
+  SystemHealthStatus status = 1;
+  uint32 total_modules = 2;
+  uint32 healthy_modules = 3;
+  uint32 unhealthy_modules = 4;
+  uint32 total_errors = 5;
+  uint32 critical_errors = 6;
+  uint64 timestamp_ns = 7;
+  // Database readiness (bd-9n9k.3)
+  bool db_available = 8;
+  bool config_service_available = 9;
+  optional string db_engine = 10;
+  optional string db_state_message = 11;
+}
+
+// Overall system health status
+enum SystemHealthStatus {
+  SYSTEM_HEALTH_UNKNOWN = 0;
+  SYSTEM_HEALTH_HEALTHY = 1;
+  SYSTEM_HEALTH_DEGRADED = 2;
+  SYSTEM_HEALTH_CRITICAL = 3;
+}
+
+// Per-device health status (bd-qa36.4.3)
+enum DeviceHealthLevel {
+  DEVICE_HEALTH_UNKNOWN = 0;
+  DEVICE_HEALTH_HEALTHY = 1;
+  DEVICE_HEALTH_DEGRADED = 2;
+  DEVICE_HEALTH_FAULTED = 3;
+  DEVICE_HEALTH_RECOVERING = 4;
+}
+
+// Request for per-device health status
+message GetDeviceHealthRequest {
+  optional string device_id = 1;  // If set, return health for this device only
+}
+
+// Response with per-device health status
+message GetDeviceHealthResponse {
+  repeated DeviceHealthEntry devices = 1;
+  uint64 timestamp_ns = 2;
+}
+
+// Health status for a single device
+message DeviceHealthEntry {
+  string device_id = 1;
+  DeviceHealthLevel health = 2;
+  uint32 consecutive_failures = 3;
+  uint32 restart_attempts = 4;
+  optional string last_error = 5;
+  uint64 state_since_ns = 6;
+  optional uint64 last_failure_ns = 7;
+}
+
+// Request for module health details
+message GetModuleHealthRequest {}
+
+// Response with per-module health status
+message GetModuleHealthResponse {
+  repeated ModuleHealthStatus modules = 1;
+  uint64 timestamp_ns = 2;
+}
+
+// Health status for a single module
+message ModuleHealthStatus {
+  string name = 1;
+  bool is_healthy = 2;
+  uint64 last_heartbeat_ns = 3;
+  uint64 seconds_since_heartbeat = 4;
+  optional string status_message = 5;
+}
+
+// Request for error history
+message GetErrorHistoryRequest {
+  optional uint32 limit = 1;           // Max errors to return (default: 100)
+  optional string module_name = 2;     // Filter by module name
+  optional ErrorSeverityLevel min_severity = 3;  // Filter by severity
+}
+
+// Response with error history
+message GetErrorHistoryResponse {
+  repeated HealthErrorRecord errors = 1;
+  uint32 total_error_count = 2;
+  uint64 timestamp_ns = 3;
+}
+
+// A single health error record
+message HealthErrorRecord {
+  string module_name = 1;
+  ErrorSeverityLevel severity = 2;
+  string message = 3;
+  uint64 timestamp_ns = 4;
+  map<string, string> context = 5;
+}
+
+// Error severity levels
+enum ErrorSeverityLevel {
+  ERROR_SEVERITY_UNKNOWN = 0;
+  ERROR_SEVERITY_INFO = 1;
+  ERROR_SEVERITY_WARNING = 2;
+  ERROR_SEVERITY_ERROR = 3;
+  ERROR_SEVERITY_CRITICAL = 4;
+}
+
+// Request to stream health updates
+message StreamHealthUpdatesRequest {
+  uint32 update_interval_ms = 1;  // How often to send updates (default: 5000ms)
+}
+
+// Real-time health update
+message HealthUpdate {
+  SystemHealthStatus system_status = 1;
+  repeated ModuleHealthStatus modules = 2;
+  optional HealthErrorRecord latest_error = 3;
+  uint64 timestamp_ns = 4;
+  // Database readiness (bd-9n9k.3)
+  bool db_available = 5;
+  bool config_service_available = 6;
+}

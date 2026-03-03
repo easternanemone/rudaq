@@ -14,6 +14,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .compile(
             &[
                 "proto/daq.proto",
+                "proto/hardware.proto",
+                "proto/experiment.proto",
+                "proto/storage.proto",
                 "proto/health.proto",
                 "proto/ni_daq.proto",
             ],
