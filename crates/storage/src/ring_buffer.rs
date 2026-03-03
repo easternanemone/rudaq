@@ -50,6 +50,34 @@ use std::os::unix::fs::OpenOptionsExt;
 
 use crate::tap_registry::{TapHealth, TapRegistry};
 
+// =============================================================================
+// Async Context Safety Guard (bd-m9jm)
+// =============================================================================
+
+/// Check whether the current thread is inside a Tokio async runtime and emit
+/// a warning when a blocking `RingBuffer` operation is invoked directly.
+///
+/// This is a *diagnostic* guard — it never changes behaviour. The check uses
+/// [`tokio::runtime::Handle::try_current`] which is essentially free (thread-
+/// local lookup) when no runtime is present, satisfying the zero-cost-when-
+/// not-async constraint.
+///
+/// # Arguments
+/// * `operation` - Name of the blocking method for the warning message.
+#[inline]
+fn warn_if_async_context(operation: &str) {
+    if tokio::runtime::Handle::try_current().is_ok() {
+        tracing::warn!(
+            operation = operation,
+            "Blocking RingBuffer::{op}() called from within an async runtime — \
+             this may stall the Tokio worker thread and cause deadlocks. \
+             Use AsyncRingBuffer instead, or wrap the call in \
+             tokio::task::spawn_blocking().",
+            op = operation,
+        );
+    }
+}
+
 #[cfg(feature = "storage_arrow")]
 use arrow::record_batch::RecordBatch;
 
@@ -516,6 +544,9 @@ impl RingBuffer {
     /// # Thread Safety
     /// Multiple concurrent writers are safe - the internal lock serializes writes.
     pub fn write(&self, data: &[u8]) -> Result<(), DaqError> {
+        // Async context safety guard (bd-m9jm)
+        warn_if_async_context("write");
+
         // Acquire exclusive write lock to prevent concurrent reads/writes (bd-t17q)
         let _guard = self.data_lock.write().map_err(|_| {
             DaqError::Storage(StorageError::new(
@@ -749,6 +780,9 @@ impl RingBuffer {
     ///     .expect("blocking task panicked");
     /// ```
     pub fn read_snapshot(&self) -> Vec<u8> {
+        // Async context safety guard (bd-m9jm)
+        warn_if_async_context("read_snapshot");
+
         // Take shared read lock to prevent concurrent writes during byte copies.
         // Multiple readers can hold the lock concurrently, but writers get exclusive access.
         // This prevents undefined behavior from non-atomic byte copies racing with writes.
@@ -2676,5 +2710,94 @@ mod tests {
             let _rx = rb.register_tap(format!("tap_{}", i), 1).unwrap();
             rb.unregister_tap(&format!("tap_{}", i)).unwrap();
         }
+    }
+
+    // =============================================================================
+    // Async Context Safety Guard Tests (bd-m9jm)
+    // =============================================================================
+
+    /// Verify that `warn_if_async_context` detects a running Tokio runtime.
+    ///
+    /// We cannot easily assert on tracing output, but we verify the detection
+    /// path does not panic and the guard function is exercised from an async
+    /// context. The tracing::warn! fires if and only if `try_current` succeeds.
+    #[tokio::test]
+    async fn test_async_context_guard_detects_runtime() {
+        // We are inside a tokio runtime, so try_current should succeed.
+        assert!(
+            tokio::runtime::Handle::try_current().is_ok(),
+            "Test must run inside a Tokio runtime"
+        );
+
+        // Calling the guard should not panic (it emits a tracing::warn).
+        warn_if_async_context("test_operation");
+    }
+
+    /// Verify the guard does NOT fire outside an async runtime.
+    ///
+    /// We spawn a plain OS thread (no Tokio runtime) and confirm that
+    /// `try_current` returns Err — meaning the guard is zero-cost.
+    #[test]
+    fn test_async_context_guard_silent_outside_runtime() {
+        let handle = thread::spawn(|| {
+            // No Tokio runtime on this thread.
+            assert!(
+                tokio::runtime::Handle::try_current().is_err(),
+                "No runtime should be active on a bare thread"
+            );
+
+            // Guard should not panic (and should NOT log).
+            warn_if_async_context("test_sync_operation");
+        });
+        handle.join().unwrap();
+    }
+
+    /// Ensure that RingBuffer::write() still works correctly from an async
+    /// context (the guard only warns, it does not block or error).
+    #[tokio::test]
+    async fn test_write_succeeds_in_async_context_with_guard() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("async_guard_write.buf");
+
+        let rb = RingBuffer::create(&path, 1).unwrap();
+
+        // Calling write directly from async context triggers the guard
+        // warning but must still succeed.
+        let result = rb.write(b"hello from async");
+        assert!(result.is_ok());
+        assert_eq!(rb.write_head(), 16);
+    }
+
+    /// Ensure that RingBuffer::read_snapshot() still works correctly from an
+    /// async context (the guard only warns, it does not block or error).
+    #[tokio::test]
+    async fn test_read_snapshot_succeeds_in_async_context_with_guard() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("async_guard_read.buf");
+
+        let rb = RingBuffer::create(&path, 1).unwrap();
+        rb.write(b"test data").unwrap();
+
+        // Calling read_snapshot directly from async context triggers the
+        // guard warning but must still succeed and return correct data.
+        let snapshot = rb.read_snapshot();
+        assert_eq!(snapshot, b"test data");
+    }
+
+    /// Confirm that AsyncRingBuffer (the proper wrapper) also triggers the
+    /// guard at the inner level but still works because spawn_blocking moves
+    /// the call off the async worker thread.
+    #[tokio::test]
+    async fn test_async_ring_buffer_wrapper_still_works_with_guard() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("async_wrapper_guard.buf");
+
+        let rb = Arc::new(RingBuffer::create(&path, 1).unwrap());
+        let async_rb = AsyncRingBuffer::new(rb);
+
+        async_rb.write(b"via async wrapper").await.unwrap();
+
+        let snapshot = async_rb.read_snapshot().await.unwrap();
+        assert_eq!(snapshot, b"via async wrapper");
     }
 }
