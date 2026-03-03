@@ -40,9 +40,34 @@ use memmap2::{MmapMut, MmapOptions};
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{fence, AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
 use tokio::sync::mpsc;
+
+// =============================================================================
+// Telemetry: FPS, frame loss, and pool utilization (bd-wlmv)
+// =============================================================================
+
+/// Check whether the `debug_frame_timing` runtime feature flag is enabled.
+///
+/// This is cached in a `OnceLock` so the environment variable is only read once.
+/// The flag gates all telemetry instrumentation to keep the hot path zero-cost
+/// when telemetry is not requested.
+fn is_telemetry_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("RUST_DAQ_DEBUG_FRAME_TIMING")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+    })
+}
+
+/// Interval between periodic FPS log emissions (in number of frames).
+///
+/// We log every 100 frames rather than on a wall-clock timer to avoid
+/// adding a time check to every single write. The actual FPS is computed
+/// from elapsed wall time over those 100 frames.
+const TELEMETRY_FPS_INTERVAL: u64 = 100;
 
 // Unix-specific imports for file permissions (bd-jnfu.16)
 #[cfg(unix)]
@@ -202,6 +227,20 @@ pub struct RingBuffer {
     /// decode Arrow IPC data without parsing embedded schema.
     #[cfg(feature = "storage_arrow")]
     arrow_schema_json: RwLock<Option<String>>,
+
+    // -- Telemetry state (bd-wlmv) --
+    // These fields are only meaningful when `is_telemetry_enabled()` returns true.
+    // They use atomics so the write hot-path stays lock-free.
+    /// Total frames written since buffer creation (telemetry).
+    telemetry_frame_count: AtomicU64,
+
+    /// Timestamp of the last FPS log emission (telemetry).
+    /// Stored as a parking-lot-free `RwLock<Instant>` because `Instant` is not
+    /// atomic. The lock is only taken every `TELEMETRY_FPS_INTERVAL` frames.
+    telemetry_last_fps_time: RwLock<Instant>,
+
+    /// Number of frames that overwrote unread data (telemetry).
+    telemetry_frames_overwritten: AtomicU64,
 }
 
 impl std::fmt::Debug for RingBuffer {
@@ -414,6 +453,9 @@ impl RingBuffer {
             taps: Arc::new(TapRegistry::new()),
             #[cfg(feature = "storage_arrow")]
             arrow_schema_json: RwLock::new(None),
+            telemetry_frame_count: AtomicU64::new(0),
+            telemetry_last_fps_time: RwLock::new(Instant::now()),
+            telemetry_frames_overwritten: AtomicU64::new(0),
         })
     }
 
@@ -527,6 +569,9 @@ impl RingBuffer {
             taps: Arc::new(TapRegistry::new()),
             #[cfg(feature = "storage_arrow")]
             arrow_schema_json: RwLock::new(None),
+            telemetry_frame_count: AtomicU64::new(0),
+            telemetry_last_fps_time: RwLock::new(Instant::now()),
+            telemetry_frames_overwritten: AtomicU64::new(0),
         })
     }
 
@@ -636,7 +681,71 @@ impl RingBuffer {
         // We do this AFTER the write is complete to avoid data races
         self.notify_taps(data);
 
+        // Telemetry: FPS and frame loss tracking (bd-wlmv)
+        if is_telemetry_enabled() {
+            self.record_write_telemetry(len);
+        }
+
         Ok(())
+    }
+
+    /// Record telemetry for a completed write (bd-wlmv).
+    ///
+    /// Called only when `is_telemetry_enabled()` returns true. Tracks:
+    /// - FPS: emits a `tracing::debug!` log every `TELEMETRY_FPS_INTERVAL` frames
+    /// - Frame loss: detects when write_head - read_tail > capacity (data overwritten)
+    ///
+    /// # Arguments
+    /// * `bytes_written` - Number of bytes written in this frame
+    fn record_write_telemetry(&self, bytes_written: u64) {
+        let frame_num = self.telemetry_frame_count.fetch_add(1, Ordering::Relaxed) + 1;
+
+        // Detect frame loss: if write_head has lapped read_tail, we overwrote unread data
+        let write_head = self.write_head();
+        let read_tail = self.read_tail();
+        if write_head.saturating_sub(read_tail) > self.capacity {
+            self.telemetry_frames_overwritten
+                .fetch_add(1, Ordering::Relaxed);
+        }
+
+        // Periodic FPS calculation
+        if frame_num % TELEMETRY_FPS_INTERVAL == 0 {
+            // We only take the lock every TELEMETRY_FPS_INTERVAL frames
+            if let Ok(mut last_time) = self.telemetry_last_fps_time.write() {
+                let now = Instant::now();
+                let elapsed = now.duration_since(*last_time);
+                *last_time = now;
+
+                let fps = if elapsed.as_secs_f64() > 0.0 {
+                    TELEMETRY_FPS_INTERVAL as f64 / elapsed.as_secs_f64()
+                } else {
+                    0.0
+                };
+
+                let overwritten = self.telemetry_frames_overwritten.load(Ordering::Relaxed);
+
+                tracing::debug!(
+                    fps = format!("{fps:.1}"),
+                    total_frames = frame_num,
+                    frames_overwritten = overwritten,
+                    bytes_written,
+                    buffer_capacity = self.capacity,
+                    buffer_path = %self.path.display(),
+                    "ring_buffer.telemetry: streaming performance"
+                );
+            }
+        }
+    }
+
+    /// Return a snapshot of current telemetry counters (bd-wlmv).
+    ///
+    /// This is useful for external monitoring systems or health checks.
+    /// All values are zero when telemetry is not enabled.
+    pub fn telemetry_snapshot(&self) -> RingBufferTelemetry {
+        RingBufferTelemetry {
+            total_frames: self.telemetry_frame_count.load(Ordering::Relaxed),
+            frames_overwritten: self.telemetry_frames_overwritten.load(Ordering::Relaxed),
+        }
     }
 
     /// Notify all tap consumers about a new frame.
@@ -1211,6 +1320,52 @@ impl RingBuffer {
 }
 
 // =============================================================================
+// Telemetry Types (bd-wlmv)
+// =============================================================================
+
+/// Snapshot of ring buffer telemetry counters.
+///
+/// Returned by [`RingBuffer::telemetry_snapshot`]. All counters are zero when
+/// the `RUST_DAQ_DEBUG_FRAME_TIMING=1` environment variable is not set.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RingBufferTelemetry {
+    /// Total frames written since buffer creation.
+    pub total_frames: u64,
+    /// Number of frames that overwrote unread data (consumer too slow).
+    pub frames_overwritten: u64,
+}
+
+/// Log pool utilization at `tracing::debug!` level (bd-wlmv).
+///
+/// Call this periodically (e.g. from a health-check loop) to emit pool
+/// utilization metrics. Only emits when `RUST_DAQ_DEBUG_FRAME_TIMING=1`.
+///
+/// # Arguments
+/// * `pool_name` - Human-readable label for the pool (e.g. "frame_pool")
+/// * `available` - Number of currently available slots (`pool.available()`)
+/// * `total` - Total pool capacity (`pool.size()`)
+pub fn log_pool_utilization(pool_name: &str, available: usize, total: usize) {
+    if !is_telemetry_enabled() {
+        return;
+    }
+    let used = total.saturating_sub(available);
+    #[allow(clippy::cast_precision_loss)]
+    let utilization_pct = if total > 0 {
+        (used as f64 / total as f64) * 100.0
+    } else {
+        0.0
+    };
+    tracing::debug!(
+        pool_name,
+        available,
+        used,
+        total,
+        utilization_pct = format!("{utilization_pct:.1}"),
+        "pool.telemetry: utilization"
+    );
+}
+
+// =============================================================================
 // Async Wrapper for Tokio Runtime Safety (bd-cmcp)
 // =============================================================================
 
@@ -1422,6 +1577,11 @@ impl AsyncRingBuffer {
     /// Get the schema length stored in the header.
     pub fn schema_len(&self) -> u32 {
         self.inner.schema_len()
+    }
+
+    /// Return a snapshot of current telemetry counters (bd-wlmv).
+    pub fn telemetry_snapshot(&self) -> RingBufferTelemetry {
+        self.inner.telemetry_snapshot()
     }
 
     /// Get access to the inner RingBuffer.
