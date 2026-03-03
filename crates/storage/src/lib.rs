@@ -85,7 +85,7 @@ pub use document_writer::DocumentWriter;
 #[cfg(feature = "storage_hdf5")]
 pub use hdf5_annotation::{add_run_annotation, read_run_annotations, RunAnnotation};
 pub use hdf5_recovery::{recover_hdf5, RecoveryError, RecoveryReport};
-pub use hdf5_writer::HDF5Writer;
+pub use hdf5_writer::{HDF5Writer, Hdf5Metrics};
 pub use ring_buffer::{AsyncRingBuffer, RingBuffer};
 pub use ring_buffer_reader::{ReaderStats, RingBufferReader};
 

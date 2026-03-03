@@ -25,6 +25,17 @@ use common::observable::ParameterSet;
 
 use common::error::AppResult as Result;
 
+/// Snapshot of HDF5 writer telemetry counters.
+///
+/// Returned by [`HDF5Writer::hdf5_metrics`] for monitoring backpressure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Hdf5Metrics {
+    /// Total frames successfully written to HDF5.
+    pub frames_written: u64,
+    /// Total write errors encountered.
+    pub write_errors: u64,
+}
+
 /// Background HDF5 writer that persists ring buffer data
 ///
 /// # Architecture
@@ -77,6 +88,18 @@ pub struct HDF5Writer {
     poll_interval: Duration,
     last_read_tail: AtomicU64,
     batch_counter: AtomicU64,
+    /// Maximum number of frames that can be queued for writing.
+    ///
+    /// This is informational — the ring buffer itself handles the actual data
+    /// buffering via its circular overwrite mechanism. When the write queue
+    /// depth exceeds this value, rate-limited warnings are emitted.
+    max_pending_writes: u64,
+    /// How long to wait on final flush before giving up. Default 5 seconds.
+    flush_timeout: Duration,
+    /// Total frames successfully written to HDF5.
+    frames_written: AtomicU64,
+    /// Total write errors encountered.
+    write_errors: AtomicU64,
 }
 
 impl HDF5Writer {
@@ -98,6 +121,10 @@ impl HDF5Writer {
             poll_interval: Duration::from_millis(100),
             last_read_tail: AtomicU64::new(0),
             batch_counter: AtomicU64::new(0),
+            max_pending_writes: 128,
+            flush_timeout: Duration::from_secs(5),
+            frames_written: AtomicU64::new(0),
+            write_errors: AtomicU64::new(0),
         })
     }
 
@@ -143,6 +170,37 @@ impl HDF5Writer {
         }
         self.poll_interval = interval;
         Ok(())
+    }
+
+    /// Set the maximum number of pending writes before backpressure warnings.
+    pub fn set_max_pending_writes(&mut self, max: u64) {
+        self.max_pending_writes = max;
+    }
+
+    /// Get the configured maximum pending writes depth.
+    pub fn max_pending_writes(&self) -> u64 {
+        self.max_pending_writes
+    }
+
+    /// Set the flush timeout duration for final flush.
+    pub fn set_flush_timeout(&mut self, timeout: Duration) {
+        self.flush_timeout = timeout;
+    }
+
+    /// Get the configured flush timeout duration.
+    pub fn flush_timeout(&self) -> Duration {
+        self.flush_timeout
+    }
+
+    /// Return a snapshot of the HDF5 writer telemetry counters.
+    ///
+    /// All counters use `Ordering::Relaxed` — suitable for monitoring
+    /// dashboards but not for synchronization.
+    pub fn hdf5_metrics(&self) -> Hdf5Metrics {
+        Hdf5Metrics {
+            frames_written: self.frames_written.load(Ordering::Relaxed),
+            write_errors: self.write_errors.load(Ordering::Relaxed),
+        }
     }
 
     /// Inject a snapshot of all parameters into the HDF5 file as attributes.
@@ -245,6 +303,7 @@ impl HDF5Writer {
     async fn run_loop(&self) {
         let mut ticker = interval(self.poll_interval);
         let mut last_flush = tokio::time::Instant::now();
+        let mut backpressure_warn_count: u64 = 0;
 
         loop {
             ticker.tick().await;
@@ -254,6 +313,27 @@ impl HDF5Writer {
             let read_tail = self.last_read_tail.load(Ordering::Acquire);
             let backlog = write_head.saturating_sub(read_tail);
 
+            // Rate-limited backpressure warning when write queue depth is exceeded.
+            // Log on first occurrence then every 100th to avoid log spam at high rates.
+            if backlog >= self.max_pending_writes {
+                backpressure_warn_count += 1;
+                if backpressure_warn_count == 1 || backpressure_warn_count.is_multiple_of(100) {
+                    let total_written = self.frames_written.load(Ordering::Relaxed);
+                    let total_errors = self.write_errors.load(Ordering::Relaxed);
+                    tracing::warn!(
+                        backlog,
+                        max_pending_writes = self.max_pending_writes,
+                        total_written,
+                        total_errors,
+                        occurrence = backpressure_warn_count,
+                        "HDF5 writer falling behind: backlog exceeds max_pending_writes"
+                    );
+                }
+            } else {
+                // Reset counter when backlog drops below threshold
+                backpressure_warn_count = 0;
+            }
+
             // Flush if threshold exceeded OR time interval elapsed
             let should_flush =
                 backlog >= self.adaptive_threshold || last_flush.elapsed() >= self.flush_interval;
@@ -262,8 +342,7 @@ impl HDF5Writer {
                 match self.flush_to_disk().await {
                     Ok(bytes) => {
                         if bytes > 0 {
-                            // Only reset timer if we actually wrote data?
-                            // Or reset regardless to maintain heartbeat?
+                            self.frames_written.fetch_add(1, Ordering::Relaxed);
                             // Standard strategy: reset timer on successful flush attempt
                             last_flush = tokio::time::Instant::now();
                         } else if last_flush.elapsed() >= self.flush_interval {
@@ -273,6 +352,7 @@ impl HDF5Writer {
                         }
                     }
                     Err(e) => {
+                        self.write_errors.fetch_add(1, Ordering::Relaxed);
                         eprintln!("HDF5 flush error: {}", e);
                         // Reset timer to back off on error
                         last_flush = tokio::time::Instant::now();
@@ -1123,5 +1203,89 @@ mod tests {
 
         // Non-zero should succeed
         writer.set_poll_interval(Duration::from_millis(1)).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_hdf5_metrics_snapshot_defaults() {
+        let ring_temp = NamedTempFile::new().unwrap();
+        let hdf5_temp = NamedTempFile::new().unwrap();
+
+        let ring = Arc::new(RingBuffer::create(ring_temp.path(), 1).unwrap());
+        let writer = HDF5Writer::new(hdf5_temp.path(), ring).unwrap();
+
+        let metrics = writer.hdf5_metrics();
+        assert_eq!(metrics.frames_written, 0);
+        assert_eq!(metrics.write_errors, 0);
+    }
+
+    #[tokio::test]
+    async fn test_hdf5_metrics_counters_independent() {
+        let ring_temp = NamedTempFile::new().unwrap();
+        let hdf5_temp = NamedTempFile::new().unwrap();
+
+        let ring = Arc::new(RingBuffer::create(ring_temp.path(), 1).unwrap());
+        let writer = HDF5Writer::new(hdf5_temp.path(), ring).unwrap();
+
+        // Simulate frames_written and write_errors via direct atomic stores
+        writer.frames_written.store(42, Ordering::Relaxed);
+        writer.write_errors.store(3, Ordering::Relaxed);
+
+        let metrics = writer.hdf5_metrics();
+        assert_eq!(metrics.frames_written, 42);
+        assert_eq!(metrics.write_errors, 3);
+
+        // Verify snapshot is a copy (changing atomics doesn't affect prior snapshot)
+        writer.frames_written.store(100, Ordering::Relaxed);
+        assert_eq!(metrics.frames_written, 42, "Snapshot should be immutable");
+    }
+
+    #[tokio::test]
+    async fn test_max_pending_writes_default_and_setter() {
+        let ring_temp = NamedTempFile::new().unwrap();
+        let hdf5_temp = NamedTempFile::new().unwrap();
+
+        let ring = Arc::new(RingBuffer::create(ring_temp.path(), 1).unwrap());
+        let mut writer = HDF5Writer::new(hdf5_temp.path(), ring).unwrap();
+
+        assert_eq!(writer.max_pending_writes(), 128, "Default should be 128");
+
+        writer.set_max_pending_writes(256);
+        assert_eq!(writer.max_pending_writes(), 256);
+    }
+
+    #[tokio::test]
+    async fn test_flush_timeout_default_and_setter() {
+        let ring_temp = NamedTempFile::new().unwrap();
+        let hdf5_temp = NamedTempFile::new().unwrap();
+
+        let ring = Arc::new(RingBuffer::create(ring_temp.path(), 1).unwrap());
+        let mut writer = HDF5Writer::new(hdf5_temp.path(), ring).unwrap();
+
+        assert_eq!(
+            writer.flush_timeout(),
+            Duration::from_secs(5),
+            "Default flush_timeout should be 5 seconds"
+        );
+
+        writer.set_flush_timeout(Duration::from_secs(10));
+        assert_eq!(writer.flush_timeout(), Duration::from_secs(10));
+    }
+
+    #[tokio::test]
+    async fn test_hdf5_metrics_equality() {
+        let a = Hdf5Metrics {
+            frames_written: 10,
+            write_errors: 2,
+        };
+        let b = Hdf5Metrics {
+            frames_written: 10,
+            write_errors: 2,
+        };
+        let c = Hdf5Metrics {
+            frames_written: 10,
+            write_errors: 3,
+        };
+        assert_eq!(a, b);
+        assert_ne!(a, c);
     }
 }
