@@ -292,6 +292,70 @@ impl BufferPool {
         })
     }
 
+    /// Acquire a buffer with a configurable timeout, returning an error on failure.
+    ///
+    /// Unlike `try_acquire_timeout` which returns `Option`, this returns a `Result` with
+    /// a descriptive `PoolError::Timeout` that includes diagnostic information (available
+    /// slots, capacity) for debugging backpressure issues.
+    ///
+    /// # Arguments
+    ///
+    /// - `timeout`: Maximum duration to wait for a buffer to become available.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PoolError::Timeout` if no buffer becomes available within the specified duration.
+    pub async fn acquire_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<PooledBuffer, crate::PoolError> {
+        match tokio::time::timeout(timeout, self.inner.semaphore.acquire()).await {
+            Ok(Ok(permit)) => {
+                std::mem::forget(permit);
+                let guard = PermitGuard::new(&self.inner);
+
+                let Some(buffer) = self.inner.free_buffers.pop() else {
+                    // Semaphore/queue desync — should not happen, but guard returns permit
+                    return Err(crate::PoolError::Timeout {
+                        timeout,
+                        available: self.available(),
+                        capacity: self.size(),
+                    });
+                };
+
+                self.inner.available.fetch_sub(1, Ordering::Relaxed);
+                self.inner.total_acquires.fetch_add(1, Ordering::Relaxed);
+                #[cfg(feature = "metrics")]
+                update_metrics(&self.inner);
+
+                guard.release();
+
+                Ok(PooledBuffer {
+                    buffer: Some(buffer),
+                    actual_len: 0,
+                    pool: Arc::clone(&self.inner),
+                })
+            }
+            Ok(Err(_)) => {
+                // Semaphore closed
+                Err(crate::PoolError::Timeout {
+                    timeout,
+                    available: self.available(),
+                    capacity: self.size(),
+                })
+            }
+            Err(_) => {
+                #[cfg(feature = "metrics")]
+                record_exhaustion_event();
+                Err(crate::PoolError::Timeout {
+                    timeout,
+                    available: self.available(),
+                    capacity: self.size(),
+                })
+            }
+        }
+    }
+
     /// Acquire a buffer, blocking until one is available.
     pub async fn acquire(&self) -> PooledBuffer {
         // Acquire semaphore permit (blocks if none available)
@@ -764,6 +828,62 @@ mod tests {
         // Should timeout since pool is exhausted
         let result = pool.try_acquire_timeout(Duration::from_millis(10)).await;
         assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_acquire_timeout_success() {
+        let pool = BufferPool::new(2, 512);
+
+        let result = pool.acquire_timeout(Duration::from_millis(100)).await;
+        assert!(result.is_ok());
+        let buf = result.expect("should succeed");
+        assert_eq!(buf.capacity(), 512);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_acquire_timeout_expires_returns_error() {
+        use crate::PoolError;
+
+        let pool = BufferPool::new(1, 256);
+
+        // Hold the only buffer
+        let _held = pool.try_acquire().unwrap();
+
+        let result = pool.acquire_timeout(Duration::from_millis(50)).await;
+        match result {
+            Err(PoolError::Timeout {
+                timeout,
+                available,
+                capacity,
+            }) => {
+                assert_eq!(timeout, Duration::from_millis(50));
+                assert_eq!(available, 0);
+                assert_eq!(capacity, 1);
+            }
+            Err(other) => panic!("expected PoolError::Timeout, got: {other:?}"),
+            Ok(_) => panic!("expected error but got Ok"),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_acquire_timeout_succeeds_when_buffer_released() {
+        let pool = BufferPool::new(1, 128);
+
+        let held = pool.acquire().await;
+
+        // Spawn a task that releases the buffer after 10ms
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            drop(held);
+        });
+
+        // Should succeed because buffer is released before 200ms timeout
+        let result = pool.acquire_timeout(Duration::from_millis(200)).await;
+        assert!(result.is_ok());
+        assert_eq!(
+            result.expect("should succeed after release").capacity(),
+            128
+        );
     }
 
     #[test]

@@ -141,6 +141,19 @@ pub enum PoolError {
         /// Configured maximum slot count.
         max: usize,
     },
+    /// Timed out waiting for a pool slot to become available.
+    ///
+    /// This indicates backpressure: items are being consumed slower than
+    /// they are produced. For PVCAM frame processing, this typically means
+    /// the processing pipeline cannot keep up with the camera frame rate.
+    Timeout {
+        /// The timeout duration that elapsed.
+        timeout: Duration,
+        /// Number of slots available at the time of timeout (typically 0).
+        available: usize,
+        /// Total pool capacity at the time of timeout.
+        capacity: usize,
+    },
 }
 
 impl fmt::Display for PoolError {
@@ -150,6 +163,17 @@ impl fmt::Display for PoolError {
                 write!(
                     f,
                     "pool capacity exhausted: {current} slots allocated (max {max})"
+                )
+            }
+            PoolError::Timeout {
+                timeout,
+                available,
+                capacity,
+            } => {
+                write!(
+                    f,
+                    "pool acquire timed out after {}ms ({available}/{capacity} slots available)",
+                    timeout.as_millis()
                 )
             }
         }
@@ -504,6 +528,91 @@ impl<T: Send + 'static> Pool<T> {
             idx,
             slot_ptr,
         })
+    }
+
+    /// Acquire an item from the pool with a configurable timeout, returning an error on failure.
+    ///
+    /// Unlike `try_acquire_timeout` which returns `Option`, this returns a `Result` with
+    /// a descriptive `PoolError::Timeout` that includes diagnostic information (available
+    /// slots, capacity) for debugging backpressure issues.
+    ///
+    /// # Arguments
+    ///
+    /// - `timeout`: Maximum duration to wait for a slot to become available.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PoolError::Timeout` if no slot becomes available within the specified duration.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use pool::Pool;
+    /// use std::time::Duration;
+    ///
+    /// # tokio_test::block_on(async {
+    /// let pool = Pool::new_simple(2, || vec![0u8; 1024]);
+    ///
+    /// // Acquire with a 100ms timeout
+    /// let frame = pool.acquire_timeout(Duration::from_millis(100)).await;
+    /// assert!(frame.is_ok());
+    /// # });
+    /// ```
+    pub async fn acquire_timeout(
+        self: &Arc<Self>,
+        timeout: Duration,
+    ) -> Result<Loaned<T>, PoolError> {
+        match tokio::time::timeout(timeout, self.semaphore.acquire()).await {
+            Ok(Ok(permit)) => {
+                // INV-5: Transfer permit ownership to Loaned.
+                permit.forget();
+
+                // INV-1: Each permit maps to exactly one index.
+                let idx = self
+                    .free_indices
+                    .pop()
+                    .expect("free list empty after permit - internal invariant violated");
+
+                // Cache slot pointer while holding read lock (bd-0dax.1.6).
+                let slot_ptr = {
+                    let slots = self.slots.read();
+                    slots[idx].as_ref().get()
+                };
+
+                #[cfg(feature = "metrics")]
+                {
+                    POOL_ACQUIRE_TOTAL.inc();
+                    POOL_AVAILABLE.dec();
+                }
+
+                Ok(Loaned {
+                    pool: Arc::clone(self),
+                    idx,
+                    slot_ptr,
+                })
+            }
+            Ok(Err(_)) => {
+                // Semaphore closed — treat as timeout with current diagnostics
+                Err(PoolError::Timeout {
+                    timeout,
+                    available: self.available(),
+                    capacity: self.size(),
+                })
+            }
+            Err(_) => {
+                warn!(
+                    timeout_ms = timeout.as_millis(),
+                    available = self.available(),
+                    capacity = self.size(),
+                    "Pool acquire timed out - backpressure detected"
+                );
+                Err(PoolError::Timeout {
+                    timeout,
+                    available: self.available(),
+                    capacity: self.size(),
+                })
+            }
+        }
     }
 
     /// Acquire an item, growing the pool if necessary.
@@ -863,6 +972,74 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_acquire_timeout_success() {
+        let pool = Pool::new_simple(2, || 42i32);
+
+        let result = pool.acquire_timeout(Duration::from_millis(100)).await;
+        assert!(result.is_ok());
+        assert_eq!(*result.expect("should succeed"), 42);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_acquire_timeout_expires_returns_error() {
+        let pool = Pool::new_simple(1, || 0i32);
+
+        // Hold the only slot
+        let _held = pool.acquire().await;
+
+        let result = pool.acquire_timeout(Duration::from_millis(50)).await;
+        match result {
+            Err(PoolError::Timeout {
+                timeout,
+                available,
+                capacity,
+            }) => {
+                assert_eq!(timeout, Duration::from_millis(50));
+                assert_eq!(available, 0);
+                assert_eq!(capacity, 1);
+            }
+            Err(other) => panic!("expected PoolError::Timeout, got: {other:?}"),
+            Ok(_) => panic!("expected error but got Ok"),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_acquire_timeout_succeeds_when_slot_released() {
+        let pool = Pool::new_simple(1, || 99i32);
+
+        let held = pool.acquire().await;
+
+        // Spawn a task that releases the slot after 10ms
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            drop(held);
+        });
+
+        // Should succeed because slot is released before 200ms timeout
+        let result = pool.acquire_timeout(Duration::from_millis(200)).await;
+        assert!(result.is_ok());
+        assert_eq!(*result.expect("should succeed after release"), 99);
+    }
+
+    #[tokio::test]
+    async fn test_acquire_timeout_error_display() {
+        let err = PoolError::Timeout {
+            timeout: Duration::from_millis(100),
+            available: 0,
+            capacity: 10,
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("100ms"),
+            "error message should contain timeout duration"
+        );
+        assert!(
+            msg.contains("0/10"),
+            "error message should contain available/capacity"
+        );
+    }
+
+    #[tokio::test]
     async fn test_lock_free_access() {
         // Verify that get()/get_mut() don't take locks by checking
         // we can call them many times without performance degradation
@@ -1216,6 +1393,7 @@ mod tests {
                 assert_eq!(current, 4);
                 assert_eq!(max, 4);
             }
+            Err(other) => panic!("expected CapacityExhausted, got: {other:?}"),
         }
     }
 
