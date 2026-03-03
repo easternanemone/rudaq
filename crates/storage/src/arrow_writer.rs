@@ -1441,7 +1441,7 @@ mod tests {
         // Events
         for i in 0..10 {
             let mut data = HashMap::new();
-            data.insert("det1".to_string(), i as f64 * 1.5);
+            data.insert("det1".to_string(), f64::from(i) * 1.5);
 
             let event = EventDoc {
                 descriptor_uid: "desc_1".to_string(),
@@ -1451,7 +1451,7 @@ mod tests {
                 timestamps: HashMap::new(),
                 metadata: HashMap::new(),
                 run_uid: "test_run".to_string(),
-                time_ns: 1_000_000_000 + i as u64 * 100_000,
+                time_ns: 1_000_000_000 + u64::from(i) * 100_000,
                 uid: format!("event_{i}"),
                 positions: HashMap::new(),
             };
