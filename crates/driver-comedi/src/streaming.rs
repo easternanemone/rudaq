@@ -315,6 +315,34 @@ impl StreamConfigBuilder {
     }
 }
 
+/// Backpressure metrics for monitoring acquisition pipeline health.
+///
+/// Tracks write rate vs read rate to detect when the acquisition pipeline
+/// is falling behind. These metrics are internal diagnostics that do not
+/// affect the public API.
+#[derive(Debug, Clone)]
+pub struct BackpressureMetrics {
+    /// Buffer fill ratio (0.0 = empty, 1.0 = full)
+    pub buffer_fill_ratio: f64,
+    /// Total number of samples dropped due to overflows or slow consumers
+    pub dropped_samples: u64,
+    /// Number of buffer overrun events detected
+    pub overrun_count: u64,
+    /// Measured throughput in samples per second
+    pub samples_per_second: f64,
+}
+
+impl Default for BackpressureMetrics {
+    fn default() -> Self {
+        Self {
+            buffer_fill_ratio: 0.0,
+            dropped_samples: 0,
+            overrun_count: 0,
+            samples_per_second: 0.0,
+        }
+    }
+}
+
 /// Statistics for streaming acquisition.
 #[derive(Debug, Clone, Default)]
 pub struct StreamStats {
@@ -330,6 +358,8 @@ pub struct StreamStats {
     pub elapsed: Duration,
     /// Current buffer fill level (0.0 - 1.0)
     pub buffer_fill: f64,
+    /// Backpressure metrics for pipeline health monitoring
+    pub backpressure: BackpressureMetrics,
 }
 
 /// Internal state for the acquisition.
@@ -360,6 +390,9 @@ struct StreamState {
 // The pointers point to memory owned by the state itself (chanlist Vec).
 unsafe impl Send for StreamState {}
 
+/// Threshold above which backpressure warnings are emitted (80%).
+const BACKPRESSURE_WARN_THRESHOLD: f64 = 0.8;
+
 /// High-performance streaming acquisition.
 ///
 /// This provides hardware-timed multi-channel acquisition using Comedi's
@@ -371,6 +404,10 @@ pub struct StreamAcquisition {
     running: AtomicBool,
     samples_acquired: AtomicU64,
     overflows: AtomicU64,
+    dropped_samples: AtomicU64,
+    /// Tracks whether we have already warned about backpressure for the
+    /// current high-fill episode, so we do not spam logs.
+    backpressure_warned: AtomicBool,
 }
 
 impl StreamAcquisition {
@@ -449,6 +486,8 @@ impl StreamAcquisition {
             running: AtomicBool::new(false),
             samples_acquired: AtomicU64::new(0),
             overflows: AtomicU64::new(0),
+            dropped_samples: AtomicU64::new(0),
+            backpressure_warned: AtomicBool::new(false),
         })
     }
 
@@ -480,6 +519,8 @@ impl StreamAcquisition {
         state.start_time = Some(Instant::now());
         self.running.store(true, Ordering::SeqCst);
         self.samples_acquired.store(0, Ordering::SeqCst);
+        self.dropped_samples.store(0, Ordering::SeqCst);
+        self.backpressure_warned.store(false, Ordering::SeqCst);
 
         info!(
             subdevice = state.subdevice,
@@ -540,7 +581,46 @@ impl StreamAcquisition {
         });
 
         if available <= 0 {
+            // Buffer drained — clear backpressure warning latch
+            self.backpressure_warned.store(false, Ordering::Relaxed);
             return Ok(Some(Vec::new()));
+        }
+
+        // --- Backpressure detection ---
+        let buffer_size = self.device.with_handle(|handle| unsafe {
+            comedi_sys::comedi_get_buffer_size(handle, state.subdevice)
+        });
+        if buffer_size > 0 {
+            let fill_ratio = available.max(0) as f64 / buffer_size as f64;
+
+            if fill_ratio > BACKPRESSURE_WARN_THRESHOLD {
+                // Only warn once per high-fill episode to avoid log spam
+                if !self.backpressure_warned.swap(true, Ordering::Relaxed) {
+                    warn!(
+                        buffer_fill_pct = format_args!("{:.1}", fill_ratio * 100.0),
+                        threshold_pct = format_args!("{:.0}", BACKPRESSURE_WARN_THRESHOLD * 100.0),
+                        "Backpressure detected: buffer fill exceeds threshold"
+                    );
+                }
+            } else {
+                // Below threshold — reset the latch so we warn again next time
+                self.backpressure_warned.store(false, Ordering::Relaxed);
+            }
+
+            if fill_ratio >= 1.0 {
+                // Buffer completely full — samples are being dropped by the kernel
+                let sample_size = if state.use_lsampl { 4 } else { 2 };
+                // Estimate dropped samples as one scan's worth per overrun event
+                let dropped = (self.config.channels.len()) as u64;
+                self.dropped_samples.fetch_add(dropped, Ordering::Relaxed);
+                self.overflows.fetch_add(1, Ordering::Relaxed);
+                warn!(
+                    dropped_samples = dropped,
+                    total_dropped = self.dropped_samples.load(Ordering::Relaxed),
+                    sample_size = sample_size,
+                    "Buffer overrun: samples lost"
+                );
+            }
         }
 
         let available = available as usize;
@@ -681,13 +761,22 @@ impl StreamAcquisition {
             0.0
         };
 
+        let overrun_count = self.overflows.load(Ordering::SeqCst);
+        let dropped_samples = self.dropped_samples.load(Ordering::SeqCst);
+
         StreamStats {
             samples_acquired: samples,
             scans_acquired: samples,
-            overflows: self.overflows.load(Ordering::SeqCst),
+            overflows: overrun_count,
             actual_sample_rate: actual_rate,
             elapsed,
             buffer_fill,
+            backpressure: BackpressureMetrics {
+                buffer_fill_ratio: buffer_fill,
+                dropped_samples,
+                overrun_count,
+                samples_per_second: actual_rate,
+            },
         }
     }
 

@@ -325,14 +325,19 @@ impl ContinuousStream {
 
                         buffer.extend(samples);
 
-                        // Check for overflow
+                        // Check for overflow via backpressure metrics
                         let stats = acquisition.stats();
-                        let overflow = stats.buffer_fill > 0.9;
+                        let bp = &stats.backpressure;
+                        let overflow = bp.buffer_fill_ratio > 0.9;
                         if overflow && !last_overflow {
                             overflow_count.fetch_add(1, Ordering::SeqCst);
                             warn!(
-                                "Buffer overflow detected (fill: {:.1}%)",
-                                stats.buffer_fill * 100.0
+                                buffer_fill_pct =
+                                    format_args!("{:.1}", bp.buffer_fill_ratio * 100.0),
+                                dropped_samples = bp.dropped_samples,
+                                overrun_count = bp.overrun_count,
+                                samples_per_second = format_args!("{:.0}", bp.samples_per_second),
+                                "Continuous stream: buffer overflow detected"
                             );
                         }
                         last_overflow = overflow;
@@ -437,13 +442,36 @@ impl ContinuousStream {
             sink_drops.insert(name.clone(), sink.drops.load(Ordering::SeqCst));
         }
 
+        // Calculate backpressure from sink channel fill levels.
+        // We take the maximum fill ratio across all sinks: a value of 1.0 means
+        // at least one sink is completely full and dropping data.
+        let mut max_sink_pressure: f64 = 0.0;
+        for (_, sink) in self.sinks.read().iter() {
+            // capacity() returns the bounded channel size; max_capacity gives
+            // the original bound even after some sends.
+            let capacity = sink.sender.max_capacity();
+            if capacity > 0 {
+                // The number of messages sitting in the channel is
+                // (capacity - available permits).
+                let queued = capacity - sink.sender.capacity();
+                let fill = queued as f64 / capacity as f64;
+                if fill > max_sink_pressure {
+                    max_sink_pressure = fill;
+                }
+            }
+        }
+
+        // Blend hardware buffer fill with sink pressure — whichever is higher
+        // is the dominant bottleneck.
+        let backpressure = max_sink_pressure.max(stream_stats.backpressure.buffer_fill_ratio);
+
         ContinuousStats {
             stream: stream_stats,
             batches_produced: self.batches_produced.load(Ordering::SeqCst),
             samples_dropped: self.samples_dropped.load(Ordering::SeqCst),
             overflow_events: self.overflow_count.load(Ordering::SeqCst),
             sink_drops,
-            backpressure: 0.0, // TODO: Calculate from sink fill levels
+            backpressure,
         }
     }
 

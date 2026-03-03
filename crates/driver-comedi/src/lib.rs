@@ -159,8 +159,8 @@ pub use error::{ComediError, Result};
 pub use hal::{ReadableAnalogInput, ReadableCounter, SettableAnalogOutput, SwitchableDigitalIO};
 pub use multi_channel::ComediMultiChannelAcquisition;
 pub use streaming::{
-    ChannelSpec, SharedStreamAcquisition, StopCondition, StreamAcquisition, StreamConfig,
-    StreamConfigBuilder, StreamStats, TriggerSource,
+    BackpressureMetrics, ChannelSpec, SharedStreamAcquisition, StopCondition, StreamAcquisition,
+    StreamConfig, StreamConfigBuilder, StreamStats, TriggerSource,
 };
 pub use subsystem::analog_input::{AnalogInput, AnalogInputConfig};
 pub use subsystem::analog_output::{AnalogOutput, AnalogOutputConfig};
