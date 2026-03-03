@@ -448,9 +448,9 @@ impl HardwareService for HardwareServiceImpl {
         }
 
         if let Some(readable) = readable {
-            match readable.read().await {
-                Ok(val) => response.last_reading = Some(val),
-                Err(_) => {} // Not critical if read fails
+            // Not critical if read fails — device state query is best-effort
+            if let Ok(val) = readable.read().await {
+                response.last_reading = Some(val);
             }
         }
 

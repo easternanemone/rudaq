@@ -47,23 +47,21 @@ pub mod scan_service;
 pub mod server;
 pub mod storage_service;
 
-/// Protocol Buffer definitions for the DAQ Control Service
+/// Protocol Buffer definitions for the DAQ Control Service.
 ///
 /// Re-exported from protocol crate to maintain API compatibility.
+///
+/// Generated Protocol Buffer definitions from `proto/daq.proto`:
+/// - `ControlService` trait for script management
+/// - `HardwareService` trait for direct device control (bd-4x6q)
+/// - `ScanService` trait for coordinated scans (bd-4le6)
+/// - Server and client implementations for all services
+/// - Request/Response message types for all RPC methods
+///
+/// Note: These types are generated in the protocol crate and
+/// re-exported here for backwards compatibility.
 #[allow(missing_docs)]
 pub mod proto {
-    //! Generated Protocol Buffer definitions from `proto/daq.proto`
-    //!
-    //! This module contains auto-generated code and provides:
-    //! - `ControlService` trait for script management
-    //! - `HardwareService` trait for direct device control (bd-4x6q)
-    //! - `ScanService` trait for coordinated scans (bd-4le6)
-    //! - Server and client implementations for all services
-    //! - Request/Response message types for all RPC methods
-    //!
-    //! Note: These types are generated in the protocol crate and
-    //! re-exported here for backwards compatibility.
-
     pub use protocol::daq::*;
 
     pub mod health {

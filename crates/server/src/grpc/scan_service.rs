@@ -337,6 +337,7 @@ impl ScanServiceImpl {
     }
 
     /// Execute scan in background task
+    #[allow(clippy::too_many_arguments)] // scan execution requires these distinct coordination handles
     async fn run_scan(
         registry: Arc<DeviceRegistry>,
         scan_id: String,

@@ -255,6 +255,7 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
 /// Extension trait for converting Result<T, DaqError> to Result<T, Status>
 pub trait DaqResultExt<T> {
     /// Convert a DaqError result to a tonic Status result
+    #[allow(clippy::result_large_err)] // tonic::Status (176 bytes) is the standard gRPC error type
     fn map_daq_err(self) -> Result<T, Status>;
 }
 

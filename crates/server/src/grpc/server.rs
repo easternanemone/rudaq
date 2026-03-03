@@ -114,6 +114,7 @@ fn build_cors_layer(settings: &GrpcSettings) -> Result<CorsLayer, Box<dyn std::e
     Ok(cors)
 }
 
+#[allow(clippy::result_large_err)] // tonic::Status (176 bytes) is the standard gRPC error type
 fn validate_auth(settings: &GrpcSettings, request: &Request<()>) -> Result<(), Status> {
     if !settings.auth_enabled {
         return Ok(());
@@ -1192,6 +1193,7 @@ impl ControlService for DaqServer {
     }
 
     /// Get daemon version and capabilities
+    #[allow(clippy::vec_init_then_push)] // conditional cfg-gated pushes can't use vec![] macro
     async fn get_daemon_info(
         &self,
         _request: Request<DaemonInfoRequest>,

@@ -108,6 +108,7 @@ fn extract_numeric_value(value: &serde_json::Value) -> Option<f64> {
     }
 }
 
+#[allow(clippy::result_large_err)] // tonic::Status (176 bytes) is the standard gRPC error type
 pub(super) fn validate_parameter_value(
     name: &str,
     metadata: Option<&CommonParameterMetadata>,

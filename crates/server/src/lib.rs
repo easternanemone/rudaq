@@ -39,19 +39,6 @@
 //!
 //! [`DaqServer`]: grpc::server::DaqServer
 
-// TODO: Fix doc comment links
-#![allow(rustdoc::broken_intra_doc_links)]
-// Protobuf/tonic generated code triggers these clippy lints; suppress at crate level (bd-m5fh.4.2).
-#![allow(clippy::mixed_attributes_style)]
-#![allow(clippy::redundant_field_names)]
-#![allow(clippy::result_large_err)]
-#![allow(clippy::single_match)]
-#![allow(clippy::unnecessary_cast)]
-#![allow(clippy::too_many_arguments)]
-#![allow(clippy::vec_init_then_push)]
-#![allow(clippy::if_same_then_else)]
-#![allow(clippy::io_other_error)]
-
 pub mod config;
 pub mod grpc;
 pub mod health;

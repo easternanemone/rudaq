@@ -174,6 +174,7 @@ impl StreamLimiter {
     /// Try to acquire a stream slot for the given client IP.
     ///
     /// Returns `Ok(())` if the client is under the limit, or `Err(Status)` if exceeded.
+    #[allow(clippy::result_large_err)] // tonic::Status (176 bytes) is the standard gRPC error type
     pub fn try_acquire(&self, client_ip: IpAddr) -> Result<(), Status> {
         let mut streams = self.active_streams.lock().map_err(|_| {
             tracing::error!("StreamLimiter mutex poisoned in try_acquire");
@@ -204,6 +205,7 @@ impl StreamLimiter {
     }
 
     /// Try to acquire a stream slot and return an RAII guard that releases it on drop.
+    #[allow(clippy::result_large_err)] // tonic::Status (176 bytes) is the standard gRPC error type
     pub fn try_acquire_guard(
         self: &Arc<Self>,
         client_ip: IpAddr,
