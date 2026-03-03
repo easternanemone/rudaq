@@ -134,18 +134,6 @@ impl DeviceCategory {
             Self::Other => "Other",
         }
     }
-
-    /// Icon for UI display
-    pub fn icon(&self) -> &'static str {
-        match self {
-            Self::Camera => "📷",
-            Self::Stage => "🔄",
-            Self::Detector => "📊",
-            Self::Laser => "💡",
-            Self::PowerMeter => "⚡",
-            Self::Other => "🔧",
-        }
-    }
 }
 
 // =============================================================================
