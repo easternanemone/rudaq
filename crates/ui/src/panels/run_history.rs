@@ -216,6 +216,7 @@ impl RunHistoryPanel {
     }
 
     /// Render the run history panel
+    #[allow(clippy::cast_precision_loss)]
     pub fn ui(&mut self, ui: &mut egui::Ui, client: Option<&mut DaqClient>, runtime: &Runtime) {
         self.poll_async_results(ui.ctx());
         self.pending_action = None;
@@ -460,7 +461,9 @@ impl RunHistoryPanel {
 fn format_timestamp(ns: u64) -> String {
     use chrono::{TimeZone, Utc};
     let secs = ns / 1_000_000_000;
-    Utc.timestamp_opt(secs as i64, 0)
+    #[allow(clippy::cast_possible_wrap)]
+    let secs_i64 = secs as i64;
+    Utc.timestamp_opt(secs_i64, 0)
         .unwrap()
         .format("%Y-%m-%d %H:%M:%S")
         .to_string()

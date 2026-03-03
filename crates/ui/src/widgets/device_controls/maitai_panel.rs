@@ -115,6 +115,7 @@ impl MaiTaiControlPanel {
             || lower.contains("not implemented")
     }
 
+    #[allow(clippy::cast_precision_loss)]
     fn parse_command_f64(results_json: &str) -> Result<f64, String> {
         let parsed: serde_json::Value = serde_json::from_str(results_json)
             .map_err(|e| format!("invalid JSON command result: {e}"))?;
@@ -137,6 +138,7 @@ impl MaiTaiControlPanel {
         Err(format!("unexpected command result payload: {parsed}"))
     }
 
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
     fn parse_command_i64(results_json: &str) -> Result<i64, String> {
         let parsed: serde_json::Value = serde_json::from_str(results_json)
             .map_err(|e| format!("invalid JSON command result: {e}"))?;
@@ -514,6 +516,7 @@ impl DeviceControlWidget for MaiTaiControlPanel {
             // Left column: Power gauge
             cols[0].vertical_centered(|ui| {
                 // Note: MaiTai read:pow? returns WATTS, not milliwatts
+                #[allow(clippy::cast_possible_truncation)]
                 let power = self.state.power_mw.unwrap_or(0.0) as f32;
                 ui.add(
                     Gauge::new(power)

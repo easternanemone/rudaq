@@ -87,6 +87,7 @@ impl StoragePanel {
                         },
                         StorageActionResult::Stop(result) => match result {
                             Ok((output_path, file_size_bytes, total_samples)) => {
+                                #[allow(clippy::cast_precision_loss)]
                                 let size_mb = file_size_bytes as f64 / 1_000_000.0;
                                 self.status = Some(format!(
                                     "Recording saved: {} ({:.2} MB, {} samples)",
@@ -161,7 +162,9 @@ impl StoragePanel {
                 }
 
                 ui.separator();
+                #[allow(clippy::cast_precision_loss)]
                 let available_gb = config.disk_space_available_bytes as f64 / 1_000_000_000.0;
+                #[allow(clippy::cast_precision_loss)]
                 let used_gb = config.disk_space_used_bytes as f64 / 1_000_000_000.0;
                 ui.label(format!(
                     "Disk space: {:.2} GB available, {:.2} GB used",
@@ -204,6 +207,7 @@ impl StoragePanel {
                     // Recording active
                     ui.label(format!("Recording: {}", status.output_path));
                     ui.label(format!("Samples: {}", status.samples_recorded));
+                    #[allow(clippy::cast_precision_loss)]
                     let bytes_mb = status.bytes_written as f64 / 1_000_000.0;
                     ui.label(format!("Written: {:.2} MB", bytes_mb));
                     ui.label(format!("Buffer: {}%", status.buffer_fill_percent));
@@ -263,6 +267,7 @@ impl StoragePanel {
                             ui.group(|ui| {
                                 ui.horizontal(|ui| {
                                     ui.label(&acq.name);
+                                    #[allow(clippy::cast_precision_loss)]
                                     let size_mb = acq.file_size_bytes as f64 / 1_000_000.0;
                                     ui.label(format!("{:.2} MB", size_mb));
                                     ui.label(format!("{} samples", acq.sample_count));

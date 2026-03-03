@@ -611,7 +611,7 @@ impl ImageViewerPanel {
         let frame_width = self.width.max(1);
         let frame_height = self.height.max(1);
         let sample_end = frame_width.saturating_sub(1).min(1023);
-        let center_y = (frame_height as f64 / 2.0).max(1.0);
+        let center_y = (f64::from(frame_height) / 2.0).max(1.0);
         EchelleCalibrationProfile {
             schema_version: EchelleSchemaVersion::v1(),
             profile_id: None,
@@ -647,13 +647,13 @@ impl ImageViewerPanel {
                     basis: PolynomialBasis::Monomial,
                     coefficients: vec![center_y],
                     domain_start: 0.0,
-                    domain_end: frame_width.saturating_sub(1) as f64 + 1.0,
+                    domain_end: f64::from(frame_width.saturating_sub(1)) + 1.0,
                 },
                 wavelength: EchelleWavelengthModel::Polynomial {
                     basis: PolynomialBasis::Monomial,
                     coefficients: vec![0.0, 1.0],
                     domain_start: 0.0,
-                    domain_end: frame_width.saturating_sub(1) as f64 + 1.0,
+                    domain_end: f64::from(frame_width.saturating_sub(1)) + 1.0,
                     unit: "nm".to_string(),
                 },
                 aperture_half_width_px: Some(4.0),
@@ -770,6 +770,7 @@ impl ImageViewerPanel {
         std::fs::write(path, json).map_err(|e| format!("Failed to write {}: {e}", path.display()))
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn auto_detect_trace_seeds_from_current_frame(&mut self) -> Result<usize, String> {
         self.ensure_echelle_calibration_editor_profile();
         let frame = self
@@ -806,8 +807,8 @@ impl ImageViewerPanel {
                 DetectorAxis::Y => profile.compatibility.frame_height.max(1),
             };
             let cross_roi_offset = match profile.orientation.cross_dispersion_axis {
-                DetectorAxis::X => profile.compatibility.roi_x as f64,
-                DetectorAxis::Y => profile.compatibility.roi_y as f64,
+                DetectorAxis::X => f64::from(profile.compatibility.roi_x),
+                DetectorAxis::Y => f64::from(profile.compatibility.roi_y),
             };
             let template_wavelength = profile
                 .orders
@@ -818,7 +819,7 @@ impl ImageViewerPanel {
                     basis: PolynomialBasis::Monomial,
                     coefficients: vec![0.0, 1.0],
                     domain_start: 0.0,
-                    domain_end: dispersion_len.saturating_sub(1) as f64 + 1.0,
+                    domain_end: f64::from(dispersion_len.saturating_sub(1)) + 1.0,
                     unit: "nm".to_string(),
                 });
 
@@ -833,7 +834,7 @@ impl ImageViewerPanel {
                         basis: PolynomialBasis::Monomial,
                         coefficients: vec![*center_local + cross_roi_offset],
                         domain_start: 0.0,
-                        domain_end: dispersion_len.saturating_sub(1) as f64 + 1.0,
+                        domain_end: f64::from(dispersion_len.saturating_sub(1)) + 1.0,
                     },
                     wavelength: template_wavelength.clone(),
                     aperture_half_width_px: None,
@@ -904,7 +905,7 @@ impl ImageViewerPanel {
             return;
         }
 
-        let decimation = self.echelle_extract_every_n_frames.max(1) as u64;
+        let decimation = u64::from(self.echelle_extract_every_n_frames.max(1));
         if decimation > 1 && !frame.frame_number.is_multiple_of(decimation) {
             self.echelle_extract_skipped_frames =
                 self.echelle_extract_skipped_frames.saturating_add(1);
@@ -1531,6 +1532,7 @@ impl ImageViewerPanel {
         }
     }
 
+    #[allow(clippy::cast_precision_loss)]
     fn render_echelle_calibration_line_points_tab(&mut self, ui: &mut egui::Ui) {
         self.ensure_echelle_calibration_editor_profile();
 
@@ -1803,6 +1805,7 @@ impl ImageViewerPanel {
             global_sum_sq += residuals.iter().map(|(_, r)| r * r).sum::<f64>();
         }
         if global_count > 0 {
+            #[allow(clippy::cast_precision_loss)]
             let global_rms = (global_sum_sq / global_count as f64).sqrt();
             ui.small(format!(
                 "Global residual summary across editor orders: {} points | RMS {:.6}",
@@ -1829,9 +1832,13 @@ impl ImageViewerPanel {
             return;
         }
 
+        #[allow(clippy::cast_precision_loss)]
         let rms = (residuals.iter().map(|(_, r)| r * r).sum::<f64>() / count as f64).sqrt();
+        #[allow(clippy::cast_precision_loss)]
         let mean_abs = residuals.iter().map(|(_, r)| r.abs()).sum::<f64>() / count as f64;
+        #[allow(clippy::cast_precision_loss)]
         let mean = residuals.iter().map(|(_, r)| *r).sum::<f64>() / count as f64;
+        #[allow(clippy::cast_precision_loss)]
         let stddev = (residuals
             .iter()
             .map(|(_, r)| {
@@ -1882,8 +1889,8 @@ impl ImageViewerPanel {
                 plot_ui.line(Line::new(
                     "zero",
                     PlotPoints::new(vec![
-                        [order.sample_start as f64, 0.0],
-                        [order.sample_end as f64, 0.0],
+                        [f64::from(order.sample_start), 0.0],
+                        [f64::from(order.sample_end), 0.0],
                     ]),
                 ));
             });
@@ -1964,6 +1971,7 @@ impl ImageViewerPanel {
             return;
         }
 
+        #[allow(clippy::cast_precision_loss)]
         let xs: Vec<f64> = if self.echelle_plot_x_axis_mode == EchellePlotXAxisMode::SampleIndex {
             (0..order.flux.len()).map(|i| i as f64).collect()
         } else {
@@ -2300,6 +2308,7 @@ impl ImageViewerPanel {
                     total_samples,
                 } => {
                     self.recording_state = RecordingState::Idle;
+                    #[allow(clippy::cast_precision_loss)]
                     let size_mb = file_size_bytes as f64 / 1_000_000.0;
                     self.status = Some(format!(
                         "Saved: {} ({:.2} MB, {} frames)",
@@ -2586,6 +2595,7 @@ impl ImageViewerPanel {
     }
 
     /// Render a single camera parameter control
+    #[allow(clippy::cast_possible_truncation)]
     fn render_camera_control(&mut self, ui: &mut egui::Ui, device_id: &str, param_idx: usize) {
         ui.set_max_width(ui.available_width());
 
@@ -3319,6 +3329,7 @@ impl ImageViewerPanel {
     }
 
     /// Render the image viewer panel
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn ui(&mut self, ui: &mut egui::Ui, mut client: Option<&mut DaqClient>, runtime: &Runtime) {
         // Poll for async action results
         self.poll_actions();
@@ -3494,7 +3505,9 @@ impl ImageViewerPanel {
                     RecordingState::Recording => {
                         // Pulsing recording indicator
                         let time = ui.ctx().input(|i| i.time);
+                        #[allow(clippy::cast_possible_truncation)]
                         let pulse = ((time * 2.0).sin() * 0.5 + 0.5) as f32;
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                         let record_color = egui::Color32::from_rgb(
                             (200.0 + pulse * 55.0) as u8,
                             (20.0 + pulse * 20.0) as u8,
@@ -3983,7 +3996,9 @@ impl ImageViewerPanel {
 
                     // Calculate fit zoom if needed - continuously fit when auto_fit is enabled
                     if self.auto_fit && self.width > 0 && self.height > 0 {
+                        #[allow(clippy::cast_precision_loss)]
                         let scale_x = image_available.x / self.width as f32;
+                        #[allow(clippy::cast_precision_loss)]
                         let scale_y = image_available.y / self.height as f32;
                         // Allow upscaling to fill available space (remove .min(1.0) cap)
                         self.zoom = scale_x.min(scale_y);
@@ -3991,6 +4006,7 @@ impl ImageViewerPanel {
                         // Keep auto_fit true for continuous fitting as window resizes
                     }
 
+                    #[allow(clippy::cast_precision_loss)]
                     let image_size = egui::vec2(
                         self.width as f32 * self.zoom,
                         self.height as f32 * self.zoom,
@@ -4230,12 +4246,21 @@ impl ImageViewerPanel {
                                                 Some(locked_pos)
                                             } else if let Some(hover_pos) = response.hover_pos() {
                                                 let image_pos = hover_pos - rect.min - offset;
+                                                #[allow(clippy::cast_possible_truncation)]
                                                 let pixel_x = (image_pos.x / zoom) as i32;
+                                                #[allow(
+                                                    clippy::cast_possible_truncation,
+                                                    clippy::cast_possible_wrap
+                                                )]
                                                 let pixel_y = (image_pos.y / zoom) as i32;
+                                                #[allow(clippy::cast_possible_wrap)]
+                                                let w_i32 = width as i32;
+                                                #[allow(clippy::cast_possible_wrap)]
+                                                let h_i32 = height as i32;
                                                 if pixel_x >= 0
-                                                    && pixel_x < width as i32
+                                                    && pixel_x < w_i32
                                                     && pixel_y >= 0
-                                                    && pixel_y < height as i32
+                                                    && pixel_y < h_i32
                                                 {
                                                     Some((pixel_x, pixel_y))
                                                 } else {
@@ -4251,12 +4276,21 @@ impl ImageViewerPanel {
                                                     response.interact_pointer_pos()
                                                 {
                                                     let image_pos = hover_pos - rect.min - offset;
+                                                    #[allow(clippy::cast_possible_truncation)]
                                                     let pixel_x = (image_pos.x / zoom) as i32;
+                                                    #[allow(
+                                                        clippy::cast_possible_truncation,
+                                                        clippy::cast_possible_wrap
+                                                    )]
                                                     let pixel_y = (image_pos.y / zoom) as i32;
+                                                    #[allow(clippy::cast_possible_wrap)]
+                                                    let w_i32 = width as i32;
+                                                    #[allow(clippy::cast_possible_wrap)]
+                                                    let h_i32 = height as i32;
                                                     if pixel_x >= 0
-                                                        && pixel_x < width as i32
+                                                        && pixel_x < w_i32
                                                         && pixel_y >= 0
-                                                        && pixel_y < height as i32
+                                                        && pixel_y < h_i32
                                                     {
                                                         // Toggle lock: if already locked at this position, unlock
                                                         if crosshair_locked_pos
@@ -4274,9 +4308,11 @@ impl ImageViewerPanel {
                                             // Draw crosshair and readout if position is valid
                                             if let Some((pixel_x, pixel_y)) = crosshair_pixel_pos {
                                                 // Convert pixel coordinates to screen coordinates
+                                                #[allow(clippy::cast_precision_loss)]
                                                 let screen_x = rect.min.x
                                                     + offset.x
                                                     + (pixel_x as f32 + 0.5) * zoom;
+                                                #[allow(clippy::cast_precision_loss)]
                                                 let screen_y = rect.min.y
                                                     + offset.y
                                                     + (pixel_y as f32 + 0.5) * zoom;
@@ -4380,8 +4416,8 @@ impl ImageViewerPanel {
                                                 if let (Some(scale_x), Some(scale_y)) =
                                                     (pixel_scale_x, pixel_scale_y)
                                                 {
-                                                    let phys_x = pixel_x as f64 * scale_x;
-                                                    let phys_y = pixel_y as f64 * scale_y;
+                                                    let phys_x = f64::from(pixel_x) * scale_x;
+                                                    let phys_y = f64::from(pixel_y) * scale_y;
                                                     readout_lines.push(format!(
                                                         "X: {:.2} {}, Y: {:.2} {}",
                                                         phys_x, &scale_unit, phys_y, &scale_unit
@@ -4424,20 +4460,31 @@ impl ImageViewerPanel {
                                             // Simple hover text when crosshair is disabled (bd-07j1)
                                             if let Some(pos) = response.hover_pos() {
                                                 let image_pos = pos - rect.min - offset;
+                                                #[allow(clippy::cast_possible_truncation)]
                                                 let pixel_x = (image_pos.x / self.zoom) as i32;
+                                                #[allow(
+                                                    clippy::cast_possible_truncation,
+                                                    clippy::cast_possible_wrap
+                                                )]
                                                 let pixel_y = (image_pos.y / self.zoom) as i32;
+                                                #[allow(clippy::cast_possible_wrap)]
+                                                let w_i32 = self.width as i32;
+                                                #[allow(clippy::cast_possible_wrap)]
+                                                let h_i32 = self.height as i32;
                                                 if pixel_x >= 0
-                                                    && pixel_x < self.width as i32
+                                                    && pixel_x < w_i32
                                                     && pixel_y >= 0
-                                                    && pixel_y < self.height as i32
+                                                    && pixel_y < h_i32
                                                 {
                                                     // Build hover text with pixel and optional physical coordinates
                                                     let hover_text =
                                                         if let (Some(scale_x), Some(scale_y)) =
                                                             (self.pixel_scale_x, self.pixel_scale_y)
                                                         {
-                                                            let phys_x = pixel_x as f64 * scale_x;
-                                                            let phys_y = pixel_y as f64 * scale_y;
+                                                            let phys_x =
+                                                                f64::from(pixel_x) * scale_x;
+                                                            let phys_y =
+                                                                f64::from(pixel_y) * scale_y;
                                                             format!(
                                                             "Pixel: ({}, {}) | {:.2} {} x {:.2} {}",
                                                             pixel_x,
@@ -4718,6 +4765,7 @@ impl ImageViewerPanel {
             });
     }
 
+    #[allow(clippy::cast_precision_loss)]
     fn render_echelle_preview_panel(&mut self, ui: &mut egui::Ui) {
         self.render_echelle_calibration_workspace(ui);
         ui.separator();
@@ -4934,8 +4982,17 @@ impl ImageViewerPanel {
                     if let Some(pointer) = plot_ui.pointer_coordinate() {
                         let idx = match self.echelle_plot_x_axis_mode {
                             EchellePlotXAxisMode::SampleIndex => {
+                                #[allow(
+                                    clippy::cast_possible_truncation,
+                                    clippy::cast_possible_wrap,
+                                    clippy::cast_sign_loss
+                                )]
                                 let idx = pointer.x.round() as isize;
-                                idx.clamp(0, (f_lookup.len().saturating_sub(1)) as isize) as usize
+                                #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+                                let clamped = idx
+                                    .clamp(0, (f_lookup.len().saturating_sub(1)) as isize)
+                                    as usize;
+                                clamped
                             }
                             EchellePlotXAxisMode::Wavelength => nearest_index_by_x(&xs, pointer.x),
                         };
@@ -4953,10 +5010,15 @@ impl ImageViewerPanel {
         self.echelle_plot_hover_link = hover_link;
 
         if let Some(order) = preview.orders.get(self.echelle_selected_order_plot) {
+            #[allow(clippy::cast_precision_loss)]
             let mean_valid = if order.valid_fraction.is_empty() {
                 0.0
             } else {
-                order.valid_fraction.iter().map(|&v| v as f64).sum::<f64>()
+                order
+                    .valid_fraction
+                    .iter()
+                    .map(|&v| f64::from(v))
+                    .sum::<f64>()
                     / order.valid_fraction.len() as f64
             };
             ui.small(format!(
@@ -5028,7 +5090,9 @@ fn smooth_display_series(values: &[f64], window: usize) -> Vec<f64> {
         let start = i.saturating_sub(radius);
         let end = (i + radius + 1).min(values.len());
         let sum: f64 = values[start..end].iter().sum();
-        out.push(sum / (end - start) as f64);
+        #[allow(clippy::cast_precision_loss)]
+        let avg = sum / (end - start) as f64;
+        out.push(avg);
     }
     out
 }
@@ -5070,6 +5134,7 @@ fn compute_wavelength_fit_residuals_for_order(
                 point.x_sample,
             ),
             EchelleWavelengthModel::Sampled { wavelengths, .. } => {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let idx = point.x_sample.round().clamp(0.0, f64::MAX) as usize;
                 wavelengths.get(idx).copied()
             }
@@ -5304,6 +5369,7 @@ fn solve_linear_system_gaussian(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option
 }
 
 #[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
+#[allow(clippy::cast_possible_wrap)]
 fn detect_cross_dispersion_peaks_from_frame(
     data: &[u8],
     width: u32,
@@ -5332,8 +5398,10 @@ fn detect_cross_dispersion_peaks_from_frame(
     let mut profile = vec![0.0f64; cross_len];
 
     for cross in 0..cross_len {
+        #[allow(clippy::cast_precision_loss)]
         let mut sum = 0.0f64;
         for disp in 0..disp_len {
+            #[allow(clippy::cast_possible_truncation)]
             let (x, y) = match dispersion_axis {
                 DetectorAxis::X => (disp as u32, cross as u32),
                 DetectorAxis::Y => (cross as u32, disp as u32),
@@ -5342,9 +5410,11 @@ fn detect_cross_dispersion_peaks_from_frame(
                 get_pixel_value_inline(data, x, y, width, height, bit_depth).ok_or_else(|| {
                     "Failed to read pixel while auto-detecting trace seeds".to_string()
                 })?;
-            sum += px as f64;
+            sum += f64::from(px);
         }
-        profile[cross] = sum / disp_len.max(1) as f64;
+        #[allow(clippy::cast_precision_loss)]
+        let avg = sum / disp_len.max(1) as f64;
+        profile[cross] = avg;
     }
 
     let mut sorted = profile.clone();
@@ -5366,7 +5436,9 @@ fn detect_cross_dispersion_peaks_from_frame(
     }
     candidates.sort_by(|a, b| b.1.total_cmp(&a.1));
 
+    #[allow(clippy::cast_possible_wrap)]
     let min_sep = min_separation_px as isize;
+    #[allow(clippy::cast_precision_loss)]
     let mut selected: Vec<usize> = Vec::new();
     for (idx, _v) in candidates {
         if selected
@@ -5381,7 +5453,9 @@ fn detect_cross_dispersion_peaks_from_frame(
     }
     selected.sort_unstable();
 
-    Ok(selected.into_iter().map(|i| i as f64).collect())
+    #[allow(clippy::cast_precision_loss)]
+    let result: Vec<f64> = selected.into_iter().map(|i| i as f64).collect();
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -5729,7 +5803,7 @@ mod colormap_tests {
 
         // Test mid value
         let mid = colormap.apply(0.5);
-        assert!((mid[0] as f32 - 127.5).abs() < 2.0); // Allow some rounding
+        assert!((f32::from(mid[0]) - 127.5).abs() < 2.0); // Allow some rounding
         assert_eq!(mid[0], mid[1]);
         assert_eq!(mid[1], mid[2]);
     }
@@ -5743,8 +5817,8 @@ mod colormap_tests {
         let high = colormap.apply(1.0);
 
         // Low should be darker (cast to u32 to avoid u8 overflow)
-        let low_sum = low[0] as u32 + low[1] as u32 + low[2] as u32;
-        let high_sum = high[0] as u32 + high[1] as u32 + high[2] as u32;
+        let low_sum = u32::from(low[0]) + u32::from(low[1]) + u32::from(low[2]);
+        let high_sum = u32::from(high[0]) + u32::from(high[1]) + u32::from(high[2]);
         assert!(low_sum < high_sum);
     }
 
@@ -5870,7 +5944,7 @@ mod frame_conversion_tests {
         assert_eq!(buffer[3], 255); // A (always 255)
 
         // Middle pixel should be ~127
-        assert!((buffer[4] as i32 - 127).abs() <= 1);
+        assert!((i32::from(buffer[4]) - 127).abs() <= 1);
 
         // Last pixel should be 255
         assert_eq!(buffer[8], 255);

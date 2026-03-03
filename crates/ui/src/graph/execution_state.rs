@@ -99,7 +99,7 @@ impl NestedProgress {
         if self.flat_total == 0 {
             return "0/0 (0.0%)".to_string();
         }
-        let pct = (self.flat_current as f64 / self.flat_total as f64) * 100.0;
+        let pct = (f64::from(self.flat_current) / f64::from(self.flat_total)) * 100.0;
         format!(
             "{}/{} ({:.1}%)",
             self.flat_current + 1,
@@ -109,6 +109,7 @@ impl NestedProgress {
     }
 
     /// Get progress as fraction (0.0 to 1.0)
+    #[allow(clippy::cast_precision_loss)]
     pub fn progress(&self) -> f32 {
         if self.flat_total == 0 {
             0.0
@@ -287,6 +288,7 @@ impl ExecutionState {
     }
 
     /// Calculate progress percentage (0.0 - 1.0)
+    #[allow(clippy::cast_precision_loss)]
     pub fn progress(&self) -> f32 {
         if self.total_events == 0 {
             0.0

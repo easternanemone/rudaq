@@ -119,7 +119,7 @@ impl AnalogInputPanel {
         // Auto-refresh logic
         if self.auto_refresh {
             let elapsed = self.last_refresh.elapsed();
-            if elapsed.as_millis() >= self.refresh_interval_ms as u128 {
+            if elapsed.as_millis() >= u128::from(self.refresh_interval_ms) {
                 if let Some(c) = client.as_deref() {
                     self.read_all_channels(runtime, c);
                 }
@@ -335,7 +335,7 @@ impl AnalogInputPanel {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
             // Simulated voltage (replace with actual read)
-            let voltage = (channel as f64 * 0.1) + rand_voltage();
+            let voltage = (f64::from(channel) * 0.1) + rand_voltage();
 
             let _ = tx.send(ActionResult::Reading { channel, voltage }).await;
         });
@@ -413,5 +413,5 @@ fn rand_voltage() -> f64 {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
         .subsec_nanos();
-    (nanos % 1000) as f64 / 10000.0 - 0.05
+    f64::from(nanos % 1000) / 10000.0 - 0.05
 }

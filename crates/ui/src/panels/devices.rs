@@ -841,6 +841,7 @@ impl DevicesPanel {
 
     /// Render a single parameter (helper for Properties section)
     /// Uses separate edit buffers to allow mutation during rendering
+    #[allow(clippy::cast_possible_truncation)]
     fn render_single_parameter(
         &mut self,
         ui: &mut egui::Ui,

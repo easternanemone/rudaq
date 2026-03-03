@@ -117,6 +117,7 @@ impl ExperimentViewer {
     }
 
     /// Show Scan node body with inline editors.
+    #[allow(clippy::cast_sign_loss)]
     fn show_scan_body(
         &self,
         ui: &mut egui::Ui,
@@ -142,6 +143,7 @@ impl ExperimentViewer {
 
         ui.horizontal(|ui| {
             ui.label("Points:");
+            #[allow(clippy::cast_possible_wrap)]
             let mut pts = *points as i32;
             if ui
                 .add(egui::DragValue::new(&mut pts).speed(1).range(1..=10000))
@@ -153,6 +155,7 @@ impl ExperimentViewer {
     }
 
     /// Show Acquire node body with inline editors.
+    #[allow(clippy::cast_sign_loss)]
     fn show_acquire_body(
         &self,
         ui: &mut egui::Ui,
@@ -180,6 +183,7 @@ impl ExperimentViewer {
 
         ui.horizontal(|ui| {
             ui.label("Frames:");
+            #[allow(clippy::cast_possible_wrap)]
             let mut v = config.frame_count as i32;
             if ui
                 .add(egui::DragValue::new(&mut v).speed(1).range(1..=1000))
@@ -325,6 +329,7 @@ impl ExperimentViewer {
     }
 
     /// Show Loop node body with inline editors.
+    #[allow(clippy::cast_sign_loss)]
     fn show_loop_body(
         &self,
         ui: &mut egui::Ui,
@@ -386,6 +391,7 @@ impl ExperimentViewer {
             LoopTermination::Count { iterations } => {
                 ui.horizontal(|ui| {
                     ui.label("Iterations:");
+                    #[allow(clippy::cast_possible_wrap)]
                     let mut v = *iterations as i32;
                     if ui
                         .add(egui::DragValue::new(&mut v).speed(1).range(1..=100000))
@@ -408,6 +414,7 @@ impl ExperimentViewer {
                 });
                 ui.horizontal(|ui| {
                     ui.label("Max iter:");
+                    #[allow(clippy::cast_possible_wrap)]
                     let mut v = *max_iterations as i32;
                     if ui
                         .add(egui::DragValue::new(&mut v).speed(1).range(1..=100000))
@@ -420,6 +427,7 @@ impl ExperimentViewer {
             LoopTermination::Infinite { max_iterations } => {
                 ui.horizontal(|ui| {
                     ui.label("Safety limit:");
+                    #[allow(clippy::cast_possible_wrap)]
                     let mut v = *max_iterations as i32;
                     if ui
                         .add(egui::DragValue::new(&mut v).speed(1).range(1..=100000))
@@ -433,6 +441,7 @@ impl ExperimentViewer {
     }
 
     /// Show NestedScan node body with inline editors.
+    #[allow(clippy::cast_sign_loss)]
     fn show_nested_scan_body(
         &self,
         ui: &mut egui::Ui,
@@ -464,6 +473,7 @@ impl ExperimentViewer {
             });
             ui.horizontal(|ui| {
                 ui.label("Points:");
+                #[allow(clippy::cast_possible_wrap)]
                 let mut v = config.outer.points as i32;
                 if ui
                     .add(egui::DragValue::new(&mut v).speed(1).range(1..=10000))
@@ -495,6 +505,7 @@ impl ExperimentViewer {
             });
             ui.horizontal(|ui| {
                 ui.label("Points:");
+                #[allow(clippy::cast_possible_wrap)]
                 let mut v = config.inner.points as i32;
                 if ui
                     .add(egui::DragValue::new(&mut v).speed(1).range(1..=10000))
@@ -507,6 +518,7 @@ impl ExperimentViewer {
     }
 
     /// Show AdaptiveScan node body with inline editors.
+    #[allow(clippy::cast_sign_loss)]
     fn show_adaptive_scan_body(
         &self,
         ui: &mut egui::Ui,
@@ -537,6 +549,7 @@ impl ExperimentViewer {
             });
             ui.horizontal(|ui| {
                 ui.label("Points:");
+                #[allow(clippy::cast_possible_wrap)]
                 let mut v = config.scan.points as i32;
                 if ui
                     .add(egui::DragValue::new(&mut v).speed(1).range(1..=10000))

@@ -45,6 +45,7 @@ impl LogEntry {
         }
     }
 
+    #[allow(clippy::cast_precision_loss)]
     pub fn counter(timestamp: f64, counter: u32, count: u64) -> Self {
         Self {
             timestamp,
@@ -140,6 +141,7 @@ impl Default for LogStatistics {
 }
 
 impl LogStatistics {
+    #[allow(clippy::cast_precision_loss)]
     fn update(&mut self) {
         self.entries_since_calc += 1;
 
@@ -573,6 +575,7 @@ impl DataLoggerPanel {
                 channels.sort_by(|a, b| a.0.cmp(b.0));
 
                 for (channel, (min, max, sum, count)) in channels {
+                    #[allow(clippy::cast_precision_loss)]
                     let mean = sum / *count as f64;
 
                     ui.label(RichText::new(channel).color(Self::channel_color(channel)));

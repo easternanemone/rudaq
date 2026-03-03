@@ -293,6 +293,7 @@ impl DeviceControlWidget for PowerMeterControlPanel {
 
         // Power gauge (large, centered)
         ui.vertical_centered(|ui| {
+            #[allow(clippy::cast_possible_truncation)]
             let power = self.state.power_mw.unwrap_or(0.0) as f32;
 
             // Determine range and units based on power level

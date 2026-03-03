@@ -280,10 +280,13 @@ impl Colorbar {
         let samples = 64; // Number of gradient steps
 
         for i in 0..samples {
+            #[allow(clippy::cast_precision_loss)]
             let y_start = rect.top() + (i as f32 / samples as f32) * height;
+            #[allow(clippy::cast_precision_loss)]
             let y_end = rect.top() + ((i + 1) as f32 / samples as f32) * height;
 
             // Value goes from 1.0 (top) to 0.0 (bottom)
+            #[allow(clippy::cast_precision_loss)]
             let value = 1.0 - (i as f32 / samples as f32);
 
             let color = colormap.apply(value);
@@ -315,10 +318,13 @@ impl Colorbar {
         let samples = 64; // Number of gradient steps
 
         for i in 0..samples {
+            #[allow(clippy::cast_precision_loss)]
             let x_start = rect.left() + (i as f32 / samples as f32) * width;
+            #[allow(clippy::cast_precision_loss)]
             let x_end = rect.left() + ((i + 1) as f32 / samples as f32) * width;
 
             // Value goes from 0.0 (left) to 1.0 (right)
+            #[allow(clippy::cast_precision_loss)]
             let value = i as f32 / samples as f32;
 
             let color = colormap.apply(value);

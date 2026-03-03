@@ -1233,6 +1233,7 @@ impl ConfigDrivenPanel {
 
             if let Some(value) = state.value {
                 // Gauge widget with auto-scaling
+                #[allow(clippy::cast_possible_truncation)]
                 let raw_f32 = value as f32;
                 let max_val = if raw_f32.abs() < 1.0 {
                     1.0
@@ -1884,6 +1885,7 @@ fn can_send_command(last: Option<Instant>, debounce: Duration) -> bool {
 /// Wavelengths outside this range (e.g. IR Ti:Sapphire 690–1040 nm) are shown as
 /// deep red with decreasing intensity. Near-UV appears violet.
 fn wavelength_to_rgb(nm: f64) -> egui::Color32 {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let (r, g, b) = if nm < 380.0 {
         (0.4, 0.0, 0.4) // UV → dim violet
     } else if nm < 440.0 {
@@ -1909,7 +1911,9 @@ fn wavelength_to_rgb(nm: f64) -> egui::Color32 {
         (fade, 0.0, 0.0)
     };
 
-    egui::Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let color = egui::Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8);
+    color
 }
 
 #[cfg(test)]

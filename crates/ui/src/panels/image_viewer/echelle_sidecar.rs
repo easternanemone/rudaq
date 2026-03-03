@@ -92,6 +92,7 @@ impl EchelleSidecarRunner {
         }))
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     pub(super) fn request_json(
         &self,
         request: &Value,

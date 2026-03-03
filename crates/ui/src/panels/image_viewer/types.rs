@@ -151,6 +151,7 @@ impl FpsCounter {
         }
     }
 
+    #[allow(clippy::cast_precision_loss)]
     pub(super) fn fps(&self) -> f32 {
         if self.frame_times.len() < 2 {
             return 0.0;

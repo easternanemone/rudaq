@@ -264,9 +264,13 @@ impl LogEntry {
     /// Format timestamp as HH:MM:SS.mmm
     pub fn formatted_timestamp(&self) -> String {
         let total_secs = self.timestamp_secs;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let hours = (total_secs / 3600.0) as u32;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let mins = ((total_secs % 3600.0) / 60.0) as u32;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let secs = (total_secs % 60.0) as u32;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let millis = ((total_secs % 1.0) * 1000.0) as u32;
         format!("{:02}:{:02}:{:02}.{:03}", hours, mins, secs, millis)
     }

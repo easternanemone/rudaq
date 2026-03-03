@@ -50,10 +50,15 @@ impl EchelleExtractionPreview {
         let timestamp = Utc::now();
 
         for order in &self.orders {
+            #[allow(clippy::cast_precision_loss)]
             let mean_valid_fraction = if order.valid_fraction.is_empty() {
                 0.0
             } else {
-                order.valid_fraction.iter().map(|&v| v as f64).sum::<f64>()
+                order
+                    .valid_fraction
+                    .iter()
+                    .map(|&v| f64::from(v))
+                    .sum::<f64>()
                     / order.valid_fraction.len() as f64
             };
             measurements.push(Measurement::Spectrum {
@@ -249,25 +254,27 @@ pub(super) fn extract_preview_with_u16_scratch(
     extract_preview_with_scratch_inner(profile, &decoded, bit_depth, frame_number)
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
 pub(super) fn order_sample_image_position(
     profile: &EchelleCalibrationProfile,
     order: &EchelleOrderCalibration,
     sample_index: usize,
 ) -> Option<(f32, f32)> {
+    #[allow(clippy::cast_possible_truncation)]
     let sample_local = order.sample_start.checked_add(sample_index as u32)?;
     if sample_local > order.sample_end {
         return None;
     }
 
     let roi_disp_offset = match profile.orientation.dispersion_axis {
-        DetectorAxis::X => profile.compatibility.roi_x as f64,
-        DetectorAxis::Y => profile.compatibility.roi_y as f64,
+        DetectorAxis::X => f64::from(profile.compatibility.roi_x),
+        DetectorAxis::Y => f64::from(profile.compatibility.roi_y),
     };
     let roi_cross_offset = match profile.orientation.cross_dispersion_axis {
-        DetectorAxis::X => profile.compatibility.roi_x as f64,
-        DetectorAxis::Y => profile.compatibility.roi_y as f64,
+        DetectorAxis::X => f64::from(profile.compatibility.roi_x),
+        DetectorAxis::Y => f64::from(profile.compatibility.roi_y),
     };
-    let sample_sensor = sample_local as f64 + roi_disp_offset;
+    let sample_sensor = f64::from(sample_local) + roi_disp_offset;
     let center_sensor = eval_trace(&order.trace, sample_sensor).ok()?;
     let center_local = center_sensor - roi_cross_offset;
 
@@ -301,6 +308,7 @@ fn extract_preview_with_scratch_inner(
     })
 }
 
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 fn extract_order(
     profile: &EchelleCalibrationProfile,
     order: &EchelleOrderCalibration,
@@ -310,8 +318,10 @@ fn extract_order(
     let half_width = order
         .aperture_half_width_px
         .unwrap_or(profile.extraction.default_aperture_half_width_px);
+    #[allow(clippy::cast_possible_truncation)]
     let radius = half_width.max(0.0).floor() as i32;
 
+    #[allow(clippy::cast_sign_loss)]
     let planned_span = (radius * 2 + 1).max(1) as u32;
     let mut wavelengths = Vec::new();
     let mut flux = Vec::new();
@@ -322,16 +332,16 @@ fn extract_order(
     let mut saturated_samples = 0u32;
 
     let roi_disp_offset = match profile.orientation.dispersion_axis {
-        DetectorAxis::X => profile.compatibility.roi_x as f64,
-        DetectorAxis::Y => profile.compatibility.roi_y as f64,
+        DetectorAxis::X => f64::from(profile.compatibility.roi_x),
+        DetectorAxis::Y => f64::from(profile.compatibility.roi_y),
     };
     let roi_cross_offset = match profile.orientation.cross_dispersion_axis {
-        DetectorAxis::X => profile.compatibility.roi_x as f64,
-        DetectorAxis::Y => profile.compatibility.roi_y as f64,
+        DetectorAxis::X => f64::from(profile.compatibility.roi_x),
+        DetectorAxis::Y => f64::from(profile.compatibility.roi_y),
     };
 
     for sample_local in order.sample_start..=order.sample_end {
-        let sample_sensor = sample_local as f64 + roi_disp_offset;
+        let sample_sensor = f64::from(sample_local) + roi_disp_offset;
         let center_sensor = eval_trace(&order.trace, sample_sensor).map_err(|e| {
             format!(
                 "order {} trace evaluation failed at sample {}: {}",
@@ -353,9 +363,11 @@ fn extract_order(
         })?;
         wavelengths.push(wavelength.0);
 
+        #[allow(clippy::cast_possible_truncation)]
         let center_px = center_local.round() as i32;
         let mut sample_sum = 0.0f64;
         let mut valid = 0u32;
+        #[allow(clippy::cast_precision_loss)]
         let mut saturated_sample = false;
 
         match profile.extraction.summation_mode {
@@ -372,7 +384,7 @@ fn extract_order(
                         && !is_excluded(profile, x as u32, y as u32)
                     {
                         if let Some(pixel) = frame.get(x as u32, y as u32) {
-                            sample_sum = pixel as f64;
+                            sample_sum = f64::from(pixel);
                             valid = 1;
                             saturated_sample = pixel >= saturation_threshold;
                         }
@@ -398,7 +410,7 @@ fn extract_order(
                             continue;
                         }
                         if let Some(pixel) = frame.get(x as u32, y as u32) {
-                            sample_sum += pixel as f64;
+                            sample_sum += f64::from(pixel);
                             valid += 1;
                             saturated_sample |= pixel >= saturation_threshold;
                         }
@@ -408,6 +420,7 @@ fn extract_order(
                 if valid > 0 {
                     if let Some(bg_cfg) = &profile.extraction.background {
                         if bg_cfg.enabled {
+                            #[allow(clippy::cast_possible_wrap)]
                             let (bg_sum, bg_count) = sample_background_sidebands(
                                 profile,
                                 frame,
@@ -418,8 +431,8 @@ fn extract_order(
                                 bg_cfg.baseline_window_px as i32,
                             );
                             if bg_count > 0 {
-                                let bg_mean = bg_sum / bg_count as f64;
-                                sample_sum -= bg_mean * valid as f64;
+                                let bg_mean = bg_sum / f64::from(bg_count);
+                                sample_sum -= bg_mean * f64::from(valid);
                             }
                         }
                     }
@@ -434,7 +447,9 @@ fn extract_order(
             saturated_samples += 1;
         }
         flux.push(sample_sum);
-        valid_fraction.push(valid as f32 / planned_span as f32);
+        #[allow(clippy::cast_precision_loss)]
+        let frac = valid as f32 / planned_span as f32;
+        valid_fraction.push(frac);
         saturated.push(saturated_sample);
     }
 
@@ -452,6 +467,7 @@ fn extract_order(
     })
 }
 
+#[allow(clippy::cast_sign_loss)]
 fn sample_background_sidebands(
     profile: &EchelleCalibrationProfile,
     frame: &DecodedIntensityFrame<'_>,
@@ -487,7 +503,7 @@ fn sample_background_sidebands(
                     continue;
                 }
                 if let Some(pixel) = frame.get(x as u32, y as u32) {
-                    bg_sum += pixel as f64;
+                    bg_sum += f64::from(pixel);
                     bg_count += 1;
                 }
             }
@@ -700,6 +716,7 @@ mod tests {
 
         // Constant trace centered at y=3 with aperture radius=1 => sum rows 2,3,4.
         for x in 0..width {
+            #[allow(clippy::cast_possible_truncation)]
             let v = (x + 1) as u8;
             for y in 2..=4 {
                 image[(y * width + x) as usize] = v;
@@ -862,6 +879,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_possible_truncation)]
     fn real_canned_hg2_reference_regression_matches_declared_tolerances() {
         let dataset_dir = real_hg2_dataset_dir();
         let reference_dir = dataset_dir.join("reference");
@@ -884,9 +902,13 @@ mod tests {
         );
 
         let raw_expectations = &tolerances["raw_frame_expectations"];
+        #[allow(clippy::cast_possible_truncation)]
         let expected_width = raw_expectations["width"].as_u64().unwrap() as u32;
+        #[allow(clippy::cast_possible_truncation)]
         let expected_height = raw_expectations["height"].as_u64().unwrap() as u32;
+        #[allow(clippy::cast_possible_truncation)]
         let expected_bit_depth = raw_expectations["bit_depth_nominal"].as_u64().unwrap() as u32;
+        #[allow(clippy::cast_possible_truncation)]
         let expected_uncompressed = raw_expectations["uncompressed_size_bytes"]
             .as_u64()
             .unwrap() as u32;
@@ -906,19 +928,19 @@ mod tests {
             let summary = read_json_value(dataset_dir.join(format!("{label}_summary.json")));
             assert_eq!(
                 summary["frame"]["width"].as_u64(),
-                Some(expected_width as u64)
+                Some(u64::from(expected_width))
             );
             assert_eq!(
                 summary["frame"]["height"].as_u64(),
-                Some(expected_height as u64)
+                Some(u64::from(expected_height))
             );
             assert_eq!(
                 summary["frame"]["bit_depth"].as_u64(),
-                Some(expected_bit_depth as u64)
+                Some(u64::from(expected_bit_depth))
             );
             assert_eq!(
                 summary["frame"]["uncompressed_size"].as_u64(),
-                Some(expected_uncompressed as u64)
+                Some(u64::from(expected_uncompressed))
             );
             assert_eq!(
                 summary["frame"]["compression"].as_str(),
@@ -997,7 +1019,9 @@ mod tests {
                 .get(&key)
                 .unwrap_or_else(|| panic!("missing pairwise diagnostics entry for {:?}", key));
 
+            #[allow(clippy::cast_possible_wrap)]
             let max_abs_target = spec["max_abs_diff"]["target"].as_u64().unwrap() as i64;
+            #[allow(clippy::cast_possible_wrap)]
             let max_abs_tol = spec["max_abs_diff"]["tolerance"].as_u64().unwrap() as i64;
             let max_abs_actual = actual["max_abs_diff"].as_i64().unwrap();
             assert!(
@@ -1102,7 +1126,9 @@ mod tests {
                 .chunks_exact(2)
                 .map(|b| u16::from_le_bytes([b[0], b[1]]))
                 .collect::<Vec<_>>();
-            let mean = pixels_u16.iter().map(|&v| v as f64).sum::<f64>() / pixels_u16.len() as f64;
+            #[allow(clippy::cast_precision_loss)]
+            let mean =
+                pixels_u16.iter().map(|&v| f64::from(v)).sum::<f64>() / pixels_u16.len() as f64;
             let max = pixels_u16.iter().copied().max().unwrap_or_default();
 
             let side_diag = &result["quality"]["capture_image_diagnostics"];
@@ -1134,6 +1160,7 @@ mod tests {
 
     #[test]
     #[ignore = "benchmark harness; run manually to collect latency/throughput metrics"]
+    #[allow(clippy::cast_precision_loss)]
     fn benchmark_real_canned_hg2_extraction_latency_and_live_budget() {
         let labels = ["hg2_001ms", "hg2_010ms", "hg2_100ms"];
 
@@ -1214,6 +1241,7 @@ mod tests {
 
         let extract_stats = latency_stats(&extract_only_us);
         let total_stats = latency_stats(&decode_extract_us);
+        #[allow(clippy::cast_precision_loss)]
         let frames_processed = (iterations * frames.len()) as f64;
         let total_elapsed_s = decode_extract_us.iter().sum::<f64>() / 1_000_000.0;
         let throughput_fps = if total_elapsed_s > 0.0 {
@@ -1301,6 +1329,7 @@ mod tests {
         excluded_region: Option<PixelRegion>,
     ) -> EchelleCalibrationProfile {
         let sample_count = (sample_end - sample_start + 1) as usize;
+        #[allow(clippy::cast_precision_loss)]
         let wavelengths = (0..sample_count)
             .map(|i| 500.0 + i as f64 * 0.1)
             .collect::<Vec<_>>();
@@ -1344,7 +1373,7 @@ mod tests {
                     basis: PolynomialBasis::Monomial,
                     coefficients: vec![trace_center_y],
                     domain_start: 0.0,
-                    domain_end: (width - 1) as f64,
+                    domain_end: f64::from(width - 1),
                 },
                 wavelength: EchelleWavelengthModel::Sampled {
                     wavelengths,
@@ -1380,9 +1409,13 @@ mod tests {
         .unwrap_or_else(|e| panic!("failed to parse {}: {e}", summary_path.display()));
 
         let frame = &summary["frame"];
+        #[allow(clippy::cast_possible_truncation)]
         let width = frame["width"].as_u64().unwrap() as u32;
+        #[allow(clippy::cast_possible_truncation)]
         let height = frame["height"].as_u64().unwrap() as u32;
+        #[allow(clippy::cast_possible_truncation)]
         let bit_depth = frame["bit_depth"].as_u64().unwrap() as u32;
+        #[allow(clippy::cast_possible_truncation)]
         let uncompressed_size = frame["uncompressed_size"].as_u64().unwrap() as u32;
         let payload = std::fs::read(&payload_path)
             .unwrap_or_else(|e| panic!("failed to read {}: {e}", payload_path.display()));
@@ -1447,8 +1480,14 @@ mod tests {
         );
         let mut sorted = samples.to_vec();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        #[allow(clippy::cast_precision_loss)]
         let mean = sorted.iter().sum::<f64>() / sorted.len() as f64;
         let pct = |p: f64| -> f64 {
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_precision_loss,
+                clippy::cast_sign_loss
+            )]
             let idx = ((sorted.len() - 1) as f64 * p).round() as usize;
             sorted[idx]
         };

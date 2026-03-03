@@ -128,7 +128,7 @@ impl DigitalIOPanel {
         // Auto-refresh logic
         if self.auto_refresh {
             let elapsed = self.last_refresh.elapsed();
-            if elapsed.as_millis() >= self.refresh_interval_ms as u128 {
+            if elapsed.as_millis() >= u128::from(self.refresh_interval_ms) {
                 self.read_all_inputs(runtime);
                 self.last_refresh = crate::time::Instant::now();
             }
@@ -220,6 +220,7 @@ impl DigitalIOPanel {
                         // Copy values to avoid borrow conflicts
                         let pin_state = self.pins[i].state;
                         let pin_direction = self.pins[i].direction;
+                        #[allow(clippy::cast_possible_truncation)]
                         let pin_num = i as u32;
 
                         ui.vertical(|ui| {
@@ -330,7 +331,9 @@ impl DigitalIOPanel {
                         {
                             let new_state = !self.pins[i].state;
                             self.pins[i].state = new_state;
-                            write_actions.push((i as u32, new_state));
+                            #[allow(clippy::cast_possible_truncation)]
+                            let pin_idx = i as u32;
+                            write_actions.push((pin_idx, new_state));
                         }
                     } else {
                         ui.label(RichText::new(state_text).color(state_color));

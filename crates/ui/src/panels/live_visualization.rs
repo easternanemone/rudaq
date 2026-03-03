@@ -127,6 +127,7 @@ impl FpsTracker {
     }
 
     /// Record a new frame and return current FPS
+    #[allow(clippy::cast_precision_loss)]
     fn record_frame(&mut self, frame_number: u64) -> f64 {
         let now = Instant::now();
         self.frame_times.push_back(now);
@@ -156,6 +157,7 @@ impl FpsTracker {
         }
     }
 
+    #[allow(clippy::cast_precision_loss)]
     fn current_fps(&self) -> f64 {
         if self.frame_times.len() < 2 {
             return 0.0;
@@ -270,6 +272,7 @@ impl PlotState {
         self.plot.update_bounds(&points);
     }
 
+    #[allow(clippy::cast_precision_loss)]
     fn current_fps(&self) -> f64 {
         // Simple FPS estimate from data rate
         if self.data.len() < 2 {
@@ -385,6 +388,7 @@ fn trim_recent_times(times: &mut VecDeque<Instant>) {
     }
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn rate_from_instants(times: &VecDeque<Instant>) -> f64 {
     if times.len() < 2 {
         return 0.0;
@@ -425,6 +429,11 @@ fn decimate_spectrum_points(
 
     let last_index = n - 1;
     let interior_target = max_points.saturating_sub(2);
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )]
     let step = ((n - 2) as f64 / interior_target.max(1) as f64).ceil() as usize;
 
     let mut out = Vec::with_capacity(max_points);
@@ -635,16 +644,19 @@ impl LiveVisualizationPanel {
             let total_cameras = self.cameras.len();
             let total_plots = self.plots.len();
             let total_spectra = self.spectrum_plots.len();
+            #[allow(clippy::cast_precision_loss)]
             let avg_camera_fps = if total_cameras > 0 {
                 self.cameras.values().map(|c| c.current_fps()).sum::<f64>() / total_cameras as f64
             } else {
                 0.0
             };
+            #[allow(clippy::cast_precision_loss)]
             let avg_plot_fps = if total_plots > 0 {
                 self.plots.values().map(|p| p.current_fps()).sum::<f64>() / total_plots as f64
             } else {
                 0.0
             };
+            #[allow(clippy::cast_precision_loss)]
             let avg_spectrum_hz = if total_spectra > 0 {
                 self.spectrum_plots
                     .values()
@@ -765,6 +777,7 @@ impl LiveVisualizationPanel {
             if let Some(texture) = &camera.texture {
                 // Calculate fit size
                 let available = ui.available_size();
+                #[allow(clippy::cast_precision_loss)]
                 let aspect = camera.width as f32 / camera.height.max(1) as f32;
                 let fit_size = if available.x / aspect <= available.y {
                     egui::vec2(available.x, available.x / aspect)
@@ -882,8 +895,8 @@ mod tests {
 
     #[test]
     fn decimate_spectrum_points_preserves_endpoints_and_caps_length() {
-        let x = (0..5000).map(|i| i as f64).collect::<Vec<_>>();
-        let y = (0..5000).map(|i| (i as f64) * 2.0).collect::<Vec<_>>();
+        let x = (0..5000).map(f64::from).collect::<Vec<_>>();
+        let y = (0..5000).map(|i| f64::from(i) * 2.0).collect::<Vec<_>>();
 
         let out = decimate_spectrum_points(&x, &y, 256);
         assert!(out.len() <= 256);
@@ -898,7 +911,9 @@ mod tests {
 
         for i in 0..(MAX_SPECTRUM_HISTORY + 5) {
             let n = 512usize;
+            #[allow(clippy::cast_precision_loss)]
             let x = (0..n).map(|j| j as f64).collect::<Vec<_>>();
+            #[allow(clippy::cast_precision_loss)]
             let y = (0..n).map(|j| j as f64 + i as f64).collect::<Vec<_>>();
             state.add_spectrum(SpectrumUpdate {
                 device_id: "spec".to_string(),

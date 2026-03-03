@@ -372,7 +372,7 @@ impl ScanBuilderPanel {
             .as_ref()
             .and_then(|id| event.data.get(id))
             .copied()
-            .unwrap_or(event.seq_num as f64);
+            .unwrap_or(f64::from(event.seq_num));
 
         // Extract detector values from event.data
         for detector_id in &self.selected_detectors {
@@ -612,13 +612,14 @@ impl ScanBuilderPanel {
     /// Render progress bar with ETA
     fn render_progress_bar(&mut self, ui: &mut egui::Ui) {
         if self.execution_state == ExecutionState::Running && self.total_points > 0 {
+            #[allow(clippy::cast_precision_loss)]
             let progress = self.current_point as f32 / self.total_points as f32;
 
             // Calculate ETA
             let elapsed = self.start_time.map(|t| t.elapsed()).unwrap_or_default();
             let eta = if self.current_point > 0 {
-                let rate = elapsed.as_secs_f64() / self.current_point as f64;
-                let remaining = (self.total_points - self.current_point) as f64 * rate;
+                let rate = elapsed.as_secs_f64() / f64::from(self.current_point);
+                let remaining = f64::from(self.total_points - self.current_point) * rate;
                 format!(", ETA: {}", format_duration(remaining))
             } else {
                 String::new()
@@ -730,7 +731,9 @@ impl ScanBuilderPanel {
                     };
 
                     // Blue (cold) to Red (hot) gradient
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     let r = (normalized * 255.0) as u8;
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     let b = ((1.0 - normalized) * 255.0) as u8;
                     let color = egui::Color32::from_rgb(r, 50, b);
 
@@ -748,8 +751,11 @@ impl ScanBuilderPanel {
             let (rect, _) = ui.allocate_exact_size(egui::vec2(100.0, 15.0), egui::Sense::hover());
             let painter = ui.painter_at(rect);
             for i in 0..100 {
+                #[allow(clippy::cast_precision_loss)]
                 let t = i as f32 / 100.0;
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let r = (t * 255.0) as u8;
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let b = ((1.0 - t) * 255.0) as u8;
                 let color = egui::Color32::from_rgb(r, 50, b);
                 let x = rect.min.x + t * rect.width();
@@ -1503,7 +1509,7 @@ impl ScanBuilderPanel {
             };
         }
 
-        let estimated_duration_secs = (total_points as f64) * dwell_ms / 1000.0;
+        let estimated_duration_secs = f64::from(total_points) * dwell_ms / 1000.0;
 
         ScanPreview {
             total_points,

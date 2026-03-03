@@ -176,6 +176,7 @@ impl ChannelState {
         self.history.clear();
     }
 
+    #[allow(clippy::cast_precision_loss)]
     fn mean(&self) -> f64 {
         if self.count > 0 {
             self.sum / self.count as f64
@@ -187,6 +188,7 @@ impl ChannelState {
     fn std_dev(&self) -> f64 {
         if self.count > 1 {
             let mean = self.mean();
+            #[allow(clippy::cast_precision_loss)]
             let variance = (self.sum_sq / self.count as f64) - (mean * mean);
             variance.max(0.0).sqrt()
         } else {
@@ -209,7 +211,9 @@ impl ChannelState {
         }
         let mean = self.mean();
         let sum_sq: f64 = self.history.iter().map(|v| (v - mean).powi(2)).sum();
-        (sum_sq / self.history.len() as f64).sqrt()
+        #[allow(clippy::cast_precision_loss)]
+        let rms = (sum_sq / self.history.len() as f64).sqrt();
+        rms
     }
 }
 
@@ -395,6 +399,7 @@ impl VoltmeterPanel {
                             Some(Ok(data)) => {
                                 // Average all voltages in this batch for stability
                                 if !data.voltages.is_empty() {
+                                    #[allow(clippy::cast_precision_loss)]
                                     let avg_voltage: f64 = data.voltages.iter().sum::<f64>()
                                         / data.voltages.len() as f64;
                                     let reading = VoltmeterReading::new(channel, avg_voltage);
@@ -731,6 +736,7 @@ impl VoltmeterPanel {
 
             // Bar
             let available_width = ui.available_width() - 80.0;
+            #[allow(clippy::cast_possible_truncation)]
             let bar_width = (available_width * normalized as f32).max(2.0);
 
             let (rect, _response) =
@@ -752,6 +758,7 @@ impl VoltmeterPanel {
 
             // Center line (zero)
             if min < 0.0 && max > 0.0 {
+                #[allow(clippy::cast_possible_truncation)]
                 let zero_x = rect.min.x + (available_width * (-min / range) as f32);
                 ui.painter().line_segment(
                     [

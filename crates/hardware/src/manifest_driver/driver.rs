@@ -1513,6 +1513,11 @@ impl GenericDriver {
                 // SAFETY: pixel index bounded by frame dimensions; gradient value bounded by intensity (u16 range)
                 for y in 0..height {
                     for x in 0..width {
+                        #[allow(
+                            clippy::cast_possible_truncation,
+                            clippy::cast_precision_loss,
+                            clippy::cast_sign_loss
+                        )]
                         let idx = (y * width + x) as usize;
                         buffer[idx] = ((x as f32 / width as f32) * f32::from(intensity)) as u16;
                     }

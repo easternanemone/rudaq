@@ -140,6 +140,7 @@ impl PropertyInspector {
     }
 
     /// Show Acquire node inspector.
+    #[allow(clippy::cast_sign_loss)]
     fn show_acquire_inspector(
         ui: &mut Ui,
         config: &mut crate::graph::nodes::AcquireConfig,
@@ -173,6 +174,7 @@ impl PropertyInspector {
         // Frame count with range limit
         ui.horizontal(|ui| {
             ui.label("Frame Count:");
+            #[allow(clippy::cast_possible_wrap)]
             let mut v = config.frame_count as i32;
             let resp = ui.add(egui::DragValue::new(&mut v).speed(1).range(1..=1000));
             if resp.changed() {
@@ -289,6 +291,7 @@ impl PropertyInspector {
     }
 
     /// Show Loop node inspector.
+    #[allow(clippy::cast_sign_loss)]
     fn show_loop_inspector(
         ui: &mut Ui,
         config: &mut crate::graph::nodes::LoopConfig,
@@ -347,6 +350,7 @@ impl PropertyInspector {
             LoopTermination::Count { iterations } => {
                 ui.horizontal(|ui| {
                     ui.label("Iterations:");
+                    #[allow(clippy::cast_possible_wrap)]
                     let mut v = *iterations as i32;
                     let resp = ui.add(egui::DragValue::new(&mut v).speed(1).range(1..=10000));
                     if resp.changed() {
@@ -378,6 +382,7 @@ impl PropertyInspector {
                 // Max iterations (safety limit)
                 ui.horizontal(|ui| {
                     ui.label("Max Iterations:");
+                    #[allow(clippy::cast_possible_wrap)]
                     let mut v = *max_iterations as i32;
                     let resp = ui.add(egui::DragValue::new(&mut v).speed(1).range(1..=100000));
                     if resp.changed() {
@@ -392,6 +397,7 @@ impl PropertyInspector {
                 // Max iterations (safety limit)
                 ui.horizontal(|ui| {
                     ui.label("Max Iterations:");
+                    #[allow(clippy::cast_possible_wrap)]
                     let mut v = *max_iterations as i32;
                     let resp = ui.add(egui::DragValue::new(&mut v).speed(1).range(1..=100000));
                     if resp.changed() {
@@ -415,7 +421,7 @@ impl PropertyInspector {
         let mut changed = false;
 
         // Total points calculation
-        let total_points = config.outer.points as u64 * config.inner.points as u64;
+        let total_points = u64::from(config.outer.points) * u64::from(config.inner.points);
         ui.label(format!(
             "Total points: {} x {} = {}",
             config.outer.points, config.inner.points, total_points
@@ -444,6 +450,7 @@ impl PropertyInspector {
     }
 
     /// Show a single scan dimension (used for NestedScan outer/inner).
+    #[allow(clippy::cast_sign_loss)]
     fn show_scan_dimension(
         ui: &mut Ui,
         id_prefix: &str,
@@ -488,6 +495,7 @@ impl PropertyInspector {
         ui.horizontal(|ui| {
             ui.label("Points:");
             ui.push_id(format!("{}_points", id_prefix), |ui| {
+                #[allow(clippy::cast_possible_wrap)]
                 let mut v = dim.points as i32;
                 let resp = ui.add(egui::DragValue::new(&mut v).speed(1).range(1..=10000));
                 if resp.changed() {
@@ -721,9 +729,11 @@ impl PropertyInspector {
         .inner
     }
 
+    #[allow(clippy::cast_sign_loss)]
     fn u32_field(ui: &mut Ui, label: &str, value: &mut u32) -> bool {
         ui.horizontal(|ui| {
             ui.label(label);
+            #[allow(clippy::cast_possible_wrap)]
             let mut v = *value as i32;
             let changed = ui
                 .add(egui::DragValue::new(&mut v).speed(1).range(1..=10000))

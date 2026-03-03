@@ -117,10 +117,12 @@ impl Widget for Gauge<'_> {
                 let start_angle = -std::f32::consts::FRAC_PI_2;
                 let sweep = norm * std::f32::consts::TAU;
 
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let segments = (sweep / 0.1).ceil() as usize;
                 let mut points = Vec::with_capacity(segments + 1);
 
                 for i in 0..=segments {
+                    #[allow(clippy::cast_precision_loss)]
                     let t = i as f32 / segments as f32;
                     let angle = start_angle + t * sweep;
                     let x = center.x + track_radius * angle.cos();

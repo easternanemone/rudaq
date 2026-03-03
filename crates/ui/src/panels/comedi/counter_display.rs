@@ -159,7 +159,9 @@ impl CounterState {
             (u64::MAX - first.1) + last.1 + 1
         };
 
-        delta_count as f64 / dt
+        #[allow(clippy::cast_precision_loss)]
+        let rate = delta_count as f64 / dt;
+        rate
     }
 
     /// Time since last update in seconds
@@ -492,6 +494,7 @@ impl CounterDisplayPanel {
 
                 for i in 0..self.n_counters as usize {
                     let counter = &self.counters[i];
+                    #[allow(clippy::cast_possible_truncation)]
                     let is_selected = self.selected_counter == i as u32;
 
                     // Name

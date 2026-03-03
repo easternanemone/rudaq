@@ -382,6 +382,7 @@ impl ScansPanel {
 
             // Progress bar
             if scan.total_points > 0 {
+                #[allow(clippy::cast_precision_loss)]
                 let progress = scan.current_point as f32 / scan.total_points as f32;
                 let progress_bar = egui::ProgressBar::new(progress).text(format!(
                     "{}/{} points ({:.1}%)",

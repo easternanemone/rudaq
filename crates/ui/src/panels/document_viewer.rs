@@ -223,6 +223,7 @@ impl DocumentViewerPanel {
     }
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn format_document(doc: &Document) -> String {
     use protocol::daq::document::Payload;
     match &doc.payload {

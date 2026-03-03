@@ -176,11 +176,13 @@ impl SignalTrace {
 
         let n = values.len();
         let sum: f64 = values.iter().sum();
+        #[allow(clippy::cast_precision_loss)]
         let mean = sum / n as f64;
 
         let min = values.iter().copied().fold(f64::INFINITY, f64::min);
         let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
 
+        #[allow(clippy::cast_precision_loss)]
         let variance: f64 = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n as f64;
         let std_dev = variance.sqrt();
 
@@ -413,6 +415,7 @@ impl SignalPlotterPanel {
     }
 
     /// Render the signal plotter
+    #[allow(clippy::cast_possible_truncation)]
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         // Drain any pending async updates first
         self.drain_updates();
@@ -516,6 +519,7 @@ impl SignalPlotterPanel {
                 .width(60.0)
                 .show_ui(ui, |ui| {
                     for &window in TIME_WINDOW_OPTIONS {
+                        #[allow(clippy::cast_possible_truncation)]
                         let label = format!("{}s", window as i32);
                         if ui
                             .selectable_label((self.time_window - window).abs() < 0.01, label)

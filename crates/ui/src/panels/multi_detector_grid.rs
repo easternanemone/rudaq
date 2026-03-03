@@ -233,7 +233,17 @@ pub fn calculate_grid_dimensions(count: usize) -> (usize, usize) {
         return (0, 0);
     }
 
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )]
     let cols = (count as f64).sqrt().ceil() as usize;
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )]
     let rows = (count as f64 / cols as f64).ceil() as usize;
     (cols, rows)
 }

@@ -60,14 +60,14 @@ pub(super) fn get_pixel_value_inline(
     match bit_depth {
         8 => {
             // 8-bit grayscale: 1 byte per pixel
-            frame_data.get(pixel_index).map(|&b| b as u32)
+            frame_data.get(pixel_index).map(|&b| u32::from(b))
         }
         12 | 16 => {
             // 12-bit or 16-bit: 2 bytes per pixel (little-endian)
             let byte_index = pixel_index * 2;
             if byte_index + 1 < frame_data.len() {
-                let low = frame_data[byte_index] as u32;
-                let high = frame_data[byte_index + 1] as u32;
+                let low = u32::from(frame_data[byte_index]);
+                let high = u32::from(frame_data[byte_index + 1]);
                 Some(low | (high << 8))
             } else {
                 None
@@ -186,10 +186,11 @@ pub(super) fn convert_frame_to_rgba_into(
         8 => {
             // 8-bit grayscale
             for (i, &pixel) in data.iter().take(pixel_count).enumerate() {
-                let normalized = pixel as f32 / bit_max;
+                let normalized = f32::from(pixel) / bit_max;
 
                 // Apply histogram equalization if LUT available, otherwise linear contrast
                 let contrasted = if let Some(ref lut) = hist_lut {
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     let bin = ((normalized * 255.0) as usize).min(255);
                     lut[bin]
                 } else {
@@ -218,10 +219,11 @@ pub(super) fn convert_frame_to_rgba_into(
                     break;
                 }
                 let pixel = u16::from_le_bytes([data[byte_idx], data[byte_idx + 1]]);
-                let normalized = pixel as f32 / bit_max;
+                let normalized = f32::from(pixel) / bit_max;
 
                 // Apply histogram equalization if LUT available, otherwise linear contrast
                 let contrasted = if let Some(ref lut) = hist_lut {
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     let bin = ((normalized * 255.0) as usize).min(255);
                     lut[bin]
                 } else {
@@ -265,7 +267,7 @@ pub(super) fn compute_minmax_from_data(data: &[u8], bit_depth: u32, bit_max: f32
     match bit_depth {
         8 => {
             for &pixel in data {
-                let val = pixel as f32;
+                let val = f32::from(pixel);
                 min_val = min_val.min(val);
                 max_val = max_val.max(val);
             }
@@ -273,7 +275,7 @@ pub(super) fn compute_minmax_from_data(data: &[u8], bit_depth: u32, bit_max: f32
         12 | 16 => {
             for chunk in data.chunks_exact(2) {
                 let pixel = u16::from_le_bytes([chunk[0], chunk[1]]);
-                let val = pixel as f32;
+                let val = f32::from(pixel);
                 min_val = min_val.min(val);
                 max_val = max_val.max(val);
             }
@@ -308,14 +310,14 @@ pub(super) fn compute_percentile_minmax(
         8 => {
             values.reserve(data.len());
             for &pixel in data {
-                values.push(pixel as f32);
+                values.push(f32::from(pixel));
             }
         }
         12 | 16 => {
             values.reserve(data.len() / 2);
             for chunk in data.chunks_exact(2) {
                 let pixel = u16::from_le_bytes([chunk[0], chunk[1]]);
-                values.push(pixel as f32);
+                values.push(f32::from(pixel));
             }
         }
         _ => {
@@ -331,8 +333,18 @@ pub(super) fn compute_percentile_minmax(
     values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     // Calculate percentile indices
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )]
     let low_idx =
         ((low / 100.0) * (values.len() as f32)).clamp(0.0, (values.len() - 1) as f32) as usize;
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )]
     let high_idx =
         ((high / 100.0) * (values.len() as f32)).clamp(0.0, (values.len() - 1) as f32) as usize;
 
@@ -351,6 +363,7 @@ pub(super) fn compute_percentile_minmax(
 pub(super) fn build_histogram(data: &[u8], bit_depth: u32, bins: usize) -> Vec<u32> {
     let mut hist = vec![0u32; bins];
 
+    #[allow(clippy::cast_precision_loss)]
     let bin_scale = (bins - 1) as f32
         / match bit_depth {
             8 => 255.0,
@@ -362,14 +375,16 @@ pub(super) fn build_histogram(data: &[u8], bit_depth: u32, bins: usize) -> Vec<u
     match bit_depth {
         8 => {
             for &pixel in data {
-                let bin = ((pixel as f32 * bin_scale) as usize).min(bins - 1);
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let bin = ((f32::from(pixel) * bin_scale) as usize).min(bins - 1);
                 hist[bin] += 1;
             }
         }
         12 | 16 => {
             for chunk in data.chunks_exact(2) {
                 let pixel = u16::from_le_bytes([chunk[0], chunk[1]]);
-                let bin = ((pixel as f32 * bin_scale) as usize).min(bins - 1);
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let bin = ((f32::from(pixel) * bin_scale) as usize).min(bins - 1);
                 hist[bin] += 1;
             }
         }
@@ -382,6 +397,7 @@ pub(super) fn build_histogram(data: &[u8], bit_depth: u32, bins: usize) -> Vec<u
 /// Apply histogram equalization mapping (bd-j6xm)
 ///
 /// Returns a lookup table mapping input intensity (0.0-1.0) to output intensity (0.0-1.0)
+#[allow(clippy::cast_precision_loss)]
 pub(super) fn compute_histogram_equalization_lut(
     histogram: &[u32],
     total_pixels: usize,
@@ -398,6 +414,7 @@ pub(super) fn compute_histogram_equalization_lut(
 
     // Find first non-zero value for normalization
     let cdf_min = *cdf.iter().find(|&&x| x > 0).unwrap_or(&0);
+    #[allow(clippy::cast_possible_truncation)]
     let cdf_range = (total_pixels as u32).saturating_sub(cdf_min).max(1);
 
     // Build equalization lookup table
@@ -420,6 +437,11 @@ pub(super) fn compute_clahe_lut(
     let bins = histogram.len();
 
     // Clip histogram to limit contrast enhancement
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )]
     let clip_value = (clip_limit * total_pixels as f32 / bins as f32) as u32;
     let mut clipped_hist = histogram.to_vec();
     let mut excess = 0u32;
@@ -432,6 +454,7 @@ pub(super) fn compute_clahe_lut(
     }
 
     // Redistribute excess evenly
+    #[allow(clippy::cast_possible_truncation)]
     let redistribute = excess / bins as u32;
     for count in &mut clipped_hist {
         *count += redistribute;

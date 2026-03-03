@@ -73,6 +73,7 @@ fn is_pid_alive(pid: u32) -> bool {
         // Signal 0 checks process existence without sending a signal
         // SAFETY: kill(pid, 0) is a standard POSIX existence check with no side effects
         #[allow(unsafe_code)]
+        #[allow(clippy::cast_possible_wrap)]
         let alive = unsafe { libc::kill(pid as libc::pid_t, 0) == 0 };
         alive
     }
@@ -160,6 +161,7 @@ fn check_crashed_session() -> Option<String> {
             continue;
         }
 
+        #[allow(clippy::cast_possible_truncation)]
         let pid = session.get("pid").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
         // Skip our own session file
         if pid == my_pid {

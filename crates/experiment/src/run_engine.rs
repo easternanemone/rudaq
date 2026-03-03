@@ -378,6 +378,7 @@ impl RunEngine {
 
     /// Execute a single plan
     #[instrument(skip(self, queued), fields(run_uid = %queued.run_uid, plan_type = %queued.plan.plan_type()), err)]
+    #[allow(clippy::cast_possible_truncation)]
     async fn execute_plan(&self, mut queued: QueuedPlan) -> anyhow::Result<()> {
         let plan = &mut queued.plan;
 

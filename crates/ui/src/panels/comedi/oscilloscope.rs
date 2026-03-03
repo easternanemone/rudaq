@@ -190,6 +190,7 @@ impl ChannelState {
 
         let n = values.len();
         let sum: f64 = values.iter().sum();
+        #[allow(clippy::cast_precision_loss)]
         let mean = sum / n as f64;
         let min = values.iter().copied().fold(f64::INFINITY, f64::min);
         let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
@@ -290,7 +291,9 @@ impl SyntheticSignal {
             }
             Self::Noise => {
                 // Simple pseudo-random based on time
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let seed = (t * 1_000_000.0) as u64;
+                #[allow(clippy::cast_precision_loss)]
                 let noise = ((seed.wrapping_mul(1103515245).wrapping_add(12345)) % 1000) as f64
                     / 500.0
                     - 1.0;
@@ -607,6 +610,7 @@ impl OscilloscopePanel {
             for (i, channel) in self.channels.iter_mut().enumerate() {
                 if channel.enabled {
                     // Slightly different frequency per channel for visual interest
+                    #[allow(clippy::cast_precision_loss)]
                     let freq_offset = i as f64 * 0.5;
                     let voltage = self.synthetic_signal.generate(
                         t,

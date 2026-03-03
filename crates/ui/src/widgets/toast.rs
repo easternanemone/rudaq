@@ -165,6 +165,7 @@ impl Toasts {
                 )
                 .show(ctx, |ui| {
                     let opacity = toast.remaining_fraction().min(1.0);
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     let alpha = (opacity * 255.0) as u8;
 
                     Frame::popup(ui.style())

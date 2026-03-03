@@ -110,6 +110,7 @@ impl CodePreviewPanel {
                         // Note: CodeEditor requires mutable string but we ignore changes (read-only)
                         let mut code_copy = self.code.clone();
                         // Calculate rows based on available height (approximate 14px per line)
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                         let rows = ((available_height / 14.0) as usize).max(10);
                         CodeEditor::default()
                             .id_source("rhai_preview")

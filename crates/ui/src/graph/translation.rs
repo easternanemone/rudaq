@@ -276,12 +276,12 @@ fn translate_node_with_snarl(
             if *points > 0 && !actuator.is_empty() {
                 movers.push(actuator.clone());
                 let step = if *points > 1 {
-                    (stop - start) / (*points as f64 - 1.0)
+                    (stop - start) / (f64::from(*points) - 1.0)
                 } else {
                     0.0
                 };
                 for i in 0..*points {
-                    let pos = start + step * i as f64;
+                    let pos = start + step * f64::from(i);
                     commands.push(PlanCommand::MoveTo {
                         device_id: actuator.clone(),
                         position: pos,
@@ -456,19 +456,19 @@ fn translate_node_with_snarl(
 
             // Calculate step sizes
             let outer_step = if config.outer.points > 1 {
-                (config.outer.stop - config.outer.start) / (config.outer.points as f64 - 1.0)
+                (config.outer.stop - config.outer.start) / (f64::from(config.outer.points) - 1.0)
             } else {
                 0.0
             };
             let inner_step = if config.inner.points > 1 {
-                (config.inner.stop - config.inner.start) / (config.inner.points as f64 - 1.0)
+                (config.inner.stop - config.inner.start) / (f64::from(config.inner.points) - 1.0)
             } else {
                 0.0
             };
 
             // Nested iteration: outer × inner
             for outer_idx in 0..config.outer.points {
-                let outer_pos = config.outer.start + outer_step * outer_idx as f64;
+                let outer_pos = config.outer.start + outer_step * f64::from(outer_idx);
 
                 // Move outer actuator
                 if !config.outer.actuator.is_empty() {
@@ -483,7 +483,7 @@ fn translate_node_with_snarl(
                 });
 
                 for inner_idx in 0..config.inner.points {
-                    let inner_pos = config.inner.start + inner_step * inner_idx as f64;
+                    let inner_pos = config.inner.start + inner_step * f64::from(inner_idx);
 
                     // Move inner actuator
                     if !config.inner.actuator.is_empty() {
@@ -544,8 +544,8 @@ fn translate_node_with_snarl(
 
                     // Include dimensional indices for Zarr coordinate assignment
                     // Convention: "_outer_idx", "_inner_idx" are reserved keys
-                    positions.insert("_outer_idx".to_string(), outer_idx as f64);
-                    positions.insert("_inner_idx".to_string(), inner_idx as f64);
+                    positions.insert("_outer_idx".to_string(), f64::from(outer_idx));
+                    positions.insert("_inner_idx".to_string(), f64::from(inner_idx));
 
                     commands.push(PlanCommand::EmitEvent {
                         stream: "primary".to_string(),
@@ -569,7 +569,7 @@ fn translate_node_with_snarl(
                 movers.push(config.scan.actuator.clone());
 
                 let step = if config.scan.points > 1 {
-                    (config.scan.stop - config.scan.start) / (config.scan.points as f64 - 1.0)
+                    (config.scan.stop - config.scan.start) / (f64::from(config.scan.points) - 1.0)
                 } else {
                     0.0
                 };
@@ -581,7 +581,7 @@ fn translate_node_with_snarl(
 
                 // Generate scan points
                 for i in 0..config.scan.points {
-                    let pos = config.scan.start + step * i as f64;
+                    let pos = config.scan.start + step * f64::from(i);
 
                     // Move actuator
                     commands.push(PlanCommand::MoveTo {

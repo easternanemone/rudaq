@@ -52,6 +52,7 @@ impl RuntimeParameterEditor {
     /// Show parameter editor UI
     ///
     /// Returns `Modified` if user changed a value, `NoChange` otherwise.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn show(
         ui: &mut Ui,
         param: &mut EditableParameter,

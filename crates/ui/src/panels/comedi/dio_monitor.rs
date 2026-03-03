@@ -468,7 +468,9 @@ impl DioMonitorPanel {
                             continue;
                         }
 
-                        let x = rect.max.x - (age / time_window * available_width as f64) as f32;
+                        #[allow(clippy::cast_possible_truncation)]
+                        let x =
+                            rect.max.x - (age / time_window * f64::from(available_width)) as f32;
 
                         // Draw horizontal line at previous level
                         let prev_y = if prev_state {

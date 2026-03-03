@@ -957,6 +957,7 @@ fn render_reading_row(ui: &mut Ui, reading: &ReadingState) {
 
         if is_power_unit(units) {
             let power_mw = normalize_power_to_mw(raw, units);
+            #[allow(clippy::cast_possible_truncation)]
             let (value, unit, max_val) = if power_mw >= 1000.0 {
                 (power_mw as f32 / 1000.0, "W", 5.0)
             } else if power_mw >= 1.0 {
@@ -975,6 +976,7 @@ fn render_reading_row(ui: &mut Ui, reading: &ReadingState) {
             ui.label(egui::RichText::new(format!("{value:.4} {unit}")).monospace());
         } else {
             let display_unit = if units.is_empty() { "" } else { units.as_str() };
+            #[allow(clippy::cast_possible_truncation)]
             let raw_f32 = raw as f32;
             let max_val = if raw_f32.abs() < 1.0 {
                 1.0

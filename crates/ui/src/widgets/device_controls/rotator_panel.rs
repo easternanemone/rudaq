@@ -152,6 +152,7 @@ impl RotatorControlPanel {
         self.panel_state.mark_refreshed();
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn move_absolute(
         &mut self,
         client: Option<&mut DaqClient>,
@@ -203,6 +204,7 @@ impl RotatorControlPanel {
         });
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn move_relative(
         &mut self,
         client: Option<&mut DaqClient>,
@@ -254,6 +256,7 @@ impl RotatorControlPanel {
         });
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn home(&mut self, client: Option<&mut DaqClient>, runtime: &Runtime, device_id: &str) {
         let Some(client) = client else {
             self.panel_state.set_error("Not connected");

@@ -52,7 +52,7 @@ impl RoiShape {
     /// Calculate area in pixels
     pub fn area(&self) -> f64 {
         match self {
-            RoiShape::Rectangle { width, height, .. } => (*width * *height) as f64,
+            RoiShape::Rectangle { width, height, .. } => f64::from(*width * *height),
             RoiShape::Polygon { vertices } => {
                 if vertices.len() < 3 {
                     return 0.0;
@@ -61,8 +61,8 @@ impl RoiShape {
                 let mut sum = 0.0;
                 for i in 0..vertices.len() {
                     let j = (i + 1) % vertices.len();
-                    sum += (vertices[i].0 * vertices[j].1) as f64;
-                    sum -= (vertices[j].0 * vertices[i].1) as f64;
+                    sum += f64::from(vertices[i].0 * vertices[j].1);
+                    sum -= f64::from(vertices[j].0 * vertices[i].1);
                 }
                 sum.abs() / 2.0
             }
@@ -72,7 +72,7 @@ impl RoiShape {
     /// Calculate perimeter in pixels
     pub fn perimeter(&self) -> f64 {
         match self {
-            RoiShape::Rectangle { width, height, .. } => 2.0 * (*width + *height) as f64,
+            RoiShape::Rectangle { width, height, .. } => 2.0 * f64::from(*width + *height),
             RoiShape::Polygon { vertices } => {
                 if vertices.len() < 2 {
                     return 0.0;
@@ -82,7 +82,7 @@ impl RoiShape {
                     let j = (i + 1) % vertices.len();
                     let dx = vertices[j].0 - vertices[i].0;
                     let dy = vertices[j].1 - vertices[i].1;
-                    sum += ((dx * dx + dy * dy) as f64).sqrt();
+                    sum += f64::from(dx * dx + dy * dy).sqrt();
                 }
                 sum
             }
@@ -90,6 +90,7 @@ impl RoiShape {
     }
 
     /// Calculate centroid
+    #[allow(clippy::cast_precision_loss)]
     pub fn centroid(&self) -> (f32, f32) {
         match self {
             RoiShape::Rectangle {
@@ -106,6 +107,7 @@ impl RoiShape {
                     return (0.0, 0.0);
                 }
                 let sum_x: f32 = vertices.iter().map(|v| v.0).sum();
+                #[allow(clippy::cast_precision_loss)]
                 let sum_y: f32 = vertices.iter().map(|v| v.1).sum();
                 (sum_x / vertices.len() as f32, sum_y / vertices.len() as f32)
             }
@@ -136,7 +138,9 @@ impl RoiShape {
                 let clamped = vertices
                     .iter()
                     .map(|(vx, vy)| {
+                        #[allow(clippy::cast_precision_loss)]
                         let cx = vx.max(0.0).min(image_width as f32 - 1.0);
+                        #[allow(clippy::cast_precision_loss)]
                         let cy = vy.max(0.0).min(image_height as f32 - 1.0);
                         (cx, cy)
                     })
@@ -147,6 +151,7 @@ impl RoiShape {
     }
 
     /// Get bounding box (min_x, min_y, max_x, max_y)
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn bounding_box(&self) -> (u32, u32, u32, u32) {
         match self {
             RoiShape::Rectangle {
@@ -188,9 +193,15 @@ impl RoiShape {
                 width,
                 height,
             } => {
+                #[allow(clippy::cast_precision_loss)]
                 let x = *x as f32;
+                #[allow(clippy::cast_precision_loss)]
                 let y = *y as f32;
-                px >= x && px < x + *width as f32 && py >= y && py < y + *height as f32
+                #[allow(clippy::cast_precision_loss)]
+                let w = *width as f32;
+                #[allow(clippy::cast_precision_loss)]
+                let h = *height as f32;
+                px >= x && px < x + w && py >= y && py < y + h
             }
             RoiShape::Polygon { vertices } => {
                 if vertices.len() < 3 {
@@ -257,6 +268,7 @@ pub struct RoiStatistics {
 
 impl RoiStatistics {
     /// Compute statistics from 8-bit grayscale pixels
+    #[allow(clippy::cast_precision_loss)]
     pub fn from_u8_pixels(pixels: &[u8]) -> Self {
         if pixels.is_empty() {
             return Self::default();
@@ -268,24 +280,26 @@ impl RoiStatistics {
         let mut max = u8::MIN;
 
         for &p in pixels {
-            sum += p as f64;
+            sum += f64::from(p);
             min = min.min(p);
             max = max.max(p);
         }
 
+        #[allow(clippy::cast_precision_loss)]
         let mean = sum / n as f64;
 
+        #[allow(clippy::cast_precision_loss)]
         let variance: f64 = pixels
             .iter()
-            .map(|&p| (p as f64 - mean).powi(2))
+            .map(|&p| (f64::from(p) - mean).powi(2))
             .sum::<f64>()
             / n as f64;
 
         Self {
             mean,
             std_dev: variance.sqrt(),
-            min: min as f64,
-            max: max as f64,
+            min: f64::from(min),
+            max: f64::from(max),
             pixel_count: n,
             area: n as f64,
             perimeter: 0.0,
@@ -293,6 +307,7 @@ impl RoiStatistics {
     }
 
     /// Compute statistics from 16-bit pixels
+    #[allow(clippy::cast_precision_loss)]
     pub fn from_u16_pixels(pixels: &[u16]) -> Self {
         if pixels.is_empty() {
             return Self::default();
@@ -304,24 +319,26 @@ impl RoiStatistics {
         let mut max = u16::MIN;
 
         for &p in pixels {
-            sum += p as f64;
+            sum += f64::from(p);
             min = min.min(p);
             max = max.max(p);
         }
 
+        #[allow(clippy::cast_precision_loss)]
         let mean = sum / n as f64;
 
+        #[allow(clippy::cast_precision_loss)]
         let variance: f64 = pixels
             .iter()
-            .map(|&p| (p as f64 - mean).powi(2))
+            .map(|&p| (f64::from(p) - mean).powi(2))
             .sum::<f64>()
             / n as f64;
 
         Self {
             mean,
             std_dev: variance.sqrt(),
-            min: min as f64,
-            max: max as f64,
+            min: f64::from(min),
+            max: f64::from(max),
             pixel_count: n,
             area: n as f64,
             perimeter: 0.0,
@@ -336,6 +353,7 @@ impl RoiStatistics {
     /// * `image_height` - Image height in pixels
     /// * `bit_depth` - Bits per pixel (8, 12, or 16)
     /// * `shape` - ROI shape to analyze
+    #[allow(clippy::cast_precision_loss)]
     pub fn from_frame_roi(
         data: &[u8],
         image_width: u32,
@@ -574,6 +592,7 @@ impl RoiSelector {
             return false;
         }
 
+        #[allow(clippy::cast_precision_loss)]
         let image_offset = (image_rect.size()
             - egui::vec2(image_size.0 as f32 * zoom, image_size.1 as f32 * zoom))
             / 2.0
@@ -595,7 +614,9 @@ impl RoiSelector {
                 if response.drag_started_by(egui::PointerButton::Primary) {
                     if let Some(pos) = response.interact_pointer_pos() {
                         let (px, py) = screen_to_pixel(pos);
-                        self.drag_start = Some((px as i32, py as i32));
+                        #[allow(clippy::cast_possible_truncation)]
+                        let start = (px as i32, py as i32);
+                        self.drag_start = Some(start);
                         self.drag_current = self.drag_start;
                     }
                 }
@@ -603,13 +624,17 @@ impl RoiSelector {
                 if response.dragged_by(egui::PointerButton::Primary) {
                     if let Some(pos) = response.interact_pointer_pos() {
                         let (px, py) = screen_to_pixel(pos);
-                        self.drag_current = Some((px as i32, py as i32));
+                        #[allow(clippy::cast_possible_truncation)]
+                        let current = (px as i32, py as i32);
+                        self.drag_current = Some(current);
                     }
                 }
 
                 if response.drag_stopped_by(egui::PointerButton::Primary) {
                     if let (Some(start), Some(end)) = (self.drag_start, self.drag_current) {
+                        #[allow(clippy::cast_sign_loss)]
                         let x = start.0.min(end.0).max(0) as u32;
+                        #[allow(clippy::cast_sign_loss)]
                         let y = start.1.min(end.1).max(0) as u32;
                         let width = (start.0 - end.0).unsigned_abs();
                         let height = (start.1 - end.1).unsigned_abs();
@@ -742,6 +767,7 @@ impl RoiSelector {
         zoom: f32,
         pan: egui::Vec2,
     ) {
+        #[allow(clippy::cast_precision_loss)]
         let image_offset = (image_rect.size()
             - egui::vec2(image_size.0 as f32 * zoom, image_size.1 as f32 * zoom))
             / 2.0
@@ -764,7 +790,9 @@ impl RoiSelector {
                     width,
                     height,
                 } => {
+                    #[allow(clippy::cast_precision_loss)]
                     let p1 = pixel_to_screen(*x as f32, *y as f32);
+                    #[allow(clippy::cast_precision_loss)]
                     let p2 = pixel_to_screen((*x + *width) as f32, (*y + *height) as f32);
                     let rect = egui::Rect::from_two_pos(p1, p2);
 
@@ -854,7 +882,9 @@ impl RoiSelector {
 
         // Draw in-progress rectangle selection
         if let (Some(start), Some(current)) = (self.drag_start, self.drag_current) {
+            #[allow(clippy::cast_precision_loss)]
             let p1 = pixel_to_screen(start.0.max(0) as f32, start.1.max(0) as f32);
+            #[allow(clippy::cast_precision_loss)]
             let p2 = pixel_to_screen(current.0.max(0) as f32, current.1.max(0) as f32);
             let rect = egui::Rect::from_two_pos(p1, p2);
 

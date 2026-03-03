@@ -449,6 +449,11 @@ impl Plan for GridScan {
         self.outer_points * self.inner_points
     }
 
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss
+    )]
     fn next_command(&mut self) -> Option<PlanCommand> {
         if self.outer_idx >= self.outer_points {
             return None;

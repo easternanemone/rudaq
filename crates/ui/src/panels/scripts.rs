@@ -501,6 +501,7 @@ impl ScriptsPanel {
 
                         // Progress bar for running/pending executions
                         if is_running || exec.state == "PENDING" {
+                            #[allow(clippy::cast_precision_loss)]
                             let progress = exec.progress_percent as f32 / 100.0;
                             ui.add(
                                 egui::ProgressBar::new(progress)
@@ -741,6 +742,7 @@ impl ScriptsPanel {
 
         // Code editor widget
         let available = ui.available_height().max(200.0);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let rows = ((available / 16.0) as usize).max(10);
         let response = CodeEditor::default()
             .id_source("scripts_inline_editor")

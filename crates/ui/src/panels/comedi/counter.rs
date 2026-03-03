@@ -148,7 +148,7 @@ impl CounterPanel {
         // Auto-refresh
         if self.auto_refresh {
             let elapsed = self.last_refresh.elapsed();
-            if elapsed.as_millis() >= self.refresh_interval_ms as u128 {
+            if elapsed.as_millis() >= u128::from(self.refresh_interval_ms) {
                 self.read_all_counters(runtime);
                 self.last_refresh = crate::time::Instant::now();
             }
@@ -222,6 +222,7 @@ impl CounterPanel {
     }
 
     /// Render details for selected counter.
+    #[allow(clippy::cast_possible_truncation)]
     fn render_counter_details(&mut self, ui: &mut Ui, runtime: &Runtime) {
         let counter_idx = self.selected_counter;
 
@@ -380,6 +381,7 @@ impl CounterPanel {
                 CounterMode::QuadratureEncoder => {
                     ui.label("Quadrature Encoder Mode");
                     ui.label("Decodes A/B phase signals from rotary encoder.");
+                    #[allow(clippy::cast_possible_wrap)]
                     let position = self.counters[counter_idx].count as i64;
                     ui.horizontal(|ui| {
                         ui.label("Position:");
@@ -439,7 +441,7 @@ impl CounterPanel {
         runtime.spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             // Simulated count value
-            let count = (counter as u64 + 1) * 1000;
+            let count = (u64::from(counter) + 1) * 1000;
             let _ = tx.send(ActionResult::CountValue { counter, count }).await;
         });
     }

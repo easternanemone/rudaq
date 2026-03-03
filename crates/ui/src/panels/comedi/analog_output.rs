@@ -196,6 +196,7 @@ impl AnalogOutputPanel {
     }
 
     /// Render control for a single channel.
+    #[allow(clippy::cast_possible_truncation)]
     fn render_channel_control(
         &mut self,
         ui: &mut Ui,
@@ -422,6 +423,7 @@ impl AnalogOutputPanel {
     }
 
     /// Zero all outputs.
+    #[allow(clippy::cast_possible_truncation)]
     fn zero_all_outputs(&mut self, runtime: &Runtime, client: Option<DaqClient>) {
         for ch in 0..self.n_channels as usize {
             self.channels[ch].voltage = 0.0;

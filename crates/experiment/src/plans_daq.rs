@@ -627,6 +627,7 @@ impl Plan for TriggeredAcquisition {
             TriggeredAcqStep::EmitEvent => {
                 #[allow(clippy::cast_precision_loss)]
                 // SAFETY: precision loss acceptable for metrics/display
+                #[allow(clippy::cast_precision_loss)]
                 let mut positions = HashMap::new();
                 positions.insert("trigger_num".to_string(), self.current_trigger as f64);
 

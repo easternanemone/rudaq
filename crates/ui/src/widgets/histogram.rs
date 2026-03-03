@@ -73,10 +73,12 @@ impl Histogram {
         self.total_pixels = pixels.len();
 
         let num_bins = self.bins.len();
+        #[allow(clippy::cast_precision_loss)]
         let scale = num_bins as f32 / 256.0;
 
         for &pixel in pixels {
-            let bin = ((pixel as f32 * scale) as usize).min(num_bins - 1);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let bin = ((f32::from(pixel) * scale) as usize).min(num_bins - 1);
             self.bins[bin] += 1;
         }
 
@@ -96,10 +98,12 @@ impl Histogram {
             16 => 65535.0,
             _ => 65535.0,
         };
+        #[allow(clippy::cast_precision_loss)]
         let scale = num_bins as f32 / (max_val + 1.0);
 
         for &pixel in pixels {
-            let bin = ((pixel as f32 * scale) as usize).min(num_bins - 1);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let bin = ((f32::from(pixel) * scale) as usize).min(num_bins - 1);
             self.bins[bin] += 1;
         }
 
@@ -180,13 +184,14 @@ impl Histogram {
 
         // Draw histogram bars
         let num_bins = self.bins.len();
+        #[allow(clippy::cast_precision_loss)]
         let bar_width = rect.width() / num_bins as f32;
         let max_height = rect.height() - 4.0;
 
         let max_value = if self.log_scale {
-            (self.max_count as f64 + 1.0).ln()
+            (f64::from(self.max_count) + 1.0).ln()
         } else {
-            self.max_count as f64
+            f64::from(self.max_count)
         };
 
         for (i, &count) in self.bins.iter().enumerate() {
@@ -195,12 +200,14 @@ impl Histogram {
             }
 
             let normalized = if self.log_scale {
-                (count as f64 + 1.0).ln() / max_value
+                (f64::from(count) + 1.0).ln() / max_value
             } else {
-                count as f64 / max_value
+                f64::from(count) / max_value
             };
 
-            let bar_height = (normalized * max_height as f64) as f32;
+            #[allow(clippy::cast_possible_truncation)]
+            let bar_height = (normalized * f64::from(max_height)) as f32;
+            #[allow(clippy::cast_precision_loss)]
             let x = rect.left() + i as f32 * bar_width;
             let bar_rect = egui::Rect::from_min_size(
                 egui::pos2(x, rect.bottom() - bar_height - 2.0),
@@ -208,7 +215,9 @@ impl Histogram {
             );
 
             // Color gradient based on intensity (white for low bins, yellow/orange for high)
+            #[allow(clippy::cast_precision_loss)]
             let intensity = i as f32 / num_bins as f32;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let color = egui::Color32::from_rgb(
                 200 + (55.0 * intensity) as u8,
                 200 - (100.0 * intensity) as u8,

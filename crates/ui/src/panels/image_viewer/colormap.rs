@@ -27,6 +27,7 @@ impl Colormap {
     #[inline]
     pub fn apply(self, value: f32) -> [u8; 3] {
         // Convert to 8-bit index (0-255)
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let idx = (value.clamp(0.0, 1.0) * 255.0) as usize;
         self.lut()[idx]
     }
@@ -46,6 +47,7 @@ impl Colormap {
 
 // Implement ColormapTrait for Colorbar widget (bd-07j1)
 impl crate::widgets::ColormapTrait for Colormap {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn apply(&self, value: f32) -> [u8; 3] {
         Colormap::apply(*self, value)
     }
@@ -54,6 +56,7 @@ impl crate::widgets::ColormapTrait for Colormap {
 // Pre-computed colormap lookup tables (bd-7rk0: performance optimization)
 // Each LUT has 256 entries for O(1) intensity-to-color mapping
 
+#[allow(clippy::cast_possible_truncation)]
 static GRAYSCALE_LUT: [[u8; 3]; 256] = {
     let mut lut = [[0u8; 3]; 256];
     let mut i = 0;
@@ -74,6 +77,7 @@ const fn compute_viridis_lut() -> [[u8; 3]; 256] {
     let mut lut = [[0u8; 3]; 256];
     let mut i = 0;
     while i < 256 {
+        #[allow(clippy::cast_precision_loss)]
         let v = i as f64 / 255.0;
         // Viridis: purple -> blue -> green -> yellow
         let r = (0.267 + v * (0.993 - 0.267)) * 255.0;
@@ -90,6 +94,7 @@ const fn compute_inferno_lut() -> [[u8; 3]; 256] {
     let mut lut = [[0u8; 3]; 256];
     let mut i = 0;
     while i < 256 {
+        #[allow(clippy::cast_precision_loss)]
         let v = i as f64 / 255.0;
         // Inferno: black -> purple -> red -> yellow (using sqrt/pow approximations)
         let r = const_sqrt(v) * 255.0;
@@ -106,6 +111,7 @@ const fn compute_plasma_lut() -> [[u8; 3]; 256] {
     let mut lut = [[0u8; 3]; 256];
     let mut i = 0;
     while i < 256 {
+        #[allow(clippy::cast_precision_loss)]
         let v = i as f64 / 255.0;
         // Plasma: blue -> purple -> orange -> yellow
         let r = (0.05 + v * 0.95) * 255.0;
@@ -122,6 +128,7 @@ const fn compute_magma_lut() -> [[u8; 3]; 256] {
     let mut lut = [[0u8; 3]; 256];
     let mut i = 0;
     while i < 256 {
+        #[allow(clippy::cast_precision_loss)]
         let v = i as f64 / 255.0;
         // Magma: black -> purple -> pink -> white
         let r = const_pow_0_7(v) * 255.0;
@@ -134,6 +141,7 @@ const fn compute_magma_lut() -> [[u8; 3]; 256] {
 }
 
 /// Clamp f64 to u8 range (const fn compatible)
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 const fn clamp_u8(v: f64) -> u8 {
     if v <= 0.0 {
         0

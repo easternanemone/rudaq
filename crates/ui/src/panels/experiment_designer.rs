@@ -748,7 +748,9 @@ impl ExperimentDesignerPanel {
 
     /// Generate a position for the next node to avoid overlapping.
     fn next_node_position(&mut self) -> egui::Pos2 {
+        #[allow(clippy::cast_precision_loss)]
         let x = 50.0 + (self.node_count % 5) as f32 * 180.0;
+        #[allow(clippy::cast_precision_loss)]
         let y = 50.0 + (self.node_count / 5) as f32 * 120.0;
         self.node_count += 1;
         egui::pos2(x, y)
@@ -1219,6 +1221,7 @@ impl ExperimentDesignerPanel {
         };
 
         // Check plan has events to execute
+        #[allow(clippy::cast_possible_truncation)]
         let total_events = plan.num_points() as u32;
         if total_events == 0 {
             self.last_error =
@@ -1876,6 +1879,7 @@ impl ExperimentDesignerPanel {
                                     use protocol::daq::document::Payload;
                                     if let Some(Payload::Event(event)) = doc.payload {
                                         // Extract values for configured plot devices
+                                        #[allow(clippy::cast_precision_loss)]
                                         let timestamp_secs = event.time_ns as f64 / 1_000_000_000.0;
                                         for plot_id in &plot_ids {
                                             if let Some(&value) = event.data.get(plot_id) {

@@ -115,6 +115,7 @@ fn render_bool_editor(ui: &mut egui::Ui, param: &mut ParameterCache) -> Paramete
 /// Render a Slider or DragValue for integer parameters
 /// Uses Slider when both min/max are available (bd-cdh5.2), DragValue otherwise.
 #[allow(dead_code)]
+#[allow(clippy::cast_possible_truncation)]
 fn render_int_editor(ui: &mut egui::Ui, param: &mut ParameterCache) -> ParameterEditResult {
     let mut value = param.edit_buffer.parse::<i64>().unwrap_or(0);
     let original = param.current_value.parse::<i64>().unwrap_or(0);
@@ -127,7 +128,9 @@ fn render_int_editor(ui: &mut egui::Ui, param: &mut ParameterCache) -> Parameter
         let response = if let (Some(min), Some(max)) =
             (param.descriptor.min_value, param.descriptor.max_value)
         {
+            #[allow(clippy::cast_possible_truncation)]
             let min_i = min as i64;
+            #[allow(clippy::cast_possible_truncation)]
             let max_i = max as i64;
             ui.add(egui::Slider::new(&mut value, min_i..=max_i))
         } else {
