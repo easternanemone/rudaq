@@ -1,21 +1,18 @@
-// Re-export from standalone driver crates (bd-ha9c Driver Decoupling)
-// New driver crates provide clean DriverFactory-based implementations
+// Hardware drivers module.
+//
+// Concrete driver crate re-exports have been moved to the `driver-registry` crate
+// (bd-ga7k.10 dependency inversion). This module retains only:
+// - Mock drivers (always compiled, used for testing)
+// - Binary protocol support (local implementation)
+// - Mock serial port (local implementation)
+//
+// For concrete drivers, depend directly on the driver crate:
+//   use driver_comedi::ComediDevice;
+//   use driver_thorlabs::Ell14Factory;
 
 /// Mock drivers for testing (re-exported from driver-mock)
 /// Note: Also available via `drivers::mock` module for backwards compatibility
 pub use driver_mock as mock_drivers;
-
-/// Thorlabs driver crate (DriverFactory-based)
-#[cfg(feature = "thorlabs")]
-pub use driver_thorlabs;
-
-/// Newport driver crate (DriverFactory-based)
-#[cfg(feature = "newport")]
-pub use driver_newport;
-
-/// Spectra-Physics driver crate (DriverFactory-based)
-#[cfg(feature = "spectra_physics")]
-pub use driver_spectra_physics;
 
 // Binary protocol support (Modbus RTU, etc.)
 pub mod binary_protocol;
@@ -32,12 +29,3 @@ pub mod mock;
 /// Mock serial port for testing (local implementation)
 #[cfg(feature = "serial")]
 pub mod mock_serial;
-
-#[cfg(feature = "comedi")]
-pub use driver_comedi as comedi;
-/// Newport 1830-C power meter (re-exported from driver-newport)
-/// Note: The canonical implementation is in driver-newport crate.
-#[cfg(feature = "newport")]
-pub use driver_newport::newport_1830c;
-#[cfg(feature = "pvcam")]
-pub use driver_pvcam as pvcam;

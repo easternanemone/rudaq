@@ -515,8 +515,8 @@ impl NiDaqService for NiDaqServiceImpl {
             let pins = req.pins.clone();
             self.await_with_timeout("ConfigureDigitalIO", async move {
                 tokio::task::spawn_blocking(move || {
+                    use driver_comedi::ComediDevice;
                     use driver_comedi::subsystem::digital_io::DioDirection;
-                    use hardware::drivers::comedi::ComediDevice;
 
                     let device = ComediDevice::open(device_path)?;
                     let dio = device.digital_io()?;
@@ -600,7 +600,7 @@ impl NiDaqService for NiDaqServiceImpl {
             let value = self
                 .await_with_timeout("ReadDigitalIO", async move {
                     tokio::task::spawn_blocking(move || {
-                        use hardware::drivers::comedi::ComediDevice;
+                        use driver_comedi::ComediDevice;
 
                         let device = ComediDevice::open(device_path)?;
                         let dio = device.digital_io()?;
@@ -669,7 +669,7 @@ impl NiDaqService for NiDaqServiceImpl {
             let value = req.value;
             self.await_with_timeout("WriteDigitalIO", async move {
                 tokio::task::spawn_blocking(move || {
-                    use hardware::drivers::comedi::ComediDevice;
+                    use driver_comedi::ComediDevice;
 
                     let device = ComediDevice::open(device_path)?;
                     let dio = device.digital_io()?;
@@ -761,7 +761,7 @@ impl NiDaqService for NiDaqServiceImpl {
             let (count, timestamp_ns) = self
                 .await_with_timeout("ReadCounter", async move {
                     tokio::task::spawn_blocking(move || {
-                        use hardware::drivers::comedi::ComediDevice;
+                        use driver_comedi::ComediDevice;
                         use std::time::SystemTime;
 
                         let device = ComediDevice::open(device_path)?;
@@ -840,7 +840,7 @@ impl NiDaqService for NiDaqServiceImpl {
             let counter = req.counter;
             self.await_with_timeout("ResetCounter", async move {
                 tokio::task::spawn_blocking(move || {
-                    use hardware::drivers::comedi::ComediDevice;
+                    use driver_comedi::ComediDevice;
 
                     let device = ComediDevice::open(device_path)?;
                     let counter_subsystem = device.counter()?;
@@ -928,7 +928,7 @@ impl NiDaqService for NiDaqServiceImpl {
             let counter = req.counter;
             self.await_with_timeout("ConfigureCounter", async move {
                 tokio::task::spawn_blocking(move || {
-                    use hardware::drivers::comedi::ComediDevice;
+                    use driver_comedi::ComediDevice;
 
                     let device = ComediDevice::open(device_path)?;
                     let counter_subsystem = device.counter()?;
@@ -1026,7 +1026,7 @@ impl NiDaqService for NiDaqServiceImpl {
                     // Open device to query info (spawn_blocking for FFI)
                     let path = device_path.to_string();
                     let device = tokio::task::spawn_blocking(move || {
-                        use hardware::drivers::comedi::ComediDevice;
+                        use driver_comedi::ComediDevice;
                         ComediDevice::open(&path)
                     })
                     .await
@@ -1040,7 +1040,7 @@ impl NiDaqService for NiDaqServiceImpl {
                         .subdevices
                         .iter()
                         .map(|sub| {
-                            use hardware::drivers::comedi::SubdeviceType;
+                            use driver_comedi::SubdeviceType;
                             let type_str = match sub.subdev_type {
                                 SubdeviceType::AnalogInput => "ai",
                                 SubdeviceType::AnalogOutput => "ao",
@@ -1061,7 +1061,7 @@ impl NiDaqService for NiDaqServiceImpl {
                         .collect();
 
                     // Count channels by type
-                    use hardware::drivers::comedi::SubdeviceType;
+                    use driver_comedi::SubdeviceType;
                     let ai_info = info
                         .subdevices
                         .iter()

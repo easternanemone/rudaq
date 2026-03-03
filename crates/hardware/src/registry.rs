@@ -1692,19 +1692,24 @@ impl HardwareConfig {
 /// plugin_id = "my-sensor-v1"
 /// address = "/dev/ttyUSB2"
 /// ```
-pub async fn create_registry_from_config(
+/// Populate a registry with plugins and devices from a hardware config.
+///
+/// This loads manifest-driver plugins from configured search paths and
+/// registers all configured devices. **Factories must be registered first**
+/// (via `register_mock_factories` or `driver_registry::register_all_factories`).
+///
+/// This is the abstract half of registry creation — it does not reference
+/// any concrete driver crates, only the factory system already registered
+/// on the `DeviceRegistry`.
+pub async fn populate_registry_from_config(
+    registry: &DeviceRegistry,
     config: &HardwareConfig,
-    config_dir: Option<&std::path::Path>,
-) -> Result<DeviceRegistry, DaqError> {
-    let registry = DeviceRegistry::new();
-
-    // Register all available driver factories BEFORE loading devices
-    register_all_factories(&registry, config_dir).await?;
-
+) -> Result<(), DaqError> {
     // Load plugins from configured search paths
     #[cfg(feature = "serial")]
     {
-        let mut factory = registry.plugin_factory.write().await;
+        let plugin_factory = registry.plugin_factory();
+        let mut factory = plugin_factory.write().await;
         for path in &config.plugin_paths {
             // Expand ~ to home directory
             let expanded = if path.starts_with("~") {
@@ -1791,18 +1796,7 @@ pub async fn create_registry_from_config(
         tracing::info!(success_count, "All devices registered successfully");
     }
 
-    Ok(registry)
-}
-
-/// Load hardware configuration from a file and create a DeviceRegistry
-pub async fn create_registry_from_file(path: &std::path::Path) -> Result<DeviceRegistry, DaqError> {
-    let config = HardwareConfig::from_file(path)?;
-    // Default factory directory is alongside the hardware config (config/devices).
-    let config_dir = path
-        .parent()
-        .map(|p| p.join("devices"))
-        .filter(|p| p.exists());
-    create_registry_from_config(&config, config_dir.as_deref()).await
+    Ok(())
 }
 
 // =============================================================================
@@ -1874,94 +1868,9 @@ pub fn register_mock_factories(registry: &DeviceRegistry) {
     registry.register_factory(Box::new(MockPowerMeterFactory));
 }
 
-/// Register all available hardware driver factories.
-///
-/// This registers factories for all enabled hardware drivers:
-/// - Mock drivers (always available)
-/// - Thorlabs ELL14 (when `thorlabs` feature enabled)
-/// - Newport ESP300 and 1830-C (when `newport` feature enabled)
-/// - Spectra-Physics MaiTai (when `spectra_physics` feature enabled)
-/// - Config-driven devices from TOML files
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use daq_hardware::registry::{DeviceRegistry, register_all_factories};
-/// use std::path::Path;
-///
-/// let registry = DeviceRegistry::new();
-/// register_all_factories(&registry, Some(Path::new("config/devices"))).await?;
-///
-/// // Now use register_from_toml() for any supported driver type
-/// ```
-pub async fn register_all_factories(
-    registry: &DeviceRegistry,
-    config_dir: Option<&std::path::Path>,
-) -> Result<(), DaqError> {
-    // Register mock factories (always available)
-    register_mock_factories(registry);
-
-    // Register Newport factories
-    #[cfg(feature = "newport")]
-    {
-        use driver_newport::Newport1830CFactory;
-        registry.register_factory(Box::new(Newport1830CFactory));
-    }
-
-    // Register Red Pitaya factories
-    #[cfg(feature = "red_pitaya")]
-    {
-        use driver_red_pitaya::RedPitayaPidFactory;
-        registry.register_factory(Box::new(RedPitayaPidFactory));
-    }
-
-    // Register Andor SDK3 factories (iStar camera + Shamrock spectrograph)
-    #[cfg(feature = "andor")]
-    {
-        use driver_andor_sdk3::{AndorCameraFactory, AndorSpectrographFactory};
-        registry.register_factory(Box::new(AndorCameraFactory));
-        registry.register_factory(Box::new(AndorSpectrographFactory));
-    }
-
-    // Register PVCAM factory
-    #[cfg(feature = "pvcam")]
-    {
-        use driver_pvcam::PvcamFactory;
-        registry.register_factory(Box::new(PvcamFactory));
-    }
-
-    // Register Comedi factories (NI DAQ, etc.)
-    #[cfg(feature = "comedi")]
-    {
-        use driver_comedi::{ComediAnalogInputFactory, ComediAnalogOutputFactory};
-        registry.register_factory(Box::new(ComediAnalogInputFactory));
-        registry.register_factory(Box::new(ComediAnalogOutputFactory));
-    }
-
-    // Load and register config-driven factories from TOML files (schema_version=3)
-    if let Some(dir) = config_dir {
-        if dir.exists() {
-            match driver_universal::factory::load_all_factories(dir) {
-                Ok(factories) => {
-                    for factory in factories {
-                        let driver_type = factory.driver_type().to_string();
-                        registry.register_factory(Box::new(factory));
-                        tracing::debug!(driver_type = %driver_type, "Registered universal config factory");
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to load config factories from {}: {}",
-                        dir.display(),
-                        e
-                    );
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
+// NOTE: `register_all_factories` has been moved to the `driver-registry` crate.
+// Use `driver_registry::register_all_factories()` for concrete driver registration.
+// `register_mock_factories` remains here since it only needs driver-mock (always compiled).
 
 // =============================================================================
 // Tests
@@ -2024,7 +1933,11 @@ height = 240
 "#;
 
         let config: HardwareConfig = toml::from_str(toml_str).unwrap();
-        let registry = create_registry_from_config(&config, None).await.unwrap();
+        let registry = DeviceRegistry::new();
+        register_mock_factories(&registry);
+        populate_registry_from_config(&registry, &config)
+            .await
+            .unwrap();
 
         let devices = registry.list_devices();
         assert_eq!(devices.len(), 2);
@@ -2060,10 +1973,10 @@ initial_position = 0.0
 
         // MockStageFactory is registered by register_mock_factories(),
         // so this should succeed
-        let result = create_registry_from_config(&config, None).await;
+        let registry = DeviceRegistry::new();
+        register_mock_factories(&registry);
+        let result = populate_registry_from_config(&registry, &config).await;
         assert!(result.is_ok(), "Should succeed when factory exists");
-
-        let registry = result.unwrap();
         let devices = registry.list_devices();
         assert_eq!(devices.len(), 1);
         assert_eq!(devices[0].id, "test_device");
@@ -2084,7 +1997,11 @@ initial_position = 0.0
 "#;
 
         let config: HardwareConfig = toml::from_str(toml_str).unwrap();
-        let registry = create_registry_from_config(&config, None).await.unwrap();
+        let registry = DeviceRegistry::new();
+        register_mock_factories(&registry);
+        populate_registry_from_config(&registry, &config)
+            .await
+            .unwrap();
 
         let devices = registry.list_devices();
         assert_eq!(devices.len(), 1);

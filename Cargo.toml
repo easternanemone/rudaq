@@ -20,6 +20,7 @@ members = [
     "crates/driver-newport",
     "crates/driver-spectra-physics",
     "crates/driver-red-pitaya",
+    "crates/driver-registry",
     "crates/comedi-sys",
     "crates/protocol",
     "crates/hardware",

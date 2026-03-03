@@ -1613,6 +1613,7 @@ dependencies = [
  "daq-modules",
  "db",
  "driver-mock",
+ "driver-registry",
  "futures",
  "hardware",
  "libc",
@@ -4060,6 +4061,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "driver-registry"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "common",
+ "driver-andor-sdk3",
+ "driver-comedi",
+ "driver-mock",
+ "driver-newport",
+ "driver-pvcam",
+ "driver-red-pitaya",
+ "driver-spectra-physics",
+ "driver-thorlabs",
+ "driver-universal",
+ "hardware",
+ "toml 0.9.11+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
 name = "driver-spectra-physics"
 version = "0.1.0"
 dependencies = [
@@ -5522,15 +5543,7 @@ dependencies = [
  "crc",
  "dashmap 6.1.0",
  "dirs 5.0.1",
- "driver-andor-sdk3",
- "driver-comedi",
  "driver-mock",
- "driver-newport",
- "driver-pvcam",
- "driver-red-pitaya",
- "driver-spectra-physics",
- "driver-thorlabs",
- "driver-universal",
  "evalexpr",
  "figment",
  "futures",
@@ -6379,6 +6392,7 @@ dependencies = [
  "db",
  "driver-mock",
  "driver-pvcam",
+ "driver-registry",
  "driver-universal",
  "experiment",
  "futures",

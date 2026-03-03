@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 server = { path = "../server" }
 hardware = { path = "../hardware", features = ["serial"] }
+driver-registry = { path = "../driver-registry" }
 protocol = { path = "../protocol" }
 common = { path = "../common" }
 storage = { path = "../storage" }
@@ -43,11 +44,11 @@ server = [] # Enabled by default via dependency, but kept as feature flag for co
 storage_hdf5 = ["storage/storage_hdf5"]
 storage_arrow = ["storage/storage_arrow"]
 # Real PVCAM SDK (requires installation)
-pvcam_sdk = ["hardware/pvcam_sdk"]
+pvcam_sdk = ["driver-registry/pvcam_sdk"]
 pvcam_hardware = ["pvcam_sdk"]
 
 # Real Comedi hardware (requires libcomedi installed)
-comedi_hardware = ["hardware/comedi_hardware"]
+comedi_hardware = ["driver-registry/comedi_hardware"]
 
 # ============================================================================
 # HIGH-LEVEL PROFILES
@@ -57,9 +58,9 @@ cli = ["all_hardware", "scripting_python"]
 full = ["storage_arrow", "serial", "modules", "all_hardware"]
 
 modules = ["dep:daq-modules"]
-all_hardware = ["hardware/all_hardware"]
+all_hardware = ["driver-registry/all_hardware"]
 scripting_python = ["scripting/python"]
-serial = ["hardware/serial"]
+serial = ["hardware/serial", "driver-registry/serial"]
 
 # ============================================================================
 # DATABASE (SurrealDB persistence layer)
@@ -105,13 +106,13 @@ metrics = ["dep:prometheus", "server/metrics"]
 #   6. esp300_axis1, esp300_axis2, esp300_axis3 (Newport motion)
 # ============================================================================
 maitai = [
-    "pvcam_hardware",              # Real PVCAM SDK (NOT mock)
-    "comedi_hardware",             # NI DAQ card (NOT mock)
-    "hardware/thorlabs",           # ELL14 rotators
-    "hardware/newport",            # ESP300 motion controller
-    "hardware/spectra_physics",    # MaiTai laser
-    "hardware/newport_power_meter",# 1830-C power meter
-    "hardware/serial"              # Serial port base
+    "pvcam_hardware",                  # Real PVCAM SDK (NOT mock)
+    "comedi_hardware",                 # NI DAQ card (NOT mock)
+    "driver-registry/thorlabs",        # ELL14 rotators
+    "driver-registry/newport",         # ESP300 motion controller
+    "driver-registry/spectra_physics", # MaiTai laser
+    "driver-registry/newport_power_meter", # 1830-C power meter
+    "serial",                          # Serial port base
 ]
 
 # ============================================================================
@@ -132,14 +133,14 @@ maitai = [
 #   3. power_meter (Thorlabs PM400, /dev/usbtmc0)
 # ============================================================================
 leabs = [
-    "hardware/andor",              # Andor iStar (mock mode)
+    "driver-registry/andor",          # Andor iStar (mock mode)
     # IPG laser + PM400 use driver-universal (always compiled, no feature needed)
 ]
 
 # LEABS real hardware (requires Andor SDK3 on leabs-dev)
 # Includes the same universal drivers as `leabs` but with real SDK3 for the camera.
 leabs_hardware = [
-    "hardware/andor_hardware",     # Andor iStar (real SDK3, requires ANDOR_SDK3_DIR)
+    "driver-registry/andor_hardware", # Andor iStar (real SDK3, requires ANDOR_SDK3_DIR)
     # IPG laser + PM400 use driver-universal (always compiled, no feature needed)
 ]
 
@@ -147,4 +148,4 @@ leabs_hardware = [
 workspace = true
 
 [package.metadata.cargo-machete]
-ignored = ["hardware"]  # Needed for pvcam feature passthrough
+ignored = ["hardware", "driver-registry"]  # Feature passthrough deps

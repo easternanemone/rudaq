@@ -1,0 +1,63 @@
+[package]
+name = "driver-registry"
+version = "0.1.0"
+edition = "2021"
+description = "Concrete driver factory registration for rust-daq. Owns feature gating for all hardware drivers."
+
+[dependencies]
+# Foundation: hardware provides DeviceRegistry, HardwareConfig, and abstract APIs
+hardware = { path = "../hardware", default-features = false }
+common = { path = "../common" }
+tracing.workspace = true
+anyhow.workspace = true
+toml.workspace = true
+
+# Mock drivers (always available)
+driver-mock = { path = "../driver-mock" }
+
+# Config-driven universal driver (always available for TOML manifest loading)
+driver-universal = { path = "../driver-universal" }
+
+# Concrete hardware drivers (all optional, gated by features)
+driver-thorlabs = { path = "../driver-thorlabs", optional = true }
+driver-newport = { path = "../driver-newport", optional = true }
+driver-spectra-physics = { path = "../driver-spectra-physics", optional = true }
+driver-red-pitaya = { path = "../driver-red-pitaya", optional = true }
+driver-pvcam = { path = "../driver-pvcam", optional = true }
+driver-comedi = { path = "../driver-comedi", optional = true }
+driver-andor-sdk3 = { path = "../driver-andor-sdk3", optional = true }
+
+[features]
+default = ["serial"]
+
+# Serial communication (pass-through to hardware)
+serial = ["hardware/serial"]
+
+# Hardware drivers (each enables its concrete driver crate)
+thorlabs = ["serial", "dep:driver-thorlabs"]
+newport = ["serial", "dep:driver-newport"]
+spectra_physics = ["serial", "dep:driver-spectra-physics"]
+newport_power_meter = ["newport"]
+red_pitaya = ["dep:driver-red-pitaya"]
+
+# PVCAM camera support
+pvcam = ["dep:driver-pvcam"]
+pvcam_sdk = ["pvcam", "driver-pvcam/pvcam_sdk"]
+pvcam_hardware = ["pvcam_sdk"]
+
+# Comedi DAQ support (Linux only)
+comedi = ["dep:driver-comedi"]
+comedi_hardware = ["comedi", "driver-comedi/hardware"]
+
+# Andor iStar camera and Shamrock spectrograph (SDK3)
+andor = ["dep:driver-andor-sdk3"]
+andor_hardware = ["andor", "driver-andor-sdk3/hardware"]
+
+# Convenience: all hardware drivers (with mock PVCAM and Comedi)
+all_hardware = ["thorlabs", "newport", "spectra_physics", "newport_power_meter", "pvcam", "comedi", "red_pitaya", "andor"]
+
+# Full feature set
+full = ["all_hardware"]
+
+[lints]
+workspace = true

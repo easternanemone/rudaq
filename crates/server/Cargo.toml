@@ -22,13 +22,15 @@ dirs = "4.0"
 anyhow.workspace = true
 
 # NOTE (bd-5bfv): Use default-features = false to prevent cascading defaults.
-# Hardware features are defined in daq-hardware and re-exported here as pass-throughs.
+# After bd-ga7k.10 (dependency inversion), hardware no longer has driver features.
 common = { path = "../common" }
 hardware = { path = "../hardware", default-features = false }
 storage = { path = "../storage" }
 scripting = { path = "../scripting", optional = true }
 daq-modules = { path = "../daq-modules", optional = true, default-features = false }
 protocol = { path = "../protocol" }
+
+# Comedi driver used directly by ni_daq_service (not via hardware re-export)
 driver-comedi = { path = "../driver-comedi", optional = true }
 
 # Serial: hardware/serial uses common/serial (serial2-tokio) - no direct tokio-serial
@@ -73,25 +75,12 @@ db-surreal-rocksdb = ["db-surreal", "db/kv-rocksdb"]
 storage_hdf5 = ["dep:hdf5", "storage/storage_hdf5"]
 storage_arrow = ["storage/storage_arrow"]
 
-# Hardware drivers (pass-through to daq-hardware)
-# Canonical definitions are in hardware/Cargo.toml
+# Serial communication (pass-through to hardware)
 serial = ["hardware/serial"]
-thorlabs = ["serial", "hardware/thorlabs"]
-newport = ["serial", "hardware/newport"]
-spectra_physics = ["serial", "hardware/spectra_physics"]
-newport_power_meter = ["serial", "hardware/newport_power_meter"]
 
-# PVCAM camera support
-pvcam = ["serial", "hardware/pvcam"]
-pvcam_sdk = ["pvcam", "hardware/pvcam_sdk"]
-pvcam_hardware = ["pvcam_sdk"]
-
-# Comedi DAQ support
-comedi = ["dep:driver-comedi", "hardware/comedi"]
-comedi_hardware = ["comedi", "hardware/comedi_hardware"]
-
-# All hardware drivers (with mock PVCAM)
-all_hardware = ["thorlabs", "newport", "spectra_physics", "newport_power_meter", "pvcam", "comedi"]
+# Comedi DAQ support (used directly by ni_daq_service)
+comedi = ["dep:driver-comedi"]
+comedi_hardware = ["comedi", "driver-comedi/hardware"]
 
 [dev-dependencies]
 config = "0.14.1"

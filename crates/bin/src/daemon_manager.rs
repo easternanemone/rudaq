@@ -26,9 +26,9 @@ use server::health::sys_monitor::SystemMetricsCollector;
 use server::health::{HealthMonitorConfig, SystemHealthMonitor};
 
 #[cfg(feature = "networking")]
-use hardware::registry::{
-    create_mock_registry, create_registry_from_config, register_all_factories, HardwareConfig,
-};
+use driver_registry::register_all_factories;
+#[cfg(feature = "networking")]
+use hardware::registry::{create_mock_registry, HardwareConfig};
 #[cfg(feature = "networking")]
 use server::grpc::start_server_with_hardware;
 
@@ -77,7 +77,7 @@ async fn load_hardware_config(
     let source = config_path.display().to_string();
     validate_runtime_policy_for_config(&source, &hw, runtime_mode)?;
     let config_dir = resolve_device_manifest_dir(config_path);
-    let reg = create_registry_from_config(&hw, config_dir.as_deref())
+    let reg = driver_registry::create_registry_from_config(&hw, config_dir.as_deref())
         .await
         .with_context(|| format!("Failed to create {label} hardware registry"))?;
     Ok((reg, hw))
