@@ -695,6 +695,7 @@ impl Newport1830Simple {
         Ok(power)
     }
 
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn set_wavelength(&mut self, wavelength_nm: f64) -> Result<(), Box<dyn std::error::Error>> {
         let wl_int = wavelength_nm.round() as u32;
         let cmd = format!("W{:04}\r", wl_int);
@@ -771,6 +772,11 @@ impl Ell14Bus {
         1433.60 // ELL14 default
     }
 
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     fn move_abs(
         &mut self,
         address: &str,

@@ -485,12 +485,10 @@ impl BinaryResponseParser {
         let length = if let Some(len) = field.length {
             len
         } else if let Some(ref len_field) = field.length_field {
-            #[allow(clippy::cast_possible_truncation)]
             let len_value = parsed_so_far
                 .get(len_field)
                 .ok_or_else(|| anyhow!("Length field '{}' not found", len_field))?;
-            #[allow(clippy::cast_sign_loss)]
-            // SAFETY: length field is expected non-negative from protocol parsing
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             {
                 len_value
                     .as_i64()

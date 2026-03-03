@@ -29,6 +29,8 @@ pub fn create_test_vector(name: &str, values: Vec<f64>) -> Measurement {
 /// Create a spectrum measurement for testing
 #[allow(dead_code)]
 pub fn create_test_spectrum(name: &str, n_bins: usize) -> Measurement {
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: precision loss acceptable for test data generation
     let frequencies: Vec<f64> = (0..n_bins).map(|i| i as f64 * 100.0).collect();
     let amplitudes: Vec<f64> = frequencies
         .iter()
@@ -51,6 +53,8 @@ pub fn _create_test_image(name: &str, width: u32, height: u32) -> Measurement {
     use common::core::{ImageMetadata, PixelBuffer};
 
     let pixel_count = (width * height) as usize;
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: i % 65536 is always in u16 range
     let pixels: Vec<u16> = (0..pixel_count).map(|i| (i % 65536) as u16).collect();
 
     Measurement::Image {

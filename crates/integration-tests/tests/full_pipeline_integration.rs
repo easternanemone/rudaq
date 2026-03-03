@@ -393,13 +393,13 @@ async fn test_pipeline_error_handling() {
     camera.arm().await.unwrap();
 
     // Simulate pipeline with error recovery
-    #[allow(clippy::cast_precision_loss)]
-    // SAFETY: test/benchmark values are bounded
-    #[allow(clippy::cast_precision_loss)]
     let mut successful_measurements = 0;
 
-    for i in 0..5 {
-        stage.move_abs(i as f64).await.unwrap();
+    for i in 0..5u64 {
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: small loop counter, precision loss acceptable for test positions
+        let pos = i as f64;
+        stage.move_abs(pos).await.unwrap();
 
         // Attempt to acquire measurements
         match acquire_camera_image(&camera, "frame", i + 1).await {

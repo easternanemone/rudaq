@@ -231,17 +231,14 @@ impl DocumentWriter {
                             }
 
                             // Also write timestamps
+                            #[allow(clippy::cast_precision_loss)]
+                            // SAFETY: precision loss acceptable for timestamp conversion
+                            let ts_secs = event.time_ns as f64 / 1_000_000_000.0;
                             if let Ok(ds) = group.dataset("timestamps") {
                                 let shape = ds.shape();
-                                #[allow(clippy::cast_precision_loss)]
-                                // SAFETY: precision loss acceptable for metrics/display
-                                #[allow(clippy::cast_precision_loss)]
                                 let current_len = shape[0];
                                 ds.resize((current_len + 1,))?;
-                                ds.write_slice(
-                                    &[event.time_ns as f64 / 1_000_000_000.0],
-                                    current_len..,
-                                )?;
+                                ds.write_slice(&[ts_secs], current_len..)?;
                             } else {
                                 // Create if missing (lazy)
                                 let ds = group
@@ -249,15 +246,9 @@ impl DocumentWriter {
                                     .chunk(1024)
                                     .shape(0..)
                                     .create("timestamps")?;
-                                #[allow(clippy::cast_precision_loss)]
-                                // SAFETY: precision loss acceptable for metrics/display
-                                #[allow(clippy::cast_precision_loss)]
                                 let shape = ds.shape();
                                 ds.resize((shape[0] + 1,))?;
-                                ds.write_slice(
-                                    &[event.time_ns as f64 / 1_000_000_000.0],
-                                    shape[0]..,
-                                )?;
+                                ds.write_slice(&[ts_secs], shape[0]..)?;
                             }
                         }
                     }

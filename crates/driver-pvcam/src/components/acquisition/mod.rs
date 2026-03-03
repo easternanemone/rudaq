@@ -1515,8 +1515,8 @@ impl PvcamAcquisition {
             let frame_size = (binned_width * binned_height) as usize;
 
             while streaming.get() {
-                #[allow(clippy::cast_sign_loss)]
-                // SAFETY: Exposure time is always positive.
+                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+                // SAFETY: Exposure time is always positive and within millisecond range.
                 tokio::time::sleep(Duration::from_millis(exposure_ms as u64)).await;
                 if !streaming.get() {
                     break;

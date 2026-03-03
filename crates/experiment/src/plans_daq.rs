@@ -625,11 +625,11 @@ impl Plan for TriggeredAcquisition {
             }
 
             TriggeredAcqStep::EmitEvent => {
-                #[allow(clippy::cast_precision_loss)]
-                // SAFETY: precision loss acceptable for metrics/display
-                #[allow(clippy::cast_precision_loss)]
                 let mut positions = HashMap::new();
-                positions.insert("trigger_num".to_string(), self.current_trigger as f64);
+                #[allow(clippy::cast_precision_loss)]
+                // SAFETY: trigger count fits in f64 with acceptable precision for position tracking
+                let trigger_f64 = self.current_trigger as f64;
+                positions.insert("trigger_num".to_string(), trigger_f64);
 
                 self.current_trigger += 1;
                 self.current_step = TriggeredAcqStep::WaitTrigger;

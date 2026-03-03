@@ -1320,13 +1320,13 @@ mod tests {
         // Sum = all (x+y) for x,y in 0..4
         // = sum of x (0+1+2+3)*4 + sum of y (0+1+2+3)*4 = 6*4 + 6*4 = 48
         // avg = 48/16 = 3
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
-        #[allow(clippy::cast_possible_truncation)]
         let mut pixels: Vec<Vec<u16>> = vec![vec![0; 4]; 4];
         for (y, row) in pixels.iter_mut().enumerate().take(4) {
             for (x, cell) in row.iter_mut().enumerate().take(4) {
-                *cell = (x + y) as u16;
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: x+y is at most 6, fits in u16
+                let val = (x + y) as u16;
+                *cell = val;
             }
         }
         let pixel_refs: Vec<&[u16]> = pixels.iter().map(|r| r.as_slice()).collect();

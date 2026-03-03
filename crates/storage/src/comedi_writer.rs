@@ -861,16 +861,16 @@ impl ContinuousAcquisitionSession {
 
     /// Get session duration in seconds
     pub fn duration_secs(&self) -> f64 {
-        #[allow(clippy::cast_precision_loss)]
-        // SAFETY: precision loss acceptable for metrics/display
         #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
-        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: Unix epoch nanos will not exceed u64::MAX until year 2554
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos() as u64)
             .unwrap_or(0);
-        (now - self.start_time_ns) as f64 / 1e9
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for duration in seconds display
+        let duration_s = (now - self.start_time_ns) as f64 / 1e9;
+        duration_s
     }
 
     /// Get total samples acquired
@@ -880,12 +880,12 @@ impl ContinuousAcquisitionSession {
 
     /// Get effective sample rate
     pub fn effective_rate(&self) -> f64 {
-        #[allow(clippy::cast_precision_loss)]
-        // SAFETY: precision loss acceptable for metrics/display
-        #[allow(clippy::cast_precision_loss)]
         let duration = self.duration_secs();
         if duration > 0.0 {
-            self.total_samples() as f64 / duration
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: precision loss acceptable for rate calculation display
+            let rate = self.total_samples() as f64 / duration;
+            rate
         } else {
             0.0
         }

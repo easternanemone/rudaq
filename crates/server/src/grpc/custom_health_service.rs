@@ -76,15 +76,15 @@ fn instant_to_ns(instant: std::time::Instant) -> u64 {
     let now_system = SystemTime::now();
 
     let elapsed = now_instant.duration_since(instant);
-    #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: value is bounded and fits in target type
-    #[allow(clippy::cast_possible_truncation)]
     let system_time = now_system - elapsed;
 
-    system_time
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: Unix epoch nanos will not exceed u64::MAX until year 2554
+    let ts = system_time
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_nanos() as u64
+        .as_nanos() as u64;
+    ts
 }
 
 /// Get current timestamp in nanoseconds

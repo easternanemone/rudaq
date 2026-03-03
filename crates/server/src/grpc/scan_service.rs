@@ -237,11 +237,16 @@ impl ScanServiceImpl {
                     vec![axis.start_position]
                 } else {
                     #[allow(clippy::cast_precision_loss)]
-                    // SAFETY: precision loss acceptable for metrics/display
-                    #[allow(clippy::cast_precision_loss)]
-                    let step = (axis.end_position - axis.start_position) / (n - 1) as f64;
+                    // SAFETY: precision loss acceptable for scan point computation
+                    let n_minus_1 = (n - 1) as f64;
+                    let step = (axis.end_position - axis.start_position) / n_minus_1;
                     (0..n)
-                        .map(|i| axis.start_position + step * i as f64)
+                        .map(|i| {
+                            #[allow(clippy::cast_precision_loss)]
+                            // SAFETY: scan index fits in f64
+                            let i_f64 = i as f64;
+                            axis.start_position + step * i_f64
+                        })
                         .collect()
                 }
             })

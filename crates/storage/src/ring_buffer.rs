@@ -2563,10 +2563,11 @@ mod tests {
         let reader = thread::spawn(move || {
             let mut reads = 0u64;
             while !done_clone.load(std::sync::atomic::Ordering::Relaxed) {
-                #[allow(clippy::cast_possible_truncation)]
-                // SAFETY: value is bounded and fits in target type
                 let snapshot = rb_reader.read_snapshot();
-                assert!(snapshot.len() <= rb_reader.capacity() as usize);
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: ring buffer capacity fits in usize on 64-bit platforms
+                let cap = rb_reader.capacity() as usize;
+                assert!(snapshot.len() <= cap);
                 reads += 1;
                 if reads.is_multiple_of(100) {
                     thread::yield_now();
@@ -2729,10 +2730,11 @@ mod tests {
             let arb = async_rb.clone();
             handles.push(tokio::spawn(async move {
                 for _ in 0..reads_per {
-                    #[allow(clippy::cast_possible_truncation)]
-                    // SAFETY: value is bounded and fits in target type
                     let snapshot = arb.read_snapshot().await.unwrap();
-                    assert!(snapshot.len() <= arb.capacity() as usize);
+                    #[allow(clippy::cast_possible_truncation)]
+                    // SAFETY: ring buffer capacity fits in usize on 64-bit platforms
+                    let cap = arb.capacity() as usize;
+                    assert!(snapshot.len() <= cap);
                     tokio::task::yield_now().await;
                 }
             }));

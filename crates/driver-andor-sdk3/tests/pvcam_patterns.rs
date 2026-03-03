@@ -426,6 +426,7 @@ async fn test_frame_numbering_sequence() {
 /// - Sustained acquisition without stalls or errors
 /// - Frame numbering remains sequential throughout
 /// - No pool exhaustion (frames returned properly)
+#[allow(clippy::cast_precision_loss)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_stress_sustained_streaming() {
     const TARGET_FRAMES: u64 = 20;

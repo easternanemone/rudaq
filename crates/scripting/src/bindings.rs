@@ -782,7 +782,9 @@ fn register_hardware_factories(engine: &mut Engine) {
                 sum += val;
                 std::thread::sleep(Duration::from_millis(50));
             }
-            Ok(sum / samples as f64)
+            #[allow(clippy::cast_precision_loss)]
+            let avg = sum / samples as f64;
+            Ok(avg)
         },
     );
 

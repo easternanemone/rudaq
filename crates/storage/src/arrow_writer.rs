@@ -895,7 +895,10 @@ mod tests {
         // Check the FixedSizeList type
         match image_field.data_type() {
             DataType::FixedSizeList(_, size) => {
-                assert_eq!(*size as usize, num_elements);
+                #[allow(clippy::cast_sign_loss)]
+                // SAFETY: FixedSizeList size is always non-negative
+                let size_usize = *size as usize;
+                assert_eq!(size_usize, num_elements);
             }
             other => panic!("expected FixedSizeList, got {other:?}"),
         }
@@ -914,14 +917,14 @@ mod tests {
                 .expect("intensity f64");
 
             for row in 0..batch.num_rows() {
-                #[allow(clippy::cast_precision_loss)]
-                // SAFETY: precision loss acceptable for metrics/display
-                #[allow(clippy::cast_precision_loss)]
                 let event_idx = total_rows + row;
 
                 // Verify scalar
+                #[allow(clippy::cast_precision_loss)]
+                // SAFETY: precision loss acceptable for test assertions
+                let expected = event_idx as f64 * 10.0;
                 assert!(
-                    (intensities.value(row) - event_idx as f64 * 10.0).abs() < 1e-12,
+                    (intensities.value(row) - expected).abs() < 1e-12,
                     "scalar mismatch at event {event_idx}"
                 );
 
@@ -1353,12 +1356,12 @@ mod tests {
             let spectra = spectrum_col.as_fixed_size_list();
 
             for row in 0..batch.num_rows() {
-                #[allow(clippy::cast_precision_loss)]
-                // SAFETY: precision loss acceptable for metrics/display
-                #[allow(clippy::cast_precision_loss)]
                 let seq = total_rows + row;
+                #[allow(clippy::cast_precision_loss)]
+                // SAFETY: precision loss acceptable for test assertions
+                let expected = seq as f64 * 0.1;
                 assert!(
-                    (powers.value(row) - seq as f64 * 0.1).abs() < 1e-12,
+                    (powers.value(row) - expected).abs() < 1e-12,
                     "power mismatch at event {seq}"
                 );
 

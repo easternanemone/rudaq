@@ -840,7 +840,11 @@ impl Ell14Simple {
         })
     }
 
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     // SAFETY: Angle * pulses_per_degree is positive and bounded by motor range, fits in u32.
     fn move_abs(&mut self, degrees: f64) -> Result<(), Box<dyn std::error::Error>> {
         let pulses = (degrees * self.pulses_per_degree).round() as u32;

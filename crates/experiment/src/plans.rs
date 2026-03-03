@@ -528,16 +528,21 @@ impl Plan for GridScan {
                 if self.snake {
                     // Snake pattern: alternate direction on inner axis
                     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-                    // SAFETY: cast is intentional and domain-appropriate
-                    #[allow(clippy::cast_sign_loss)]
+                    // SAFETY: inner_idx and inner_points are bounded scan dimensions, fit in i32
                     let next_inner = self.inner_idx as i32 + self.inner_direction;
-                    if next_inner < 0 || next_inner >= self.inner_points as i32 {
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+                    // SAFETY: inner_points is a bounded scan dimension, fits in i32
+                    let inner_limit = self.inner_points as i32;
+                    if next_inner < 0 || next_inner >= inner_limit {
                         // Move to next outer row
                         self.outer_idx += 1;
                         self.inner_direction = -self.inner_direction;
                         self.current_step = GridScanStep::MoveOuter;
                     } else {
-                        self.inner_idx = next_inner as usize;
+                        #[allow(clippy::cast_sign_loss)]
+                        // SAFETY: next_inner is >= 0 (checked above)
+                        let idx = next_inner as usize;
+                        self.inner_idx = idx;
                         self.current_step = GridScanStep::MoveInner;
                     }
                 } else {

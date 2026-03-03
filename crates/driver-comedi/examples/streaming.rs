@@ -14,6 +14,7 @@ use driver_comedi::{ComediDevice, StreamAcquisition, StreamConfig};
 use std::env;
 use std::time::{Duration, Instant};
 
+#[allow(clippy::cast_precision_loss)]
 fn main() -> anyhow::Result<()> {
     let device_path = env::args()
         .nth(1)

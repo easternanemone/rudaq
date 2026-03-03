@@ -140,10 +140,14 @@ impl TapConsumer {
     pub fn channel_utilization(&self) -> f64 {
         let capacity = self.channel_capacity.max(1);
         let available = self.sender.capacity().min(capacity);
-        #[allow(clippy::cast_precision_loss)]
-        // SAFETY: precision loss acceptable for metrics/display
         let used = capacity.saturating_sub(available);
-        used as f64 / capacity as f64
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for channel utilization metric
+        let used_f64 = used as f64;
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for channel utilization metric
+        let cap_f64 = capacity as f64;
+        used_f64 / cap_f64
     }
 
     fn maybe_log_drop(&self, dropped_total: u64) {

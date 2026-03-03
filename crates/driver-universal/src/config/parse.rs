@@ -201,8 +201,7 @@ fn validate_init_table_entry(
     }
     let delay_ms = match tbl.get("delay_ms") {
         Some(v) => match v.as_integer() {
-            #[allow(clippy::cast_possible_truncation)]
-            // SAFETY: range check above guarantees d fits in u32
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             Some(d) if (0..=60_000).contains(&d) => Some(d as u32),
             Some(d) => {
                 errors.push(ConfigError::Other(format!(

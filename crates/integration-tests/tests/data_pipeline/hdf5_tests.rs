@@ -150,7 +150,7 @@ async fn test_hdf5_streaming_append() {
 
     // Write multiple batches
     for i in 0..5 {
-        let measurement = create_test_scalar(&format!("param_{}", i), i as f64);
+        let measurement = create_test_scalar(&format!("param_{}", i), f64::from(i));
 
         #[cfg(feature = "storage_arrow")]
         {

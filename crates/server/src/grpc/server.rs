@@ -486,10 +486,11 @@ impl DaqServer {
 
 fn encode_measurement_frame(measurement: &Measurement) -> Result<Vec<u8>, bincode::Error> {
     let payload = bincode::serialize(measurement)?;
-    #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: value is bounded and fits in target type
     let mut frame = Vec::with_capacity(4 + payload.len());
-    frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: serialized measurement payload is well under u32::MAX bytes
+    let payload_len = payload.len() as u32;
+    frame.extend_from_slice(&payload_len.to_le_bytes());
     frame.extend_from_slice(&payload);
     Ok(frame)
 }
@@ -793,18 +794,16 @@ impl ControlService for DaqServer {
         };
 
         // Update execution state
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
-        #[allow(clippy::cast_possible_truncation)]
         let mut executions = self.executions.write().await;
         if let Some(exec) = executions.get_mut(&req.execution_id) {
             exec.state = "STOPPED".to_string();
-            exec.end_time = Some(
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos() as u64,
-            );
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: Unix epoch nanos will not exceed u64::MAX until year 2554
+            let end_ns = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos() as u64;
+            exec.end_time = Some(end_ns);
         }
 
         // Persist stop to journal so restart doesn't show "interrupted" (bd-izdj)
@@ -995,12 +994,14 @@ impl ControlService for DaqServer {
                         timestamp,
                         ..
                     } => {
-                        #[allow(clippy::cast_precision_loss, clippy::cast_sign_loss)]
-                        // SAFETY: precision loss acceptable for metrics/display
-                        #[allow(clippy::cast_precision_loss)]
+                        #[allow(clippy::cast_sign_loss)]
+                        // SAFETY: timestamp nanos are non-negative
                         let ts_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
+                        #[allow(clippy::cast_precision_loss)]
+                        // SAFETY: precision loss acceptable for metrics/display
+                        let len_f64 = values.len() as f64;
                         // For vectors, we can emit the length or first value
-                        (format!("{}_len", name), values.len() as f64, ts_ns)
+                        (format!("{}_len", name), len_f64, ts_ns)
                     }
                     Measurement::Image {
                         name,
@@ -1010,7 +1011,7 @@ impl ControlService for DaqServer {
                         ..
                     } => {
                         #[allow(clippy::cast_sign_loss)]
-                        // SAFETY: value is non-negative at this point
+                        // SAFETY: timestamp nanos are non-negative
                         let ts_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
                         (name.clone(), f64::from(width * height), ts_ns)
                     }
@@ -1020,10 +1021,13 @@ impl ControlService for DaqServer {
                         timestamp,
                         ..
                     } => {
-                        #[allow(clippy::cast_precision_loss, clippy::cast_sign_loss)]
-                        // SAFETY: precision loss acceptable for metrics/display
+                        #[allow(clippy::cast_sign_loss)]
+                        // SAFETY: timestamp nanos are non-negative
                         let ts_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
-                        (format!("{}_spectrum", name), amplitudes.len() as f64, ts_ns)
+                        #[allow(clippy::cast_precision_loss)]
+                        // SAFETY: precision loss acceptable for metrics/display
+                        let len_f64 = amplitudes.len() as f64;
+                        (format!("{}_spectrum", name), len_f64, ts_ns)
                     }
                 };
 

@@ -305,14 +305,16 @@ impl RunEngineService for RunEngineServiceImpl {
                 .await
         };
 
-        #[allow(clippy::cast_possible_truncation)]
         let queue_len = self.engine.queue_len().await;
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: plan queue length is small, fits in u32
+        let queue_pos = queue_len as u32;
 
         Ok(Response::new(QueuePlanResponse {
             success: true,
             run_uid,
             error_message: String::new(),
-            queue_position: queue_len as u32,
+            queue_position: queue_pos,
         }))
     }
 
@@ -499,7 +501,7 @@ impl RunEngineService for RunEngineServiceImpl {
                 commands,
                 movers: Some(req.movers),
                 detectors: Some(req.detectors),
-                num_points: req.num_points.map(|n| i64::from(n)),
+                num_points: req.num_points.map(i64::from),
                 graph_data,
                 parameters,
                 device_mapping,

@@ -362,16 +362,17 @@ impl HDF5Writer {
                 .write_scalar(&current_write_head)
                 .map_err(map_hdf5_err)?;
 
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: Unix epoch nanos will not exceed u64::MAX until year 2554
+            let timestamp_ns = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos() as u64;
             batch_group
                 .new_attr::<u64>()
                 .create("timestamp_ns")
                 .map_err(map_hdf5_err)?
-                .write_scalar(
-                    &(std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_nanos() as u64),
-                )
+                .write_scalar(&timestamp_ns)
                 .map_err(map_hdf5_err)?;
 
             Ok(bytes_processed)

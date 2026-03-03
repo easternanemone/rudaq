@@ -343,14 +343,11 @@ impl Module for PowerMonitor {
     }
 
     fn get_config(&self) -> HashMap<String, String> {
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        // SAFETY: value is validated/bounded before cast
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let mut config = HashMap::new();
-        config.insert(
-            "sample_rate_hz".to_string(),
-            format!("{}", self.config.sample_rate_hz as u32),
-        );
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: sample_rate_hz is a positive f64 within u32 range in practice
+        let rate_u32 = self.config.sample_rate_hz as u32;
+        config.insert("sample_rate_hz".to_string(), format!("{rate_u32}"));
         if let Some(low) = self.config.low_threshold {
             config.insert("low_threshold".to_string(), format!("{}", low));
         }

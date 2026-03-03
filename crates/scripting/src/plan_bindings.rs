@@ -112,8 +112,7 @@ fn validate_points(points: i64) -> Result<usize, Box<EvalAltResult>> {
             ),
         ));
     }
-    #[allow(clippy::cast_sign_loss)]
-    // SAFETY: points is validated positive above
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     Ok(points as usize)
 }
 

@@ -478,6 +478,12 @@ impl RunEngine {
         // Initialize run context
         {
             let mut ctx = self.run_context.lock().await;
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: Unix epoch nanos will not exceed u64::MAX until year 2554
+            let start_ns = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0);
             *ctx = Some(RunContext {
                 run_uid: run_uid.clone(),
                 descriptor_uid,
@@ -487,10 +493,7 @@ impl RunEngine {
                 current_positions: HashMap::new(),
                 frame_observers,
                 frame_channels,
-                run_start_ns: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_nanos() as u64)
-                    .unwrap_or(0),
+                run_start_ns: start_ns,
             });
         }
 

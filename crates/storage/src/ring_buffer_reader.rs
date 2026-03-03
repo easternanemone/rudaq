@@ -337,14 +337,14 @@ impl ReaderStats {
     /// ```
     #[must_use]
     pub fn loss_rate(&self) -> f64 {
-        #[allow(clippy::cast_precision_loss)]
-        // SAFETY: precision loss acceptable for metrics/display
-        #[allow(clippy::cast_precision_loss)]
         let total = self.frames_received + self.frames_dropped;
         if total == 0 {
             0.0
         } else {
-            (self.frames_dropped as f64 / total as f64) * 100.0
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: precision loss acceptable for metrics percentage
+            let ratio = self.frames_dropped as f64 / total as f64;
+            ratio * 100.0
         }
     }
 }

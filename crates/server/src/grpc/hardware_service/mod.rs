@@ -1749,12 +1749,13 @@ impl HardwareService for HardwareServiceImpl {
                         if packet.timestamp_ns > 0 {
                             #[allow(clippy::cast_precision_loss)]
                             // SAFETY: precision loss acceptable for metrics/display
-                            #[allow(clippy::cast_precision_loss)]
                             let latency_ms =
                                 now_ns().saturating_sub(packet.timestamp_ns) as f64 / 1_000_000.0;
                             latency_samples = latency_samples.saturating_add(1);
-                            avg_latency_ms +=
-                                (latency_ms - avg_latency_ms) / latency_samples as f64;
+                            #[allow(clippy::cast_precision_loss)]
+                            // SAFETY: precision loss acceptable for running average
+                            let samples_f64 = latency_samples as f64;
+                            avg_latency_ms += (latency_ms - avg_latency_ms) / samples_f64;
                         }
 
                         frames_sent = frames_sent.saturating_add(1);
