@@ -1037,6 +1037,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_possible_wrap)]
     fn test_polynomial_inverse() {
         let poly = CalibrationPolynomial::from_range(-10.0, 10.0, 65535);
 

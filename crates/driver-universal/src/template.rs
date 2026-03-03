@@ -34,6 +34,9 @@ fn get_env() -> &'static Environment<'static> {
 /// Usage: `{{ value | hex(8) }}` -> "0000A1B3"
 ///
 /// MiniJinja automatically converts the Value to i64 for us.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+// SAFETY: Intentional truncation for two's complement hex encoding.
+// Width 2/4/8 masks the i64 to the protocol's field width.
 fn hex_filter(value: i64, width: usize) -> String {
     // Many instrument protocols encode signed values as fixed-width two's
     // complement hex (e.g. ELL14 relative moves use 8-hex-digit int32 fields).

@@ -392,6 +392,8 @@ impl PvcamDriver {
                     .map(|p| p.name.clone())
                     .unwrap_or_else(|| "Sensitivity".to_string());
 
+                #[allow(clippy::cast_sign_loss)]
+                // SAFETY: PVCAM speed/gain indices are non-negative i16 values.
                 let speed = port.and_then(|p| {
                     p.speeds
                         .iter()
@@ -403,6 +405,7 @@ impl PvcamDriver {
                     .map(|s| s.name.clone())
                     .unwrap_or_else(|| "100 MHz".to_string());
 
+                #[allow(clippy::cast_sign_loss)]
                 let gain = speed.and_then(|s| {
                     s.gains
                         .iter()
@@ -1573,7 +1576,15 @@ impl PvcamDriver {
                                     }
                                 }
 
-                                let _ = bit_depth.set_from_hardware(speed.bit_depth as u16).await;
+                                let _ = bit_depth
+                                    .set_from_hardware({
+                                        #[allow(clippy::cast_sign_loss)]
+                                        // SAFETY: PVCAM bit_depth is always positive (8, 12, 16)
+                                        {
+                                            speed.bit_depth as u16
+                                        }
+                                    })
+                                    .await;
                                 let _ = pixel_time_ns
                                     .set_from_hardware(u32::from(speed.pix_time_ns))
                                     .await;
@@ -1615,7 +1626,15 @@ impl PvcamDriver {
                                 }
                             }
 
-                            let _ = bit_depth.set_from_hardware(speed.bit_depth as u16).await;
+                            let _ = bit_depth
+                                .set_from_hardware({
+                                    #[allow(clippy::cast_sign_loss)]
+                                    // SAFETY: PVCAM bit_depth is always positive (8, 12, 16)
+                                    {
+                                        speed.bit_depth as u16
+                                    }
+                                })
+                                .await;
                             let _ = pixel_time_ns
                                 .set_from_hardware(u32::from(speed.pix_time_ns))
                                 .await;
@@ -1677,7 +1696,13 @@ impl PvcamDriver {
                     // Update read-only info parameters when available
                     let _ = self
                         .bit_depth
-                        .set_from_hardware(speed.bit_depth as u16)
+                        .set_from_hardware({
+                            #[allow(clippy::cast_sign_loss)]
+                            // SAFETY: PVCAM bit_depth is always positive (8, 12, 16)
+                            {
+                                speed.bit_depth as u16
+                            }
+                        })
                         .await;
                     let _ = self
                         .pixel_time_ns
@@ -2119,6 +2144,8 @@ impl Commandable for PvcamDriver {
                     .and_then(|v| v.as_array())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'exposures' array argument"))?;
 
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: SmartStream exposure values are in milliseconds, well within u32 range.
                 let exposures_u32: Vec<u32> = exposures
                     .iter()
                     .map(|v| v.as_u64().unwrap_or(0) as u32)

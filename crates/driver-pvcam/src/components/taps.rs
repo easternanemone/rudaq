@@ -995,6 +995,7 @@ mod tests {
         frame.actual_len = 100;
 
         // Fill with test data
+        #[allow(clippy::cast_possible_truncation)]
         for (i, byte) in frame.pixels.iter_mut().enumerate().take(100) {
             *byte = i as u8;
         }

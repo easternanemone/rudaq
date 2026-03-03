@@ -95,10 +95,14 @@ pub type LoanedFrame = Loaned<FrameData>;
 /// ```
 #[must_use]
 pub fn create_frame_pool(pool_size: usize, frame_capacity: usize) -> FramePool {
+    #[allow(clippy::cast_precision_loss)]
+    let frame_capacity_mb = frame_capacity as f64 / (1024.0 * 1024.0);
+    #[allow(clippy::cast_precision_loss)]
+    let total_mb = (pool_size * frame_capacity) as f64 / (1024.0 * 1024.0);
     tracing::info!(
         pool_size,
-        frame_capacity_mb = frame_capacity as f64 / (1024.0 * 1024.0),
-        total_mb = (pool_size * frame_capacity) as f64 / (1024.0 * 1024.0),
+        frame_capacity_mb,
+        total_mb,
         "Creating frame pool"
     );
 

@@ -229,6 +229,8 @@ fn decode_value(raw: &str, decoder: &ParamDecoder) -> Value {
             .ok()
             .map(|raw_val| {
                 // Width-aware two's complement sign extension
+                #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+                // SAFETY: Intentional truncation for two's complement sign extension.
                 let signed: i64 = match width {
                     2 => i64::from((raw_val as u8) as i8),
                     4 => i64::from((raw_val as u16) as i16),

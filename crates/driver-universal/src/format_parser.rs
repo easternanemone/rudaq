@@ -271,6 +271,9 @@ fn extract_field(
                 anyhow::anyhow!("field '{}': invalid hex '{}': {}", field.name, hex_str, e)
             })?;
             // Width-aware two's complement interpretation
+            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+            // SAFETY: Intentional truncation for two's complement sign extension.
+            // The value was parsed from exactly `width` hex chars and is in range.
             let value: i64 = match width {
                 2 => i64::from((raw as u8) as i8),
                 4 => i64::from((raw as u16) as i16),
