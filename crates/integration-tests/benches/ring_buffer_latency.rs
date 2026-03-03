@@ -137,7 +137,6 @@ async fn bench_tap_latency(tap_count: usize) -> Vec<Duration> {
     let mut consumer_handles = Vec::with_capacity(tap_count);
     for mut rx in receivers {
         let timestamps = Arc::clone(&send_timestamps);
-        let consumer_epoch = epoch;
         consumer_handles.push(tokio::spawn(async move {
             let mut latencies = Vec::with_capacity(FRAME_COUNT);
             let mut frame_idx = 0usize;
