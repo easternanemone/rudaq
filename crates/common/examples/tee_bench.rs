@@ -92,6 +92,8 @@ async fn main() {
     let (reliable_count, mut lats) = lat_rx.await.unwrap_or((0, Vec::new()));
     let elapsed = start.elapsed();
     let secs = elapsed.as_secs_f64();
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: test/benchmark values are bounded
     let rate = total as f64 / secs;
 
     println!(
@@ -103,9 +105,17 @@ async fn main() {
     if collect_latency && !lats.is_empty() {
         lats.sort_unstable();
         let pct = |p: f64| {
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_precision_loss,
+                clippy::cast_sign_loss
+            )]
+            // SAFETY: test/benchmark values are bounded
             let idx = ((p / 100.0) * ((lats.len() - 1) as f64)).round() as usize;
             lats[idx]
         };
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: test/benchmark values are bounded
         let to_us = |ns: u128| ns as f64 / 1_000.0;
         println!(
             "Latency p50/p90/p99/max: {:.2}/{:.2}/{:.2}/{:.2} µs",

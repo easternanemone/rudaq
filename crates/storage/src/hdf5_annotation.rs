@@ -51,6 +51,8 @@ pub fn add_run_annotation(file_path: &Path, annotation: &RunAnnotation) -> Resul
     }
 
     // Timestamp the annotation
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     let now_ns = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

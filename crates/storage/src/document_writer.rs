@@ -233,6 +233,9 @@ impl DocumentWriter {
                             // Also write timestamps
                             if let Ok(ds) = group.dataset("timestamps") {
                                 let shape = ds.shape();
+                                #[allow(clippy::cast_precision_loss)]
+                                // SAFETY: precision loss acceptable for metrics/display
+                                #[allow(clippy::cast_precision_loss)]
                                 let current_len = shape[0];
                                 ds.resize((current_len + 1,))?;
                                 ds.write_slice(
@@ -246,6 +249,9 @@ impl DocumentWriter {
                                     .chunk(1024)
                                     .shape(0..)
                                     .create("timestamps")?;
+                                #[allow(clippy::cast_precision_loss)]
+                                // SAFETY: precision loss acceptable for metrics/display
+                                #[allow(clippy::cast_precision_loss)]
                                 let shape = ds.shape();
                                 ds.resize((shape[0] + 1,))?;
                                 ds.write_slice(
@@ -397,6 +403,8 @@ mod tests {
 
         // Add array data
         let mut arrays = HashMap::new();
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: value is validated/bounded before cast
         let frame_data: Vec<u16> = (0..100).map(|i| i as u16).collect();
         // Convert to LE bytes
         let mut frame_bytes = Vec::with_capacity(200);

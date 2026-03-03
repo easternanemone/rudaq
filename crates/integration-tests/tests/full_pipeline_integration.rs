@@ -77,6 +77,8 @@ async fn acquire_camera_image(
     // For mock, we generate synthetic image data
     let (width, height) = camera.resolution();
     let pixel_count = (width * height) as usize;
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: test/benchmark values are bounded
     let pixels: Vec<u16> = (0..pixel_count)
         .map(|i| ((i + frame_number as usize * 100) % 65536) as u16)
         .collect();
@@ -201,7 +203,7 @@ async fn test_full_pipeline_to_csv() {
     // Acquire measurements
     let mut measurements = Vec::new();
     for i in 0..5 {
-        let pos = i as f64 * 2.0;
+        let pos = f64::from(i) * 2.0;
         stage.move_abs(pos).await.unwrap();
         stage.wait_settled().await.unwrap();
 
@@ -391,6 +393,9 @@ async fn test_pipeline_error_handling() {
     camera.arm().await.unwrap();
 
     // Simulate pipeline with error recovery
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: test/benchmark values are bounded
+    #[allow(clippy::cast_precision_loss)]
     let mut successful_measurements = 0;
 
     for i in 0..5 {
@@ -450,7 +455,7 @@ async fn test_pipeline_graceful_shutdown() {
             tokio::time::sleep(Duration::from_millis(2)).await;
 
             // Move stage and acquire
-            let pos = i as f64;
+            let pos = f64::from(i);
             stage_clone.move_abs(pos).await.unwrap();
 
             let position = acquire_position_measurement(&stage_clone, "position")
@@ -517,7 +522,7 @@ async fn test_pipeline_high_throughput() {
 
     // Simulate high-throughput acquisition
     for i in 0..num_iterations {
-        let pos = (i % 10) as f64;
+        let pos = f64::from(i % 10);
         stage.move_abs(pos).await.unwrap();
 
         let position = acquire_position_measurement(&stage, "position")
@@ -536,7 +541,7 @@ async fn test_pipeline_high_throughput() {
     }
 
     let elapsed = start.elapsed();
-    let throughput = num_iterations as f64 / elapsed.as_secs_f64();
+    let throughput = f64::from(num_iterations) / elapsed.as_secs_f64();
 
     println!(
         "Pipeline throughput: {:.1} acquisitions/sec ({} acquisitions in {:?})",

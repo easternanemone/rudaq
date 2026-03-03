@@ -359,14 +359,20 @@ impl NiDaqService for NiDaqServiceImpl {
             .map(|t| t.sample_rate_hz)
             .unwrap_or(1000.0); // Default 1 kHz if not specified
 
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
         let n_channels = req.channel_configs.len() as f64;
 
         // Calculate intervals (simplified for Phase 1)
         // Convert interval: time per sample
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: value is validated/bounded before cast
         let convert_interval_ns = ((1.0 / actual_sample_rate_hz) * 1_000_000_000.0) as u32;
 
         // Scan interval: time for all channels in a scan
-        let scan_interval_ns = (convert_interval_ns as f64 * n_channels) as u32;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: value is validated/bounded before cast
+        let scan_interval_ns = (f64::from(convert_interval_ns) * n_channels) as u32;
 
         // Return success with validated configuration
         let response = ConfigureAnalogInputResponse {

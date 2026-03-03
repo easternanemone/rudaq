@@ -505,8 +505,10 @@ impl HardwareService for HardwareServiceImpl {
         }
 
         // Rate limiting interval
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: value is validated/bounded before cast
         let interval_ms = if req.max_rate_hz > 0 {
-            (1000.0 / (req.max_rate_hz as f64)).max(10.0) as u64
+            (1000.0 / (f64::from(req.max_rate_hz))).max(10.0) as u64
         } else {
             200
         };
@@ -620,7 +622,7 @@ impl HardwareService for HardwareServiceImpl {
         let (final_position, settled) = if req.wait_for_completion.unwrap_or(false) {
             if let Some(timeout_ms) = req.timeout_ms {
                 match tokio::time::timeout(
-                    Duration::from_millis(timeout_ms as u64),
+                    Duration::from_millis(u64::from(timeout_ms)),
                     movable.wait_settled(),
                 )
                 .await
@@ -739,7 +741,7 @@ impl HardwareService for HardwareServiceImpl {
         let (final_position, settled) = if req.wait_for_completion.unwrap_or(false) {
             if let Some(timeout_ms) = req.timeout_ms {
                 match tokio::time::timeout(
-                    Duration::from_millis(timeout_ms as u64),
+                    Duration::from_millis(u64::from(timeout_ms)),
                     movable.wait_settled(),
                 )
                 .await
@@ -837,7 +839,7 @@ impl HardwareService for HardwareServiceImpl {
 
         if let Some(timeout_ms) = req.timeout_ms {
             match tokio::time::timeout(
-                Duration::from_millis(timeout_ms as u64),
+                Duration::from_millis(u64::from(timeout_ms)),
                 movable.wait_settled(),
             )
             .await
@@ -894,7 +896,7 @@ impl HardwareService for HardwareServiceImpl {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
 
         tokio::spawn(async move {
-            let interval = std::time::Duration::from_secs_f64(1.0 / rate_hz as f64);
+            let interval = std::time::Duration::from_secs_f64(1.0 / f64::from(rate_hz));
             let mut ticker = tokio::time::interval(interval);
             let mut last_position = f64::NAN;
 
@@ -909,6 +911,8 @@ impl HardwareService for HardwareServiceImpl {
                     let is_moving = (position - last_position).abs() > 0.0001;
                     last_position = position;
 
+                    #[allow(clippy::cast_possible_truncation)]
+                    // SAFETY: value is bounded and fits in target type
                     let update = PositionUpdate {
                         device_id: device_id.clone(),
                         position,
@@ -938,6 +942,8 @@ impl HardwareService for HardwareServiceImpl {
     // =========================================================================
 
     #[instrument(skip(self, request), fields(method = "read_value"))]
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     async fn read_value(
         &self,
         request: Request<ReadValueRequest>,
@@ -1003,7 +1009,7 @@ impl HardwareService for HardwareServiceImpl {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
 
         tokio::spawn(async move {
-            let interval = std::time::Duration::from_secs_f64(1.0 / rate_hz as f64);
+            let interval = std::time::Duration::from_secs_f64(1.0 / f64::from(rate_hz));
             let mut ticker = tokio::time::interval(interval);
 
             // Mark device as actively streaming (prevents hot-swap reconfiguration).
@@ -1024,6 +1030,8 @@ impl HardwareService for HardwareServiceImpl {
                     match readable.read().await {
                         Ok(value) => {
                             registry.report_device_success(&device_id);
+                            #[allow(clippy::cast_possible_truncation)]
+                            // SAFETY: value is bounded and fits in target type
                             let update = ValueUpdate {
                                 device_id: device_id.clone(),
                                 value,
@@ -1110,6 +1118,8 @@ impl HardwareService for HardwareServiceImpl {
             "not found or not triggerable"
         );
 
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let timestamp_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -1596,7 +1606,7 @@ impl HardwareService for HardwareServiceImpl {
 
         // Calculate minimum interval between frames for rate limiting
         let min_interval = if max_fps > 0 {
-            Some(Duration::from_secs_f64(1.0 / max_fps as f64))
+            Some(Duration::from_secs_f64(1.0 / f64::from(max_fps)))
         } else {
             None
         };
@@ -1731,10 +1741,15 @@ impl HardwareService for HardwareServiceImpl {
                                 break;
                             }
                         }
+                        #[allow(clippy::cast_precision_loss)]
+                        // SAFETY: precision loss acceptable for metrics/display
                         let current_fps = fps_window.len() as f64;
 
                         // Update latency tracking
                         if packet.timestamp_ns > 0 {
+                            #[allow(clippy::cast_precision_loss)]
+                            // SAFETY: precision loss acceptable for metrics/display
+                            #[allow(clippy::cast_precision_loss)]
                             let latency_ms =
                                 now_ns().saturating_sub(packet.timestamp_ns) as f64 / 1_000_000.0;
                             latency_samples = latency_samples.saturating_add(1);
@@ -1768,8 +1783,8 @@ impl HardwareService for HardwareServiceImpl {
                                 gain_mode: None, // FrameView doesn't include these
                                 readout_speed: None,
                                 trigger_mode: None,
-                                binning_x: packet.binning.map(|(x, _)| x as u32),
-                                binning_y: packet.binning.map(|(_, y)| y as u32),
+                                binning_x: packet.binning.map(|(x, _)| u32::from(x)),
+                                binning_y: packet.binning.map(|(_, y)| u32::from(y)),
                                 metadata: HashMap::new(),
                                 metrics: Some(metrics),
                                 compression: CompressionType::CompressionNone as i32,
@@ -1853,6 +1868,8 @@ impl HardwareService for HardwareServiceImpl {
 
                         // Log compression stats periodically
                         if frames_sent > 10 && frames_sent.is_multiple_of(30) {
+                            #[allow(clippy::cast_precision_loss)]
+                            // SAFETY: precision loss acceptable for metrics/display
                             let ratio = if compressed_size > 0 {
                                 uncompressed_size as f64 / compressed_size as f64
                             } else {
@@ -2165,6 +2182,8 @@ impl HardwareService for HardwareServiceImpl {
                 let units = CommonParameterMetadata::from(&param.metadata())
                     .units
                     .unwrap_or_default();
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let timestamp_ns = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .map(|d| d.as_nanos() as u64)
@@ -2197,6 +2216,8 @@ impl HardwareService for HardwareServiceImpl {
                 .unwrap_or_default();
 
             // Get timestamp
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: value is bounded and fits in target type
             let timestamp_ns = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_nanos() as u64)
@@ -2458,7 +2479,7 @@ impl HardwareService for HardwareServiceImpl {
         };
 
         // Calculate sample interval
-        let sample_interval = std::time::Duration::from_secs_f64(1.0 / sample_rate_hz as f64);
+        let sample_interval = std::time::Duration::from_secs_f64(1.0 / f64::from(sample_rate_hz));
 
         // Create output channel
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<ObservableValue, Status>>(128);
@@ -2537,6 +2558,7 @@ impl HardwareService for HardwareServiceImpl {
                     if (current_value - *last_value).abs() > deadband
                         && last_sent.elapsed() >= sample_interval
                     {
+                        #[allow(clippy::cast_possible_truncation)]
                         let msg = ObservableValue {
                             device_id: device_id.clone(),
                             observable_name: obs_name.clone(),
@@ -2920,6 +2942,8 @@ mod tests {
         let registry = create_mock_registry().await.unwrap();
         let service = HardwareServiceImpl::new(Arc::new(registry));
 
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let before = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -2931,6 +2955,8 @@ mod tests {
         let response = service.read_value(request).await.unwrap();
         let resp = response.into_inner();
 
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let after = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()

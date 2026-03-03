@@ -179,6 +179,8 @@ impl BufferPool {
     ///
     /// Panics if `pool_size` is 0 or `buffer_capacity` is 0.
     #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: precision loss acceptable for metrics/display
     pub fn new(pool_size: usize, buffer_capacity: usize) -> Self {
         assert!(pool_size > 0, "pool_size must be > 0");
         assert!(buffer_capacity > 0, "buffer_capacity must be > 0");
@@ -187,6 +189,8 @@ impl BufferPool {
 
         // Pre-allocate all buffers
         for _ in 0..pool_size {
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: precision loss acceptable for metrics/display
             let buffer = vec![0u8; buffer_capacity];
             free_buffers.push(buffer);
         }

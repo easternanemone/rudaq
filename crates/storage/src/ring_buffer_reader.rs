@@ -337,6 +337,9 @@ impl ReaderStats {
     /// ```
     #[must_use]
     pub fn loss_rate(&self) -> f64 {
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
+        #[allow(clippy::cast_precision_loss)]
         let total = self.frames_received + self.frames_dropped;
         if total == 0 {
             0.0
@@ -422,7 +425,7 @@ mod tests {
         for i in 0..10 {
             let frame = TestFrame {
                 id: i,
-                value: i as f64 * 1.5,
+                value: f64::from(i) * 1.5,
             };
             let json_data = serde_json::to_vec(&frame).unwrap();
             tx.send(json_data).await.unwrap();

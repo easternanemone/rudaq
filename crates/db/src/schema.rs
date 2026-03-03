@@ -233,6 +233,8 @@ pub(crate) async fn apply_schema(
         .query("SELECT version FROM schema_version:current")
         .await?;
     let existing: Vec<serde_json::Value> = response.take(0)?;
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     let current_version = existing
         .first()
         .and_then(|v| v.get("version"))

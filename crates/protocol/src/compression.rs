@@ -24,6 +24,8 @@ use crate::daq::{CompressionType, FrameData};
 /// // frame.data is now LZ4 compressed
 /// ```
 pub fn compress_frame(frame: &mut FrameData) {
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     let uncompressed_size = frame.data.len() as u32;
     let compressed = lz4_flex::compress_prepend_size(&frame.data);
 
@@ -74,11 +76,13 @@ pub fn decompress_frame(frame: &mut FrameData) -> Result<(), String> {
 ///
 /// Returns the ratio of uncompressed to compressed size.
 /// A value of 3.0 means the data was compressed to 1/3 of its original size.
+#[allow(clippy::cast_precision_loss)]
+// SAFETY: precision loss acceptable for metrics/display
 pub fn compression_ratio(frame: &FrameData) -> f64 {
     if frame.data.is_empty() || frame.uncompressed_size == 0 {
         return 1.0;
     }
-    frame.uncompressed_size as f64 / frame.data.len() as f64
+    f64::from(frame.uncompressed_size) / frame.data.len() as f64
 }
 
 #[cfg(test)]
@@ -86,6 +90,8 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     fn test_compress_decompress_roundtrip() {
         // Create test frame with compressible data (lots of zeros)
         let mut frame = FrameData {

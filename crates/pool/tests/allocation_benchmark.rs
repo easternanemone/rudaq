@@ -26,6 +26,8 @@ struct BenchmarkResult {
 }
 
 impl BenchmarkResult {
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: test/benchmark values are bounded
     fn new(name: &'static str, total_time: Duration, iterations: usize) -> Self {
         Self {
             name,
@@ -34,6 +36,8 @@ impl BenchmarkResult {
         }
     }
 
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: test/benchmark values are bounded
     fn speedup_over(&self, other: &BenchmarkResult) -> f64 {
         other.total_time.as_nanos() as f64 / self.total_time.as_nanos() as f64
     }
@@ -211,6 +215,8 @@ fn test_allocation_benchmark() {
 /// Test that demonstrates the pattern for PVCAM frame acquisition
 #[cfg_attr(miri, ignore)]
 #[test]
+#[allow(clippy::cast_precision_loss)]
+// SAFETY: test/benchmark values are bounded
 fn test_frame_acquisition_pattern() {
     let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
 
@@ -241,6 +247,8 @@ fn test_frame_acquisition_pattern() {
             // Simulate copying frame data from SDK
             // In real PVCAM: unsafe { buffer.copy_from_ptr(sdk_frame_ptr, frame_size) }
             // Here we just copy a small slice to simulate the pattern
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            // SAFETY: test/benchmark values are bounded
             let sample_data = [i as u8; 16];
             buffer.copy_from_slice(&sample_data);
 
@@ -253,7 +261,7 @@ fn test_frame_acquisition_pattern() {
     });
 
     let elapsed = start.elapsed();
-    let fps = acquisition_count as f64 / elapsed.as_secs_f64();
+    let fps = f64::from(acquisition_count) / elapsed.as_secs_f64();
 
     println!("  Total time: {:?}", elapsed);
     println!("  Effective FPS: {:.0}", fps);

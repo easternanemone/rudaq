@@ -88,6 +88,8 @@ fn is_tensor_shape(shape: &[i32]) -> bool {
 
 /// Compute the total number of elements in a tensor from its shape.
 #[cfg(feature = "storage_arrow")]
+#[allow(clippy::cast_sign_loss)]
+// SAFETY: value is non-negative at this point
 fn tensor_num_elements(shape: &[i32]) -> usize {
     shape.iter().map(|&d| d as usize).product()
 }
@@ -268,7 +270,7 @@ impl ArrowDocumentWriter {
                 Document::Event(event) => {
                     if let Some(run) = guard.as_mut() {
                         run.event_buffer.push(BufferedEvent {
-                            seq_num: event.seq_num as u64,
+                            seq_num: u64::from(event.seq_num),
                             time_ns: event.time_ns,
                             data: event.data.clone(),
                             arrays: event.arrays.clone(),
@@ -711,7 +713,7 @@ mod tests {
         // Events
         for i in 0..10 {
             let mut data = HashMap::new();
-            data.insert("det1".to_string(), i as f64 * 1.5);
+            data.insert("det1".to_string(), f64::from(i) * 1.5);
 
             let event = EventDoc {
                 descriptor_uid: "desc_1".to_string(),
@@ -721,7 +723,7 @@ mod tests {
                 timestamps: HashMap::new(),
                 metadata: HashMap::new(),
                 run_uid: "test_run".to_string(),
-                time_ns: 1_000_000_000 + i as u64 * 100_000,
+                time_ns: 1_000_000_000 + u64::from(i) * 100_000,
                 uid: format!("event_{i}"),
                 positions: HashMap::new(),
             };
@@ -765,6 +767,8 @@ mod tests {
 
         let height: i32 = 4;
         let width: i32 = 8;
+        #[allow(clippy::cast_sign_loss)]
+        // SAFETY: value is non-negative at this point
         let num_elements = (height * width) as usize;
 
         // Start
@@ -826,11 +830,13 @@ mod tests {
         let mut expected_images: Vec<Vec<f64>> = Vec::new();
         for seq in 0u32..3 {
             let mut data = HashMap::new();
-            data.insert("intensity".to_string(), seq as f64 * 10.0);
+            data.insert("intensity".to_string(), f64::from(seq) * 10.0);
 
             // Create image: pixel value = seq * 100 + pixel_index
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: precision loss acceptable for metrics/display
             let image_data: Vec<f64> = (0..num_elements)
-                .map(|i| seq as f64 * 100.0 + i as f64)
+                .map(|i| f64::from(seq) * 100.0 + i as f64)
                 .collect();
             expected_images.push(image_data.clone());
 
@@ -846,7 +852,7 @@ mod tests {
                 timestamps: HashMap::new(),
                 metadata: HashMap::new(),
                 run_uid: "tensor2d".to_string(),
-                time_ns: 3_000_000_000 + seq as u64 * 100_000,
+                time_ns: 3_000_000_000 + u64::from(seq) * 100_000,
                 uid: format!("ev2d_{seq}"),
                 positions: HashMap::new(),
             };
@@ -882,6 +888,7 @@ mod tests {
         let image_field = schema
             .field_with_name("image")
             .expect("image field should exist");
+        #[allow(clippy::cast_sign_loss)]
         let shape = read_tensor_shape(image_field).expect("should have tensor shape metadata");
         assert_eq!(shape, vec![height, width]);
 
@@ -907,6 +914,9 @@ mod tests {
                 .expect("intensity f64");
 
             for row in 0..batch.num_rows() {
+                #[allow(clippy::cast_precision_loss)]
+                // SAFETY: precision loss acceptable for metrics/display
+                #[allow(clippy::cast_precision_loss)]
                 let event_idx = total_rows + row;
 
                 // Verify scalar
@@ -951,6 +961,8 @@ mod tests {
         let depth: i32 = 2;
         let height: i32 = 3;
         let width: i32 = 4;
+        #[allow(clippy::cast_sign_loss)]
+        // SAFETY: value is non-negative at this point
         let num_elements = (depth * height * width) as usize; // 24
 
         // Start
@@ -999,8 +1011,10 @@ mod tests {
         // Write 2 events
         let mut expected_cubes: Vec<Vec<f64>> = Vec::new();
         for seq in 0u32..2 {
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: precision loss acceptable for metrics/display
             let cube_data: Vec<f64> = (0..num_elements)
-                .map(|i| seq as f64 * 1000.0 + i as f64 * 0.5)
+                .map(|i| f64::from(seq) * 1000.0 + i as f64 * 0.5)
                 .collect();
             expected_cubes.push(cube_data.clone());
 
@@ -1016,7 +1030,7 @@ mod tests {
                 timestamps: HashMap::new(),
                 metadata: HashMap::new(),
                 run_uid: "tensor3d".to_string(),
-                time_ns: 6_000_000_000 + seq as u64 * 100_000,
+                time_ns: 6_000_000_000 + u64::from(seq) * 100_000,
                 uid: format!("ev3d_{seq}"),
                 positions: HashMap::new(),
             };
@@ -1098,6 +1112,8 @@ mod tests {
 
         let height: i32 = 3;
         let width: i32 = 4;
+        #[allow(clippy::cast_sign_loss)]
+        // SAFETY: value is non-negative at this point
         let num_elements = (height * width) as usize;
 
         let start = StartDoc {
@@ -1142,6 +1158,8 @@ mod tests {
             .expect("write descriptor");
 
         // Write uint16 frame data (2 bytes per element)
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let u16_data: Vec<u16> = (0..num_elements).map(|i| (i * 100) as u16).collect();
         let raw_bytes: Vec<u8> = u16_data.iter().flat_map(|v| v.to_le_bytes()).collect();
         let mut arrays = HashMap::new();
@@ -1275,9 +1293,11 @@ mod tests {
         // 5 events: each has scalar power and a 5-element spectrum
         for seq in 0u32..5 {
             let mut data = HashMap::new();
-            data.insert("power".to_string(), seq as f64 * 0.1);
+            data.insert("power".to_string(), f64::from(seq) * 0.1);
 
-            let spectrum: Vec<f64> = (0..5).map(|i| seq as f64 + i as f64 * 0.01).collect();
+            let spectrum: Vec<f64> = (0..5)
+                .map(|i| f64::from(seq) + f64::from(i) * 0.01)
+                .collect();
             let raw: Vec<u8> = spectrum.iter().flat_map(|v| v.to_le_bytes()).collect();
             let mut arrays = HashMap::new();
             arrays.insert("spectrum".to_string(), Bytes::from(raw));
@@ -1290,7 +1310,7 @@ mod tests {
                 timestamps: HashMap::new(),
                 metadata: HashMap::new(),
                 run_uid: "mixed".to_string(),
-                time_ns: 12_000_000_000 + seq as u64 * 100_000,
+                time_ns: 12_000_000_000 + u64::from(seq) * 100_000,
                 uid: format!("ev_mix_{seq}"),
                 positions: HashMap::new(),
             };
@@ -1333,6 +1353,9 @@ mod tests {
             let spectra = spectrum_col.as_fixed_size_list();
 
             for row in 0..batch.num_rows() {
+                #[allow(clippy::cast_precision_loss)]
+                // SAFETY: precision loss acceptable for metrics/display
+                #[allow(clippy::cast_precision_loss)]
                 let seq = total_rows + row;
                 assert!(
                     (powers.value(row) - seq as f64 * 0.1).abs() < 1e-12,
@@ -1346,6 +1369,8 @@ mod tests {
                     .expect("spectrum f64");
                 assert_eq!(vals.len(), 5);
                 for i in 0..5 {
+                    #[allow(clippy::cast_precision_loss)]
+                    // SAFETY: precision loss acceptable for metrics/display
                     let expected = seq as f64 + i as f64 * 0.01;
                     assert!(
                         (vals.value(i) - expected).abs() < 1e-12,

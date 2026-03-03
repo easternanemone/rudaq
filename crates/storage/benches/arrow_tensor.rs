@@ -49,6 +49,8 @@ async fn write_run(
         .await
         .expect("write descriptor");
 
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: test/benchmark values are bounded
     let num_events = events.len() as u32;
     for event in events {
         writer
@@ -102,7 +104,7 @@ fn bench_scalar_baseline(c: &mut Criterion) {
             let events: Vec<EventDoc> = (0..10)
                 .map(|i| {
                     let mut data = HashMap::new();
-                    data.insert("det1".to_string(), i as f64 * 1.5);
+                    data.insert("det1".to_string(), f64::from(i) * 1.5);
                     EventDoc {
                         descriptor_uid: format!("{run_id}_desc"),
                         seq_num: i,
@@ -111,7 +113,7 @@ fn bench_scalar_baseline(c: &mut Criterion) {
                         timestamps: HashMap::new(),
                         metadata: HashMap::new(),
                         run_uid: run_id.clone(),
-                        time_ns: 1_000_000_000 + i as u64 * 100_000,
+                        time_ns: 1_000_000_000 + u64::from(i) * 100_000,
                         uid: format!("ev_{run_counter}_{i}"),
                         positions: HashMap::new(),
                     }
@@ -131,6 +133,8 @@ fn bench_tensor_2d(c: &mut Criterion) {
 
     let height = 480i32;
     let width = 640i32;
+    #[allow(clippy::cast_sign_loss)]
+    // SAFETY: test/benchmark values are bounded
     let num_elements = (height * width) as usize;
     let bytes_per_image = num_elements * 8; // f64
 
@@ -138,6 +142,8 @@ fn bench_tensor_2d(c: &mut Criterion) {
     group.throughput(Throughput::Bytes((bytes_per_image * 10) as u64));
 
     // Pre-generate image data for consistency
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: test/benchmark values are bounded
     let image_data: Vec<f64> = (0..num_elements).map(|i| i as f64 * 0.001).collect();
     let raw_bytes: Vec<u8> = image_data.iter().flat_map(|v| v.to_le_bytes()).collect();
     let shared_bytes = Bytes::from(raw_bytes);
@@ -178,7 +184,7 @@ fn bench_tensor_2d(c: &mut Criterion) {
                             timestamps: HashMap::new(),
                             metadata: HashMap::new(),
                             run_uid: run_id.clone(),
-                            time_ns: 1_000_000_000 + i as u64 * 100_000,
+                            time_ns: 1_000_000_000 + u64::from(i) * 100_000,
                             uid: format!("ev_{run_counter}_{i}"),
                             positions: HashMap::new(),
                         }
@@ -200,6 +206,8 @@ fn bench_tensor_3d(c: &mut Criterion) {
     let depth = 10i32;
     let height = 480i32;
     let width = 640i32;
+    #[allow(clippy::cast_sign_loss)]
+    // SAFETY: test/benchmark values are bounded
     let num_elements = (depth * height * width) as usize;
     let bytes_per_cube = num_elements * 8; // f64
 
@@ -208,6 +216,8 @@ fn bench_tensor_3d(c: &mut Criterion) {
     group.throughput(Throughput::Bytes(bytes_per_cube as u64));
     group.sample_size(10); // Fewer samples for large data
 
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: test/benchmark values are bounded
     let cube_data: Vec<f64> = (0..num_elements).map(|i| i as f64 * 0.0001).collect();
     let raw_bytes: Vec<u8> = cube_data.iter().flat_map(|v| v.to_le_bytes()).collect();
     let shared_bytes = Bytes::from(raw_bytes);

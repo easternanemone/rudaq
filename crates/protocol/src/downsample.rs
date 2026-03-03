@@ -63,7 +63,10 @@ pub fn downsample_2x2(data: &[u8], width: u32, height: u32) -> (Vec<u8>, u32, u3
             let p11 = u16::from_le_bytes([data[i11], data[i11 + 1]]);
 
             // Average the 4 pixels
-            let avg = ((p00 as u32 + p01 as u32 + p10 as u32 + p11 as u32) / 4) as u16;
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: average of four u16 values divided by 4 always fits in u16
+            let avg =
+                ((u32::from(p00) + u32::from(p01) + u32::from(p10) + u32::from(p11)) / 4) as u16;
             out.extend_from_slice(&avg.to_le_bytes());
         }
     }
@@ -122,11 +125,13 @@ pub fn downsample_4x4(data: &[u8], width: u32, height: u32) -> (Vec<u8>, u32, u3
                 for dx in 0..4 {
                     let i = idx(x + dx, y + dy);
                     let pixel = u16::from_le_bytes([data[i], data[i + 1]]);
-                    sum += pixel as u32;
+                    sum += u32::from(pixel);
                 }
             }
 
             // Average (divide by 16)
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: value is bounded and fits in target type
             let avg = (sum / 16) as u16;
             out.extend_from_slice(&avg.to_le_bytes());
         }
@@ -624,6 +629,8 @@ mod tests {
         let mut data = Vec::with_capacity(num_pixels * 2);
         for i in 0..num_pixels {
             // Use varying pixel values to ensure averaging works correctly
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: value is bounded and fits in target type
             let value = ((i % 65536) as u16).to_le_bytes();
             data.extend_from_slice(&value);
         }
@@ -675,6 +682,8 @@ mod tests {
         assert_eq!(result.len(), 5_000, "Output should be 5KB");
 
         // Verify compression ratio is approximately 4x
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             (ratio - 4.0).abs() < 0.01,
@@ -705,6 +714,8 @@ mod tests {
         assert_eq!(result.len(), exp_bytes, "Output buffer length mismatch");
         assert_eq!(result.len(), 131_072, "Output should be 128KB");
 
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             (ratio - 4.0).abs() < 0.01,
@@ -735,6 +746,8 @@ mod tests {
         assert_eq!(result.len(), exp_bytes, "Output buffer length mismatch");
         assert_eq!(result.len(), 500_000, "Output should be 500KB");
 
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             (ratio - 4.0).abs() < 0.01,
@@ -765,6 +778,8 @@ mod tests {
         assert_eq!(result.len(), exp_bytes, "Output buffer length mismatch");
         assert_eq!(result.len(), 1_250, "Output should be 1.25KB");
 
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             (ratio - 16.0).abs() < 0.01,
@@ -795,6 +810,8 @@ mod tests {
         assert_eq!(result.len(), exp_bytes, "Output buffer length mismatch");
         assert_eq!(result.len(), 32_768, "Output should be 32KB");
 
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             (ratio - 16.0).abs() < 0.01,
@@ -825,6 +842,8 @@ mod tests {
         assert_eq!(result.len(), exp_bytes, "Output buffer length mismatch");
         assert_eq!(result.len(), 125_000, "Output should be 125KB");
 
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             (ratio - 16.0).abs() < 0.01,
@@ -855,6 +874,8 @@ mod tests {
         assert_eq!(result.len(), exp_bytes, "Output buffer length mismatch");
         assert_eq!(result.len(), 1_036_800, "Output should be ~1MB");
 
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             (ratio - 4.0).abs() < 0.01,
@@ -885,6 +906,8 @@ mod tests {
         assert_eq!(result.len(), exp_bytes, "Output buffer length mismatch");
         assert_eq!(result.len(), 259_200, "Output should be ~259KB");
 
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             (ratio - 16.0).abs() < 0.01,
@@ -957,6 +980,8 @@ mod tests {
         // Compression ratio slightly less than 4x due to cropping
         // Input: 1001*1001*2 = 2,004,002 bytes
         // Output: 500*500*2 = 500,000 bytes
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             ratio > 4.0,
@@ -983,6 +1008,8 @@ mod tests {
         // Compression ratio slightly better than 16x due to cropping
         // Input: 1003*1003*2 = 2,012,018 bytes
         // Output: 250*250*2 = 125,000 bytes
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             ratio > 16.0,
@@ -1293,6 +1320,9 @@ mod tests {
         // Sum = all (x+y) for x,y in 0..4
         // = sum of x (0+1+2+3)*4 + sum of y (0+1+2+3)*4 = 6*4 + 6*4 = 48
         // avg = 48/16 = 3
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
+        #[allow(clippy::cast_possible_truncation)]
         let mut pixels: Vec<Vec<u16>> = vec![vec![0; 4]; 4];
         for (y, row) in pixels.iter_mut().enumerate().take(4) {
             for (x, cell) in row.iter_mut().enumerate().take(4) {

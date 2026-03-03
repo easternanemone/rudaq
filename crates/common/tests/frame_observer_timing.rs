@@ -95,6 +95,7 @@ struct ChannelBasedObserver {
 impl FrameObserver for ChannelBasedObserver {
     fn on_frame(&self, _frame: &FrameView<'_>) {
         // Non-blocking try_send to avoid stalling the frame loop
+        #[allow(clippy::cast_lossless)] // usize → u64: safe on 64-bit targets
         let frame_id = self.frame_count.fetch_add(1, Ordering::SeqCst) as u64;
         let _ = self.tx.try_send(frame_id); // Drop if channel full
     }

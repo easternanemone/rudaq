@@ -120,6 +120,8 @@ impl MockESP300 {
         let total_distance = (distance_x.powi(2) + distance_y.powi(2)).sqrt();
 
         let move_num = self.move_count.fetch_add(1, Ordering::SeqCst) + 1;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: test/benchmark values are bounded
         let delay_ms = (total_distance / self.speed_mm_per_sec * 1000.0) as u64;
 
         println!(
@@ -200,6 +202,8 @@ impl Movable for MockElliptecRotator {
         }
 
         let rotate_num = self.rotate_count.fetch_add(1, Ordering::SeqCst) + 1;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: test/benchmark values are bounded
         let delay_ms = (delta.abs() / self.speed_deg_per_sec * 1000.0) as u64;
 
         println!(
@@ -252,7 +256,7 @@ async fn test_rotate_and_measure() -> Result<()> {
 
     // Perform polarization sweep (0 to 90 degrees)
     for angle in (0..=90).step_by(15) {
-        rotator.move_abs(angle as f64).await?;
+        rotator.move_abs(f64::from(angle)).await?;
         rotator.wait_settled().await?;
 
         let power = meter_with_rotator.read().await?;
@@ -412,7 +416,7 @@ async fn test_sequential_sweep() -> Result<()> {
         stage.wait_settled().await?;
 
         for angle in (0..=180).step_by(30) {
-            rotator.move_abs(angle as f64).await?;
+            rotator.move_abs(f64::from(angle)).await?;
             rotator.wait_settled().await?;
 
             let power = meter.read().await?;
@@ -470,14 +474,14 @@ async fn test_find_maximum_power_angle() -> Result<()> {
 
     // Scan 0-180 degrees in 10 degree steps
     for angle in (0..=180).step_by(10) {
-        rotator.move_abs(angle as f64).await?;
+        rotator.move_abs(f64::from(angle)).await?;
         rotator.wait_settled().await?;
 
         let power = meter.read().await?;
 
         if power > max_power {
             max_power = power;
-            best_angle = angle as f64;
+            best_angle = f64::from(angle);
         }
     }
 

@@ -44,7 +44,7 @@ async fn test_stage_communication_loss_mid_scan() {
 
     // First 3 moves should succeed
     for i in 1..=3 {
-        let target = i as f64 * 5.0;
+        let target = f64::from(i) * 5.0;
         stage
             .move_abs(target)
             .await

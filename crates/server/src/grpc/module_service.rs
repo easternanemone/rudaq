@@ -565,7 +565,11 @@ impl ModuleService for ModuleServiceImpl {
             .map(|instance| {
                 let assignments = instance.get_assignments();
                 let type_info = registry.get_type_info(instance.type_id());
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let required_total = type_info.map(|i| i.required_roles.len()).unwrap_or(0) as u32;
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let required_filled = type_info
                     .map(|info| {
                         info.required_roles
@@ -576,6 +580,8 @@ impl ModuleService for ModuleServiceImpl {
                     .unwrap_or(0) as u32;
 
                 let uptime_ns = instance.start_time_ns.map(|start| {
+                    #[allow(clippy::cast_possible_truncation)]
+                    // SAFETY: value is bounded and fits in target type
                     let now = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .unwrap_or_default()
@@ -626,7 +632,11 @@ impl ModuleService for ModuleServiceImpl {
 
         let assignments = instance.get_assignments();
         let type_info = registry.get_type_info(instance.type_id());
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let required_total = type_info.map(|i| i.required_roles.len()).unwrap_or(0) as u32;
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let required_filled = type_info
             .map(|info| {
                 info.required_roles
@@ -637,6 +647,8 @@ impl ModuleService for ModuleServiceImpl {
             .unwrap_or(0) as u32;
 
         let uptime_ns = instance.start_time_ns.map(|start| {
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: value is bounded and fits in target type
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -996,7 +1008,7 @@ impl ModuleService for ModuleServiceImpl {
             let mut data_rx = data_rx;
             let mut rate_limiter = if max_rate_hz > 0 {
                 Some(tokio::time::interval(std::time::Duration::from_secs_f64(
-                    1.0 / max_rate_hz as f64,
+                    1.0 / f64::from(max_rate_hz),
                 )))
             } else {
                 None

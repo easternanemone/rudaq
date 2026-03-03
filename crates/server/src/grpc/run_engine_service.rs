@@ -305,6 +305,7 @@ impl RunEngineService for RunEngineServiceImpl {
                 .await
         };
 
+        #[allow(clippy::cast_possible_truncation)]
         let queue_len = self.engine.queue_len().await;
 
         Ok(Response::new(QueuePlanResponse {
@@ -406,6 +407,8 @@ impl RunEngineService for RunEngineServiceImpl {
         use experiment::run_engine::EngineState as DomainEngineState;
 
         let domain_state = self.engine.state().await;
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let queue_len = self.engine.queue_len().await as u32;
 
         let proto_state = match domain_state {
@@ -418,6 +421,8 @@ impl RunEngineService for RunEngineServiceImpl {
         // Get run timing information
         let run_start_ns = self.engine.current_run_start_ns().await.unwrap_or(0);
         let elapsed_ns = if run_start_ns > 0 {
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: value is bounded and fits in target type
             let now_ns = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos() as u64)
@@ -494,7 +499,7 @@ impl RunEngineService for RunEngineServiceImpl {
                 commands,
                 movers: Some(req.movers),
                 detectors: Some(req.detectors),
-                num_points: req.num_points.map(|n| n as i64),
+                num_points: req.num_points.map(|n| i64::from(n)),
                 graph_data,
                 parameters,
                 device_mapping,
@@ -519,6 +524,8 @@ impl RunEngineService for RunEngineServiceImpl {
         }
     }
 
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // SAFETY: value is validated/bounded before cast
     async fn load_plan(
         &self,
         request: Request<LoadPlanRequest>,
@@ -582,6 +589,8 @@ impl RunEngineService for RunEngineServiceImpl {
         }
     }
 
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // SAFETY: value is validated/bounded before cast
     async fn list_saved_plans(
         &self,
         _request: Request<ListSavedPlansRequest>,
@@ -650,6 +659,8 @@ impl RunEngineService for RunEngineServiceImpl {
         }
     }
 
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // SAFETY: value is validated/bounded before cast
     async fn list_runs(
         &self,
         request: Request<ListRunsRequest>,
@@ -814,6 +825,8 @@ impl RunEngineService for RunEngineServiceImpl {
                         let sent = docs_sent.fetch_add(1, Ordering::Relaxed) + 1;
                         if sent.is_multiple_of(100) {
                             let filtered = docs_filtered.load(Ordering::Relaxed);
+                            #[allow(clippy::cast_precision_loss)]
+                            // SAFETY: precision loss acceptable for metrics/display
                             let filter_rate = if received > 0 {
                                 (sent as f64 / received as f64) * 100.0
                             } else {

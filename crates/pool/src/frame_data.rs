@@ -212,6 +212,8 @@ mod tests {
     #[test]
     fn test_copy_from_sdk() {
         let mut frame = FrameData::with_capacity(1024);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: value is validated/bounded before cast
         let src_data: Vec<u8> = (0..512).map(|i| i as u8).collect();
 
         unsafe {

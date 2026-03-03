@@ -18,6 +18,8 @@ use tempfile::NamedTempFile;
 
 /// Send SIGINT to a child process for graceful shutdown.
 #[cfg(unix)]
+#[allow(clippy::cast_possible_wrap)]
+// SAFETY: test/benchmark values are bounded
 fn send_sigint(child: &Child) {
     // SAFETY: libc::kill sends a signal to a process. The child PID is valid
     // because we hold a reference to the still-running Child.

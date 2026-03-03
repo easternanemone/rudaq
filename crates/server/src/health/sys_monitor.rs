@@ -44,6 +44,8 @@ impl SystemMetricsCollector {
             let cpu_usage = self.system.global_cpu_usage();
             let total_memory = self.system.total_memory();
             let used_memory = self.system.used_memory();
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: precision loss acceptable for metrics/display
             let memory_percent = if total_memory > 0 {
                 (used_memory as f64 / total_memory as f64) * 100.0
             } else {

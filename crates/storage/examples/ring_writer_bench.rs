@@ -58,6 +58,8 @@ fn main() {
     }
     let elapsed = start.elapsed();
     let secs = elapsed.as_secs_f64();
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: test/benchmark values are bounded
     let rate = total as f64 / secs;
 
     println!(

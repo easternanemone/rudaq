@@ -95,7 +95,7 @@ pub async fn run_game_loop(
     use tracing::info;
 
     let tick_rate = config.tick_rate_hz.clamp(1, 100);
-    let interval = std::time::Duration::from_secs_f64(1.0 / tick_rate as f64);
+    let interval = std::time::Duration::from_secs_f64(1.0 / f64::from(tick_rate));
     let mut tick = tokio::time::interval(interval);
     let mut latest: HashMap<String, NodeStateUpdate> = HashMap::new();
 

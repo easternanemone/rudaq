@@ -6297,6 +6297,7 @@ dependencies = [
  "daq-modules",
  "db",
  "driver-mock",
+ "driver-newport",
  "driver-pvcam",
  "driver-registry",
  "driver-universal",

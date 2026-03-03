@@ -74,7 +74,7 @@ async fn test_rotate_and_measure() -> Result<()> {
     let mut measurements = Vec::new();
 
     for angle in 0..=90 {
-        rotator.move_abs(angle as f64).await?;
+        rotator.move_abs(f64::from(angle)).await?;
         let power = power_meter.read().await?;
         measurements.push((angle, power));
     }
@@ -97,11 +97,11 @@ async fn test_find_max_power_angle() -> Result<()> {
     let mut best_angle = 0.0;
 
     for angle in 0..=180 {
-        rotator.move_abs(angle as f64).await?;
+        rotator.move_abs(f64::from(angle)).await?;
         let power = power_meter.read().await?;
         if power > max_power {
             max_power = power;
-            best_angle = angle as f64;
+            best_angle = f64::from(angle);
         }
     }
 

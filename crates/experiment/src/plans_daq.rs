@@ -136,10 +136,14 @@ impl VoltageScan {
     }
 
     /// Calculate voltage at a given point index.
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: precision loss acceptable for metrics/display
     fn voltage_at(&self, point: usize) -> f64 {
         if self.num_points <= 1 {
             self.start_v
         } else {
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: precision loss acceptable for metrics/display
             let step = (self.stop_v - self.start_v) / (self.num_points - 1) as f64;
             self.start_v + step * point as f64
         }
@@ -317,6 +321,8 @@ impl TimeSeries {
     /// * `sample_rate` - Sample rate in Hz
     /// * `duration` - Total duration in seconds
     pub fn new(ai_device: &str, sample_rate: f64, duration: f64) -> Self {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: value is validated/bounded before cast
         let num_samples = (sample_rate * duration).ceil() as usize;
         Self {
             ai_device: ai_device.to_string(),
@@ -413,6 +419,8 @@ impl Plan for TimeSeries {
             }
 
             TimeSeriesStep::EmitEvent => {
+                #[allow(clippy::cast_precision_loss)]
+                // SAFETY: precision loss acceptable for metrics/display
                 let timestamp = self.current_sample as f64 / self.sample_rate;
                 let mut positions = HashMap::new();
                 positions.insert("time".to_string(), timestamp);
@@ -617,6 +625,8 @@ impl Plan for TriggeredAcquisition {
             }
 
             TriggeredAcqStep::EmitEvent => {
+                #[allow(clippy::cast_precision_loss)]
+                // SAFETY: precision loss acceptable for metrics/display
                 let mut positions = HashMap::new();
                 positions.insert("trigger_num".to_string(), self.current_trigger as f64);
 

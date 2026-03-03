@@ -225,6 +225,8 @@ impl Frame {
     /// Create timestamp from current system time.
     ///
     /// Utility for drivers that don't have hardware timestamps.
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     pub fn timestamp_now() -> u64 {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -241,12 +243,12 @@ impl Frame {
         let idx = (y * self.width + x) as usize;
 
         match self.bit_depth {
-            8 => self.data.get(idx).map(|&v| v as u32),
+            8 => self.data.get(idx).map(|&v| u32::from(v)),
             12 | 16 => {
                 let start = idx * 2;
                 if start + 1 < self.data.len() {
                     let bytes = [self.data[start], self.data[start + 1]];
-                    Some(u16::from_le_bytes(bytes) as u32)
+                    Some(u32::from(u16::from_le_bytes(bytes)))
                 } else {
                     None
                 }
@@ -293,13 +295,15 @@ impl Frame {
     }
 
     /// Calculate mean pixel value.
+    #[allow(clippy::cast_lossless, clippy::cast_precision_loss)]
+    // SAFETY: u8/u16 -> u64 is lossless; precision loss acceptable for mean computation
     pub fn mean(&self) -> f64 {
         match self.bit_depth {
             8 => {
                 if self.data.is_empty() {
                     return 0.0;
                 }
-                let sum: u64 = self.data.iter().map(|&v| v as u64).sum();
+                let sum: u64 = self.data.iter().map(|&v| u64::from(v)).sum();
                 sum as f64 / self.data.len() as f64
             }
             16 => {
@@ -307,7 +311,7 @@ impl Frame {
                 if slice.is_empty() {
                     return 0.0;
                 }
-                let sum: u64 = slice.iter().map(|&v| v as u64).sum();
+                let sum: u64 = slice.iter().map(|&v| u64::from(v)).sum();
                 sum as f64 / slice.len() as f64
             }
             _ => 0.0,
@@ -531,12 +535,12 @@ impl<'a> FrameView<'a> {
         let idx = (y * self.width + x) as usize;
 
         match self.bit_depth {
-            8 => self.pixels.get(idx).map(|&v| v as u32),
+            8 => self.pixels.get(idx).map(|&v| u32::from(v)),
             12 | 16 => {
                 let start = idx * 2;
                 if start + 1 < self.pixels.len() {
                     let bytes = [self.pixels[start], self.pixels[start + 1]];
-                    Some(u16::from_le_bytes(bytes) as u32)
+                    Some(u32::from(u16::from_le_bytes(bytes)))
                 } else {
                     None
                 }
@@ -584,13 +588,15 @@ impl<'a> FrameView<'a> {
 
     /// Calculate mean pixel value.
     #[must_use]
+    #[allow(clippy::cast_lossless, clippy::cast_precision_loss)]
+    // SAFETY: u8/u16 -> u64 is lossless; precision loss acceptable for mean computation
     pub fn mean(&self) -> f64 {
         match self.bit_depth {
             8 => {
                 if self.pixels.is_empty() {
                     return 0.0;
                 }
-                let sum: u64 = self.pixels.iter().map(|&v| v as u64).sum();
+                let sum: u64 = self.pixels.iter().map(|&v| u64::from(v)).sum();
                 sum as f64 / self.pixels.len() as f64
             }
             12 | 16 => {
@@ -598,7 +604,7 @@ impl<'a> FrameView<'a> {
                     if u16_slice.is_empty() {
                         return 0.0;
                     }
-                    let sum: u64 = u16_slice.iter().map(|&v| v as u64).sum();
+                    let sum: u64 = u16_slice.iter().map(|&v| u64::from(v)).sum();
                     sum as f64 / u16_slice.len() as f64
                 } else {
                     0.0

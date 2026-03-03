@@ -336,6 +336,8 @@ mod camera_integration_tests {
         }
 
         let elapsed = start.elapsed().as_secs_f64().max(0.1);
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: test/benchmark values are bounded
         let fps = frames.len() as f64 / elapsed;
         assert!(fps <= 14.0, "rate limiter should cap fps, got {}", fps);
         // At least some frames should arrive (relaxed for CI variability)
