@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true }
-tonic = { workspace = true, features = ["tls"] }
+tonic = { workspace = true, features = ["tls", "gzip"] }
 prost.workspace = true
 async-trait.workspace = true
 futures.workspace = true

@@ -1568,9 +1568,10 @@ impl HardwareService for HardwareServiceImpl {
             )));
         }
 
-        // Channel capacity constants
+        // Channel capacity constants (bd-rgnx.11: increased for streaming throughput)
         // Observer channel: bounded to handle backpressure in on_frame()
-        const OBSERVER_CHANNEL_CAPACITY: usize = 16;
+        // Increased from 16 to 32 to absorb burst frames and reduce drop rate
+        const OBSERVER_CHANNEL_CAPACITY: usize = 32;
         // gRPC channel: buffer for network jitter (bd-7rk0)
         const GRPC_CHANNEL_CAPACITY: usize = 8;
         const GRPC_SKIP_THRESHOLD: usize = 6; // 75% full triggers frame skipping
@@ -1612,6 +1613,8 @@ impl HardwareService for HardwareServiceImpl {
         };
 
         // Spawn task to forward frames from observer channel to gRPC stream
+        // Use Arc<str> to avoid per-frame String clones in the hot path (bd-rgnx.11)
+        let device_id_arc: Arc<str> = Arc::from(device_id.as_str());
         let device_id_clone = device_id.clone();
         let frame_producer_clone = frame_producer.clone();
         tokio::spawn(async move {
@@ -1767,10 +1770,11 @@ impl HardwareService for HardwareServiceImpl {
                         };
 
                         // Build FrameData proto and apply compression in blocking task
-                        let device_id_for_frame = device_id_clone.clone();
+                        // Use Arc<str> clone (pointer-width, not heap alloc) for hot path (bd-rgnx.11)
+                        let device_id_for_frame = Arc::clone(&device_id_arc);
                         let processing_result = tokio::task::spawn_blocking(move || {
                             let mut frame_data = FrameData {
-                                device_id: device_id_for_frame,
+                                device_id: device_id_for_frame.to_string(),
                                 width: packet.width,
                                 height: packet.height,
                                 bit_depth: packet.bit_depth,

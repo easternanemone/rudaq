@@ -1255,6 +1255,11 @@ macro_rules! build_grpc_server {
         let auth_settings = $grpc_settings.clone();
         Server::builder()
             .accept_http1(true)
+            // HTTP/2 flow control optimization (bd-rgnx.11): larger window sizes reduce
+            // flow control overhead for high-bandwidth camera frame streaming.
+            // 2 MB stream window, 4 MB connection window (defaults are 64 KB / 64 KB).
+            .initial_stream_window_size(2 * 1024 * 1024)
+            .initial_connection_window_size(4 * 1024 * 1024)
             .layer($cors)
             .layer(interceptor(move |request: Request<()>| {
                 validate_auth(&auth_settings, &request)?;
@@ -1398,6 +1403,7 @@ pub async fn start_server_with_hardware(
     use crate::grpc::proto::health_service_server::HealthServiceServer; // Custom HealthService
     use crate::grpc::proto::module_service_server::ModuleServiceServer;
     use protocol::ni_daq::ni_daq_service_server::NiDaqServiceServer;
+    use tonic::codec::CompressionEncoding;
     // use crate::grpc::proto::plugin_service_server::PluginServiceServer; // Unused
     use crate::grpc::proto::preset_service_server::PresetServiceServer;
     use crate::grpc::proto::scan_service_server::ScanServiceServer;
@@ -1849,8 +1855,12 @@ pub async fn start_server_with_hardware(
             run_engine_server.clone(),
         )))
         // HardwareService needs larger message size for camera frame streaming (16 MB)
+        // gRPC-level compression (bd-rgnx.11): enable gzip for frame streaming responses
         .add_service(tonic_web::enable(
-            HardwareServiceServer::new(hardware_server).max_encoding_message_size(64 * 1024 * 1024),
+            HardwareServiceServer::new(hardware_server)
+                .max_encoding_message_size(64 * 1024 * 1024)
+                .accept_compressed(CompressionEncoding::Gzip)
+                .send_compressed(CompressionEncoding::Gzip),
         ))
         .add_service(tonic_web::enable(NiDaqServiceServer::new(
             ni_daq_server.clone(),
@@ -1901,8 +1911,12 @@ pub async fn start_server_with_hardware(
             run_engine_server,
         )))
         // HardwareService needs larger message size for camera frame streaming (16 MB)
+        // gRPC-level compression (bd-rgnx.11): enable gzip for frame streaming responses
         .add_service(tonic_web::enable(
-            HardwareServiceServer::new(hardware_server).max_encoding_message_size(64 * 1024 * 1024),
+            HardwareServiceServer::new(hardware_server)
+                .max_encoding_message_size(64 * 1024 * 1024)
+                .accept_compressed(CompressionEncoding::Gzip)
+                .send_compressed(CompressionEncoding::Gzip),
         ))
         .add_service(tonic_web::enable(NiDaqServiceServer::new(ni_daq_server)))
         .add_service(tonic_web::enable(ModuleServiceServer::new(module_server)))
