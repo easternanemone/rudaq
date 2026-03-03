@@ -1,0 +1,783 @@
+syntax = "proto3";
+
+package daq;
+
+// =============================================================================
+// HardwareService - Direct device control (bd-4x6q)
+// =============================================================================
+
+service HardwareService {
+  // Discovery and introspection
+  rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
+  rpc GetDeviceState(DeviceStateRequest) returns (DeviceStateResponse);
+  // Real-time device state streaming (bd-6uba)
+  rpc SubscribeDeviceState(DeviceStateSubscribeRequest) returns (stream DeviceStateUpdate);
+
+  // Motion Control (for Movable devices)
+  rpc MoveAbsolute(MoveRequest) returns (MoveResponse);
+  rpc MoveRelative(MoveRequest) returns (MoveResponse);
+  rpc StopMotion(StopMotionRequest) returns (StopMotionResponse);
+  rpc WaitSettled(WaitSettledRequest) returns (WaitSettledResponse);
+  rpc StreamPosition(StreamPositionRequest) returns (stream PositionUpdate);
+
+  // Scalar Readout (for Readable devices)
+  rpc ReadValue(ReadValueRequest) returns (ReadValueResponse);
+  rpc StreamValues(StreamValuesRequest) returns (stream ValueUpdate);
+
+  // Trigger Control (for Triggerable devices)
+  rpc Arm(ArmRequest) returns (ArmResponse);
+  rpc Trigger(TriggerRequest) returns (TriggerResponse);
+
+  // Camera/Exposure Control (for ExposureControl devices)
+  rpc SetExposure(SetExposureRequest) returns (SetExposureResponse);
+  rpc GetExposure(GetExposureRequest) returns (GetExposureResponse);
+
+  // Laser Control (bd-pwjo)
+  // Shutter control for devices implementing ShutterControl trait
+  rpc SetShutter(SetShutterRequest) returns (SetShutterResponse);
+  rpc GetShutter(GetShutterRequest) returns (GetShutterResponse);
+  // Wavelength control for devices implementing WavelengthTunable trait
+  rpc SetWavelength(SetWavelengthRequest) returns (SetWavelengthResponse);
+  rpc GetWavelength(GetWavelengthRequest) returns (GetWavelengthResponse);
+  // Emission control for devices implementing EmissionControl trait
+  rpc SetEmission(SetEmissionRequest) returns (SetEmissionResponse);
+  rpc GetEmission(GetEmissionRequest) returns (GetEmissionResponse);
+
+  // Frame Streaming (for FrameProducer devices)
+  rpc StartStream(StartStreamRequest) returns (StartStreamResponse);
+  rpc StopStream(StopStreamRequest) returns (StopStreamResponse);
+  rpc StreamFrames(StreamFramesRequest) returns (stream FrameData);
+
+  // Device Lifecycle (Stage/Unstage for safe setup/teardown)
+  rpc StageDevice(StageDeviceRequest) returns (StageDeviceResponse);
+  rpc UnstageDevice(UnstageDeviceRequest) returns (UnstageDeviceResponse);
+
+  // Passthrough Commands (escape hatch for device-specific features)
+  // Solves the "Least Common Denominator" problem where generic interfaces
+  // lose access to advanced device features
+  rpc ExecuteDeviceCommand(DeviceCommandRequest) returns (DeviceCommandResponse);
+
+  // Observable Parameters (QCodes/ScopeFoundry pattern)
+  rpc ListParameters(ListParametersRequest) returns (ListParametersResponse);
+  rpc GetParameter(GetParameterRequest) returns (ParameterValue);
+  rpc SetParameter(SetParameterRequest) returns (SetParameterResponse);
+  rpc StreamParameterChanges(StreamParameterChangesRequest) returns (stream ParameterChange);
+
+  // Observable Streaming (bd-qqjq)
+  rpc StreamObservables(StreamObservablesRequest) returns (stream ObservableValue);
+
+  // Unified system state stream (bd-ue8a.12 Phase 4)
+  // Broadcasts all device states at a fixed tick rate (default 30Hz).
+  // Timestamps are acquisition time from drivers, NOT broadcast time.
+  rpc StreamSystemState(StreamSystemStateRequest) returns (stream SystemState);
+
+  // Offline device feature query (bd-mmjc)
+  // Returns cached feature metadata when a device is offline.
+  rpc GetDeviceFeatures(GetDeviceFeaturesRequest) returns (GetDeviceFeaturesResponse);
+}
+
+// =============================================================================
+// Preset Service (bd-akcm)
+// =============================================================================
+
+service PresetService {
+  rpc ListPresets(ListPresetsRequest) returns (ListPresetsResponse);
+  rpc SavePreset(SavePresetRequest) returns (SavePresetResponse);
+  rpc LoadPreset(LoadPresetRequest) returns (LoadPresetResponse);
+  rpc DeletePreset(DeletePresetRequest) returns (DeletePresetResponse);
+  rpc GetPreset(GetPresetRequest) returns (Preset);
+}
+
+// --------------------------------------------------------------------------
+// Device Discovery Messages
+// --------------------------------------------------------------------------
+
+message ListDevicesRequest {
+  // Optional filter by capability
+  optional string capability_filter = 1; // "movable", "readable", "triggerable", etc.
+}
+
+message ListDevicesResponse {
+  repeated DeviceInfo devices = 1;
+  repeated RegistrationFailure registration_failures = 2;
+}
+
+// Information about a device that failed to register
+message RegistrationFailure {
+  string device_id = 1;
+  string device_name = 2;
+  string driver_type = 3;
+  string error = 4;
+}
+
+// Device categorization for GUI organization
+enum DeviceCategory {
+  DEVICE_CATEGORY_UNSPECIFIED = 0;
+  DEVICE_CATEGORY_CAMERA = 1;
+  DEVICE_CATEGORY_STAGE = 2;
+  DEVICE_CATEGORY_DETECTOR = 3;
+  DEVICE_CATEGORY_LASER = 4;
+  DEVICE_CATEGORY_POWER_METER = 5;
+  DEVICE_CATEGORY_OTHER = 99;
+}
+
+// Complete device information including capabilities
+message DeviceInfo {
+  string id = 1;
+  string name = 2;
+  string driver_type = 3;  // "ell14", "esp300", "pvcam", "mock_stage", etc.
+  DeviceCategory category = 4;  // Device category for GUI grouping
+
+  // Capabilities as flags (DEPRECATED - use 'capabilities' field instead)
+  bool is_movable = 10 [deprecated = true];
+  bool is_readable = 11 [deprecated = true];
+  bool is_triggerable = 12 [deprecated = true];
+  bool is_frame_producer = 13 [deprecated = true];
+  bool is_exposure_controllable = 14 [deprecated = true];
+  bool is_shutter_controllable = 15 [deprecated = true];
+  bool is_wavelength_tunable = 16 [deprecated = true];
+  bool is_emission_controllable = 17 [deprecated = true];
+  bool is_parameterized = 18 [deprecated = true];
+
+  // Device-specific metadata
+  DeviceMetadata metadata = 20;
+
+  // Dynamic capability list - canonical source of truth (bd-4myc.2)
+  // Values: "movable", "readable", "triggerable", "frame_producer",
+  //         "exposure_controllable", "shutter_controllable",
+  //         "wavelength_tunable", "emission_controllable", "parameterized"
+  repeated string capabilities = 100;
+}
+
+message DeviceMetadata {
+  // Position units and limits (for Movable devices)
+  optional string position_units = 1;
+  optional double min_position = 2;
+  optional double max_position = 3;
+
+  // Reading units (for Readable devices)
+  optional string reading_units = 4;
+
+  // Frame info (for FrameProducer devices)
+  optional uint32 frame_width = 10;
+  optional uint32 frame_height = 11;
+  optional uint32 bits_per_pixel = 12;
+
+  // Exposure limits (for ExposureControl devices)
+  optional double min_exposure_ms = 20;
+  optional double max_exposure_ms = 21;
+
+  // Wavelength limits (for WavelengthTunable devices, bd-pwjo)
+  optional double min_wavelength_nm = 30;
+  optional double max_wavelength_nm = 31;
+
+  // Config source tracking (toml, db, etc.)
+  optional string config_source = 40;
+
+  // Available command names for command-capable devices.
+  repeated string available_commands = 41;
+
+  // Optional serialized UI schema/configuration for metadata-driven panels.
+  optional string ui_schema_json = 42;
+}
+
+message DeviceStateRequest {
+  string device_id = 1;
+}
+
+message DeviceStateResponse {
+  string device_id = 1;
+  bool online = 2;
+
+  // Current values (populated based on capabilities)
+  optional double position = 10;        // For Movable
+  optional double last_reading = 11;    // For Readable
+  optional bool armed = 12;             // For Triggerable
+  optional bool streaming = 13;         // For FrameProducer
+  optional double exposure_ms = 14;     // For ExposureControl
+}
+
+// --------------------------------------------------------------------------
+// State Synchronization Messages (bd-6uba)
+// --------------------------------------------------------------------------
+
+message DeviceStateSubscribeRequest {
+  // Empty = all devices
+  repeated string device_ids = 1;
+  // Rate limit in Hz (0 = unlimited)
+  uint32 max_rate_hz = 2;
+  // Resume from a prior stream position; if unknown, server sends snapshot
+  uint64 last_seen_version = 3;
+  // If true, include a full snapshot as first message
+  bool include_snapshot = 4;
+}
+
+message DeviceStateUpdate {
+  string device_id = 1;
+  uint64 timestamp_ns = 2;
+  // Monotonic per-device version, increments on every change
+  uint64 version = 3;
+  bool is_snapshot = 4;
+  // Sparse map of changed fields encoded as JSON for flexibility
+  map<string, string> fields_json = 5;
+}
+
+// --------------------------------------------------------------------------
+// Motion Control Messages
+// --------------------------------------------------------------------------
+
+message MoveRequest {
+  string device_id = 1;
+  double value = 2;  // Target position (absolute) or distance (relative)
+
+  // Optional: wait for motion to complete before returning
+  // If true, response includes actual settled position
+  // If false (default), returns immediately after command is sent
+  optional bool wait_for_completion = 3;
+
+  // Optional: timeout in milliseconds for wait_for_completion
+  // Only used when wait_for_completion is true
+  // If not set, uses device default timeout
+  optional uint32 timeout_ms = 4;
+}
+
+message MoveResponse {
+  bool success = 1;
+  string error_message = 2;
+  double final_position = 3;  // Actual position after move
+
+  // True if position is settled (only meaningful when wait_for_completion was true)
+  optional bool settled = 4;
+}
+
+message StopMotionRequest {
+  string device_id = 1;
+}
+
+message StopMotionResponse {
+  bool success = 1;
+  double stopped_position = 2;
+}
+
+message WaitSettledRequest {
+  string device_id = 1;
+  optional uint32 timeout_ms = 2;  // Optional timeout
+}
+
+message WaitSettledResponse {
+  bool success = 1;
+  bool settled = 2;
+  double position = 3;
+}
+
+message StreamPositionRequest {
+  string device_id = 1;
+  uint32 rate_hz = 2;  // Desired update rate
+}
+
+message PositionUpdate {
+  string device_id = 1;
+  double position = 2;
+  uint64 timestamp_ns = 3;
+  bool is_moving = 4;
+}
+
+// --------------------------------------------------------------------------
+// Scalar Readout Messages
+// --------------------------------------------------------------------------
+
+message ReadValueRequest {
+  string device_id = 1;
+}
+
+message ReadValueResponse {
+  bool success = 1;
+  string error_message = 2;
+  double value = 3;
+  string units = 4;
+  uint64 timestamp_ns = 5;
+}
+
+message StreamValuesRequest {
+  string device_id = 1;
+  uint32 rate_hz = 2;  // Desired sample rate
+}
+
+message ValueUpdate {
+  string device_id = 1;
+  double value = 2;
+  string units = 3;
+  uint64 timestamp_ns = 4;
+}
+
+// --------------------------------------------------------------------------
+// Trigger Control Messages
+// --------------------------------------------------------------------------
+
+message ArmRequest {
+  string device_id = 1;
+}
+
+message ArmResponse {
+  bool success = 1;
+  string error_message = 2;
+  bool armed = 3;
+}
+
+message TriggerRequest {
+  string device_id = 1;
+}
+
+message TriggerResponse {
+  bool success = 1;
+  string error_message = 2;
+  uint64 trigger_timestamp_ns = 3;
+}
+
+// --------------------------------------------------------------------------
+// Exposure Control Messages
+// --------------------------------------------------------------------------
+
+message SetExposureRequest {
+  string device_id = 1;
+  double exposure_ms = 2;
+}
+
+message SetExposureResponse {
+  bool success = 1;
+  string error_message = 2;
+  double actual_exposure_ms = 3;  // May differ from requested
+}
+
+message GetExposureRequest {
+  string device_id = 1;
+}
+
+message GetExposureResponse {
+  double exposure_ms = 1;
+}
+
+// --------------------------------------------------------------------------
+// Laser Control Messages (bd-pwjo)
+// --------------------------------------------------------------------------
+
+// Shutter control (for ShutterControl devices)
+message SetShutterRequest {
+  string device_id = 1;
+  bool open = 2;  // true = open, false = closed
+}
+
+message SetShutterResponse {
+  bool success = 1;
+  string error_message = 2;
+  bool is_open = 3;  // Actual state after operation
+}
+
+message GetShutterRequest {
+  string device_id = 1;
+}
+
+message GetShutterResponse {
+  bool is_open = 1;
+}
+
+// Wavelength control (for WavelengthTunable devices)
+message SetWavelengthRequest {
+  string device_id = 1;
+  double wavelength_nm = 2;
+}
+
+message SetWavelengthResponse {
+  bool success = 1;
+  string error_message = 2;
+  double actual_wavelength_nm = 3;  // May differ from requested
+}
+
+message GetWavelengthRequest {
+  string device_id = 1;
+}
+
+message GetWavelengthResponse {
+  double wavelength_nm = 1;
+}
+
+// Emission control (for EmissionControl devices - laser on/off)
+message SetEmissionRequest {
+  string device_id = 1;
+  bool enabled = 2;  // true = emission on, false = emission off
+}
+
+message SetEmissionResponse {
+  bool success = 1;
+  string error_message = 2;
+  bool is_enabled = 3;  // Actual state after operation
+}
+
+message GetEmissionRequest {
+  string device_id = 1;
+}
+
+message GetEmissionResponse {
+  bool is_enabled = 1;
+}
+
+// --------------------------------------------------------------------------
+// Frame Streaming Messages
+// --------------------------------------------------------------------------
+
+message StartStreamRequest {
+  string device_id = 1;
+  optional uint32 frame_count = 2;  // 0 or omitted = continuous
+}
+
+message StartStreamResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message StopStreamRequest {
+  string device_id = 1;
+}
+
+message StopStreamResponse {
+  bool success = 1;
+  uint64 frames_captured = 2;
+}
+
+// Stream quality level for bandwidth/quality tradeoff
+enum StreamQuality {
+  STREAM_QUALITY_FULL = 0;     // Full resolution (default)
+  STREAM_QUALITY_PREVIEW = 1;  // 2x2 binned (~4x smaller)
+  STREAM_QUALITY_FAST = 2;     // 4x4 binned (~16x smaller)
+}
+
+// Stream frames from a FrameProducer device to GUI
+message StreamFramesRequest {
+  string device_id = 1;
+  uint32 max_fps = 2;  // Rate limit for GUI rendering (0 = no limit)
+  StreamQuality quality = 3;  // Quality level for server-side downsampling
+}
+
+// Streaming performance metrics for GUI clients
+message StreamingMetrics {
+  double current_fps = 1;
+  uint64 frames_sent = 2;
+  uint64 frames_dropped = 3;
+  double avg_latency_ms = 4;
+}
+
+// Compression algorithm for frame data (bd-7rk0: gRPC improvements)
+enum CompressionType {
+  COMPRESSION_NONE = 0;      // Uncompressed data
+  COMPRESSION_LZ4 = 1;       // LZ4 fast compression (recommended for camera data)
+}
+
+// Single frame of image data (bd-183h: extended metadata)
+message FrameData {
+  string device_id = 1;
+  uint32 width = 2;
+  uint32 height = 3;
+  uint32 bit_depth = 4;  // 8, 12, or 16
+  bytes data = 5;        // Raw pixel data (row-major, little-endian for >8-bit)
+  uint64 frame_number = 6;
+  uint64 timestamp_ns = 7;  // Driver capture timestamp (nanoseconds since epoch)
+  optional double exposure_ms = 8;
+
+  // ROI offset in sensor coordinates (bd-183h)
+  uint32 roi_x = 10;      // X offset (0 = left edge of sensor)
+  uint32 roi_y = 11;      // Y offset (0 = top edge of sensor)
+
+  // Extended metadata (bd-183h)
+  optional double temperature_c = 20;    // Sensor temperature at capture
+  optional string gain_mode = 21;        // e.g., "HDR", "High Sensitivity"
+  optional string readout_speed = 22;    // e.g., "100 MHz"
+  optional string trigger_mode = 23;     // e.g., "Timed", "Trigger First"
+  optional uint32 binning_x = 24;        // Horizontal binning factor
+  optional uint32 binning_y = 25;        // Vertical binning factor
+  map<string, string> metadata = 30;     // Extensible key-value metadata
+  optional StreamingMetrics metrics = 40; // Streaming performance metrics
+
+  // Compression support (bd-7rk0: gRPC improvements from Rerun analysis)
+  CompressionType compression = 50;      // Compression algorithm used for 'data' field
+  uint32 uncompressed_size = 51;         // Original size before compression (for decompression buffer)
+}
+
+// Arrow Flight ticket for zero-copy bulk data transfer
+message FlightTicket {
+  string endpoint = 1;  // e.g., "localhost:50052"
+  bytes ticket = 2;     // Opaque ticket for DoGet
+}
+
+// --------------------------------------------------------------------------
+// Device Lifecycle Messages (Stage/Unstage)
+// --------------------------------------------------------------------------
+
+message StageDeviceRequest {
+  string device_id = 1;
+}
+
+message StageDeviceResponse {
+  bool success = 1;
+  string error_message = 2;
+  bool staged = 3;
+}
+
+message UnstageDeviceRequest {
+  string device_id = 1;
+}
+
+message UnstageDeviceResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// --------------------------------------------------------------------------
+// Passthrough Commands (Device-Specific Features)
+// --------------------------------------------------------------------------
+
+message DeviceCommandRequest {
+  string device_id = 1;
+  string command = 2;           // Device-specific command name
+  string args = 3;              // Command arguments as JSON string
+}
+
+message DeviceCommandResponse {
+  bool success = 1;
+  string error_message = 2;
+  string results = 3;           // Command results as JSON string
+}
+
+// --------------------------------------------------------------------------
+// Observable Parameters (QCodes/ScopeFoundry Pattern)
+// --------------------------------------------------------------------------
+
+message ListParametersRequest {
+  string device_id = 1;
+}
+
+message ListParametersResponse {
+  repeated ParameterDescriptor parameters = 1;
+}
+
+// Full description of a parameter
+message ParameterDescriptor {
+  string device_id = 1;
+  string name = 2;              // e.g., "exposure_ms", "wavelength"
+  string description = 3;
+  string dtype = 4;             // "float", "int", "bool", "string", "enum"
+  string units = 5;             // e.g., "ms", "nm", "mW"
+  bool readable = 6;
+  bool writable = 7;
+
+  // Validation constraints
+  optional double min_value = 10;
+  optional double max_value = 11;
+  repeated string enum_values = 12;  // For enum type
+
+  // Structured metadata for validation and UI hints
+  optional ParameterMetadata metadata = 13;
+
+  // UI grouping category for collapsible panel sections (e.g., "Intensifier", "Timing")
+  optional string group_name = 14;
+}
+
+// Parameter metadata for validation and UI hints
+message ParameterMetadata {
+  optional double min_value = 1;
+  optional double max_value = 2;
+  optional double step = 3;
+  string units = 4;
+  bool read_only = 5;
+  string dtype = 6;
+  repeated string enum_values = 7;
+  string description = 8;
+  // UI grouping category for collapsible panel sections
+  optional string group_name = 9;
+}
+
+message GetParameterRequest {
+  string device_id = 1;
+  string parameter_name = 2;
+}
+
+message ParameterValue {
+  string device_id = 1;
+  string name = 2;
+  string value = 3;             // Value as string (type determined by descriptor)
+  string units = 4;
+  uint64 timestamp_ns = 5;
+}
+
+message SetParameterRequest {
+  string device_id = 1;
+  string parameter_name = 2;
+  string value = 3;             // Value as string
+}
+
+message SetParameterResponse {
+  bool success = 1;
+  string error_message = 2;
+  string actual_value = 3;      // Value after set (may differ from requested)
+}
+
+message StreamParameterChangesRequest {
+  optional string device_id = 1;     // Filter by device (empty = all)
+  repeated string parameter_names = 2; // Filter by param names (empty = all)
+}
+
+message ParameterChange {
+  string device_id = 1;
+  string name = 2;
+  string old_value = 3;
+  string new_value = 4;
+  string units = 5;
+  uint64 timestamp_ns = 6;
+  string source = 7;            // "user", "hardware", "script"
+}
+
+// --------------------------------------------------------------------------
+// Observable Streaming Messages (bd-qqjq)
+// --------------------------------------------------------------------------
+
+message StreamObservablesRequest {
+  // List of device IDs to stream from (empty = all devices)
+  repeated string device_ids = 1;
+  // List of observable names to stream (empty = all observables)
+  repeated string observable_names = 2;
+  // Target sample rate in Hz (0 = as fast as available)
+  uint32 sample_rate_hz = 3;
+  // Minimum change threshold for sending updates (default: 0.001)
+  // Values smaller than this are treated as noise and won't trigger updates
+  double deadband = 4;
+}
+
+message ObservableValue {
+  string device_id = 1;
+  string observable_name = 2;
+  double value = 3;
+  string units = 4;
+  uint64 timestamp_ns = 5;
+}
+
+// --------------------------------------------------------------------------
+// System State Broadcast Messages (bd-ue8a.12 Phase 4)
+// --------------------------------------------------------------------------
+
+message StreamSystemStateRequest {
+  // Empty — streams all device states at the server's tick rate.
+  // Device filtering may be added in a future revision.
+}
+
+// A single device's state at a point in time.
+message NodeState {
+  string device_id = 1;
+  // Acquisition timestamp in nanoseconds since Unix epoch.
+  // CRITICAL: this must be the time the driver actually read the hardware,
+  // NOT the time the game loop broadcast the snapshot.
+  int64 timestamp_ns = 2;
+  oneof value {
+    double analog_value = 3;
+    bool digital_value = 4;
+    string text_value = 5;
+    VectorValue vector_value = 6;
+  }
+  map<string, string> metadata = 7;
+}
+
+message VectorValue {
+  repeated double values = 1;
+}
+
+// Snapshot of all device states, broadcast at a fixed tick rate.
+message SystemState {
+  repeated NodeState nodes = 1;
+  // Timestamp when this snapshot was assembled (broadcast time).
+  int64 broadcast_timestamp_ns = 2;
+  // Current tick rate in Hz.
+  uint32 tick_rate_hz = 3;
+}
+
+// =============================================================================
+// Device Feature Messages (bd-mmjc)
+// =============================================================================
+
+message GetDeviceFeaturesRequest {
+  string device_id = 1;
+  bool include_offline = 2;  // If true, return cached features when device is offline
+}
+
+message GetDeviceFeaturesResponse {
+  repeated DeviceFeature features = 1;
+  bool is_live = 2;  // true if device is online and features are live
+}
+
+message DeviceFeature {
+  string device_id = 1;
+  string feature_name = 2;
+  string feature_type = 3;  // "float", "int", "bool", "enum", "string", "command"
+  bool readable = 4;
+  bool writable = 5;
+  optional double min_value = 6;
+  optional double max_value = 7;
+  optional double step = 8;
+  repeated string enum_values = 9;
+  optional string unit = 10;
+  optional string description = 11;
+  optional string group_name = 12;
+}
+
+// =============================================================================
+// Preset Messages (bd-akcm)
+// =============================================================================
+
+message Preset {
+  PresetMetadata meta = 1;
+  // Device configurations keyed by device_id; JSON payload is driver-specific
+  map<string, string> device_configs_json = 2;
+  // Optional scan template serialized as JSON
+  string scan_template_json = 3;
+}
+
+message PresetMetadata {
+  string preset_id = 1;
+  string name = 2;
+  string description = 3;
+  string author = 4;
+  uint64 created_at_ns = 5;
+  uint64 updated_at_ns = 6;
+  uint32 schema_version = 7;
+}
+
+message ListPresetsRequest {}
+message ListPresetsResponse {
+  repeated PresetMetadata presets = 1;
+}
+
+message SavePresetRequest {
+  Preset preset = 1;
+  bool overwrite = 2;
+}
+message SavePresetResponse {
+  bool saved = 1;
+  string message = 2;
+}
+
+message LoadPresetRequest {
+  string preset_id = 1;
+}
+message LoadPresetResponse {
+  bool applied = 1;
+  string message = 2;
+}
+
+message DeletePresetRequest {
+  string preset_id = 1;
+}
+message DeletePresetResponse {
+  bool deleted = 1;
+  string message = 2;
+}
+
+message GetPresetRequest {
+  string preset_id = 1;
+}

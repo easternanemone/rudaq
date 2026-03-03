@@ -1,0 +1,1326 @@
+[
+  {
+    "id": "bd-0kih",
+    "title": "Benchmark: Arrow Tensor Performance",
+    "description": "Create a benchmark to measure serialization cost of 2D/3D arrays using current vs new Arrow schema strategies.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "created_at": "2026-01-06T22:38:04Z",
+    "created_by": "briansquires",
+    "updated_at": "2026-01-06T22:38:04Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-0kih",
+        "depends_on_id": "bd-rgnx",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:53:49Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-2u3h",
+    "title": "HDF5 data recovery tool for corrupt files after power loss",
+    "description": "Create a tool to repair/recover data from corrupt HDF5 files caused by power loss or daemon crash mid-write. The HDF5 writer flushes periodically but a crash between flushes can leave a corrupt file. Tool should: (1) detect and report corruption, (2) recover valid data up to the last successful flush, (3) optionally rebuild the file structure. Identified as missing by Gemini g3-pro analysis (2026-02-08).",
+    "notes": "Reparented 2026-02-10 into Phase 1 (Reliability \u0026 Recovery) during second cleanup pass.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "feature",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-08T14:45:09Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-10T00:43:28Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-2u3h",
+        "depends_on_id": "bd-qa36",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:53:52Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-3yb8",
+    "title": "EPIC: LIBS Integration into rust-daq",
+    "description": "Integrate LIBS (Laser-Induced Breakdown Spectroscopy) hardware and experiments from the Python LIBS codebase into the rust-daq unified framework.\n\n## Overview\nPort the LIBS Python codebase to rust-daq, enabling unified instrument control for both RASHG (maitai) and LIBS systems.\n\n## Hardware Inventory (NEW - different from RASHG)\n1. **Andor iStar sCMOS Camera** - Gated ICCD with DDG, MCP gain (Windows SDK)\n2. **Andor ATSpectrograph** - Grating control, wavelength calibration (Windows SDK)\n3. **Dover Motion XYZ Stages** - High-speed 3-axis, Trigger-On-Position (C++ API, Linux support!)\n4. **Spirit Laser** - Picosecond laser via CANopen protocol\n5. **NI-DAQmx** - Triggering/pulse generation (Windows)\n\n## Key Experiments to Port\n- Single-shot/multi-shot spectroscopy\n- Step scans (X, Y, Z, 2D grids)\n- Trigger-On-Position rapid acquisition\n- Delay scans (DDG timing)\n- Radiance calibration\n\n## Architecture Notes\n- Dover Motion has C++ API with Linux support (no PyO3 needed!)\n- Andor SDK3 requires FFI bindings via bindgen\n- Spirit laser can use existing Rust CANopen crates\n- Feature flag: `libs` for LIBS-specific drivers\n\n## Documentation\n- Dover Motion API: LIBS/docs/dover-motion-api/\n- Original Python code: LIBS/initialization.py, LIBS/experiments.py",
+    "notes": "Reparented 2026-02-10 into phased backlog hierarchy (Phase 4: LIBS Integration Delivery).\n\\n2026-02-19 triage: tracking epic; execute child tasks directly.",
+    "status": "open",
+    "priority": 1,
+    "issue_type": "epic",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-02T13:14:31Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-03-03T01:05:15Z",
+    "labels": [
+      "integration",
+      "libs",
+      "roadmap"
+    ],
+    "dependencies": [
+      {
+        "issue_id": "bd-3yb8",
+        "depends_on_id": "bd-9j1q.4",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:52:56Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-3yb8.10",
+    "title": "Phase 2.3: Port step scan experiments to Rhai",
+    "description": "Port Python step scan experiments to Rhai scripts.\n\n## Experiments to Port\n\n### 1. step_scan_x / step_scan_y / step_scan_z\n```rhai\n// scripts/libs/step_scan.rhai\nfn step_scan_y(grating, grating_pos, start, end, step_size, pulses_per_shot) {\n    let spec = create_andor_spectrograph();\n    let cam = get_gated_camera(\"andor_istar\");\n    let stage = create_dover_stage();\n    \n    spec.set_grating(grating);\n    spec.set_wavelength(grating_pos);\n    \n    let positions = range(start, end + step_size, step_size);\n    let spectra = [];\n    \n    for y in positions {\n        stage.move_abs(y);\n        sleep(0.5);\n        let spectrum = with_shutter(spec, || {\n            get_spectrum(cam, spec, pulses_per_shot, true)\n        });\n        spectra.push(#{y_position: y, spectrum: spectrum});\n    }\n    \n    spectra\n}\n```\n\n### 2. step_scan_2d (grid scan)\n```rhai\nfn step_scan_2d(grating, grating_pos, x_start, x_stop, x_step, \n                y_start, y_stop, y_step, pulses_per_shot) {\n    let results = [];\n    \n    for y in range(y_start, y_stop + y_step, y_step) {\n        stage.y_move_abs(y);\n        let row = step_scan_x(grating, grating_pos, x_start, x_stop, x_step, pulses_per_shot);\n        results.push(row);\n        \n        // Save intermediate results (crash recovery)\n        save_hdf5(results, \"partial_scan.h5\");\n    }\n    \n    results\n}\n```\n\n### 3. height_scan (Z focus optimization)\n```rhai\nfn height_scan(grating, grating_pos, z_start, z_end, z_step,\n               x_start, x_step, y_position, pulses_per_shot) {\n    let spec = create_andor_spectrograph();\n    stage.y_move_abs(y_position);\n    stage.x_move_abs(x_start);\n    \n    let results = [];\n    let z_positions = range(z_start, z_end + z_step, z_step);\n    \n    for (i, z) in z_positions.enumerate() {\n        stage.z_move_abs(z);\n        sleep(0.5);\n        \n        let spectrum = get_spectrum(cam, spec, pulses_per_shot, true);\n        results.push(#{z: z, spectrum: spectrum});\n        \n        // Move X to avoid drilling same spot\n        stage.x_move_rel(x_step);\n    }\n    \n    results\n}\n```\n\n## HDF5 Output Format\nMatch Python scipp DataArray structure:\n```\n/Wavelength       - f64[2560]\n/Y_Position       - f64[N]\n/data             - f64[N, 2560]\n/attrs/grating_position\n/attrs/pulses_per_shot\n/attrs/timestamp\n```\n\n## Deliverables\n- scripts/libs/step_scan_x.rhai\n- scripts/libs/step_scan_y.rhai\n- scripts/libs/step_scan_2d.rhai\n- scripts/libs/height_scan.rhai\n- Test data comparison with Python output",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-02T13:16:56Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-02T13:16:56Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-3yb8.10",
+        "depends_on_id": "bd-3yb8",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:24Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-3yb8.11",
+    "title": "Phase 2.4: Port delay scan experiment to Rhai",
+    "description": "Port DDG delay scan experiment for timing optimization.\n\n## Python Original (experiments.py:1004-1066)\n```python\ndef delay_scan(grating, grating_pos, delay_start, delay_stop, delay_step, \n               start_position, step_size, sample_name, pulses_per_shot=100):\n    # Varies DDG delay while moving stage to fresh spots\n    for j, y in enumerate(Y):\n        LIBS.y_pos = y.value\n        LIBS.set_cam_params(**{\n            'DDGOutputDelay': Dlay[j].value,\n            'DDGOutputWidth': int(delay_step * 0.8)\n        })\n        DA['Delay', j] = LIBS.get_spectrum(num_pulses=pulses_per_shot)\n```\n\n## Rhai Port\n```rhai\n// scripts/libs/delay_scan.rhai\nfn delay_scan(grating, grating_pos, delay_start, delay_stop, delay_step,\n              start_y, step_size, pulses_per_shot) {\n    let spec = create_andor_spectrograph();\n    let cam = get_gated_camera(\"andor_istar\");\n    let stage = create_dover_stage();\n    \n    spec.set_grating(grating);\n    spec.set_wavelength(grating_pos);\n    \n    let original_delay = cam.get_ddg_delay();\n    let original_width = cam.get_ddg_width();\n    \n    let delays = range(delay_start, delay_stop + delay_step, delay_step);\n    let results = [];\n    let y = start_y;\n    \n    for delay in delays {\n        stage.y_move_abs(y);\n        y += step_size;  // Move to fresh spot\n        \n        // Set DDG timing\n        cam.set_ddg_timing(delay, (delay_step * 0.8) as i64);\n        sleep(0.5);\n        \n        let spectrum = with_shutter(spec, || {\n            get_spectrum(cam, spec, pulses_per_shot, true)\n        });\n        \n        results.push(#{\n            delay_ps: delay,\n            y_position: y - step_size,\n            spectrum: spectrum\n        });\n    }\n    \n    // Restore original settings\n    cam.set_ddg_timing(original_delay, original_width);\n    \n    results\n}\n```\n\n## Use Cases\n- Optimize timing for maximum signal\n- Find plasma decay curve\n- Characterize different materials' temporal response\n\n## Deliverables\n- scripts/libs/delay_scan.rhai\n- Example: scripts/libs/examples/delay_optimization.rhai\n- Unit test comparing output structure",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-02T13:16:57Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-02T13:16:57Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-3yb8.11",
+        "depends_on_id": "bd-3yb8",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:24Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-3yb8.12",
+    "title": "Phase 2.5: Implement radiance calibration in Rust",
+    "description": "Port radiance calibration from Python to Rust/Rhai.\n\n## Python Original (experiments.py:120-145)\n```python\ndef radiance_calibration(da, return_correction_factor=False, normalize=False):\n    grating = LIBS.spc.GetGrating(0)[1]\n    if grating == 1:\n        cal_da = g1_cal_spec\n    if grating == 2:\n        cal_da = g2_cal_spec\n    \n    # Interpolate calibration to match data wavelengths\n    cal_arr = np.interp(da.coords['Wavelength'].values, \n                        cal_da.coords['Wavelength'].values, \n                        cal_da.values)\n    lamp_spec_arr = np.interp(da.coords['Wavelength'].values,\n                               lamp_spec.coords['Wavelength'].values,\n                               lamp_spec.values)\n    \n    # Correction factor\n    cal_data = lamp_spec_arr / cal_arr\n    DA = da * cal_da\n    \n    return DA\n```\n\n## Rust Implementation\n```rust\n// common/src/processing/radiance_calibration.rs\n\npub struct RadianceCalibrator {\n    lamp_spectrum: LampSpectrum,\n    grating_calibrations: HashMap\u003cu8, CalibrationSpectrum\u003e,\n}\n\nimpl RadianceCalibrator {\n    pub fn new(lamp_file: \u0026Path, cal_files: \u0026[(u8, \u0026Path)]) -\u003e Result\u003cSelf\u003e;\n    \n    pub fn calibrate(\n        \u0026self,\n        spectrum: \u0026Spectrum,\n        grating: u8,\n        normalize: bool,\n    ) -\u003e Result\u003cSpectrum\u003e {\n        let cal = self.grating_calibrations.get(\u0026grating)\n            .ok_or_else(|| anyhow\\!(\"No calibration for grating {}\", grating))?;\n        \n        // Interpolate calibration to match spectrum wavelengths\n        let cal_interp = interp1d(\u0026cal.wavelengths, \u0026cal.values, \u0026spectrum.wavelengths)?;\n        let lamp_interp = interp1d(\n            \u0026self.lamp_spectrum.wavelengths,\n            \u0026self.lamp_spectrum.values,\n            \u0026spectrum.wavelengths\n        )?;\n        \n        // Correction factor: lamp / measured_calibration\n        let correction: Vec\u003cf64\u003e = lamp_interp.iter()\n            .zip(cal_interp.iter())\n            .map(|(l, c)| l / c)\n            .collect();\n        \n        // Apply correction\n        let calibrated: Vec\u003cf64\u003e = spectrum.values.iter()\n            .zip(correction.iter())\n            .map(|(s, c)| s * c)\n            .collect();\n        \n        let mut result = Spectrum {\n            wavelengths: spectrum.wavelengths.clone(),\n            values: calibrated,\n        };\n        \n        if normalize {\n            let max = result.values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);\n            result.values.iter_mut().for_each(|v| *v /= max);\n        }\n        \n        Ok(result)\n    }\n}\n```\n\n## Rhai Integration\n```rhai\n// Load calibrator from config\nlet calibrator = create_radiance_calibrator(\n    \"calibration/lamp_spec.lmp\",\n    #{1: \"calibration/g1_cal.asc\", 2: \"calibration/g2_cal.asc\"}\n);\n\n// Calibrate spectrum\nlet calibrated = calibrator.calibrate(spectrum, grating, true);\n```\n\n## Calibration File Formats\n- Lamp spectrum: .lmp or .ICD format (two columns: wavelength, intensity)\n- Grating calibration: .asc format (skiprows=3, two columns)\n\n## Deliverables\n- common/src/processing/radiance_calibration.rs\n- scripting/src/handles/calibrator_handle.rs\n- Example calibration files in config/calibration/",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-02T13:16:57Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-02T13:16:57Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-3yb8.12",
+        "depends_on_id": "bd-3yb8",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:24Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-3yb8.13",
+    "title": "Phase 3.1: Port TOP_acquisition experiment",
+    "description": "Port Trigger-On-Position rapid acquisition experiment.\n\n## Background\nTOP_acquisition is CRITICAL for LIBS - it enables high-speed spectral acquisition during continuous stage motion with precise position-triggered camera frames.\n\n## Python Original (experiments.py:373-405)\n```python\ndef TOP_acquisition(pulses_per_shot, x_position,\n                    TOP_start, TOP_end, increment, \n                    processing_laser=False):\n    # Calculate offset for acceleration ramp\n    offset = LIBS.xy_velocity[1]**2 / (2 * LIBS.xy_acceleration[1])\n    start_position = TOP_start - offset\n    end_position = TOP_end + offset\n    \n    LIBS.xy_position = (x_position, start_position)\n    \n    DA = LIBS.custom_acquire_series_TOP(\n        pulses_per_shot, 'Shots', \n        'y', start_position, end_position, \n        TOP_start, TOP_end, increment\n    )\n    \n    return DA, x_position\n```\n\n## Rhai Implementation\n```rhai\n// scripts/libs/top_acquisition.rhai\nfn top_acquisition(pulses_per_shot, x_position, top_start, top_end, increment) {\n    let stage = create_dover_stage();\n    let cam = get_gated_camera(\"andor_istar\");\n    let spec = create_andor_spectrograph();\n    let trigger = create_nidaqmx_trigger(\"Dev1/ctr0\");\n    \n    // Calculate acceleration offset\n    let velocity = stage.get_velocity();\n    let acceleration = stage.get_acceleration();\n    let offset = (velocity * velocity) / (2.0 * acceleration);\n    \n    let start_position = top_start - offset;\n    let end_position = top_end + offset;\n    \n    // Move to start\n    stage.y_move_abs(x_position);\n    stage.x_move_abs(start_position);\n    \n    // Calculate number of positions\n    let num_positions = ((top_end - top_start) / increment + 1.0) as i64;\n    \n    // Enable Trigger-On-Position on stage\n    stage.enable_top(top_start, top_end, increment, false, 250);\n    \n    // Arm camera for multi-frame acquisition\n    cam.set_num_frames(num_positions);\n    cam.arm();\n    \n    // Configure trigger to match camera\n    trigger.configure_pulse_train(0.1, 0.001, pulses_per_shot);\n    \n    // Start motion - stage generates triggers, camera captures\n    let move_task = stage.y_move_abs_async(end_position);\n    \n    // Collect frames as they arrive\n    let spectra = [];\n    for i in 0..num_positions {\n        let frame = cam.wait_frame();\n        let position = top_start + (i as f64 * increment);\n        spectra.push(#{\n            y_position: position,\n            spectrum: spec.apply_calibration(frame)\n        });\n    }\n    \n    move_task.wait();\n    stage.disable_top();\n    \n    #{spectra: spectra, x_position: x_position}\n}\n```\n\n## Key Coordination\n1. Stage: Generates GPIO pulse at each position\n2. Camera: Triggered externally by stage pulse\n3. NI-DAQ: May provide additional trigger shaping if needed\n\n## Timing Diagram\n```\nStage Motion:  ----[accel]----[constant velocity]----[decel]----\nStage GPIO:         |    |    |    |    |    |    |\nCamera Trig:        ↓    ↓    ↓    ↓    ↓    ↓    ↓\nFrame Capture:     [F1] [F2] [F3] [F4] [F5] [F6] [F7]\n```\n\n## Deliverables\n- scripts/libs/top_acquisition.rhai\n- Example: scripts/libs/examples/rapid_line_scan.rhai\n- Integration test with mock hardware",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-02T13:18:16Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-02T13:18:16Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-3yb8.13",
+        "depends_on_id": "bd-3yb8",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:24Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-3yb8.14",
+    "title": "Phase 3.2: Port 2D mapping scans",
+    "description": "Port step_scan_2d and step_scan_2d_TOP for grid mapping.\n\n## Experiments to Port\n\n### 1. step_scan_2d (experiments.py:692-756)\nStandard grid scan using step-and-acquire:\n```rhai\nfn step_scan_2d(grating, grating_pos, \n                x_start, x_stop, x_step,\n                y_start, y_stop, y_step,\n                pulses_per_shot, sample_name, filepath) {\n    let results = [];\n    \n    for y in range(y_start, y_stop + y_step, y_step) {\n        stage.y_move_abs(y);\n        sleep(5.0);  // Settle time\n        \n        let row = step_scan_x(grating, grating_pos, x_start, x_stop, x_step, pulses_per_shot);\n        results.push(row);\n        \n        // Save after each row for crash recovery\n        if filepath != \"\" {\n            save_hdf5(results, filepath);\n        }\n    }\n    \n    if apply_calibration {\n        results = radiance_calibration(results, grating);\n    }\n    \n    results\n}\n```\n\n### 2. step_scan_2d_TOP (experiments.py:758-800)\nFast grid scan using TOP for each X row:\n```rhai\nfn step_scan_2d_top(grating, grating_pos,\n                    x_start, x_stop, x_step,\n                    y_start, y_stop, y_step, y_velocity,\n                    pulses_per_shot, filepath) {\n    let results = [];\n    \n    for x in range(x_start, x_stop + x_step, x_step) {\n        stage.set_velocity(5, y_velocity);\n        \n        // Use TOP for fast Y scan at this X position\n        let (row, _) = top_acquisition(\n            pulses_per_shot, x,\n            y_start, y_stop, y_step\n        );\n        \n        stage.set_velocity(5, 5);  // Reset to normal\n        results.push(row);\n        \n        // Save intermediate\n        save_hdf5(results, filepath);\n    }\n    \n    results\n}\n```\n\n### 3. multishot_step_2d (experiments.py:924-1001)\nGrid scan collecting multiple spectra per position:\n```rhai\nfn multishot_step_2d(grating, grating_pos,\n                     x_start, x_stop, x_step,\n                     y_start, y_stop, y_step,\n                     num_pulses, filepath) {\n    // 4D data: [X, Y, Wavelength, Pulse]\n    let results = [];\n    \n    for y in range(y_start, y_stop + y_step, y_step) {\n        stage.y_move_abs(y);\n        \n        let row = [];\n        for x in range(x_start, x_stop + x_step, x_step) {\n            stage.x_move_abs(x);\n            \n            // Collect series of spectra at this point\n            let series = custom_acquire_series(num_pulses);\n            row.push(#{x: x, spectra: series});\n        }\n        results.push(#{y: y, row: row});\n        \n        save_hdf5(results, filepath);\n    }\n    \n    results\n}\n```\n\n## HDF5 Output Structure\n```\n/data                 - f64[X, Y, Wavelength] or [X, Y, Wavelength, Pulse]\n/coords/X_Position    - f64[X]\n/coords/Y_Position    - f64[Y]\n/coords/Wavelength    - f64[2560]\n/coords/Pulses        - i32[P] (for multishot)\n/attrs/sample_name\n/attrs/grating\n/attrs/grating_position\n/attrs/timestamp\n```\n\n## Deliverables\n- scripts/libs/step_scan_2d.rhai\n- scripts/libs/step_scan_2d_top.rhai\n- scripts/libs/multishot_step_2d.rhai\n- Visualization tools for 2D heatmaps",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-02T13:18:16Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-02T13:18:16Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-3yb8.14",
+        "depends_on_id": "bd-3yb8",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:25Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-3yb8.15",
+    "title": "Phase 3.3: Create LIBS GUI panels in egui",
+    "description": "Create GUI panels for LIBS instrument control and visualization.\n\n## New Panels Required\n\n### 1. SpectrometerControlPanel\n```rust\n// ui/src/widgets/device_controls/spectrometer_panel.rs\npub struct SpectrometerControlPanel {\n    grating_selector: ComboBox\u003cu8\u003e,      // 1, 2, 3\n    wavelength_input: DragValue,          // nm\n    slit_width_input: DragValue,          // µm\n    shutter_toggle: Toggle,\n    calibration_plot: WavelengthPlot,\n}\n\nimpl SpectrometerControlPanel {\n    pub fn show(\u0026mut self, ui: \u0026mut Ui, spec: \u0026mut dyn SpectrometerControl) {\n        ui.horizontal(|ui| {\n            ui.label(\"Grating:\");\n            if ui.combo_box(\u0026mut self.grating, \u0026[1, 2, 3]).changed() {\n                spec.set_grating(self.grating);\n            }\n        });\n        \n        ui.horizontal(|ui| {\n            ui.label(\"Wavelength (nm):\");\n            if ui.add(DragValue::new(\u0026mut self.wavelength)).changed() {\n                spec.set_wavelength(self.wavelength);\n            }\n        });\n        \n        // ... slit, shutter, etc.\n    }\n}\n```\n\n### 2. GatedCameraPanel\n```rust\n// ui/src/widgets/device_controls/gated_camera_panel.rs\npub struct GatedCameraPanel {\n    gate_mode_selector: ComboBox\u003cGateMode\u003e,\n    ddg_delay_input: DragValue,    // picoseconds\n    ddg_width_input: DragValue,    // picoseconds\n    mcp_gain_slider: Slider,       // 0-4095\n    intelligate_toggle: Toggle,\n    temperature_display: Label,\n    spectrum_plot: SpectrumPlot,\n}\n```\n\n### 3. DoverStagePanel\n```rust\n// ui/src/widgets/device_controls/dover_stage_panel.rs\npub struct DoverStagePanel {\n    position_display: Vec3Display,\n    jog_controls: JogPad3D,\n    velocity_input: DragValue,\n    top_config: TopConfigPanel,  // Trigger-On-Position settings\n}\n\nstruct TopConfigPanel {\n    start_pos: DragValue,\n    end_pos: DragValue,\n    increment: DragValue,\n    pulse_width_ns: DragValue,\n    bidirectional: Checkbox,\n    enable_button: Button,\n}\n```\n\n### 4. SpectrumViewer (for LIBS spectra)\n```rust\n// ui/src/widgets/viewers/spectrum_viewer.rs\npub struct SpectrumViewer {\n    plot: SpectrumPlot,\n    x_axis: WavelengthAxis,      // nm\n    y_axis: IntensityAxis,       // counts or calibrated\n    peak_picker: PeakPicker,\n    background_subtraction: Toggle,\n    calibration_selector: ComboBox\u003cCalibrationMode\u003e,\n    cursor_readout: Label,       // Shows wavelength @ cursor\n}\n\nimpl SpectrumViewer {\n    pub fn set_spectrum(\u0026mut self, wavelengths: \u0026[f64], intensities: \u0026[f64]) {\n        self.plot.set_data(wavelengths, intensities);\n    }\n}\n```\n\n### 5. LIBS Experiment Panel\n```rust\n// ui/src/widgets/experiments/libs_experiment_panel.rs\npub struct LibsExperimentPanel {\n    experiment_type: ComboBox\u003cExperimentType\u003e,\n    parameters: ExperimentParameterEditor,\n    run_button: Button,\n    progress_bar: ProgressBar,\n    results_viewer: ResultsViewer,\n}\n\nenum ExperimentType {\n    SingleShot,\n    StepScanX,\n    StepScanY,\n    StepScan2D,\n    TopAcquisition,\n    DelayScan,\n}\n```\n\n## Dependencies\n- Phase 2.1 (capability traits) must be complete for type definitions\n- egui_plot for spectrum visualization\n- SpectrumViewer should reuse patterns from ImageViewerPanel\n\n## Deliverables\n- All panel implementations in ui/src/widgets/\n- Integration with InstrumentsPanel device list\n- Live update via gRPC status polling",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-02T13:18:17Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-02T13:18:17Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-3yb8.15",
+        "depends_on_id": "bd-3yb8",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:25Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-3yb8.23",
+    "title": "Add libs_integration_smoke tests to LIBS Windows CI workflow",
+    "description": "Create workspace-level libs_integration_smoke test suite and wire into LIBS Windows CI workflow (libs-windows.yml). Individual driver smoke tests exist (tests/libs_smoke.rs) in each crate but need integration-level suite. Consolidated from bd-3yb8.23 + bd-3yb8.29.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-03T10:25:43Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-08T14:02:33Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-3yb8.23",
+        "depends_on_id": "bd-3yb8",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:26Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-3yb8.24",
+    "title": "Create LIBS hardware config (libs_hardware.toml) for Windows",
+    "description": "Create config/libs_hardware.toml (or libs_windows.toml) analogous to maitai_hardware.toml. Register: Dover stage, Andor camera/spectrograph, Spirit laser, NI-DAQmx trigger. Windows-specific paths and device IDs. Prerequisite for running rust-daq daemon on LIBS machine.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-03T10:25:44Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-03T10:25:44Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-3yb8.24",
+        "depends_on_id": "bd-3yb8",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:26Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-3yb8.25",
+    "title": "Validate LIBS drivers on actual Windows LIBS machine",
+    "description": "Hardware smoke test validation on physical LIBS Windows PC. Run: DOVER_MOTION_SMOKE_TEST=1, ANDOR_SMOKE_TEST=1, SPIRIT_SMOKE_TEST=1, LIBS_INTEGRATION_TEST=1 with real hardware. Verify: stage-camera TOP sync, laser safety sequence, full LIBS acquisition. Reference: LIBS_SMOKE_TESTS.md, LIBS_SMOKE_TESTS.md Next Steps #2.",
+    "status": "open",
+    "priority": 1,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-03T10:25:46Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-03T10:25:46Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-3yb8.25",
+        "depends_on_id": "bd-3yb8",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:26Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      },
+      {
+        "issue_id": "bd-3yb8.25",
+        "depends_on_id": "bd-9n9k",
+        "type": "blocks",
+        "created_at": "2026-02-24T11:50:45Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 1,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-3yb8.26",
+    "title": "Create scripts/libs/ directory structure for LIBS Rhai experiments",
+    "description": "Create examples/scripts/libs/ or scripts/libs/ directory for LIBS-specific Rhai scripts. Placeholder for: step_scan.rhai, top_acquisition.rhai, delay_scan.rhai, step_scan_2d.rhai. Depends on bd-3yb8.9 (Rhai LIBS extensions).",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-03T10:25:50Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-03T10:25:50Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-3yb8.26",
+        "depends_on_id": "bd-3yb8",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:27Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-3yb8.28",
+    "title": "Verify driver-nidaqmx integration with LIBS daemon",
+    "description": "driver-nidaqmx ports LIBS/trigger.py digital and TOP classes. Verify: (1) NI-DAQmx factory registered in bin when libs feature enabled, (2) hardware config supports Dev1/ctr0 for trigger, (3) PyO3 bridge works on Windows. Reference: driver-nidaqmx/MIGRATION.md, LIBS/trigger.py.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-03T10:25:54Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-03T10:25:54Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-3yb8.28",
+        "depends_on_id": "bd-3yb8",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:27Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-3yb8.9",
+    "title": "Phase 2.2: Extend Rhai scripting for LIBS experiments",
+    "description": "Add Rhai scripting functions for LIBS experiment patterns.\n\n## New Rhai Handles/Functions\n\n### 1. Spectrograph Handle\n```rhai\n// Create spectrograph handle\nlet spec = create_andor_spectrograph();\n\n// Methods\nspec.set_grating(2);\nspec.set_wavelength(310.0);\nspec.set_slit_width(2, 150);\nspec.open_shutter();\nspec.close_shutter();\nlet wl_array = spec.get_calibration(2560);\n```\n\n### 2. Gated Camera Handle\n```rhai\nlet cam = get_gated_camera(\"andor_istar\");\n\ncam.set_gate_mode(\"DDG\");\ncam.set_ddg_timing(1300000, 10000000);  // delay_ps, width_ps\ncam.set_mcp_gain(3600);\ncam.arm();\nlet frame = cam.wait_frame();\n```\n\n### 3. Dover Stage Handle\n```rhai\nlet stage = create_dover_stage(\"/dev/ttyUSB0\", \"XAxis\");\n\nstage.move_abs(10.0);\nstage.move_rel(-5.0);\nstage.home();\nlet pos = stage.position();\n\n// Trigger-On-Position\nstage.enable_top(0.0, 100.0, 1.0, true, 250);  // start, end, increment, bidir, pulse_ns\nstage.disable_top();\n```\n\n### 4. LIBS Utility Functions\n```rhai\n// Shutter safety wrapper (like Python with_shutter_open)\nfn with_shutter(spec, body) {\n    spec.open_shutter();\n    let result = catch { body() };\n    spec.close_shutter();\n    if result.is_err() { throw result.unwrap_err(); }\n    result.unwrap()\n}\n\n// Get spectrum with background subtraction\nfn get_spectrum(cam, spec, num_pulses, bkgsub) {\n    let wl = spec.get_calibration(2560);\n    let frame = cam.acquire(num_pulses);\n    // Background subtraction logic\n    #{wavelength: wl, intensity: frame.data, params: cam.params()}\n}\n```\n\n## Port from Python\nKey functions from initialization.py and experiments.py:\n- get_spectrum() → Rhai equivalent\n- get_background() → Rhai equivalent\n- move_grating() → spec.set_wavelength()\n- custom_acquire_series() → Rhai loop pattern\n\n## Deliverables\n- scripting/src/handles/ - new handle types\n- scripting/src/functions/ - LIBS functions\n- Example scripts in scripts/libs/",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-02T13:16:56Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-02T13:16:56Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-3yb8.9",
+        "depends_on_id": "bd-3yb8",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:27Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-41ne",
+    "title": "Infrastructure \u0026 Architecture",
+    "description": "Consolidated epic for infrastructure work: proto refactoring, Arrow tensors, build system, examples modernization, and configuration improvements.",
+    "notes": "2026-03-02: This epic is the concrete task list for bd-9j1q.2 (Phase 2: Architecture). Tasks here are actionable independently.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "epic",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-01-27T15:12:51Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-03-03T01:06:08Z",
+    "labels": [
+      "architecture",
+      "infrastructure",
+      "roadmap"
+    ],
+    "dependencies": [
+      {
+        "issue_id": "bd-41ne",
+        "depends_on_id": "bd-9j1q.2",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:52:55Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-9j1q.2",
+    "title": "Phase 2: Architecture \u0026 Protocol Modernization",
+    "description": "Structural modernization: protocol evolution, module boundaries, registry/capability architecture.",
+    "notes": "2026-02-24 roadmap reorg: Unblocked — Phase 1 core P0 work complete, P2-P3 polish continues in parallel. Phase 1→2 hard dependency removed.",
+    "status": "open",
+    "priority": 1,
+    "issue_type": "epic",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-10T00:37:23Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-24T17:50:39Z",
+    "labels": [
+      "architecture",
+      "phase-2",
+      "roadmap"
+    ],
+    "dependencies": [
+      {
+        "issue_id": "bd-9j1q.2",
+        "depends_on_id": "bd-9j1q",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:28Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-9j1q.3",
+    "title": "Phase 3: Lint, Safety, and Engineering Guardrails",
+    "description": "Warning/lint debt reduction, unsafe/allow hygiene, and regression-prevention controls.",
+    "status": "open",
+    "priority": 1,
+    "issue_type": "epic",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-10T00:37:23Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-10T00:37:23Z",
+    "labels": [
+      "phase-3",
+      "quality",
+      "roadmap"
+    ],
+    "dependencies": [
+      {
+        "issue_id": "bd-9j1q.3",
+        "depends_on_id": "bd-9j1q",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:28Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-9j1q.4",
+    "title": "Phase 4: LIBS Integration Delivery",
+    "description": "Deliver and validate LIBS integration across drivers, workflows, CI, and hardware verification.",
+    "notes": "2026-02-24 roadmap reorg: Phase 2→4 hard dependency removed. Preparatory LIBS work (config, scaffolding, mocks, docs) can proceed now. Hardware validation tasks depend on specific Phase 2 deliverables via targeted deps.",
+    "status": "open",
+    "priority": 1,
+    "issue_type": "epic",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-10T00:37:23Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-24T17:50:40Z",
+    "labels": [
+      "libs",
+      "phase-4",
+      "roadmap"
+    ],
+    "dependencies": [
+      {
+        "issue_id": "bd-9j1q.4",
+        "depends_on_id": "bd-9j1q",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:28Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 1,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-9j1q.5",
+    "title": "Phase 5: Product Backlog \u0026 Long-Horizon Features",
+    "description": "Non-blocking product features and long-horizon initiatives separated from debt/hardening work.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "epic",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-10T00:37:24Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-10T00:37:24Z",
+    "labels": [
+      "backlog",
+      "phase-5",
+      "roadmap"
+    ],
+    "dependencies": [
+      {
+        "issue_id": "bd-9j1q.5",
+        "depends_on_id": "bd-23as",
+        "type": "relates-to",
+        "created_at": "2026-02-19T14:18:21Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      },
+      {
+        "issue_id": "bd-9j1q.5",
+        "depends_on_id": "bd-9j1q",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:28Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      },
+      {
+        "issue_id": "bd-9j1q.5",
+        "depends_on_id": "bd-9j1q.4",
+        "type": "blocks",
+        "created_at": "2026-02-19T14:18:22Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 1,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-a9zy",
+    "title": "Script execution on real hardware",
+    "description": "P2: Run Rhai scripts from Scripts panel against real hardware. Validate state tracking matches actual hardware state. Test error handling for hardware timeouts.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "created_at": "2026-01-08T14:21:00Z",
+    "created_by": "briansquires",
+    "updated_at": "2026-01-08T14:21:00Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-a9zy",
+        "depends_on_id": "bd-qa36",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:53:52Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-c9z1",
+    "title": "Add watchdog for orphaned RunEngine plans",
+    "notes": "## Problem\nRunEngine plans can become orphaned if:\n- Client disconnects mid-execution\n- Network failure interrupts gRPC stream\n- Panic in user-provided plan step callback\n\nThere's no automatic timeout or cleanup for stalled plans.\n\n## Solution\nAdd watchdog timer to RunEngine:\n- Configurable inactivity timeout (default 30s)\n- Detect when no plan progress occurs\n- Emit warning/error event on timeout\n- Option to auto-abort stalled plans\n\n## Implementation Notes\n- Add `plan_timeout` config option to RunEngine\n- Track last activity timestamp per active plan\n- Spawn watchdog task that checks periodically\n- Fire `PlanTimeout` event before abort\n\n## Location\n- crates/daq-experiment/src/engine.rs\n\n## Acceptance Criteria\n- [ ] Plans timeout after configurable period of inactivity\n- [ ] PlanTimeout event fired before automatic abort\n- [ ] Watchdog is cancellable when plan completes normally\n- [ ] Unit tests for timeout behavior",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-01-16T16:58:22Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-01-16T16:58:22Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-c9z1",
+        "depends_on_id": "bd-qa36",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:53:52Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-ga7k.10",
+    "title": "Invert Hardware Dependencies",
+    "description": "Fix the hardware god-crate anti-pattern AND consolidate feature flags (merged from Phase 7). Strategy: gut the existing hardware crate in-place (keep the crate name to avoid import path changes across 290K lines). hardware becomes traits + registry only. The drivers crate handles concrete registration and owns feature gating. Split driver updates by family for manageability. Goal: hardware compiles independently of any specific driver, driver changes don't recompile hardware, feature flags are centralized in drivers crate.",
+    "notes": "\\n2026-02-19 triage: tracking epic; execute child tasks directly.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "epic",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-04T15:24:37Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-03-03T01:07:18Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-ga7k.10",
+        "depends_on_id": "bd-9j1q.2",
+        "type": "parent-child",
+        "created_at": "2026-02-24T11:50:14Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-ga7k.10.1",
+    "title": "Strip concrete driver code from hardware crate (keep crate name)",
+    "description": "Instead of creating a new hardware-api crate, strip the existing hardware crate of its concrete driver dependencies and instantiation logic. This preserves all existing 'use hardware::...' import paths across the codebase (avoiding massive import rewrites). Move driver-specific code (factory instantiation, concrete type references) to the drivers crate. What stays in hardware: trait definitions, DeviceRegistry, DeviceComponents, DriverFactory trait, Capability enum, DeviceMetadata, config parsing.",
+    "status": "open",
+    "priority": 1,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-04T15:26:05Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-04T15:29:54Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-ga7k.10.1",
+        "depends_on_id": "bd-ga7k.10",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:32Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-ga7k.10.2",
+    "title": "Remove concrete driver dependencies from hardware Cargo.toml",
+    "description": "Remove these dependencies from crates/hardware/Cargo.toml:\n- driver-comedi\n- driver-generic\n- driver-mock\n- driver-newport\n- driver-pvcam\n- driver-red-pitaya\n- driver-spectra-physics\n- driver-thorlabs\n\nhardware should define the registry and abstractions only. Concrete drivers register themselves via DriverFactory at startup time, not at compile time.",
+    "status": "open",
+    "priority": 1,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-04T15:26:05Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-04T15:26:05Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-ga7k.10.2",
+        "depends_on_id": "bd-ga7k.10",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:33Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-ga7k.10.3",
+    "title": "Expand drivers crate: concrete registry + feature flag ownership",
+    "description": "Expand crates/drivers/src/lib.rs to: (1) be the single point where concrete DriverFactory implementations are registered, (2) own all driver-specific feature flags (thorlabs, newport, spectra_physics, comedi, pvcam_hardware, etc.) that currently live in hardware/Cargo.toml and rust-daq/Cargo.toml. Move feature definitions from hardware and rust-daq to drivers/Cargo.toml. Update bin/main.rs to call drivers::register_all(\u0026mut registry) at startup.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-04T15:26:05Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-04T15:29:54Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-ga7k.10.3",
+        "depends_on_id": "bd-ga7k.10",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:33Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-ga7k.10.4",
+    "title": "Update Mock Driver to depend on stripped hardware crate",
+    "description": "Update driver-mock to depend on the stripped hardware crate (after dependency inversion). driver-generic has been deleted (ac635bfd) and is no longer relevant.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-04T15:26:05Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-03-03T01:04:16Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-ga7k.10.4",
+        "depends_on_id": "bd-ga7k.10",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:33Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-ga7k.10.6",
+    "title": "Update Camera Drivers (PVCAM, Andor) to depend on stripped hardware",
+    "description": "Update driver-pvcam and driver-andor-sdk3 to work with the stripped hardware crate. Camera drivers are the most complex — PVCAM alone is 24K lines. Focus on the public API surface (DriverFactory impl, trait impls). Do not refactor internal camera logic. Verify camera streaming still works after the change.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-04T15:29:55Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-04T15:29:55Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-ga7k.10.6",
+        "depends_on_id": "bd-ga7k.10",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:34Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-ga7k.10.7",
+    "title": "Update Motion \u0026 Serial Drivers (Thorlabs, Newport, Spectra-Physics, Dover) to depend on stripped hardware",
+    "description": "Update Motion \u0026 Serial Drivers to depend on stripped hardware crate. NOTE: driver-spectra-physics is now an 8-line shell (MaiTai driver deleted in ac635bfd). driver-thorlabs is 165 lines (ELL14 deleted, only shared_ports.rs remains). driver-newport still has newport_1830c (802 lines). Consider whether spectra-physics and thorlabs crates should simply be deleted vs refactored.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-04T15:29:55Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-03-03T01:05:04Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-ga7k.10.7",
+        "depends_on_id": "bd-ga7k.10",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:34Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-ga7k.10.8",
+    "title": "Update DAQ Drivers (Comedi, Red Pitaya) to depend on stripped hardware",
+    "description": "Update driver-comedi and driver-red-pitaya to work with the stripped hardware crate. driver-comedi is 15K lines with FFI bindings — focus only on the DriverFactory and trait surface. driver-red-pitaya status should be clarified in Phase 5, but ensure it compiles regardless.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-04T15:29:55Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-04T15:29:55Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-ga7k.10.8",
+        "depends_on_id": "bd-ga7k.10",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:34Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-ga7k.11.2",
+    "title": "Split circ_buffer_diagnostic.rs (5,734 lines)",
+    "description": "crates/driver-pvcam/tests/circ_buffer_diagnostic.rs is 5,734 lines — the largest single test file. Split into:\n- tests/buffer_overflow.rs — Buffer overflow and wrap-around scenarios\n- tests/frame_integrity.rs — Frame data integrity verification\n- tests/acquisition_timing.rs — Timing and throughput tests\n- tests/common_fixtures.rs — Shared setup/teardown (buffer allocation, mock init)\n\nExtract repeated boilerplate into the common fixtures module. Verify all tests still pass after splitting.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-04T15:26:45Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-04T15:26:45Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-ga7k.11.2",
+        "depends_on_id": "bd-ga7k.11",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:35Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-ga7k.5.1",
+    "title": "Evaluate plugin-api (abi_stable) necessity",
+    "description": "Determine if plugin-api (abi_stable FFI plugin system) is actually used or planned. Questions to answer:\n1. Does any code outside plugin-example actually load plugins via abi_stable?\n2. Are there third-party binary plugins being shipped without source?\n3. Is hot-lib-reloader in hardware related to this plugin system?\n\nIf no binary plugins exist or are planned, recommend deletion of plugin-api + plugin-example (1,824 lines). The DriverFactory trait pattern provides compile-time polymorphism which is simpler. Check: crates/plugin-api/src/lib.rs, crates/plugin-example/, crates/hardware/src/plugin/",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-04T15:26:24Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-04T15:26:24Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-ga7k.5.1",
+        "depends_on_id": "bd-ga7k.5",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:36Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-jcmj",
+    "title": "Implement Arrow Tensor Support",
+    "description": "Upgrade 'ArrowDocumentWriter' to natively support N-dimensional arrays using the 'shape' metadata, enabling efficient image/spectrum storage.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "created_at": "2026-01-06T22:38:10Z",
+    "created_by": "briansquires",
+    "updated_at": "2026-01-06T22:38:10Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-jcmj",
+        "depends_on_id": "bd-rgnx",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:53:49Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-m9jm",
+    "title": "Add async context safety guard to RingBuffer",
+    "description": "# Task: Async Context Safety Guard for RingBuffer\n\n## Problem\n`RingBuffer::read_snapshot` uses `std::thread::sleep` for backoff during contention. This is **blocking**.\n\nWhile `AsyncRingBuffer` correctly wraps this in `spawn_blocking`, direct usage of `RingBuffer::read_snapshot` in an async context would stall the tokio runtime.\n\n**Location:** `crates/daq-storage/src/ring_buffer.rs:1455`\n\n## Current State\n- Warning comment exists (`bd-jnfu.14`)\n- `AsyncRingBuffer` wrapper exists and is correct\n- No runtime detection\n\n## Solution\nAdd a debug-only check to warn developers:\n\n```rust\nfn read_snapshot(\u0026self) -\u003e Option\u003cRingBufferSnapshot\u003e {\n    #[cfg(debug_assertions)]\n    if tokio::runtime::Handle::try_current().is_ok() {\n        tracing::warn!(\n            target: \"daq_storage::ring_buffer\",\n            \"Blocking RingBuffer::read_snapshot called from async context! \\\n             Use AsyncRingBuffer::read_snapshot() instead to avoid stalling the runtime.\"\n        );\n    }\n    \n    // ... existing implementation\n}\n```\n\n## Additional Improvements\n\n### 1. Rename for clarity (optional)\n```rust\n// Current\npub fn read_snapshot(\u0026self) -\u003e Option\u003cRingBufferSnapshot\u003e\n\n// More explicit\npub fn read_snapshot_blocking(\u0026self) -\u003e Option\u003cRingBufferSnapshot\u003e\n```\n\n### 2. Update documentation\n```rust\n/// Read a consistent snapshot of the ring buffer.\n/// \n/// # Warning\n/// \n/// This method uses blocking backoff during contention.\n/// **Do not call directly from async code!**\n/// \n/// Use [`AsyncRingBuffer::read_snapshot`] instead for async contexts.\n```\n\n## Files to Modify\n- `crates/daq-storage/src/ring_buffer.rs`\n\n## Testing\n- [ ] Verify warning fires in debug mode when called from async\n- [ ] Verify no warning in release mode\n- [ ] Verify AsyncRingBuffer doesn't trigger warning\n\n## Acceptance Criteria\n- [ ] Debug warning when called from tokio context\n- [ ] Documentation updated with clear warning\n- [ ] No runtime overhead in release builds",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-01-16T16:56:45Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-01-16T16:56:45Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-m9jm",
+        "depends_on_id": "bd-rgnx",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:53:49Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-onuf",
+    "title": "Update Build System for Multi-Proto",
+    "description": "Update 'daq-proto/build.rs' to compile the new multi-file protobuf structure correctly.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "created_at": "2026-01-06T22:37:42Z",
+    "created_by": "briansquires",
+    "updated_at": "2026-01-06T22:37:42Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-onuf",
+        "depends_on_id": "bd-41ne",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:53:48Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-pp85",
+    "title": "Refactor: Split Monolithic daq.proto",
+    "description": "Decompose 'daq.proto' into domain-specific files: 'hardware.proto', 'experiment.proto', 'storage.proto'. Update imports.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "created_at": "2026-01-06T22:37:36Z",
+    "created_by": "briansquires",
+    "updated_at": "2026-01-06T22:37:36Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-pp85",
+        "depends_on_id": "bd-41ne",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:53:48Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-prgo",
+    "title": "Implement backpressure calculation in Comedi driver",
+    "description": "crates/daq-driver-comedi/src/continuous.rs:446 - backpressure: 0.0, // TODO: Calculate from sink fill levels. No flow control for high-speed COMEDI acquisitions; risk of buffer overflows.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-01-18T21:06:32Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-01-18T21:06:32Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-prgo",
+        "depends_on_id": "bd-rgnx",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:53:50Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-qa36.1.1",
+    "title": "Create systemd user service template",
+    "description": "New file deploy/rust-daq-daemon.service. systemd user service: Type=simple, ExecStart=%h/rust-daq/target/release/rust-daq-daemon daemon --port 50051 --hardware-config %h/rust-daq/config/maitai_hardware.toml, WorkingDirectory=%h/rust-daq, Restart=on-failure, RestartSec=5, Environment=RUST_LOG=info, StandardOutput/Error=journal, After=network-online.target, WantedBy=default.target.\n\nFiles: deploy/rust-daq-daemon.service (NEW)",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-11T02:48:16Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-11T02:48:16Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-qa36.1.1",
+        "depends_on_id": "bd-qa36.3",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:56:39Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-qa36.1.2",
+    "title": "Create service install/uninstall script",
+    "description": "New file scripts/install-service.sh. Copies template to ~/.config/systemd/user/rust-daq-daemon.service, substitutes paths (hardware config, port, env file), runs systemctl --user daemon-reload \u0026\u0026 systemctl --user enable rust-daq-daemon. --uninstall flag for cleanup (disable + remove). Validates binary exists at expected path before installing.\n\nFiles: scripts/install-service.sh (NEW)",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-11T02:48:25Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-11T02:48:25Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-qa36.1.2",
+        "depends_on_id": "bd-qa36.3",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:56:39Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-qa36.1.3",
+    "title": "Update build-maitai.sh with systemd hint",
+    "description": "Add post-build step to scripts/build-maitai.sh: print instructions for 'systemctl --user restart rust-daq-daemon' instead of raw ./target/release/rust-daq-daemon command.\n\nFiles: scripts/build-maitai.sh",
+    "status": "open",
+    "priority": 3,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-11T02:48:35Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-03-03T01:08:16Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-qa36.1.3",
+        "depends_on_id": "bd-qa36.3",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:56:40Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-qa36.2.2",
+    "title": "Config integration test",
+    "description": "New file crates/ui/tests/config_integration.rs. Write temp gui.toml to tempdir, load via load_gui_config() (with path override or CWD change), verify all fields round-trip correctly, verify preset SSH configs load with correct types.\n\nFiles: crates/ui/tests/config_integration.rs (NEW)",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-11T02:48:43Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-11T02:48:43Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-qa36.2.2",
+        "depends_on_id": "bd-qa36",
+        "type": "parent-child",
+        "created_at": "2026-02-24T12:46:33Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-qa36.3",
+    "title": "Systemd Deployment",
+    "description": "Systemd deployment automation for maitai host. Extracted from former bd-qa36.1 (Deployment + SSH) after SSH remote management was deferred.\n\n**Tasks** (reparented from bd-qa36.1):\n- bd-qa36.1.1 — Create systemd user service template (deploy/rust-daq-daemon.service)\n- bd-qa36.1.2 — Create service install/uninstall script (scripts/install-service.sh)\n- bd-qa36.1.3 — Update build-maitai.sh with systemd hint\n\n**Blocked by**: bd-1afe (Daemon Lifecycle)",
+    "notes": "\\n2026-02-19 triage: tracking epic; execute child tasks directly.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "epic",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-11T13:58:23Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-03-03T01:04:38Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-qa36.3",
+        "depends_on_id": "bd-qa36",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:41Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-rgnx",
+    "title": "Data Plane \u0026 Performance Optimization",
+    "description": "## Overview\nArchitecture cleanup phase is COMPLETE (21 closed children). Remaining scope is data plane \u0026 performance optimization: Arrow tensors, backpressure, ring buffer enhancements, telemetry, and perf feature flags.\n\n## Completed (Architecture Cleanup)\n- DriverType god-enum eliminated\n- Dual instantiation paths resolved\n- Conflicting trait definitions consolidated\n- UI coupling removed from core\n- Hardcoded lab config removed\n- ConfiguredDriver enum replaced\n\n## Remaining Scope (Performance \u0026 Data Plane)\n- Arrow tensor integration\n- Backpressure mechanisms\n- Ring buffer enhancements\n- Telemetry infrastructure\n- Performance feature flags\n\n## References\n- Review source: Gemini 3 Pro deep analysis (2026-01-30)\n- Key files: registry.rs, capabilities.rs, core.rs, factory.rs, driver.rs",
+    "notes": "2026-03-02: This epic is the concrete task list for bd-9j1q.2 (Phase 2: Architecture) - data plane track. Tasks here are actionable independently.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "epic",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-01-30T16:12:08Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-03-03T01:06:09Z",
+    "labels": [
+      "architecture",
+      "modernization",
+      "roadmap"
+    ],
+    "dependencies": [
+      {
+        "issue_id": "bd-rgnx",
+        "depends_on_id": "bd-9j1q.2",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:52:55Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-rgnx.4",
+    "title": "Add Frame Pool Timeout Protection",
+    "description": "## Objective\nPrevent UI stalls from crashing hardware by adding timeouts to frame pool acquisition.\n\n## Current Problem\n- FrameProducer uses pool::Loaned\u003cFrameData\u003e for zero-copy streaming\n- If UI holds 100% of pool buffers (paused debugger, memory leak, slow processing):\n  - Camera driver blocks indefinitely waiting for buffer\n  - Hardware loop hangs\n  - Potential SDK timeout/crash\n  - No visibility into the issue\n\n## Implementation Plan\n1. Add timeout parameter to pool buffer acquisition\n2. If pool empty for \u003e1 second, drop the frame instead of blocking\n3. Log warning: \"Frame Dropped (Pool Empty) - consumers too slow\"\n4. Add metrics: pool_exhaustion_count, frames_dropped_backpressure\n5. Consider adaptive behavior: reduce frame rate when pool pressure detected\n\n## Code Location\n- crates/pool/src/lib.rs (buffer acquisition)\n- crates/driver-pvcam/src/acquisition.rs (frame producer loop)\n- crates/driver-mock/src/mock_camera.rs (reference implementation)\n\n## Acceptance Criteria\n- [ ] Timeout on buffer acquisition (configurable, default 1s)\n- [ ] Frame dropped instead of blocking when pool exhausted\n- [ ] Warning logged with context\n- [ ] Metrics exposed for monitoring\n- [ ] Camera driver never blocks indefinitely\n\n## Testing\n- Create test that holds all pool buffers\n- Verify driver continues running (dropping frames)\n- Verify warning logged",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-01-30T16:13:13Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-02-24T18:46:59Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-rgnx.4",
+        "depends_on_id": "bd-rgnx",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:43Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-s9u7",
+    "title": "Code Quality \u0026 Safety (Consolidated)",
+    "description": "Consolidated epic for all code quality work including: linting, testing improvements, security reviews. Supersedes multiple Gemini/Codex review epics.",
+    "notes": "2026-03-02: This epic is the concrete task list for bd-9j1q.3 (Phase 3: Lint/Safety). Tasks here are actionable independently.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "epic",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-01-26T13:55:18Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-03-03T01:06:08Z",
+    "labels": [
+      "lint",
+      "quality",
+      "roadmap",
+      "safety"
+    ],
+    "dependencies": [
+      {
+        "issue_id": "bd-s9u7",
+        "depends_on_id": "bd-9j1q.3",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:52:56Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-s9u7.5",
+    "title": "Phase 1: Re-enable cast lints as WARN",
+    "description": "## Phase 1: Visibility (No Breaking Changes)\n\n**Goal:** Make dangerous casts visible without blocking CI\n\n**Steps:**\n1. Change Cargo.toml lines 53-57 from `allow` to `warn`\n2. Run `cargo clippy --all-targets 2\u003e\u00261 | grep cast_ | wc -l` to count warnings\n3. Document the count and hotspot files in a comment\n4. CI remains green (warnings don't fail)\n\n**Acceptance:**\n- [ ] Lints changed to warn level\n- [ ] Warning count documented\n- [ ] CI passes\n\nThis is safe to merge immediately - provides visibility without risk.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-01-27T20:39:54Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-01-27T20:39:54Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-s9u7.5",
+        "depends_on_id": "bd-s9u7",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:44Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-s9u7.6",
+    "title": "Phase 2: Fix or justify all cast warnings",
+    "description": "## Phase 2: Address Each Warning\n\n**Goal:** Resolve all cast warnings from Phase 1\n\n**Steps:**\nFor each cast warning, choose one:\n\n1. **Fix with bounds checking:**\n   ```rust\n   let val = u32_value.try_into().expect(\"value must fit in u16\");\n   // or\n   let val = u32_value.min(u16::MAX as u32) as u16;\n   ```\n\n2. **Explicit allow with justification:**\n   ```rust\n   #[allow(clippy::cast_possible_truncation)]\n   // SAFETY: PVCAM API guarantees width fits in u16 (max 4096)\n   let width = frame_width as u16;\n   ```\n\n**Priority Files:**\n- daq-driver-pvcam (hardware register casts)\n- daq-driver-comedi (channel/range indices)\n- daq-egui (UI dimensions)\n\n**Acceptance:**\n- [ ] Zero cast warnings remain\n- [ ] Each #[allow] has a // SAFETY comment\n- [ ] No silent truncation possible",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-01-27T20:40:03Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-01-27T20:40:03Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-s9u7.6",
+        "depends_on_id": "bd-s9u7",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:54:44Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-uujj",
+    "title": "GUI Improvements (Consolidated)",
+    "description": "Consolidated epic for all GUI-related work including: panels, visualization, connection stability, and quality fixes. Supersedes: bd-kj7i, bd-vqgf, bd-al9o, bd-tr1o, bd-j3xz",
+    "notes": "2026-03-02: This epic is the concrete task list for bd-9j1q.5 (Phase 5: Product Backlog). GUI tasks are actionable independently.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "epic",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-01-26T13:55:18Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-03-03T01:06:09Z",
+    "labels": [
+      "gui",
+      "roadmap",
+      "ux"
+    ],
+    "dependencies": [
+      {
+        "issue_id": "bd-uujj",
+        "depends_on_id": "bd-9j1q.5",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:52:56Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-wucy",
+    "title": "Data acquisition validation",
+    "description": "P2: Test data acquisition from Storage panel. Validate frame streaming rate matches exposure interval. Verify storage of real frame data. Check for frame drops during acquisition.",
+    "status": "open",
+    "priority": 2,
+    "issue_type": "task",
+    "created_at": "2026-01-08T14:21:02Z",
+    "created_by": "briansquires",
+    "updated_at": "2026-01-08T14:21:02Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-wucy",
+        "depends_on_id": "bd-qa36",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:53:52Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  },
+  {
+    "id": "bd-zp33",
+    "title": "Add spectrograph-camera synchronization for automated scanning",
+    "description": "Grating changes and wavelength scans not synchronized with camera acquisition. Need ScanController to coordinate stop-move-start for automated spectral scanning. Ref: camera-sdk-hardware-validation.md M8",
+    "status": "open",
+    "priority": 3,
+    "issue_type": "feature",
+    "owner": "squires.b@gmail.com",
+    "created_at": "2026-02-11T00:41:41Z",
+    "created_by": "TheFermiSea",
+    "updated_at": "2026-03-03T01:09:22Z",
+    "dependencies": [
+      {
+        "issue_id": "bd-zp33",
+        "depends_on_id": "bd-3yb8",
+        "type": "parent-child",
+        "created_at": "2026-02-19T13:53:53Z",
+        "created_by": "TheFermiSea",
+        "metadata": "{}"
+      }
+    ],
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  }
+]
