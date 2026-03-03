@@ -80,12 +80,12 @@ doc_markdown = "allow"               # Too strict for technical docs
 items_after_statements = "allow"     # Allow let bindings after statements
 wildcard_imports = "allow"           # Used for preludes and re-exports
 
-# Cast lints re-enabled as warnings for visibility (Phase 1 of cast-safety work)
-cast_possible_truncation = "warn"    # Hardware drivers often need u32 -> u16 etc.
-cast_sign_loss = "warn"              # Common in low-level code
-cast_precision_loss = "warn"         # f64 -> f32 is often intentional
-cast_lossless = "warn"               # Sometimes explicit casts are clearer
-cast_possible_wrap = "warn"          # Hardware drivers handle this case-by-case
+# Cast lints enforced as deny — all existing casts have been audited and annotated
+cast_possible_truncation = "deny"    # Must annotate with #[allow] + safety comment
+cast_sign_loss = "deny"              # Must annotate with #[allow] + safety comment
+cast_precision_loss = "deny"         # Must annotate with #[allow] + safety comment
+cast_lossless = "deny"               # Use From/Into for lossless conversions
+cast_possible_wrap = "deny"          # Must annotate with #[allow] + safety comment
 float_cmp = "allow"                  # Exact float comparisons are common in deterministic tests
 
 # Allow other noisy pedantic lints
