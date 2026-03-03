@@ -1,7 +1,11 @@
 //! Protocol buffer definitions and conversions for rust-daq.
 //!
 //! This crate contains:
-//! - Generated protobuf types from `proto/daq.proto` - Core DAQ service API
+//! - Generated protobuf types from domain-specific proto files:
+//!   - `proto/daq.proto` - ControlService (script management, system status)
+//!   - `proto/hardware.proto` - HardwareService, PresetService (device control)
+//!   - `proto/experiment.proto` - ScanService, RunEngineService, ModuleService
+//!   - `proto/storage.proto` - StorageService, PluginService, ConfigService, HealthService
 //! - Health check service from `proto/health.proto` - gRPC health checking
 //! - NI DAQ extensions from `proto/ni_daq.proto` - NI-specific hardware access
 //! - Conversion traits between proto types and domain types in `common`
@@ -13,9 +17,12 @@
 //! - Enable modules to work without networking features
 //! - Provide clear boundaries for type conversions
 //!
+//! All domain-specific proto files share the same `package daq` namespace,
+//! so all generated types are available through the single [`daq`] module.
+//!
 //! # Modules
 //!
-//! - [`daq`] - Core DAQ service (devices, configuration, streaming)
+//! - [`daq`] - All DAQ services (ControlService, HardwareService, ScanService, etc.)
 //! - [`health`] - gRPC health checking protocol
 //! - [`ni_daq`] - NI DAQ-specific extensions for Comedi hardware
 //! - [`convert`] - Type conversions between proto and domain types
