@@ -1,56 +1,41 @@
-# systemd user service for rust-daq-daemon
+# rust-daq-daemon systemd user service
 #
-# Installation:
-#   mkdir -p ~/.config/systemd/user
-#   cp config/systemd/rust-daq-daemon.service ~/.config/systemd/user/
-#   systemctl --user daemon-reload
-#   systemctl --user enable rust-daq-daemon
-#   systemctl --user start rust-daq-daemon
+# Installed by: scripts/install-service.sh install
+# Location:     ~/.config/systemd/user/rust-daq-daemon.service
 #
-# Logs:
-#   journalctl --user -u rust-daq-daemon -f
+# This runs as a user service (systemd --user) so it inherits the
+# user's environment.  Host-specific env vars (PVCAM_SDK_DIR, serial
+# ports, etc.) should be set in an EnvironmentFile or via
+# systemctl --user set-environment.
 #
-# After rebuilding (e.g. scripts/build-maitai.sh):
-#   systemctl --user restart rust-daq-daemon
+# After changes: systemctl --user daemon-reload && systemctl --user restart rust-daq-daemon
 
 [Unit]
-Description=rust-daq Data Acquisition Daemon
+Description=rust-daq DAQ Daemon (gRPC on port 50051)
+Documentation=https://github.com/TheFermiSea/rust-daq
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=%h/.cargo/bin/rust-daq-daemon daemon
+ExecStart=%h/code/rust-daq/target/release/rust-daq-daemon daemon --port 50051
+WorkingDirectory=%h/code/rust-daq
 Restart=on-failure
 RestartSec=5
 
-# Logging: adjust level as needed (trace, debug, info, warn, error)
-# Per-crate filtering: RUST_LOG=info,hardware=debug,server=debug
-Environment=RUST_LOG=info
+# Optional host-specific environment (uncomment and adjust for your host)
+# EnvironmentFile=%h/code/rust-daq/config/hosts/maitai.env
 
-# gRPC listen port (default: 50051)
-# Environment=DAQ_PORT=50051
+# Logging (stdout/stderr go to journald)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rust-daq-daemon
 
-# Runtime mode: mock | native | universal | hybrid-db (default: hybrid-db)
-# Environment=DAQ_RUNTIME_MODE=hybrid-db
-
-# Hardware configuration file (TOML format)
-# Environment=DAQ_CONFIG_PATH=%h/code/rust-daq/config/maitai_universal.toml
-
-# SurrealDB storage path (omit for in-memory)
-# Environment=DAQ_DATA_PATH=%h/.local/share/daq/data
-
-# --- Hardware-specific (uncomment on lab machines) ---
-
-# PVCAM camera SDK paths (maitai builds)
-# Environment=PVCAM_SDK_DIR=/opt/pvcam/sdk
-# Environment=PVCAM_LIB_DIR=/opt/pvcam/library/x86_64
-# Environment=LD_LIBRARY_PATH=/opt/pvcam/library/x86_64:/opt/pvcam/drivers/user-mode
-
-# Serial device ports (maitai)
-# Environment=NEWPORT_1830C_PORT=/dev/ttyS0
-# Environment=MAITAI_LASER_PORT=/dev/ttyUSB5
-# Environment=ELLIPTEC_PORT=/dev/ttyUSB1
-# Environment=ESP300_PORT=/dev/ttyUSB0
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/code/rust-daq/target %h/code/rust-daq/data %t/rust-daq
+PrivateTmp=true
 
 [Install]
 WantedBy=default.target
