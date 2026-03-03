@@ -54,11 +54,6 @@ jobs:
             features: storage_arrow
             cache-suffix: storage_arrow
             timeout: 15
-          - name: "daq-modules / native_plugins"
-            package: daq-modules
-            features: native_plugins
-            cache-suffix: native_plugins
-            timeout: 15
           - name: "db / rocksdb"
             package: db
             features: kv-rocksdb
@@ -93,7 +88,7 @@ jobs:
           # --no-default-features and re-list everything except db-surreal-mem.
           - name: "runtime / hybrid-db-rocksdb-smoke"
             package: integration-tests
-            features: networking,server,scripting,storage_hdf5,storage_arrow,native_plugins,serial,thorlabs,newport,newport_power_meter,modules,pvcam,universal,db-surreal-rocksdb
+            features: networking,server,scripting,storage_hdf5,storage_arrow,serial,thorlabs,newport,newport_power_meter,modules,pvcam,universal,db-surreal-rocksdb
             cargo-args: "--no-default-features"
             cache-suffix: universal-db-surreal-rocksdb
             timeout: 35

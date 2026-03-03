@@ -28,11 +28,8 @@ pub mod document;
 pub mod power_monitor;
 pub mod run_engine;
 
-#[cfg(any(feature = "native_plugins", feature = "scripting"))]
+#[cfg(feature = "scripting")]
 pub mod plugins;
-
-#[cfg(feature = "native_plugins")]
-use anyhow::anyhow;
 use anyhow::Result;
 use async_trait::async_trait;
 use common::error::{DaqError, DriverError, DriverErrorKind};
@@ -797,131 +794,6 @@ impl ModuleRegistry {
             .ok_or_else(|| module_not_found(module_id))?;
 
         instance.unstage(registry).await
-    }
-
-    /// Register module types from a plugin manager.
-    ///
-    /// This scans all loaded plugins for module types and registers them
-    /// with this registry. Plugin modules are wrapped in `FfiModuleWrapper`
-    /// when instantiated.
-    ///
-    /// # Arguments
-    ///
-    /// * `plugin_manager` - The plugin manager containing loaded plugins
-    ///
-    /// # Returns
-    ///
-    /// The number of module types registered from plugins.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// use daq_modules::plugins::PluginManager;
-    /// use daq_modules::ModuleRegistry;
-    ///
-    /// let mut plugin_manager = PluginManager::new();
-    /// plugin_manager.add_search_path("./plugins");
-    /// plugin_manager.discover_plugins()?;
-    ///
-    /// let mut registry = ModuleRegistry::new(device_registry);
-    /// let count = registry.register_plugin_types(&plugin_manager);
-    /// println!("Registered {} plugin module types", count);
-    /// ```
-    #[cfg(feature = "native_plugins")]
-    pub fn register_plugin_types(
-        &mut self,
-        plugin_manager: &crate::plugins::PluginManager,
-    ) -> usize {
-        use crate::plugins::PluginModuleFactory;
-
-        let mut count = 0;
-        for (plugin_id, type_info) in plugin_manager.list_module_types() {
-            let type_id = type_info.type_id.to_string();
-
-            // Skip if already registered
-            if self.type_info_cache.contains_key(&type_id) {
-                warn!(
-                    "Skipping duplicate module type '{}' from plugin '{}'",
-                    type_id, plugin_id
-                );
-                continue;
-            }
-
-            // Create factory and cache type info
-            let factory = PluginModuleFactory::new(plugin_id.clone(), type_id.clone(), &type_info);
-
-            // Store the converted type info
-            self.type_info_cache
-                .insert(type_id.clone(), factory.type_info().clone());
-
-            // Note: We intentionally do NOT store a factory in module_types for
-            // plugin types. Plugin modules require the PluginManager to create
-            // instances, so they must use create_plugin_module() instead.
-            // create_module() checks type_info_cache to provide a helpful error
-            // if someone tries to create a plugin type through the wrong path.
-
-            info!(
-                "Registered plugin module type: {} (from {})",
-                type_id, plugin_id
-            );
-            count += 1;
-        }
-        count
-    }
-
-    /// Create a module instance from a plugin.
-    ///
-    /// This is used for module types that come from dynamically loaded plugins.
-    /// The `PluginManager` is required to create the underlying FFI module.
-    ///
-    /// # Arguments
-    ///
-    /// * `type_id` - The module type ID (as registered from the plugin)
-    /// * `name` - User-friendly name for this instance
-    /// * `plugin_manager` - The plugin manager containing loaded plugins
-    ///
-    /// # Returns
-    ///
-    /// The unique instance ID on success.
-    #[cfg(feature = "native_plugins")]
-    pub fn create_plugin_module(
-        &mut self,
-        type_id: &str,
-        name: &str,
-        plugin_manager: &crate::plugins::PluginManager,
-    ) -> Result<String> {
-        use crate::plugins::FfiModuleWrapper;
-
-        // Find which plugin provides this type
-        let plugin_id = plugin_manager
-            .find_plugin_for_type(type_id)
-            .ok_or_else(|| anyhow!("No plugin provides module type: {}", type_id))?;
-
-        let plugin = plugin_manager
-            .get_plugin(plugin_id)
-            .ok_or_else(|| anyhow!("Plugin not loaded: {}", plugin_id))?;
-
-        // Create the FFI module
-        let ffi_module = plugin
-            .create_module(type_id)
-            .map_err(|e| anyhow!("Failed to create module: {}", e))?;
-
-        // Generate instance ID
-        let id = Uuid::new_v4().to_string();
-
-        // Wrap in FfiModuleWrapper
-        let wrapper = FfiModuleWrapper::new(ffi_module, id.clone());
-        let module: Box<dyn Module> = Box::new(wrapper);
-
-        // Create instance
-        let instance = ModuleInstance::new(id.clone(), name.to_string(), module);
-        self.instances.insert(id.clone(), instance);
-
-        info!(
-            "Created plugin module instance: {} (type: {}, plugin: {})",
-            id, type_id, plugin_id
-        );
-        Ok(id)
     }
 }
 

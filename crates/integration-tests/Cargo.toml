@@ -8,7 +8,7 @@ publish = false
 common = { path = "../common" }
 hardware = { path = "../hardware", features = ["all_hardware"] }
 experiment = { path = "../experiment" }
-daq-modules = { path = "../daq-modules", features = ["scripting", "native_plugins"], optional = true }
+daq-modules = { path = "../daq-modules", features = ["scripting"], optional = true }
 driver-mock = { path = "../driver-mock" }
 storage = { path = "../storage" }
 protocol = { path = "../protocol" }
@@ -43,7 +43,7 @@ tracing-subscriber = { version = "0.3", features = ["registry"] }
 
 
 [features]
-default = ["networking", "server", "scripting", "storage_hdf5", "storage_arrow", "native_plugins", "serial", "thorlabs", "newport", "newport_power_meter", "modules", "pvcam", "universal", "db-surreal-mem"]
+default = ["networking", "server", "scripting", "storage_hdf5", "storage_arrow", "serial", "thorlabs", "newport", "newport_power_meter", "modules", "pvcam", "universal", "db-surreal-mem"]
 networking = ["server/networking"]
 server = ["dep:server", "networking"]
 scripting = ["dep:scripting"]
@@ -56,7 +56,6 @@ hardware_tests = []
 libs_drivers = []
 libs_spirit_driver = []
 spectra_physics = ["hardware/spectra_physics"]
-native_plugins = ["daq-modules/native_plugins"]
 serial = ["hardware/serial"]
 thorlabs = ["hardware/thorlabs"]
 newport = ["hardware/newport"]

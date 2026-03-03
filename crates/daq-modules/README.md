@@ -87,18 +87,6 @@ impl Module for MyModule {
 registry.register_type::<MyModule>();
 ```
 
-## Plugin System
-
-With the `native_plugins` feature, modules can be loaded from shared libraries at runtime:
-
-```rust
-let mut plugin_manager = PluginManager::new();
-plugin_manager.add_search_path("./plugins");
-plugin_manager.discover_plugins()?;
-
-let count = registry.register_plugin_types(&plugin_manager);
-```
-
 ## Related
 
 - [`common`](../common/README.md) — Capability traits and observable parameters
