@@ -16,7 +16,7 @@ prost.workspace = true
 # Data Handling
 hdf5 = { package = "hdf5-metno", version = "0.11.0", optional = true }
 arrow = { version = "57", optional = true, features = ["ipc"] }
-parquet = { version = "57", optional = true, default-features = false, features = ["arrow", "async", "snap"] }
+parquet = { version = "57", optional = true, default-features = false, features = ["arrow", "async", "snap", "zstd"] }
 memmap2 = "0.9"
 
 # Image formats
@@ -47,7 +47,7 @@ criterion = { version = "0.5", features = ["async_tokio"] }
 default = []
 storage_hdf5 = ["dep:hdf5", "common/storage_hdf5"]
 storage_arrow = ["dep:arrow", "common/storage_arrow"]
-storage_parquet = ["dep:parquet", "dep:arrow"]
+storage_parquet = ["dep:parquet", "storage_arrow"]
 storage_tiff = ["dep:image"]
 storage_zarr = ["dep:zarrs"]
 networking = []

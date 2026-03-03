@@ -544,7 +544,7 @@ impl ParquetDocumentWriter {
                 Document::Event(event) => {
                     if let Some(run) = guard.as_mut() {
                         run.event_buffer.push(BufferedEvent {
-                            seq_num: event.seq_num as u64,
+                            seq_num: u64::from(event.seq_num),
                             time_ns: event.time_ns,
                             data: event.data.clone(),
                             arrays: event.arrays.clone(),

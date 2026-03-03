@@ -68,6 +68,8 @@ pub mod document_writer;
 pub mod hdf5_annotation;
 pub mod hdf5_recovery;
 pub mod hdf5_writer;
+#[cfg(feature = "storage_parquet")]
+pub mod parquet_writer;
 pub mod ring_buffer;
 pub mod ring_buffer_reader;
 pub mod tap_registry;
@@ -95,6 +97,8 @@ pub use arrow_writer::ParquetDocumentWriter;
 pub use arrow_writer::{
     read_tensor_shape, ArrowDocumentWriter, TENSOR_DIM_NAMES_KEY, TENSOR_SHAPE_KEY,
 };
+#[cfg(feature = "storage_parquet")]
+pub use parquet_writer::{ParquetCompression, ParquetWriter, ParquetWriterConfig};
 #[cfg(feature = "storage_tiff")]
 pub use tiff_writer::{LoanedFrame, TiffWriter};
 #[cfg(feature = "storage_zarr")]
