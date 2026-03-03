@@ -2288,11 +2288,14 @@ impl AndorCamera {
                     if let Some(tx) = inner.primary_tx.lock().await.as_ref() {
                         if tx.try_send(loaned).is_err() {
                             let dropped = inner.frames_dropped.fetch_add(1, Ordering::Relaxed) + 1;
-                            tracing::debug!(
-                                frame = frame_nr,
-                                total_dropped = dropped,
-                                "Primary output full, frame dropped (backpressure)"
-                            );
+                            // Rate-limit backpressure warnings: log first drop, then every 100th
+                            if dropped == 1 || dropped % 100 == 0 {
+                                tracing::warn!(
+                                    frame = frame_nr,
+                                    total_dropped = dropped,
+                                    "Backpressure: consumer too slow, frame dropped"
+                                );
+                            }
                         }
                     }
                 }
@@ -2413,7 +2416,15 @@ impl AndorCamera {
                 // Send to primary consumer
                 if let Some(tx) = inner.primary_tx.lock().await.as_ref() {
                     if tx.try_send(loaned).is_err() {
-                        tracing::trace!("Primary output full, mock frame {frame_nr} dropped");
+                        let dropped = inner.frames_dropped.fetch_add(1, Ordering::Relaxed) + 1;
+                        // Rate-limit backpressure warnings: log first drop, then every 100th
+                        if dropped == 1 || dropped % 100 == 0 {
+                            tracing::warn!(
+                                frame = frame_nr,
+                                total_dropped = dropped,
+                                "Backpressure: consumer too slow, frame dropped"
+                            );
+                        }
                     }
                 }
             }
