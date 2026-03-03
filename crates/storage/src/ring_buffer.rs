@@ -3055,4 +3055,60 @@ mod tests {
         let snapshot = async_rb.read_snapshot().await.unwrap();
         assert_eq!(snapshot, b"via async wrapper");
     }
+
+    // =============================================================================
+    // CI Performance Benchmark (bd-56rx)
+    // =============================================================================
+
+    /// CI-oriented performance benchmark for ring buffer write throughput.
+    ///
+    /// Writes 10,000 frames of 1 KB each to a 1 MB ring buffer and measures
+    /// raw FPS (frames per second). The output is printed in a structured
+    /// format that the CI pipeline parses into `$GITHUB_STEP_SUMMARY`.
+    ///
+    /// Threshold: 10,000 FPS minimum for mock/in-memory data. This catches
+    /// regressions in the write hot path (memcpy, seqlock, wrap-around).
+    #[test]
+    fn bench_ring_buffer_write_throughput() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir for benchmark");
+        let path = temp_dir.path().join("bench_write_throughput.buf");
+
+        let rb = RingBuffer::create(&path, 1).expect("create 1 MB ring buffer");
+
+        let frame_size: usize = 1024; // 1 KB per frame
+        let num_frames: u32 = 10_000;
+        let frame_data = vec![0xABu8; frame_size];
+
+        // Warm up: a few writes to fault in mmap pages
+        for _ in 0..10 {
+            rb.write(&frame_data).expect("warm-up write");
+        }
+
+        let start = Instant::now();
+        for _ in 0..num_frames {
+            rb.write(&frame_data).expect("benchmark write");
+        }
+        let elapsed = start.elapsed();
+
+        let fps = f64::from(num_frames) / elapsed.as_secs_f64();
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: usize * u32 fits in f64 without meaningful precision loss
+        let throughput_mb_s =
+            (frame_size as f64 * f64::from(num_frames)) / (1024.0 * 1024.0) / elapsed.as_secs_f64();
+
+        // Structured output for CI parsing
+        println!("--- RING BUFFER BENCHMARK RESULTS ---");
+        println!("frames:       {num_frames}");
+        println!("frame_size:   {frame_size} bytes");
+        println!("elapsed_ms:   {:.2}", elapsed.as_secs_f64() * 1000.0);
+        println!("fps:          {fps:.0}");
+        println!("throughput:   {throughput_mb_s:.1} MB/s");
+        println!("--- END BENCHMARK RESULTS ---");
+
+        // Regression gate: must exceed 10,000 FPS for 1 KB mock writes
+        assert!(
+            fps > 10_000.0,
+            "Ring buffer write throughput regression: {fps:.0} FPS is below 10,000 FPS minimum"
+        );
+    }
 }

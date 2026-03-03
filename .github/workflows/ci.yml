@@ -95,6 +95,42 @@ jobs:
             --exclude comedi-sys \
             --exclude driver-comedi
 
+      - name: Ring buffer performance benchmark
+        env:
+          RUST_DAQ_DEBUG_FRAME_TIMING: "1"
+        run: |
+          set -euo pipefail
+          echo "Running ring buffer write throughput benchmark..."
+          output=$(cargo nextest run -p storage \
+            bench_ring_buffer_write_throughput --profile ci \
+            --success-output immediate 2>&1) || {
+            echo "$output"
+            echo "::error::Ring buffer benchmark failed"
+            exit 1
+          }
+
+          # Parse structured output from the test
+          fps=$(echo "$output" | grep '^fps:' | awk '{print $2}')
+          throughput=$(echo "$output" | grep '^throughput:' | awk '{print $2, $3}')
+          elapsed=$(echo "$output" | grep '^elapsed_ms:' | awk '{print $2}')
+          frames=$(echo "$output" | grep '^frames:' | awk '{print $2}')
+          frame_size=$(echo "$output" | grep '^frame_size:' | awk '{print $2, $3}')
+
+          # Report to GitHub Step Summary
+          {
+            echo "## Ring Buffer Performance Benchmark"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Frames written | ${frames:-N/A} |"
+            echo "| Frame size | ${frame_size:-N/A} |"
+            echo "| Elapsed | ${elapsed:-N/A} ms |"
+            echo "| **FPS** | **${fps:-N/A}** |"
+            echo "| **Throughput** | **${throughput:-N/A}** |"
+            echo ""
+            echo "_Threshold: 10,000 FPS minimum. Telemetry enabled via \`RUST_DAQ_DEBUG_FRAME_TIMING=1\`._"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Report build artifact sizes
         if: always()
         run: |
