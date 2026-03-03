@@ -157,9 +157,13 @@ impl MockCamera {
                     let pix_a = ((i + offset) % 4096) as u16;
                     if (i as usize + 1) < size {
                         let pix_b = ((i + 1 + offset) % 4096) as u16;
-                        buf.push((pix_a & 0xFF) as u8);
-                        buf.push(((pix_b & 0x0F) << 4 | (pix_a >> 8) & 0x0F) as u8);
-                        buf.push((pix_b >> 4) as u8);
+                        #[allow(clippy::cast_possible_truncation)]
+                        // SAFETY: 12-bit packed pixel encoding — values are masked to fit in u8
+                        {
+                            buf.push((pix_a & 0xFF) as u8);
+                            buf.push(((pix_b & 0x0F) << 4 | (pix_a >> 8) & 0x0F) as u8);
+                            buf.push((pix_b >> 4) as u8);
+                        }
                     } else {
                         // Odd trailing pixel
                         buf.extend_from_slice(&pix_a.to_le_bytes());
@@ -192,6 +196,8 @@ impl MockCamera {
             }
         };
 
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: u128 nanos to u64 — will not overflow until year 2554
         let timestamp_ns = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_else(|_| std::time::Duration::from_secs(0))

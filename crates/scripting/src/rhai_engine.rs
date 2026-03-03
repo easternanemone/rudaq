@@ -173,6 +173,8 @@ impl RhaiEngine {
             if count.trailing_zeros() >= 10 {
                 let dl = deadline_clone.load(Ordering::Relaxed);
                 if dl > 0 {
+                    #[allow(clippy::cast_possible_truncation)]
+                    // SAFETY: elapsed millis for script timeout will not exceed u64 range
                     let now = baseline_clone.elapsed().as_millis() as u64;
                     if now > dl {
                         return Some("Script execution timed out".into());
@@ -233,6 +235,8 @@ impl RhaiEngine {
             if count.trailing_zeros() >= 10 {
                 let dl = deadline_clone.load(Ordering::Relaxed);
                 if dl > 0 {
+                    #[allow(clippy::cast_possible_truncation)]
+                    // SAFETY: elapsed millis for script timeout will not exceed u64 range
                     let now = baseline_clone.elapsed().as_millis() as u64;
                     if now > dl {
                         return Some("Script execution timed out".into());
@@ -349,6 +353,8 @@ impl RhaiEngine {
             if count.trailing_zeros() >= 10 {
                 let dl = deadline_clone.load(Ordering::Relaxed);
                 if dl > 0 {
+                    #[allow(clippy::cast_possible_truncation)]
+                    // SAFETY: elapsed millis for script timeout will not exceed u64 range
                     let now = baseline_clone.elapsed().as_millis() as u64;
                     if now > dl {
                         return Some("Script execution timed out".into());
@@ -429,6 +435,8 @@ impl RhaiEngine {
         script: &str,
         timeout: Duration,
     ) -> Result<ScriptValue, ScriptError> {
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: timeout deadline in millis will not exceed u64 range
         let deadline_ms = (self.baseline.elapsed() + timeout).as_millis() as u64;
 
         self.deadline_offset_ms

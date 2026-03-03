@@ -174,6 +174,7 @@ async fn test_basic_frame_acquisition() {
 /// - Frames are received continuously without stalls
 /// - Frame rate is within expected range for exposure time
 /// - Clean shutdown without errors
+#[allow(clippy::cast_precision_loss)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_continuous_streaming() {
     let cam = AndorCamera::new_mock()
@@ -254,6 +255,7 @@ async fn test_continuous_streaming() {
 /// - Consistent dimensions across frames
 /// - Pixel data is not all zeros
 /// - Data buffer size matches pixel count
+#[allow(clippy::cast_precision_loss)]
 #[tokio::test]
 async fn test_frame_data_integrity() {
     let cam = AndorCamera::new_mock()

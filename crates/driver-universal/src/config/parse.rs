@@ -82,6 +82,8 @@ pub fn parse_manifest(raw: RawManifest) -> Result<DeviceManifest, Vec<ConfigErro
     let mut parameters = HashMap::new();
     for (name, value) in &raw.parameters {
         if let Some(table) = value.as_table() {
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: TOML integers are i64; precision loss acceptable for formula evaluation
             if let Some(default) = table
                 .get("default")
                 .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)))
@@ -91,7 +93,10 @@ pub fn parse_manifest(raw: RawManifest) -> Result<DeviceManifest, Vec<ConfigErro
         } else if let Some(f) = value.as_float() {
             parameters.insert(name.clone(), f);
         } else if let Some(i) = value.as_integer() {
-            parameters.insert(name.clone(), i as f64);
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: TOML integers are i64; precision loss acceptable for formula evaluation
+            let f = i as f64;
+            parameters.insert(name.clone(), f);
         }
     }
 
@@ -196,6 +201,8 @@ fn validate_init_table_entry(
     }
     let delay_ms = match tbl.get("delay_ms") {
         Some(v) => match v.as_integer() {
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: range check above guarantees d fits in u32
             Some(d) if (0..=60_000).contains(&d) => Some(d as u32),
             Some(d) => {
                 errors.push(ConfigError::Other(format!(
@@ -395,9 +402,13 @@ fn extract_parameter_metadata(
             // Only extract numeric defaults (f64) — used for formula evaluation context.
             // String/bool defaults are preserved in the raw TOML for driver runtime use
             // but are not stored in ManifestParameterMeta.default_value.
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: TOML integers are i64; precision loss acceptable for parameter metadata
             let default_value = table
                 .get("default")
                 .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)));
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: TOML integers are i64; precision loss acceptable for parameter range metadata
             let (min_value, max_value) = table
                 .get("range")
                 .and_then(|v| v.as_array())
@@ -436,6 +447,8 @@ fn extract_parameter_metadata(
             let (dtype, default_value) = if let Some(f) = value.as_float() {
                 ("float".to_string(), Some(f))
             } else if let Some(i) = value.as_integer() {
+                #[allow(clippy::cast_precision_loss)]
+                // SAFETY: TOML integers are i64; precision loss acceptable for parameter metadata
                 ("int".to_string(), Some(i as f64))
             } else {
                 continue; // Non-numeric bare values are skipped

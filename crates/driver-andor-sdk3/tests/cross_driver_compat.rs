@@ -397,6 +397,8 @@ async fn frame_metadata_sensible_for_downstream() {
     cam.stop_stream().await.unwrap();
 
     // Timestamp should be a recent UNIX timestamp in nanoseconds
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: u128 nanos to u64 — will not overflow until year 2554
     let now_ns = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()

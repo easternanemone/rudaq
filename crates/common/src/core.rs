@@ -794,7 +794,7 @@ impl From<Vec<i64>> for ParameterValue {
 
 impl From<Vec<i32>> for ParameterValue {
     fn from(value: Vec<i32>) -> Self {
-        ParameterValue::IntArray(value.into_iter().map(|x| i64::from(x)).collect())
+        ParameterValue::IntArray(value.into_iter().map(i64::from).collect())
     }
 }
 

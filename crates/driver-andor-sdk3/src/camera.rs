@@ -2362,6 +2362,8 @@ impl AndorCamera {
                 // Write gradient directly into pool buffer
                 let offset = (frame_nr % 100) as u16;
                 let buf = &mut loaned.pixels[..actual_len];
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: pixel byte splitting — u16 to u8 is intentional for LE encoding
                 for y in 0..height {
                     for x in 0..width {
                         let idx = ((y * width + x) as usize) * 2;
@@ -2379,14 +2381,22 @@ impl AndorCamera {
                 loaned.width = width;
                 loaned.height = height;
                 loaned.bit_depth = 16;
-                loaned.timestamp_ns = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos() as u64;
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: u128 nanos to u64 — will not overflow until year 2554
+                {
+                    loaned.timestamp_ns = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_nanos() as u64;
+                }
                 loaned.exposure_ms = exposure * 1000.0;
                 loaned.temperature_c = Some(inner.temperature_c.get());
                 let bin = inner.binning.get();
-                loaned.binning = Some((bin.0 as u16, bin.1 as u16));
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: binning values are small (1-16); fits in u16
+                {
+                    loaned.binning = Some((bin.0 as u16, bin.1 as u16));
+                }
 
                 // Notify observers
                 let view = FrameView::new(

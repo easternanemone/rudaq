@@ -86,7 +86,11 @@ impl TriggerOnPositionConfig {
     /// Calculate the number of triggers that will be generated.
     pub fn num_triggers(&self) -> usize {
         let distance = (self.end_position - self.start_position).abs();
-        (distance / self.increment).floor() as usize
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: trigger count is non-negative and bounded by physical travel range
+        {
+            (distance / self.increment).floor() as usize
+        }
     }
 }
 

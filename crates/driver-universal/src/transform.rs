@@ -123,6 +123,8 @@ impl TransformOp {
                     s.parse().context("Failed to parse float")?,
                 )),
                 TransformValue::Float(f) => Ok(TransformValue::Float(f)),
+                #[allow(clippy::cast_precision_loss)]
+                // SAFETY: i64 to f64 — precision loss acceptable for device transform values
                 TransformValue::Int(i) => Ok(TransformValue::Float(i as f64)),
             },
             TransformOp::ToInt => match input {
@@ -130,15 +132,21 @@ impl TransformOp {
                     s.parse().context("Failed to parse int")?,
                 )),
                 TransformValue::Int(i) => Ok(TransformValue::Int(i)),
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: rounding f64 to i64 — truncation acceptable for device values
                 TransformValue::Float(f) => Ok(TransformValue::Int(f.round() as i64)),
             },
             TransformOp::Scale { factor } => match input {
                 TransformValue::Float(f) => Ok(TransformValue::Float(f * factor)),
+                #[allow(clippy::cast_precision_loss)]
+                // SAFETY: i64 to f64 — precision loss acceptable for scaling operation
                 TransformValue::Int(i) => Ok(TransformValue::Float((i as f64) * factor)),
                 _ => Err(anyhow!("Scale can only be applied to numeric values")),
             },
             TransformOp::Offset { value } => match input {
                 TransformValue::Float(f) => Ok(TransformValue::Float(f + value)),
+                #[allow(clippy::cast_precision_loss)]
+                // SAFETY: i64 to f64 — precision loss acceptable for offset operation
                 TransformValue::Int(i) => Ok(TransformValue::Float((i as f64) + value)),
                 _ => Err(anyhow!("Offset can only be applied to numeric values")),
             },
@@ -350,6 +358,8 @@ impl TransformValue {
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             TransformValue::Float(f) => Some(*f),
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: i64 to f64 — precision loss acceptable for device values
             TransformValue::Int(i) => Some(*i as f64),
             TransformValue::String(_) => None,
         }
@@ -359,6 +369,8 @@ impl TransformValue {
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             TransformValue::Int(i) => Some(*i),
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: rounding f64 to i64 — truncation acceptable for device values
             TransformValue::Float(f) => Some(f.round() as i64),
             TransformValue::String(_) => None,
         }

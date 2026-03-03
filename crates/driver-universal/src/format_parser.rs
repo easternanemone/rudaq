@@ -270,7 +270,8 @@ fn extract_field(
             let raw = u64::from_str_radix(&hex_str, 16).map_err(|e| {
                 anyhow::anyhow!("field '{}': invalid hex '{}': {}", field.name, hex_str, e)
             })?;
-            // Width-aware two's complement interpretation
+            // SAFETY: Intentional truncation + sign extension for two's complement protocol decoding.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
             let value: i64 = match width {
                 2 => i64::from((raw as u8) as i8),
                 4 => i64::from((raw as u16) as i16),

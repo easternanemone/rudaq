@@ -488,10 +488,14 @@ impl BinaryResponseParser {
             let len_value = parsed_so_far
                 .get(len_field)
                 .ok_or_else(|| anyhow!("Length field '{}' not found", len_field))?;
-            len_value
-                .as_i64()
-                .ok_or_else(|| anyhow!("Length field '{}' is not numeric", len_field))?
-                as usize
+            #[allow(clippy::cast_sign_loss)]
+            // SAFETY: length field is expected non-negative from protocol parsing
+            {
+                len_value
+                    .as_i64()
+                    .ok_or_else(|| anyhow!("Length field '{}' is not numeric", len_field))?
+                    as usize
+            }
         } else {
             field.field_type.fixed_size().unwrap_or(1)
         };
