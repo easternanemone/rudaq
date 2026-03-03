@@ -610,10 +610,23 @@ impl DeviceRegistry {
         factory: Box<dyn DriverFactory>,
     ) -> Option<Box<dyn DriverFactory>> {
         let driver_type = factory.driver_type().to_string();
+        let api_version = factory.api_version();
+        let current = common::driver::DRIVER_FACTORY_API_VERSION;
+
+        if api_version != current {
+            tracing::warn!(
+                driver_type = %driver_type,
+                factory_api_version = api_version,
+                current_api_version = current,
+                "Driver factory built against different API version"
+            );
+        }
+
         tracing::info!(
             driver_type = %driver_type,
             name = %factory.name(),
             capabilities = ?factory.capabilities(),
+            api_version,
             "Registering driver factory"
         );
         self.factories.insert(driver_type, factory)

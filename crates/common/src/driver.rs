@@ -665,7 +665,21 @@ pub trait DeviceLifecycle: Send + Sync + 'static {
 ///
 /// Both `validate()` and `build()` return `Result`. Validation errors should be
 /// descriptive and actionable. Build errors may include hardware connection failures.
+/// Current API version for the `DriverFactory` trait.
+///
+/// Bump this when making breaking changes to `DriverFactory`. Factories
+/// built against an older API version will log a warning at registration.
+pub const DRIVER_FACTORY_API_VERSION: u32 = 1;
+
 pub trait DriverFactory: Send + Sync + 'static {
+    /// Returns the plugin API version this factory was built against.
+    ///
+    /// Defaults to the current version. Override only if your factory was
+    /// compiled against a specific older version and you want to signal that.
+    fn api_version(&self) -> u32 {
+        DRIVER_FACTORY_API_VERSION
+    }
+
     /// Driver type name used in TOML config `type` field.
     ///
     /// This must match exactly what users write in their config:
