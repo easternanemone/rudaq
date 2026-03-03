@@ -131,6 +131,21 @@ jobs:
             echo "_Threshold: 10,000 FPS minimum. Telemetry enabled via \`RUST_DAQ_DEBUG_FRAME_TIMING=1\`._"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Generate SBOM (CycloneDX)
+        if: github.event_name == 'push'
+        run: |
+          cargo install cargo-sbom --locked
+          cargo sbom --output-format=cdx-json > sbom.cdx.json
+          echo "SBOM generated: $(wc -c < sbom.cdx.json) bytes"
+
+      - name: Upload SBOM artifact
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          retention-days: 90
+
       - name: Report build artifact sizes
         if: always()
         run: |
