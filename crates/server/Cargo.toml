@@ -51,7 +51,6 @@ db = { path = "../db", optional = true }
 
 # Metrics and monitoring (bd-v299)
 prometheus = { version = "0.14", optional = true }
-lazy_static = { version = "1.4", optional = true }
 hyper = { version = "0.14", features = ["server", "http1", "tcp"], optional = true }
 
 [features]
@@ -62,7 +61,7 @@ modules = ["dep:daq-modules"]
 modules_scripting = ["modules", "daq-modules/scripting"]
 networking = []
 scripting = ["dep:scripting"]
-metrics = ["dep:prometheus", "dep:lazy_static", "dep:hyper", "storage/metrics"]
+metrics = ["dep:prometheus", "dep:hyper", "storage/metrics"]
 rerun_sink = ["dep:rerun"]
 
 # SurrealDB persistence (ConfigService gRPC handler)

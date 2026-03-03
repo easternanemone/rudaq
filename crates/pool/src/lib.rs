@@ -104,31 +104,39 @@ use tokio::sync::Semaphore;
 use tracing::{error, warn};
 
 #[cfg(feature = "metrics")]
-use lazy_static::lazy_static;
-#[cfg(feature = "metrics")]
 use prometheus::{register_int_counter, register_int_gauge, IntCounter, IntGauge};
+#[cfg(feature = "metrics")]
+use std::sync::LazyLock;
 
 #[cfg(feature = "metrics")]
-lazy_static! {
-    static ref POOL_AVAILABLE: IntGauge = register_int_gauge!(
+static POOL_AVAILABLE: LazyLock<IntGauge> = LazyLock::new(|| {
+    register_int_gauge!(
         "pool_available",
         "Current number of available items in the generic pool"
     )
-    .expect("Failed to register pool_available");
-    static ref POOL_TOTAL_CAPACITY: IntGauge = register_int_gauge!(
+    .expect("Failed to register pool_available")
+});
+#[cfg(feature = "metrics")]
+static POOL_TOTAL_CAPACITY: LazyLock<IntGauge> = LazyLock::new(|| {
+    register_int_gauge!(
         "pool_total_capacity",
         "Total number of slots in the generic pool"
     )
-    .expect("Failed to register pool_total_capacity");
-    static ref POOL_ACQUIRE_TOTAL: IntCounter = register_int_counter!(
+    .expect("Failed to register pool_total_capacity")
+});
+#[cfg(feature = "metrics")]
+static POOL_ACQUIRE_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
+    register_int_counter!(
         "pool_acquire_total",
         "Total number of pool acquire operations"
     )
-    .expect("Failed to register pool_acquire_total");
-    static ref POOL_GROW_TOTAL: IntCounter =
-        register_int_counter!("pool_grow_total", "Total number of pool grow events")
-            .expect("Failed to register pool_grow_total");
-}
+    .expect("Failed to register pool_acquire_total")
+});
+#[cfg(feature = "metrics")]
+static POOL_GROW_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
+    register_int_counter!("pool_grow_total", "Total number of pool grow events")
+        .expect("Failed to register pool_grow_total")
+});
 
 /// Error type for pool operations that can fail.
 #[derive(Debug, Clone)]
@@ -334,6 +342,7 @@ impl<T: Send + 'static> Pool<T> {
     }
 
     #[cfg(feature = "metrics")]
+    #[allow(clippy::cast_possible_wrap)] // pool sizes are bounded, well within i64::MAX
     fn update_metrics(pool: &Self) {
         POOL_AVAILABLE.set(pool.semaphore.available_permits() as i64);
         POOL_TOTAL_CAPACITY.set(pool.current_size.load(Ordering::Relaxed) as i64);
@@ -393,6 +402,7 @@ impl<T: Send + 'static> Pool<T> {
         #[cfg(feature = "metrics")]
         {
             POOL_GROW_TOTAL.inc();
+            #[allow(clippy::cast_possible_wrap)] // pool sizes bounded, well within i64::MAX
             POOL_TOTAL_CAPACITY.set(new_size as i64);
         }
 

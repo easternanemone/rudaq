@@ -33,7 +33,6 @@ tokio = { workspace = true, features = ["sync", "fs"] }
 tracing.workspace = true
 anyhow.workspace = true
 prometheus = { version = "0.14", optional = true }
-lazy_static = { version = "1.4", optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true
@@ -51,7 +50,7 @@ storage_parquet = ["dep:parquet", "storage_arrow"]
 storage_tiff = ["dep:image"]
 storage_zarr = ["dep:zarrs"]
 networking = []
-metrics = ["dep:prometheus", "dep:lazy_static", "pool/metrics"]
+metrics = ["dep:prometheus", "pool/metrics"]
 
 # Examples that require specific features (bd-jnfu.13)
 [lints]

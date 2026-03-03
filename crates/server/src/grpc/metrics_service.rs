@@ -24,18 +24,16 @@
 //!
 //! Then scrape metrics at `http://localhost:9091/metrics`
 
-use lazy_static::lazy_static;
 use prometheus::{
     Encoder, IntCounter, IntGauge, Registry, TextEncoder, gather,
     register_int_counter_with_registry, register_int_gauge_with_registry,
 };
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::sync::LazyLock;
 
-lazy_static! {
-    /// Global metrics registry for DAQ server
-    pub static ref REGISTRY: Registry = Registry::new();
-}
+/// Global metrics registry for DAQ server
+pub static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
 
 /// DAQ server metrics collection
 ///

@@ -31,8 +31,6 @@ hardware_tests = []
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-lazy_static = "1.4"
-once_cell = "1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [lints]

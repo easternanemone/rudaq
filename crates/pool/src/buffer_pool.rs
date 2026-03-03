@@ -58,26 +58,31 @@ use tokio::sync::Semaphore;
 use tracing::info;
 
 #[cfg(feature = "metrics")]
-use lazy_static::lazy_static;
-#[cfg(feature = "metrics")]
 use prometheus::{register_int_counter, register_int_gauge, IntCounter, IntGauge};
+#[cfg(feature = "metrics")]
+use std::sync::LazyLock;
 
 #[cfg(feature = "metrics")]
-lazy_static! {
-    static ref BUFFER_POOL_AVAILABLE: IntGauge = register_int_gauge!(
+static BUFFER_POOL_AVAILABLE: LazyLock<IntGauge> = LazyLock::new(|| {
+    register_int_gauge!(
         "buffer_pool_available",
         "Current number of available buffers in the pool"
     )
-    .expect("Failed to register buffer_pool_available");
-    static ref BUFFER_POOL_TOTAL: IntGauge =
-        register_int_gauge!("buffer_pool_total", "Total number of buffers in the pool")
-            .expect("Failed to register buffer_pool_total");
-    static ref BUFFER_POOL_EXHAUSTION_EVENTS: IntCounter = register_int_counter!(
+    .expect("Failed to register buffer_pool_available")
+});
+#[cfg(feature = "metrics")]
+static BUFFER_POOL_TOTAL: LazyLock<IntGauge> = LazyLock::new(|| {
+    register_int_gauge!("buffer_pool_total", "Total number of buffers in the pool")
+        .expect("Failed to register buffer_pool_total")
+});
+#[cfg(feature = "metrics")]
+static BUFFER_POOL_EXHAUSTION_EVENTS: LazyLock<IntCounter> = LazyLock::new(|| {
+    register_int_counter!(
         "buffer_pool_exhaustion_events_total",
         "Total number of buffer pool exhaustion events"
     )
-    .expect("Failed to register buffer_pool_exhaustion_events_total");
-}
+    .expect("Failed to register buffer_pool_exhaustion_events_total")
+});
 /// Internal state for the buffer pool.
 ///
 /// Wrapped in Arc for shared ownership between pool and PooledBuffer instances.
@@ -99,6 +104,7 @@ struct BufferPoolInner {
 }
 
 #[cfg(feature = "metrics")]
+#[allow(clippy::cast_possible_wrap)] // pool sizes are bounded, well within i64::MAX
 fn update_metrics(pool: &BufferPoolInner) {
     BUFFER_POOL_AVAILABLE.set(pool.available.load(Ordering::Relaxed) as i64);
     BUFFER_POOL_TOTAL.set(pool.pool_size as i64);

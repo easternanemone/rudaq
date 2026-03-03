@@ -10,9 +10,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
 #[cfg(feature = "metrics")]
-use lazy_static::lazy_static;
-#[cfg(feature = "metrics")]
 use prometheus::{register_gauge_vec, register_int_counter_vec, GaugeVec, IntCounterVec};
+#[cfg(feature = "metrics")]
+use std::sync::LazyLock;
 
 /// Default channel capacity for tap consumers (number of frames buffered)
 const DEFAULT_TAP_CHANNEL_SIZE: usize = 32;
@@ -23,21 +23,26 @@ const MAX_TAP_METRICS_LABELS: usize = 100;
 const TAP_METRICS_OTHER_LABEL: &str = "other";
 
 #[cfg(feature = "metrics")]
-lazy_static! {
-    static ref TAP_FRAMES_DROPPED_TOTAL: IntCounterVec = register_int_counter_vec!(
+static TAP_FRAMES_DROPPED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    register_int_counter_vec!(
         "tap_frames_dropped_total",
         "Total frames dropped by tap consumers due to backpressure",
         &["tap_id"]
     )
-    .expect("Failed to register tap_frames_dropped_total");
-    static ref TAP_CHANNEL_UTILIZATION: GaugeVec = register_gauge_vec!(
+    .expect("Failed to register tap_frames_dropped_total")
+});
+#[cfg(feature = "metrics")]
+static TAP_CHANNEL_UTILIZATION: LazyLock<GaugeVec> = LazyLock::new(|| {
+    register_gauge_vec!(
         "tap_channel_utilization",
         "Tap channel utilization (0.0-1.0)",
         &["tap_id"]
     )
-    .expect("Failed to register tap_channel_utilization");
-    static ref TAP_METRICS_LABELS: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
-}
+    .expect("Failed to register tap_channel_utilization")
+});
+#[cfg(feature = "metrics")]
+static TAP_METRICS_LABELS: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 
 /// A tap consumer that receives every Nth frame from the ring buffer.
 #[derive(Debug)]
@@ -233,7 +238,7 @@ fn allocate_metrics_label(id: &str) -> String {
             labels.insert(id.to_string());
             return id.to_string();
         }
-        return TAP_METRICS_OTHER_LABEL.to_string();
+        TAP_METRICS_OTHER_LABEL.to_string()
     }
     #[cfg(not(feature = "metrics"))]
     {
