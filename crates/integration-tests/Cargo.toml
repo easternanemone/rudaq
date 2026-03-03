@@ -35,10 +35,10 @@ driver-newport = { path = "../driver-newport", optional = true }
 driver-pvcam = { path = "../driver-pvcam", optional = true }
 driver-universal = { path = "../driver-universal", features = ["emulator"], optional = true }
 db = { path = "../db", optional = true }
+toml.workspace = true
 
 [dev-dependencies]
 serial_test = "3.1.1"
-toml.workspace = true
 tokio-test = "0.4"
 tracing-test = "0.2"
 tracing-subscriber = { version = "0.3", features = ["registry"] }
@@ -66,6 +66,14 @@ modules = ["daq-modules"]
 universal = ["dep:driver-universal"]
 db-surreal-mem = ["dep:db", "db/kv-mem", "dep:server", "server/db-surreal-mem"]
 db-surreal-rocksdb = ["dep:db", "db/kv-rocksdb", "dep:server", "server/db-surreal-rocksdb"]
+
+[[bench]]
+name = "lock_contention"
+harness = false
+
+[[bench]]
+name = "ring_buffer_latency"
+harness = false
 
 [lints]
 workspace = true
