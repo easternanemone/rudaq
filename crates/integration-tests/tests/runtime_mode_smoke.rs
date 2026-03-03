@@ -14,7 +14,8 @@
 
 use std::path::PathBuf;
 
-use hardware::registry::{create_registry_from_config, DeviceRegistry, HardwareConfig};
+use driver_registry::create_registry_from_config;
+use hardware::registry::{DeviceRegistry, HardwareConfig};
 use tokio::sync::OnceCell;
 
 static MOCK_ELL14_REGISTRY: OnceCell<DeviceRegistry> = OnceCell::const_new();

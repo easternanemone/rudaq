@@ -20,7 +20,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use hardware::registry::{register_all_factories, DeviceRegistry};
+use driver_registry::register_all_factories;
+use hardware::registry::DeviceRegistry;
 use protocol::daq::hardware_service_server::HardwareService;
 use protocol::daq::{
     GetParameterRequest, SetParameterRequest, StartStreamRequest, StopStreamRequest,

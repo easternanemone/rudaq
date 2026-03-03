@@ -21,9 +21,7 @@ use tonic::Request;
 
 use db::config_store::{config_hash, toml_to_json, DbDriver, DbInstrument};
 use db::{DaqDb, DbConfig};
-use hardware::registry::{
-    create_registry_from_config, register_all_factories, DeviceRegistry, HardwareConfig,
-};
+use hardware::registry::{DeviceRegistry, HardwareConfig};
 use server::grpc::config_service::ConfigServiceImpl;
 use server::grpc::{
     ConfigService, DeleteInstrumentRequest, ExportConfigRequest, GetDbInfoRequest,

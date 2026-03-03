@@ -29,9 +29,8 @@ use std::time::Duration;
 
 use db::config_store::{config_hash, toml_to_json, DbDriver, DbInstrument};
 use db::{DaqDb, DbConfig};
-use hardware::registry::{
-    create_registry_from_config, register_all_factories, DeviceRegistry, HardwareConfig,
-};
+use driver_registry::{create_registry_from_config, register_all_factories};
+use hardware::registry::{DeviceRegistry, HardwareConfig};
 use tokio_util::sync::CancellationToken;
 
 // ---------------------------------------------------------------------------
