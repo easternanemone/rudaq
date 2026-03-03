@@ -127,3 +127,17 @@ map_unwrap_or = "allow"              # .map().unwrap_or() can be clearer than .m
 unsafe_code = "warn"
 # Disabled for now - too many missing docs
 # missing_docs = "warn"
+
+# Release profile optimizations
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.release-daemon]
+inherits = "release"
+panic = "abort"  # Smaller binary, daemon doesn't need unwinding
+
+[profile.release-gui]
+inherits = "release"
+panic = "unwind"  # GUI may benefit from panic recovery

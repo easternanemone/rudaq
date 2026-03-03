@@ -82,9 +82,10 @@ struct BufferedEvent {
 ///
 /// ```ignore
 /// use storage::arrow_writer::ArrowDocumentWriter;
-/// use std::path::PathBuf;
+/// use storage::config::StorageConfig;
 ///
-/// let writer = ArrowDocumentWriter::new(PathBuf::from("/data/runs"));
+/// let config = StorageConfig::from_env();
+/// let writer = ArrowDocumentWriter::new(config.data_subdir("runs"));
 /// writer.write(Document::Start(start_doc)).await?;
 /// // ... write descriptor, events, stop
 /// ```
@@ -289,9 +290,10 @@ fn flush_arrow_buffer(run: &mut ActiveArrowRun) -> Result<()> {
 ///
 /// ```ignore
 /// use storage::arrow_writer::ParquetDocumentWriter;
-/// use std::path::PathBuf;
+/// use storage::config::StorageConfig;
 ///
-/// let writer = ParquetDocumentWriter::new(PathBuf::from("/data/runs"));
+/// let config = StorageConfig::from_env();
+/// let writer = ParquetDocumentWriter::new(config.data_subdir("runs"));
 /// writer.write(Document::Start(start_doc)).await?;
 /// // ... write descriptor, events, stop
 /// ```

@@ -90,12 +90,17 @@ enum Commands {
     /// Start daemon for remote control.
     ///
     /// Default runtime mode is hybrid-db (universal TOML + SurrealDB).
-    /// Override with --runtime-mode, RUSTDAQ_RUNTIME_MODE env var,
+    /// Override with --runtime-mode, DAQ_RUNTIME_MODE / RUSTDAQ_RUNTIME_MODE env var,
     /// or --hardware-config / --lab-hardware flags.
+    ///
+    /// Environment variable overrides (CLI flags take precedence):
+    ///   DAQ_PORT         — gRPC listen port (default: 50051)
+    ///   DAQ_CONFIG_PATH  — hardware configuration file (maps to --hardware-config)
+    ///   DAQ_RUNTIME_MODE — runtime mode (also accepts RUSTDAQ_RUNTIME_MODE)
     Daemon {
-        /// gRPC port
-        #[arg(long, default_value = "50051")]
-        port: u16,
+        /// gRPC port (also settable via DAQ_PORT env var)
+        #[arg(long)]
+        port: Option<u16>,
 
         /// Explicit runtime mode (default: hybrid-db).
         ///
@@ -105,7 +110,7 @@ enum Commands {
         /// - universal: config/maitai_universal.toml
         /// - hybrid-db: config/maitai_universal.toml (+ SurrealDB control-plane)
         ///
-        /// Also settable via RUSTDAQ_RUNTIME_MODE env var.
+        /// Also settable via DAQ_RUNTIME_MODE or RUSTDAQ_RUNTIME_MODE env var.
         #[arg(
             long,
             value_enum,
@@ -114,8 +119,9 @@ enum Commands {
         )]
         runtime_mode: Option<RuntimeMode>,
 
-        /// Hardware configuration file (TOML format)
-        /// If not provided, uses mock devices only
+        /// Hardware configuration file (TOML format).
+        /// Also settable via DAQ_CONFIG_PATH env var.
+        /// If not provided, uses mock devices only.
         #[arg(long)]
         hardware_config: Option<PathBuf>,
 
@@ -320,13 +326,37 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Run { script, config } => run_script_once(script, config).await,
         Commands::Daemon {
-            port,
+            port: cli_port,
             runtime_mode,
             hardware_config,
             lab_hardware,
             #[cfg(feature = "db-surreal")]
             db_path,
         } => {
+            // Resolve port: CLI flag > DAQ_PORT env var > default (50051)
+            let (port, port_source) = resolve_port(cli_port);
+
+            // Resolve hardware_config: CLI flag > DAQ_CONFIG_PATH env var > None
+            let (hardware_config, config_source) = resolve_hardware_config(hardware_config);
+
+            // Resolve runtime mode: CLI flag > DAQ_RUNTIME_MODE env > RUSTDAQ_RUNTIME_MODE env > None
+            let (runtime_mode, mode_source) = resolve_runtime_mode(runtime_mode);
+
+            // Log resolved values (use println for always-visible startup info)
+            println!("Port: {} ({})", port, port_source);
+            if let Some(ref cfg) = hardware_config {
+                println!("Hardware config: {} ({})", cfg.display(), config_source);
+            } else {
+                println!("Hardware config: none ({})", config_source);
+            }
+            println!(
+                "Runtime mode source: {} ({})",
+                runtime_mode
+                    .as_ref()
+                    .map_or("not set".to_string(), |m| format!("{m:?}")),
+                mode_source
+            );
+
             start_daemon(
                 port,
                 runtime_mode,
@@ -402,6 +432,80 @@ async fn run_script_once(script_path: PathBuf, config: Option<PathBuf>) -> Resul
     }
 }
 
+// ---------------------------------------------------------------------------
+// Environment variable resolution helpers
+// ---------------------------------------------------------------------------
+
+/// Default gRPC port when neither CLI flag nor env var is set.
+const DEFAULT_PORT: u16 = 50051;
+
+/// Resolve the gRPC port from CLI flag or `DAQ_PORT` env var.
+///
+/// Precedence: CLI flag > `DAQ_PORT` env var > built-in default (50051).
+fn resolve_port(cli_port: Option<u16>) -> (u16, &'static str) {
+    if let Some(port) = cli_port {
+        return (port, "from --port flag");
+    }
+    if let Ok(val) = std::env::var("DAQ_PORT") {
+        match val.parse::<u16>() {
+            Ok(port) => return (port, "from DAQ_PORT env var"),
+            Err(_) => {
+                eprintln!("Warning: DAQ_PORT={val:?} is not a valid port number, using default");
+            }
+        }
+    }
+    (DEFAULT_PORT, "default")
+}
+
+/// Resolve the hardware config path from CLI flag or `DAQ_CONFIG_PATH` env var.
+///
+/// Precedence: CLI flag > `DAQ_CONFIG_PATH` env var > None.
+fn resolve_hardware_config(cli_config: Option<PathBuf>) -> (Option<PathBuf>, &'static str) {
+    if cli_config.is_some() {
+        return (cli_config, "from --hardware-config flag");
+    }
+    if let Ok(val) = std::env::var("DAQ_CONFIG_PATH") {
+        if !val.is_empty() {
+            return (Some(PathBuf::from(val)), "from DAQ_CONFIG_PATH env var");
+        }
+    }
+    (None, "default")
+}
+
+/// Resolve the runtime mode from CLI flag or env vars.
+///
+/// Precedence: CLI flag > `DAQ_RUNTIME_MODE` env var > `RUSTDAQ_RUNTIME_MODE` env var > None.
+fn resolve_runtime_mode(cli_mode: Option<RuntimeMode>) -> (Option<RuntimeMode>, &'static str) {
+    if cli_mode.is_some() {
+        return (cli_mode, "from --runtime-mode flag");
+    }
+
+    // Check DAQ_RUNTIME_MODE first, then legacy RUSTDAQ_RUNTIME_MODE
+    let (env_val, source) = if let Ok(val) = std::env::var("DAQ_RUNTIME_MODE") {
+        (Some(val), "from DAQ_RUNTIME_MODE env var")
+    } else if let Ok(val) = std::env::var("RUSTDAQ_RUNTIME_MODE") {
+        (Some(val), "from RUSTDAQ_RUNTIME_MODE env var")
+    } else {
+        (None, "default")
+    };
+
+    if let Some(val) = env_val {
+        match val.as_str() {
+            "mock" => return (Some(RuntimeMode::Mock), source),
+            "native" => return (Some(RuntimeMode::Native), source),
+            "universal" => return (Some(RuntimeMode::Universal), source),
+            "hybrid-db" => return (Some(RuntimeMode::HybridDb), source),
+            other => {
+                eprintln!(
+                    "Warning: Invalid runtime mode {other:?} in env var, ignoring (valid: mock, native, universal, hybrid-db)"
+                );
+            }
+        }
+    }
+
+    (None, "default")
+}
+
 async fn start_daemon(
     port: u16,
     runtime_mode: Option<RuntimeMode>,
@@ -411,26 +515,9 @@ async fn start_daemon(
 ) -> Result<()> {
     use daemon_manager::{DaemonConfig, DaemonInstance};
 
-    // Resolve the effective runtime mode from (in priority order):
-    //   1. --runtime-mode CLI flag
-    //   2. RUSTDAQ_RUNTIME_MODE env var
-    //   3. --lab-hardware / --hardware-config flags
-    //   4. Default: hybrid-db (universal TOML + SurrealDB control-plane)
-    let env_override = std::env::var("RUSTDAQ_RUNTIME_MODE").ok();
-    let effective_mode: Option<RuntimeMode> = runtime_mode.clone().or_else(|| {
-        env_override.as_deref().and_then(|s| match s {
-            "mock" => Some(RuntimeMode::Mock),
-            "native" => Some(RuntimeMode::Native),
-            "universal" => Some(RuntimeMode::Universal),
-            "hybrid-db" => Some(RuntimeMode::HybridDb),
-            other => {
-                eprintln!(
-                    "⚠️  Unknown RUSTDAQ_RUNTIME_MODE={other:?}, ignoring (valid: mock, native, universal, hybrid-db)"
-                );
-                None
-            }
-        })
-    });
+    // runtime_mode already has CLI flag > env var precedence applied
+    // by resolve_runtime_mode() in main(). Map it to config paths here.
+    let effective_mode = runtime_mode;
 
     let resolved_runtime_mode;
     let mut resolved_hardware_config = hardware_config;
@@ -957,4 +1044,176 @@ async fn config_list(db_path: Option<PathBuf>) -> Result<()> {
     }
     println!("\n{} instrument(s) total", instruments.len());
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Tests for environment variable resolution
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// Serialize env-var tests so they don't race on shared process environment.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Helper: clear all DAQ-related env vars before each test.
+    fn clear_env_vars() {
+        std::env::remove_var("DAQ_PORT");
+        std::env::remove_var("DAQ_CONFIG_PATH");
+        std::env::remove_var("DAQ_RUNTIME_MODE");
+        std::env::remove_var("RUSTDAQ_RUNTIME_MODE");
+    }
+
+    // ---- resolve_port tests ----
+
+    #[test]
+    fn port_cli_flag_wins_over_env() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        clear_env_vars();
+        std::env::set_var("DAQ_PORT", "9999");
+        let (port, source) = resolve_port(Some(8080));
+        assert_eq!(port, 8080);
+        assert_eq!(source, "from --port flag");
+    }
+
+    #[test]
+    fn port_env_var_used_when_no_cli_flag() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        clear_env_vars();
+        std::env::set_var("DAQ_PORT", "9999");
+        let (port, source) = resolve_port(None);
+        assert_eq!(port, 9999);
+        assert_eq!(source, "from DAQ_PORT env var");
+    }
+
+    #[test]
+    fn port_default_when_nothing_set() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        clear_env_vars();
+        let (port, source) = resolve_port(None);
+        assert_eq!(port, DEFAULT_PORT);
+        assert_eq!(source, "default");
+    }
+
+    #[test]
+    fn port_invalid_env_var_falls_back_to_default() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        clear_env_vars();
+        std::env::set_var("DAQ_PORT", "not_a_number");
+        let (port, source) = resolve_port(None);
+        assert_eq!(port, DEFAULT_PORT);
+        assert_eq!(source, "default");
+    }
+
+    // ---- resolve_hardware_config tests ----
+
+    #[test]
+    fn config_cli_flag_wins_over_env() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        clear_env_vars();
+        std::env::set_var("DAQ_CONFIG_PATH", "/env/path.toml");
+        let cli_path = Some(PathBuf::from("/cli/path.toml"));
+        let (config, source) = resolve_hardware_config(cli_path);
+        assert_eq!(
+            config.as_deref(),
+            Some(std::path::Path::new("/cli/path.toml"))
+        );
+        assert_eq!(source, "from --hardware-config flag");
+    }
+
+    #[test]
+    fn config_env_var_used_when_no_cli_flag() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        clear_env_vars();
+        std::env::set_var("DAQ_CONFIG_PATH", "/env/path.toml");
+        let (config, source) = resolve_hardware_config(None);
+        assert_eq!(
+            config.as_deref(),
+            Some(std::path::Path::new("/env/path.toml"))
+        );
+        assert_eq!(source, "from DAQ_CONFIG_PATH env var");
+    }
+
+    #[test]
+    fn config_none_when_nothing_set() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        clear_env_vars();
+        let (config, source) = resolve_hardware_config(None);
+        assert!(config.is_none());
+        assert_eq!(source, "default");
+    }
+
+    #[test]
+    fn config_empty_env_var_treated_as_unset() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        clear_env_vars();
+        std::env::set_var("DAQ_CONFIG_PATH", "");
+        let (config, source) = resolve_hardware_config(None);
+        assert!(config.is_none());
+        assert_eq!(source, "default");
+    }
+
+    // ---- resolve_runtime_mode tests ----
+
+    #[test]
+    fn runtime_mode_cli_flag_wins_over_env() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        clear_env_vars();
+        std::env::set_var("DAQ_RUNTIME_MODE", "mock");
+        let (mode, source) = resolve_runtime_mode(Some(RuntimeMode::Native));
+        assert!(matches!(mode, Some(RuntimeMode::Native)));
+        assert_eq!(source, "from --runtime-mode flag");
+    }
+
+    #[test]
+    fn runtime_mode_daq_env_wins_over_legacy_env() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        clear_env_vars();
+        std::env::set_var("DAQ_RUNTIME_MODE", "mock");
+        std::env::set_var("RUSTDAQ_RUNTIME_MODE", "native");
+        let (mode, source) = resolve_runtime_mode(None);
+        assert!(matches!(mode, Some(RuntimeMode::Mock)));
+        assert_eq!(source, "from DAQ_RUNTIME_MODE env var");
+    }
+
+    #[test]
+    fn runtime_mode_legacy_env_used_as_fallback() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        clear_env_vars();
+        std::env::set_var("RUSTDAQ_RUNTIME_MODE", "universal");
+        let (mode, source) = resolve_runtime_mode(None);
+        assert!(matches!(mode, Some(RuntimeMode::Universal)));
+        assert_eq!(source, "from RUSTDAQ_RUNTIME_MODE env var");
+    }
+
+    #[test]
+    fn runtime_mode_none_when_nothing_set() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        clear_env_vars();
+        let (mode, source) = resolve_runtime_mode(None);
+        assert!(mode.is_none());
+        assert_eq!(source, "default");
+    }
+
+    #[test]
+    fn runtime_mode_invalid_env_var_falls_back_to_none() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        clear_env_vars();
+        std::env::set_var("DAQ_RUNTIME_MODE", "invalid_mode");
+        let (mode, source) = resolve_runtime_mode(None);
+        assert!(mode.is_none());
+        assert_eq!(source, "default");
+    }
+
+    #[test]
+    fn runtime_mode_hybrid_db_parsed_correctly() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        clear_env_vars();
+        std::env::set_var("DAQ_RUNTIME_MODE", "hybrid-db");
+        let (mode, source) = resolve_runtime_mode(None);
+        assert!(matches!(mode, Some(RuntimeMode::HybridDb)));
+        assert_eq!(source, "from DAQ_RUNTIME_MODE env var");
+    }
 }

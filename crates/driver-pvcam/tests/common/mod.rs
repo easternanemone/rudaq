@@ -10,6 +10,9 @@
 
 #![allow(dead_code)] // Utilities may not all be used in every test file
 
+#[cfg(feature = "pvcam_sdk")]
+pub mod circ_buffer_fixtures;
+
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;

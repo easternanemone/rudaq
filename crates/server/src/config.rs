@@ -94,7 +94,7 @@ impl Default for StorageSettings {
             ring_buffer_path,
             ring_buffer_size_mb: 100,
             hdf5_path,
-            output_directory: PathBuf::from("./data"),
+            output_directory: storage::StorageConfig::from_env().data_path().to_path_buf(),
             tap_channel_size: 32,
         }
     }

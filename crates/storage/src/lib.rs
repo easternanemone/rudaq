@@ -23,6 +23,7 @@
 //! - **[`RingBuffer`]** - Memory-mapped circular buffers for high-speed streaming
 //! - **[`HDF5Writer`]** - HDF5 file output with compression
 //! - **[`DocumentWriter`]** - Bluesky document persistence
+//! - **[`StorageConfig`]** - Configurable data paths (env var, platform defaults)
 //! - **Cross-Process Access** - Python and Julia can read ring buffers via mmap
 //!
 //! ## Quick Example
@@ -52,6 +53,7 @@
 //! [`RingBuffer`]: ring_buffer::RingBuffer
 //! [`HDF5Writer`]: hdf5_writer::HDF5Writer
 //! [`DocumentWriter`]: document_writer::DocumentWriter
+//! [`StorageConfig`]: config::StorageConfig
 
 // TODO: Fix doc comment generic types to use backticks
 #![allow(rustdoc::invalid_html_tags)]
@@ -60,6 +62,7 @@
 
 pub mod arrow_writer;
 pub mod comedi_writer;
+pub mod config;
 pub mod document_writer;
 #[cfg(feature = "storage_hdf5")]
 pub mod hdf5_annotation;
@@ -76,6 +79,7 @@ pub use comedi_writer::{
     AcquisitionMetadata, ChannelConfig, ComediStreamWriter, ComediStreamWriterBuilder,
     CompressionType, ContinuousAcquisitionSession, StorageFormat, StreamStats,
 };
+pub use config::StorageConfig;
 pub use document_writer::DocumentWriter;
 #[cfg(feature = "storage_hdf5")]
 pub use hdf5_annotation::{add_run_annotation, read_run_annotations, RunAnnotation};

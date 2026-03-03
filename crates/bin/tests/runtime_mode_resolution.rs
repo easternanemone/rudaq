@@ -183,8 +183,9 @@ fn test_runtime_mode_invalid_env_falls_back_to_default() {
     );
 
     assert!(
-        combined.contains("Unknown RUSTDAQ_RUNTIME_MODE=\"invalid-mode\""),
-        "Should warn about invalid env var"
+        combined.contains("Invalid runtime mode \"invalid-mode\" in env var"),
+        "Should warn about invalid env var. Output: {}",
+        combined
     );
     assert!(
         combined.contains("Runtime mode: hybrid-db"),

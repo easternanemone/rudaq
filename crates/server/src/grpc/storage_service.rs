@@ -212,7 +212,7 @@ struct StorageSettings {
 impl Default for StorageSettings {
     fn default() -> Self {
         Self {
-            output_directory: PathBuf::from("./data"),
+            output_directory: storage::StorageConfig::from_env().data_path().to_path_buf(),
             compression: "gzip".to_string(),
             compression_level: 4,
             chunk_size: 4096,

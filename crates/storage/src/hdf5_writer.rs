@@ -48,13 +48,16 @@ use common::error::AppResult as Result;
 /// ```no_run
 /// use storage::ring_buffer::RingBuffer;
 /// use storage::hdf5_writer::HDF5Writer;
+/// use storage::config::StorageConfig;
 /// use std::sync::Arc;
 /// use std::path::Path;
 ///
 /// #[tokio::main]
 /// async fn main() -> anyhow::Result<()> {
+///     let config = StorageConfig::from_env();
+///     let hdf5_path = config.data_path().join("experiment.h5");
 ///     let ring = Arc::new(RingBuffer::create(Path::new("/dev/shm/daq_ring"), 100)?);
-///     let writer = HDF5Writer::new(Path::new("data.h5"), ring.clone())?;
+///     let writer = HDF5Writer::new(&hdf5_path, ring.clone())?;
 ///
 ///     tokio::spawn(async move {
 ///         writer.run().await;

@@ -36,8 +36,10 @@
 //!         ChannelConfig::new(1, "AI1", -5.0, 5.0),
 //!     ];
 //!
+//!     let config = storage::config::StorageConfig::from_env();
+//!     let output = config.data_path().join("experiment.h5");
 //!     let mut writer = ComediStreamWriter::builder()
-//!         .output_path(Path::new("data/experiment.h5"))
+//!         .output_path(&output)
 //!         .channels(channels)
 //!         .sample_rate(10000.0)
 //!         .chunk_size(1024)
@@ -211,8 +213,9 @@ pub struct ComediStreamWriterBuilder {
 
 impl Default for ComediStreamWriterBuilder {
     fn default() -> Self {
+        let config = crate::config::StorageConfig::from_env();
         Self {
-            output_path: PathBuf::from("data.h5"),
+            output_path: config.data_path().join("data.h5"),
             channels: Vec::new(),
             metadata: AcquisitionMetadata::default(),
             format: StorageFormat::Hdf5,
@@ -304,6 +307,13 @@ impl ComediStreamWriterBuilder {
             return Err(DaqError::Configuration(
                 "At least one channel must be configured".to_string(),
             ));
+        }
+
+        // Ensure parent directory exists so file creation doesn't fail on fresh systems
+        if let Some(parent) = self.output_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)?;
+            }
         }
 
         let ring_buffer = if let Some(mb) = self.ring_buffer_mb {
